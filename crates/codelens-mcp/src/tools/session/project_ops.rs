@@ -1,7 +1,8 @@
 use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::resources::context::{
-    ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
+    ResourceRequestContext, build_coordination_payload, build_http_session_payload,
+    build_visible_tool_context,
 };
 use crate::tool_defs::{
     HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface, compile_surface_overlay,
@@ -819,6 +820,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 "avoid_tools_visible": overlay_avoid_tools_visible,
                 "routing_notes": overlay_plan.routing_notes,
             },
+            "coordination": build_coordination_payload(state, &request),
             "http_session": build_http_session_payload(state, &request),
             "visible_tools": {
                 "tool_count": visible.tools.len(),

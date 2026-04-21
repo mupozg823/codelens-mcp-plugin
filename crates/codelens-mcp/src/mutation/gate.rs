@@ -18,6 +18,12 @@ pub(crate) enum MutationFailureKind {
     StalePreflight,
     /// Preflight doesn't cover the mutation target path
     PathMismatch,
+    /// Strict coordination mode requires an active claim for HTTP mutation sessions
+    MissingClaim,
+    /// Strict coordination mode claim coverage does not match the mutation target path
+    ClaimPathMismatch,
+    /// Strict coordination mode blocks when the latest preflight reported overlap
+    OverlappingClaimsBlocked,
     /// rename_symbol without symbol-aware preflight
     SymbolPreflightRequired,
     /// Symbol hint doesn't match preflight evidence
@@ -91,24 +97,42 @@ fn mutation_gate_failure(
     rename_without_symbol_preflight: bool,
     missing_preflight: bool,
 ) -> MutationGateFailure {
-    let suggested_next_tools = if is_symbol_aware_mutation_tool(name) {
-        vec![
+    let suggested_next_tools = match kind {
+        MutationFailureKind::MissingClaim | MutationFailureKind::ClaimPathMismatch => vec![
+            "claim_files".to_owned(),
+            "list_active_agents".to_owned(),
+            "verify_change_readiness".to_owned(),
+        ],
+        MutationFailureKind::OverlappingClaimsBlocked => vec![
+            "list_active_agents".to_owned(),
+            "verify_change_readiness".to_owned(),
+            "claim_files".to_owned(),
+        ],
+        _ if is_symbol_aware_mutation_tool(name) => vec![
             "safe_rename_report".to_owned(),
             "unresolved_reference_check".to_owned(),
             "get_analysis_section".to_owned(),
-        ]
-    } else {
-        vec![
+        ],
+        _ => vec![
             "verify_change_readiness".to_owned(),
             "get_analysis_section".to_owned(),
             "get_file_diagnostics".to_owned(),
-        ]
+        ],
     };
-    let budget_hint = if is_symbol_aware_mutation_tool(name) {
-        "Run symbol-aware preflight before rename, then expand evidence if the target is ambiguous."
-            .to_owned()
-    } else {
-        "Run preflight first, then expand verifier evidence before mutation.".to_owned()
+    let budget_hint = match kind {
+        MutationFailureKind::MissingClaim | MutationFailureKind::ClaimPathMismatch => {
+            "Strict coordination is active for this HTTP builder session. Claim the intended files before mutating."
+                .to_owned()
+        }
+        MutationFailureKind::OverlappingClaimsBlocked => {
+            "Strict coordination blocks overlapping claims. Resolve the conflicting builder session before mutating."
+                .to_owned()
+        }
+        _ if is_symbol_aware_mutation_tool(name) => {
+            "Run symbol-aware preflight before rename, then expand evidence if the target is ambiguous."
+                .to_owned()
+        }
+        _ => "Run preflight first, then expand verifier evidence before mutation.".to_owned(),
     };
     MutationGateFailure {
         message: reason.into(),
@@ -120,6 +144,21 @@ fn mutation_gate_failure(
         rename_without_symbol_preflight,
         missing_preflight,
     }
+}
+
+fn strict_coordination_applies(
+    state: &AppState,
+    session: &crate::session_context::SessionRequestContext,
+    surface: ToolSurface,
+) -> bool {
+    matches!(state.coordination_mode(), crate::state::RuntimeCoordinationMode::Strict)
+        && matches!(surface, ToolSurface::Profile(ToolProfile::RefactorFull))
+        && matches!(
+            state.transport_mode(),
+            crate::state::RuntimeTransportMode::Http
+        )
+        && !session.is_local()
+        && session.trusted_client
 }
 
 pub(crate) fn evaluate_mutation_gate(
@@ -182,21 +221,88 @@ pub(crate) fn evaluate_mutation_gate(
             false,
         ));
     }
-    let path_overlap = mutation_paths
+    let strict_coordination = strict_coordination_applies(state, session, surface);
+    let preflight_covers_any_path = mutation_paths
         .iter()
         .any(|path| preflight.target_paths.iter().any(|target| target == path));
-    if !path_overlap {
+    let preflight_covers_all_paths = mutation_paths
+        .iter()
+        .all(|path| preflight.target_paths.iter().any(|target| target == path));
+    if (!strict_coordination && !preflight_covers_any_path)
+        || (strict_coordination && !preflight_covers_all_paths)
+    {
         return Err(mutation_gate_failure(
             name,
-            format!(
-                "Tool `{name}` is blocked because the recent preflight does not cover the requested target paths."
-            ),
+            if strict_coordination {
+                format!(
+                    "Tool `{name}` is blocked because strict coordination requires the recent preflight to cover every requested target path."
+                )
+            } else {
+                format!(
+                    "Tool `{name}` is blocked because the recent preflight does not cover the requested target paths."
+                )
+            },
             MutationFailureKind::PathMismatch,
             preflight.analysis_id.clone(),
             false,
             false,
             false,
         ));
+    }
+
+    if strict_coordination {
+        let Some(active_claim) = state.active_claim_for_session(session) else {
+            return Err(mutation_gate_failure(
+                name,
+                format!(
+                    "Tool `{name}` is blocked because strict coordination requires an active `claim_files` reservation for this trusted HTTP builder session."
+                ),
+                MutationFailureKind::MissingClaim,
+                preflight.analysis_id.clone(),
+                false,
+                false,
+                false,
+            ));
+        };
+        let claim_covers_all_paths = mutation_paths
+            .iter()
+            .all(|path| active_claim.paths.iter().any(|claimed| claimed == path));
+        if !claim_covers_all_paths {
+            return Err(mutation_gate_failure(
+                name,
+                format!(
+                    "Tool `{name}` is blocked because the active file claim does not cover every requested mutation path."
+                ),
+                MutationFailureKind::ClaimPathMismatch,
+                preflight.analysis_id.clone(),
+                false,
+                false,
+                false,
+            ));
+        }
+        if preflight.overlapping_claim_count > 0 {
+            let conflicting_sessions = if preflight.overlapping_claim_session_ids.is_empty() {
+                "unknown session".to_owned()
+            } else {
+                preflight.overlapping_claim_session_ids.join(", ")
+            };
+            let conflicting_paths = if preflight.overlapping_claim_paths.is_empty() {
+                "unknown path".to_owned()
+            } else {
+                preflight.overlapping_claim_paths.join(", ")
+            };
+            return Err(mutation_gate_failure(
+                name,
+                format!(
+                    "Tool `{name}` is blocked because the latest preflight reported overlapping claims from session(s) [{conflicting_sessions}] on path(s) [{conflicting_paths}]."
+                ),
+                MutationFailureKind::OverlappingClaimsBlocked,
+                preflight.analysis_id.clone(),
+                false,
+                false,
+                false,
+            ));
+        }
     }
 
     if is_symbol_aware_mutation_tool(name) {

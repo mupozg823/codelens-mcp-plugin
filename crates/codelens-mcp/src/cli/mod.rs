@@ -51,7 +51,14 @@ impl StartupProjectSource {
 fn flag_takes_value(flag: &str) -> bool {
     matches!(
         flag,
-        "--preset" | "--profile" | "--daemon-mode" | "--cmd" | "--args" | "--transport" | "--port"
+        "--preset"
+            | "--profile"
+            | "--daemon-mode"
+            | "--coordination-mode"
+            | "--cmd"
+            | "--args"
+            | "--transport"
+            | "--port"
     )
 }
 
@@ -181,12 +188,13 @@ pub(crate) fn format_http_startup_banner(
     surface_label: &str,
     token_budget: usize,
     daemon_mode: RuntimeDaemonMode,
+    coordination_mode: crate::state::RuntimeCoordinationMode,
     port: u16,
     daemon_started_at: &str,
 ) -> String {
     let escaped_project_root = project_root.display().to_string().replace('"', "\\\"");
     format!(
-        "CODELENS_SESSION_START pid={} transport=http port={} project_root=\"{}\" project_source=\"{}\" surface={} token_budget={} daemon_mode={} git_sha={} build_time={} daemon_started_at={} git_dirty={}",
+        "CODELENS_SESSION_START pid={} transport=http port={} project_root=\"{}\" project_source=\"{}\" surface={} token_budget={} daemon_mode={} coordination_mode={} git_sha={} build_time={} daemon_started_at={} git_dirty={}",
         std::process::id(),
         port,
         escaped_project_root,
@@ -194,6 +202,7 @@ pub(crate) fn format_http_startup_banner(
         surface_label,
         token_budget,
         daemon_mode.as_str(),
+        coordination_mode.as_str(),
         crate::build_info::BUILD_GIT_SHA,
         crate::build_info::BUILD_TIME,
         daemon_started_at,
@@ -279,6 +288,7 @@ mod startup_tests {
             "builder-minimal",
             2400,
             crate::state::RuntimeDaemonMode::Standard,
+            crate::state::RuntimeCoordinationMode::Advisory,
             7837,
             "2026-04-11T19:49:55Z",
         );
@@ -290,6 +300,7 @@ mod startup_tests {
         assert!(banner.contains("surface=builder-minimal"));
         assert!(banner.contains("token_budget=2400"));
         assert!(banner.contains("daemon_mode=standard"));
+        assert!(banner.contains("coordination_mode=advisory"));
         assert!(banner.contains("daemon_started_at=2026-04-11T19:49:55Z"));
         assert!(banner.contains("git_sha="));
         assert!(banner.contains("build_time="));

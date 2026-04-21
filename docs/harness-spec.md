@@ -185,6 +185,12 @@ This document is generated from the same canonical manifest that powers the runt
 - `codelens://schemas/handoff-artifact/v1` exposes the concrete JSON schema for persisted handoff artifacts.
 - The checked-in schema source is [`docs/schemas/handoff-artifact.v1.json`](schemas/handoff-artifact.v1.json).
 - The spec is still audit-first. It documents discipline and handoff shape without adding new runtime hard blocks beyond existing mutation gate behavior.
+- The default transport contract is still audit-first and advisory.
+- Strict enforcement is now an optional capability, not the default contract.
+  - enable with `--coordination-mode strict` or `CODELENS_COORDINATION_MODE=strict`
+  - scope: trusted non-local HTTP `refactor-full` mutations only
+  - hard blocks added in strict mode: missing claims, claim/path mismatch, and preflight overlap conflicts
+  - planner/reviewer read-side flows and local stdio mutation flows stay unchanged
 
 ## Eval traces (opt-in)
 

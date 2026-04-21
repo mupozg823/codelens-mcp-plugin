@@ -45,7 +45,7 @@ pub(crate) use crate::agent_coordination::{
 pub(crate) use crate::client_profile::{ClientProfile, EffortLevel};
 pub(crate) use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisVerifierCheck, RuntimeDaemonMode,
-    RuntimeTransportMode, WatcherFailureHealth,
+    RuntimeCoordinationMode, RuntimeTransportMode, WatcherFailureHealth,
 };
 
 pub(super) fn push_unique_string(items: &mut Vec<String>, value: String) {
@@ -89,6 +89,7 @@ pub(crate) struct AppState {
     project_context_cache: Mutex<ProjectContextCache>,
     transport_mode: Mutex<RuntimeTransportMode>,
     daemon_mode: Mutex<RuntimeDaemonMode>,
+    coordination_mode: Mutex<RuntimeCoordinationMode>,
     client_profile: ClientProfile,
     effort_level: std::sync::atomic::AtomicU8,
     surface: Mutex<ToolSurface>,
@@ -388,6 +389,16 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = daemon_mode;
     }
 
+    pub(crate) fn configure_coordination_mode(
+        &self,
+        coordination_mode: RuntimeCoordinationMode,
+    ) {
+        *self
+            .coordination_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = coordination_mode;
+    }
+
     pub(crate) fn configure_transport_mode(&self, transport: &str) {
         let mode = RuntimeTransportMode::from_str(transport);
         *self
@@ -411,6 +422,13 @@ impl AppState {
     pub(crate) fn daemon_mode(&self) -> RuntimeDaemonMode {
         *self
             .daemon_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn coordination_mode(&self) -> RuntimeCoordinationMode {
+        *self
+            .coordination_mode
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
@@ -502,6 +520,7 @@ impl AppState {
             project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(self.transport_mode()),
             daemon_mode: Mutex::new(self.daemon_mode()),
+            coordination_mode: Mutex::new(self.coordination_mode()),
             client_profile: self.client_profile,
             effort_level: std::sync::atomic::AtomicU8::new(
                 self.effort_level.load(std::sync::atomic::Ordering::Relaxed),
@@ -587,6 +606,7 @@ impl AppState {
             project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
             daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
+            coordination_mode: Mutex::new(RuntimeCoordinationMode::Advisory),
             client_profile: ClientProfile::detect(None),
             effort_level: std::sync::atomic::AtomicU8::new(match EffortLevel::detect() {
                 EffortLevel::Low => 0,

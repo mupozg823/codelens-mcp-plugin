@@ -48,7 +48,7 @@ use cli::{
 use env_compat::dual_prefix_env;
 use server::oneshot::run_oneshot;
 use server::transport_stdio::run_stdio;
-use state::RuntimeDaemonMode;
+use state::{RuntimeCoordinationMode, RuntimeDaemonMode};
 use std::sync::Arc;
 use tool_defs::{
     ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
@@ -72,6 +72,11 @@ fn configured_profile_env() -> Option<ToolProfile> {
 
 fn configured_daemon_mode_env() -> Option<RuntimeDaemonMode> {
     dual_prefix_env("CODELENS_DAEMON_MODE").map(|value| RuntimeDaemonMode::from_str(&value))
+}
+
+fn configured_coordination_mode_env() -> Option<RuntimeCoordinationMode> {
+    dual_prefix_env("CODELENS_COORDINATION_MODE")
+        .map(|value| RuntimeCoordinationMode::from_str(&value))
 }
 
 #[cfg(feature = "otel")]
@@ -196,12 +201,18 @@ fn main() -> Result<()> {
         .map(RuntimeDaemonMode::from_str)
         .or_else(configured_daemon_mode_env)
         .unwrap_or(RuntimeDaemonMode::Standard);
+    let coordination_mode = cli_option_value(&args, "--coordination-mode")
+        .as_deref()
+        .map(RuntimeCoordinationMode::from_str)
+        .or_else(configured_coordination_mode_env)
+        .unwrap_or(RuntimeCoordinationMode::Advisory);
 
     if args.iter().any(|arg| arg == "--print-surface-manifest") {
         let surface = profile
             .map(ToolSurface::Profile)
             .unwrap_or_else(|| ToolSurface::Preset(preset));
-        let manifest = surface_manifest::build_surface_manifest(surface, daemon_mode);
+        let manifest =
+            surface_manifest::build_surface_manifest(surface, daemon_mode, coordination_mode);
         println!("{}", serde_json::to_string_pretty(&manifest)?);
         return Ok(());
     }
@@ -250,6 +261,7 @@ fn main() -> Result<()> {
     let app_state = AppState::new(project, preset);
     app_state.configure_transport_mode(&transport);
     app_state.configure_daemon_mode(daemon_mode);
+    app_state.configure_coordination_mode(coordination_mode);
     if let Some(profile) = profile {
         app_state.set_surface(ToolSurface::Profile(profile));
         app_state.set_token_budget(default_budget_for_profile(profile));
@@ -266,6 +278,7 @@ fn main() -> Result<()> {
             app_state.surface().as_label(),
             app_state.token_budget(),
             app_state.daemon_mode(),
+            app_state.coordination_mode(),
             port,
             app_state.daemon_started_at(),
         );
@@ -343,6 +356,8 @@ mod env_config_tests {
                 ("CODELENS_PROFILE", Some("planner-readonly")),
                 ("SYMBIOTE_DAEMON_MODE", Some("mutation-enabled")),
                 ("CODELENS_DAEMON_MODE", Some("read-only")),
+                ("SYMBIOTE_COORDINATION_MODE", Some("strict")),
+                ("CODELENS_COORDINATION_MODE", Some("advisory")),
             ],
             || {
                 assert_eq!(configured_preset_env(), Some(ToolPreset::Minimal));
@@ -350,6 +365,10 @@ mod env_config_tests {
                 assert_eq!(
                     configured_daemon_mode_env(),
                     Some(RuntimeDaemonMode::MutationEnabled)
+                );
+                assert_eq!(
+                    configured_coordination_mode_env(),
+                    Some(RuntimeCoordinationMode::Strict)
                 );
             },
         );

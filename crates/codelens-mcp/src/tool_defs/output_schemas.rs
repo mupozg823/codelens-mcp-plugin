@@ -865,7 +865,8 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
             "http_session": {"type": "object"},
             "visible_tools": {"type": "object"},
             "routing": {"type": "object"},
-            "harness": {"type": "object"}
+            "harness": {"type": "object"},
+            "shared_analysis_pool": {"type": "array"}
         }
     })
 }
@@ -876,6 +877,8 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
         "properties": {
             "language": {"type": ["string", "null"]},
             "lsp_attached": {"type": "boolean"},
+            "coordination_mode": {"type": "string", "enum": ["advisory", "strict"]},
+            "coordination_enforcement": {"type": "object"},
             "diagnostics_guidance": {
                 "type": "object",
                 "properties": {

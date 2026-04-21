@@ -233,6 +233,12 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"]["daemon_binary_drift"].is_object());
     assert!(payload["data"]["daemon_binary_drift"]["status"].is_string());
     assert!(payload["data"]["daemon_binary_drift"]["stale_daemon"].is_boolean());
+    assert_eq!(payload["data"]["coordination_mode"], json!("advisory"));
+    assert!(payload["data"]["coordination_enforcement"].is_object());
+    assert_eq!(
+        payload["data"]["coordination_enforcement"]["strict_enabled"],
+        json!(false)
+    );
     assert!(payload["data"]["daemon_binary_drift"]
         .get("recommended_action")
         .is_some());
@@ -584,6 +590,12 @@ fn prepare_harness_session_surfaces_top_level_health_summary() {
     );
     assert!(payload["data"]["health_summary"]["status"].is_string());
     assert!(payload["data"]["health_summary"]["warnings"].is_array());
+    assert_eq!(payload["data"]["coordination"]["mode"], json!("advisory"));
+    assert_eq!(
+        payload["data"]["http_session"]["coordination_mode"],
+        json!("advisory")
+    );
+    assert!(payload["data"]["http_session"]["coordination_enforcement"].is_object());
 }
 
 #[test]
@@ -4047,8 +4059,9 @@ fn audit_builder_session_fails_when_gate_failure_was_recorded() {
 
 #[cfg(feature = "http")]
 fn make_http_state(project: &codelens_engine::ProjectRoot) -> crate::AppState {
-    crate::AppState::new_minimal(project.clone(), crate::tool_defs::ToolPreset::Full)
-        .with_session_store()
+    let state = crate::AppState::new_minimal(project.clone(), crate::tool_defs::ToolPreset::Full);
+    state.configure_transport_mode("http");
+    state.with_session_store()
 }
 
 #[cfg(feature = "http")]

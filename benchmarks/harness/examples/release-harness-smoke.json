@@ -1,0 +1,36 @@
+{
+  "task": "Update the v1.9.53 release note to reflect the shipped automated harness behavior and verify the evidence remains internally consistent.",
+  "artifact_path": "docs/release-notes/v1.9.53.md",
+  "acceptance_criteria": [
+    "Explain the automated release harness flow.",
+    "Mention strict coordination mode as opt-in.",
+    "Mention usage-drift and independent signoff artifacts."
+  ],
+  "roles": {
+    "worker": {
+      "runner": "codex",
+      "agent": "worker"
+    },
+    "orchestrator": {
+      "runner": "codex",
+      "agent": "orchestrator"
+    },
+    "evaluator": {
+      "runner": "claude",
+      "agent": "evaluator"
+    },
+    "independent_evaluator": {
+      "runner": "claude",
+      "agent": "independent_evaluator"
+    }
+  },
+  "repair": {
+    "max_rounds": 1
+  },
+  "runner_defaults": {
+    "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+    "task_kind": "release-harness",
+    "mode": "routed-on",
+    "mcp_url": "http://127.0.0.1:7837/mcp"
+  }
+}

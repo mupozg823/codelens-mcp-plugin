@@ -701,6 +701,15 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         json!({
             "language": language,
             "lsp_attached": lsp_attached,
+            "coordination_mode": state.coordination_mode().as_str(),
+            "coordination_enforcement": {
+                "mode": state.coordination_mode().as_str(),
+                "strict_enabled": matches!(state.coordination_mode(), crate::state::RuntimeCoordinationMode::Strict),
+                "strict_path_coverage_required": matches!(state.coordination_mode(), crate::state::RuntimeCoordinationMode::Strict),
+                "strict_claim_required": matches!(state.coordination_mode(), crate::state::RuntimeCoordinationMode::Strict),
+                "strict_overlap_blocks_mutation": matches!(state.coordination_mode(), crate::state::RuntimeCoordinationMode::Strict),
+                "strict_applies_to": "trusted_http_refactor_full_mutations",
+            },
             "intelligence_sources": intelligence_sources,
             "diagnostics_guidance": diagnostics_guidance.guidance_payload(),
             "embeddings_loaded": embeddings_loaded,

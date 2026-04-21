@@ -90,6 +90,8 @@ RUN_PY_GATE=0
 RUN_HTTP_GATE=0
 RUN_CLIPPY_GATE=0
 RUN_RELEASE_GATE=0
+RUN_HARNESS_UNIT_GATE=0
+RUN_AGENT_CONTRACT_GATE=0
 RUN_NO_SEMANTIC_GATE=0
 RUN_PHASE3_MATRIX_GATE=0
 RUN_DATASET_LINT_GATE=0
@@ -98,8 +100,11 @@ PHASE3_REQUIRED_DATASETS="ripgrep,requests,jest,typescript,next-js,react-core,dj
 if [[ "$MODE" == "ci" ]]; then
 	RUN_RUST_GATE=1
 	RUN_PY_GATE=1
+	RUN_HTTP_GATE=1
 	RUN_CLIPPY_GATE=1
 	RUN_RELEASE_GATE=1
+	RUN_HARNESS_UNIT_GATE=1
+	RUN_AGENT_CONTRACT_GATE=1
 	RUN_NO_SEMANTIC_GATE=1
 	RUN_PHASE3_MATRIX_GATE=1
 	RUN_DATASET_LINT_GATE=1
@@ -113,6 +118,14 @@ else
 
 	if matches_any "benchmarks/*.py" "benchmarks/**/*.py" "scripts/*.py"; then
 		RUN_PY_GATE=1
+	fi
+
+	if matches_any "benchmarks/harness/*.py" "benchmarks/harness/**/*.py"; then
+		RUN_HARNESS_UNIT_GATE=1
+	fi
+
+	if matches_any "agents/*" "agents/**/*" "scripts/agent-contract-check.py"; then
+		RUN_AGENT_CONTRACT_GATE=1
 	fi
 
 	if matches_any "benchmarks/embedding-quality-matrix.py" \
@@ -157,7 +170,7 @@ else
 	fi
 fi
 
-if [[ "$RUN_RUST_GATE" -eq 0 && "$RUN_PY_GATE" -eq 0 && "$RUN_PHASE3_MATRIX_GATE" -eq 0 && "$RUN_NO_SEMANTIC_GATE" -eq 0 && "$RUN_DATASET_LINT_GATE" -eq 0 ]]; then
+if [[ "$RUN_RUST_GATE" -eq 0 && "$RUN_PY_GATE" -eq 0 && "$RUN_HARNESS_UNIT_GATE" -eq 0 && "$RUN_AGENT_CONTRACT_GATE" -eq 0 && "$RUN_PHASE3_MATRIX_GATE" -eq 0 && "$RUN_NO_SEMANTIC_GATE" -eq 0 && "$RUN_DATASET_LINT_GATE" -eq 0 ]]; then
 	echo "[gate] no relevant Rust, harness-Python, matrix, no-semantic, or dataset files changed; skipping repo-local gate."
 	exit 0
 fi
@@ -190,6 +203,24 @@ if [[ "$RUN_PHASE3_MATRIX_GATE" -eq 1 ]]; then
 			--require-datasets "$PHASE3_REQUIRED_DATASETS" >/dev/null
 	else
 		echo "[gate] python3 not installed; skipping phase3 matrix gate."
+	fi
+fi
+
+if [[ "$RUN_HARNESS_UNIT_GATE" -eq 1 ]]; then
+	if has_cmd python3; then
+		echo "[gate] running harness runner/unit gate"
+		python3 -m unittest discover -s benchmarks/harness/tests -p 'test_*.py'
+	else
+		echo "[gate] python3 not installed; skipping harness runner/unit gate."
+	fi
+fi
+
+if [[ "$RUN_AGENT_CONTRACT_GATE" -eq 1 ]]; then
+	if has_cmd python3; then
+		echo "[gate] running strict agent contract gate"
+		python3 scripts/agent-contract-check.py --strict
+	else
+		echo "[gate] python3 not installed; skipping strict agent contract gate."
 	fi
 fi
 

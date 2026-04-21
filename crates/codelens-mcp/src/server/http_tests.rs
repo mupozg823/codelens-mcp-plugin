@@ -28,6 +28,7 @@ fn test_state() -> Arc<AppState> {
     std::fs::write(dir.join("hello.txt"), "world\n").unwrap();
     let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
     let state = AppState::new(project, crate::tool_defs::ToolPreset::Balanced);
+    state.configure_transport_mode("http");
     Arc::new(state.with_session_store())
 }
 
@@ -90,6 +91,87 @@ fn first_tool_payload(body: &str) -> serde_json::Value {
     }
 
     payload
+}
+
+async fn initialize_profile_session(
+    app: &axum::Router,
+    trusted: bool,
+    profile: &str,
+) -> String {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json");
+    if trusted {
+        request = request.header("x-codelens-trusted-client", "true");
+    }
+    let resp = app
+        .clone()
+        .oneshot(
+            request
+                .body(axum::body::Body::from(
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "clientInfo": {"name": "HarnessQA", "version": "2.2.0"},
+                            "profile": profile,
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    resp.headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned()
+}
+
+async fn post_tool_call(
+    app: &axum::Router,
+    session_id: &str,
+    trusted: bool,
+    request_id: u64,
+    name: &str,
+    arguments: serde_json::Value,
+) -> serde_json::Value {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json")
+        .header("mcp-session-id", session_id);
+    if trusted {
+        request = request.header("x-codelens-trusted-client", "true");
+    }
+    let resp = app
+        .clone()
+        .oneshot(
+            request
+                .body(axum::body::Body::from(
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "method": "tools/call",
+                        "params": {
+                            "name": name,
+                            "arguments": arguments,
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    first_tool_payload(&body)
 }
 
 // ── POST /mcp ────────────────────────────────────────────────────────
@@ -247,7 +329,10 @@ async fn initialize_profile_sets_http_session_surface_and_tools_list() {
     assert!(body.contains("\"active_surface\":\"reviewer-graph\""));
     assert!(body.contains("\"review_architecture\""));
     assert!(body.contains("\"review_changes\""));
-    assert!(body.contains("\"cleanup_duplicate_logic\""));
+    // Deferred tools/list follows preferred namespaces first. The
+    // reviewer-graph default visible surface no longer carries
+    // cleanup_duplicate_logic in the initial list response.
+    assert!(!body.contains("\"cleanup_duplicate_logic\""));
     assert!(!body.contains("\"analyze_change_impact\""));
     assert!(!body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"assess_change_readiness\""));
@@ -1419,6 +1504,357 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
 }
 
 #[tokio::test]
+async fn advisory_coordination_mode_allows_trusted_http_mutation_without_claim() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Advisory);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn strict_coordination_blocks_missing_claim_for_trusted_http_mutation() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(false));
+    assert!(
+        mutation["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("[MissingClaim]")
+    );
+    assert!(
+        mutation["suggested_next_tools"]
+            .as_array()
+            .map(|tools| tools.iter().any(|tool| tool == "claim_files"))
+            .unwrap_or(false)
+    );
+}
+
+#[tokio::test]
+async fn strict_coordination_blocks_claim_path_mismatch_for_trusted_http_mutation() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let claim = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "claim_files",
+        serde_json::json!({
+            "paths": ["other.txt"],
+            "reason": "wrong path on purpose"
+        }),
+    )
+    .await;
+    assert_eq!(claim["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        4,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(false));
+    assert!(
+        mutation["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("[ClaimPathMismatch]")
+    );
+}
+
+#[tokio::test]
+async fn strict_coordination_blocks_overlapping_claims_for_trusted_http_mutation() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid_a = initialize_profile_session(&app, true, "refactor-full").await;
+    let sid_b = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let claim_a = post_tool_call(
+        &app,
+        &sid_a,
+        true,
+        2,
+        "claim_files",
+        serde_json::json!({
+            "paths": ["hello.txt"],
+            "reason": "session a owns hello.txt"
+        }),
+    )
+    .await;
+    assert_eq!(claim_a["success"], serde_json::json!(true));
+
+    let claim_b = post_tool_call(
+        &app,
+        &sid_b,
+        true,
+        3,
+        "claim_files",
+        serde_json::json!({
+            "paths": ["hello.txt"],
+            "reason": "session b also wants hello.txt"
+        }),
+    )
+    .await;
+    assert_eq!(claim_b["success"], serde_json::json!(true));
+
+    let preflight = post_tool_call(
+        &app,
+        &sid_b,
+        true,
+        4,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+    assert!(
+        preflight["data"]["overlapping_claims"]
+            .as_array()
+            .map(|claims| !claims.is_empty())
+            .unwrap_or(false)
+    );
+
+    let mutation = post_tool_call(
+        &app,
+        &sid_b,
+        true,
+        5,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(false));
+    assert!(
+        mutation["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("[OverlappingClaimsBlocked]")
+    );
+}
+
+#[tokio::test]
+async fn strict_coordination_allows_claim_covered_trusted_http_mutation() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let claim = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "claim_files",
+        serde_json::json!({
+            "paths": ["hello.txt"],
+            "reason": "strict path coverage"
+        }),
+    )
+    .await;
+    assert_eq!(claim["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        4,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn strict_coordination_gate_failure_causes_builder_audit_fail() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let bootstrap = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "prepare_harness_session",
+        serde_json::json!({
+            "profile": "refactor-full",
+            "detail": "compact"
+        }),
+    )
+    .await;
+    assert_eq!(bootstrap["success"], serde_json::json!(true));
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        4,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(false));
+
+    let audit = post_tool_call(
+        &app,
+        &sid,
+        true,
+        5,
+        "audit_builder_session",
+        serde_json::json!({
+            "session_id": sid,
+        }),
+    )
+    .await;
+    assert_eq!(audit["success"], serde_json::json!(true));
+    assert_eq!(audit["data"]["status"], serde_json::json!("fail"));
+    assert!(
+        audit["data"]["findings"]
+            .as_array()
+            .map(|findings| findings
+                .iter()
+                .any(|finding| finding["code"] == serde_json::json!("mutation_gate")))
+            .unwrap_or(false)
+    );
+}
+
+#[tokio::test]
 async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     let state = test_state();
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
@@ -1473,7 +1909,7 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     assert!(body.contains("\"loaded_tiers\":[]"));
     assert!(body.contains("\"review_architecture\""));
     assert!(body.contains("\"review_changes\""));
-    assert!(body.contains("\"cleanup_duplicate_logic\""));
+    assert!(!body.contains("\"cleanup_duplicate_logic\""));
     assert!(!body.contains("\"analyze_change_impact\""));
     assert!(!body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"find_symbol\""));
@@ -1495,7 +1931,7 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
         vec![
             "review_architecture".to_owned(),
             "review_changes".to_owned(),
-            "cleanup_duplicate_logic".to_owned(),
+            "prepare_harness_session".to_owned(),
         ]
     );
 }

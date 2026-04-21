@@ -292,6 +292,10 @@ pub(crate) fn build_session_metrics_payload(
         json!(state.daemon_mode().as_str()),
     );
     session_json.insert(
+        "coordination_mode".to_owned(),
+        json!(state.coordination_mode().as_str()),
+    );
+    session_json.insert(
         "watcher_running".to_owned(),
         json!(
             watcher_stats

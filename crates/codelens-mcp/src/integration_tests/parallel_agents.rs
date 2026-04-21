@@ -115,7 +115,11 @@ fn agent_can_reuse_peer_analysis_id_without_recompute() {
     // `shared_analysis_pool` should still surface it via the
     // on-disk store behind `artifact_store.list_summaries(None)`.
     let state_b = make_state(&project);
-    let harness = call_tool(&state_b, "prepare_harness_session", serde_json::json!({}));
+    let harness = call_tool(
+        &state_b,
+        "prepare_harness_session",
+        serde_json::json!({"profile": "reviewer-graph"}),
+    );
     let pool_ids: Vec<String> = harness["data"]["shared_analysis_pool"]
         .as_array()
         .cloned()
@@ -135,7 +139,9 @@ fn agent_can_reuse_peer_analysis_id_without_recompute() {
 
     // Now the actionable half: peer reads a section without
     // re-running impact_report. If the artifact store didn't
-    // cross-session-persist, this call fails with NotFound.
+    // cross-session-persist, this call fails with NotFound. Keep the
+    // peer on reviewer-graph so `get_analysis_section` stays in the
+    // active surface contract for orchestrator-style reuse.
     let section = call_tool(
         &state_b,
         "get_analysis_section",

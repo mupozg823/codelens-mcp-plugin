@@ -130,6 +130,7 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                     "project_root": state.project().as_path().to_string_lossy(),
                     "active_surface": surface.as_label(),
                     "daemon_mode": state.daemon_mode().as_str(),
+                    "coordination_mode": state.coordination_mode().as_str(),
                     "visible_tool_count": visible.len(),
                     "symbol_index": runtime_health.index_stats,
                     "health_summary": runtime_health.health_summary,
@@ -147,6 +148,7 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                 json!({
                     "active_surface": surface.as_label(),
                     "daemon_mode": state.daemon_mode().as_str(),
+                    "coordination_mode": state.coordination_mode().as_str(),
                     "frameworks": frameworks,
                     "workspace_packages": workspace_packages,
                     "indexed_files": stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),

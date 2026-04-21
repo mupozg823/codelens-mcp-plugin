@@ -49,6 +49,32 @@ impl RecentPreflightStore {
                     .map(|value| value.len())
                     .unwrap_or_default()
             });
+        let overlapping_claims = payload
+            .get("overlapping_claims")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let overlapping_claim_count = overlapping_claims.len();
+        let mut overlapping_claim_session_ids = Vec::new();
+        let mut overlapping_claim_paths = Vec::new();
+        for claim in &overlapping_claims {
+            if let Some(session_id) = claim.get("session_id").and_then(|value| value.as_str())
+                && !overlapping_claim_session_ids
+                    .iter()
+                    .any(|existing| existing == session_id)
+            {
+                overlapping_claim_session_ids.push(session_id.to_owned());
+            }
+            if let Some(paths) = claim.get("paths").and_then(|value| value.as_array()) {
+                for path in paths {
+                    if let Some(path) = path.as_str()
+                        && !overlapping_claim_paths.iter().any(|existing| existing == path)
+                    {
+                        overlapping_claim_paths.push(path.to_owned());
+                    }
+                }
+            }
+        }
         let preflight = RecentPreflight {
             tool_name: tool_name.to_owned(),
             analysis_id: payload
@@ -61,6 +87,9 @@ impl RecentPreflightStore {
             blocker_count,
             target_paths,
             symbol,
+            overlapping_claim_count,
+            overlapping_claim_session_ids,
+            overlapping_claim_paths,
         };
         self.entries
             .lock()

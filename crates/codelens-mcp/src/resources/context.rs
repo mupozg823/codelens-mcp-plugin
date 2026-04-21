@@ -248,6 +248,7 @@ pub(crate) fn build_http_session_payload(
         "timeout_seconds": state.session_timeout_seconds(),
         "resume_supported": state.session_resume_supported(),
         "daemon_mode": state.daemon_mode().as_str(),
+        "coordination_mode": state.coordination_mode().as_str(),
         "client_profile": request.client_profile.as_str(),
         "client_name": request.client_name,
         "active_surface": surface.as_label(),
@@ -276,10 +277,44 @@ pub(crate) fn build_http_session_payload(
             surface,
             ToolSurface::Profile(ToolProfile::RefactorFull)
         ),
+        "coordination_enforcement": build_coordination_enforcement_payload(state, surface),
         "preflight_ttl_seconds": state.preflight_ttl_seconds(),
         "rename_requires_symbol_preflight": true,
         "requires_namespace_listing_before_tool_call": true,
         "requires_tier_listing_before_tool_call": true
+    })
+}
+
+pub(crate) fn build_coordination_enforcement_payload(
+    state: &AppState,
+    surface: ToolSurface,
+) -> Value {
+    let strict_enabled = matches!(
+        state.coordination_mode(),
+        crate::state::RuntimeCoordinationMode::Strict
+    );
+    json!({
+        "mode": state.coordination_mode().as_str(),
+        "strict_enabled": strict_enabled,
+        "strict_path_coverage_required": strict_enabled,
+        "strict_claim_required": strict_enabled,
+        "strict_overlap_blocks_mutation": strict_enabled,
+        "strict_applies_to_surface": matches!(surface, ToolSurface::Profile(ToolProfile::RefactorFull)),
+        "strict_applies_to": "trusted_http_refactor_full_mutations",
+    })
+}
+
+pub(crate) fn build_coordination_payload(
+    state: &AppState,
+    request: &ResourceRequestContext,
+) -> Value {
+    let surface = state.execution_surface(&request.session);
+    let counts = state.coordination_counts_for_session(&request.session);
+    json!({
+        "mode": state.coordination_mode().as_str(),
+        "active_agents": counts.active_agents,
+        "active_claims": counts.active_claims,
+        "enforcement": build_coordination_enforcement_payload(state, surface),
     })
 }
 

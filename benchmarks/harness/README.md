@@ -10,6 +10,7 @@
 - `task-bootstrap.py`
 - `codex-task-runner.py`
 - `claude-task-runner.py`
+- `release-harness-runner.py`
 - `refresh-routing-policy.py`
 - `watch-routing-policy.py`
 - `coverage-gap-queue.py`
@@ -34,3 +35,7 @@
 - expensive post-processing 단계(`mcp_preflight`, `harness_eval`, `routing_policy_refresh`)는 같은 `run_dir`에서 completed checkpoint가 있으면 재사용할 수 있다.
 - 이 디렉터리의 truth artifact는 더 이상 개별 `prompt`, `session-entry`, `harness-eval` 파일이 아니라, 그 파일들을 가리키는 `run-manifest.json`이다.
 - Codex preflight는 이제 low-level `tools/list -> activate_project -> get_capabilities` choreography를 하네스 밖에서 중복하지 않고, 공식 세션 도구 `prepare_harness_session`을 우선 사용한다. 구버전 서버만 legacy round-trip fallback을 탄다.
+- `release-harness-runner.py`는 single-flow release harness를 상위에서 조율한다.
+  - stage 순서: `preflight -> worker_scan -> orchestrator -> evaluator -> optional repair -> independent_signoff`
+  - 표준 artifact: `usage-drift.json|md`, `independent-signoff.json|md`
+  - child stage `run-manifest.json`과 `run-events.jsonl`을 부모 run manifest에 연결한다.

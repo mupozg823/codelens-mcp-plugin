@@ -1,5 +1,5 @@
 use crate::AppState;
-use crate::state::RuntimeDaemonMode;
+use crate::state::{RuntimeCoordinationMode, RuntimeDaemonMode};
 use crate::tool_defs::{
     ALL_PRESETS, ALL_PROFILES, HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface,
     compile_surface_overlay, preferred_namespaces, preferred_phase_labels, preferred_tier_labels,
@@ -34,7 +34,11 @@ const HANDOFF_ARTIFACT_SCHEMA_TEXT: &str =
     include_str!(concat!(env!("OUT_DIR"), "/handoff-artifact.v1.json"));
 
 pub(crate) fn build_surface_manifest_for_state(state: &AppState) -> Value {
-    let mut manifest = build_surface_manifest(*state.surface(), state.daemon_mode());
+    let mut manifest = build_surface_manifest(
+        *state.surface(),
+        state.daemon_mode(),
+        state.coordination_mode(),
+    );
     if let Some(object) = manifest.as_object_mut() {
         object.insert(
             "host_adapters".to_owned(),
@@ -47,6 +51,7 @@ pub(crate) fn build_surface_manifest_for_state(state: &AppState) -> Value {
 pub(crate) fn build_surface_manifest(
     surface: ToolSurface,
     daemon_mode: RuntimeDaemonMode,
+    coordination_mode: RuntimeCoordinationMode,
 ) -> Value {
     let workspace_members = workspace_members();
     let workspace_member_count = workspace_members.len();
@@ -177,6 +182,7 @@ pub(crate) fn build_surface_manifest(
             "active_surface": surface.as_label(),
             "visible_tool_count": visible_tools(surface).len(),
             "daemon_mode": daemon_mode.as_str(),
+            "coordination_mode": coordination_mode.as_str(),
             "supports_http": cfg!(feature = "http"),
             "supports_semantic": cfg!(feature = "semantic"),
             "supports_scip_backend": cfg!(feature = "scip-backend"),
@@ -2009,6 +2015,7 @@ mod tests {
         let manifest = build_surface_manifest(
             ToolSurface::Profile(ToolProfile::PlannerReadonly),
             RuntimeDaemonMode::ReadOnly,
+            RuntimeCoordinationMode::Advisory,
         );
         assert_eq!(
             manifest["workspace"]["version"],
