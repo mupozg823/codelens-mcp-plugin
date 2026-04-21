@@ -4277,6 +4277,64 @@ fn audit_planner_session_passes_for_happy_path_reviewer() {
     assert_eq!(audit["data"]["status"], json!("pass"));
 }
 
+#[cfg(feature = "http")]
+#[test]
+fn audit_planner_session_credits_review_changes_as_read_side_evidence() {
+    // Composite workflow `review_changes` internally runs
+    // diff_aware_references + verifier_checks on its `changed_files`
+    // argument, so a planner session that used it *did* produce
+    // read-side evidence on the touched files. Before the rule fix,
+    // the audit required one of get_symbols_overview / find_symbol /
+    // get_file_diagnostics per target and warned otherwise — forcing
+    // planners to double-call against `workflow_first`. Now
+    // review_changes (and review_architecture) count as evidence
+    // sources and the happy-path test stays clean without primitive
+    // follow-ups.
+    let project = project_root();
+    fs::write(project.as_path().join("planner_rc.py"), "print('ok')\n").unwrap();
+    let state = make_http_state(&project);
+    let session_id = create_http_profile_session(
+        &state,
+        &project,
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    );
+
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        &session_id,
+    );
+    // Intentionally *no* get_symbols_overview / find_symbol /
+    // get_file_diagnostics on planner_rc.py — the review_changes
+    // call alone must supply the read-side evidence.
+    let _ = call_tool_with_session(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["planner_rc.py"], "task": "review rc path"}),
+        &session_id,
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_planner_session",
+        json!({"session_id": session_id}),
+    );
+    let checks = audit["data"]["checks"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let evidence_check = checks
+        .iter()
+        .find(|check| check["code"] == json!("read_side_evidence"))
+        .expect("audit must emit a read_side_evidence check");
+    assert_eq!(
+        evidence_check["status"],
+        json!("pass"),
+        "review_changes must count as read-side evidence; check={evidence_check}"
+    );
+}
+
 #[test]
 fn audit_planner_session_warns_when_bootstrap_is_missing() {
     let project = project_root();
