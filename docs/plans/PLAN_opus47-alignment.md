@@ -110,13 +110,14 @@ regress — they just don't appear in the default visible set.
 - [x] GREEN: `RetrievalLane` enum + short-circuit `semantic_results_for_query`
 - [x] Quality Gate: `cargo test -p codelens-mcp --features semantic` → 494 passed
 
-### Phase O6 — Managed Agents handoff protocol (P1, 3h)
+### Phase O6 — Managed Agents handoff protocol (P1, 3h) — ✅ `db82bcf`
 
-- [ ] RED: `export_session_markdown_produces_handoff_schema_v1`
-- [ ] RED: `handoff_artifact_consumable_by_evaluator_primitive`
-- [ ] RED: `export_session_markdown_within_size_limit` (≤50KB)
-- [ ] GREEN: `schema_version: "codelens-handoff-v1"` field
-- [ ] GREEN: `docs/harness/handoff-protocol.md`
+- [x] RED: `export_session_markdown_produces_handoff_schema_v1`
+- [x] RED: `handoff_artifact_consumable_by_evaluator_primitive`
+- [x] RED: `export_session_markdown_within_size_limit` (≤50KB)
+- [x] GREEN: `schema_version: "codelens-handoff-v1"` field
+- [x] GREEN: `docs/harness/handoff-protocol.md`
+- [x] Quality Gate: `cargo test -p codelens-mcp --features semantic` → 497 passed
 
 ### Phase O7 — xhigh effort level tier (P1, 2h)
 
@@ -165,8 +166,8 @@ All 8 phases additive + feature-flagged where invasive. Full rollback =
 
 - Started: 2026-04-21
 - Last Updated: 2026-04-21
-- Current Phase: **O6 (Managed Agents handoff protocol)**
-- Completed Phases: **O1, O2, O3a, O5** (Tier A: 3/4, Tier B: 1/3)
+- Current Phase: **O7 (xhigh effort level tier)**
+- Completed Phases: **O1, O2, O3a, O5, O6** (Tier A: 3/4, Tier B: 2/3)
 - Parked: **O4** (requires `ANTHROPIC_API_KEY` for SDK-direct 2-arm
   measurement; resumes when key is available or we replace the arm
   runner with Agent-tool subagent dispatch)
