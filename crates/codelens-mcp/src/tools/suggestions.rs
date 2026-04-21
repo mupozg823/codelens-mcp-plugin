@@ -322,8 +322,26 @@ fn raw_suggest_next(tool_name: &str) -> Option<&'static [&'static str]> {
             "get_impact_analysis",
             "replace_symbol_body",
         ],
-        "get_ranked_context" => &["find_symbol", "replace_symbol_body", "semantic_search"],
-        "refresh_symbol_index" => &["index_embeddings", "get_symbols_overview"],
+        "get_ranked_context" => {
+            #[cfg(feature = "semantic")]
+            {
+                &["find_symbol", "replace_symbol_body", "semantic_search"]
+            }
+            #[cfg(not(feature = "semantic"))]
+            {
+                &["find_symbol", "replace_symbol_body"]
+            }
+        }
+        "refresh_symbol_index" => {
+            #[cfg(feature = "semantic")]
+            {
+                &["index_embeddings", "get_symbols_overview"]
+            }
+            #[cfg(not(feature = "semantic"))]
+            {
+                &["get_symbols_overview"]
+            }
+        }
         "get_project_structure" => &["get_symbols_overview", "get_ranked_context", "find_symbol"],
         "get_complexity" => &["find_symbol", "get_symbols_overview"],
         "search_symbols_fuzzy" => &["find_symbol", "get_ranked_context"],

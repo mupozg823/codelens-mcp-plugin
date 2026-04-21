@@ -475,6 +475,14 @@ if test_file:
                     "args": {"relative_path": test_file, "hierarchy_type": "both", "depth": 1},
                     "preset": "balanced",
                 },
+                {
+                    "cmd": "verify_change_readiness",
+                    "args": {
+                        "task": f"refactor {test_symbol} safely",
+                        "changed_files": [test_file],
+                    },
+                    "preset": "balanced",
+                },
             ],
             compressed_steps=[
                 {

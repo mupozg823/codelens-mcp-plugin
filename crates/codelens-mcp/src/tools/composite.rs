@@ -486,6 +486,10 @@ fn onboard_project_compute(state: &AppState, _arguments: &serde_json::Value) -> 
     };
     #[cfg(not(feature = "semantic"))]
     let semantic_status = super::symbols::semantic_status(state);
+    #[cfg(feature = "semantic")]
+    let suggested_next_tools = json!(["get_symbols_overview", "get_ranked_context", "semantic_search"]);
+    #[cfg(not(feature = "semantic"))]
+    let suggested_next_tools = json!(["get_symbols_overview", "get_ranked_context"]);
 
     Ok((
         json!({
@@ -506,7 +510,7 @@ fn onboard_project_compute(state: &AppState, _arguments: &serde_json::Value) -> 
                 "total_dirs": structure.len(),
             }),
             "semantic": semantic_status,
-            "suggested_next_tools": ["get_symbols_overview", "get_ranked_context", "semantic_search"]
+            "suggested_next_tools": suggested_next_tools
         }),
         success_meta(BackendKind::Hybrid, 0.95),
     ))

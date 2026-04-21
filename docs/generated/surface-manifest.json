@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-surface-manifest-v1",
   "workspace": {
-    "version": "1.9.56",
+    "version": "1.9.57",
     "description": "Rust MCP server for bounded code intelligence, gated mutation, and auditable agent workflows",
     "members": [
       "crates/codelens-engine",
@@ -11,32 +11,32 @@
     "member_count": 3
   },
   "tool_registry": {
-    "definition_count": 108,
-    "output_schema_count": 73,
+    "definition_count": 116,
+    "output_schema_count": 75,
     "namespaces": {
       "filesystem": 6,
-      "graph": 10,
+      "graph": 17,
       "lsp": 4,
       "memory": 5,
       "mutation": 16,
-      "reports": 25,
+      "reports": 26,
       "session": 31,
       "symbols": 11
     },
     "tiers": {
-      "analysis": 21,
-      "primitive": 58,
+      "analysis": 28,
+      "primitive": 59,
       "workflow": 29
     },
     "phases": {
       "agnostic": 36,
       "build": 18,
-      "eval": 8,
-      "plan": 27,
-      "review": 19
+      "eval": 9,
+      "plan": 33,
+      "review": 20
     },
     "preferred_executors": {
-      "any": 82,
+      "any": 90,
       "claude": 9,
       "codex-builder": 17
     },
@@ -258,6 +258,24 @@
         "estimated_tokens": 156
       },
       {
+        "name": "get_impact_analysis",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": true,
+        "estimated_tokens": 258
+      },
+      {
+        "name": "find_importers",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 113
+      },
+      {
         "name": "find_scoped_references",
         "namespace": "graph",
         "tier": "analysis",
@@ -267,6 +285,15 @@
         "estimated_tokens": 267
       },
       {
+        "name": "find_referencing_code_snippets",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 147
+      },
+      {
         "name": "get_symbol_importance",
         "namespace": "graph",
         "tier": "analysis",
@@ -274,6 +301,24 @@
         "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 92
+      },
+      {
+        "name": "get_callers",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 113
+      },
+      {
+        "name": "get_callees",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 120
       },
       {
         "name": "find_circular_dependencies",
@@ -292,6 +337,24 @@
         "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 111
+      },
+      {
+        "name": "get_architecture",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 106
+      },
+      {
+        "name": "find_dead_code",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "review",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 108
       },
       {
         "name": "rename_symbol",
@@ -462,7 +525,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 204
+        "estimated_tokens": 174
       },
       {
         "name": "trace_request_path",
@@ -471,7 +534,7 @@
         "phase": "plan",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 186
+        "estimated_tokens": 156
       },
       {
         "name": "review_architecture",
@@ -480,7 +543,7 @@
         "phase": "plan",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 176
+        "estimated_tokens": 145
       },
       {
         "name": "plan_safe_refactor",
@@ -489,7 +552,7 @@
         "phase": "plan",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 198
+        "estimated_tokens": 167
       },
       {
         "name": "cleanup_duplicate_logic",
@@ -498,7 +561,7 @@
         "phase": "build",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 196
+        "estimated_tokens": 165
       },
       {
         "name": "review_changes",
@@ -507,7 +570,7 @@
         "phase": "review",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 200
+        "estimated_tokens": 170
       },
       {
         "name": "diagnose_issues",
@@ -516,7 +579,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 191
+        "estimated_tokens": 161
       },
       {
         "name": "onboard_project",
@@ -661,6 +724,15 @@
         "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 245
+      },
+      {
+        "name": "retry_analysis_job",
+        "namespace": "reports",
+        "tier": "primitive",
+        "phase": "eval",
+        "preferred_executor": null,
+        "has_output_schema": true,
+        "estimated_tokens": 258
       },
       {
         "name": "cancel_analysis_job",
@@ -903,7 +975,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 1051
+        "estimated_tokens": 1111
       },
       {
         "name": "get_tool_metrics",
@@ -1019,7 +1091,7 @@
     "profiles": [
       {
         "name": "planner-readonly",
-        "tool_count": 35,
+        "tool_count": 36,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1056,6 +1128,7 @@
           "semantic_search",
           "index_embeddings",
           "get_changed_files",
+          "get_impact_analysis",
           "get_current_config",
           "activate_project",
           "register_agent_work",
@@ -1195,7 +1268,7 @@
       },
       {
         "name": "refactor-full",
-        "tool_count": 49,
+        "tool_count": 50,
         "preferred_namespaces": [
           "reports",
           "session"
@@ -1248,6 +1321,7 @@
           "plan_symbol_rename",
           "get_lsp_readiness",
           "get_changed_files",
+          "get_impact_analysis",
           "find_scoped_references",
           "rename_symbol",
           "replace_content",
@@ -1261,7 +1335,7 @@
       },
       {
         "name": "ci-audit",
-        "tool_count": 41,
+        "tool_count": 43,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1294,9 +1368,11 @@
           "get_analysis_job",
           "get_analysis_section",
           "get_changed_files",
+          "get_impact_analysis",
           "find_scoped_references",
           "find_circular_dependencies",
           "get_change_coupling",
+          "find_dead_code",
           "get_current_config",
           "activate_project",
           "register_agent_work",
@@ -1397,7 +1473,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 79,
+        "tool_count": 86,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1442,7 +1518,13 @@
           "bm25_symbol_search",
           "get_type_hierarchy",
           "plan_symbol_rename",
+          "get_impact_analysis",
+          "find_importers",
           "find_scoped_references",
+          "find_referencing_code_snippets",
+          "get_callers",
+          "get_callees",
+          "get_architecture",
           "find_similar_code",
           "find_code_duplicates",
           "classify_symbol",
@@ -1450,6 +1532,7 @@
           "get_capabilities",
           "rename_symbol",
           "get_analysis_job",
+          "retry_analysis_job",
           "get_analysis_section",
           "get_symbols_overview",
           "find_symbol",
@@ -1493,7 +1576,7 @@
       },
       {
         "name": "full",
-        "tool_count": 108,
+        "tool_count": 116,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1541,10 +1624,17 @@
           "semantic_code_review",
           "summarize_file",
           "get_complexity",
+          "get_impact_analysis",
+          "find_importers",
           "find_scoped_references",
+          "find_referencing_code_snippets",
           "get_symbol_importance",
+          "get_callers",
+          "get_callees",
           "find_circular_dependencies",
           "get_change_coupling",
+          "get_architecture",
+          "find_dead_code",
           "find_similar_code",
           "find_code_duplicates",
           "classify_symbol",
@@ -1589,6 +1679,7 @@
           "create_text_file",
           "add_import",
           "get_analysis_job",
+          "retry_analysis_job",
           "get_analysis_section",
           "get_current_config",
           "get_project_structure",
@@ -1651,7 +1742,7 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 35
+                "tool_count": 36
               },
               {
                 "name": "builder-minimal",
@@ -1693,7 +1784,7 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 35
+                "tool_count": 36
               },
               {
                 "name": "reviewer-graph",
@@ -1712,7 +1803,7 @@
               },
               {
                 "name": "refactor-full",
-                "tool_count": 49
+                "tool_count": 50
               }
             ]
           }
@@ -1759,7 +1850,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 41
+                "tool_count": 43
               }
             ]
           }
@@ -1805,7 +1896,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 41
+                "tool_count": 43
               }
             ]
           }
@@ -1858,7 +1949,7 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 35
+                "tool_count": 36
               },
               {
                 "name": "reviewer-graph",
@@ -1877,7 +1968,7 @@
               },
               {
                 "name": "refactor-full",
-                "tool_count": 49
+                "tool_count": 50
               }
             ]
           }
@@ -2040,7 +2131,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 41
+                "tool_count": 43
               }
             ]
           }
@@ -2142,7 +2233,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 41
+                "tool_count": 43
               }
             ]
           }
@@ -3127,13 +3218,13 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.9.56",
+    "version": "1.9.57",
     "transport": [
       "stdio",
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 79,
+    "visible_tool_count": 86,
     "daemon_mode": "standard",
     "coordination_mode": "advisory",
     "supports_http": true,
@@ -3164,12 +3255,12 @@
     ]
   },
   "summary": {
-    "workspace_version": "1.9.56",
+    "workspace_version": "1.9.57",
     "workspace_member_count": 3,
-    "registered_tool_definitions": 108,
+    "registered_tool_definitions": 116,
     "tool_output_schemas": {
-      "declared": 73,
-      "total": 108
+      "declared": 75,
+      "total": 116
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,

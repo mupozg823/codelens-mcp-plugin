@@ -377,6 +377,16 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     let exact_identifier_projection = query_analysis.original_query
         != query_analysis.expanded_query
         && !query_analysis.expanded_query.contains(char::is_whitespace);
+    let semantic_requested =
+        !disable_semantic && !query_analysis.prefer_lexical_only && !exact_identifier_projection;
+    #[cfg(feature = "semantic")]
+    if semantic_requested {
+        // `embedding_status()` is intentionally read-only and reports
+        // cold disk indexes as not-ready. For actual hybrid retrieval,
+        // warm the engine on demand so an indexed project can use the
+        // semantic lane without requiring a prior `semantic_search` call.
+        drop(state.embedding_engine());
+    }
     let effective_disable_semantic =
         disable_semantic || query_analysis.prefer_lexical_only || exact_identifier_projection;
     // Semantic lane readiness: the embedding index must be warm AND
@@ -549,10 +559,8 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     //      advertised `semantic_enabled=true`; now we downgrade the
     //      envelope AND surface the cold index as a decision so the
     //      harness knows a warmup would change the answer.
-    let semantic_wanted =
-        !disable_semantic && !query_analysis.prefer_lexical_only && !exact_identifier_projection;
     if (!effective_disable_semantic && semantic_results.is_empty())
-        || (semantic_wanted && !semantic_ready)
+        || (semantic_requested && !semantic_ready)
     {
         decisions.push(crate::limits::LimitsApplied::index_partial("semantic"));
     }

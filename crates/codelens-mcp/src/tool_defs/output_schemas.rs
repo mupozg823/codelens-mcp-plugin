@@ -29,9 +29,13 @@ pub(super) use session::{
     tool_metrics_output_schema, watch_status_output_schema,
 };
 pub(super) use symbols::{
-    bm25_symbol_search_output_schema, classify_symbol_output_schema, diagnostics_output_schema,
-    find_code_duplicates_output_schema, find_misplaced_code_output_schema,
-    find_similar_code_output_schema, get_type_hierarchy_output_schema, impact_output_schema,
-    ranked_context_output_schema, references_output_schema, rename_output_schema,
-    semantic_search_output_schema, symbol_output_schema,
+    bm25_symbol_search_output_schema, diagnostics_output_schema,
+    get_type_hierarchy_output_schema, impact_output_schema, ranked_context_output_schema,
+    references_output_schema, rename_output_schema, symbol_output_schema,
+};
+#[cfg(feature = "semantic")]
+pub(super) use symbols::{
+    classify_symbol_output_schema, find_code_duplicates_output_schema,
+    find_misplaced_code_output_schema, find_similar_code_output_schema,
+    semantic_search_output_schema,
 };

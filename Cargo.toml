@@ -9,7 +9,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 license = "Apache-2.0"
-version = "1.9.56"
+version = "1.9.57"
 description = "Rust MCP server for bounded code intelligence, gated mutation, and auditable agent workflows"
 repository = "https://github.com/mupozg823/codelens-mcp-plugin"
 homepage = "https://github.com/mupozg823/codelens-mcp-plugin"

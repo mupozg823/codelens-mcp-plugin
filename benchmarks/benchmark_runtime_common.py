@@ -380,15 +380,22 @@ def extract_tool_payload(response):
         return {}
     result = response.get("result")
     if isinstance(result, dict):
+        structured = result.get("structuredContent")
         content = result.get("content")
         if isinstance(content, list) and content:
             text = content[0].get("text", "{}")
             try:
                 parsed = json.loads(text)
                 if isinstance(parsed, dict):
+                    if isinstance(structured, dict) and "data" in parsed:
+                        merged = dict(parsed)
+                        merged["data"] = structured
+                        return merged
                     return parsed
             except Exception:
                 pass
+        if isinstance(structured, dict):
+            return {"success": True, "data": structured}
         if "data" in result or "success" in result or "error" in result:
             return result
     error = response.get("error")

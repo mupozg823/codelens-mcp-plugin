@@ -222,7 +222,10 @@ def run_queue_observability_benchmark(
 
         for idx in range(100):
             first_status = runtime.mcp_http_tool_call(
-                base_url, "get_analysis_job", {"job_id": first_id}, request_id=20 + idx
+                base_url,
+                "get_analysis_job",
+                {"job_id": first_id},
+                request_id=20 + idx,
             )
             first_data = runtime.extract_tool_payload(first_status).get("data", {})
             if first_data.get("status") in {"running", "completed"}:
@@ -234,13 +237,22 @@ def run_queue_observability_benchmark(
         all_terminal = False
         for idx in range(300):
             first_status = runtime.mcp_http_tool_call(
-                base_url, "get_analysis_job", {"job_id": first_id}, request_id=100 + idx
+                base_url,
+                "get_analysis_job",
+                {"job_id": first_id},
+                request_id=100 + idx,
             )
             second_status = runtime.mcp_http_tool_call(
-                base_url, "get_analysis_job", {"job_id": second_id}, request_id=200 + idx
+                base_url,
+                "get_analysis_job",
+                {"job_id": second_id},
+                request_id=200 + idx,
             )
             third_status = runtime.mcp_http_tool_call(
-                base_url, "get_analysis_job", {"job_id": third_id}, request_id=300 + idx
+                base_url,
+                "get_analysis_job",
+                {"job_id": third_id},
+                request_id=300 + idx,
             )
             first_data = runtime.extract_tool_payload(first_status).get("data", {})
             second_data = runtime.extract_tool_payload(second_status).get("data", {})
@@ -265,7 +277,12 @@ def run_queue_observability_benchmark(
                 all_terminal = True
                 break
             time.sleep(0.1)
-        metrics_resp = runtime.mcp_http_tool_call(base_url, "get_tool_metrics", {}, request_id=999)
+        metrics_resp = runtime.mcp_http_tool_call(
+            base_url,
+            "get_tool_metrics",
+            {},
+            request_id=999,
+        )
         metrics_payload = runtime.extract_tool_payload(metrics_resp).get("data", {})
         session = metrics_payload.get("session", {})
         derived = metrics_payload.get("derived_kpis", {})
@@ -283,7 +300,10 @@ def run_queue_observability_benchmark(
                 break
             time.sleep(0.1)
             metrics_resp = runtime.mcp_http_tool_call(
-                base_url, "get_tool_metrics", {}, request_id=1000 + idx
+                base_url,
+                "get_tool_metrics",
+                {},
+                request_id=1000 + idx,
             )
             metrics_payload = runtime.extract_tool_payload(metrics_resp).get("data", {})
             session = metrics_payload.get("session", {})
@@ -369,11 +389,26 @@ def run_watcher_observability_benchmark(runtime: runtime_common.BenchmarkRuntime
         runtime.stop_http_daemon(proc)
         return {"supported": False, "reason": "http transport unavailable"}
     try:
-        metrics_resp = runtime.mcp_http_tool_call(base_url, "get_tool_metrics", {}, request_id=1999)
+        session_id, _, _ = runtime.initialize_http_session(base_url, request_id=1998)
+        if not session_id:
+            return {"supported": False, "reason": "missing session id"}
+        metrics_resp = runtime.mcp_http_tool_call(
+            base_url,
+            "get_tool_metrics",
+            {},
+            request_id=1999,
+            session_id=session_id,
+        )
         metrics_payload = runtime.extract_tool_payload(metrics_resp).get("data", {})
         session = metrics_payload.get("session", {})
         derived = metrics_payload.get("derived_kpis", {})
-        watch_resp = runtime.mcp_http_tool_call(base_url, "get_watch_status", {}, request_id=2000)
+        watch_resp = runtime.mcp_http_tool_call(
+            base_url,
+            "get_watch_status",
+            {},
+            request_id=2000,
+            session_id=session_id,
+        )
         watch_payload = runtime.extract_tool_payload(watch_resp).get("data", {})
         return {
             "supported": True,

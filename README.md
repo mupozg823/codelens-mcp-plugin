@@ -19,13 +19,13 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
 ## Surface Snapshot
 
-- Workspace version: `1.9.56`
+- Workspace version: `1.9.57`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions: `108`
-- Tool output schemas: `73 / 108`
+- Registered tool definitions: `116`
+- Tool output schemas: `75 / 116`
 - Supported language families: `30` across `49` extensions
-- Profiles: `planner-readonly` (35), `builder-minimal` (37), `reviewer-graph` (12), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (41), `workflow-first` (19)
-- Presets: `minimal` (27), `balanced` (79), `full` (108)
+- Profiles: `planner-readonly` (36), `builder-minimal` (37), `reviewer-graph` (12), `evaluator-compact` (14), `refactor-full` (50), `ci-audit` (43), `workflow-first` (19)
+- Presets: `minimal` (27), `balanced` (86), `full` (116)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
 
@@ -44,12 +44,12 @@ surface is profile-scoped: `reviewer-graph` exposes `12`, `evaluator-compact`
 `ci-audit` `41`, and `refactor-full` `49`. The default `balanced` preset shows
 `79`, not `108`.
 
-## What v1.9.56 Delivers
+## What v1.9.57 Delivers
 
 | Layer | What ships in the current release |
 | ----- | --------------------------------- |
 | Package metadata | `codelens-mcp`, `codelens-engine`, `codelens-tui` now publish crate-specific descriptions instead of one shared workspace blurb |
-| Crate landing pages | crate README top sections and release links now align with the `v1.9.56` line |
+| Crate landing pages | crate README top sections and release links now align with the `v1.9.57` line |
 | GitHub surface | repository description now matches the MCP server role and no longer overstates the engine crate as a server |
 | Runtime behavior | unchanged from `v1.9.55`; this is a metadata and packaging-clarity patch |
 
@@ -72,7 +72,7 @@ CodeLens is not the agent and not an IDE backend. It is the **MCP control plane*
 - Interactive map: [`docs/architecture-d3.html`](docs/architecture-d3.html)
 - Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
 - Benchmarks and retrieval quality: [`docs/benchmarks.md`](docs/benchmarks.md)
-- Automated harness release notes: [`docs/release-notes/v1.9.56.md`](docs/release-notes/v1.9.56.md)
+- Automated harness release notes: [`docs/release-notes/v1.9.57.md`](docs/release-notes/v1.9.57.md)
 
 ```text
 Host (Claude / Codex / Cursor / Continue)
@@ -105,7 +105,7 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
 ```
 
-Latest release: [v1.9.56](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.56)
+Latest release: [v1.9.57](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.57)
 
 ### Install Channel Matrix
 

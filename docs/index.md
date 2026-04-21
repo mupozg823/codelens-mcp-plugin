@@ -11,14 +11,14 @@ auditable path.
   best-case compression win
 - **108 generated definitions in source**, but only **12-49 tools**
   visible per runtime profile instead of a single flat registry
-- **Metadata and package copy cleanup** in `v1.9.56`, so GitHub and crates.io
-  describe each crate by its actual role
+- **Control-plane drift hardening** in `v1.9.57`, so workflow routing,
+  prompts, and suggestions stay tied to the canonical registry
 - **Single Rust binary** that runs over stdio or shared HTTP
 
 ## Current Release
 
 <!-- SURFACE_MANIFEST_INDEX_RELEASE:BEGIN -->
-- [GitHub Release v1.9.56](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.56)
+- [GitHub Release v1.9.57](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.57)
 - [Repository README](https://github.com/mupozg823/codelens-mcp-plugin/blob/main/README.md)
 - [Current source tree](https://github.com/mupozg823/codelens-mcp-plugin)
 <!-- SURFACE_MANIFEST_INDEX_RELEASE:END -->
@@ -37,14 +37,14 @@ auditable path.
 | Validate public performance claims | [Benchmarks](benchmarks.md) |
 | Verify release bundles and gates | [Release verification](release-verification.md) |
 
-## What Ships In v1.9.56
+## What Ships In v1.9.57
 
-- crate metadata now differentiates `codelens-engine`, `codelens-mcp`, and
-  `codelens-tui` instead of publishing one workspace description everywhere
-- crate README top sections and release links are aligned with the `v1.9.56`
-  line
-- GitHub repository description now matches the MCP server role instead of the
-  older compressed-context marketing copy
+- canonical tool metadata now drives suggestion filtering, prompt tool names,
+  and bootstrap entrypoint visibility
+- `prepare_harness_session` routing and surface helpers are hardened against
+  ghost aliases and repeated visibility drift
+- large MCP and engine internals are split into smaller modules while keeping
+  public wire contracts stable
 
 ## Core Workflows
 
@@ -60,7 +60,7 @@ auditable path.
 
 - [Host-adaptive harness](host-adaptive-harness.md)
 - [Multi-agent integration](multi-agent-integration.md)
-- [Release notes v1.9.56](release-notes/v1.9.56.md)
+- [Release notes v1.9.57](release-notes/v1.9.57.md)
 - [Interactive architecture map](architecture-d3.html)
 - [BM25 sparse lane spec](design/bm25-sparse-lane-spec-2026-04-18.md)
 

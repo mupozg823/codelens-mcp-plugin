@@ -263,6 +263,7 @@ mod tests {
         );
         assert!(capabilities.contains(&BackendCapability::SymbolLookup));
         assert!(capabilities.contains(&BackendCapability::Edit));
+        #[cfg(feature = "semantic")]
         assert!(capabilities.contains(&BackendCapability::SemanticSearch));
     }
 

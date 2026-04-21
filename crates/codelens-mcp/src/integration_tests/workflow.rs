@@ -19,6 +19,7 @@ fn onboard_project_returns_structure() {
     assert!(payload["data"]["semantic"].get("status").is_some());
 }
 
+#[cfg(feature = "semantic")]
 #[test]
 fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
     if !embedding_model_available_for_test() {
@@ -290,6 +291,34 @@ fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
     );
     assert_eq!(payload["data"]["embedding_indexed"], json!(true));
     assert_eq!(payload["data"]["embedding_indexed_symbols"], json!(indexed));
+}
+
+#[test]
+fn get_ranked_context_warms_semantic_lane_when_index_exists() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
+    let project = project_root();
+    fs::write(
+        project.as_path().join("embed_ranked.py"),
+        "def rename_widget():\n    return 'widget'\n",
+    )
+    .unwrap();
+    let _bootstrap = make_state(&project);
+    let engine = codelens_engine::EmbeddingEngine::new(&project).unwrap();
+    let indexed = engine.index_from_project(&project).unwrap();
+    assert!(indexed > 0);
+    drop(engine);
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_ranked_context",
+        json!({"query": "rename a widget across the project", "max_tokens": 512}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["retrieval"]["semantic_ready"], json!(true));
+    assert_eq!(payload["data"]["retrieval"]["semantic_enabled"], json!(true));
 }
 
 #[test]

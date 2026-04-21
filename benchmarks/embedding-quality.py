@@ -6,8 +6,10 @@ import collections
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -222,6 +224,196 @@ _IGNORE_PATTERNS = shutil.ignore_patterns(
     ".pytest_cache",
 )
 
+_SOURCE_EXTENSIONS = {".rs", ".py", ".ts", ".tsx", ".js", ".jsx"}
+_EXCLUDED_SOURCE_DIRS = {
+    ".git",
+    ".codelens",
+    "target",
+    "node_modules",
+    ".next",
+    "dist",
+    "coverage",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".pytest_cache",
+}
+
+
+class SourceDefinitionLocator:
+    def __init__(self, project_root: Path):
+        self.project_root = project_root.resolve()
+        self._texts = {}
+        self._source_files = None
+        self._source_files_by_suffix = {}
+        self._resolve_cache = {}
+
+    def _iter_source_files(self):
+        if self._source_files is not None:
+            return self._source_files
+        files = []
+        for path in self.project_root.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(self.project_root)
+            if any(part in _EXCLUDED_SOURCE_DIRS for part in relative.parts):
+                continue
+            if path.suffix not in _SOURCE_EXTENSIONS:
+                continue
+            files.append(path)
+        self._source_files = files
+        return files
+
+    def _source_files_for_suffix(self, suffix: str):
+        key = suffix or "*"
+        if key in self._source_files_by_suffix:
+            return self._source_files_by_suffix[key]
+        files = self._iter_source_files()
+        if suffix:
+            files = [path for path in files if path.suffix == suffix]
+        self._source_files_by_suffix[key] = files
+        return files
+
+    def _read_text(self, path: Path):
+        cached = self._texts.get(path)
+        if cached is not None:
+            return cached
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        self._texts[path] = text
+        return text
+
+    def _definition_patterns(self, symbol: str, suffix: str):
+        escaped = re.escape(symbol)
+        if suffix == ".rs":
+            visibility = r"(?:pub(?:\([^)]*\))?\s+)?"
+            return [
+                re.compile(
+                    rf"^\s*{visibility}(?:async\s+)?fn\s+{escaped}\b", re.MULTILINE
+                ),
+                re.compile(
+                    rf"^\s*{visibility}(?:struct|enum|trait|type|const|static)\s+{escaped}\b",
+                    re.MULTILINE,
+                ),
+            ]
+        if suffix == ".py":
+            return [
+                re.compile(rf"^\s*(?:async\s+)?def\s+{escaped}\b", re.MULTILINE),
+                re.compile(rf"^\s*class\s+{escaped}\b", re.MULTILINE),
+            ]
+        if suffix in {".ts", ".tsx", ".js", ".jsx"}:
+            return [
+                re.compile(
+                    rf"^\s*(?:export\s+)?(?:async\s+)?function\s+{escaped}\b",
+                    re.MULTILINE,
+                ),
+                re.compile(
+                    rf"^\s*(?:export\s+)?(?:class|interface|type|const)\s+{escaped}\b",
+                    re.MULTILINE,
+                ),
+            ]
+        return [re.compile(rf"\b{escaped}\b")]
+
+    def _reference_pattern(self, symbol: str):
+        return re.compile(rf"\b{re.escape(symbol)}\b")
+
+    def _file_defines_symbol(self, path: Path, symbol: str):
+        text = self._read_text(path)
+        return any(
+            pattern.search(text) for pattern in self._definition_patterns(symbol, path.suffix)
+        )
+
+    def _file_mentions_symbol(self, path: Path, symbol: str):
+        return self._reference_pattern(symbol).search(self._read_text(path)) is not None
+
+    def _definition_candidates(self, symbol: str, suffix: str):
+        candidates = []
+        for path in self._source_files_for_suffix(suffix):
+            if self._file_defines_symbol(path, symbol):
+                candidates.append(str(path.relative_to(self.project_root)))
+        return candidates
+
+    @staticmethod
+    def _shared_prefix_len(left: tuple[str, ...], right: tuple[str, ...]):
+        count = 0
+        for lpart, rpart in zip(left, right):
+            if lpart != rpart:
+                break
+            count += 1
+        return count
+
+    def resolve_expected_file_suffix(self, expected_symbol: str, expected_file_suffix: str):
+        key = (expected_symbol, str(expected_file_suffix or "").strip())
+        cached = self._resolve_cache.get(key)
+        if cached is not None:
+            return cached
+
+        suffix = key[1]
+        expected_path = self.project_root / suffix if suffix else None
+        source_suffix = Path(suffix).suffix or ".rs"
+        candidates = self._definition_candidates(expected_symbol, source_suffix)
+
+        if len(candidates) == 1:
+            resolved = candidates[0]
+            self._resolve_cache[key] = resolved
+            return resolved
+
+        if suffix and suffix in candidates:
+            self._resolve_cache[key] = suffix
+            return suffix
+
+        if suffix and candidates:
+            expected_parts = Path(suffix).parts
+            scored = []
+            for candidate in candidates:
+                candidate_parts = Path(candidate).parts
+                score = self._shared_prefix_len(expected_parts, candidate_parts)
+                scored.append((score, len(candidate_parts), candidate))
+            scored.sort(reverse=True)
+            best = scored[0]
+            runner_up = scored[1] if len(scored) > 1 else None
+            if best[0] > 0 and (runner_up is None or best[:2] > runner_up[:2]):
+                self._resolve_cache[key] = best[2]
+                return best[2]
+
+        if expected_path and expected_path.exists() and self._file_defines_symbol(
+            expected_path, expected_symbol
+        ):
+            self._resolve_cache[key] = suffix
+            return suffix
+
+        if expected_path and expected_path.exists() and self._file_mentions_symbol(
+            expected_path, expected_symbol
+        ):
+            self._resolve_cache[key] = suffix
+            return suffix
+
+        self._resolve_cache[key] = None
+        return None
+
+
+def canonicalize_dataset_rows(dataset, project_root: Path):
+    locator = SourceDefinitionLocator(project_root)
+    canonical = []
+    adapted_rows = 0
+    skipped_rows = []
+
+    for row in dataset:
+        suffix = str(row.get("expected_file_suffix", "") or "").strip()
+        if not suffix:
+            canonical.append(dict(row))
+            continue
+        resolved = locator.resolve_expected_file_suffix(row["expected_symbol"], suffix)
+        if resolved is None:
+            skipped_rows.append(row.get("query") or row.get("expected_symbol"))
+            continue
+        updated = dict(row)
+        if resolved != suffix:
+            updated["expected_file_suffix"] = resolved
+            adapted_rows += 1
+        canonical.append(updated)
+
+    return canonical, adapted_rows, skipped_rows
+
 
 def copy_project_for_benchmark(source_project: str) -> str:
     # Deterministic copy: walks directory entries in sorted order so that the
@@ -254,6 +446,35 @@ def copy_project_for_benchmark(source_project: str) -> str:
 
 def load_dataset():
     dataset = json.loads(Path(DATASET).read_text(encoding="utf-8"))
+    matching_rows = []
+    skipped_other_projects = 0
+    project_root = Path(PROJECT).resolve()
+    for row in dataset:
+        suffix = str(row.get("expected_file_suffix", "") or "").strip()
+        if not suffix or (project_root / suffix).exists():
+            matching_rows.append(row)
+        else:
+            skipped_other_projects += 1
+    if matching_rows and skipped_other_projects:
+        print(
+            f"warning: using {len(matching_rows)} dataset row(s) that match the current repo layout; "
+            f"skipped {skipped_other_projects} row(s) for other projects",
+            file=sys.stderr,
+        )
+    dataset = matching_rows
+    dataset, adapted_rows, skipped_stale_symbols = canonicalize_dataset_rows(
+        dataset, project_root
+    )
+    if adapted_rows:
+        print(
+            f"warning: canonicalized {adapted_rows} dataset row(s) to current definition files",
+            file=sys.stderr,
+        )
+    if skipped_stale_symbols:
+        print(
+            f"warning: skipped {len(skipped_stale_symbols)} dataset row(s) whose expected symbol no longer resolves in this repo",
+            file=sys.stderr,
+        )
     validate_expected_file_suffixes(
         dataset,
         DATASET,
