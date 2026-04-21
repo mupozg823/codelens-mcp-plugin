@@ -22,6 +22,7 @@ fn embedding_model_available_for_test() -> bool {
 
 mod bench_gate;
 mod coordination;
+mod handoff_protocol;
 mod lsp;
 mod mcp_annotations;
 mod memory;
