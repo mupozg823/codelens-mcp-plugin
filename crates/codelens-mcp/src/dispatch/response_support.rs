@@ -896,15 +896,35 @@ pub(crate) fn success_jsonrpc_response_with_meta(
             result["_meta"]["codelens/deprecatedReplacement"] = json!(replacement);
             result["_meta"]["codelens/deprecatedRemovalTarget"] = json!(removal);
         }
-    } else if let Some((since, replacement, removal)) = deprecation {
-        // Deprecation warning is never dropped — put the minimal meta
-        // back even in primitive mode so the client still learns the
-        // tool is slated for removal.
-        result["_meta"] = json!({
-            "codelens/deprecatedSince": since,
-            "codelens/deprecatedReplacement": replacement,
-            "codelens/deprecatedRemovalTarget": removal,
-        });
+    } else {
+        // Phase O2: primitive mode still emits
+        // `anthropic/maxResultSizeChars` because Claude Code v2.1.91+
+        // reads the annotation unconditionally to decide between
+        // 25K-inline / 500K-disk routing. Dropping it strands
+        // primitive responses at the 25K default. Other `_meta`
+        // fields (preferredExecutor, deprecated*) stay suppressed
+        // unless a deprecation forces a minimal meta block below.
+        let mut meta = serde_json::Map::new();
+        if let Some(max_chars) = max_result_size_chars {
+            meta.insert(
+                "anthropic/maxResultSizeChars".to_owned(),
+                json!(max_chars),
+            );
+        }
+        if let Some((since, replacement, removal)) = deprecation {
+            meta.insert("codelens/deprecatedSince".to_owned(), json!(since));
+            meta.insert(
+                "codelens/deprecatedReplacement".to_owned(),
+                json!(replacement),
+            );
+            meta.insert(
+                "codelens/deprecatedRemovalTarget".to_owned(),
+                json!(removal),
+            );
+        }
+        if !meta.is_empty() {
+            result["_meta"] = serde_json::Value::Object(meta);
+        }
     }
     JsonRpcResponse::result(id, result)
 }

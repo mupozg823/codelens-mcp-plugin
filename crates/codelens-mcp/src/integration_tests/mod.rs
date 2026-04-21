@@ -23,6 +23,7 @@ fn embedding_model_available_for_test() -> bool {
 mod bench_gate;
 mod coordination;
 mod lsp;
+mod mcp_annotations;
 mod memory;
 mod mutation;
 mod parallel_agents;
