@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-04-21T00:31:28.333641+00:00",
+  "daemon_url": "http://127.0.0.1:7839",
+  "project_root": "/Users/bagjaeseog/codelens-mcp-plugin",
+  "measurements": [
+    {
+      "scenario_id": "lookup_single_symbol",
+      "expected_lane": "native",
+      "codelens_arm": {
+        "status": "ok",
+        "tool": "find_symbol",
+        "bytes": 808,
+        "elapsed_ms": 1
+      }
+    },
+    {
+      "scenario_id": "edit_single_line",
+      "expected_lane": "native",
+      "codelens_arm": {
+        "status": "skipped",
+        "reason": "native-arm-only"
+      }
+    },
+    {
+      "scenario_id": "impact_report_multi_file",
+      "expected_lane": "codelens_after_bootstrap",
+      "codelens_arm": {
+        "status": "ok",
+        "tool": "impact_report",
+        "bytes": 1600,
+        "elapsed_ms": 1428
+      }
+    },
+    {
+      "scenario_id": "rename_across_workspace",
+      "expected_lane": "codelens_after_bootstrap",
+      "codelens_arm": {
+        "status": "error",
+        "tool": "safe_rename_report",
+        "bytes": 163,
+        "elapsed_ms": 1
+      }
+    },
+    {
+      "scenario_id": "onboard_unfamiliar_repo",
+      "expected_lane": "codelens_after_bootstrap",
+      "codelens_arm": {
+        "status": "ok",
+        "tool": "onboard_project",
+        "bytes": 1315,
+        "elapsed_ms": 86
+      }
+    },
+    {
+      "scenario_id": "extract_function",
+      "expected_lane": "codelens_after_bootstrap",
+      "codelens_arm": {
+        "status": "skipped",
+        "reason": "native-arm-only"
+      }
+    },
+    {
+      "scenario_id": "audit_module_boundary",
+      "expected_lane": "async_analysis",
+      "codelens_arm": {
+        "status": "error",
+        "tool": "start_analysis_job",
+        "bytes": 60,
+        "elapsed_ms": 22
+      }
+    },
+    {
+      "scenario_id": "dead_code_report_full_repo",
+      "expected_lane": "async_analysis",
+      "codelens_arm": {
+        "status": "error",
+        "tool": "start_analysis_job",
+        "bytes": 60,
+        "elapsed_ms": 0
+      }
+    },
+    {
+      "scenario_id": "trace_call_path",
+      "expected_lane": "codelens_after_bootstrap",
+      "codelens_arm": {
+        "status": "error",
+        "tool": "trace_request_path",
+        "bytes": 163,
+        "elapsed_ms": 0
+      }
+    },
+    {
+      "scenario_id": "fix_single_bug",
+      "expected_lane": "native",
+      "codelens_arm": {
+        "status": "skipped",
+        "reason": "native-arm-only"
+      }
+    }
+  ]
+}

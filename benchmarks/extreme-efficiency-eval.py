@@ -30,12 +30,22 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import sys
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCENARIOS_PATH = REPO_ROOT / "benchmarks" / "scenarios" / "extreme-efficiency.json"
+DEFAULT_RESULTS_DIR = REPO_ROOT / "benchmarks" / "results"
+DEFAULT_DAEMON_URL = "http://127.0.0.1:7839"
+
+sys.path.insert(0, str(REPO_ROOT / "benchmarks"))
+try:
+    import benchmark_runtime_common as rc  # noqa: E402
+except ImportError:  # pragma: no cover — loader path should always work
+    rc = None  # type: ignore[assignment]
 
 # Per-scenario tool call the planner will execute in the "codelens"
 # arm. Keyed by scenario `id` so edits to one side are caught by the
@@ -132,6 +142,111 @@ def run_dry_run(scenarios: list[dict]) -> int:
     return exit_code
 
 
+def run_live(
+    scenarios: list[dict],
+    daemon_url: str,
+    results_dir: Path,
+    project_root: Path | None,
+) -> int:
+    """Invoke the codelens daemon on each scenario, measure wire bytes +
+    latency, write a timestamped result file. Single-arm slice 3 —
+    only the `codelens` arm runs; native / hybrid arms follow once a
+    baseline exists.
+    """
+    if rc is None:
+        print("error: benchmark_runtime_common import failed", file=sys.stderr)
+        return 2
+
+    sanity = sanity_check_plan(scenarios)
+    if sanity != 0:
+        return sanity
+
+    session_id, _init_payload, _ = rc.initialize_http_session(
+        daemon_url, profile="reviewer-graph"
+    )
+    if not session_id:
+        print(
+            f"error: initialize returned no session id at {daemon_url}",
+            file=sys.stderr,
+        )
+        return 2
+
+    if project_root is not None:
+        activate_payload = rc.extract_tool_payload(
+            rc.mcp_http_tool_call(
+                daemon_url,
+                "activate_project",
+                {"project": str(project_root)},
+                session_id=session_id,
+            )
+        )
+        data = (
+            activate_payload.get("data") if isinstance(activate_payload, dict) else None
+        )
+        if not (isinstance(data, dict) and data.get("activated")):
+            print(
+                f"error: activate_project failed for {project_root}: {activate_payload}",
+                file=sys.stderr,
+            )
+            return 2
+
+    measurements: list[dict[str, object]] = []
+    for scenario in scenarios:
+        plan = PLANNED_TOOL_CALLS.get(scenario["id"])
+        if plan is None:
+            measurements.append(
+                {
+                    "scenario_id": scenario["id"],
+                    "expected_lane": scenario["expected_lane"],
+                    "codelens_arm": {"status": "skipped", "reason": "native-arm-only"},
+                }
+            )
+            continue
+        tool = str(plan["tool"])
+        arguments = dict(plan["arguments"])
+        start = time.monotonic()
+        response = rc.mcp_http_tool_call(
+            daemon_url, tool, arguments, session_id=session_id
+        )
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        payload = rc.extract_tool_payload(response)
+        serialized = json.dumps(payload, separators=(",", ":"))
+        measurements.append(
+            {
+                "scenario_id": scenario["id"],
+                "expected_lane": scenario["expected_lane"],
+                "codelens_arm": {
+                    "status": "ok" if payload.get("success") is not False else "error",
+                    "tool": tool,
+                    "bytes": len(serialized),
+                    "elapsed_ms": elapsed_ms,
+                },
+            }
+        )
+
+    results_dir.mkdir(parents=True, exist_ok=True)
+    today = datetime.date.today().isoformat()
+    out_path = results_dir / f"extreme-efficiency-{today}.json"
+    doc = {
+        "schema_version": 1,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "daemon_url": daemon_url,
+        "project_root": str(project_root) if project_root else None,
+        "measurements": measurements,
+    }
+    out_path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {out_path.relative_to(REPO_ROOT)}")
+    for row in measurements:
+        arm = row["codelens_arm"]
+        if arm.get("status") == "skipped":
+            continue
+        print(
+            f"  {row['scenario_id']:<32} {arm.get('tool'):<22} "
+            f"bytes={arm.get('bytes'):>6} elapsed={arm.get('elapsed_ms'):>5} ms"
+        )
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -146,7 +261,7 @@ def main(argv: list[str]) -> int:
     mode.add_argument(
         "--live",
         action="store_true",
-        help="Invoke codelens-mcp stdio per scenario (not implemented in slice 2).",
+        help="Invoke codelens daemon (HTTP) per scenario and write results JSON.",
     )
     parser.add_argument(
         "--scenarios",
@@ -154,13 +269,28 @@ def main(argv: list[str]) -> int:
         default=SCENARIOS_PATH,
         help=f"Path to scenarios JSON. Defaults to {SCENARIOS_PATH.relative_to(REPO_ROOT)}.",
     )
+    parser.add_argument(
+        "--daemon-url",
+        default=DEFAULT_DAEMON_URL,
+        help=f"Codelens daemon URL (default {DEFAULT_DAEMON_URL}).",
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=Path,
+        default=DEFAULT_RESULTS_DIR,
+        help=f"Results directory (default {DEFAULT_RESULTS_DIR.relative_to(REPO_ROOT)}).",
+    )
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=REPO_ROOT,
+        help="Project root to activate before running scenarios (default repo root).",
+    )
     args = parser.parse_args(argv)
 
-    if args.live:
-        print("error: --live is not implemented yet; slice 3 target.", file=sys.stderr)
-        return 2
-
     scenarios = load_scenarios(args.scenarios)
+    if args.live:
+        return run_live(scenarios, args.daemon_url, args.results_dir, args.project_root)
     return run_dry_run(scenarios)
 
 
