@@ -1,0 +1,213 @@
+{
+  "schema_version": "harness-eval-v1",
+  "release": "v1.9.52",
+  "date": "2026-04-21",
+  "harness": {
+    "host": "Claude Code",
+    "host_model": "claude-opus-4-7-1m",
+    "mcp_servers": [
+      "codelens (HTTP @ 127.0.0.1:7839)",
+      "serena",
+      "claude-in-chrome",
+      "codex"
+    ],
+    "single_arm": true,
+    "binary_under_test": "v1.9.52 (current HEAD)"
+  },
+  "definition_compliance": {
+    "source": "Anthropic Grace et al. 2026 + TerminalBench-2 + agent-harness survey",
+    "criteria": {
+      "real_llm_loop": true,
+      "full_trajectory_capture": "self-reported per subagent + parent observation",
+      "binary_pass_fail_per_task": true,
+      "model_plus_harness_pair": true,
+      "six_components_evaluated": "partial — execution env / tool integration / context mgmt covered; scope negotiation / loop mgmt / verification implicit"
+    }
+  },
+  "phase_1_capability_comparison": {
+    "label": "capability comparison, NOT harness engineering",
+    "task_set": [
+      {
+        "id": "A",
+        "name": "traversal_kind utilization on get_impact_analysis"
+      },
+      { "id": "B", "name": "session_continuation_hint condition lookup" },
+      { "id": "C", "name": "handle_request rename safety" }
+    ],
+    "results": [
+      {
+        "tier": "sonnet",
+        "model": "claude-sonnet-4-6",
+        "subagent": "general-purpose",
+        "tool_calls": 7,
+        "tokens": 41446,
+        "duration_ms": 35422,
+        "pass_count": 3,
+        "pass_total": 3,
+        "tool_search_overhead": 2,
+        "agent_id": "a66cae07467f65a1c"
+      },
+      {
+        "tier": "opus",
+        "model": "claude-opus-4-7",
+        "subagent": "general-purpose",
+        "tool_calls": 8,
+        "tokens": 48013,
+        "duration_ms": 39606,
+        "pass_count": 3,
+        "pass_total": 3,
+        "tool_search_overhead": 3,
+        "agent_id": "a367812174d20bc3f"
+      },
+      {
+        "tier": "haiku",
+        "model": "claude-haiku-4-5",
+        "subagent": "general-purpose",
+        "tool_calls": 11,
+        "tokens": 68282,
+        "duration_ms": 51386,
+        "pass_count": 3,
+        "pass_total": 3,
+        "tool_search_overhead": 0,
+        "agent_id": "aa3a6553f7ff98032"
+      },
+      {
+        "tier": "codex",
+        "model": "gpt-5.4 (codex)",
+        "subagent": "mcp__codex__codex",
+        "tool_calls": null,
+        "tokens": null,
+        "duration_ms": null,
+        "pass_count": 0,
+        "pass_total": 3,
+        "outcome": "user_cancel after timeout — MCP stdio boot too slow for read-only Q&A"
+      }
+    ],
+    "verdict": "Sonnet most efficient (default tier confirmed). Opus accurate but ToolSearch overhead penalty for simple lookups. Haiku accurate but 57% more tool calls than Sonnet. Codex unsuitable for one-shot read-only Q&A."
+  },
+  "phase_2_orchestrator_worker_pattern": {
+    "label": "real harness-engineering trajectory per Anthropic orchestrator-worker pattern",
+    "end_to_end_task": "Author docs/release-notes/v1.9.52-harness-eval.md from scratch via orchestrator-worker dispatch with full trajectory + pass/fail gate",
+    "roles": [
+      {
+        "role": "worker",
+        "tier": "haiku",
+        "model": "claude-haiku-4-5",
+        "agent_id": "a12be0dec8162f76b",
+        "task": "bounded scan: git log -10, ls release-notes, wc release-notes, ls schema-snapshot artifacts, git tag list",
+        "tool_calls": 5,
+        "tools_list": ["Bash"],
+        "tokens": 49825,
+        "duration_ms": 11829,
+        "errors": 0,
+        "pass": true,
+        "self_report_accurate": true,
+        "notes": "Bounded scan tier — perfect fit. 5/5 read-only Bash with zero overhead."
+      },
+      {
+        "role": "orchestrator",
+        "tier": "sonnet",
+        "model": "claude-sonnet-4-6",
+        "agent_id": "a34d5b1e27318362e",
+        "task": "Synthesize 7-acceptance-criteria draft from worker output + Phase 1 measurement + parent context",
+        "tool_calls": 1,
+        "tools_list": ["Read"],
+        "tokens": 33483,
+        "duration_ms": 76529,
+        "errors": 0,
+        "draft_lines": 182,
+        "pass": true,
+        "self_report_accurate": false,
+        "self_report_tokens_estimate": 3000,
+        "actual_tokens": 33483,
+        "self_report_drift_factor": 11.16,
+        "notes": "Self-reported ~3k tokens vs trajectory 33k — 11x drift. Cross-check self-stats with trajectory log mandatory. Otherwise clean: 1 Read followed by full draft synthesis."
+      },
+      {
+        "role": "evaluator",
+        "tier": "opus",
+        "model": "claude-opus-4-7",
+        "agent_id": "a7509cc229b20fe34",
+        "task": "Score 7 ACs with binary 0.0/0.5/1.0 + actionable repair hints + verdict",
+        "tool_calls": 0,
+        "tools_list": [],
+        "tokens": 31782,
+        "duration_ms": 32183,
+        "errors": 0,
+        "criteria_scores": [
+          { "id": "AC1", "score": 1.0 },
+          { "id": "AC2", "score": 0.5, "repair_after": 1.0 },
+          { "id": "AC3", "score": 0.5, "repair_after": 1.0 },
+          { "id": "AC4", "score": 0.5, "repair_after": 1.0 },
+          { "id": "AC5", "score": 0.5, "repair_after": 1.0 },
+          { "id": "AC6", "score": 1.0 },
+          { "id": "AC7", "score": 1.0 }
+        ],
+        "aggregate_before_repair": 0.71,
+        "verdict_before_repair": "PARTIAL",
+        "aggregate_after_repair": 1.0,
+        "verdict_after_repair": "PASS",
+        "repair_hints_count": 4,
+        "pass": true,
+        "notes": "0 tool calls — pure critic role on draft text. Identified 3 placeholder-table issues + 1 self-stat anomaly accurately."
+      },
+      {
+        "role": "specialist",
+        "tier": "codex",
+        "model": "gpt-5.4 (codex)",
+        "agent_id": null,
+        "task": "Apply final markdown patch to release notes file",
+        "skipped": true,
+        "skip_reason": "Phase 1 timeout in same read-only environment + single Write call by parent is cheaper than Codex MCP boot",
+        "pass": null
+      }
+    ],
+    "repair_cycle": {
+      "applied_by": "parent (Claude Code Opus 4.7)",
+      "repairs": [
+        "AC2: distinguished Grace et al. 2026 (model+harness pair definition) vs TerminalBench-2 (trajectory + binary pass/fail methodology)",
+        "AC3: rendered actual 4-row capability table with Codex timeout reason",
+        "AC4: corrected Sonnet self-stat (3k→33k, 15s→77s) + filled Evaluator row with real numbers (0/32k/32s/PARTIAL→PASS)",
+        "AC5: rendered 4-row tier guidance matrix with when-to-use + when-to-avoid"
+      ],
+      "post_repair_verdict": "PASS (1.00)"
+    },
+    "aggregate_metrics": {
+      "total_subagent_tool_calls": 6,
+      "total_subagent_tokens": 115090,
+      "total_subagent_wall_ms": 120541,
+      "tier_with_most_tokens": "haiku-worker (50k)",
+      "tier_with_most_time": "sonnet-orchestrator (77s)",
+      "doom_loops_detected": 0,
+      "errors": 0
+    }
+  },
+  "limitations": [
+    "single-arm v1.9.52 only — no v1.9.50 A/B in this run",
+    "n=1 task per tier (capability) and n=1 end-to-end task (orch-worker)",
+    "task selection biased toward O8a-introduced fields",
+    "Codex skip in Phase 2 prevents specialist tier evaluation",
+    "self-report token drift 11x in Sonnet — accurate only after parent cross-check",
+    "Phase 1 is capability comparison NOT harness engineering",
+    "observer effect: orchestrator records own run"
+  ],
+  "plumbing_changes_in_release": {
+    "agent_md_frontmatter": {
+      "orchestrator.md": "model: opus → sonnet; +maxTurns:15 +memory:project +mcpServers:[codelens]",
+      "evaluator.md": "model: haiku → opus; +maxTurns:10 +memory:project +mcpServers:[codelens]",
+      "builder.md": "+maxTurns:25 +mcpServers:[codelens] (model unchanged)",
+      "codelens-explorer.md": "+maxTurns:8 +memory:project +mcpServers:[codelens] (model unchanged)",
+      "codex-builder.md": "model: haiku → sonnet; +maxTurns:20 +mcpServers:[codelens, codex]",
+      "supervisor.md": "model: opus → sonnet; +maxTurns:20 +memory:project +mcpServers:[codelens]"
+    },
+    "claude_md_global": "added Subagent Model Selection + Tool Budget Calibration + 3 learned rules (harness eval definition, capability vs harness eng, surface 4 priority)",
+    "claude_md_project": "added Model × CodeLens Workflow Matrix + Subagent CodeLens scoping guide",
+    "settings_json": "no changes (dead env avoided per learned rule on unused abstractions)"
+  },
+  "next_steps": [
+    "v1.9.50 binary side-by-side A/B (requires session restart)",
+    "expand to n>=20 tasks per tier for statistical significance",
+    "Codex specialist evaluation in implementation loop (edit+build+test) instead of read-only Q&A",
+    "reproduce orch-worker pattern in other task domains (review, refactor, spec design)"
+  ]
+}
