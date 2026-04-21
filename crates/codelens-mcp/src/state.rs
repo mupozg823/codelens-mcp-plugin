@@ -423,6 +423,9 @@ impl AppState {
         match self.effort_level.load(std::sync::atomic::Ordering::Relaxed) {
             0 => EffortLevel::Low,
             1 => EffortLevel::Medium,
+            3 => EffortLevel::XHigh,
+            // 2 or any unknown value decodes to High — matches
+            // `EffortLevel::detect`'s unknown→High fallback policy.
             _ => EffortLevel::High,
         }
     }
@@ -433,6 +436,7 @@ impl AppState {
             EffortLevel::Low => 0u8,
             EffortLevel::Medium => 1,
             EffortLevel::High => 2,
+            EffortLevel::XHigh => 3,
         };
         self.effort_level
             .store(val, std::sync::atomic::Ordering::Relaxed);
@@ -588,6 +592,7 @@ impl AppState {
                 EffortLevel::Low => 0,
                 EffortLevel::Medium => 1,
                 EffortLevel::High => 2,
+                EffortLevel::XHigh => 3,
             }),
             surface: Mutex::new(ToolSurface::Preset(preset)),
             token_budget: std::sync::atomic::AtomicUsize::new(
