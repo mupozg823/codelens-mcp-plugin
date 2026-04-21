@@ -61,8 +61,20 @@ fn set_preset_changes_tools_list() {
     .unwrap();
     let full_json = serde_json::to_string(&full_resp).unwrap();
     assert!(
-        full_json.contains("find_dead_code"),
-        "Full preset with include_deprecated should include find_dead_code"
+        !full_json.contains("find_dead_code"),
+        "Hidden compat aliases should stay out of tools/list even with include_deprecated"
+    );
+    assert!(
+        !full_json.contains("get_impact_analysis"),
+        "Hidden compat aliases should stay out of tools/list even with include_deprecated"
+    );
+    assert!(
+        full_json.contains("dead_code_report"),
+        "Full preset should expose the canonical dead_code_report workflow"
+    );
+    assert!(
+        full_json.contains("impact_report"),
+        "Full preset should expose the canonical impact_report workflow"
     );
     assert!(
         full_json.contains("set_preset"),

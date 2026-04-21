@@ -2601,9 +2601,14 @@ fn deprecated_aliases_are_hidden_from_non_full_visible_surfaces() {
         .into_iter()
         .map(|tool| tool.name)
         .collect::<Vec<_>>();
-    assert!(full_tools.contains(&"analyze_change_impact"));
-    assert!(full_tools.contains(&"audit_security_context"));
-    assert!(full_tools.contains(&"assess_change_readiness"));
+    assert!(!full_tools.contains(&"get_impact_analysis"));
+    assert!(!full_tools.contains(&"find_dead_code"));
+    assert!(!full_tools.contains(&"analyze_change_impact"));
+    assert!(!full_tools.contains(&"audit_security_context"));
+    assert!(!full_tools.contains(&"assess_change_readiness"));
+    assert!(full_tools.contains(&"impact_report"));
+    assert!(full_tools.contains(&"semantic_code_review"));
+    assert!(full_tools.contains(&"verify_change_readiness"));
 }
 
 #[test]

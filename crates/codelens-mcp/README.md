@@ -1,95 +1,99 @@
 # codelens-mcp
 
-Harness-native Model Context Protocol (MCP) server binary for
-[CodeLens](https://github.com/mupozg823/codelens-mcp-plugin) — a
-compressed-context and verification layer for multi-agent coding harnesses
-like Claude Code, Codex, Cursor, and Continue.
+Harness-native Model Context Protocol server for
+[CodeLens MCP](https://github.com/mupozg823/codelens-mcp-plugin) — a
+bounded code-intelligence layer for Claude Code, Codex, Cursor,
+Continue, and other agentic coding hosts.
 
 Built on [codelens-engine](https://crates.io/crates/codelens-engine).
-Exposes ~107 tools over JSON-RPC stdio or streamable HTTP, with role-
-based tool surfaces, adaptive token compression, mutation gates, and
-durable analysis job handles.
+Current release line: [v1.9.54](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.54).
 
-## What problem it solves
+## Why it exists
 
-Multi-agent coding harnesses burn tokens on `tools/list`, repeated file
-reads, and unbounded graph expansion. `codelens-mcp` keeps a live,
-indexed view of the codebase and answers precise questions with bounded
-responses plus a handle for optional drill-down — typically cutting
-6-170× fewer tokens than a `rg + cat` loop on the same task.
+Most coding agents do not fail because they cannot write code. They fail
+because the harness around them exposes too much surface, too much raw
+context, and too little verifier evidence before mutation.
 
-See [docs/benchmarks.md](https://github.com/mupozg823/codelens-mcp-plugin/blob/main/docs/benchmarks.md)
-for reproducible numbers (tiktoken cl100k_base).
+`codelens-mcp` narrows that gap:
 
-## Architecture
+- exposes a role-scoped MCP surface instead of dumping the whole tool registry
+- turns codebase retrieval into bounded workflow artifacts instead of `rg + cat`
+- gates risky mutation behind explicit preflight and audit evidence
+- keeps multi-agent sessions resumable with analysis handles and release artifacts
+
+## Public proof points
+
+| Claim | Number | Source |
+| ----- | ------ | ------ |
+| Token reduction on structured tasks | **6.1x (84% fewer tokens)** | [`docs/benchmarks.md`](https://github.com/mupozg823/codelens-mcp-plugin/blob/main/docs/benchmarks.md) |
+| Best single-task compression | **167x** | same |
+| Workflow profile compression | **15-16x** | same |
+| Hybrid self MRR | **0.681** | same |
+| Cold start without LSP | **~12 ms** | same |
+
+## Product shape
 
 ```text
-┌───────────────────────────────────────────────────────────┐
-│   MCP client  (Claude Code · Codex · Cursor · Continue)   │
-└──────────────────────────┬────────────────────────────────┘
-                           │ JSON-RPC over stdio / HTTP
-                           ▼
-┌───────────────────────────────────────────────────────────┐
-│   server/         router · oneshot · transport_stdio · http│
-│   dispatch/       envelope · table · rate_limit · response │
-│   tool_defs/      surfaces · presets · profiles · schemas  │
-│   tools/          107 tool handlers (symbols · reports ·   │
-│                   mutation · lsp · memory · session …)     │
-│   state/          session_host · embedding_host · metrics  │
-│   access · mutation_gate · telemetry · analysis_queue      │
-└──────────────────────────┬────────────────────────────────┘
-                           ▼
-                  codelens-engine (data plane)
-                           ▼
-     .codelens/{symbols.db, vec.db, memories, audit} per project
+Host (Claude / Codex / Cursor / Continue)
+        │ stdio / streamable HTTP
+        ▼
+codelens-mcp
+  ├─ profiles, presets, workflow routing
+  ├─ mutation gates, audit artifacts, coordination
+  ├─ analysis handles, durable jobs, usage evidence
+  ▼
+codelens-engine
+  ├─ tree-sitter symbol index
+  ├─ hybrid retrieval + sqlite-vec
+  ├─ import/call graph + ranking
+  └─ optional LSP / SCIP bridges
+        ▼
+.codelens/{symbols.db, vec.db, memories, audit}
 ```
 
-Control plane here, data plane in `codelens-engine`. The server is a
-thin policy layer: it normalises tool calls, enforces surface/profile
-visibility, runs mutation preflight gates, shapes responses to a token
-budget, and persists durable analysis handles. All semantic work is
-delegated to the engine crate.
+The server is intentionally the thin control plane. Heavy code
+understanding stays in `codelens-engine`; `codelens-mcp` owns surface
+selection, response shaping, mutation safety, and harness-facing
+artifacts.
 
-## Tool surfaces
+## Runtime surfaces
 
-Five role-based surfaces bound what each agent can see in `tools/list`:
+Visible surface is profile-dependent. `108` is the total compiled
+registry; live sessions only see the surface selected by their profile.
+Current generated profiles:
 
-| Surface            | Intended role                       | Mutation? | Response cap |
-| ------------------ | ----------------------------------- | --------- | ------------ |
-| `planner-readonly` | task decomposition, impact review   | no        | small        |
-| `builder-minimal`  | implementation with preflight gates | yes       | medium       |
-| `reviewer-graph`   | diff + impact + references          | no        | medium       |
-| `refactor-full`    | rename/move/extract multi-file ops  | yes       | larger       |
-| `ci-audit`         | deterministic machine-schema report | no        | medium       |
+| Profile | Tools | Primary use | Mutation |
+| ------- | ----: | ----------- | -------- |
+| `planner-readonly` | 35 | planner bootstrap and architecture review | no |
+| `builder-minimal` | 37 | focused implementation | gated |
+| `reviewer-graph` | 12 | diff and impact review | no |
+| `evaluator-compact` | 14 | pass/fail scoring and signoff | no |
+| `refactor-full` | 49 | broad multi-file mutation | yes |
+| `ci-audit` | 41 | machine-readable export and batch analysis | no |
+| `workflow-first` | 19 | low-friction first attach | no |
 
-Switch surfaces with `set_profile`. Bootstrap the whole preflight chain
-with `prepare_harness_session` — the canonical entrypoint for harness
-authors. See `docs/multi-agent-integration.md` for the fixed 4-step
-preflight contract.
+Bootstrap with `prepare_harness_session`. That response carries the
+effective runtime surface, host capability summary, and coordination
+metadata for the current session.
 
-## Tool families
+## What v1.9.54 added
 
-| Family                 | Examples                                                                  |
-| ---------------------- | ------------------------------------------------------------------------- |
-| Symbols                | `find_symbol`, `get_symbols_overview`, `get_ranked_context`               |
-| References / impact    | `find_referencing_symbols`, `impact_report`, `diff_aware_references`      |
-| Workflows (high-level) | `analyze_change_request`, `verify_change_readiness`, `safe_rename_report` |
-| Async analysis         | `start_analysis_job`, `get_analysis_job`, `get_analysis_section`          |
-| Mutation (gated)       | `rename_symbol`, `replace_symbol_body`, `refactor_extract_function`       |
-| Session & coordination | `prepare_harness_session`, `register_agent_work`, `claim_files`           |
-| Memory                 | `read_memory`, `write_memory`, `list_memories`                            |
-| LSP bridge             | `get_file_diagnostics`, `plan_symbol_rename`, `check_lsp_status`          |
+- `release-harness-runner.py` for one-command automated harness evaluation
+- `usage-drift.*` and `independent-signoff.*` as standard release artifacts
+- opt-in `--coordination-mode strict` for trusted HTTP `refactor-full` mutation
+- capability output that exposes `coordination_mode` and strict enforcement summary
+- second-pass registry reduction from `113` to `108` with canonical workflow-first visibility
 
 ## Quick start
 
 ```bash
-# stdio (default). Good for a single-agent local MCP session.
+# stdio (single-agent local MCP session)
 cargo install codelens-mcp
 
-# HTTP transport (shared daemon for multi-agent setups).
+# shared HTTP daemon for multi-agent setups
 cargo install codelens-mcp --features http
 
-# One-shot call from the CLI (no MCP client needed):
+# one-shot CLI call without an MCP host
 codelens-mcp . --cmd get_ranked_context --args '{"query":"http session bootstrap"}'
 ```
 
@@ -103,35 +107,56 @@ codelens-mcp . --cmd get_ranked_context --args '{"query":"http session bootstrap
 }
 ```
 
-### Shared HTTP daemon (multi-agent)
+### Shared HTTP daemon
 
 ```bash
-# one read-only daemon for planners/reviewers
-codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only     --port 7837
-# one mutation-enabled daemon for refactor agents
-codelens-mcp /path/to/project --transport http --profile refactor-full  --daemon-mode mutation-enabled --port 7838
+# read-only planner / reviewer daemon
+codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
+
+# mutation-capable refactor daemon
+codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
 ```
 
-See `docs/multi-agent-integration.md` for the full protocol.
+### Strict coordination mode
+
+```bash
+codelens-mcp /path/to/project \
+  --transport http \
+  --profile refactor-full \
+  --daemon-mode mutation-enabled \
+  --coordination-mode strict
+```
+
+`strict` is opt-in and only applies to trusted non-local HTTP
+`refactor-full` mutations. It requires path coverage from the recent
+preflight plus active `claim_files` evidence.
+
+## Tool families
+
+| Family | Examples |
+| ------ | -------- |
+| Symbols | `find_symbol`, `get_symbols_overview`, `get_ranked_context` |
+| Workflows | `explore_codebase`, `trace_request_path`, `plan_safe_refactor` |
+| Review | `review_changes`, `impact_report`, `diff_aware_references` |
+| Mutation | `rename_symbol`, `replace_symbol_body`, `refactor_extract_function` |
+| Session | `prepare_harness_session`, `register_agent_work`, `claim_files` |
+| Async analysis | `start_analysis_job`, `get_analysis_job`, `get_analysis_section` |
 
 ## Feature flags
 
-| Feature         | Default | Adds                                                           |
-| --------------- | ------- | -------------------------------------------------------------- |
-| `semantic`      | yes     | Embedding-based hybrid retrieval (via codelens-engine)         |
-| `http`          | no      | `axum` + `tokio` streamable HTTP transport                     |
-| `otel`          | no      | OpenTelemetry OTLP span exporter (see `docs/observability.md`) |
-| `scip-backend`  | no      | SCIP precise navigation backend                                |
-| `model-bakeoff` | no      | Alternative embedding-model benchmark harness                  |
+| Feature | Default | Adds |
+| ------- | ------- | ---- |
+| `semantic` | yes | embedding-based hybrid retrieval |
+| `http` | no | streamable HTTP transport |
+| `otel` | no | OpenTelemetry OTLP span exporter |
+| `scip-backend` | no | SCIP precise navigation backend |
+| `model-bakeoff` | no | alternative embedding benchmark harness |
 
 ## Non-goals
 
-- Not a general-purpose IDE backend. No completion, no hover, no quick-fix.
-- Not a replacement for rustfmt / clippy / cargo. Wraps them only as
-  part of the harness integration surface.
-- Not a chatbot. No natural-language generation, no LLM calls, no model
-  hosting. CodeLens only _compresses context_ so the model can think
-  better.
+- Not a general-purpose IDE backend
+- Not a replacement for `cargo`, `clippy`, or language-native build tools
+- Not a chatbot or model host
 
 ## License
 

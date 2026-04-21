@@ -19,38 +19,73 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 </div>
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
-
 ## Surface Snapshot
 
-- Workspace version: `1.9.50`
+- Workspace version: `1.9.54`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions: `111`
-- Tool output schemas: `77 / 111`
+- Registered tool definitions: `108`
+- Tool output schemas: `73 / 108`
 - Supported language families: `30` across `49` extensions
-- Profiles: `planner-readonly` (35), `builder-minimal` (36), `reviewer-graph` (35), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (43), `workflow-first` (19)
-- Presets: `minimal` (27), `balanced` (78), `full` (111)
+- Profiles: `planner-readonly` (35), `builder-minimal` (37), `reviewer-graph` (12), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (41), `workflow-first` (19)
+- Presets: `minimal` (27), `balanced` (79), `full` (108)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
 
 ---
 
-## The Problem
+## Why This Exists
 
-Multi-agent coding harnesses fail when every agent sees too many tools, too much raw code, and too many intermediate results. Tokens get burned on `tools/list`, repeated file reads, and low-value raw graph expansion.
+Most agent stacks are no longer bottlenecked by raw code generation. They are bottlenecked by **harness shape**: too many tools, too much repeated context, and too little verifier evidence before mutation. The result is predictable: token burn on `tools/list`, duplicated `rg + cat` loops, and builders editing outside the part of the repo the planner actually scoped.
 
-## The Solution
+CodeLens sits between the host and the repository as a **bounded code-intelligence substrate**. It narrows the visible surface, answers high-leverage questions with structured artifacts, and turns risky mutation into a preflighted, auditable path instead of "just another tool call."
 
-CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a harness optimization layer. The model asks a precise question and gets a bounded answer with a handle for deeper expansion only when needed.
+Important distinction: **`108` is the compiled source registry**, not the
+default runtime surface any host sees. In normal operation the visible
+surface is profile-scoped: `reviewer-graph` exposes `12`, `evaluator-compact`
+`14`, `workflow-first` `19`, `planner-readonly` `35`, `builder-minimal` `37`,
+`ci-audit` `41`, and `refactor-full` `49`. The default `balanced` preset shows
+`79`, not `108`.
 
+## What v1.9.54 Delivers
+
+| Layer | What ships in the current release |
+| ----- | --------------------------------- |
+| Workflow entrypoints | `explore_codebase`, `trace_request_path`, `review_changes`, `plan_safe_refactor`, `diagnose_issues` |
+| Runtime surfaces | 108 total definitions in source, but only 12-49 visible per profile; 7 runtime profiles plus 3 presets |
+| Multi-agent control | `prepare_harness_session`, `register_agent_work`, `claim_files`, mutation gates, durable analysis handles |
+| Release harness | `benchmarks/harness/release-harness-runner.py`, `usage-drift.*`, `independent-signoff.*` |
+| Coordination | default `advisory`, opt-in `strict` for trusted HTTP `refactor-full` mutations |
+| Deployment | single Rust binary over stdio or streamable HTTP, release assets, Homebrew formula, installer script, source build |
+
+## Performance Proof
+
+| Public claim | Current number | Source |
+| ------------ | -------------- | ------ |
+| Token reduction on structured tasks | **6.1x (84% fewer tokens)** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+| Best single-task compression | **167x** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+| Workflow profile compression | **15-16x** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+| Hybrid self MRR | **0.681** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+| Cold start without LSP | **~12 ms** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+
+The benchmark contract is intentionally conservative: self-repo numbers are not presented as cross-language generalizations, and the 5-repo matrix explicitly shows that hybrid, semantic, and lexical retrieval each win on different repositories.
+
+## Architecture At A Glance
+
+CodeLens is not the agent and not an IDE backend. It is the **MCP control plane** in front of `codelens-engine`.
+
+- Interactive map: [`docs/architecture-d3.html`](docs/architecture-d3.html)
+- Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
+- Benchmarks and retrieval quality: [`docs/benchmarks.md`](docs/benchmarks.md)
+- Automated harness release notes: [`docs/release-notes/v1.9.54.md`](docs/release-notes/v1.9.54.md)
+
+```text
+Host (Claude / Codex / Cursor / Continue)
+        -> codelens-mcp
+        -> bounded workflows, profiles, mutation gates, audit artifacts
+        -> codelens-engine
+        -> tree-sitter, hybrid retrieval, graph analysis, LSP bridge
+        -> .codelens state + SQLite / sqlite-vec
 ```
-Without CodeLens                                    With CodeLens
-─────────────────────────────────────────────────────────────────
-Read file + grep references   → 4,600 tokens       get_impact_analysis    → 1,500 tokens  (67% saved)
-Read manifest + entry + files → 5,000 tokens       onboard_project        →   660 tokens  (87% saved)
-Read + grep × 3 files         → 3,200 tokens       get_ranked_context     →   800 tokens  (75% saved)
-```
-
-> Measured with tiktoken (cl100k_base) on real projects. Reproducible via `benchmarks/token-efficiency.py`.
 
 ## Quick Install
 
@@ -74,7 +109,7 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
 ```
 
-Latest release: [v1.9.35](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.35)
+Latest release: [v1.9.54](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.54)
 
 ### Install Channel Matrix
 
@@ -275,14 +310,15 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ## Why CodeLens?
 
-|                       | CodeLens                             | Read/Grep baseline           |
-| --------------------- | ------------------------------------ | ---------------------------- |
-| **Token cost**        | 50-87% less                          | Full file content every time |
-| **Context quality**   | Ranked, bounded, structured          | Raw text, no prioritization  |
-| **Multi-file impact** | 1 tool call                          | 5-10 grep + read cycles      |
-| **Runtime**           | Single Rust binary, <12ms cold start | N/A                          |
-| **Language support**  | Generated from the surface manifest  | N/A                          |
-| **Agent awareness**   | Doom-loop detection, mutation gates  | None                         |
+|                       | CodeLens                                                              | Read/Grep baseline           |
+| --------------------- | --------------------------------------------------------------------- | ---------------------------- |
+| **Token cost**        | **6.1x lower** on structured tasks, **167x** on best-case retrieval   | Full file content every time |
+| **Context quality**   | Ranked symbols, workflow reports, analysis handles, bounded sections  | Raw text, no prioritization  |
+| **Multi-file impact** | One workflow tool or one analysis handle                              | 5-10 grep + read cycles      |
+| **Mutation safety**   | Preflight gate, audit trail, optional strict coordination             | None                         |
+| **Harness fit**       | Profiles, claims, role routing, deferred surfaces                     | Ad hoc                       |
+| **Runtime**           | Single Rust binary, stdio or shared HTTP, <12ms cold start            | N/A                          |
+| **Release evidence**  | Usage-drift artifacts plus independent evaluator signoff              | None                         |
 
 ## Key Features
 
@@ -302,13 +338,15 @@ Instead of starting from the full raw tool registry, begin with the workflow-fir
 
 ### Role-Based Surfaces
 
-| Profile            | Tools Visible                  | Use Case                                        |
-| ------------------ | ------------------------------ | ----------------------------------------------- |
-| `planner-readonly` | Workflow-first                 | Planner/architect context compression           |
-| `builder-minimal`  | Workflow-first                 | Implementation with focused Codex/agent surface |
-| `reviewer-graph`   | Review-heavy                   | Graph-aware review and risk analysis            |
-| `refactor-full`    | Preview-first + gated mutation | Safe refactors                                  |
-| `ci-audit`         | Machine-oriented               | CI/CD review and report emission                |
+| Profile | Tool count | Use case | Mutation |
+| ------- | ---------: | -------- | -------- |
+| `planner-readonly` | 36 | planner bootstrap, bounded architecture review, handoff preparation | no |
+| `builder-minimal` | 37 | implementation with a tight editing surface | gated |
+| `reviewer-graph` | 12 | diff, impact, and graph-aware review under a very small surface | no |
+| `evaluator-compact` | 14 | pass/fail scoring, acceptance checks, independent signoff | no |
+| `refactor-full` | 50 | broad multi-file mutation after explicit preflight | yes |
+| `ci-audit` | 43 | machine-oriented reports, exported artifacts, batch analysis | no |
+| `workflow-first` | 19 | low-friction first attach and composite workflow routing | no |
 
 ### Adaptive Token Compression
 
@@ -380,13 +418,11 @@ artifacts without spinning up LSPs.
 ## Language Support
 
 <!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
-
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json).
-
 <!-- SURFACE_MANIFEST_README_LANGUAGES:END -->
 
 ## Performance
@@ -563,18 +599,23 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 
 ## Quality Assurance
 
-| Suite                      | Tests   | Scope                                      |
-| -------------------------- | ------- | ------------------------------------------ |
-| codelens-engine            | 286     | Parsing, ranking, embedding, IR            |
-| codelens-mcp               | 238     | Dispatch, workflows, profiles, schemas     |
-| codelens-mcp (no semantic) | ~190    | Feature-off path verification              |
-| Dataset lint               | 5 rules | file_exists, negative≠positive, duplicates |
+| Gate | Command | Scope |
+| ---- | ------- | ----- |
+| Build | `cargo check` | workspace compile health |
+| Release build | `cargo build --release --features http` | tagged binary path |
+| Engine tests | `cargo test -p codelens-engine` | parsing, ranking, embedding, graph logic |
+| MCP tests | `cargo test -p codelens-mcp --features http` | transport, workflow, schema, strict coordination |
+| Harness tests | `python3 -m unittest discover -s benchmarks/harness/tests -p 'test_*.py'` | release runner, usage drift, independent signoff |
+| Contract check | `python3 scripts/agent-contract-check.py --strict` | repo-shipped agent prompt vs surface contract |
+| Artifact verify | `bash scripts/verify-release-artifacts.sh` | release bundle integrity |
 
 ```bash
 # Full verification
-cargo test -p codelens-engine && cargo test -p codelens-mcp
-cargo test -p codelens-mcp --no-default-features  # semantic=off path
-python3 benchmarks/lint-datasets.py --project .     # dataset hygiene
+cargo check
+cargo test -p codelens-engine
+cargo test -p codelens-mcp --features http
+python3 -m unittest discover -s benchmarks/harness/tests -p 'test_*.py'
+python3 scripts/agent-contract-check.py --strict
 ```
 
 ## Contributing

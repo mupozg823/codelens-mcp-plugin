@@ -1,29 +1,65 @@
-# CodeLens MCP — Architecture & Project Overview
+# CodeLens MCP — Architecture & Product Shape
 
-> Pure Rust MCP server and harness optimization tool for code intelligence
-> Harness optimization control plane with generated surface governance and tree-sitter-first retrieval
+> The bounded MCP control plane for agentic coding harnesses.
+> v1.9.54 extends the automated harness release with second-pass registry
+> reduction and a cleaner canonical surface.
 
-## Current Snapshot (2026-04-16)
+## Current Snapshot (2026-04-21)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
-- Workspace version: `1.9.50`
+- Workspace version: `1.9.54`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions in source: `111`
-- Tool output schemas in source: `77 / 111`
+- Registered tool definitions in source: `108`
+- Tool output schemas in source: `73 / 108`
 - Supported language families: `30` across `49` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:END -->
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
+- `108` above is the compiled source registry count; the live visible surface is profile-scoped (`12`-`49` tools per profile, `79` in the default `balanced` preset)
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
-- Current release notes: [GitHub Release v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30)
+- Interactive map: [architecture-d3.html](architecture-d3.html)
+- Current release notes: [GitHub Release v1.9.54](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.54)
 - Current release verification guide: [docs/release-verification.md](release-verification.md)
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
 - Current enterprise productization decision record: [docs/adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
 
-This document describes the product shape and the stable architectural layers.
-The audit document above captures the current overdesign, duplication, and drift findings against the latest code.
+This document describes the product shape and the stable architectural
+layers. The audit document above captures current overdesign,
+duplication, and drift findings against the latest code.
+
+## Design Intent
+
+CodeLens exists to solve a very specific systems problem: large coding
+agents waste attention on raw repository I/O unless the harness puts a
+bounded control plane in front of them. The design therefore optimizes
+for four constraints:
+
+1. **Host-visible surfaces stay small.** The server generates profiles
+   and presets from the canonical tool registry so a planner,
+   builder, reviewer, and evaluator do not all inherit the same
+   `tools/list`.
+2. **Heavy understanding stays in the engine.** `codelens-mcp`
+   remains the policy layer; `codelens-engine` owns parsing, ranking,
+   graph analysis, and storage.
+3. **Mutation is evidence-backed.** Refactor-heavy paths are routed
+   through verifier evidence, audit logs, and optional strict
+   coordination rather than being treated as normal text edits.
+4. **Release claims must be reproducible.** Benchmarks, release
+   artifacts, and automated harness runs are first-class parts of the
+   product, not side notes.
+
+## System At A Glance
+
+```text
+Host / Agent Runtime
+  -> codelens-mcp
+     -> profiles, workflows, mutation gates, analysis jobs, audit artifacts
+     -> codelens-engine
+        -> symbols, retrieval, graph analysis, LSP bridge, storage
+        -> .codelens state
+```
 
 ---
 

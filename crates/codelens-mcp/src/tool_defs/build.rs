@@ -7,6 +7,7 @@ use serde_json::json;
 use std::sync::LazyLock;
 
 static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);
+static HIDDEN_COMPAT_TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_hidden_compat_tools);
 
 fn estimate_serialized_tokens(tool: &Tool) -> usize {
     serde_json::to_string(tool)
@@ -78,7 +79,18 @@ pub(crate) fn tools() -> &'static [Tool] {
 }
 
 pub(crate) fn tool_definition(name: &str) -> Option<&'static Tool> {
-    tools().iter().find(|tool| tool.name == name)
+    tools()
+        .iter()
+        .find(|tool| tool.name == name)
+        .or_else(|| {
+            HIDDEN_COMPAT_TOOLS
+                .iter()
+                .find(|tool| tool.name == name)
+        })
+        .or_else(|| {
+            super::presets::deprecated_workflow_alias(name)
+                .and_then(|(replacement, _)| tools().iter().find(|tool| tool.name == replacement))
+        })
 }
 
 fn build_tools() -> Vec<Tool> {
@@ -132,10 +144,8 @@ fn build_tools() -> Vec<Tool> {
 
         // ── Analysis (architecture & dependencies) ──────────────────────
         Tool::new("get_changed_files", "[CodeLens:Analysis] Files changed since a git ref with symbol counts. Use for diff review.", json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}})).with_output_schema(changed_files_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("get_impact_analysis", "[DEPRECATED v1.12 → removal v2.0] Use impact_report directly. [CodeLens:Analysis] Blast radius — what files break if you change this file. Use before risky edits.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}}})).with_output_schema(impact_output_schema()).with_annotations(ro_a.clone()),
         Tool::new("find_scoped_references", "[CodeLens:Analysis] Classify each reference as definition/read/write/import.", json!({"required":["symbol_name"],"type":"object","properties":{"symbol_name":{"type":"string","description":"Symbol name to find references for"},"file_path":{"type":"string","description":"Declaration file (for sorting, optional)"},"max_results":{"type":"integer","description":"Max results (default 50)"}}})).with_output_schema(references_output_schema()).with_annotations(ro_a.clone()),
         Tool::new("get_symbol_importance", "[CodeLens:Analysis] PageRank file importance — find the most critical files in the project.", json!({"type":"object","properties":{"top_n":{"type":"integer"}}})).with_annotations(ro_a.clone()),
-        Tool::new("find_dead_code", "[DEPRECATED v1.12 → removal v2.0] Use dead_code_report directly. [CodeLens:Analysis] Detect unused files and unreferenced symbols via call-graph.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
         Tool::new("find_circular_dependencies", "[CodeLens:Analysis] Detect circular imports using Tarjan SCC algorithm.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
         Tool::new("get_change_coupling", "[CodeLens:Analysis] Files that frequently change together in git history.", json!({"type":"object","properties":{"months":{"type":"integer"},"min_strength":{"type":"number"},"min_commits":{"type":"integer"},"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
 
@@ -166,8 +176,6 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("trace_request_path", "[CodeLens:Workflow] Trace a request or execution path from a function, symbol, or entrypoint.", json!({"type":"object","properties":{"function_name":{"type":"string"},"symbol":{"type":"string"},"entrypoint":{"type":"string"},"max_depth":{"type":"integer"},"max_results":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("review_architecture", "[CodeLens:Workflow] Review project or module architecture, boundaries, coupling, and optionally render a diagram.", json!({"type":"object","properties":{"path":{"type":"string"},"include_diagram":{"type":"boolean"},"max_nodes":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("plan_safe_refactor", "[CodeLens:Workflow] Preview a safe refactor plan. Uses rename safety when file_path+symbol are given; otherwise falls back to broader refactor safety analysis.", json!({"type":"object","properties":{"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"new_name":{"type":"string"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("audit_security_context", "[DEPRECATED v1.12 → removal v2.0] Use semantic_code_review directly. [CodeLens:Workflow] Review changed files for security-sensitive context, references, and semantic risk cues.", json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"}}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("analyze_change_impact", "[DEPRECATED v1.12 → removal v2.0] Use impact_report directly. [CodeLens:Workflow] Problem-first impact entrypoint for changed files or a target path.", json!({"type":"object","properties":{"path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("cleanup_duplicate_logic", "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence.", json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("review_changes", "[CodeLens:Workflow] Pre-merge review: diff-aware references or impact analysis for changed files.", json!({
             "type": "object",
@@ -175,14 +183,6 @@ fn build_tools() -> Vec<Tool> {
                 "changed_files": {"type": "array", "items": {"type": "string"}, "description": "File paths that changed"},
                 "task": {"type": "string", "description": "Review focus description"},
                 "path": {"type": "string", "description": "Scope path"}
-            }
-        })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("assess_change_readiness", "[DEPRECATED v1.12 → removal v2.0] Use verify_change_readiness directly. [CodeLens:Workflow] Preflight gate: verify mutation safety before code changes.", json!({
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string", "description": "Target file to check"},
-                "path": {"type": "string", "description": "Directory scope"},
-                "task": {"type": "string", "description": "Description of the planned change"}
             }
         })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("diagnose_issues", "[CodeLens:Workflow] Diagnostics: file-level issues or unresolved reference check.", json!({
@@ -261,7 +261,27 @@ fn build_tools() -> Vec<Tool> {
         tools.push(Tool::new("find_misplaced_code", "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement.", json!({"type":"object","properties":{"max_results":{"type":"integer","description":"Max outliers to return (default 10)"}}})).with_output_schema(find_misplaced_code_output_schema()).with_annotations(ro));
     }
 
-    for tool in &mut tools {
+    finalize_tools(&mut tools);
+
+    tools
+}
+
+fn build_hidden_compat_tools() -> Vec<Tool> {
+    let ro = ToolAnnotations::read_only();
+    let ro_a = ro.with_tier(ToolTier::Analysis);
+    let mut tools = vec![
+        // Kept out of `tools/list` so registry size reflects the
+        // canonical surface, but preserved here so direct calls and
+        // outputSchema lookups remain backward-compatible until v2.0.
+        Tool::new("get_impact_analysis", "[DEPRECATED v1.12 → removal v2.0] Use impact_report directly. [CodeLens:Analysis] Blast radius — what files break if you change this file. Use before risky edits.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}}})).with_output_schema(impact_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new("find_dead_code", "[DEPRECATED v1.12 → removal v2.0] Use dead_code_report directly. [CodeLens:Analysis] Detect unused files and unreferenced symbols via call-graph.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
+    ];
+    finalize_tools(&mut tools);
+    tools
+}
+
+fn finalize_tools(tools: &mut [Tool]) {
+    for tool in tools {
         let annotations = tool
             .annotations
             .take()
@@ -271,6 +291,4 @@ fn build_tools() -> Vec<Tool> {
         tool.annotations = Some(annotations);
         tool.estimated_tokens = estimate_serialized_tokens(tool);
     }
-
-    tools
 }
