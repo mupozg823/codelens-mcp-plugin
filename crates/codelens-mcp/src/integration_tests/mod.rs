@@ -36,6 +36,7 @@ mod readonly;
 mod tool_surface_lean;
 mod transparency_phase1;
 mod transparency_phase2;
+mod traversal_kind;
 mod workflow;
 mod workflow_contract;
 

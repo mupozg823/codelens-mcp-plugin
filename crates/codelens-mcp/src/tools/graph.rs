@@ -1,6 +1,6 @@
 use super::{
-    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
-    success_meta,
+    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
+    ToolResult,
 };
 use crate::protocol::BackendKind;
 use crate::tools::symbols::flatten_symbols;
@@ -50,7 +50,17 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
                 .get_symbols_overview_cached(&b.file, 1)
                 .map(|s| s.len())
                 .unwrap_or(0);
-            json!({"file": b.file, "depth": b.depth, "symbol_count": sym_count})
+            let traversal_kind = if b.depth <= 1 {
+                "direct_import"
+            } else {
+                "graph_expansion"
+            };
+            json!({
+                "file": b.file,
+                "depth": b.depth,
+                "symbol_count": sym_count,
+                "traversal_kind": traversal_kind,
+            })
         })
         .collect();
 
@@ -62,6 +72,7 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
             "direct_importers": importers,
             "blast_radius": affected,
             "total_affected_files": affected.len(),
+            "traversal_kind": "import_graph",
         }),
         success_meta(BackendKind::Hybrid, 0.85),
     ))

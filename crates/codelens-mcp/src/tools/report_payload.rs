@@ -101,6 +101,11 @@ pub(crate) fn build_handle_payload(
             })
         })
         .collect();
+    // Phase O8a — `session_continuation_hint` fires when the verifier
+    // surfaces 3+ blockers so the caller knows to persist-and-resume
+    // instead of driving the work further inline. Threshold matches the
+    // doom-loop burst threshold so both signals align.
+    let session_continuation_hint = blockers.len() >= 3;
     let mut payload = json!({
         "analysis_id": analysis_id,
         "summary": summary,
@@ -110,6 +115,7 @@ pub(crate) fn build_handle_payload(
         "next_actions": next_actions,
         "blockers": blockers,
         "blocker_count": blockers.len(),
+        "session_continuation_hint": session_continuation_hint,
         "readiness": readiness,
         "verifier_checks": normalized_verifier_checks,
         "quality_focus": quality_focus,
@@ -449,6 +455,67 @@ mod preview_first_trim_tests {
         let obj = payload.as_object().unwrap();
         assert!(obj.contains_key("verifier_checks"));
         assert!(obj.contains_key("top_findings"));
+    }
+
+    // ── Phase O8a — session continuation hint ─────────────────────
+    //
+    // `docs/plans/PLAN_opus47-alignment.md` Tier C flips a
+    // `session_continuation_hint` boolean on the workflow handle
+    // payload when the verifier surfaces "many" blockers so the
+    // caller knows to persist-and-resume instead of trying to drive
+    // the work further inline. The threshold is 3+ blockers, chosen
+    // to match the `doom_loop_counter` burst threshold so both
+    // signals fire in the same regime.
+
+    #[test]
+    fn session_continuation_hint_flips_on_many_blockers() {
+        let readiness = AnalysisReadiness::default();
+
+        // No blockers → hint false.
+        let calm = build_handle_payload(
+            "impact_report",
+            "analysis-calm",
+            "summary",
+            &[],
+            "low",
+            0.9,
+            &[],
+            &[],
+            &readiness,
+            &[],
+            &[],
+            false,
+            false,
+        );
+        assert_eq!(
+            calm["session_continuation_hint"],
+            json!(false),
+            "no blockers must not request a session reset"
+        );
+        assert_eq!(calm["blocker_count"], json!(0));
+
+        // 3 blockers → hint true (threshold).
+        let many = build_handle_payload(
+            "impact_report",
+            "analysis-many",
+            "summary",
+            &[],
+            "high",
+            0.8,
+            &[],
+            &["a".to_owned(), "b".to_owned(), "c".to_owned()],
+            &readiness,
+            &[],
+            &[],
+            false,
+            false,
+        );
+        assert_eq!(many["blocker_count"], json!(3));
+        assert_eq!(
+            many["session_continuation_hint"],
+            json!(true),
+            "3+ blockers must flip the session-continuation hint"
+        );
     }
 
     #[test]

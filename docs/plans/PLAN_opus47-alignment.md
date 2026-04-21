@@ -135,31 +135,45 @@ regress — they just don't appear in the default visible set.
 
 ## Tier C — Architecture Correctness
 
-### Phase O8 — recency + Stage 5 split + reset hint (P2, 4h)
+### Phase O8a — traversal_kind + session_continuation_hint (P2, 1h) ✅
+
+- [x] RED: `get_impact_analysis_tags_neighbors_as_graph_expansion`
+- [x] RED: `session_continuation_hint_flips_on_many_blockers`
+- [x] GREEN: `traversal_kind` field on `get_impact_analysis`
+      (`"import_graph"` top-level + `"direct_import"`/`"graph_expansion"`
+      per blast_radius entry)
+- [x] GREEN: `session_continuation_hint` flips on `blockers.len() >= 3`
+      on every `build_handle_payload` response
+
+### Phase O8b — git-commit recency (P2, ~3h, **parked: requires measurement**)
 
 - [ ] RED: `recency_uses_git_commit_time_not_filesystem_mtime`
-- [ ] RED: `get_impact_analysis_tags_neighbors_as_graph_expansion`
-- [ ] RED: `session_continuation_hint_flips_on_many_blockers`
 - [ ] GREEN: `git_commit_unix_seconds` + LRU cache
-- [ ] GREEN: `TraversalKind` enum + `traversal_kind` field on responses
-- [ ] GREEN: `session_continuation_hint` logic
+
+Parked reason: the original justification (fs-mtime noise from
+checkout/rebase) is a plausible hypothesis, not a measured regression.
+Before paying the git-subprocess cost + LRU cache complexity, we need a
+benchmark arm (mtime vs commit-time on a ranked retrieval dataset) that
+shows MRR uplift or hit-rate stability. Unblock O8b only after that
+measurement lands.
 
 ---
 
 ## Risk Matrix
 
-| Phase | Risk                               | Prob | Impact | Mitigation                                |
-| ----- | ---------------------------------- | ---- | ------ | ----------------------------------------- |
-| O1    | Breaking find_symbol body contract | M    | H      | schema_version bump, backward-compat flag |
-| O1    | L3 callers/callees cost            | M    | M      | L3 only for top-1 symbol                  |
-| O2    | `_meta` change breaks client       | L    | M      | additive only                             |
-| O3    | Deprecated alias regression        | M    | H      | 2-phase rollout (alias → removal)         |
-| O3    | 12 primary misses use case         | M    | M      | tool_search fallback                      |
-| O4    | ANTHROPIC_API_KEY absent           | H    | L      | dry-run support, CI skip                  |
-| O5    | NL misclassified as identifier     | L    | M      | 2 RED coverage                            |
-| O6    | Handoff schema breaking            | L    | H      | v1 locked, v2 additive                    |
-| O7    | XHigh over-compression             | L    | M      | threshold rollback path                   |
-| O8    | git subprocess fail                | M    | L      | mtime fallback                            |
+| Phase | Risk                                 | Prob | Impact | Mitigation                                |
+| ----- | ------------------------------------ | ---- | ------ | ----------------------------------------- |
+| O1    | Breaking find_symbol body contract   | M    | H      | schema_version bump, backward-compat flag |
+| O1    | L3 callers/callees cost              | M    | M      | L3 only for top-1 symbol                  |
+| O2    | `_meta` change breaks client         | L    | M      | additive only                             |
+| O3    | Deprecated alias regression          | M    | H      | 2-phase rollout (alias → removal)         |
+| O3    | 12 primary misses use case           | M    | M      | tool_search fallback                      |
+| O4    | ANTHROPIC_API_KEY absent             | H    | L      | dry-run support, CI skip                  |
+| O5    | NL misclassified as identifier       | L    | M      | 2 RED coverage                            |
+| O6    | Handoff schema breaking              | L    | H      | v1 locked, v2 additive                    |
+| O7    | XHigh over-compression               | L    | M      | threshold rollback path                   |
+| O8a   | traversal_kind mis-tag on deep graph | L    | L      | depth<=1 rule is pure, RED covers both    |
+| O8b   | git subprocess fail                  | M    | L      | mtime fallback (parked — see Tier C)      |
 
 ## Rollback Strategy
 
@@ -171,11 +185,13 @@ All 8 phases additive + feature-flagged where invasive. Full rollback =
 
 - Started: 2026-04-21
 - Last Updated: 2026-04-21
-- Current Phase: **O8 (Tier C — recency + Stage 5 + reset hint)**
-- Completed Phases: **O1, O2, O3a, O5, O6, O7** (Tier A: 3/4, Tier B: 3/3 ✅)
-- Parked: **O4** (requires `ANTHROPIC_API_KEY` for SDK-direct 2-arm
-  measurement; resumes when key is available or we replace the arm
-  runner with Agent-tool subagent dispatch)
+- Current Phase: **v1.9.52 release prep (Tier A 3/4 + Tier B 3/3 + Tier C 2/3)**
+- Completed Phases: **O1, O2, O3a, O5, O6, O7, O8a** (Tier A 3/4, Tier B 3/3 ✅, Tier C 2/3)
+- Parked:
+  - **O4** — requires `ANTHROPIC_API_KEY` for SDK-direct 2-arm measurement;
+    resumes when key is available or we swap the arm runner for Agent-tool dispatch
+  - **O8b** — git-commit recency needs a measured retrieval-quality uplift
+    before paying the subprocess+LRU cost; see Tier C for the gating rule
 
 ## Session Handoff Notes (2026-04-21)
 
