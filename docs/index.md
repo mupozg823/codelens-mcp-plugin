@@ -11,14 +11,14 @@ auditable path.
   best-case compression win
 - **108 generated definitions in source**, but only **12-49 tools**
   visible per runtime profile instead of a single flat registry
-- **Release-ready automated harness** in `v1.9.54` with usage-drift
-  artifacts and independent signoff
+- **CodeLens-first public surface cleanup** in `v1.9.55`, with archived rename
+  proposals clearly separated from active product docs
 - **Single Rust binary** that runs over stdio or shared HTTP
 
 ## Current Release
 
 <!-- SURFACE_MANIFEST_INDEX_RELEASE:BEGIN -->
-- [GitHub Release v1.9.54](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.54)
+- [GitHub Release v1.9.55](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.55)
 - [Repository README](https://github.com/mupozg823/codelens-mcp-plugin/blob/main/README.md)
 - [Current source tree](https://github.com/mupozg823/codelens-mcp-plugin)
 <!-- SURFACE_MANIFEST_INDEX_RELEASE:END -->
@@ -37,14 +37,16 @@ auditable path.
 | Validate public performance claims | [Benchmarks](benchmarks.md) |
 | Verify release bundles and gates | [Release verification](release-verification.md) |
 
-## What Ships In v1.9.54
+## What Ships In v1.9.55
 
-- `benchmarks/harness/release-harness-runner.py` for one-command
-  orchestrator/evaluator/signoff execution
-- opt-in `strict` coordination for trusted HTTP `refactor-full` mutation
-- standardized `usage-drift.*` and `independent-signoff.*` artifacts
-- capability output that publishes current `coordination_mode`
-- second-pass registry reduction to `108` generated definitions with canonical workflow visibility
+- `resources/read` on `codelens://design/agent-experience` now points to the
+  active CodeLens-first flow doc rather than the parked Symbiote draft
+- archived rename and migration proposals are explicitly marked historical
+  rather than active roadmap
+- docs index now routes users to current host-adaptive / multi-agent /
+  architecture docs instead of deferred rename plans
+- generated surface manifest publishes `public_name_status = codelens_primary`
+  and the active CodeLens naming policy
 
 ## Core Workflows
 
@@ -58,9 +60,10 @@ auditable path.
 
 ## Architecture, Design, And Product Direction
 
-- [Migration guide: CodeLens -> Symbiote](migrate-from-codelens.md)
-- [Symbiote UX / Agent Flows](design/symbiote-ux-flows-v1.md)
-- [Symbiote Phase 3 Rename Plan](design/symbiote-phase3-rename-plan.md)
+- [Host-adaptive harness](host-adaptive-harness.md)
+- [Multi-agent integration](multi-agent-integration.md)
+- [Release notes v1.9.55](release-notes/v1.9.55.md)
+- [Interactive architecture map](architecture-d3.html)
 - [BM25 sparse lane spec](design/bm25-sparse-lane-spec-2026-04-18.md)
 
 ## Decision Records

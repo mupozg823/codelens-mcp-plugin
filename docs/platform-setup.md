@@ -244,8 +244,6 @@ If your PATH still resolves to an older cargo-installed binary that does not kno
 
 For a stricter repo-local health check, run `bash scripts/mcp-doctor.sh . --strict`. That script reuses `status --json --all`, ignores non-machine policy files, and fails when a configured transport is unreachable or its machine-readable attach is malformed.
 
-If you are preparing for the future public rename rather than changing runtime behavior today, use [Migrate from CodeLens to Symbiote](migrate-from-codelens.md) for host-by-host config diffs and the cutover checklist.
-
 Use `resources/read` on `codelens://design/agent-experience` when the host needs the portable product-flow contract: naming gate, attach UX, user flow, agent flow, tool flow, reference flow, and harness flow.
 
 Use `resources/read` on `codelens://schemas/handoff-artifact/v1` when the host needs the JSON schema for persisted planner/builder/reviewer handoff artifacts.
@@ -586,7 +584,7 @@ agent = client.agents.create(
 ## Preset Comparison
 
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:BEGIN -->
-- Workspace version: `1.9.54`
+- Workspace version: `1.9.55`
 - Presets: `minimal` (27), `balanced` (79), `full` (108)
 - Profiles: `planner-readonly` (35), `builder-minimal` (37), `reviewer-graph` (12), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (41), `workflow-first` (19)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)

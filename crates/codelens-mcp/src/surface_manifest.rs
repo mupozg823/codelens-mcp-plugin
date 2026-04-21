@@ -23,7 +23,7 @@ pub(crate) const SURFACE_MANIFEST_DOC_PATH: &str = "docs/generated/surface-manif
 pub(crate) const HOST_ADAPTERS_DOC_PATH: &str = "docs/host-adaptive-harness.md";
 pub(crate) const HOST_ADAPTERS_RESOURCE_URI: &str = "codelens://harness/host-adapters";
 pub(crate) const HARNESS_HOST_COMPAT_RESOURCE_URI: &str = "codelens://harness/host";
-pub(crate) const AGENT_EXPERIENCE_DOC_PATH: &str = "docs/design/symbiote-ux-flows-v1.md";
+pub(crate) const AGENT_EXPERIENCE_DOC_PATH: &str = "docs/design/codelens-agent-flows-v1.md";
 pub(crate) const AGENT_EXPERIENCE_RESOURCE_URI: &str = "codelens://design/agent-experience";
 pub(crate) const HANDOFF_ARTIFACT_SCHEMA_DOC_PATH: &str = "docs/schemas/handoff-artifact.v1.json";
 pub(crate) const HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI: &str =
@@ -566,15 +566,11 @@ fn build_agent_experience() -> Value {
         "goal": "Expose a portable product and agent-flow contract that both humans and agent hosts can consume directly.",
         "naming_policy": {
             "public_primary_name": "CodeLens MCP",
-            "transition_codename": "Symbiote",
-            "runtime_aliases": ["symbiote://", "SYMBIOTE_*"],
-            "public_cutover_status": "blocked_pending_trademark_clearance",
-            "reason_codes": [
-                "existing_live_symbiote_marks_in_software_adjacent_classes",
-                "marvel_dominates_bare_symbiote_search_results",
-                "linux_rootkit_search_overlap"
-            ],
-            "rule": "Keep the product architecture and UX metaphor symbiotic, but do not flip the public primary install/docs/binary name until clearance is complete."
+            "public_binary_name": "codelens-mcp",
+            "public_workspace_prefix": "codelens",
+            "compatibility_aliases": ["symbiote://", "SYMBIOTE_*"],
+            "public_name_status": "codelens_primary",
+            "rule": "Keep the public install/docs/binary name CodeLens-first. Runtime aliases may remain for compatibility, but outward-facing product language stays CodeLens."
         },
         "information_architecture": {
             "core_surfaces": [

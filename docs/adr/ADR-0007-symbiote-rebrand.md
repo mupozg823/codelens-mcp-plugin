@@ -1,4 +1,6 @@
-# ADR-0007: Symbiote as the v2 product metaphor and candidate rename
+# [Archived] ADR-0007: Symbiote as the v2 product metaphor and candidate rename
+
+> Archived proposal: retained as historical design exploration. Public naming remains CodeLens.
 
 - Status: Accepted as product direction; public primary-name cutover pending trademark clearance
 - Date: 2026-04-18

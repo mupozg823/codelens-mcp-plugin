@@ -327,7 +327,7 @@ absorbed with known scaffold debt tracked in ADR-0008.
 
 - `ARCHITECTURE` memory (CodeLens project scope)
 - ADR-0005 harness-v2 (architecture decision lineage)
-- ADR-0007 symbiote rebrand
+- ADR-0007 archived symbiote rebrand proposal
 - ADR-0008 Serena upper-compatible absorption (this release's driver)
 - `docs/design/serena-comparison-2026-04-18.md` (delta matrix)
 - `docs/plans/PLAN_post-cycle-hygiene.md` (approved plan artifact)

@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-surface-manifest-v1",
   "workspace": {
-    "version": "1.9.54",
+    "version": "1.9.55",
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
     "members": [
       "crates/codelens-engine",
@@ -2564,22 +2564,18 @@
   "agent_experience": {
     "schema_version": "codelens-agent-experience-v1",
     "runtime_resource": "codelens://design/agent-experience",
-    "doc_path": "docs/design/symbiote-ux-flows-v1.md",
+    "doc_path": "docs/design/codelens-agent-flows-v1.md",
     "goal": "Expose a portable product and agent-flow contract that both humans and agent hosts can consume directly.",
     "naming_policy": {
       "public_primary_name": "CodeLens MCP",
-      "transition_codename": "Symbiote",
-      "runtime_aliases": [
+      "public_binary_name": "codelens-mcp",
+      "public_workspace_prefix": "codelens",
+      "compatibility_aliases": [
         "symbiote://",
         "SYMBIOTE_*"
       ],
-      "public_cutover_status": "blocked_pending_trademark_clearance",
-      "reason_codes": [
-        "existing_live_symbiote_marks_in_software_adjacent_classes",
-        "marvel_dominates_bare_symbiote_search_results",
-        "linux_rootkit_search_overlap"
-      ],
-      "rule": "Keep the product architecture and UX metaphor symbiotic, but do not flip the public primary install/docs/binary name until clearance is complete."
+      "public_name_status": "codelens_primary",
+      "rule": "Keep the public install/docs/binary name CodeLens-first. Runtime aliases may remain for compatibility, but outward-facing product language stays CodeLens."
     },
     "information_architecture": {
       "core_surfaces": [
@@ -3131,7 +3127,7 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.9.54",
+    "version": "1.9.55",
     "transport": [
       "stdio",
       "streamable-http"
@@ -3168,7 +3164,7 @@
     ]
   },
   "summary": {
-    "workspace_version": "1.9.54",
+    "workspace_version": "1.9.55",
     "workspace_member_count": 3,
     "registered_tool_definitions": 108,
     "tool_output_schemas": {

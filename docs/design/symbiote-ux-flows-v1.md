@@ -1,4 +1,6 @@
-# Symbiote MCP — UX / Agent Flow Specification v1
+# [Archived] Symbiote MCP — UX / Agent Flow Specification v1
+
+> Archived proposal: this rebrand flow is parked. Public product language stays CodeLens-first for now.
 
 Status: draft for v2.0.0 release readiness
 Date: 2026-04-18

@@ -1831,9 +1831,9 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     .unwrap();
     let agent_experience_body = serde_json::to_string(&agent_experience).unwrap();
     assert!(agent_experience_body.contains("codelens-agent-experience-v1"));
-    assert!(agent_experience_body.contains("blocked_pending_trademark_clearance"));
+    assert!(agent_experience_body.contains("codelens_primary"));
     assert!(agent_experience_body.contains("delegate_to_codex_builder"));
-    assert!(agent_experience_body.contains("under_60_seconds_to_first_compressed_answer"));
+    assert!(agent_experience_body.contains("CodeLens MCP"));
 
     let codex_host_adapter = handle_request(
         &state,

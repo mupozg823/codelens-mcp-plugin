@@ -1,13 +1,13 @@
 # CodeLens MCP — Architecture & Product Shape
 
 > The bounded MCP control plane for agentic coding harnesses.
-> v1.9.54 extends the automated harness release with second-pass registry
-> reduction and a cleaner canonical surface.
+> v1.9.55 keeps the v1.9.54 automated harness/runtime surface and cleans up
+> the CodeLens-first public product surface.
 
 ## Current Snapshot (2026-04-21)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
-- Workspace version: `1.9.54`
+- Workspace version: `1.9.55`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
 - Registered tool definitions in source: `108`
 - Tool output schemas in source: `73 / 108`
@@ -18,7 +18,7 @@
 - `108` above is the compiled source registry count; the live visible surface is profile-scoped (`12`-`49` tools per profile, `79` in the default `balanced` preset)
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
 - Interactive map: [architecture-d3.html](architecture-d3.html)
-- Current release notes: [GitHub Release v1.9.54](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.54)
+- Current release notes: [GitHub Release v1.9.55](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.55)
 - Current release verification guide: [docs/release-verification.md](release-verification.md)
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)

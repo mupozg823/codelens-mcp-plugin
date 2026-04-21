@@ -1,12 +1,10 @@
 <div align="center">
 
-# CodeLens MCP → Symbiote MCP
+# CodeLens MCP
 
 **Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
 
-_Becoming **Symbiote MCP** at v2.0 — harness-engineering as a symbiotic substrate. Attach to your agent. Your code intelligence becomes superhuman._ See [ADR-0007](docs/adr/ADR-0007-symbiote-rebrand.md) for the rebrand plan.
-
-If you are preparing automation or host configs for the eventual cutover, use the host-by-host migration guide: [`docs/migrate-from-codelens.md`](docs/migrate-from-codelens.md).
+_CodeLens MCP is the control plane for agentic coding: bounded code intelligence, gated mutation, and auditable harness workflows._
 
 Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, token compression, and enterprise-ready observability — all in a single self-contained binary, no external daemons or service installs required (the binary statically links its dependencies and ships its own SQLite, vector store, and ONNX runtime).
 
@@ -21,7 +19,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
 ## Surface Snapshot
 
-- Workspace version: `1.9.54`
+- Workspace version: `1.9.55`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
 - Registered tool definitions: `108`
 - Tool output schemas: `73 / 108`
@@ -46,7 +44,7 @@ surface is profile-scoped: `reviewer-graph` exposes `12`, `evaluator-compact`
 `ci-audit` `41`, and `refactor-full` `49`. The default `balanced` preset shows
 `79`, not `108`.
 
-## What v1.9.54 Delivers
+## What v1.9.55 Delivers
 
 | Layer | What ships in the current release |
 | ----- | --------------------------------- |
@@ -76,7 +74,7 @@ CodeLens is not the agent and not an IDE backend. It is the **MCP control plane*
 - Interactive map: [`docs/architecture-d3.html`](docs/architecture-d3.html)
 - Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
 - Benchmarks and retrieval quality: [`docs/benchmarks.md`](docs/benchmarks.md)
-- Automated harness release notes: [`docs/release-notes/v1.9.54.md`](docs/release-notes/v1.9.54.md)
+- Automated harness release notes: [`docs/release-notes/v1.9.55.md`](docs/release-notes/v1.9.55.md)
 
 ```text
 Host (Claude / Codex / Cursor / Continue)
@@ -109,7 +107,7 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
 ```
 
-Latest release: [v1.9.54](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.54)
+Latest release: [v1.9.55](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.55)
 
 ### Install Channel Matrix
 

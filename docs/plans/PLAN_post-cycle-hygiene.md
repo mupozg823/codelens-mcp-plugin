@@ -18,7 +18,7 @@
 
 - Architecture cycle `tool_defs/tool.rs ↔ tool_runtime.rs` was resolved on 2026-04-18 (`has_cycles=false`)
 - `.claire` added to `EXCLUDED_DIRS` — dead-code noise removed
-- 30-file uncommitted diff remains (symbiote-rebrand + host-adaptive-harness)
+- 30-file uncommitted diff remains (archived symbiote-rebrand docs + host-adaptive-harness)
 - `tests::workflow::resources_include_profile_guides_and_analysis_summaries` intermittently fails in `--features http` parallel run
 - `McpTool` trait & `BuiltTool` have unused methods/fields (6 dead_code warnings)
 - `.claire/` and `.claude/worktrees/` are currently untracked, not gitignored
@@ -149,7 +149,7 @@ All phases must preserve:
 
 - `git status` review (current snapshot: 30 M files + 5 untracked, some already partially addressed by Phase 4)
 - Group by theme:
-  - **G1**: symbiote rebrand docs — `docs/adr/ADR-0007-*`, `docs/design/symbiote-*`, `docs/migrate-from-*`, `docs/design/symbiote-phase3-rename-plan.md`
+  - **G1**: archived symbiote rebrand docs — `docs/adr/ADR-0007-*`, `docs/design/symbiote-*`, `docs/migrate-from-*`, `docs/design/symbiote-phase3-rename-plan.md`
   - **G2**: host-adaptive-harness docs — `docs/host-adaptive-harness.md`, `docs/harness-spec.md`, `docs/multi-agent-integration.md`, `docs/observability.md`, `docs/platform-setup.md`
   - **G3**: session/router runtime — `crates/codelens-mcp/src/server/{router,session}.rs`, `crates/codelens-mcp/src/state/{session_host,session_runtime}.rs`, `crates/codelens-mcp/src/dispatch/response.rs`
   - **G4**: surface/telemetry/resources — `crates/codelens-mcp/src/{surface_manifest,telemetry,resource_catalog,resources}.rs`, `docs/generated/surface-manifest.json`

@@ -3,7 +3,7 @@
 Date: 2026-04-19
 Status: Accepted
 Supersedes: None
-Related: ADR-0005 (harness-v2), ADR-0007 (symbiote rebrand)
+Related: ADR-0005 (harness-v2), ADR-0007 (archived symbiote rebrand proposal)
 
 ## Context
 
