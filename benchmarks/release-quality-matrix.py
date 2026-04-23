@@ -541,13 +541,19 @@ def main() -> None:
             args.timeout_seconds,
         )
 
+    default_candidate_binary = (ROOT / "target" / "release" / "codelens-mcp").resolve()
     candidate_binary = Path(args.candidate_binary).expanduser().resolve()
-    if not args.skip_candidate_build and not candidate_binary.exists():
+    if not args.skip_candidate_build and candidate_binary == default_candidate_binary:
         candidate_binary = build_release_binary(
             ROOT,
             "build-candidate",
             output_dir,
             args.timeout_seconds,
+        )
+    elif not args.skip_candidate_build and not candidate_binary.exists():
+        raise SystemExit(
+            "candidate binary does not exist and cannot be auto-built outside the default "
+            f"target path: {candidate_binary}"
         )
     if not candidate_binary.exists():
         raise SystemExit(f"candidate binary does not exist: {candidate_binary}")
