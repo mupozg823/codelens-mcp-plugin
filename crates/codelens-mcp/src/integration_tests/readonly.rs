@@ -162,6 +162,45 @@ fn get_callees_caps_tool_confidence_on_fallback_and_unresolved_mix() {
 }
 
 #[test]
+fn get_callees_omits_external_imported_calls_from_project_graph() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("page.tsx"),
+        "import { useState } from \"react\";\nimport { handleSubmit } from \"./actions\";\nexport function Page() { useState(); handleSubmit(); }\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("actions.ts"),
+        "export function handleSubmit() {}\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let payload = call_tool(
+        &state,
+        "get_callees",
+        json!({ "function_name": "Page", "file_path": "page.tsx" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let names = payload["data"]["callees"]
+        .as_array()
+        .expect("callees array")
+        .iter()
+        .filter_map(|entry| entry.get("name"))
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        names.contains(&"handleSubmit"),
+        "expected internal callee in {names:?}"
+    );
+    assert!(
+        !names.contains(&"useState"),
+        "external imported binding should be omitted from project graph: {names:?}"
+    );
+}
+
+#[test]
 fn bm25_symbol_search_returns_symbol_cards() {
     let project = project_root();
     fs::create_dir_all(project.as_path().join("src")).unwrap();

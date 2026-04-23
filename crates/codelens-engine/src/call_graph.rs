@@ -1,5 +1,6 @@
 use crate::project::ProjectRoot;
 use anyhow::Result;
+use regex::Regex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -14,6 +15,9 @@ use crate::import_graph::GraphCache;
 /// Key: (canonical language key, query string pointer as usize).
 static CALL_QUERY_CACHE: LazyLock<Mutex<HashMap<(&'static str, usize), Arc<Query>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static JS_IMPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)\bimport\s+([^;]+?)\s+from\s+["']([^"']+)["']"#).expect("import regex")
+});
 
 fn cached_call_query(
     language_key: &'static str,
@@ -60,6 +64,8 @@ pub struct CallEdge {
     /// Which resolution strategy succeeded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution_strategy: Option<&'static str>,
+    #[serde(skip_serializing)]
+    pub canonical_callee_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -93,6 +99,15 @@ struct CallLanguageConfig {
     /// Query to find call sites: captures @callee
     call_query: &'static str,
 }
+
+#[derive(Debug, Clone)]
+struct JSImportBinding {
+    imported_name: Option<String>,
+    resolved_file: Option<String>,
+    external: bool,
+}
+
+type JSImportBindingIndex = HashMap<String, HashMap<String, JSImportBinding>>;
 
 /// Resolve call graph config via the unified language registry.
 /// Only a subset of languages have call graph queries defined.
@@ -180,6 +195,111 @@ fn is_import_sensitive_path(path: &str) -> bool {
             .unwrap_or_default(),
         "js" | "jsx" | "ts" | "tsx"
     )
+}
+
+fn is_external_module_specifier(module: &str, resolved_file: Option<&String>) -> bool {
+    resolved_file.is_none() && !module.starts_with('.') && !module.starts_with('/')
+}
+
+fn insert_js_binding(
+    bindings: &mut HashMap<String, JSImportBinding>,
+    local_name: &str,
+    imported_name: Option<&str>,
+    resolved_file: Option<&String>,
+    external: bool,
+) {
+    let local_name = local_name.trim().trim_start_matches("type ").trim();
+    if local_name.is_empty() {
+        return;
+    }
+    bindings.insert(
+        local_name.to_owned(),
+        JSImportBinding {
+            imported_name: imported_name
+                .map(|value| value.trim().trim_start_matches("type ").to_owned()),
+            resolved_file: resolved_file.cloned(),
+            external,
+        },
+    );
+}
+
+fn parse_js_import_bindings(
+    bindings: &mut HashMap<String, JSImportBinding>,
+    clause: &str,
+    resolved_file: Option<&String>,
+    module: &str,
+) {
+    let clause = clause.trim().trim_start_matches("type ").trim();
+    if clause.is_empty() {
+        return;
+    }
+    let external = is_external_module_specifier(module, resolved_file);
+
+    if let Some(stripped) = clause.strip_prefix("* as ") {
+        insert_js_binding(bindings, stripped, Some("*"), resolved_file, external);
+        return;
+    }
+
+    let mut default_part = clause;
+    if let Some(start) = clause.find('{') {
+        default_part = clause[..start].trim().trim_end_matches(',').trim();
+        if let Some(end) = clause[start + 1..].find('}') {
+            let named = &clause[start + 1..start + 1 + end];
+            for item in named.split(',') {
+                let item = item.trim().trim_start_matches("type ").trim();
+                if item.is_empty() {
+                    continue;
+                }
+                if let Some((imported, local)) = item.split_once(" as ") {
+                    insert_js_binding(bindings, local, Some(imported), resolved_file, external);
+                } else {
+                    insert_js_binding(bindings, item, Some(item), resolved_file, external);
+                }
+            }
+        }
+    }
+
+    if !default_part.is_empty() {
+        insert_js_binding(bindings, default_part, None, resolved_file, external);
+    }
+}
+
+fn build_js_import_binding_index(project: &ProjectRoot, files: &[PathBuf]) -> JSImportBindingIndex {
+    let mut index = HashMap::new();
+    for file in files {
+        let relative = project.to_relative(file);
+        if !is_import_sensitive_path(&relative) {
+            continue;
+        }
+        let Ok(source) = fs::read_to_string(file) else {
+            continue;
+        };
+        let mut bindings = HashMap::new();
+        for capture in JS_IMPORT_FROM_RE.captures_iter(&source) {
+            let Some(clause) = capture.get(1).map(|value| value.as_str()) else {
+                continue;
+            };
+            let Some(module) = capture.get(2).map(|value| value.as_str()) else {
+                continue;
+            };
+            let resolved_file = crate::import_graph::resolve_module_for_file(project, file, module);
+            parse_js_import_bindings(&mut bindings, clause, resolved_file.as_ref(), module);
+        }
+        if !bindings.is_empty() {
+            index.insert(relative, bindings);
+        }
+    }
+    index
+}
+
+fn filter_external_import_edges(edges: &mut Vec<CallEdge>, import_bindings: &JSImportBindingIndex) {
+    edges.retain(|edge| {
+        import_bindings
+            .get(&edge.caller_file)
+            .and_then(|bindings| bindings.get(&edge.callee_name))
+            .map(|binding| !binding.external)
+            .unwrap_or(true)
+    });
 }
 
 fn maybe_import_graph(
@@ -346,6 +466,7 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 resolved_file: None,
                 confidence: 0.0,
                 resolution_strategy: None,
+                canonical_callee_name: None,
             });
         }
     }
@@ -357,10 +478,11 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
 
 /// Resolve callee names to their definition files using a 6-stage confidence cascade.
 /// Mutates edges in-place, setting resolved_file, confidence, and resolution_strategy.
-pub fn resolve_call_edges(
+fn resolve_call_edges(
     edges: &mut [CallEdge],
     project: &ProjectRoot,
     import_graph: Option<&HashMap<String, crate::import_graph::FileNode>>,
+    import_bindings: Option<&JSImportBindingIndex>,
 ) {
     // Build a name→files index from the symbol DB for stages 3-5
     let db_path = crate::db::index_db_path(project.as_path());
@@ -394,6 +516,23 @@ pub fn resolve_call_edges(
         }
 
         // Stage 2: Import map — imported target defines the callee (0.95)
+        if let Some(binding) = import_bindings
+            .and_then(|index| index.get(caller_file))
+            .and_then(|bindings| bindings.get(callee))
+            && let Some(resolved_file) = binding.resolved_file.as_ref()
+        {
+            let canonical_name = binding.imported_name.as_deref().unwrap_or(callee);
+            if let Some(defs) = symbol_index.get(canonical_name)
+                && defs.iter().any(|f| f == resolved_file)
+            {
+                edge.resolved_file = Some(resolved_file.clone());
+                edge.confidence = 0.95;
+                edge.resolution_strategy = Some("import_map");
+                edge.canonical_callee_name = Some(canonical_name.to_owned());
+                continue;
+            }
+        }
+
         if let Some(graph) = import_graph
             && let Some(node) = graph.get(caller_file)
         {
@@ -405,6 +544,7 @@ pub fn resolve_call_edges(
                     edge.resolved_file = Some(imported_file.clone());
                     edge.confidence = 0.95;
                     edge.resolution_strategy = Some("import_map");
+                    edge.canonical_callee_name = Some(callee.clone());
                     break;
                 }
             }
@@ -430,6 +570,7 @@ pub fn resolve_call_edges(
                     edge.resolved_file = Some(def_file.clone());
                     edge.confidence = 0.70;
                     edge.resolution_strategy = Some("import_suffix");
+                    edge.canonical_callee_name = Some(callee.clone());
                     break;
                 }
             }
@@ -507,15 +648,24 @@ pub fn get_callers(
         all_edges.extend(edges);
     }
 
+    let import_bindings = build_js_import_binding_index(project, &files);
+    filter_external_import_edges(&mut all_edges, &import_bindings);
     let import_graph = maybe_import_graph(project, &files, graph_cache);
-    resolve_call_edges(&mut all_edges, project, import_graph.as_deref());
+    resolve_call_edges(
+        &mut all_edges,
+        project,
+        import_graph.as_deref(),
+        Some(&import_bindings),
+    );
 
     // Filter to edges calling our target
     let mut seen = std::collections::HashSet::new();
     let mut results = Vec::new();
 
     for edge in all_edges {
-        if edge.callee_name == function_name {
+        if edge.callee_name == function_name
+            || edge.canonical_callee_name.as_deref() == Some(function_name)
+        {
             let key = (
                 edge.caller_file.clone(),
                 edge.caller_name.clone(),
@@ -570,8 +720,15 @@ pub fn get_callees(
         all_edges.extend(edges);
     }
 
+    let import_bindings = build_js_import_binding_index(project, &files);
+    filter_external_import_edges(&mut all_edges, &import_bindings);
     let import_graph = maybe_import_graph(project, &files, graph_cache);
-    resolve_call_edges(&mut all_edges, project, import_graph.as_deref());
+    resolve_call_edges(
+        &mut all_edges,
+        project,
+        import_graph.as_deref(),
+        Some(&import_bindings),
+    );
 
     let mut seen: HashMap<(String, usize), ()> = HashMap::new();
     let mut results = Vec::new();
@@ -929,9 +1086,10 @@ mod tests {
             resolved_file: None,
             confidence: 0.0,
             resolution_strategy: None,
+            canonical_callee_name: None,
         }];
 
-        resolve_call_edges(&mut edges, &project, None);
+        resolve_call_edges(&mut edges, &project, None, None);
 
         assert_eq!(
             edges[0].resolved_file.as_deref(),
@@ -1073,5 +1231,105 @@ mod tests {
             .expect("helper callee");
         assert_eq!(helper.resolved_file.as_deref(), Some("page.ts"));
         assert_eq!(helper.resolution, Some("same_file"));
+    }
+
+    #[test]
+    fn ts_import_alias_resolves_and_callers_match_canonical_name() {
+        let dir = temp_dir("ts-import-alias");
+        fs::write(
+            dir.join("page.tsx"),
+            "import { handleSubmit as onSubmit } from \"./actions\";\nexport function Page() { onSubmit(); }\n",
+        )
+        .expect("write page");
+        fs::write(
+            dir.join("actions.ts"),
+            "export function handleSubmit() {}\n",
+        )
+        .expect("write actions");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let file_id = db
+            .upsert_file("actions.ts", 100, "actions", 34, Some("ts"))
+            .expect("actions file");
+        db.insert_symbols(
+            file_id,
+            &[NewSymbol {
+                name: "handleSubmit",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 34,
+                signature: "export function handleSubmit() {}",
+                name_path: "handleSubmit",
+                parent_id: None,
+            }],
+        )
+        .expect("action symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cache = GraphCache::new(0);
+        let callees =
+            get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+        let submit = callees
+            .iter()
+            .find(|callee| callee.name == "onSubmit")
+            .expect("aliased callee");
+        assert_eq!(submit.resolved_file.as_deref(), Some("actions.ts"));
+        assert_eq!(submit.resolution, Some("import_map"));
+
+        let callers =
+            get_callers(&project, "handleSubmit", None, 50, Some(&cache)).expect("callers");
+        let page = callers
+            .iter()
+            .find(|caller| caller.function == "Page")
+            .expect("Page caller");
+        assert_eq!(page.file, "page.tsx");
+    }
+
+    #[test]
+    fn ts_external_import_calls_are_filtered_from_project_graph() {
+        let dir = temp_dir("ts-external-import-filter");
+        fs::write(
+            dir.join("page.tsx"),
+            "import { useState } from \"react\";\nimport { handleSubmit } from \"./actions\";\nexport function Page() { useState(); handleSubmit(); }\n",
+        )
+        .expect("write page");
+        fs::write(
+            dir.join("actions.ts"),
+            "export function handleSubmit() {}\n",
+        )
+        .expect("write actions");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let file_id = db
+            .upsert_file("actions.ts", 100, "actions", 34, Some("ts"))
+            .expect("actions file");
+        db.insert_symbols(
+            file_id,
+            &[NewSymbol {
+                name: "handleSubmit",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 34,
+                signature: "export function handleSubmit() {}",
+                name_path: "handleSubmit",
+                parent_id: None,
+            }],
+        )
+        .expect("action symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cache = GraphCache::new(0);
+        let callees =
+            get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+        assert!(
+            callees.iter().any(|callee| callee.name == "handleSubmit"),
+            "expected internal imported callee in {callees:?}"
+        );
+        assert!(
+            !callees.iter().any(|callee| callee.name == "useState"),
+            "external imported binding should not appear in project call graph: {callees:?}"
+        );
     }
 }
