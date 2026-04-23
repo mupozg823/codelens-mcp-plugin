@@ -9,17 +9,34 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Parser, Query, QueryCursor};
 
 /// Cached compiled tree-sitter Query for call graph extraction.
-/// Key: (language pointer as usize, query string pointer as usize)
-static CALL_QUERY_CACHE: LazyLock<Mutex<HashMap<usize, Arc<Query>>>> =
+/// Key: (canonical language key, query string pointer as usize).
+static CALL_QUERY_CACHE: LazyLock<Mutex<HashMap<(&'static str, usize), Arc<Query>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn cached_call_query(language: &Language, query_str: &'static str) -> Option<Arc<Query>> {
-    let key = query_str.as_ptr() as usize;
+fn cached_call_query(
+    language_key: &'static str,
+    language: &Language,
+    query_str: &'static str,
+) -> Option<Arc<Query>> {
+    let key = (language_key, query_str.as_ptr() as usize);
     let mut cache = CALL_QUERY_CACHE.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(q) = cache.get(&key) {
         return Some(Arc::clone(q));
     }
-    let q = Query::new(language, query_str).ok()?;
+    let q = match Query::new(language, query_str) {
+        Ok(q) => q,
+        Err(error) => {
+            #[cfg(test)]
+            {
+                panic!("invalid call graph query: {error}");
+            }
+            #[cfg(not(test))]
+            {
+                let _ = error;
+                return None;
+            }
+        }
+    };
     let q = Arc::new(q);
     cache.insert(key, Arc::clone(&q));
     Some(q)
@@ -66,6 +83,8 @@ pub struct CalleeEntry {
 }
 
 struct CallLanguageConfig {
+    /// Stable language/cache key. JS and TS can share query text but not compiled queries.
+    language_key: &'static str,
     language: Language,
     /// Query to find function definitions: captures @func.name
     func_query: &'static str,
@@ -128,17 +147,19 @@ fn is_noise_callee(name: &str) -> bool {
 fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
     let lang_config = crate::lang_config::language_for_path(path)?;
     // Map canonical extension to call graph queries (not all languages support this)
-    let (func_query, call_query) = match lang_config.extension {
-        "py" => (PYTHON_FUNC_QUERY, PYTHON_CALL_QUERY),
-        "js" => (JS_FUNC_QUERY, JS_CALL_QUERY),
-        "ts" | "tsx" => (JS_FUNC_QUERY, JS_CALL_QUERY),
-        "go" => (GO_FUNC_QUERY, GO_CALL_QUERY),
-        "java" => (JAVA_FUNC_QUERY, JAVA_CALL_QUERY),
-        "kt" => (KOTLIN_FUNC_QUERY, JAVA_CALL_QUERY),
-        "rs" => (RUST_FUNC_QUERY, RUST_CALL_QUERY),
+    let (language_key, func_query, call_query) = match lang_config.extension {
+        "py" => ("py", PYTHON_FUNC_QUERY, PYTHON_CALL_QUERY),
+        "js" => ("js", JS_FUNC_QUERY, JS_CALL_QUERY),
+        "ts" => ("ts", JS_FUNC_QUERY, JS_CALL_QUERY),
+        "tsx" => ("tsx", JS_FUNC_QUERY, JS_CALL_QUERY),
+        "go" => ("go", GO_FUNC_QUERY, GO_CALL_QUERY),
+        "java" => ("java", JAVA_FUNC_QUERY, JAVA_CALL_QUERY),
+        "kt" => ("kt", KOTLIN_FUNC_QUERY, JAVA_CALL_QUERY),
+        "rs" => ("rs", RUST_FUNC_QUERY, RUST_CALL_QUERY),
         _ => return None,
     };
     Some(CallLanguageConfig {
+        language_key,
         language: lang_config.language,
         func_query,
         call_query,
@@ -147,6 +168,16 @@ fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
 
 fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
     collect_files(root, |path| call_language_for_path(path).is_some())
+}
+
+fn is_import_sensitive_path(path: &str) -> bool {
+    matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default(),
+        "js" | "jsx" | "ts" | "tsx"
+    )
 }
 
 /// Parse a file and extract all call edges within each function.
@@ -174,7 +205,9 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
 
     // Build a map: byte_range_start -> caller_name for each function definition.
     // We'll use this to find which function contains each call site.
-    let Some(func_query) = cached_call_query(&config.language, config.func_query) else {
+    let Some(func_query) =
+        cached_call_query(config.language_key, &config.language, config.func_query)
+    else {
         return Vec::new();
     };
     let mut func_ranges: Vec<(usize, usize, String)> = Vec::new(); // (start, end, name)
@@ -203,7 +236,9 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     }
 
     // Parse call sites
-    let Some(call_query) = cached_call_query(&config.language, config.call_query) else {
+    let Some(call_query) =
+        cached_call_query(config.language_key, &config.language, config.call_query)
+    else {
         return Vec::new();
     };
     let mut call_cursor = QueryCursor::new();
@@ -267,7 +302,7 @@ pub fn resolve_call_edges(
         .and_then(|db| {
             let all = db.all_symbol_names()?;
             let mut map: HashMap<String, Vec<String>> = HashMap::new();
-            for (name, _kind, _sig, _line, _name_path, file) in all {
+            for (name, _kind, file, _line, _signature, _name_path) in all {
                 map.entry(name).or_default().push(file);
             }
             Ok(map)
@@ -317,8 +352,16 @@ pub fn resolve_call_edges(
             && defs.len() == 1
         {
             edge.resolved_file = Some(defs[0].clone());
-            edge.confidence = 0.75;
-            edge.resolution_strategy = Some("unique_name");
+            if import_graph.is_none()
+                && is_import_sensitive_path(caller_file)
+                && defs[0].as_str() != caller_file.as_str()
+            {
+                edge.confidence = 0.40;
+                edge.resolution_strategy = Some("path_proximity");
+            } else {
+                edge.confidence = 0.75;
+                edge.resolution_strategy = Some("unique_name");
+            }
             continue;
         }
 
@@ -501,7 +544,14 @@ const PYTHON_CALL_QUERY: &str = r#"
 const JS_FUNC_QUERY: &str = r#"
 (function_declaration name: (identifier) @func.name) @func.def
 (method_definition name: (property_identifier) @func.name) @func.def
-(function (identifier) @func.name) @func.def
+(lexical_declaration
+    (variable_declarator
+    name: (identifier) @func.name
+    value: [(arrow_function) (function_expression)] @func.def))
+(variable_declaration
+  (variable_declarator
+    name: (identifier) @func.name
+    value: [(arrow_function) (function_expression)] @func.def))
 "#;
 
 const JS_CALL_QUERY: &str = r#"
@@ -539,11 +589,13 @@ const RUST_FUNC_QUERY: &str = r#"
 const RUST_CALL_QUERY: &str = r#"
 (call_expression function: (identifier) @callee)
 (call_expression function: (field_expression field: (field_identifier) @callee))
+(call_expression function: (scoped_identifier name: (identifier) @callee))
 "#;
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_calls, get_callees, get_callers};
+    use super::{CallEdge, extract_calls, get_callees, get_callers, resolve_call_edges};
+    use crate::db::{IndexDb, NewSymbol, index_db_path};
     use crate::ProjectRoot;
     use std::fs;
 
@@ -592,6 +644,93 @@ mod tests {
     }
 
     #[test]
+    fn extracts_js_arrow_function_callers() {
+        let dir = temp_dir("js-arrow");
+        let path = dir.join("handler.js");
+        fs::write(
+            &path,
+            "const handleRequest = async (req) => {\n    validateUser(req);\n    service.run(req);\n};\nfunction validateUser(req) { return req; }\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        assert!(
+            edges
+                .iter()
+                .any(|e| e.caller_name == "handleRequest" && e.callee_name == "validateUser"),
+            "expected handleRequest->validateUser edge, got {edges:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_ts_typed_arrow_function_callers() {
+        let dir = temp_dir("ts-arrow");
+        let path = dir.join("handler.ts");
+        fs::write(
+            &path,
+            "type Request = { userId: string };\nconst handleRequest = async (req: Request): Promise<Request> => {\n    return validateUser(req);\n};\nfunction validateUser(req: Request) { return req; }\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        assert!(
+            edges
+                .iter()
+                .any(|e| e.caller_name == "handleRequest" && e.callee_name == "validateUser"),
+            "expected handleRequest->validateUser edge, got {edges:?}"
+        );
+    }
+
+    #[test]
+    fn shared_js_ts_queries_do_not_cross_language_cache() {
+        let dir = temp_dir("js-ts-cache");
+        let js_path = dir.join("handler.js");
+        let ts_path = dir.join("handler.ts");
+        fs::write(
+            &js_path,
+            "const handleJs = () => {\n    validateJs();\n};\nfunction validateJs() {}\n",
+        )
+        .expect("write js");
+        fs::write(
+            &ts_path,
+            "type Request = { userId: string };\nconst handleTs = (req: Request): Request => {\n    return validateTs(req);\n};\nfunction validateTs(req: Request) { return req; }\n",
+        )
+        .expect("write ts");
+
+        let js_edges = extract_calls(&js_path);
+        assert!(
+            js_edges
+                .iter()
+                .any(|e| e.caller_name == "handleJs" && e.callee_name == "validateJs"),
+            "expected handleJs->validateJs edge, got {js_edges:?}"
+        );
+
+        let ts_edges = extract_calls(&ts_path);
+        assert!(
+            ts_edges
+                .iter()
+                .any(|e| e.caller_name == "handleTs" && e.callee_name == "validateTs"),
+            "expected handleTs->validateTs edge after JS extraction, got {ts_edges:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_rust_scoped_function_calls() {
+        let dir = temp_dir("rs-scoped");
+        let path = dir.join("main.rs");
+        fs::write(
+            &path,
+            "mod auth { pub fn verify() {} }\nfn handler() {\n    auth::verify();\n}\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        assert!(
+            edges
+                .iter()
+                .any(|e| e.caller_name == "handler" && e.callee_name == "verify"),
+            "expected handler->verify edge, got {edges:?}"
+        );
+    }
+
+    #[test]
     fn get_callers_finds_callers() {
         let dir = temp_dir("callers");
         fs::write(dir.join("a.py"), "def foo():\n    bar()\n    baz()\n").expect("write a");
@@ -631,6 +770,99 @@ mod tests {
             names.contains(&"bar"),
             "expected bar as callee, got {names:?}"
         );
+    }
+
+    #[test]
+    fn get_callees_resolves_definition_file_path() {
+        let dir = temp_dir("callees-file-path");
+        fs::write(dir.join("main.py"), "def main():\n    helper()\n").expect("write main");
+        fs::write(dir.join("helpers.py"), "def helper():\n    pass\n").expect("write helper");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let helper_file = db
+            .upsert_file("helpers.py", 100, "helpers", 24, Some("py"))
+            .expect("helpers file");
+        db.insert_symbols(
+            helper_file,
+            &[NewSymbol {
+                name: "helper",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 24,
+                signature: "def helper():",
+                name_path: "helper",
+                parent_id: None,
+            }],
+        )
+        .expect("helper symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let callees = get_callees(&project, "main", Some("main.py"), 50).expect("callees");
+        let helper = callees
+            .iter()
+            .find(|callee| callee.name == "helper")
+            .expect("helper callee");
+
+        assert_eq!(helper.resolved_file.as_deref(), Some("helpers.py"));
+    }
+
+    #[test]
+    fn ts_cross_file_unique_resolution_is_fallback_without_import_evidence() {
+        let dir = temp_dir("ts-cross-file-unique");
+        fs::write(dir.join("page.tsx"), "export function Page() { handleSubmit(); }\n")
+            .expect("write page");
+        fs::create_dir_all(dir.join("components")).expect("components");
+        fs::write(
+            dir.join("components").join("CommentSection.tsx"),
+            "export function handleSubmit() {}\n",
+        )
+        .expect("write component");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let file_id = db
+            .upsert_file(
+                "components/CommentSection.tsx",
+                100,
+                "component",
+                34,
+                Some("tsx"),
+            )
+            .expect("component file");
+        db.insert_symbols(
+            file_id,
+            &[NewSymbol {
+                name: "handleSubmit",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 34,
+                signature: "export function handleSubmit() {}",
+                name_path: "handleSubmit",
+                parent_id: None,
+            }],
+        )
+        .expect("component symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let mut edges = vec![CallEdge {
+            caller_file: "page.tsx".to_owned(),
+            caller_name: "Page".to_owned(),
+            callee_name: "handleSubmit".to_owned(),
+            line: 1,
+            resolved_file: None,
+            confidence: 0.0,
+            resolution_strategy: None,
+        }];
+
+        resolve_call_edges(&mut edges, &project, None);
+
+        assert_eq!(
+            edges[0].resolved_file.as_deref(),
+            Some("components/CommentSection.tsx")
+        );
+        assert_eq!(edges[0].resolution_strategy, Some("path_proximity"));
+        assert!(edges[0].confidence <= 0.60);
     }
 
     #[test]

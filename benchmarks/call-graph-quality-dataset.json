@@ -1,0 +1,126 @@
+{
+  "schema_version": "codelens-call-graph-quality-dataset-v1",
+  "minimum_available_rows": 4,
+  "rows": [
+    {
+      "id": "self-rust-dispatch-tool-callers",
+      "repo_id": "self",
+      "path": ".",
+      "tool": "get_callers",
+      "function_name": "dispatch_tool",
+      "max_results": 20,
+      "expected_edges": [
+        {
+          "name": "handle_request",
+          "file_suffix": "crates/codelens-mcp/src/server/router.rs",
+          "min_confidence": 0.4
+        },
+        {
+          "name": "run_oneshot",
+          "file_suffix": "crates/codelens-mcp/src/server/oneshot.rs",
+          "min_confidence": 0.4
+        }
+      ]
+    },
+    {
+      "id": "self-rust-handle-request-callees",
+      "repo_id": "self",
+      "path": ".",
+      "tool": "get_callees",
+      "function_name": "handle_request",
+      "file_path": "crates/codelens-mcp/src/server/router.rs",
+      "max_results": 80,
+      "expected_edges": [
+        {
+          "name": "dispatch_tool",
+          "file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs",
+          "min_confidence": 0.4
+        },
+        {
+          "name": "read_resource",
+          "file_suffix": "crates/codelens-mcp/src/resources.rs",
+          "min_confidence": 0.4
+        },
+        {
+          "name": "build_visible_tool_context",
+          "file_suffix": "crates/codelens-mcp/src/resource_context.rs",
+          "min_confidence": 0.4
+        }
+      ]
+    },
+    {
+      "id": "claw-dev-main-callees",
+      "repo_id": "claw-dev",
+      "path": "/Users/bagjaeseog/Downloads/claudex/claw-dev",
+      "ignore_paths": [
+        "Leonxlnx-claude-code"
+      ],
+      "tool": "get_callees",
+      "function_name": "main",
+      "file_path": "src/index.ts",
+      "max_results": 30,
+      "expected_edges": [
+        {
+          "name": "loadConfig",
+          "file_suffix": "src/config.ts",
+          "min_confidence": 0.4
+        },
+        {
+          "name": "parseArgs",
+          "file_suffix": "src/index.ts",
+          "min_confidence": 0.4
+        },
+        {
+          "name": "printHelp",
+          "file_suffix": "src/index.ts",
+          "min_confidence": 0.4
+        },
+        {
+          "name": "runTurn",
+          "file_suffix": "src/agent.ts",
+          "min_confidence": 0.4
+        },
+        {
+          "name": "startRepl",
+          "file_suffix": "src/cli.tsx",
+          "min_confidence": 0.4
+        }
+      ]
+    },
+    {
+      "id": "claw-dev-load-config-callers",
+      "repo_id": "claw-dev",
+      "path": "/Users/bagjaeseog/Downloads/claudex/claw-dev",
+      "ignore_paths": [
+        "Leonxlnx-claude-code"
+      ],
+      "tool": "get_callers",
+      "function_name": "loadConfig",
+      "max_results": 20,
+      "expected_edges": [
+        {
+          "name": "main",
+          "file_suffix": "src/index.ts",
+          "min_confidence": 0.4
+        }
+      ]
+    },
+    {
+      "id": "rg-family-register-page-callees",
+      "repo_id": "rg-family-clone",
+      "path": "/Users/bagjaeseog/Projects/rg-family-clone",
+      "tool": "get_callees",
+      "function_name": "RegisterPage",
+      "file_path": "src/app/(auth)/register/page.tsx",
+      "max_results": 30,
+      "expected_edges": [],
+      "forbidden_high_confidence_edges": [
+        {
+          "name": "handleSubmit",
+          "resolved_file_contains": "CommentSection",
+          "min_confidence": 0.61
+        }
+      ]
+    }
+  ]
+}
