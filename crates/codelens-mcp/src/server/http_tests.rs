@@ -1803,6 +1803,77 @@ async fn deferred_session_blocks_hidden_tool_calls_until_namespace_is_loaded() {
 }
 
 #[tokio::test]
+async fn deferred_namespace_load_allows_listed_graph_tool_call() {
+    let state = test_state();
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+    let app = build_router(state.clone());
+
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA"},"profile":"reviewer-graph","deferredToolLoading":true}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let graph_list = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"namespace":"graph"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(graph_list.status(), StatusCode::OK);
+    let graph_body = body_string(graph_list).await;
+    assert!(graph_body.contains("\"selected_namespace\":\"graph\""));
+    assert!(graph_body.contains("\"get_callers\""));
+
+    let callers = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_callers","arguments":{"function_name":"missing_smoke_target","max_results":1}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(callers.status(), StatusCode::OK);
+    let callers_body = body_string(callers).await;
+    assert!(!callers_body.contains("hidden by deferred loading"));
+}
+
+#[tokio::test]
 async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
     let state = test_state();
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
