@@ -177,6 +177,36 @@ fn tools_list_can_be_filtered_by_namespace() {
 }
 
 #[test]
+fn graph_profiles_expose_call_graph_primitives_by_namespace() {
+    for profile in ["reviewer-graph", "refactor-full", "ci-audit"] {
+        let project = project_root();
+        let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+        let _ = call_tool(&state, "set_profile", json!({"profile": profile}));
+
+        let list_resp = handle_request(
+            &state,
+            crate::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".to_owned(),
+                id: Some(json!(102)),
+                method: "tools/list".to_owned(),
+                params: Some(json!({"namespace": "graph"})),
+            },
+        )
+        .unwrap();
+        let encoded = serde_json::to_string(&list_resp).unwrap();
+        assert!(
+            encoded.contains("\"get_callers\""),
+            "{profile} graph namespace should include get_callers"
+        );
+        assert!(
+            encoded.contains("\"get_callees\""),
+            "{profile} graph namespace should include get_callees"
+        );
+        assert!(!encoded.contains("\"find_symbol\""));
+    }
+}
+
+#[test]
 fn tools_list_can_be_filtered_by_phase() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
