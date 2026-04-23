@@ -177,6 +177,57 @@ fn tools_list_can_be_filtered_by_namespace() {
 }
 
 #[test]
+fn tools_list_resource_summary_matches_default_tools_list_count() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let list_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(103)),
+            method: "tools/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let list_value = serde_json::to_value(&list_resp).unwrap();
+    let list_count = list_value["result"]["tool_count"]
+        .as_u64()
+        .expect("tools/list tool_count");
+
+    for (offset, uri) in ["codelens://tools/list", "codelens://tools/list/full"]
+        .into_iter()
+        .enumerate()
+    {
+        let resource_resp = handle_request(
+            &state,
+            crate::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".to_owned(),
+                id: Some(json!(104 + offset)),
+                method: "resources/read".to_owned(),
+                params: Some(json!({"uri": uri})),
+            },
+        )
+        .unwrap();
+        let resource_value = serde_json::to_value(&resource_resp).unwrap();
+        let resource_text = resource_value["result"]["contents"][0]["text"]
+            .as_str()
+            .expect("resource text");
+        let resource_payload: serde_json::Value =
+            serde_json::from_str(resource_text).expect("resource payload");
+        let resource_count = resource_payload["tool_count"]
+            .as_u64()
+            .expect("resource tool_count");
+
+        assert_eq!(
+            resource_count, list_count,
+            "default tools/list and {uri} should expose the same visible count"
+        );
+    }
+}
+
+#[test]
 fn graph_profiles_expose_call_graph_primitives_by_namespace() {
     for profile in ["reviewer-graph", "refactor-full", "ci-audit"] {
         let project = project_root();

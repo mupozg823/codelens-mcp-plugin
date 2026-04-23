@@ -1,44 +1,15 @@
-use crate::client_profile::ClientProfile;
+use crate::AppState;
 use crate::dispatch::dispatch_tool;
 use crate::prompts::{get_prompt, prompts};
 use crate::protocol::{
     JsonRpcRequest, JsonRpcResponse, LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS,
 };
-use crate::resources::{read_resource, resources};
-use crate::tool_defs::{
-    is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_phase_labels, preferred_tier_labels, tool_namespace, tool_phase_label,
-    tool_preferred_executor_label, tool_tier_label, visible_tools,
+use crate::resource_context::{
+    ResourceRequestContext, build_visible_tool_context, filter_listed_tools,
 };
-use crate::AppState;
-use serde_json::{json, Map, Value};
-use std::collections::BTreeSet;
-
-fn visible_axes_from_tools(
-    tools: &[&'static crate::protocol::Tool],
-) -> (Vec<&'static str>, Vec<&'static str>) {
-    let mut namespaces = BTreeSet::new();
-    let mut tiers = BTreeSet::new();
-    for tool in tools {
-        namespaces.insert(tool_namespace(tool.name));
-        tiers.insert(tool_tier_label(tool.name));
-    }
-    (
-        namespaces.into_iter().collect(),
-        tiers.into_iter().collect(),
-    )
-}
-
-fn merged_string_set<'a>(base: impl IntoIterator<Item = &'a str>, extra: &[&str]) -> Vec<String> {
-    let mut merged = base
-        .into_iter()
-        .map(ToOwned::to_owned)
-        .collect::<BTreeSet<_>>();
-    for value in extra {
-        merged.insert((*value).to_owned());
-    }
-    merged.into_iter().collect()
-}
+use crate::resources::{read_resource, resources};
+use crate::tool_defs::{preferred_phase_labels, tool_preferred_executor_label};
+use serde_json::{Map, Value, json};
 
 fn list_param_bool(request: &JsonRpcRequest, camel: &str, snake: &str) -> Option<bool> {
     request
@@ -46,14 +17,6 @@ fn list_param_bool(request: &JsonRpcRequest, camel: &str, snake: &str) -> Option
         .as_ref()
         .and_then(|params| params.get(camel).or_else(|| params.get(snake)))
         .and_then(|value| value.as_bool())
-}
-
-fn list_param_str<'a>(request: &'a JsonRpcRequest, key: &str) -> Option<&'a str> {
-    request
-        .params
-        .as_ref()
-        .and_then(|params| params.get(key))
-        .and_then(|value| value.as_str())
 }
 
 pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
@@ -150,149 +113,34 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             ))
         }
         "tools/list" => {
-            let session = request
-                .params
-                .as_ref()
-                .map(crate::session_context::SessionRequestContext::from_json)
-                .unwrap_or_default();
-            let surface = state.execution_surface(&session);
-            let all_tools = visible_tools(surface);
-            let (all_namespaces, all_tiers) = visible_axes_from_tools(&all_tools);
-            let requested_namespace = request
-                .params
-                .as_ref()
-                .and_then(|params| params.get("namespace"))
-                .and_then(|value| value.as_str());
-            let requested_tier = request
-                .params
-                .as_ref()
-                .and_then(|params| params.get("tier"))
-                .and_then(|value| value.as_str());
+            let request_context = ResourceRequestContext::from_request(
+                "codelens://tools/list",
+                request.params.as_ref(),
+            );
+            let surface = state.execution_surface(&request_context.session);
+            let visible_context = build_visible_tool_context(state, &request_context);
             let requested_phase = request
                 .params
                 .as_ref()
                 .and_then(|params| params.get("phase"))
                 .and_then(|value| value.as_str())
                 .and_then(crate::protocol::ToolPhase::from_label);
-            let full_listing = request
-                .params
-                .as_ref()
-                .and_then(|params| params.get("full"))
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false);
-            let deferred_loading_requested = request
-                .params
-                .as_ref()
-                .and_then(|params| params.get("_session_deferred_tool_loading"))
-                .and_then(|value| value.as_bool());
-            let client_profile = list_param_str(&request, "_session_client_name")
-                .map(|name| ClientProfile::detect(Some(name)))
-                .unwrap_or(ClientProfile::Generic);
-            let deferred_loading_requested = deferred_loading_requested
-                .or_else(|| client_profile.default_deferred_tool_loading())
-                .unwrap_or(false);
-            let loaded_namespaces = request
-                .params
-                .as_ref()
-                .and_then(|params| params.get("_session_loaded_namespaces"))
-                .and_then(|value| value.as_array())
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(|value| value.as_str())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            let loaded_tiers = request
-                .params
-                .as_ref()
-                .and_then(|params| params.get("_session_loaded_tiers"))
-                .and_then(|value| value.as_array())
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(|value| value.as_str())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            let full_tool_exposure = request
-                .params
-                .as_ref()
-                .and_then(|params| params.get("_session_full_tool_exposure"))
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false);
-            let preferred_namespaces = preferred_namespaces(surface);
-            let preferred_bootstrap = preferred_bootstrap_tools(surface);
-            let preferred_tiers = preferred_tier_labels(surface);
-            let has_loaded_expansions = !loaded_namespaces.is_empty() || !loaded_tiers.is_empty();
-            let deferred_loading_active = deferred_loading_requested
-                && requested_namespace.is_none()
-                && requested_tier.is_none()
-                && !full_listing
-                && !full_tool_exposure;
-            let lean_contract = client_profile.default_tool_contract_mode() == "lean"
-                && !full_listing
-                && !full_tool_exposure;
+            let full_listing = request_context.full_listing;
+            let lean_contract = request_context.lean_tool_contract();
             let include_output_schema =
                 list_param_bool(&request, "includeOutputSchema", "include_output_schema")
-                    .unwrap_or(!(deferred_loading_active || lean_contract));
+                    .unwrap_or(!(visible_context.deferred_loading_active || lean_contract));
             let include_annotations =
                 list_param_bool(&request, "includeAnnotations", "include_annotations")
                     .unwrap_or(!lean_contract);
             let include_deprecated =
                 list_param_bool(&request, "includeDeprecated", "include_deprecated")
                     .unwrap_or(false);
-            let filtered = all_tools
-                .iter()
-                .copied()
-                .filter(|tool| match requested_namespace {
-                    _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
-                    Some(namespace) => tool_namespace(tool.name) == namespace,
-                    None if deferred_loading_active => {
-                        let namespace = tool_namespace(tool.name);
-                        let tier = tool_tier_label(tool.name);
-                        preferred_namespaces.contains(&namespace)
-                            || loaded_tiers.contains(&tier)
-                            || loaded_namespaces.contains(&namespace)
-                    }
-                    None => true,
-                })
-                .filter(|tool| match requested_tier {
-                    _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
-                    Some(tier) => tool_tier_label(tool.name) == tier,
-                    None if deferred_loading_active => {
-                        let namespace = tool_namespace(tool.name);
-                        let tier = tool_tier_label(tool.name);
-                        preferred_tiers.contains(&tier)
-                            || loaded_namespaces.contains(&namespace)
-                            || loaded_tiers.contains(&tier)
-                    }
-                    None => true,
-                })
-                .filter(|tool| match preferred_bootstrap {
-                    _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
-                    Some(tool_names) if deferred_loading_active && !has_loaded_expansions => {
-                        tool_names.contains(&tool.name)
-                    }
-                    _ => true,
-                })
-                .filter(|tool| match requested_phase {
-                    // Phase-agnostic tools (filesystem, memory, session
-                    // coordination, deferred-loading controls) always pass so
-                    // a phase-scoped listing is not stripped of infrastructure.
-                    Some(phase) => {
-                        is_deferred_control_tool(tool.name)
-                            || match tool_phase_label(tool.name) {
-                                Some(label) => label == phase.as_label(),
-                                None => true,
-                            }
-                    }
-                    None => true,
-                })
-                .filter(|tool| {
-                    include_deprecated || crate::tool_defs::tool_deprecation(tool.name).is_none()
-                })
-                .collect::<Vec<_>>();
+            let filtered = filter_listed_tools(
+                visible_context.tools.clone(),
+                requested_phase,
+                include_deprecated,
+            );
             let response_tools = filtered
                 .iter()
                 .map(|tool| {
@@ -325,9 +173,6 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     tool
                 })
                 .collect::<Vec<_>>();
-            let effective_namespaces =
-                merged_string_set(preferred_namespaces.iter().copied(), &loaded_namespaces);
-            let effective_tiers = merged_string_set(preferred_tiers.iter().copied(), &loaded_tiers);
             let token_estimate = if include_output_schema {
                 filtered.iter().map(|tool| tool.estimated_tokens).sum()
             } else {
@@ -335,8 +180,9 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     .map(|body| body.len() / 4)
                     .unwrap_or(0)
             };
-            if deferred_loading_requested
-                && (requested_namespace.is_some() || requested_tier.is_some())
+            if request_context.deferred_loading_requested
+                && (request_context.requested_namespace.is_some()
+                    || request_context.requested_tier.is_some())
             {
                 state.metrics().record_deferred_namespace_expansion();
             }
@@ -352,7 +198,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             let mut payload = Map::new();
             payload.insert(
                 "client_profile".to_owned(),
-                Value::String(client_profile.as_str().to_owned()),
+                Value::String(request_context.client_profile.as_str().to_owned()),
             );
             payload.insert(
                 "active_surface".to_owned(),
@@ -360,23 +206,35 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             );
             payload.insert(
                 "preferred_namespaces".to_owned(),
-                json!(preferred_namespaces),
+                json!(visible_context.preferred_namespaces),
             );
-            payload.insert("preferred_tiers".to_owned(), json!(preferred_tiers));
+            payload.insert(
+                "preferred_tiers".to_owned(),
+                json!(visible_context.preferred_tiers),
+            );
             payload.insert(
                 "preferred_phases".to_owned(),
                 json!(preferred_phase_labels(surface)),
             );
-            payload.insert("loaded_namespaces".to_owned(), json!(loaded_namespaces));
-            payload.insert("loaded_tiers".to_owned(), json!(loaded_tiers));
+            payload.insert(
+                "loaded_namespaces".to_owned(),
+                json!(visible_context.loaded_namespaces),
+            );
+            payload.insert(
+                "loaded_tiers".to_owned(),
+                json!(visible_context.loaded_tiers),
+            );
             payload.insert(
                 "effective_namespaces".to_owned(),
-                json!(effective_namespaces),
+                json!(visible_context.effective_namespaces),
             );
-            payload.insert("effective_tiers".to_owned(), json!(effective_tiers));
+            payload.insert(
+                "effective_tiers".to_owned(),
+                json!(visible_context.effective_tiers),
+            );
             payload.insert(
                 "deferred_loading_active".to_owned(),
-                Value::Bool(deferred_loading_active),
+                Value::Bool(visible_context.deferred_loading_active),
             );
             payload.insert(
                 "include_output_schema".to_owned(),
@@ -388,28 +246,39 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             );
             payload.insert(
                 "default_contract_mode".to_owned(),
-                Value::String(client_profile.default_tool_contract_mode().to_owned()),
+                Value::String(
+                    request_context
+                        .client_profile
+                        .default_tool_contract_mode()
+                        .to_owned(),
+                ),
             );
             payload.insert("tool_count".to_owned(), json!(response_tools.len()));
-            payload.insert("tool_count_total".to_owned(), json!(all_tools.len()));
+            payload.insert(
+                "tool_count_total".to_owned(),
+                json!(visible_context.total_tool_count),
+            );
             payload.insert("tools".to_owned(), json!(response_tools));
 
             if !lean_contract {
-                payload.insert("visible_namespaces".to_owned(), json!(all_namespaces));
-                payload.insert("visible_tiers".to_owned(), json!(all_tiers));
+                payload.insert(
+                    "visible_namespaces".to_owned(),
+                    json!(visible_context.all_namespaces),
+                );
+                payload.insert("visible_tiers".to_owned(), json!(visible_context.all_tiers));
                 payload.insert("full_listing".to_owned(), Value::Bool(full_listing));
                 payload.insert(
                     "full_tool_exposure".to_owned(),
-                    Value::Bool(full_tool_exposure),
+                    Value::Bool(visible_context.full_tool_exposure),
                 );
             }
-            if let Some(namespace) = requested_namespace {
+            if let Some(namespace) = visible_context.selected_namespace.as_deref() {
                 payload.insert(
                     "selected_namespace".to_owned(),
                     Value::String(namespace.to_owned()),
                 );
             }
-            if let Some(tier) = requested_tier {
+            if let Some(tier) = visible_context.selected_tier.as_deref() {
                 payload.insert("selected_tier".to_owned(), Value::String(tier.to_owned()));
             }
 

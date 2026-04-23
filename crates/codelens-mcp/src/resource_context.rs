@@ -1,10 +1,10 @@
 use crate::AppState;
 use crate::client_profile::ClientProfile;
-use crate::protocol::Tool;
+use crate::protocol::{Tool, ToolPhase};
 use crate::tool_defs::{
     ToolProfile, ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools,
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools,
+    preferred_namespaces, preferred_tier_labels, tool_deprecation, tool_namespace,
+    tool_phase_label, tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
 use serde_json::{Value, json};
@@ -106,6 +106,27 @@ pub(crate) struct VisibleToolContext {
     pub(crate) selected_tier: Option<String>,
     pub(crate) deferred_loading_active: bool,
     pub(crate) full_tool_exposure: bool,
+}
+
+pub(crate) fn filter_listed_tools(
+    tools: Vec<&'static Tool>,
+    requested_phase: Option<ToolPhase>,
+    include_deprecated: bool,
+) -> Vec<&'static Tool> {
+    tools
+        .into_iter()
+        .filter(|tool| include_deprecated || tool_deprecation(tool.name).is_none())
+        .filter(|tool| match requested_phase {
+            Some(phase) => {
+                is_deferred_control_tool(tool.name)
+                    || match tool_phase_label(tool.name) {
+                        Some(label) => label == phase.as_label(),
+                        None => true,
+                    }
+            }
+            None => true,
+        })
+        .collect()
 }
 
 pub(crate) fn build_visible_tool_context(

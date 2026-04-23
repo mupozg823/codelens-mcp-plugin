@@ -1,5 +1,7 @@
 use crate::AppState;
-use crate::resource_context::{ResourceRequestContext, build_visible_tool_context};
+use crate::resource_context::{
+    ResourceRequestContext, build_visible_tool_context, filter_listed_tools,
+};
 use crate::surface_manifest::{HARNESS_HOST_COMPAT_RESOURCE_URI, HOST_ADAPTER_HOSTS};
 use crate::tool_defs::{tool_namespace, tool_preferred_executor_label, tool_tier_label};
 use serde_json::{Value, json};
@@ -138,10 +140,11 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
     let surface = state.execution_surface(&request.session);
     let context = build_visible_tool_context(state, &request);
     let lean_contract = request.lean_tool_contract();
+    let listed_tools = filter_listed_tools(context.tools.clone(), None, false);
     let mut namespace_counts = BTreeMap::new();
     let mut tier_counts = BTreeMap::new();
     let mut executor_counts = BTreeMap::new();
-    for tool in &context.tools {
+    for tool in &listed_tools {
         *namespace_counts
             .entry(tool_namespace(tool.name).to_owned())
             .or_insert(0usize) += 1;
@@ -152,8 +155,7 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
             .entry(tool_preferred_executor_label(tool.name).to_owned())
             .or_insert(0usize) += 1;
     }
-    let prioritized = context
-        .tools
+    let prioritized = listed_tools
         .iter()
         .take(8)
         .map(|tool| {
@@ -175,7 +177,7 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
         "default_contract_mode".to_owned(),
         json!(request.tool_contract_mode()),
     );
-    payload.insert("tool_count".to_owned(), json!(context.tools.len()));
+    payload.insert("tool_count".to_owned(), json!(listed_tools.len()));
     payload.insert(
         "tool_count_total".to_owned(),
         json!(context.total_tool_count),
@@ -228,8 +230,7 @@ pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&
     let request = ResourceRequestContext::from_request(uri, params);
     let surface = state.execution_surface(&request.session);
     let context = build_visible_tool_context(state, &request);
-    let tools = context
-        .tools
+    let tools = filter_listed_tools(context.tools, None, false)
         .into_iter()
         .map(|tool| {
             json!({
