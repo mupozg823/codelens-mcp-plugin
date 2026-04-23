@@ -89,6 +89,79 @@ fn returns_ranked_context_without_semantic_when_requested() {
 }
 
 #[test]
+fn get_callers_surfaces_file_hint_confidence_basis_and_resolution_summary() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("a.py"),
+        "def helper():\n    pass\n\ndef run():\n    helper()\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("b.py"),
+        "def helper():\n    pass\n\ndef run():\n    helper()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let payload = call_tool(
+        &state,
+        "get_callers",
+        json!({ "function_name": "helper", "file_path": "a.py" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert!(payload["data"]["callers"].is_array());
+    assert!(payload["data"]["confidence_basis"].is_string());
+    assert!(payload["data"]["resolution_summary"].is_object());
+    assert!(payload["confidence"].is_number());
+    assert!(
+        matches!(
+            payload["backend_used"].as_str(),
+            Some("tree-sitter" | "hybrid")
+        ),
+        "unexpected backend {:?}",
+        payload["backend_used"]
+    );
+}
+
+#[test]
+fn get_callees_caps_tool_confidence_on_fallback_and_unresolved_mix() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("components")).unwrap();
+    fs::write(
+        project.as_path().join("page.tsx"),
+        "export function Page() { handleSubmit(); useRouter(); }\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("components/CommentSection.tsx"),
+        "export function handleSubmit() {}\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let payload = call_tool(
+        &state,
+        "get_callees",
+        json!({ "function_name": "Page", "file_path": "page.tsx" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let confidence = payload["confidence"].as_f64().unwrap_or_default();
+    assert!(
+        confidence <= 0.35,
+        "confidence should cap on unresolved mix: {confidence}"
+    );
+    assert_eq!(
+        payload["data"]["resolution_summary"]["unresolved"]
+            .as_u64()
+            .unwrap_or_default()
+            > 0,
+        true
+    );
+}
+
+#[test]
 fn bm25_symbol_search_returns_symbol_cards() {
     let project = project_root();
     fs::create_dir_all(project.as_path().join("src")).unwrap();

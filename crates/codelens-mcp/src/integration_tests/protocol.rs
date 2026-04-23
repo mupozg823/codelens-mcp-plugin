@@ -258,6 +258,37 @@ fn graph_profiles_expose_call_graph_primitives_by_namespace() {
 }
 
 #[test]
+fn get_callers_input_schema_exposes_file_path_hint() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let list_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(106)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"namespace": "graph", "includeOutputSchema": true})),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&list_resp).unwrap();
+    let tools = value["result"]["tools"].as_array().expect("tools");
+    let callers = tools
+        .iter()
+        .find(|tool| tool["name"] == "get_callers")
+        .expect("get_callers tool");
+    assert!(
+        callers["inputSchema"]["properties"]["file_path"].is_object(),
+        "get_callers should expose optional file_path hint"
+    );
+    assert!(
+        callers["outputSchema"]["properties"]["confidence_basis"].is_object(),
+        "get_callers should expose call-graph output schema"
+    );
+}
+
+#[test]
 fn tools_list_can_be_filtered_by_phase() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);

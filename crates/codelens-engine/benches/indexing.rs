@@ -302,10 +302,11 @@ fn bench_blast_radius(c: &mut Criterion) {
 
 fn bench_get_callers(c: &mut Criterion) {
     let (_dir, project) = create_fixture();
+    let cache = GraphCache::new(0);
 
     c.bench_function("get_callers (validate)", |b| {
         b.iter(|| {
-            get_callers(black_box(&project), "validate", 50).unwrap();
+            get_callers(black_box(&project), "validate", None, 50, Some(&cache)).unwrap();
         })
     });
 }
