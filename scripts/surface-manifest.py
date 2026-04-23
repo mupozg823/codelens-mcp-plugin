@@ -166,10 +166,10 @@ def render_platform_harness_summary(manifest: dict) -> str:
 
 
 def render_index_release(manifest: dict) -> str:
-    version = manifest["workspace"]["version"]
     return "\n".join(
         [
-            f"- [GitHub Release v{version}](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v{version})",
+            "- [Latest GitHub Release](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest)",
+            "- [All tagged releases](https://github.com/mupozg823/codelens-mcp-plugin/releases)",
             "- [Repository README](https://github.com/mupozg823/codelens-mcp-plugin/blob/main/README.md)",
             "- [Current source tree](https://github.com/mupozg823/codelens-mcp-plugin)",
         ]

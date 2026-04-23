@@ -81,6 +81,27 @@ python3 benchmarks/http-surface-benchmark.py . \
 - `planner-readonly` / `reviewer-graph` / `refactor-full` surface에서 visible tool count 변화
 - deprecated workflow alias가 surface에서 계속 노출되는지 여부
 
+### 1-1-2. Release quality matrix (release-quality-matrix.py)
+
+```bash
+python3 benchmarks/release-quality-matrix.py . \
+  --baseline-tag "$(git tag --sort=-v:refname | head -1)" \
+  --candidate-binary target/release/codelens-mcp
+```
+
+측정 항목:
+
+- latest tagged baseline과 현재 candidate binary의 retrieval/runtime/HTTP surface delta
+- `call-graph-quality.py` 기반 caller/callee expected edge recall, unresolved/fallback rate, confidence honesty failure
+- binary SHA, git dirty 여부, 실행 명령, stdout/stderr log, `summary.json`, `summary.md`
+- 결과 위치: `benchmarks/results/<timestamp>-release-quality-matrix/`
+
+주의:
+
+- 이 스크립트는 새 orchestrator가 아니라 기존 벤치 스크립트를 순서대로 실행하고 결과를 합치는 wrapper다
+- candidate는 기본적으로 매번 release build를 다시 만든다. 이미 빌드된 바이너리를 강제로 재사용할 때만 `--skip-candidate-build`를 쓴다
+- self dataset만 좋아지고 external retrieval 또는 call-graph honesty가 나빠지면 release 품질 개선으로 보지 않는다
+
 ### 1-2. 임베드 런타임 benchmark (embedding-runtime.py)
 
 ```bash

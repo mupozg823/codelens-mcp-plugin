@@ -21,7 +21,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
 ## Surface Snapshot
 
-- Workspace version: `1.9.46`
+- Workspace version: `1.9.50`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
 - Registered tool definitions: `111`
 - Tool output schemas: `77 / 111`
@@ -73,7 +73,7 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
 ```
 
-Latest release: [v1.9.35](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.35)
+Latest release: [GitHub Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). For local release comparisons, use `git tag --sort=-v:refname | head -1` instead of copying a fixed tag into docs.
 
 ### Install Channel Matrix
 
