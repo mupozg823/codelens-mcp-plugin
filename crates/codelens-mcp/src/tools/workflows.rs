@@ -1,13 +1,9 @@
 use crate::AppState;
 use crate::error::CodeLensError;
-use crate::tool_defs::deprecated_workflow_alias;
-use crate::tool_runtime::{ToolHandler, ToolResult};
-use serde_json::{Value, json};
-
-#[cfg(feature = "semantic")]
 use crate::protocol::BackendKind;
-#[cfg(feature = "semantic")]
-use crate::tool_runtime::success_meta;
+use crate::tool_defs::deprecated_workflow_alias;
+use crate::tool_runtime::{ToolHandler, ToolResult, success_meta};
+use serde_json::{Value, json};
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
     let deprecation = deprecated_workflow_alias(workflow);
@@ -48,6 +44,100 @@ fn delegate_workflow(
     Ok((
         attach_workflow_metadata(workflow, delegated_tool, payload),
         meta,
+    ))
+}
+
+fn diagnose_path_scope(state: &AppState, path: &str, max_results: Option<u64>) -> ToolResult {
+    let project = state.project();
+    let resolved = project.resolve(path)?;
+    if resolved.is_file() {
+        return delegate_workflow(
+            state,
+            "diagnose_issues",
+            "get_file_diagnostics",
+            json!({
+                "file_path": path,
+                "max_results": max_results,
+            }),
+            crate::tools::lsp::get_file_diagnostics,
+        );
+    }
+    if !resolved.is_dir() {
+        return Err(CodeLensError::NotFound(format!(
+            "path does not exist in project scope: {path}"
+        )));
+    }
+
+    let candidate_files = codelens_engine::find_files(&project, "*", Some(path))?;
+    let max_files = 8usize;
+    let mut files = Vec::new();
+    let mut skipped_files = Vec::new();
+    let mut diagnosable_files = 0usize;
+    let mut diagnostic_count = 0usize;
+
+    for file_path in candidate_files.into_iter().map(|entry| entry.path) {
+        if crate::tools::default_lsp_command_for_path(&file_path).is_none() {
+            skipped_files.push(json!({
+                "file_path": file_path,
+                "reason": "no_default_lsp_mapping",
+            }));
+            continue;
+        }
+
+        diagnosable_files += 1;
+        if files.len() >= max_files {
+            skipped_files.push(json!({
+                "file_path": file_path,
+                "reason": "file_limit_reached",
+            }));
+            continue;
+        }
+
+        match crate::tools::lsp::get_file_diagnostics(
+            state,
+            &json!({
+                "file_path": &file_path,
+                "max_results": max_results,
+            }),
+        ) {
+            Ok((payload, _meta)) => {
+                let count = payload
+                    .get("count")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or_default() as usize;
+                diagnostic_count += count;
+                files.push(json!({
+                    "file_path": file_path,
+                    "count": count,
+                    "diagnostics": payload.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
+                }));
+            }
+            Err(error) => {
+                skipped_files.push(json!({
+                    "file_path": file_path,
+                    "reason": "diagnostics_error",
+                    "error": error.to_string(),
+                }));
+            }
+        }
+    }
+
+    Ok((
+        attach_workflow_metadata(
+            "diagnose_issues",
+            "directory_diagnostics",
+            json!({
+                "path": path,
+                "scope": "directory",
+                "files": files,
+                "returned_file_count": files.len(),
+                "diagnosable_file_count": diagnosable_files,
+                "diagnostic_count": diagnostic_count,
+                "skipped_files": skipped_files,
+                "count": diagnostic_count,
+            }),
+        ),
+        success_meta(BackendKind::Lsp, 0.82),
     ))
 }
 
@@ -236,36 +326,54 @@ pub fn assess_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
 }
 
 pub fn diagnose_issues(state: &AppState, arguments: &Value) -> ToolResult {
-    if arguments
-        .get("path")
-        .or_else(|| arguments.get("file_path"))
-        .and_then(|v| v.as_str())
-        .is_some()
-    {
+    let max_results = arguments
+        .get("max_results")
+        .and_then(|value| value.as_u64());
+
+    if let Some(symbol) = arguments.get("symbol").and_then(|v| v.as_str()) {
+        let file_path = arguments
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| CodeLensError::MissingParam("file_path".to_owned()))?;
+        let resolved = state.project().resolve(file_path)?;
+        if !resolved.is_file() {
+            return Err(CodeLensError::Validation(
+                "diagnose_issues with `symbol` requires a file target, not a directory".to_owned(),
+            ));
+        }
+        return delegate_workflow(
+            state,
+            "diagnose_issues",
+            "unresolved_reference_check",
+            json!({
+                "file_path": file_path,
+                "symbol": symbol,
+                "changed_files": arguments.get("changed_files"),
+            }),
+            crate::tools::reports::unresolved_reference_check,
+        );
+    }
+
+    if let Some(file_path) = arguments.get("file_path").and_then(|v| v.as_str()) {
         return delegate_workflow(
             state,
             "diagnose_issues",
             "get_file_diagnostics",
             json!({
-                "file_path": arguments.get("file_path")
-                    .or_else(|| arguments.get("path"))
-                    .and_then(|v| v.as_str()),
+                "file_path": file_path,
+                "max_results": max_results,
             }),
             crate::tools::lsp::get_file_diagnostics,
         );
     }
 
-    delegate_workflow(
-        state,
-        "diagnose_issues",
-        "unresolved_reference_check",
-        json!({
-            "file_path": arguments.get("file_path").and_then(|v| v.as_str()),
-            "symbol": arguments.get("symbol").and_then(|v| v.as_str()),
-            "changed_files": arguments.get("changed_files"),
-        }),
-        crate::tools::reports::unresolved_reference_check,
-    )
+    if let Some(path) = arguments.get("path").and_then(|v| v.as_str()) {
+        return diagnose_path_scope(state, path, max_results);
+    }
+
+    Err(CodeLensError::MissingParam(
+        "file_path, path, or symbol".to_owned(),
+    ))
 }
 
 pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResult {
