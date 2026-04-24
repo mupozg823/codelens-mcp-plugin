@@ -53,6 +53,42 @@ def copy_project(source: Path, keep: bool) -> tuple[Path, tempfile.TemporaryDire
     return dest, tmp
 
 
+def materialize_project(
+    item: dict[str, Any],
+    keep: bool,
+    timeout: int,
+) -> tuple[Path, tempfile.TemporaryDirectory[str] | None]:
+    if "path" in item:
+        source = (ROOT / item["path"]).resolve()
+        if not source.is_dir():
+            raise FileNotFoundError(f"project path missing: {source}")
+        return copy_project(source, keep)
+
+    git_url = item.get("git_url") or item.get("repo_url")
+    if not git_url:
+        raise ValueError("matrix item must set either path or git_url")
+
+    tmp = None if keep else tempfile.TemporaryDirectory(prefix="codelens-external-smoke-")
+    work_root = Path(tempfile.mkdtemp(prefix="codelens-external-smoke-")) if keep else Path(tmp.name)
+    name = item.get("name", "project").replace("/", "-")
+    dest = work_root / name
+    subprocess.run(
+        ["git", "clone", "--quiet", str(git_url), str(dest)],
+        cwd=ROOT,
+        timeout=timeout,
+        check=True,
+    )
+    revision = item.get("revision") or item.get("rev")
+    if revision:
+        subprocess.run(
+            ["git", "checkout", "--quiet", str(revision)],
+            cwd=dest,
+            timeout=timeout,
+            check=True,
+        )
+    return dest, tmp
+
+
 def run_tool(
     binary: Path,
     project: Path,
@@ -111,16 +147,17 @@ def smoke_project(
     keep_workdirs: bool,
     env: dict[str, str],
 ) -> dict[str, Any]:
-    source = (ROOT / item["path"]).resolve()
-    if not source.is_dir():
+    try:
+        project, tmp = materialize_project(item, keep_workdirs, timeout)
+    except (FileNotFoundError, ValueError, subprocess.SubprocessError) as error:
         return {
-            "name": item.get("name", str(source)),
+            "name": item.get("name", item.get("git_url", item.get("path", "unknown"))),
             "kind": item.get("kind"),
             "ok": False,
-            "error": f"project path missing: {source}",
+            "error": str(error),
             "steps": [],
         }
-    project, tmp = copy_project(source, keep_workdirs)
+
     try:
         steps = [
             run_tool(binary, project, "refresh_symbol_index", {}, timeout, env),

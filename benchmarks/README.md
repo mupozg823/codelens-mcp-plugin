@@ -102,6 +102,26 @@ python3 benchmarks/release-quality-matrix.py . \
 - candidate는 기본적으로 매번 release build를 다시 만든다. 이미 빌드된 바이너리를 강제로 재사용할 때만 `--skip-candidate-build`를 쓴다
 - self dataset만 좋아지고 external retrieval 또는 call-graph honesty가 나빠지면 release 품질 개선으로 보지 않는다
 
+### 1-1-3. External project smoke (external-project-smoke.py)
+
+```bash
+python3 benchmarks/external-project-smoke.py \
+  --binary target/release/codelens-mcp \
+  --matrix benchmarks/external-project-smoke-matrix.json \
+  --check
+```
+
+측정 항목:
+
+- `refresh_symbol_index`
+- `index_embeddings(prewarm_queries)`
+- `semantic_search` with `path_hint`
+- `rename_symbol(dry_run=true)`
+
+기본 CI matrix는 빠른 fixture project를 사용한다. Nightly/release 검증에서는 같은 matrix schema에
+`git_url` 또는 `repo_url`과 `revision`을 넣어 pinned upstream repository를 materialize할 수 있다.
+이 경로는 네트워크와 upstream clone 비용이 있으므로 PR fast gate와 분리한다.
+
 ### 1-2. 임베드 런타임 benchmark (embedding-runtime.py)
 
 ```bash

@@ -571,6 +571,11 @@ def main() -> None:
         action="store_true",
         help="write docs/generated/surface-manifest.json and refresh generated doc blocks",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="check for drift without writing; explicit alias for the default mode",
+    )
     args = parser.parse_args()
 
     manifest = load_manifest()

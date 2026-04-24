@@ -82,6 +82,52 @@ fn configured_daemon_mode_env() -> Option<RuntimeDaemonMode> {
     dual_prefix_env("CODELENS_DAEMON_MODE").map(|value| RuntimeDaemonMode::from_str(&value))
 }
 
+fn cli_help_text() -> String {
+    let lines = vec![
+        format!("codelens-mcp {}", build_info::BUILD_VERSION),
+        "Usage: codelens-mcp [PROJECT] [OPTIONS]".to_owned(),
+        String::new(),
+        "Options:".to_owned(),
+        "  --cmd <tool>                 Run one MCP tool and exit".to_owned(),
+        "  --args <json>                JSON arguments for --cmd".to_owned(),
+        "  --preset minimal|balanced|full".to_owned(),
+        "  --profile planner-readonly|builder-minimal|reviewer-graph|refactor-full|ci-audit"
+            .to_owned(),
+        "  --daemon-mode standard|read-only|mutation-enabled".to_owned(),
+        "  --compat default|anthropic-remote".to_owned(),
+        "  --print-surface-manifest     Print canonical surface manifest JSON".to_owned(),
+        "  --version                    Print version and build metadata".to_owned(),
+        "  -h, --help                   Print help".to_owned(),
+    ];
+    #[cfg(feature = "http")]
+    let lines = {
+        let mut lines = lines;
+        lines.extend([
+            String::new(),
+            "HTTP options:".to_owned(),
+            "  --transport stdio|http|https".to_owned(),
+            "  --listen <addr>".to_owned(),
+            "  --port <port>".to_owned(),
+            "  --tls-cert <pem> --tls-key <pem>".to_owned(),
+            "  --auth off|jwks".to_owned(),
+            "  --auth-jwks-url <url> --auth-issuer <iss> --auth-audience <aud>".to_owned(),
+            "  --auth-scope <scope>".to_owned(),
+        ]);
+        lines
+    };
+    lines.join("\n")
+}
+
+fn cli_version_text() -> String {
+    format!(
+        "codelens-mcp {} (git {}, dirty {}, built {})",
+        build_info::BUILD_VERSION,
+        build_info::BUILD_GIT_SHA,
+        build_info::BUILD_GIT_DIRTY,
+        build_info::BUILD_TIME
+    )
+}
+
 #[cfg(feature = "otel")]
 fn configured_otel_endpoint() -> String {
     dual_prefix_env("CODELENS_OTEL_ENDPOINT").unwrap_or_default()
@@ -172,6 +218,14 @@ fn main() -> Result<()> {
     init_tracing();
 
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        println!("{}", cli_version_text());
+        return Ok(());
+    }
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("{}", cli_help_text());
+        return Ok(());
+    }
     if is_attach_subcommand(&args) {
         println!(
             "{}",
@@ -371,6 +425,23 @@ mod env_config_tests {
                 );
             },
         );
+    }
+
+    #[test]
+    fn cli_version_text_contains_build_metadata() {
+        let rendered = cli_version_text();
+        assert!(rendered.contains("codelens-mcp"));
+        assert!(rendered.contains(build_info::BUILD_VERSION));
+        assert!(rendered.contains(build_info::BUILD_GIT_SHA));
+    }
+
+    #[test]
+    fn cli_help_text_mentions_core_modes() {
+        let rendered = cli_help_text();
+        assert!(rendered.contains("Usage: codelens-mcp"));
+        assert!(rendered.contains("--cmd <tool>"));
+        assert!(rendered.contains("--profile"));
+        assert!(rendered.contains("--version"));
     }
 
     #[cfg(feature = "otel")]

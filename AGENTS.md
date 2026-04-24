@@ -27,7 +27,13 @@ cargo test -p codelens-mcp
 # Extended:
 cargo test -p codelens-mcp --features http
 cargo clippy -- -W clippy::all
+python3 scripts/surface-manifest.py --check
 ```
+
+- Run Cargo build/test/clippy commands sequentially. They share Cargo locks and
+  parallel execution creates noisy lock contention without useful speedup.
+- Cargo accepts only one bare test filter before `--`; use a module-level filter
+  or separate commands instead of passing multiple test names.
 
 ## Routing
 
