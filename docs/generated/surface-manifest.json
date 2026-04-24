@@ -1020,7 +1020,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 78
+        "estimated_tokens": 144
       },
       {
         "name": "find_similar_code",

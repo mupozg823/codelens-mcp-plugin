@@ -170,7 +170,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
 }
 
 #[cfg(feature = "semantic")]
-fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+fn index_embeddings_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let project = state.project();
     let guard = state.embedding_engine();
     let engine = guard
@@ -198,8 +198,51 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
         _ => 0,
     };
 
+    let prewarm_limit = arguments
+        .get("prewarm_limit")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(128)
+        .min(1024);
+    let mut prewarm_queries = Vec::new();
+    if prewarm_limit > 0
+        && let Some(items) = arguments
+            .get("prewarm_queries")
+            .and_then(|value| value.as_array())
+    {
+        let mut seen = std::collections::HashSet::new();
+        for query in items.iter().filter_map(|value| value.as_str()) {
+            if prewarm_queries.len() >= prewarm_limit {
+                break;
+            }
+            let query_analysis = crate::tools::query_analysis::analyze_retrieval_query(query);
+            if query_analysis.semantic_query.is_empty() {
+                continue;
+            }
+            let search_query = crate::tools::query_analysis::semantic_query_for_embedding_search(
+                &query_analysis,
+                Some(project.as_path()),
+            );
+            if seen.insert(search_query.clone()) {
+                prewarm_queries.push(search_query);
+            }
+        }
+    }
+    let prewarmed = engine.prewarm_queries(&prewarm_queries)?;
+    let query_cache = engine.query_cache_stats()?;
+
     Ok((
-        json!({"indexed_symbols": count, "bridges_generated": bridges_generated, "status": "ok"}),
+        json!({
+            "indexed_symbols": count,
+            "bridges_generated": bridges_generated,
+            "status": "ok",
+            "query_cache": {
+                "enabled": query_cache.enabled,
+                "entries": query_cache.entries,
+                "max_entries": query_cache.max_entries,
+                "prewarmed": prewarmed,
+            }
+        }),
         tools::success_meta(BackendKind::Semantic, 0.95),
     ))
 }

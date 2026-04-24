@@ -11,11 +11,13 @@ use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
 use anyhow::Result;
 use rusqlite::Connection;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{embedding_to_bytes, ffi};
+use super::{QueryEmbeddingCacheStats, embedding_to_bytes, ffi};
 
 pub(super) struct SqliteVecStore {
     db: Mutex<Connection>,
+    query_cache_max_entries: usize,
 }
 
 impl SqliteVecStore {
@@ -24,6 +26,7 @@ impl SqliteVecStore {
         dimension: usize,
         model_name: &str,
     ) -> Result<Self> {
+        let query_cache_max_entries = super::runtime::configured_query_embedding_cache_size();
         crate::db::open_derived_sqlite_with_recovery(db_path, "embedding index", || {
             ffi::register_sqlite_vec()?;
 
@@ -54,6 +57,7 @@ impl SqliteVecStore {
                 conn.execute_batch(
                     "DROP TABLE IF EXISTS vec_symbols;
                      DROP TABLE IF EXISTS symbols;
+                     DROP TABLE IF EXISTS query_embeddings;
                      DROP TABLE IF EXISTS meta;",
                 )?;
             }
@@ -75,7 +79,15 @@ impl SqliteVecStore {
                 );
                 CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(
                     embedding float[{dimension}]
-                );",
+                );
+                CREATE TABLE IF NOT EXISTS query_embeddings (
+                    cache_key TEXT PRIMARY KEY,
+                    embedding BLOB NOT NULL,
+                    created_at_ms INTEGER NOT NULL,
+                    last_accessed_ms INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_query_embeddings_accessed
+                    ON query_embeddings(last_accessed_ms, created_at_ms);",
                 dimension = dimension
             ))?;
 
@@ -84,9 +96,11 @@ impl SqliteVecStore {
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('model', ?1)",
                 rusqlite::params![model_name],
             )?;
+            Self::prune_query_cache_locked(&conn, query_cache_max_entries)?;
 
             Ok(Self {
                 db: Mutex::new(conn),
+                query_cache_max_entries,
             })
         })
     }
@@ -122,6 +136,37 @@ impl SqliteVecStore {
             .chunks_exact(4)
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
+    }
+
+    fn now_ms() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis().min(i64::MAX as u128) as i64)
+            .unwrap_or_default()
+    }
+
+    fn prune_query_cache_locked(db: &Connection, max_entries: usize) -> Result<()> {
+        if max_entries == 0 {
+            db.execute("DELETE FROM query_embeddings", [])?;
+            return Ok(());
+        }
+
+        let count: i64 = db.query_row("SELECT COUNT(*) FROM query_embeddings", [], |row| {
+            row.get(0)
+        })?;
+        let overflow = count.saturating_sub(max_entries as i64);
+        if overflow > 0 {
+            db.execute(
+                "DELETE FROM query_embeddings
+                 WHERE cache_key IN (
+                    SELECT cache_key FROM query_embeddings
+                    ORDER BY last_accessed_ms ASC, created_at_ms ASC
+                    LIMIT ?1
+                 )",
+                rusqlite::params![overflow],
+            )?;
+        }
+        Ok(())
     }
 
     fn chunk_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EmbeddingChunk> {
@@ -183,6 +228,65 @@ impl SqliteVecStore {
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(results)
+    }
+
+    pub(super) fn get_query_embedding(&self, cache_key: &str) -> Result<Option<Vec<f32>>> {
+        if self.query_cache_max_entries == 0 {
+            return Ok(None);
+        }
+
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let bytes: Vec<u8> = match db.query_row(
+            "SELECT embedding FROM query_embeddings WHERE cache_key = ?1",
+            rusqlite::params![cache_key],
+            |row| row.get(0),
+        ) {
+            Ok(bytes) => bytes,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        db.execute(
+            "UPDATE query_embeddings SET last_accessed_ms = ?2 WHERE cache_key = ?1",
+            rusqlite::params![cache_key, Self::now_ms()],
+        )?;
+        Ok(Some(Self::decode_embedding_bytes(&bytes)))
+    }
+
+    pub(super) fn put_query_embedding(&self, cache_key: &str, embedding: &[f32]) -> Result<bool> {
+        if self.query_cache_max_entries == 0 {
+            return Ok(false);
+        }
+
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let now = Self::now_ms();
+        db.execute(
+            "INSERT OR REPLACE INTO query_embeddings
+             (cache_key, embedding, created_at_ms, last_accessed_ms)
+             VALUES (?1, ?2, ?3, ?3)",
+            rusqlite::params![cache_key, embedding_to_bytes(embedding), now],
+        )?;
+        Self::prune_query_cache_locked(&db, self.query_cache_max_entries)?;
+        Ok(true)
+    }
+
+    pub(super) fn query_cache_stats(&self) -> Result<QueryEmbeddingCacheStats> {
+        if self.query_cache_max_entries == 0 {
+            return Ok(QueryEmbeddingCacheStats {
+                enabled: false,
+                entries: 0,
+                max_entries: 0,
+            });
+        }
+
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let entries: i64 = db.query_row("SELECT COUNT(*) FROM query_embeddings", [], |row| {
+            row.get(0)
+        })?;
+        Ok(QueryEmbeddingCacheStats {
+            enabled: true,
+            entries: entries.max(0) as usize,
+            max_entries: self.query_cache_max_entries,
+        })
     }
 
     pub(super) fn delete_by_file(&self, file_paths: &[&str]) -> Result<usize> {

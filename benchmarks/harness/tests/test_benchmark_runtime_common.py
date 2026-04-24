@@ -180,6 +180,27 @@ class BenchmarkRuntimeCommonTests(unittest.TestCase):
         call.assert_called_once()
         self.assertEqual(call.call_args.kwargs["timeout_seconds"], 37)
 
+    def test_copy_project_for_benchmark_is_deterministic_and_ignores_runtime_dirs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            project = root / "project"
+            project.mkdir()
+            (project / "b.py").write_text("def b(): pass\n")
+            (project / "a.py").write_text("def a(): pass\n")
+            (project / ".git").mkdir()
+            (project / ".git" / "HEAD").write_text("ref: main\n")
+            (project / "target").mkdir()
+            (project / "target" / "ignored").write_text("build output\n")
+
+            copied = Path(RUNTIME.copy_project_for_benchmark(str(project)))
+
+            self.assertEqual(copied.name, "project")
+            self.assertEqual(
+                sorted(path.name for path in copied.iterdir()),
+                ["a.py", "b.py"],
+            )
+            self.assertEqual((copied / "a.py").read_text(), "def a(): pass\n")
+
 
 if __name__ == "__main__":
     unittest.main()

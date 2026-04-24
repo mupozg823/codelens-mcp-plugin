@@ -22,11 +22,25 @@ use super::runtime::{configured_rerank_blend, embed_batch_size, max_embed_symbol
 use super::vec_store::SqliteVecStore;
 use super::{
     CHANGED_FILE_QUERY_CHUNK, DEFAULT_DUPLICATE_SCAN_BATCH_SIZE, EmbeddingEngine,
-    EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch,
+    EmbeddingIndexInfo, EmbeddingRuntimeInfo, QueryEmbeddingCacheStats, SemanticMatch,
 };
 use rusqlite::Connection;
+use sha2::{Digest, Sha256};
 
 impl EmbeddingEngine {
+    fn query_embedding_cache_key(&self, text: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(b"cache-v1\0");
+        hasher.update(self.model_name.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(self.runtime_info.backend.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(self.runtime_info.max_length.to_string().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(text.as_bytes());
+        format!("cache-v1:{:x}", hasher.finalize())
+    }
+
     fn embed_texts_cached(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
@@ -81,6 +95,90 @@ impl EmbeddingEngine {
             .into_iter()
             .map(|item| item.ok_or_else(|| anyhow::anyhow!("missing embedding cache entry")))
             .collect()
+    }
+
+    fn embed_queries_cached_with_insert_count(
+        &self,
+        texts: &[&str],
+    ) -> Result<(Vec<Vec<f32>>, usize)> {
+        if texts.is_empty() {
+            return Ok((Vec::new(), 0));
+        }
+
+        let mut resolved: Vec<Option<Vec<f32>>> = vec![None; texts.len()];
+        let mut missing_order: Vec<String> = Vec::new();
+        let mut missing_positions: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for (index, text) in texts.iter().enumerate() {
+            let key = self.query_embedding_cache_key(text);
+            if let Some(cached) = self.store.get_query_embedding(&key)? {
+                resolved[index] = Some(cached);
+            } else {
+                if !missing_positions.contains_key(&key) {
+                    missing_order.push((*text).to_owned());
+                }
+                missing_positions.entry(key).or_default().push(index);
+            }
+        }
+
+        let mut inserted = 0usize;
+        if !missing_order.is_empty() {
+            let missing_refs: Vec<&str> = missing_order.iter().map(String::as_str).collect();
+            let embeddings = self.embed_texts_cached(&missing_refs)?;
+            for (text, embedding) in missing_order.into_iter().zip(embeddings.into_iter()) {
+                let key = self.query_embedding_cache_key(&text);
+                if self.store.put_query_embedding(&key, &embedding)? {
+                    inserted += 1;
+                }
+                if let Some(indices) = missing_positions.remove(&key) {
+                    for index in indices {
+                        resolved[index] = Some(embedding.clone());
+                    }
+                }
+            }
+        }
+
+        let embeddings = resolved
+            .into_iter()
+            .map(|item| item.ok_or_else(|| anyhow::anyhow!("missing query embedding cache entry")))
+            .collect::<Result<Vec<_>>>()?;
+        Ok((embeddings, inserted))
+    }
+
+    pub fn embed_queries_cached(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        self.embed_queries_cached_with_insert_count(texts)
+            .map(|(embeddings, _)| embeddings)
+    }
+
+    pub fn embed_query_cached(&self, text: &str) -> Result<Vec<f32>> {
+        self.embed_queries_cached(&[text])?
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("missing query embedding"))
+    }
+
+    pub fn prewarm_queries(&self, queries: &[String]) -> Result<usize> {
+        let mut unique = Vec::new();
+        let mut seen = HashSet::new();
+        for query in queries {
+            let trimmed = query.trim();
+            if trimmed.is_empty() || !seen.insert(trimmed.to_owned()) {
+                continue;
+            }
+            unique.push(trimmed);
+        }
+        let (_embeddings, inserted) = self.embed_queries_cached_with_insert_count(&unique)?;
+        Ok(inserted)
+    }
+
+    pub fn query_cache_stats(&self) -> Result<QueryEmbeddingCacheStats> {
+        self.store.query_cache_stats()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cached_query_embedding_for_test(&self, query: &str) -> Result<Option<Vec<f32>>> {
+        self.store
+            .get_query_embedding(&self.query_embedding_cache_key(query))
     }
 
     pub fn new(project: &ProjectRoot) -> Result<Self> {
@@ -417,11 +515,7 @@ impl EmbeddingEngine {
     /// cosine similarity. This catches cases where embedding similarity is high
     /// but the actual text relevance is low (or vice versa).
     pub fn search_scored(&self, query: &str, max_results: usize) -> Result<Vec<ScoredChunk>> {
-        let query_embedding = self.embed_texts_cached(&[query])?;
-
-        if query_embedding.is_empty() {
-            return Ok(Vec::new());
-        }
+        let query_embedding = self.embed_query_cached(query)?;
 
         // Fetch N× candidates for reranking headroom (default 5×, override via
         // CODELENS_RERANK_FACTOR). More candidates = better rerank quality at
@@ -431,7 +525,7 @@ impl EmbeddingEngine {
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(5);
         let candidate_count = max_results.saturating_mul(factor).max(max_results);
-        let mut candidates = self.store.search(&query_embedding[0], candidate_count)?;
+        let mut candidates = self.store.search(&query_embedding, candidate_count)?;
 
         if candidates.len() <= max_results {
             return Ok(candidates);

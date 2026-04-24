@@ -6,8 +6,10 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shutil
 import socket
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +26,20 @@ REQUIRED_MODEL_ASSETS = (
     "config.json",
     "special_tokens_map.json",
     "tokenizer_config.json",
+)
+
+RUNTIME_IGNORE_PATTERNS = shutil.ignore_patterns(
+    ".git",
+    ".codelens",
+    "target",
+    "node_modules",
+    ".next",
+    "dist",
+    "coverage",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".pytest_cache",
 )
 
 
@@ -256,6 +272,30 @@ def validate_expected_file_suffixes(
         "update the dataset to the current repo layout before trusting benchmark scores"
     )
     raise SystemExit("\n".join(lines))
+
+
+def copy_project_for_benchmark(source_project: str) -> str:
+    source = Path(source_project).resolve()
+    temp_root = Path(tempfile.mkdtemp(prefix="codelens-bench-"))
+    bench_project = temp_root / source.name
+
+    def copy_dir(src: Path, dst: Path) -> None:
+        dst.mkdir(parents=True, exist_ok=True)
+        entries = sorted(src.iterdir(), key=lambda path: path.name)
+        ignored = RUNTIME_IGNORE_PATTERNS(str(src), [entry.name for entry in entries])
+        for entry in entries:
+            if entry.name in ignored:
+                continue
+            target = dst / entry.name
+            if entry.is_symlink():
+                os.symlink(os.readlink(entry), target)
+            elif entry.is_dir():
+                copy_dir(entry, target)
+            else:
+                shutil.copy2(entry, target, follow_symlinks=False)
+
+    copy_dir(source, bench_project)
+    return str(bench_project)
 
 
 def run_search(project, pattern, include="*.rs", max_lines=50):

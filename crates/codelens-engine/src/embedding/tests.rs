@@ -1244,6 +1244,50 @@ fn text_embedding_cache_can_be_disabled() {
 }
 
 #[test]
+fn query_embedding_cache_persists_and_prunes() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    let previous = std::env::var("CODELENS_QUERY_EMBED_CACHE_SIZE").ok();
+    unsafe {
+        std::env::set_var("CODELENS_QUERY_EMBED_CACHE_SIZE", "2");
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("embeddings.db");
+    let store = SqliteVecStore::new(&db_path, 2, "model-a").unwrap();
+
+    store
+        .put_query_embedding("cache-v1:a", &[1.0, 1.5])
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    store
+        .put_query_embedding("cache-v1:b", &[2.0, 2.5])
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    store
+        .put_query_embedding("cache-v1:c", &[3.0, 3.5])
+        .unwrap();
+
+    assert_eq!(store.get_query_embedding("cache-v1:a").unwrap(), None);
+    assert_eq!(
+        store.get_query_embedding("cache-v1:b").unwrap(),
+        Some(vec![2.0, 2.5])
+    );
+    assert_eq!(
+        store.get_query_embedding("cache-v1:c").unwrap(),
+        Some(vec![3.0, 3.5])
+    );
+    assert_eq!(store.query_cache_stats().unwrap().entries, 2);
+    assert_eq!(store.query_cache_stats().unwrap().max_entries, 2);
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_QUERY_EMBED_CACHE_SIZE", value),
+            None => std::env::remove_var("CODELENS_QUERY_EMBED_CACHE_SIZE"),
+        }
+    }
+}
+
+#[test]
 fn engine_new_and_index() {
     let _lock = MODEL_LOCK.lock().unwrap();
     skip_without_embedding_model!();
@@ -1616,6 +1660,33 @@ fn search_scored_returns_raw_chunks() {
         assert!(!c.file_path.is_empty());
         assert!(!c.symbol_name.is_empty());
     }
+}
+
+#[test]
+fn search_scored_reuses_persisted_query_embedding() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    skip_without_embedding_model!();
+    let (_dir, project) = make_project_with_source();
+    let engine = EmbeddingEngine::new(&project).unwrap();
+    engine.index_from_project(&project).unwrap();
+
+    let query = "world function";
+    let chunks = engine.search_scored(query, 5).unwrap();
+    assert!(!chunks.is_empty());
+    let cached = engine
+        .cached_query_embedding_for_test(query)
+        .unwrap()
+        .expect("query embedding should be persisted after search");
+    assert_eq!(engine.query_cache_stats().unwrap().entries, 1);
+    drop(engine);
+
+    let restarted = EmbeddingEngine::new(&project).unwrap();
+    let restarted_cached = restarted
+        .cached_query_embedding_for_test(query)
+        .unwrap()
+        .expect("query embedding should survive engine restart");
+    assert_eq!(restarted_cached, cached);
+    assert!(!restarted.search_scored(query, 5).unwrap().is_empty());
 }
 
 #[test]

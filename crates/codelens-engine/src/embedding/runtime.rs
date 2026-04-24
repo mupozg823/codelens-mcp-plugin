@@ -16,6 +16,7 @@ pub const DEFAULT_EMBED_BATCH_SIZE: usize = 128;
 pub const DEFAULT_MACOS_EMBED_BATCH_SIZE: usize = 128;
 pub const DEFAULT_TEXT_EMBED_CACHE_SIZE: usize = 256;
 pub const DEFAULT_MACOS_TEXT_EMBED_CACHE_SIZE: usize = 1024;
+pub const DEFAULT_QUERY_EMBED_CACHE_SIZE: usize = 4096;
 pub const CODESEARCH_DIMENSION: usize = 384;
 pub const DEFAULT_MAX_EMBED_SYMBOLS: usize = 50_000;
 pub const CHANGED_FILE_QUERY_CHUNK: usize = 128;
@@ -230,6 +231,14 @@ pub fn configured_embedding_text_cache_size() -> usize {
             }
         })
         .min(8192)
+}
+
+pub fn configured_query_embedding_cache_size() -> usize {
+    std::env::var("CODELENS_QUERY_EMBED_CACHE_SIZE")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(DEFAULT_QUERY_EMBED_CACHE_SIZE)
+        .min(50_000)
 }
 
 #[cfg(target_os = "macos")]

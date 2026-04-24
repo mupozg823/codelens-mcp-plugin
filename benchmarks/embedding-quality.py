@@ -8,11 +8,11 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 
 from benchmark_runtime_common import (
+    copy_project_for_benchmark,
     parse_output_json,
     resolve_codelens_model_dir,
     tool_payload_succeeded,
@@ -190,50 +190,6 @@ def require_tool_success(name, result, context=""):
     if stderr:
         message.append(f"stderr={stderr}")
     raise SystemExit(" | ".join(message))
-
-
-_IGNORE_PATTERNS = shutil.ignore_patterns(
-    ".git",
-    ".codelens",
-    "target",
-    "node_modules",
-    ".next",
-    "dist",
-    "coverage",
-    "__pycache__",
-    ".venv",
-    "venv",
-    ".pytest_cache",
-)
-
-
-def copy_project_for_benchmark(source_project: str) -> str:
-    # Deterministic copy: walks directory entries in sorted order so that the
-    # indexer observes the same filesystem insertion order on every run.
-    # shutil.copytree backs onto os.scandir whose order is filesystem-defined;
-    # that ±0.003 MRR wobble is observable and we remove it here.
-    source = Path(source_project).resolve()
-    temp_root = Path(tempfile.mkdtemp(prefix="codelens-embed-quality-"))
-    bench_project = temp_root / source.name
-
-    def _copy_dir(src: Path, dst: Path) -> None:
-        dst.mkdir(parents=True, exist_ok=True)
-        entries = sorted(src.iterdir(), key=lambda p: p.name)
-        ignored = _IGNORE_PATTERNS(str(src), [e.name for e in entries])
-        for entry in entries:
-            if entry.name in ignored:
-                continue
-            target = dst / entry.name
-            if entry.is_symlink():
-                link_target = os.readlink(entry)
-                os.symlink(link_target, target)
-            elif entry.is_dir():
-                _copy_dir(entry, target)
-            else:
-                shutil.copy2(entry, target, follow_symlinks=False)
-
-    _copy_dir(source, bench_project)
-    return str(bench_project)
 
 
 def load_dataset():

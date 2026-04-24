@@ -115,6 +115,13 @@ pub struct EmbeddingRuntimeInfo {
     pub fallback_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub struct QueryEmbeddingCacheStats {
+    pub enabled: bool,
+    pub entries: usize,
+    pub max_entries: usize,
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests;

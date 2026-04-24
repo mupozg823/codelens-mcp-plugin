@@ -56,6 +56,51 @@ fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
 
 #[cfg(feature = "semantic")]
 #[test]
+fn index_embeddings_accepts_prewarm_queries() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
+    let project = project_root();
+    fs::write(
+        project.as_path().join("prewarm.py"),
+        "def prewarm_query_cache():\n    return 'cached'\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "index_embeddings",
+        json!({
+            "prewarm_queries": ["where is prewarm query cache"],
+            "prewarm_limit": 8
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["query_cache"]["enabled"], json!(true));
+    assert!(
+        payload["data"]["query_cache"]["prewarmed"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+    assert!(
+        payload["data"]["query_cache"]["entries"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+    assert!(
+        payload["data"]["query_cache"]["max_entries"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+}
+
+#[cfg(feature = "semantic")]
+#[test]
 fn impact_report_surfaces_unavailable_semantic_status() {
     let project = project_root();
     fs::write(
