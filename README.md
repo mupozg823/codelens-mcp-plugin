@@ -1,10 +1,9 @@
 <div align="center">
 
-# CodeLens MCP → Symbiote MCP
+# CodeLens MCP 
 
 **Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
 
-_Becoming **Symbiote MCP** at v2.0 — harness-engineering as a symbiotic substrate. Attach to your agent. Your code intelligence becomes superhuman._ See [ADR-0007](docs/adr/ADR-0007-symbiote-rebrand.md) for the rebrand plan.
 
 If you are preparing automation or host configs for the eventual cutover, use the host-by-host migration guide: [`docs/migrate-from-codelens.md`](docs/migrate-from-codelens.md).
 
