@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import os
+import platform
 import socket
 import subprocess
 import time
@@ -15,6 +17,14 @@ from urllib import request as urllib_request
 DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS = 5
 DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS = 10
 DEFAULT_HTTP_TOOL_TIMEOUT_SECONDS = 90
+DEFAULT_CODESEARCH_MODEL_NAME = "MiniLM-L12-CodeSearchNet-INT8"
+REQUIRED_MODEL_ASSETS = (
+    "model.onnx",
+    "tokenizer.json",
+    "config.json",
+    "special_tokens_map.json",
+    "tokenizer_config.json",
+)
 
 
 @dataclass(frozen=True)
@@ -101,6 +111,78 @@ def tool_payload_succeeded(payload):
     if payload.get("success") is True or payload.get("status") == "ok":
         return True
     return True
+
+
+def preferred_model_variant() -> str:
+    return "arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "avx2"
+
+
+def model_dir_candidates(base: Path) -> list[Path]:
+    variant = preferred_model_variant()
+    candidates = [
+        base,
+        base / "codesearch",
+        base / "onnx",
+        base / variant,
+        base / "codelens-code-search",
+        base / "codelens-code-search" / variant,
+    ]
+    seen = set()
+    unique = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    return unique
+
+
+def model_dir_has_assets(path: Path) -> bool:
+    return all((path / asset).exists() for asset in REQUIRED_MODEL_ASSETS)
+
+
+def first_model_dir_with_assets(base: Path) -> Path | None:
+    for candidate in model_dir_candidates(base):
+        if model_dir_has_assets(candidate):
+            return candidate
+    return None
+
+
+def resolve_codelens_model_dir(
+    binary: str | Path,
+    *,
+    env: dict[str, str] | None = None,
+    repo_root: str | Path | None = None,
+    allow_builtin_override: bool = True,
+    default_model_name: str = DEFAULT_CODESEARCH_MODEL_NAME,
+) -> Path | None:
+    env = os.environ if env is None else env
+    configured = env.get("CODELENS_EMBED_MODEL", "")
+    if allow_builtin_override and configured and configured != default_model_name:
+        return None
+
+    roots = []
+    if env.get("CODELENS_MODEL_DIR"):
+        roots.append(Path(env["CODELENS_MODEL_DIR"]).expanduser().resolve())
+
+    exe_dir = Path(binary).expanduser().resolve().parent
+    roots.append(exe_dir / "models")
+    if exe_dir.parent:
+        roots.append(exe_dir.parent / "models")
+        roots.append(exe_dir.parent / "share" / "codelens" / "models")
+    roots.append(Path.home() / ".cache" / "codelens" / "models")
+
+    if repo_root is not None:
+        root = Path(repo_root).expanduser().resolve()
+        roots.append(root / "crates" / "codelens-engine" / "models")
+        roots.append(root / "crates" / "codelens-core" / "models")
+
+    for root in roots:
+        found = first_model_dir_with_assets(root)
+        if found is not None:
+            return found
+    return None
 
 
 def codelens(bin_path, project, cmd, args, count_tokens, timeout=15, preset=None, profile=None):
@@ -223,7 +305,7 @@ def http_binary_candidates(bin_path):
     return candidates
 
 
-def start_http_daemon(bin_path, project, profile=None, preset="full"):
+def start_http_daemon(bin_path, project, profile=None, preset="full", env=None):
     last_proc = None
     for candidate in http_binary_candidates(bin_path):
         port = reserve_port()
@@ -238,6 +320,7 @@ def start_http_daemon(bin_path, project, profile=None, preset="full"):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
         last_proc = proc
         base_url = f"http://127.0.0.1:{port}"

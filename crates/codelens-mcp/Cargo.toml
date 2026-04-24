@@ -17,12 +17,15 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 axum = { workspace = true, optional = true }
+axum-server = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
+url.workspace = true
 rusqlite.workspace = true
+rustls = { workspace = true, optional = true }
 codelens-engine = { path = "../codelens-engine", version = "=1.9.50" }
 thiserror.workspace = true
 tracing.workspace = true
@@ -31,6 +34,8 @@ opentelemetry = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
 tower = { workspace = true }
@@ -40,7 +45,8 @@ http-body-util = { workspace = true }
 [features]
 default = ["semantic"]
 semantic = ["codelens-engine/semantic"]
+coreml = ["semantic", "codelens-engine/coreml"]
 model-bakeoff = ["semantic", "codelens-engine/model-bakeoff"]
-http = ["dep:axum", "dep:tokio", "dep:uuid", "dep:tokio-stream"]
+http = ["dep:axum", "dep:axum-server", "dep:tokio", "dep:uuid", "dep:tokio-stream", "dep:jsonwebtoken", "dep:ureq", "dep:rustls"]
 otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry", "dep:tokio"]
 scip-backend = ["codelens-engine/scip-backend"]

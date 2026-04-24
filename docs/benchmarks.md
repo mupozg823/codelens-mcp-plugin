@@ -1,7 +1,7 @@
 # CodeLens MCP — Benchmarks
 
 > Reproducible token-efficiency and search-quality measurements.
-> Last measurement: **2026-04-13**.
+> Last promoted static snapshot: **2026-04-17**. Release-vs-candidate checks are produced by `benchmarks/release-quality-matrix.py`.
 
 This document is the authoritative source for CodeLens's public performance claims. Every number below is produced by an executable script in `benchmarks/` and can be re-run on any machine.
 
@@ -14,7 +14,7 @@ This document is the authoritative source for CodeLens's public performance clai
 | Token reduction vs Read/Grep (total, structured tasks)  | **6.1x (84% fewer tokens)** | `benchmarks/token-efficiency.py`      |
 | Token reduction on best single task (context retrieval) | **167x**                    | `benchmarks/token-efficiency.py`      |
 | Workflow profile compression (planner/reviewer)         | **15-16x**                  | `benchmarks/token-efficiency.py`      |
-| Search quality, hybrid (self regression, MRR)           | **0.841**                   | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid (self regression, MRR)           | **0.681**                   | `benchmarks/embedding-quality.py`     |
 | Search quality, hybrid (role regression, MRR)           | **0.962**                   | `benchmarks/embedding-quality.py`     |
 | Search quality, hybrid (external smoke, MRR range)      | **0.563-0.623**             | `benchmarks/embedding-quality.py`     |
 | Cold start (no LSP)                                     | **~12 ms**                  | `target/release/codelens-mcp` startup |
@@ -137,6 +137,18 @@ Interpretation:
 - Public claims should distinguish clearly between **self regression**, **role regression**, and **external smoke**.
 
 > **Authoritative baseline rule**: current public regression claims are based on the 104-query self dataset and the 70-query role dataset above. Older 89-query numbers remain historically useful for experiment logs below, but they are not the current promoted baseline.
+
+### Release quality matrix
+
+Release promotion uses the thin wrapper `benchmarks/release-quality-matrix.py` to compare the latest tagged baseline against the current candidate binary in one output directory. It reuses the existing retrieval, runtime, role, and HTTP surface benchmarks, then adds `benchmarks/call-graph-quality.py` for caller/callee edge recall and confidence honesty. The wrapper is intentionally not a new orchestrator: it records binary SHA, dirty state, commands, stdout/stderr logs, `summary.json`, and `summary.md` under `benchmarks/results/<timestamp>-release-quality-matrix/`.
+
+```bash
+python3 benchmarks/release-quality-matrix.py . \
+  --baseline-tag "$(git tag --sort=-v:refname | head -1)" \
+  --candidate-binary target/release/codelens-mcp
+```
+
+Promotion decisions should use deltas from this matrix, not isolated self-repo improvements. A candidate that improves self retrieval but regresses external retrieval or call-graph honesty is not considered a product-quality improvement.
 
 ### Re-running
 

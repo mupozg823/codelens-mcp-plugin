@@ -71,20 +71,18 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
 
     let query_analysis = crate::tools::query_analysis::analyze_retrieval_query(query);
 
-    // Structural boosting: find name-matching candidates from SymbolIndex
-    // and boost semantic results that overlap with structural hits.
-    let structural_names: std::collections::HashSet<String> = state
-        .symbol_index()
-        .get_ranked_context(&query_analysis.expanded_query, None, 4000, false, 2)
-        .map(|rc| {
-            rc.symbols
-                .into_iter()
-                .map(|s| format!("{}:{}", s.file, s.name))
-                .collect()
-        })
-        .unwrap_or_default();
-
     let candidate_limit = max_results.saturating_mul(4).clamp(max_results, 80);
+    let lexical_candidates = codelens_engine::search::search_symbols_hybrid(
+        &project,
+        &query_analysis.expanded_query,
+        candidate_limit,
+        0.7,
+    )
+    .unwrap_or_default();
+    let structural_names: std::collections::HashSet<String> = lexical_candidates
+        .iter()
+        .map(|result| format!("{}:{}", result.file, result.name))
+        .collect();
     let mut results =
         crate::tools::symbols::semantic_results_for_query(state, query, candidate_limit, false);
 
@@ -100,25 +98,12 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
     // semantic embedding misses (e.g. "parse" → parse_symbols via FTS).
     // Convert hybrid SearchResults into SemanticMatch format and merge.
     {
-        let semantic_scores: std::collections::HashMap<String, f64> = results
-            .iter()
-            .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score))
-            .collect();
-        let hybrid = codelens_engine::search::search_symbols_hybrid_with_semantic(
-            &project,
-            &query_analysis.expanded_query,
-            candidate_limit,
-            0.7,
-            Some(&semantic_scores),
-        )
-        .unwrap_or_default();
-
         let mut seen: std::collections::HashSet<String> = results
             .iter()
             .map(|r| format!("{}:{}:{}", r.file_path, r.symbol_name, r.line))
             .collect();
 
-        for hr in hybrid {
+        for hr in lexical_candidates {
             let key = format!("{}:{}:{}", hr.file, hr.name, hr.line);
             if seen.insert(key) {
                 results.push(codelens_engine::SemanticMatch {

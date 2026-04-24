@@ -1,6 +1,5 @@
 pub(crate) mod capabilities;
 mod metrics;
-mod preset_profile;
 mod watch_prune;
 
 #[cfg(test)]
@@ -18,5 +17,4 @@ pub(crate) use capabilities::{
     build_health_summary, collect_runtime_health_snapshot, determine_semantic_search_status,
 };
 pub use metrics::{export_session_markdown, get_tool_metrics};
-pub use preset_profile::{set_preset, set_profile};
 pub use watch_prune::{get_watch_status, prune_index_failures};

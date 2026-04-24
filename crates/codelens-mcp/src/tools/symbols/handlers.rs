@@ -1,20 +1,22 @@
 use super::super::{
-    optional_bool, optional_string, optional_usize, query_analysis::analyze_retrieval_query,
-    required_string, success_meta, AppState, ToolResult,
+    AppState, ToolResult, optional_bool, optional_string, optional_usize,
+    query_analysis::{RetrievalQueryAnalysis, analyze_retrieval_query},
+    required_string, success_meta,
 };
 use super::{
     analyzer::{
-        annotate_ranked_context_provenance, compact_semantic_evidence,
-        merge_semantic_ranked_entries, semantic_results_for_query, semantic_scores_for_query,
+        annotate_ranked_context_provenance, compact_semantic_evidence, compact_sparse_evidence,
+        merge_semantic_ranked_entries, merge_sparse_ranked_entries, semantic_results_for_query,
+        semantic_scores_for_query,
     },
     formatter::{compact_symbol_bodies, count_branches},
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::symbol_corpus::build_symbol_corpus;
-use crate::symbol_retrieval::{search_symbols_bm25f, unique_query_terms};
-use codelens_engine::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
-use serde_json::{json, Value};
+use crate::symbol_retrieval::{ScoredSymbol, search_symbols_bm25f, unique_query_terms};
+use codelens_engine::{SymbolInfo, SymbolKind, read_file, search_symbols_hybrid_with_semantic};
+use serde_json::{Value, json};
 
 pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
@@ -73,15 +75,32 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
     let body_full = optional_bool(arguments, "body_full", false);
     let body_line_limit = optional_usize(arguments, "body_line_limit", 12);
     let body_char_limit = optional_usize(arguments, "body_char_limit", 600);
+    #[cfg(feature = "scip-backend")]
+    let scip_backend = state.scip();
+    #[cfg(feature = "scip-backend")]
+    let precise_available = scip_backend.is_some();
+    #[cfg(feature = "scip-backend")]
+    let precise_source = precise_available.then_some("scip");
+    #[cfg(not(feature = "scip-backend"))]
+    let precise_available = false;
+    #[cfg(not(feature = "scip-backend"))]
+    let precise_source: Option<&str> = None;
     // Try SCIP precise definitions first (if available), then tree-sitter.
     #[cfg(feature = "scip-backend")]
-    if let Some(backend) = state.scip() {
+    if let Some(backend) = scip_backend {
         use codelens_engine::PreciseBackend as _;
         let scip_file = file_path.unwrap_or("");
         if let Ok(defs) = backend.find_definitions(name, scip_file, 0) {
             if !defs.is_empty() {
                 let limited: Vec<_> = defs.into_iter().take(max_matches).collect();
                 let count = limited.len();
+                let meta = success_meta(BackendKind::Scip, 0.98);
+                let evidence = crate::tool_evidence::tool_evidence(
+                    "symbol",
+                    &meta,
+                    "scip_precise",
+                    crate::tool_evidence::precision_signals(true, true, Some("scip"), None, count),
+                );
                 let syms: Vec<serde_json::Value> = limited
                     .iter()
                     .map(|d| {
@@ -113,8 +132,9 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         "body_truncated_count": 0,
                         "body_preview": false,
                         "backend": "scip",
+                        "evidence": evidence,
                     }),
-                    success_meta(BackendKind::Scip, 0.98),
+                    meta,
                 ));
             }
         }
@@ -137,47 +157,64 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                 "body_truncated_count": body_truncated_count,
                 "body_preview": include_body && !body_full,
             });
-            if value.is_empty() {
-                if let Some(map) = payload.as_object_mut() {
-                    map.insert(
-                        "fallback_hint".to_owned(),
-                        json!({
-                            "reason": "no exact match",
-                            "query": name,
-                            "try": [
-                                {
-                                    "tool": "search_workspace_symbols",
-                                    "arguments": {"query": name, "limit": 10},
-                                    "why": "fuzzy / partial-name search across the full symbol index",
-                                },
-                                {
-                                    "tool": "search_symbols_fuzzy",
-                                    "arguments": {"query": name, "max_results": 10},
-                                    "why": "alternate fuzzy matcher with score ranking",
-                                },
-                                {
-                                    "tool": "bm25_symbol_search",
-                                    "arguments": {"query": name, "max_results": 10},
-                                    "why": "NL / identifier-token retrieval when the exact name is uncertain",
-                                },
-                            ],
-                        }),
-                    );
-                }
+            if value.is_empty()
+                && let Some(map) = payload.as_object_mut()
+            {
+                map.insert(
+                    "fallback_hint".to_owned(),
+                    json!({
+                        "reason": "no exact match",
+                        "query": name,
+                        "try": [
+                            {
+                                "tool": "search_workspace_symbols",
+                                "arguments": {"query": name, "limit": 10},
+                                "why": "fuzzy / partial-name search across the full symbol index",
+                            },
+                            {
+                                "tool": "search_symbols_fuzzy",
+                                "arguments": {"query": name, "max_results": 10},
+                                "why": "alternate fuzzy matcher with score ranking",
+                            },
+                            {
+                                "tool": "bm25_symbol_search",
+                                "arguments": {"query": name, "max_results": 10},
+                                "why": "NL / identifier-token retrieval when the exact name is uncertain",
+                            },
+                        ],
+                    }),
+                );
             }
-            (payload, success_meta(BackendKind::TreeSitter, 0.93))
+            let meta = success_meta(BackendKind::TreeSitter, 0.93);
+            if let Some(map) = payload.as_object_mut() {
+                map.insert(
+                    "evidence".to_owned(),
+                    crate::tool_evidence::tool_evidence(
+                        "symbol",
+                        &meta,
+                        "tree_sitter_symbol_index",
+                        crate::tool_evidence::precision_signals(
+                            precise_available,
+                            false,
+                            precise_source,
+                            Some("tree_sitter"),
+                            0,
+                        ),
+                    ),
+                );
+            }
+            (payload, meta)
         })?)
 }
 
-pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
-    let query = required_string(arguments, "query")?;
-    let query_analysis = analyze_retrieval_query(query);
-    let max_results = optional_usize(arguments, "max_results", 10);
-    let include_tests = optional_bool(arguments, "include_tests", false);
-    let include_generated = optional_bool(arguments, "include_generated", false);
-    let session = crate::session_context::SessionRequestContext::from_json(arguments);
-    let recent_files = state.recent_file_paths_for_session(&session);
-
+fn sparse_symbol_hits_for_query(
+    state: &AppState,
+    query_analysis: &RetrievalQueryAnalysis,
+    max_results: usize,
+    include_tests: bool,
+    include_generated: bool,
+    session: &crate::session_context::SessionRequestContext,
+) -> Result<Vec<ScoredSymbol>, CodeLensError> {
     let mut all_symbols = Vec::new();
     for path in state.symbol_index().indexed_file_paths()? {
         if let Ok(symbols) = state.symbol_index().get_symbols_overview_cached(&path, 3) {
@@ -194,6 +231,7 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
         include_generated,
     );
 
+    let recent_files = state.recent_file_paths_for_session(session);
     if !recent_files.is_empty() {
         for hit in &mut scored {
             if recent_files
@@ -210,6 +248,24 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
         });
     }
     scored.truncate(max_results);
+    Ok(scored)
+}
+
+pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
+    let query = required_string(arguments, "query")?;
+    let query_analysis = analyze_retrieval_query(query);
+    let max_results = optional_usize(arguments, "max_results", 10);
+    let include_tests = optional_bool(arguments, "include_tests", false);
+    let include_generated = optional_bool(arguments, "include_generated", false);
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let scored = sparse_symbol_hits_for_query(
+        state,
+        &query_analysis,
+        max_results,
+        include_tests,
+        include_generated,
+        &session,
+    )?;
 
     let total_query_terms = unique_query_terms(&query_analysis.expanded_query).len();
     let payload_results: Vec<Value> = scored
@@ -250,26 +306,50 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
         })
         .collect();
 
+    let query_type = if query_analysis.prefer_lexical_only {
+        "identifier"
+    } else if query_analysis.natural_language {
+        "natural_language"
+    } else {
+        "short_phrase"
+    };
+    let retrieval = json!({
+        "lane": "sparse_bm25f",
+        "query_type": query_type,
+        "recommended": query_analysis.prefer_sparse_symbol_search,
+        "lexical_query": query_analysis.expanded_query,
+        "semantic_query": query_analysis.semantic_query,
+    });
+    let meta = success_meta(BackendKind::Sqlite, 0.88);
+    let evidence = crate::tool_evidence::tool_evidence(
+        "retrieval",
+        &meta,
+        "sparse_bm25f",
+        json!({
+            "preferred_lane": "sparse_bm25f",
+            "query_type": query_type,
+            "semantic_enabled": false,
+            "semantic_used_in_core": false,
+            "sparse_used_in_core": true,
+            "semantic_evidence_count": 0,
+            "sparse_evidence_count": payload_results.len(),
+            "precise_available": false,
+            "precise_used": false,
+            "precise_source": null,
+            "fallback_source": "sparse_bm25f",
+            "precise_result_count": 0,
+        }),
+    );
+
     Ok((
         json!({
             "query": query,
             "results": payload_results,
             "count": payload_results.len(),
-            "retrieval": {
-                "lane": "sparse_bm25f",
-                "query_type": if query_analysis.prefer_lexical_only {
-                    "identifier"
-                } else if query_analysis.natural_language {
-                    "natural_language"
-                } else {
-                    "short_phrase"
-                },
-                "recommended": query_analysis.prefer_sparse_symbol_search,
-                "lexical_query": query_analysis.expanded_query,
-                "semantic_query": query_analysis.semantic_query,
-            }
+            "retrieval": retrieval,
+            "evidence": evidence,
         }),
-        success_meta(BackendKind::Sqlite, 0.88),
+        meta,
     ))
 }
 
@@ -292,9 +372,17 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     let effective_disable_semantic =
         disable_semantic || query_analysis.prefer_lexical_only || exact_identifier_projection;
     let use_semantic_in_core = !effective_disable_semantic;
+    let use_sparse_in_core = query_analysis.natural_language
+        || (query_analysis.prefer_sparse_symbol_search
+            && query_analysis.original_query.contains(char::is_whitespace));
     // Build semantic scores for hybrid ranking if embeddings are available.
     // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.
     let semantic_results = semantic_results_for_query(state, query, 50, effective_disable_semantic);
+    let sparse_results = if use_sparse_in_core {
+        sparse_symbol_hits_for_query(state, &query_analysis, 10, false, false, &session)?
+    } else {
+        Vec::new()
+    };
     let semantic_scores = semantic_results
         .iter()
         .filter(|r| r.score > 0.05)
@@ -338,6 +426,9 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     if !effective_disable_semantic {
         merge_semantic_ranked_entries(query, &mut result, semantic_results.clone(), 8);
     }
+    if use_sparse_in_core {
+        merge_sparse_ranked_entries(query, &mut result, sparse_results.clone(), 6);
+    }
 
     // v1.5 Phase 2e: sparse term coverage bonus — post-process
     // re-ordering pass. Runs on the ORIGINAL user `query`, not the
@@ -377,41 +468,82 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     } else {
         compact_semantic_evidence(&result, &semantic_results, 5)
     };
+    let sparse_evidence = if use_sparse_in_core {
+        compact_sparse_evidence(&result, &sparse_results, 5)
+    } else {
+        Vec::new()
+    };
     let mut payload =
         serde_json::to_value(&result).map_err(|e| CodeLensError::Internal(e.into()))?;
-    annotate_ranked_context_provenance(&mut payload, &structural_keys, &semantic_results);
-    if let Some(map) = payload.as_object_mut() {
-        map.insert(
-            "retrieval".to_owned(),
-            json!({
-                "semantic_enabled": !effective_disable_semantic,
-                "semantic_used_in_core": use_semantic_in_core,
-                "preferred_lane": if query_analysis.prefer_sparse_symbol_search {
-                    "sparse_bm25f"
-                } else if effective_disable_semantic {
-                    "structural_lexical"
-                } else {
-                    "hybrid_semantic"
-                },
-                "sparse_lane_recommended": query_analysis.prefer_sparse_symbol_search,
-                "query_type": if query_analysis.prefer_lexical_only { "identifier" }
-                    else if query_analysis.natural_language { "natural_language" }
-                    else { "short_phrase" },
-                "lexical_query": query_analysis.expanded_query,
-                "semantic_query": query_analysis.semantic_query,
-            }),
-        );
-        if !semantic_evidence.is_empty() {
-            map.insert("semantic_evidence".to_owned(), json!(semantic_evidence));
-        }
-    }
-
+    annotate_ranked_context_provenance(
+        &mut payload,
+        &structural_keys,
+        &semantic_results,
+        &sparse_results,
+    );
+    let preferred_lane = if use_sparse_in_core && !effective_disable_semantic {
+        "hybrid_semantic_sparse"
+    } else if use_sparse_in_core {
+        "sparse_bm25f"
+    } else if effective_disable_semantic {
+        "structural_lexical"
+    } else {
+        "hybrid_semantic"
+    };
+    let query_type = if query_analysis.prefer_lexical_only {
+        "identifier"
+    } else if query_analysis.natural_language {
+        "natural_language"
+    } else {
+        "short_phrase"
+    };
+    let retrieval = json!({
+        "semantic_enabled": !effective_disable_semantic,
+        "semantic_used_in_core": use_semantic_in_core,
+        "sparse_used_in_core": use_sparse_in_core,
+        "preferred_lane": preferred_lane,
+        "sparse_lane_recommended": query_analysis.prefer_sparse_symbol_search,
+        "query_type": query_type,
+        "lexical_query": query_analysis.expanded_query,
+        "semantic_query": query_analysis.semantic_query,
+    });
     let backend = if result.symbols.iter().any(|s| s.relevance_score > 0) {
         BackendKind::TreeSitter
     } else {
         BackendKind::Semantic
     };
-    Ok((payload, success_meta(backend, 0.91)))
+    let meta = success_meta(backend, 0.91);
+    let evidence = crate::tool_evidence::tool_evidence(
+        "retrieval",
+        &meta,
+        preferred_lane,
+        json!({
+            "preferred_lane": preferred_lane,
+            "query_type": query_type,
+            "semantic_enabled": !effective_disable_semantic,
+            "semantic_used_in_core": use_semantic_in_core,
+            "sparse_used_in_core": use_sparse_in_core,
+            "semantic_evidence_count": semantic_evidence.len(),
+            "sparse_evidence_count": sparse_evidence.len(),
+            "precise_available": false,
+            "precise_used": false,
+            "precise_source": null,
+            "fallback_source": preferred_lane,
+            "precise_result_count": 0,
+        }),
+    );
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("retrieval".to_owned(), retrieval);
+        if !semantic_evidence.is_empty() {
+            map.insert("semantic_evidence".to_owned(), json!(semantic_evidence));
+        }
+        if !sparse_evidence.is_empty() {
+            map.insert("sparse_evidence".to_owned(), json!(sparse_evidence));
+        }
+        map.insert("evidence".to_owned(), evidence);
+    }
+
+    Ok((payload, meta))
 }
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &Value) -> ToolResult {

@@ -120,6 +120,18 @@ fn embedding_search_query_bridge_dedup_is_case_insensitive() {
 
 #[cfg(feature = "semantic")]
 #[test]
+fn embedding_search_query_bridges_sparse_and_rerank_terms() {
+    let analysis =
+        analyze_retrieval_query("improve natural language retrieval with bm25 and rerank");
+    let framed = semantic_query_for_embedding_search(&analysis, None);
+    assert!(framed.contains("bm25"));
+    assert!(framed.contains("sparse"));
+    assert!(framed.contains("rerank"));
+    assert!(framed.contains("retrieval"));
+}
+
+#[cfg(feature = "semantic")]
+#[test]
 fn embedding_search_query_does_not_apply_project_specific_bridge_without_project_root() {
     let analysis = analyze_retrieval_query("record which files were recently accessed");
     let framed = semantic_query_for_embedding_search(&analysis, None);

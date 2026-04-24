@@ -1,25 +1,50 @@
 use crate::project::ProjectRoot;
 use anyhow::Result;
+use regex::Regex;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Parser, Query, QueryCursor};
 
-/// Cached compiled tree-sitter Query for call graph extraction.
-/// Key: (language pointer as usize, query string pointer as usize)
-static CALL_QUERY_CACHE: LazyLock<Mutex<HashMap<usize, Arc<Query>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+use crate::import_graph::GraphCache;
 
-fn cached_call_query(language: &Language, query_str: &'static str) -> Option<Arc<Query>> {
-    let key = query_str.as_ptr() as usize;
+/// Cached compiled tree-sitter Query for call graph extraction.
+/// Key: (canonical language key, query string pointer as usize).
+type CallQueryCacheKey = (&'static str, usize);
+type CallQueryCache = Mutex<HashMap<CallQueryCacheKey, Arc<Query>>>;
+
+static CALL_QUERY_CACHE: LazyLock<CallQueryCache> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static JS_IMPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)\bimport\s+([^;]+?)\s+from\s+["']([^"']+)["']"#).expect("import regex")
+});
+
+fn cached_call_query(
+    language_key: &'static str,
+    language: &Language,
+    query_str: &'static str,
+) -> Option<Arc<Query>> {
+    let key = (language_key, query_str.as_ptr() as usize);
     let mut cache = CALL_QUERY_CACHE.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(q) = cache.get(&key) {
         return Some(Arc::clone(q));
     }
-    let q = Query::new(language, query_str).ok()?;
+    let q = match Query::new(language, query_str) {
+        Ok(q) => q,
+        Err(error) => {
+            #[cfg(test)]
+            {
+                panic!("invalid call graph query: {error}");
+            }
+            #[cfg(not(test))]
+            {
+                let _ = error;
+                return None;
+            }
+        }
+    };
     let q = Arc::new(q);
     cache.insert(key, Arc::clone(&q));
     Some(q)
@@ -41,6 +66,8 @@ pub struct CallEdge {
     /// Which resolution strategy succeeded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution_strategy: Option<&'static str>,
+    #[serde(skip_serializing)]
+    pub canonical_callee_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,12 +93,23 @@ pub struct CalleeEntry {
 }
 
 struct CallLanguageConfig {
+    /// Stable language/cache key. JS and TS can share query text but not compiled queries.
+    language_key: &'static str,
     language: Language,
     /// Query to find function definitions: captures @func.name
     func_query: &'static str,
     /// Query to find call sites: captures @callee
     call_query: &'static str,
 }
+
+#[derive(Debug, Clone)]
+struct JSImportBinding {
+    imported_name: Option<String>,
+    resolved_file: Option<String>,
+    external: bool,
+}
+
+type JSImportBindingIndex = HashMap<String, HashMap<String, JSImportBinding>>;
 
 /// Resolve call graph config via the unified language registry.
 /// Only a subset of languages have call graph queries defined.
@@ -128,17 +166,19 @@ fn is_noise_callee(name: &str) -> bool {
 fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
     let lang_config = crate::lang_config::language_for_path(path)?;
     // Map canonical extension to call graph queries (not all languages support this)
-    let (func_query, call_query) = match lang_config.extension {
-        "py" => (PYTHON_FUNC_QUERY, PYTHON_CALL_QUERY),
-        "js" => (JS_FUNC_QUERY, JS_CALL_QUERY),
-        "ts" | "tsx" => (JS_FUNC_QUERY, JS_CALL_QUERY),
-        "go" => (GO_FUNC_QUERY, GO_CALL_QUERY),
-        "java" => (JAVA_FUNC_QUERY, JAVA_CALL_QUERY),
-        "kt" => (KOTLIN_FUNC_QUERY, JAVA_CALL_QUERY),
-        "rs" => (RUST_FUNC_QUERY, RUST_CALL_QUERY),
+    let (language_key, func_query, call_query) = match lang_config.extension {
+        "py" => ("py", PYTHON_FUNC_QUERY, PYTHON_CALL_QUERY),
+        "js" => ("js", JS_FUNC_QUERY, JS_CALL_QUERY),
+        "ts" => ("ts", JS_FUNC_QUERY, JS_CALL_QUERY),
+        "tsx" => ("tsx", JS_FUNC_QUERY, JS_CALL_QUERY),
+        "go" => ("go", GO_FUNC_QUERY, GO_CALL_QUERY),
+        "java" => ("java", JAVA_FUNC_QUERY, JAVA_CALL_QUERY),
+        "kt" => ("kt", KOTLIN_FUNC_QUERY, JAVA_CALL_QUERY),
+        "rs" => ("rs", RUST_FUNC_QUERY, RUST_CALL_QUERY),
         _ => return None,
     };
     Some(CallLanguageConfig {
+        language_key,
         language: lang_config.language,
         func_query,
         call_query,
@@ -147,6 +187,185 @@ fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
 
 fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
     collect_files(root, |path| call_language_for_path(path).is_some())
+}
+
+fn is_import_sensitive_path(path: &str) -> bool {
+    matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default(),
+        "js" | "jsx" | "ts" | "tsx"
+    )
+}
+
+fn is_external_module_specifier(module: &str, resolved_file: Option<&String>) -> bool {
+    resolved_file.is_none() && !module.starts_with('.') && !module.starts_with('/')
+}
+
+fn insert_js_binding(
+    bindings: &mut HashMap<String, JSImportBinding>,
+    local_name: &str,
+    imported_name: Option<&str>,
+    resolved_file: Option<&String>,
+    external: bool,
+) {
+    let local_name = local_name.trim().trim_start_matches("type ").trim();
+    if local_name.is_empty() {
+        return;
+    }
+    bindings.insert(
+        local_name.to_owned(),
+        JSImportBinding {
+            imported_name: imported_name
+                .map(|value| value.trim().trim_start_matches("type ").to_owned()),
+            resolved_file: resolved_file.cloned(),
+            external,
+        },
+    );
+}
+
+fn parse_js_import_bindings(
+    bindings: &mut HashMap<String, JSImportBinding>,
+    clause: &str,
+    resolved_file: Option<&String>,
+    module: &str,
+) {
+    let clause = clause.trim().trim_start_matches("type ").trim();
+    if clause.is_empty() {
+        return;
+    }
+    let external = is_external_module_specifier(module, resolved_file);
+
+    if let Some(stripped) = clause.strip_prefix("* as ") {
+        insert_js_binding(bindings, stripped, Some("*"), resolved_file, external);
+        return;
+    }
+
+    let mut default_part = clause;
+    if let Some(start) = clause.find('{') {
+        default_part = clause[..start].trim().trim_end_matches(',').trim();
+        if let Some(end) = clause[start + 1..].find('}') {
+            let named = &clause[start + 1..start + 1 + end];
+            for item in named.split(',') {
+                let item = item.trim().trim_start_matches("type ").trim();
+                if item.is_empty() {
+                    continue;
+                }
+                if let Some((imported, local)) = item.split_once(" as ") {
+                    insert_js_binding(bindings, local, Some(imported), resolved_file, external);
+                } else {
+                    insert_js_binding(bindings, item, Some(item), resolved_file, external);
+                }
+            }
+        }
+    }
+
+    if !default_part.is_empty() {
+        insert_js_binding(bindings, default_part, None, resolved_file, external);
+    }
+}
+
+fn build_js_import_binding_index(project: &ProjectRoot, files: &[PathBuf]) -> JSImportBindingIndex {
+    let mut index = HashMap::new();
+    for file in files {
+        let relative = project.to_relative(file);
+        if !is_import_sensitive_path(&relative) {
+            continue;
+        }
+        let Ok(source) = fs::read_to_string(file) else {
+            continue;
+        };
+        let mut bindings = HashMap::new();
+        for capture in JS_IMPORT_FROM_RE.captures_iter(&source) {
+            let Some(clause) = capture.get(1).map(|value| value.as_str()) else {
+                continue;
+            };
+            let Some(module) = capture.get(2).map(|value| value.as_str()) else {
+                continue;
+            };
+            let resolved_file = crate::import_graph::resolve_module_for_file(project, file, module);
+            parse_js_import_bindings(&mut bindings, clause, resolved_file.as_ref(), module);
+        }
+        if !bindings.is_empty() {
+            index.insert(relative, bindings);
+        }
+    }
+    index
+}
+
+fn filter_external_import_edges(edges: &mut Vec<CallEdge>, import_bindings: &JSImportBindingIndex) {
+    edges.retain(|edge| {
+        import_bindings
+            .get(&edge.caller_file)
+            .and_then(|bindings| bindings.get(&edge.callee_name))
+            .map(|binding| !binding.external)
+            .unwrap_or(true)
+    });
+}
+
+fn maybe_import_graph(
+    project: &ProjectRoot,
+    files: &[PathBuf],
+    graph_cache: Option<&GraphCache>,
+) -> Option<Arc<HashMap<String, crate::import_graph::FileNode>>> {
+    let cache = graph_cache?;
+    let needs_import_graph = files.iter().any(|file| {
+        let relative = project.to_relative(file);
+        crate::import_graph::supports_import_graph(&relative)
+    });
+    if !needs_import_graph {
+        return None;
+    }
+    let mut graph = crate::import_graph::build_graph_pub(project, cache)
+        .map(|graph| (*graph).clone())
+        .unwrap_or_default();
+
+    for file in files {
+        let relative = project.to_relative(file);
+        if !crate::import_graph::supports_import_graph(&relative) {
+            continue;
+        }
+        let needs_patch = graph
+            .get(&relative)
+            .map(|node| node.imports.is_empty())
+            .unwrap_or(true);
+        if !needs_patch {
+            continue;
+        }
+
+        let imports: HashSet<String> = crate::import_graph::extract_imports_for_file(file)
+            .into_iter()
+            .filter_map(|module| {
+                crate::import_graph::resolve_module_for_file(project, file, &module)
+            })
+            .collect();
+        let entry =
+            graph
+                .entry(relative.clone())
+                .or_insert_with(|| crate::import_graph::FileNode {
+                    imports: HashSet::new(),
+                    imported_by: HashSet::new(),
+                });
+        entry.imports = imports.clone();
+
+        for imported_file in imports {
+            graph
+                .entry(imported_file)
+                .or_insert_with(|| crate::import_graph::FileNode {
+                    imports: HashSet::new(),
+                    imported_by: HashSet::new(),
+                })
+                .imported_by
+                .insert(relative.clone());
+        }
+    }
+
+    if graph.is_empty() {
+        None
+    } else {
+        Some(Arc::new(graph))
+    }
 }
 
 /// Parse a file and extract all call edges within each function.
@@ -174,7 +393,9 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
 
     // Build a map: byte_range_start -> caller_name for each function definition.
     // We'll use this to find which function contains each call site.
-    let Some(func_query) = cached_call_query(&config.language, config.func_query) else {
+    let Some(func_query) =
+        cached_call_query(config.language_key, &config.language, config.func_query)
+    else {
         return Vec::new();
     };
     let mut func_ranges: Vec<(usize, usize, String)> = Vec::new(); // (start, end, name)
@@ -203,7 +424,9 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     }
 
     // Parse call sites
-    let Some(call_query) = cached_call_query(&config.language, config.call_query) else {
+    let Some(call_query) =
+        cached_call_query(config.language_key, &config.language, config.call_query)
+    else {
         return Vec::new();
     };
     let mut call_cursor = QueryCursor::new();
@@ -245,6 +468,7 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 resolved_file: None,
                 confidence: 0.0,
                 resolution_strategy: None,
+                canonical_callee_name: None,
             });
         }
     }
@@ -256,10 +480,11 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
 
 /// Resolve callee names to their definition files using a 6-stage confidence cascade.
 /// Mutates edges in-place, setting resolved_file, confidence, and resolution_strategy.
-pub fn resolve_call_edges(
+fn resolve_call_edges(
     edges: &mut [CallEdge],
     project: &ProjectRoot,
     import_graph: Option<&HashMap<String, crate::import_graph::FileNode>>,
+    import_bindings: Option<&JSImportBindingIndex>,
 ) {
     // Build a name→files index from the symbol DB for stages 3-5
     let db_path = crate::db::index_db_path(project.as_path());
@@ -267,7 +492,7 @@ pub fn resolve_call_edges(
         .and_then(|db| {
             let all = db.all_symbol_names()?;
             let mut map: HashMap<String, Vec<String>> = HashMap::new();
-            for (name, _kind, _sig, _line, _name_path, file) in all {
+            for (name, _kind, file, _line, _signature, _name_path) in all {
                 map.entry(name).or_default().push(file);
             }
             Ok(map)
@@ -282,7 +507,34 @@ pub fn resolve_call_edges(
         let callee = &edge.callee_name;
         let caller_file = &edge.caller_file;
 
-        // Stage 1: Import map — callee's prefix matches an import in caller file (0.95)
+        // Stage 1: Same file — local definitions beat imported or project-wide matches (0.90)
+        if let Some(defs) = symbol_index.get(callee)
+            && defs.iter().any(|f| f == caller_file)
+        {
+            edge.resolved_file = Some(caller_file.clone());
+            edge.confidence = 0.90;
+            edge.resolution_strategy = Some("same_file");
+            continue;
+        }
+
+        // Stage 2: Import map — imported target defines the callee (0.95)
+        if let Some(binding) = import_bindings
+            .and_then(|index| index.get(caller_file))
+            .and_then(|bindings| bindings.get(callee))
+            && let Some(resolved_file) = binding.resolved_file.as_ref()
+        {
+            let canonical_name = binding.imported_name.as_deref().unwrap_or(callee);
+            if let Some(defs) = symbol_index.get(canonical_name)
+                && defs.iter().any(|f| f == resolved_file)
+            {
+                edge.resolved_file = Some(resolved_file.clone());
+                edge.confidence = 0.95;
+                edge.resolution_strategy = Some("import_map");
+                edge.canonical_callee_name = Some(canonical_name.to_owned());
+                continue;
+            }
+        }
+
         if let Some(graph) = import_graph
             && let Some(node) = graph.get(caller_file)
         {
@@ -294,6 +546,7 @@ pub fn resolve_call_edges(
                     edge.resolved_file = Some(imported_file.clone());
                     edge.confidence = 0.95;
                     edge.resolution_strategy = Some("import_map");
+                    edge.canonical_callee_name = Some(callee.clone());
                     break;
                 }
             }
@@ -302,27 +555,7 @@ pub fn resolve_call_edges(
             continue;
         }
 
-        // Stage 2: Same file — callee defined in the same file (0.90)
-        if let Some(defs) = symbol_index.get(callee)
-            && defs.iter().any(|f| f == caller_file)
-        {
-            edge.resolved_file = Some(caller_file.clone());
-            edge.confidence = 0.90;
-            edge.resolution_strategy = Some("same_file");
-            continue;
-        }
-
-        // Stage 3: Unique name — only one definition exists project-wide (0.75)
-        if let Some(defs) = symbol_index.get(callee)
-            && defs.len() == 1
-        {
-            edge.resolved_file = Some(defs[0].clone());
-            edge.confidence = 0.75;
-            edge.resolution_strategy = Some("unique_name");
-            continue;
-        }
-
-        // Stage 4: Import suffix — callee matches suffix of an imported module (0.60)
+        // Stage 3: Import suffix — imported module suffix points at the callee (0.70)
         if let Some(graph) = import_graph
             && let Some(node) = graph.get(caller_file)
             && let Some(defs) = symbol_index.get(callee)
@@ -337,8 +570,9 @@ pub fn resolve_call_edges(
                         || imp.ends_with(&format!("/{def_file}"))
                 }) {
                     edge.resolved_file = Some(def_file.clone());
-                    edge.confidence = 0.60;
+                    edge.confidence = 0.70;
                     edge.resolution_strategy = Some("import_suffix");
+                    edge.canonical_callee_name = Some(callee.clone());
                     break;
                 }
             }
@@ -347,7 +581,23 @@ pub fn resolve_call_edges(
             continue;
         }
 
-        // Stage 5: Multiple candidates — pick closest by path similarity (0.40)
+        // Stage 4: Unique name — only one definition exists project-wide (0.65).
+        // For JS/TS cross-file calls without import evidence, keep this as a fallback.
+        if let Some(defs) = symbol_index.get(callee)
+            && defs.len() == 1
+        {
+            edge.resolved_file = Some(defs[0].clone());
+            if is_import_sensitive_path(caller_file) && defs[0].as_str() != caller_file.as_str() {
+                edge.confidence = 0.50;
+                edge.resolution_strategy = Some("path_proximity");
+            } else {
+                edge.confidence = 0.65;
+                edge.resolution_strategy = Some("unique_name");
+            }
+            continue;
+        }
+
+        // Stage 5: Multiple candidates — pick closest by path similarity (0.50)
         if let Some(defs) = symbol_index.get(callee)
             && !defs.is_empty()
         {
@@ -363,14 +613,14 @@ pub fn resolve_call_edges(
                 .cloned();
             if let Some(f) = best {
                 edge.resolved_file = Some(f);
-                edge.confidence = 0.40;
+                edge.confidence = 0.50;
                 edge.resolution_strategy = Some("path_proximity");
                 continue;
             }
         }
 
-        // Stage 6: Unresolved — callee not found in symbol DB (0.10)
-        edge.confidence = 0.10;
+        // Stage 6: Unresolved — callee not found in symbol DB (0.25)
+        edge.confidence = 0.25;
         edge.resolution_strategy = Some("unresolved");
     }
 }
@@ -380,9 +630,15 @@ pub fn resolve_call_edges(
 pub fn get_callers(
     project: &ProjectRoot,
     function_name: &str,
+    file_path: Option<&str>,
     max_results: usize,
+    graph_cache: Option<&GraphCache>,
 ) -> Result<Vec<CallerEntry>> {
-    let files = collect_candidate_files(project.as_path())?;
+    let files: Vec<PathBuf> = if let Some(fp) = file_path {
+        vec![project.resolve(fp)?]
+    } else {
+        collect_candidate_files(project.as_path())?
+    };
     let mut all_edges: Vec<CallEdge> = Vec::new();
 
     for file in &files {
@@ -394,15 +650,24 @@ pub fn get_callers(
         all_edges.extend(edges);
     }
 
-    // Resolve callee targets (best-effort, no import graph in this path)
-    resolve_call_edges(&mut all_edges, project, None);
+    let import_bindings = build_js_import_binding_index(project, &files);
+    filter_external_import_edges(&mut all_edges, &import_bindings);
+    let import_graph = maybe_import_graph(project, &files, graph_cache);
+    resolve_call_edges(
+        &mut all_edges,
+        project,
+        import_graph.as_deref(),
+        Some(&import_bindings),
+    );
 
     // Filter to edges calling our target
     let mut seen = std::collections::HashSet::new();
     let mut results = Vec::new();
 
     for edge in all_edges {
-        if edge.callee_name == function_name {
+        if edge.callee_name == function_name
+            || edge.canonical_callee_name.as_deref() == Some(function_name)
+        {
             let key = (
                 edge.caller_file.clone(),
                 edge.caller_name.clone(),
@@ -416,9 +681,6 @@ pub fn get_callers(
                     confidence: edge.confidence,
                     resolution: edge.resolution_strategy,
                 });
-                if max_results > 0 && results.len() >= max_results {
-                    break;
-                }
             }
         }
     }
@@ -429,6 +691,9 @@ pub fn get_callers(
             .partial_cmp(&a.confidence)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    if max_results > 0 && results.len() > max_results {
+        results.truncate(max_results);
+    }
     Ok(results)
 }
 
@@ -439,6 +704,7 @@ pub fn get_callees(
     function_name: &str,
     file_path: Option<&str>,
     max_results: usize,
+    graph_cache: Option<&GraphCache>,
 ) -> Result<Vec<CalleeEntry>> {
     let files: Vec<PathBuf> = if let Some(fp) = file_path {
         let resolved = project.resolve(fp)?;
@@ -456,7 +722,15 @@ pub fn get_callees(
         all_edges.extend(edges);
     }
 
-    resolve_call_edges(&mut all_edges, project, None);
+    let import_bindings = build_js_import_binding_index(project, &files);
+    filter_external_import_edges(&mut all_edges, &import_bindings);
+    let import_graph = maybe_import_graph(project, &files, graph_cache);
+    resolve_call_edges(
+        &mut all_edges,
+        project,
+        import_graph.as_deref(),
+        Some(&import_bindings),
+    );
 
     let mut seen: HashMap<(String, usize), ()> = HashMap::new();
     let mut results = Vec::new();
@@ -472,9 +746,6 @@ pub fn get_callees(
                     confidence: edge.confidence,
                     resolution: edge.resolution_strategy,
                 });
-                if max_results > 0 && results.len() >= max_results {
-                    break;
-                }
             }
         }
     }
@@ -484,6 +755,9 @@ pub fn get_callees(
             .partial_cmp(&a.confidence)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    if max_results > 0 && results.len() > max_results {
+        results.truncate(max_results);
+    }
     Ok(results)
 }
 
@@ -501,7 +775,14 @@ const PYTHON_CALL_QUERY: &str = r#"
 const JS_FUNC_QUERY: &str = r#"
 (function_declaration name: (identifier) @func.name) @func.def
 (method_definition name: (property_identifier) @func.name) @func.def
-(function (identifier) @func.name) @func.def
+(lexical_declaration
+    (variable_declarator
+    name: (identifier) @func.name
+    value: [(arrow_function) (function_expression)] @func.def))
+(variable_declaration
+  (variable_declarator
+    name: (identifier) @func.name
+    value: [(arrow_function) (function_expression)] @func.def))
 "#;
 
 const JS_CALL_QUERY: &str = r#"
@@ -539,12 +820,15 @@ const RUST_FUNC_QUERY: &str = r#"
 const RUST_CALL_QUERY: &str = r#"
 (call_expression function: (identifier) @callee)
 (call_expression function: (field_expression field: (field_identifier) @callee))
+(call_expression function: (scoped_identifier name: (identifier) @callee))
 "#;
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_calls, get_callees, get_callers};
+    use super::{CallEdge, extract_calls, get_callees, get_callers, resolve_call_edges};
+    use crate::GraphCache;
     use crate::ProjectRoot;
+    use crate::db::{IndexDb, NewSymbol, index_db_path};
     use std::fs;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
@@ -592,6 +876,93 @@ mod tests {
     }
 
     #[test]
+    fn extracts_js_arrow_function_callers() {
+        let dir = temp_dir("js-arrow");
+        let path = dir.join("handler.js");
+        fs::write(
+            &path,
+            "const handleRequest = async (req) => {\n    validateUser(req);\n    service.run(req);\n};\nfunction validateUser(req) { return req; }\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        assert!(
+            edges
+                .iter()
+                .any(|e| e.caller_name == "handleRequest" && e.callee_name == "validateUser"),
+            "expected handleRequest->validateUser edge, got {edges:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_ts_typed_arrow_function_callers() {
+        let dir = temp_dir("ts-arrow");
+        let path = dir.join("handler.ts");
+        fs::write(
+            &path,
+            "type Request = { userId: string };\nconst handleRequest = async (req: Request): Promise<Request> => {\n    return validateUser(req);\n};\nfunction validateUser(req: Request) { return req; }\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        assert!(
+            edges
+                .iter()
+                .any(|e| e.caller_name == "handleRequest" && e.callee_name == "validateUser"),
+            "expected handleRequest->validateUser edge, got {edges:?}"
+        );
+    }
+
+    #[test]
+    fn shared_js_ts_queries_do_not_cross_language_cache() {
+        let dir = temp_dir("js-ts-cache");
+        let js_path = dir.join("handler.js");
+        let ts_path = dir.join("handler.ts");
+        fs::write(
+            &js_path,
+            "const handleJs = () => {\n    validateJs();\n};\nfunction validateJs() {}\n",
+        )
+        .expect("write js");
+        fs::write(
+            &ts_path,
+            "type Request = { userId: string };\nconst handleTs = (req: Request): Request => {\n    return validateTs(req);\n};\nfunction validateTs(req: Request) { return req; }\n",
+        )
+        .expect("write ts");
+
+        let js_edges = extract_calls(&js_path);
+        assert!(
+            js_edges
+                .iter()
+                .any(|e| e.caller_name == "handleJs" && e.callee_name == "validateJs"),
+            "expected handleJs->validateJs edge, got {js_edges:?}"
+        );
+
+        let ts_edges = extract_calls(&ts_path);
+        assert!(
+            ts_edges
+                .iter()
+                .any(|e| e.caller_name == "handleTs" && e.callee_name == "validateTs"),
+            "expected handleTs->validateTs edge after JS extraction, got {ts_edges:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_rust_scoped_function_calls() {
+        let dir = temp_dir("rs-scoped");
+        let path = dir.join("main.rs");
+        fs::write(
+            &path,
+            "mod auth { pub fn verify() {} }\nfn handler() {\n    auth::verify();\n}\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        assert!(
+            edges
+                .iter()
+                .any(|e| e.caller_name == "handler" && e.callee_name == "verify"),
+            "expected handler->verify edge, got {edges:?}"
+        );
+    }
+
+    #[test]
     fn get_callers_finds_callers() {
         let dir = temp_dir("callers");
         fs::write(dir.join("a.py"), "def foo():\n    bar()\n    baz()\n").expect("write a");
@@ -599,7 +970,7 @@ mod tests {
         fs::write(dir.join("c.py"), "def bar():\n    pass\n").expect("write c");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let callers = get_callers(&project, "bar", 50).expect("callers");
+        let callers = get_callers(&project, "bar", None, 50, None).expect("callers");
         let names: Vec<&str> = callers.iter().map(|c| c.function.as_str()).collect();
         assert!(
             names.contains(&"foo"),
@@ -621,7 +992,7 @@ mod tests {
         .expect("write");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let callees = get_callees(&project, "main", None, 50).expect("callees");
+        let callees = get_callees(&project, "main", None, 50, None).expect("callees");
         let names: Vec<&str> = callees.iter().map(|c| c.name.as_str()).collect();
         assert!(
             names.contains(&"foo"),
@@ -634,15 +1005,333 @@ mod tests {
     }
 
     #[test]
+    fn get_callees_resolves_definition_file_path() {
+        let dir = temp_dir("callees-file-path");
+        fs::write(dir.join("main.py"), "def main():\n    helper()\n").expect("write main");
+        fs::write(dir.join("helpers.py"), "def helper():\n    pass\n").expect("write helper");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let helper_file = db
+            .upsert_file("helpers.py", 100, "helpers", 24, Some("py"))
+            .expect("helpers file");
+        db.insert_symbols(
+            helper_file,
+            &[NewSymbol {
+                name: "helper",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 24,
+                signature: "def helper():",
+                name_path: "helper",
+                parent_id: None,
+            }],
+        )
+        .expect("helper symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let callees = get_callees(&project, "main", Some("main.py"), 50, None).expect("callees");
+        let helper = callees
+            .iter()
+            .find(|callee| callee.name == "helper")
+            .expect("helper callee");
+
+        assert_eq!(helper.resolved_file.as_deref(), Some("helpers.py"));
+    }
+
+    #[test]
+    fn ts_cross_file_unique_resolution_is_fallback_without_import_evidence() {
+        let dir = temp_dir("ts-cross-file-unique");
+        fs::write(
+            dir.join("page.tsx"),
+            "export function Page() { handleSubmit(); }\n",
+        )
+        .expect("write page");
+        fs::create_dir_all(dir.join("components")).expect("components");
+        fs::write(
+            dir.join("components").join("CommentSection.tsx"),
+            "export function handleSubmit() {}\n",
+        )
+        .expect("write component");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let file_id = db
+            .upsert_file(
+                "components/CommentSection.tsx",
+                100,
+                "component",
+                34,
+                Some("tsx"),
+            )
+            .expect("component file");
+        db.insert_symbols(
+            file_id,
+            &[NewSymbol {
+                name: "handleSubmit",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 34,
+                signature: "export function handleSubmit() {}",
+                name_path: "handleSubmit",
+                parent_id: None,
+            }],
+        )
+        .expect("component symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let mut edges = vec![CallEdge {
+            caller_file: "page.tsx".to_owned(),
+            caller_name: "Page".to_owned(),
+            callee_name: "handleSubmit".to_owned(),
+            line: 1,
+            resolved_file: None,
+            confidence: 0.0,
+            resolution_strategy: None,
+            canonical_callee_name: None,
+        }];
+
+        resolve_call_edges(&mut edges, &project, None, None);
+
+        assert_eq!(
+            edges[0].resolved_file.as_deref(),
+            Some("components/CommentSection.tsx")
+        );
+        assert_eq!(edges[0].resolution_strategy, Some("path_proximity"));
+        assert!(edges[0].confidence <= 0.60);
+    }
+
+    #[test]
     fn get_callees_scoped_to_file() {
         let dir = temp_dir("callees-file");
         fs::write(dir.join("a.py"), "def process():\n    helper()\n").expect("write a");
         fs::write(dir.join("b.py"), "def process():\n    other()\n").expect("write b");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let callees = get_callees(&project, "process", Some("a.py"), 50).expect("callees");
+        let callees = get_callees(&project, "process", Some("a.py"), 50, None).expect("callees");
         let names: Vec<&str> = callees.iter().map(|c| c.name.as_str()).collect();
         assert!(names.contains(&"helper"), "expected helper, got {names:?}");
         assert!(!names.contains(&"other"), "should not have other from b.py");
+    }
+
+    #[test]
+    fn get_callers_scoped_to_file() {
+        let dir = temp_dir("callers-file");
+        fs::write(dir.join("a.py"), "def foo():\n    bar()\n").expect("write a");
+        fs::write(dir.join("b.py"), "def qux():\n    bar()\n").expect("write b");
+        fs::write(dir.join("c.py"), "def bar():\n    pass\n").expect("write c");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let callers = get_callers(&project, "bar", Some("a.py"), 50, None).expect("callers");
+        let names: Vec<&str> = callers.iter().map(|c| c.function.as_str()).collect();
+        assert_eq!(names, vec!["foo"]);
+    }
+
+    #[test]
+    fn ts_cross_file_resolution_prefers_import_evidence() {
+        let dir = temp_dir("ts-import-map");
+        fs::write(
+            dir.join("page.tsx"),
+            "import { handleSubmit } from \"./actions\";\nexport function Page() { handleSubmit(); }\n",
+        )
+        .expect("write page");
+        fs::write(
+            dir.join("actions.ts"),
+            "export function handleSubmit() {}\n",
+        )
+        .expect("write actions");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let file_id = db
+            .upsert_file("actions.ts", 100, "actions", 34, Some("ts"))
+            .expect("actions file");
+        db.insert_symbols(
+            file_id,
+            &[NewSymbol {
+                name: "handleSubmit",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 34,
+                signature: "export function handleSubmit() {}",
+                name_path: "handleSubmit",
+                parent_id: None,
+            }],
+        )
+        .expect("action symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cache = GraphCache::new(0);
+        let callees =
+            get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+        let submit = callees
+            .iter()
+            .find(|callee| callee.name == "handleSubmit")
+            .expect("handleSubmit callee");
+        assert_eq!(submit.resolved_file.as_deref(), Some("actions.ts"));
+        assert!(
+            matches!(submit.resolution, Some("import_map" | "import_suffix")),
+            "expected import evidence resolution, got {:?}",
+            submit.resolution
+        );
+    }
+
+    #[test]
+    fn same_file_beats_import_match() {
+        let dir = temp_dir("same-file-over-import");
+        fs::write(
+            dir.join("page.ts"),
+            "import { helper } from \"./helpers\";\nfunction helper() {}\nexport function main() { helper(); }\n",
+        )
+        .expect("write page");
+        fs::write(dir.join("helpers.ts"), "export function helper() {}\n").expect("write helpers");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let page_file = db
+            .upsert_file("page.ts", 100, "page", 92, Some("ts"))
+            .expect("page file");
+        let helpers_file = db
+            .upsert_file("helpers.ts", 100, "helpers", 28, Some("ts"))
+            .expect("helpers file");
+        db.insert_symbols(
+            page_file,
+            &[NewSymbol {
+                name: "helper",
+                kind: "function",
+                line: 2,
+                column_num: 0,
+                start_byte: 37,
+                end_byte: 57,
+                signature: "function helper() {}",
+                name_path: "helper",
+                parent_id: None,
+            }],
+        )
+        .expect("page helper symbol");
+        db.insert_symbols(
+            helpers_file,
+            &[NewSymbol {
+                name: "helper",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 28,
+                signature: "export function helper() {}",
+                name_path: "helper",
+                parent_id: None,
+            }],
+        )
+        .expect("imported helper symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cache = GraphCache::new(0);
+        let callees =
+            get_callees(&project, "main", Some("page.ts"), 50, Some(&cache)).expect("callees");
+        let helper = callees
+            .iter()
+            .find(|callee| callee.name == "helper")
+            .expect("helper callee");
+        assert_eq!(helper.resolved_file.as_deref(), Some("page.ts"));
+        assert_eq!(helper.resolution, Some("same_file"));
+    }
+
+    #[test]
+    fn ts_import_alias_resolves_and_callers_match_canonical_name() {
+        let dir = temp_dir("ts-import-alias");
+        fs::write(
+            dir.join("page.tsx"),
+            "import { handleSubmit as onSubmit } from \"./actions\";\nexport function Page() { onSubmit(); }\n",
+        )
+        .expect("write page");
+        fs::write(
+            dir.join("actions.ts"),
+            "export function handleSubmit() {}\n",
+        )
+        .expect("write actions");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let file_id = db
+            .upsert_file("actions.ts", 100, "actions", 34, Some("ts"))
+            .expect("actions file");
+        db.insert_symbols(
+            file_id,
+            &[NewSymbol {
+                name: "handleSubmit",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 34,
+                signature: "export function handleSubmit() {}",
+                name_path: "handleSubmit",
+                parent_id: None,
+            }],
+        )
+        .expect("action symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cache = GraphCache::new(0);
+        let callees =
+            get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+        let submit = callees
+            .iter()
+            .find(|callee| callee.name == "onSubmit")
+            .expect("aliased callee");
+        assert_eq!(submit.resolved_file.as_deref(), Some("actions.ts"));
+        assert_eq!(submit.resolution, Some("import_map"));
+
+        let callers =
+            get_callers(&project, "handleSubmit", None, 50, Some(&cache)).expect("callers");
+        let page = callers
+            .iter()
+            .find(|caller| caller.function == "Page")
+            .expect("Page caller");
+        assert_eq!(page.file, "page.tsx");
+    }
+
+    #[test]
+    fn ts_external_import_calls_are_filtered_from_project_graph() {
+        let dir = temp_dir("ts-external-import-filter");
+        fs::write(
+            dir.join("page.tsx"),
+            "import { useState } from \"react\";\nimport { handleSubmit } from \"./actions\";\nexport function Page() { useState(); handleSubmit(); }\n",
+        )
+        .expect("write page");
+        fs::write(
+            dir.join("actions.ts"),
+            "export function handleSubmit() {}\n",
+        )
+        .expect("write actions");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let file_id = db
+            .upsert_file("actions.ts", 100, "actions", 34, Some("ts"))
+            .expect("actions file");
+        db.insert_symbols(
+            file_id,
+            &[NewSymbol {
+                name: "handleSubmit",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 34,
+                signature: "export function handleSubmit() {}",
+                name_path: "handleSubmit",
+                parent_id: None,
+            }],
+        )
+        .expect("action symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cache = GraphCache::new(0);
+        let callees =
+            get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+        assert!(
+            callees.iter().any(|callee| callee.name == "handleSubmit"),
+            "expected internal imported callee in {callees:?}"
+        );
+        assert!(
+            !callees.iter().any(|callee| callee.name == "useState"),
+            "external imported binding should not appear in project call graph: {callees:?}"
+        );
     }
 }

@@ -17,6 +17,19 @@ fn returns_lsp_references_via_tool_call() {
         json!({ "file_path": "ref_target.py", "symbol_name": "MyClass" }),
     );
     assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("references"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(false)
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["fallback_source"],
+        json!("tree_sitter")
+    );
 }
 
 #[test]

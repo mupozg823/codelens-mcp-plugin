@@ -26,6 +26,8 @@ mod memory;
 mod mutation;
 mod protocol;
 mod readonly;
+mod registry;
+mod session_mutation;
 mod workflow;
 
 // ── Test helpers ─────────────────────────────────────────────────────

@@ -64,8 +64,21 @@ pub fn explain_code_flow(state: &AppState, arguments: &serde_json::Value) -> Too
         .unwrap_or(20) as usize;
 
     let project = state.project();
-    let callers = get_callers(&project, function_name, max_results)?;
-    let callees = get_callees(&project, function_name, None, max_results)?;
+    let graph_cache = state.graph_cache();
+    let callers = get_callers(
+        &project,
+        function_name,
+        None,
+        max_results,
+        Some(graph_cache.as_ref()),
+    )?;
+    let callees = get_callees(
+        &project,
+        function_name,
+        None,
+        max_results,
+        Some(graph_cache.as_ref()),
+    )?;
 
     Ok((
         json!({
@@ -315,7 +328,7 @@ pub fn propagate_deletions(state: &AppState, arguments: &serde_json::Value) -> T
     let graph_cache = state.graph_cache();
 
     // 1. Find all references to this symbol across the project
-    let callers = get_callers(&project, symbol_name, 200)?;
+    let callers = get_callers(&project, symbol_name, None, 200, Some(graph_cache.as_ref()))?;
 
     // 2. Find importers of the file containing the symbol
     let importers = get_importers(&project, file_path, 200, &graph_cache)?;

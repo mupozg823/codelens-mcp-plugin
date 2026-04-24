@@ -44,8 +44,57 @@ impl StartupProjectSource {
 fn flag_takes_value(flag: &str) -> bool {
     matches!(
         flag,
-        "--preset" | "--profile" | "--daemon-mode" | "--cmd" | "--args" | "--transport" | "--port"
+        "--preset"
+            | "--profile"
+            | "--daemon-mode"
+            | "--cmd"
+            | "--args"
+            | "--transport"
+            | "--port"
+            | "--listen"
+            | "--tls-cert"
+            | "--tls-key"
+            | "--auth"
+            | "--auth-jwks-url"
+            | "--auth-issuer"
+            | "--auth-audience"
+            | "--auth-scope"
+            | "--compat"
     )
+}
+
+pub(crate) fn render_help() -> &'static str {
+    concat!(
+        "codelens-mcp ",
+        env!("CARGO_PKG_VERSION"),
+        "\n\n",
+        "Usage:\n",
+        "  codelens-mcp [OPTIONS] [PROJECT]\n",
+        "  codelens-mcp attach <host>\n",
+        "  codelens-mcp doctor <host|--all>\n",
+        "  codelens-mcp detach <host|--all>\n\n",
+        "Options:\n",
+        "  --transport stdio|http|https       MCP transport (default: stdio)\n",
+        "  --listen <addr>                    HTTP(S) bind address (default: 127.0.0.1)\n",
+        "  --port <port>                      HTTP(S) port (default: 7837)\n",
+        "  --tls-cert <pem>                   PEM certificate for https transport\n",
+        "  --tls-key <pem>                    PEM private key for https transport\n",
+        "  --auth off|jwks                    HTTP auth mode (default: off)\n",
+        "  --auth-jwks-url <url>              JWKS URL for Bearer JWT validation\n",
+        "  --auth-issuer <iss>                Expected token issuer\n",
+        "  --auth-audience <aud>              Expected token audience/resource\n",
+        "  --auth-scope <scope>               Optional required Bearer token scope\n",
+        "  --compat default|anthropic-remote  Compatibility profile\n",
+        "  --preset <preset>                  Tool preset\n",
+        "  --profile <profile>                Tool profile\n",
+        "  --daemon-mode <mode>               standard|read-only|mutation-enabled\n",
+        "  --version                          Print version and exit\n",
+        "  --help                             Print this help and exit\n"
+    )
+}
+
+pub(crate) fn render_version() -> String {
+    format!("codelens-mcp {}", env!("CARGO_PKG_VERSION"))
 }
 
 pub(crate) fn is_attach_subcommand(args: &[String]) -> bool {
@@ -591,14 +640,14 @@ fn inspect_text_policy_file(path: &Path, expected: &str, format: &str) -> String
         return format!("- {display} [{format}]: present (exact generated file)");
     }
     if let Some(expected_block) = extract_managed_text_block(expected)
-        && let Some(actual_block) = extract_managed_text_block(&content) {
-            if normalize_text_for_compare(&actual_block)
-                == normalize_text_for_compare(&expected_block)
-            {
-                return format!("- {display} [{format}]: present (exact managed block)");
-            }
-            return format!("- {display} [{format}]: present (customized managed block)");
+        && let Some(actual_block) = extract_managed_text_block(&content)
+    {
+        if normalize_text_for_compare(&actual_block) == normalize_text_for_compare(&expected_block)
+        {
+            return format!("- {display} [{format}]: present (exact managed block)");
         }
+        return format!("- {display} [{format}]: present (customized managed block)");
+    }
     if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
         return format!("- {display} [{format}]: present (customized)");
     }
@@ -624,24 +673,24 @@ fn inspect_text_policy_file_json(path: &Path, expected: &str, format: &str) -> V
         });
     }
     if let Some(expected_block) = extract_managed_text_block(expected)
-        && let Some(actual_block) = extract_managed_text_block(&content) {
-            if normalize_text_for_compare(&actual_block)
-                == normalize_text_for_compare(&expected_block)
-            {
-                return json!({
-                    "path": path_text,
-                    "format": format,
-                    "status": "present_exact",
-                    "message": "present (exact managed block)",
-                });
-            }
+        && let Some(actual_block) = extract_managed_text_block(&content)
+    {
+        if normalize_text_for_compare(&actual_block) == normalize_text_for_compare(&expected_block)
+        {
             return json!({
                 "path": path_text,
                 "format": format,
-                "status": "present_customized",
-                "message": "present (customized managed block)",
+                "status": "present_exact",
+                "message": "present (exact managed block)",
             });
         }
+        return json!({
+            "path": path_text,
+            "format": format,
+            "status": "present_customized",
+            "message": "present (customized managed block)",
+        });
+    }
     if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
         return json!({
             "path": path_text,
@@ -1263,19 +1312,22 @@ pub(crate) fn cli_option_value(args: &[String], flag: &str) -> Option<String> {
 /// is `warn`, so session-start markers are visible without users
 /// having to opt into `info` logging.
 #[cfg_attr(not(feature = "http"), allow(dead_code))]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn format_http_startup_banner(
     project_root: &std::path::Path,
     project_source: &StartupProjectSource,
     surface_label: &str,
     token_budget: usize,
     daemon_mode: RuntimeDaemonMode,
+    transport: &str,
     port: u16,
     daemon_started_at: &str,
 ) -> String {
     let escaped_project_root = project_root.display().to_string().replace('"', "\\\"");
     format!(
-        "CODELENS_SESSION_START pid={} transport=http port={} project_root=\"{}\" project_source=\"{}\" surface={} token_budget={} daemon_mode={} git_sha={} build_time={} daemon_started_at={} git_dirty={}",
+        "CODELENS_SESSION_START pid={} transport={} port={} project_root=\"{}\" project_source=\"{}\" surface={} token_budget={} daemon_mode={} git_sha={} build_time={} daemon_started_at={} git_dirty={}",
         std::process::id(),
+        transport,
         port,
         escaped_project_root,
         project_source.label(),
@@ -1295,7 +1347,7 @@ mod startup_tests {
         StartupProjectSource, canonical_attach_host, inspect_text_policy_file,
         inspect_text_policy_file_json, parse_cli_project_arg, parse_detach_hosts,
         parse_doctor_hosts, render_attach_instructions, render_detach_report, render_doctor_report,
-        resolve_startup_project, run_doctor_command,
+        render_help, resolve_startup_project, run_doctor_command,
     };
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
@@ -1344,6 +1396,53 @@ mod startup_tests {
             "/tmp/repo".to_owned(),
         ];
         assert_eq!(parse_cli_project_arg(&args).as_deref(), Some("/tmp/repo"));
+    }
+
+    #[test]
+    fn cli_project_arg_skips_remote_connector_flag_values() {
+        let args = vec![
+            "codelens-mcp".to_owned(),
+            "--transport".to_owned(),
+            "https".to_owned(),
+            "--listen".to_owned(),
+            "0.0.0.0".to_owned(),
+            "--tls-cert".to_owned(),
+            "/tmp/cert.pem".to_owned(),
+            "--tls-key".to_owned(),
+            "/tmp/key.pem".to_owned(),
+            "--auth".to_owned(),
+            "jwks".to_owned(),
+            "--auth-jwks-url".to_owned(),
+            "https://auth.example.com/jwks.json".to_owned(),
+            "--auth-issuer".to_owned(),
+            "https://auth.example.com".to_owned(),
+            "--auth-audience".to_owned(),
+            "https://codelens.example.com/mcp".to_owned(),
+            "--auth-scope".to_owned(),
+            "codelens:tools".to_owned(),
+            "--compat".to_owned(),
+            "anthropic-remote".to_owned(),
+            "/tmp/repo".to_owned(),
+        ];
+        assert_eq!(parse_cli_project_arg(&args).as_deref(), Some("/tmp/repo"));
+    }
+
+    #[test]
+    fn render_help_documents_remote_connector_flags() {
+        let help = render_help();
+        for expected in [
+            "--transport stdio|http|https",
+            "--listen <addr>",
+            "--tls-cert <pem>",
+            "--auth off|jwks",
+            "--auth-jwks-url <url>",
+            "--compat default|anthropic-remote",
+        ] {
+            assert!(
+                help.contains(expected),
+                "help should mention `{expected}`, got: {help}"
+            );
+        }
     }
 
     #[test]
@@ -1887,6 +1986,7 @@ url = "http://127.0.0.1:9999/mcp"
             "builder-minimal",
             2400,
             crate::state::RuntimeDaemonMode::Standard,
+            "http",
             7837,
             "2026-04-11T19:49:55Z",
         );

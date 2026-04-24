@@ -1,6 +1,8 @@
 use super::super::AppState;
 #[cfg(feature = "semantic")]
 use super::super::query_analysis::analyze_retrieval_query;
+use super::fusion::rank_fusion_policy;
+use crate::symbol_retrieval::ScoredSymbol;
 use codelens_engine::{RankedContextResult, SemanticMatch};
 use serde_json::{Value, json};
 
@@ -172,31 +174,18 @@ pub(super) fn merge_semantic_ranked_entries(
         index_by_key.insert(format!("{}:{}", entry.file, entry.name), idx);
     }
 
+    let policy = rank_fusion_policy(query, max_semantic_entries, 0);
     let query_word_count = query.split_whitespace().count();
     let is_short_phrase = (2..4).contains(&query_word_count);
-    let effective_limit = if query_word_count >= 4 {
-        max_semantic_entries.min(6)
-    } else if query_word_count >= 2 {
-        max_semantic_entries.min(2)
-    } else {
-        max_semantic_entries.min(3)
-    };
     let semantic_max = semantic_results
         .iter()
         .map(|sem| sem.score)
         .fold(0.0_f64, f64::max)
         .max(0.05);
-    let insertion_floor = if query_word_count >= 4 {
-        0.10
-    } else if is_short_phrase {
-        0.18
-    } else {
-        0.12
-    };
 
     for (rank_idx, sem) in semantic_results
         .into_iter()
-        .take(effective_limit)
+        .take(policy.semantic_limit)
         .enumerate()
     {
         if sem.score < 0.05 {
@@ -206,11 +195,12 @@ pub(super) fn merge_semantic_ranked_entries(
         let normalized_semantic = ((sem.score / semantic_max) * 100.0).clamp(1.0, 100.0) as i32;
         let semantic_score = (normalized_semantic - (rank_idx as i32 * 8)).clamp(1, 100);
         if let Some(idx) = index_by_key.get(&key).copied() {
+            let semantic_score = semantic_score.min(policy.semantic_boosted_score_cap);
             result.symbols[idx].relevance_score =
                 result.symbols[idx].relevance_score.max(semantic_score);
             continue;
         }
-        if sem.score < insertion_floor {
+        if sem.score < policy.semantic_insertion_floor {
             continue;
         }
         if is_short_phrase && rank_idx > 0 {
@@ -225,7 +215,7 @@ pub(super) fn merge_semantic_ranked_entries(
             line: sem.line,
             signature: sem.signature,
             body: None,
-            relevance_score: semantic_score,
+            relevance_score: semantic_score.min(policy.semantic_added_score_cap),
         });
         index_by_key.insert(key, idx);
     }
@@ -263,16 +253,116 @@ pub(super) fn compact_semantic_evidence(
         .collect()
 }
 
+pub(super) fn merge_sparse_ranked_entries(
+    query: &str,
+    result: &mut RankedContextResult,
+    sparse_results: Vec<ScoredSymbol>,
+    max_sparse_entries: usize,
+) {
+    if sparse_results.is_empty() {
+        return;
+    }
+
+    let mut index_by_key = std::collections::HashMap::new();
+    for (idx, entry) in result.symbols.iter().enumerate() {
+        index_by_key.insert(format!("{}:{}", entry.file, entry.name), idx);
+    }
+
+    let policy = rank_fusion_policy(query, 0, max_sparse_entries);
+    let query_word_count = query.split_whitespace().count();
+    let sparse_max = sparse_results
+        .iter()
+        .map(|hit| hit.score)
+        .fold(0.0_f64, f64::max)
+        .max(0.01);
+
+    for (rank_idx, hit) in sparse_results
+        .into_iter()
+        .take(policy.sparse_limit)
+        .enumerate()
+    {
+        let key = format!("{}:{}", hit.document.file_path, hit.document.name);
+        let normalized_sparse = ((hit.score / sparse_max) * 100.0).clamp(1.0, 100.0) as i32;
+        let sparse_score = (normalized_sparse - (rank_idx as i32 * 6)).clamp(1, 100);
+        if let Some(idx) = index_by_key.get(&key).copied() {
+            result.symbols[idx].relevance_score =
+                result.symbols[idx].relevance_score.max(sparse_score);
+            continue;
+        }
+        if sparse_score < policy.sparse_insertion_floor {
+            continue;
+        }
+        if query_word_count < 3 && rank_idx > 0 {
+            continue;
+        }
+
+        let idx = result.symbols.len();
+        result.symbols.push(codelens_engine::RankedContextEntry {
+            name: hit.document.name,
+            kind: hit.document.kind,
+            file: hit.document.file_path,
+            line: hit.document.line_start,
+            signature: hit.document.signature,
+            body: None,
+            relevance_score: sparse_score,
+        });
+        index_by_key.insert(key, idx);
+    }
+
+    result
+        .symbols
+        .sort_unstable_by(|a, b| b.relevance_score.cmp(&a.relevance_score));
+    result.count = result.symbols.len();
+}
+
+pub(super) fn compact_sparse_evidence(
+    result: &RankedContextResult,
+    sparse_results: &[ScoredSymbol],
+    limit: usize,
+) -> Vec<Value> {
+    let mut final_ranks = std::collections::HashMap::new();
+    for (idx, entry) in result.symbols.iter().enumerate() {
+        final_ranks.insert(format!("{}:{}", entry.file, entry.name), idx + 1);
+    }
+
+    sparse_results
+        .iter()
+        .take(limit)
+        .map(|item| {
+            let key = format!("{}:{}", item.document.file_path, item.document.name);
+            let final_rank = final_ranks.get(&key).copied();
+            json!({
+                "symbol": item.document.name,
+                "file": item.document.file_path,
+                "score": (item.score * 1000.0).round() / 1000.0,
+                "matched_terms": item.matched_terms,
+                "selected": final_rank.is_some(),
+                "final_rank": final_rank,
+            })
+        })
+        .collect()
+}
+
 pub(super) fn annotate_ranked_context_provenance(
     payload: &mut Value,
     structural_keys: &std::collections::HashSet<String>,
     semantic_results: &[SemanticMatch],
+    sparse_results: &[ScoredSymbol],
 ) {
     let semantic_scores = semantic_results
         .iter()
         .map(|item| {
             (
                 format!("{}:{}", item.file_path, item.symbol_name),
+                (item.score * 1000.0).round() / 1000.0,
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let sparse_scores = sparse_results
+        .iter()
+        .map(|item| {
+            (
+                format!("{}:{}", item.document.file_path, item.document.name),
                 (item.score * 1000.0).round() / 1000.0,
             )
         })
@@ -295,18 +385,30 @@ pub(super) fn annotate_ranked_context_provenance(
 
         let key = format!("{file}:{name}");
         let semantic_score = semantic_scores.get(&key).copied();
+        let sparse_score = sparse_scores.get(&key).copied();
         let structural_candidate = structural_keys.contains(&key);
-        let source = match (semantic_score, structural_candidate) {
-            (Some(_), true) => "semantic_boosted",
-            (Some(_), false) => "semantic_added",
-            (None, _) => "structural",
+        let source = match (semantic_score, sparse_score, structural_candidate) {
+            (Some(_), _, true) => "semantic_boosted",
+            (Some(_), _, false) => "semantic_added",
+            (None, Some(_), true) => "sparse_boosted",
+            (None, Some(_), false) => "sparse_added",
+            (None, None, _) => "structural",
+        };
+        let confidence = match source {
+            "semantic_added" => "medium",
+            "sparse_added" => "medium_high",
+            "semantic_boosted" | "sparse_boosted" => "high",
+            _ => "medium",
         };
         map.insert(
             "provenance".to_owned(),
             json!({
                 "source": source,
+                "confidence": confidence,
+                "corroborated": structural_candidate && (semantic_score.is_some() || sparse_score.is_some()),
                 "structural_candidate": structural_candidate,
                 "semantic_score": semantic_score,
+                "sparse_score": sparse_score,
             }),
         );
     }

@@ -28,6 +28,7 @@ parser.add_argument(
     "--output-json",
     default=os.path.join(os.path.dirname(__file__), "benchmark_results.json"),
 )
+parser.add_argument("--markdown-output", default="")
 parser.add_argument("--min-workflow-savings", type=float, default=35.0)
 parser.add_argument("--min-chain-reduction", type=float, default=40.0)
 parser.add_argument("--min-queue-depth", type=int, default=1)
@@ -764,6 +765,34 @@ os.makedirs(os.path.dirname(json_path), exist_ok=True)
 with open(json_path, "w") as f:
     json.dump(json_out, f, indent=2)
 print(f"\nResults saved to {json_path}")
+
+if ARGS.markdown_output:
+    markdown_path = os.path.abspath(ARGS.markdown_output)
+    os.makedirs(os.path.dirname(markdown_path), exist_ok=True)
+    with open(markdown_path, "w") as f:
+        f.write("# CodeLens Token Efficiency Benchmark\n\n")
+        f.write(
+            f"- Project: {json_out['project']} ({total_files} files, {total_symbols} symbols)\n"
+        )
+        f.write(
+            f"- Token savings: {json_out['totals']['savings_pct']}% "
+            f"({total_baseline:,} -> {total_codelens:,})\n"
+        )
+        if queue_observability.get("supported"):
+            session = queue_observability.get("session", {})
+            f.write(
+                "- Queue: "
+                f"max_depth={session.get('analysis_queue_max_depth', 0)}, "
+                f"peak_workers={session.get('peak_active_analysis_workers', 0)}, "
+                f"success_rate={queue_observability.get('derived_kpis', {}).get('analysis_job_success_rate', 0.0):.2f}\n"
+            )
+        f.write("\n## Workflows\n\n")
+        for result in workflow_results:
+            f.write(
+                f"- {result['scenario']}: {result['savings_pct']}% savings, "
+                f"{result['baseline']['tool_call_count']} -> {result['compressed']['tool_call_count']} calls\n"
+            )
+    print(f"Markdown summary saved to {markdown_path}")
 
 if ARGS.check:
     failures = []

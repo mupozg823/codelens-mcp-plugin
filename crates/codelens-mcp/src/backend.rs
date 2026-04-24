@@ -13,6 +13,7 @@
 
 use crate::AppState;
 use serde::Serialize;
+use serde_json::{Value, json};
 
 /// Capabilities a semantic backend can claim to fulfil.
 ///
@@ -56,7 +57,6 @@ impl BackendCapability {
 pub trait SemanticBackend {
     fn name(&self) -> &'static str;
     fn capabilities(&self) -> &'static [BackendCapability];
-    fn is_available(&self, state: &AppState) -> bool;
 }
 
 pub struct RustEngineBackend;
@@ -80,11 +80,6 @@ impl SemanticBackend for RustEngineBackend {
             BackendCapability::Embeddings,
         ]
     }
-
-    fn is_available(&self, _state: &AppState) -> bool {
-        // Always available — this is the primary substrate.
-        true
-    }
 }
 
 impl SemanticBackend for LspBridgeBackend {
@@ -100,15 +95,6 @@ impl SemanticBackend for LspBridgeBackend {
             BackendCapability::Diagnostics,
         ]
     }
-
-    fn is_available(&self, _state: &AppState) -> bool {
-        // The LSP pool is always present on `AppState`, but backends are
-        // only exercised when a caller invokes an LSP tool. Availability
-        // here reflects "compiled in", not "a language server is running
-        // for the current file". The runtime health resource already
-        // carries the per-file diagnostics status.
-        true
-    }
 }
 
 impl SemanticBackend for ScipBridgeBackend {
@@ -123,12 +109,6 @@ impl SemanticBackend for ScipBridgeBackend {
             BackendCapability::ImpactAnalysis,
         ]
     }
-
-    fn is_available(&self, _state: &AppState) -> bool {
-        // SCIP is compile-time optional. The feature-gated availability
-        // reflects build configuration rather than runtime state.
-        cfg!(feature = "scip-backend")
-    }
 }
 
 /// Snapshot describing one backend at a single point in time. Used by the
@@ -136,8 +116,13 @@ impl SemanticBackend for ScipBridgeBackend {
 #[derive(Debug, Clone, Serialize)]
 pub struct BackendReport {
     pub name: &'static str,
+    pub declared: bool,
+    pub compiled: bool,
     pub available: bool,
+    pub active: bool,
+    pub active_reason: String,
     pub capabilities: Vec<&'static str>,
+    pub runtime: Value,
 }
 
 /// Enumerate all known backends with their current availability.
@@ -146,16 +131,101 @@ pub fn enumerate_backends(state: &AppState) -> Vec<BackendReport> {
         [&RustEngineBackend, &LspBridgeBackend, &ScipBridgeBackend];
     backends
         .iter()
-        .map(|backend| BackendReport {
-            name: backend.name(),
-            available: backend.is_available(state),
-            capabilities: backend
-                .capabilities()
-                .iter()
-                .map(|cap| cap.as_str())
-                .collect(),
+        .map(|backend| {
+            let runtime = runtime_status_for_backend(backend.name(), state);
+            BackendReport {
+                name: backend.name(),
+                declared: true,
+                compiled: runtime.compiled,
+                available: runtime.available,
+                active: runtime.active,
+                active_reason: runtime.active_reason,
+                capabilities: backend
+                    .capabilities()
+                    .iter()
+                    .map(|cap| cap.as_str())
+                    .collect(),
+                runtime: runtime.details,
+            }
         })
         .collect()
+}
+
+struct BackendRuntimeStatus {
+    compiled: bool,
+    available: bool,
+    active: bool,
+    active_reason: String,
+    details: Value,
+}
+
+fn runtime_status_for_backend(name: &str, state: &AppState) -> BackendRuntimeStatus {
+    match name {
+        "rust-engine" => BackendRuntimeStatus {
+            compiled: true,
+            available: true,
+            active: true,
+            active_reason: "always_available".to_owned(),
+            details: json!({"fast_path": "tree_sitter"}),
+        },
+        "lsp-bridge" => {
+            let statuses = codelens_engine::check_lsp_status();
+            let installed_server_count = statuses.iter().filter(|status| status.installed).count();
+            BackendRuntimeStatus {
+                compiled: true,
+                available: installed_server_count > 0,
+                active: false,
+                active_reason: "explicit_use_required".to_owned(),
+                details: json!({
+                    "recipe_count": statuses.len(),
+                    "installed_server_count": installed_server_count,
+                    "activation": "use_lsp_true_or_position_request",
+                }),
+            }
+        }
+        "scip-bridge" => scip_runtime_status(state),
+        _ => BackendRuntimeStatus {
+            compiled: false,
+            available: false,
+            active: false,
+            active_reason: "unknown_backend".to_owned(),
+            details: json!({}),
+        },
+    }
+}
+
+fn scip_runtime_status(state: &AppState) -> BackendRuntimeStatus {
+    #[cfg(feature = "scip-backend")]
+    {
+        let index_path = codelens_engine::ScipBackend::detect(state.project().as_path());
+        let loaded = index_path.is_some() && state.scip().is_some();
+        return BackendRuntimeStatus {
+            compiled: true,
+            available: loaded,
+            active: loaded,
+            active_reason: if loaded {
+                "index_loaded".to_owned()
+            } else if index_path.is_some() {
+                "index_load_failed".to_owned()
+            } else {
+                "index_missing".to_owned()
+            },
+            details: json!({
+                "index_path": index_path.map(|path| path.to_string_lossy().to_string()),
+            }),
+        };
+    }
+    #[cfg(not(feature = "scip-backend"))]
+    {
+        let _ = state;
+        BackendRuntimeStatus {
+            compiled: false,
+            available: false,
+            active: false,
+            active_reason: "feature_not_compiled".to_owned(),
+            details: json!({"index_path": null}),
+        }
+    }
 }
 
 /// Reverse index: for every capability, which backends claim to fulfil it

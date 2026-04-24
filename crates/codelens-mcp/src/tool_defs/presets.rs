@@ -658,6 +658,8 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "get_file_diagnostics",
     "find_tests",
     "refresh_symbol_index",
+    "get_callers",
+    "get_callees",
     // Phase 4a §capability-reporting: builders occasionally need NL
     // lookups ("where is the error handler for invalid credentials?"
     // type questions during mid-edit debugging). Exposing
@@ -706,6 +708,8 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     // Diagnostics
     "get_file_diagnostics",
     // Graph / impact
+    "get_callers",
+    "get_callees",
     "get_impact_analysis",
     "get_changed_files",
     // Workflow composites
@@ -754,6 +758,8 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     // Diagnostics
     "get_file_diagnostics",
     // Graph / impact
+    "get_callers",
+    "get_callees",
     "get_impact_analysis",
     "get_changed_files",
     // Mutation (core)
@@ -813,6 +819,8 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "get_ranked_context",
     "get_changed_files",
     "get_impact_analysis",
+    "get_callers",
+    "get_callees",
     "find_scoped_references",
     "find_dead_code",
     "find_circular_dependencies",
@@ -1156,6 +1164,8 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "index_embeddings" => "symbols",
         "get_changed_files"
         | "get_impact_analysis"
+        | "get_callers"
+        | "get_callees"
         | "find_scoped_references"
         | "get_symbol_importance"
         | "find_dead_code"

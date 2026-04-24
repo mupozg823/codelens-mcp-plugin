@@ -61,3 +61,7 @@ scripts/finetune/*.jsonl
 scripts/finetune/gate-results/
 scripts/finetune/external/
 scripts/finetune/pipelines/
+
+# Generated release-quality matrix run artifacts. Curated benchmark reports under
+# benchmarks/results/*.json or *.md can still be committed explicitly.
+benchmarks/results/*-release-quality-matrix/

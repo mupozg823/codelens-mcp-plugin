@@ -2,14 +2,132 @@ use super::{
     AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
     success_meta,
 };
-use crate::protocol::BackendKind;
+use crate::protocol::{BackendKind, ToolResponseMeta};
 use crate::tools::symbols::flatten_symbols;
 use codelens_engine::{
     find_circular_dependencies, find_dead_code_v2, find_scoped_references, get_blast_radius,
     get_callees, get_callers, get_change_coupling, get_changed_files, get_importance,
     get_importers, search_for_pattern,
 };
-use serde_json::json;
+use serde_json::{Map, Value, json};
+
+const CALL_GRAPH_RESOLUTIONS: [&str; 6] = [
+    "same_file",
+    "import_map",
+    "import_suffix",
+    "unique_name",
+    "path_proximity",
+    "unresolved",
+];
+
+fn resolution_score(strategy: &str) -> f64 {
+    match strategy {
+        "same_file" => 0.90,
+        "import_map" => 0.95,
+        "import_suffix" => 0.70,
+        "unique_name" => 0.65,
+        "path_proximity" => 0.50,
+        "unresolved" => 0.25,
+        _ => 0.25,
+    }
+}
+
+fn call_graph_analysis<'a>(
+    resolutions: impl Iterator<Item = Option<&'a str>>,
+) -> (Map<String, Value>, &'static str, ToolResponseMeta) {
+    let resolution_list: Vec<&str> = resolutions
+        .map(|value| value.unwrap_or("unresolved"))
+        .collect();
+    let mut summary = Map::new();
+    for key in CALL_GRAPH_RESOLUTIONS {
+        summary.insert(key.to_owned(), json!(0));
+    }
+    for resolution in &resolution_list {
+        if let Some(value) = summary.get_mut(*resolution) {
+            let count = value.as_u64().unwrap_or_default() + 1;
+            *value = json!(count);
+        }
+    }
+
+    let same_file = summary["same_file"].as_u64().unwrap_or_default();
+    let import_map = summary["import_map"].as_u64().unwrap_or_default();
+    let import_suffix = summary["import_suffix"].as_u64().unwrap_or_default();
+    let unique_name = summary["unique_name"].as_u64().unwrap_or_default();
+    let path_proximity = summary["path_proximity"].as_u64().unwrap_or_default();
+    let unresolved = summary["unresolved"].as_u64().unwrap_or_default();
+    let total = resolution_list.len() as u64;
+    let import_evidence = import_map + import_suffix;
+    let fallback = path_proximity + unresolved;
+
+    let confidence_basis = if total == 0 || unresolved == total {
+        "unresolved_only"
+    } else if same_file == total {
+        "same_file_only"
+    } else if unique_name == total {
+        "name_only_unique"
+    } else if fallback == total {
+        "fallback_only"
+    } else if fallback > 0 {
+        "mixed_with_fallback"
+    } else if import_evidence > 0 {
+        "import_evidence"
+    } else if same_file > 0 {
+        "same_file_only"
+    } else {
+        "name_only_unique"
+    };
+
+    let base_confidence = if resolution_list.is_empty() {
+        0.35
+    } else {
+        let scores: Vec<f64> = resolution_list
+            .iter()
+            .take(5)
+            .map(|resolution| resolution_score(resolution))
+            .collect();
+        scores.iter().sum::<f64>() / scores.len() as f64
+    };
+    let mut confidence = base_confidence;
+    if path_proximity > 0 {
+        confidence = confidence.min(0.60);
+    }
+    if unresolved > 0 {
+        confidence = confidence.min(0.35);
+    }
+
+    let backend = if import_evidence > 0 {
+        BackendKind::Hybrid
+    } else {
+        BackendKind::TreeSitter
+    };
+    let mut meta = success_meta(backend, confidence);
+    meta.degraded_reason = if unresolved > 0 {
+        Some("unresolved-call-graph-edges".to_owned())
+    } else if path_proximity > 0 {
+        Some("fallback-dominated-call-graph".to_owned())
+    } else {
+        None
+    };
+
+    (summary, confidence_basis, meta)
+}
+
+fn call_graph_evidence_signals(summary: &Map<String, Value>) -> Value {
+    let import_evidence = summary["import_map"].as_u64().unwrap_or_default()
+        + summary["import_suffix"].as_u64().unwrap_or_default();
+    let fallback_evidence = summary["same_file"].as_u64().unwrap_or_default()
+        + summary["unique_name"].as_u64().unwrap_or_default()
+        + summary["path_proximity"].as_u64().unwrap_or_default()
+        + summary["unresolved"].as_u64().unwrap_or_default();
+    json!({
+        "resolution_summary": summary,
+        "precise_available": import_evidence > 0,
+        "precise_used": import_evidence > 0,
+        "precise_source": if import_evidence > 0 { Some("import_graph") } else { None },
+        "fallback_source": if fallback_evidence > 0 { Some("tree_sitter_name_resolution") } else { None },
+        "precise_result_count": import_evidence,
+    })
+}
 
 pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let git_ref = optional_string(arguments, "ref");
@@ -173,29 +291,72 @@ pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Val
 
 pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let function_name = required_string(arguments, "function_name")?;
+    let file_path = optional_string(arguments, "file_path");
     let max_results = optional_usize(arguments, "max_results", 50);
-    Ok(
-        get_callers(&state.project(), function_name, max_results).map(|value| {
-            (
-                json!({ "function": function_name, "callers": value, "count": value.len() }),
-                success_meta(BackendKind::Hybrid, 0.85),
-            )
-        })?,
+    let graph_cache = state.graph_cache();
+    Ok(get_callers(
+        &state.project(),
+        function_name,
+        file_path,
+        max_results,
+        Some(graph_cache.as_ref()),
     )
+    .map(|value| {
+        let (resolution_summary, confidence_basis, meta) =
+            call_graph_analysis(value.iter().map(|entry| entry.resolution));
+        let evidence = crate::tool_evidence::tool_evidence(
+            "call_graph",
+            &meta,
+            confidence_basis,
+            call_graph_evidence_signals(&resolution_summary),
+        );
+        (
+            json!({
+                "function": function_name,
+                "callers": value,
+                "count": value.len(),
+                "confidence_basis": confidence_basis,
+                "resolution_summary": resolution_summary,
+                "evidence": evidence,
+            }),
+            meta,
+        )
+    })?)
 }
 
 pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let function_name = required_string(arguments, "function_name")?;
     let file_path = optional_string(arguments, "file_path");
     let max_results = optional_usize(arguments, "max_results", 50);
-    Ok(
-        get_callees(&state.project(), function_name, file_path, max_results).map(|value| {
-            (
-                json!({ "function": function_name, "callees": value, "count": value.len() }),
-                success_meta(BackendKind::Hybrid, 0.85),
-            )
-        })?,
+    let graph_cache = state.graph_cache();
+    Ok(get_callees(
+        &state.project(),
+        function_name,
+        file_path,
+        max_results,
+        Some(graph_cache.as_ref()),
     )
+    .map(|value| {
+        let (resolution_summary, confidence_basis, meta) =
+            call_graph_analysis(value.iter().map(|entry| entry.resolution));
+        let evidence = crate::tool_evidence::tool_evidence(
+            "call_graph",
+            &meta,
+            confidence_basis,
+            call_graph_evidence_signals(&resolution_summary),
+        );
+        (
+            json!({
+                "function": function_name,
+                "callees": value,
+                "count": value.len(),
+                "confidence_basis": confidence_basis,
+                "resolution_summary": resolution_summary,
+                "evidence": evidence,
+            }),
+            meta,
+        )
+    })?)
 }
 
 pub fn find_circular_dependencies_tool(

@@ -75,6 +75,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p codelens-mcp --features http
 
+      - name: cargo check (macOS CoreML)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cargo check -p codelens-mcp --features http,coreml
+          cargo test -p codelens-engine --features coreml macos_runtime_preference_reports_coreml_when_coreml_is_compiled
+
       - name: HTTP test stability (3x repeat)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -86,6 +92,12 @@ jobs:
       - name: cargo build --release (http for benchmark gate)
         if: matrix.os == 'ubuntu-latest'
         run: cargo build --release --features http
+
+      - name: semantic model asset gate
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          MODELS_DIR="${CODELENS_RELEASE_MODELS_DIR:-crates/codelens-engine/models}"
+          python3 scripts/verify-model-assets.py "${MODELS_DIR}" --quiet
 
       - name: resolve HTTP surface benchmark baseline
         if: matrix.os == 'ubuntu-latest'
@@ -143,8 +155,8 @@ jobs:
             --min-queue-depth 1 \
             --min-peak-workers 2 \
             --min-queue-success-rate 1.0 \
-            --max-queue-failures 0 | tee benchmarks/token-efficiency-ci.txt
-          python3 benchmarks/render-summary.py --output benchmarks/token-efficiency-summary.md
+            --max-queue-failures 0 \
+            --markdown-output benchmarks/token-efficiency-summary.md | tee benchmarks/token-efficiency-ci.txt
           cat benchmarks/token-efficiency-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: embedding-quality benchmark summary
@@ -160,6 +172,20 @@ jobs:
             --min-hybrid-mrr 0.65 \
             --min-lexical-mrr 0.50 | tee benchmarks/embedding-quality-ci.txt
           cat benchmarks/embedding-quality-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: daemon retrieval latency gate
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          CODELENS_BIN: target/release/codelens-mcp
+        run: |
+          python3 benchmarks/daemon-latency-gate.py . \
+            --binary target/release/codelens-mcp \
+            --check \
+            --max-ranked-context-p95-ms 250 \
+            --max-semantic-search-p95-ms 900 \
+            --output-json benchmarks/daemon-latency-gate.json \
+            --markdown-output benchmarks/daemon-latency-gate.md | tee benchmarks/daemon-latency-gate-ci.txt
+          cat benchmarks/daemon-latency-gate.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: external phase3 matrix summary
         if: matrix.os == 'ubuntu-latest'
@@ -185,3 +211,6 @@ jobs:
             benchmarks/http-surface-benchmark.json
             benchmarks/http-surface-benchmark.md
             benchmarks/http-surface-benchmark-ci.txt
+            benchmarks/daemon-latency-gate.json
+            benchmarks/daemon-latency-gate.md
+            benchmarks/daemon-latency-gate-ci.txt

@@ -121,6 +121,9 @@ pub(crate) struct AppState {
     pub(crate) secondary_projects: Mutex<HashMap<String, SecondaryProject>>,
     #[cfg(feature = "http")]
     pub(crate) session_store: Option<crate::server::session::SessionStore>,
+    #[cfg(feature = "http")]
+    http_auth: Arc<crate::server::auth::HttpAuthState>,
+    compat_mode: Mutex<crate::server::compat::ServerCompatMode>,
     /// Phase 4b (§capability-reporting follow-up): wall-clock time
     /// when the daemon started, as an RFC 3339 UTC string. Exposed
     /// by `get_capabilities` alongside `binary_build_time` so
@@ -377,6 +380,30 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    pub(crate) fn configure_compat_mode(&self, mode: crate::server::compat::ServerCompatMode) {
+        *self
+            .compat_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = mode;
+    }
+
+    pub(crate) fn compat_mode(&self) -> crate::server::compat::ServerCompatMode {
+        *self
+            .compat_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn configure_http_auth(&self, config: crate::server::auth::HttpAuthConfig) {
+        self.http_auth.configure(config);
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn http_auth(&self) -> Arc<crate::server::auth::HttpAuthState> {
+        Arc::clone(&self.http_auth)
+    }
+
     pub(crate) fn client_profile(&self) -> ClientProfile {
         self.client_profile
     }
@@ -406,14 +433,14 @@ impl AppState {
 
     pub(crate) fn analysis_worker_limit(&self) -> usize {
         match self.transport_mode() {
-            RuntimeTransportMode::Http => HTTP_ANALYSIS_WORKER_COUNT,
+            RuntimeTransportMode::Http | RuntimeTransportMode::Https => HTTP_ANALYSIS_WORKER_COUNT,
             RuntimeTransportMode::Stdio => STDIO_ANALYSIS_WORKER_COUNT,
         }
     }
 
     pub(crate) fn analysis_cost_budget(&self) -> usize {
         match self.transport_mode() {
-            RuntimeTransportMode::Http => 3,
+            RuntimeTransportMode::Http | RuntimeTransportMode::Https => 3,
             RuntimeTransportMode::Stdio => 2,
         }
     }
@@ -488,6 +515,9 @@ impl AppState {
             scip_backend: OnceLock::new(),
             #[cfg(feature = "http")]
             session_store: None,
+            #[cfg(feature = "http")]
+            http_auth: Arc::clone(&self.http_auth),
+            compat_mode: Mutex::new(self.compat_mode()),
             // Phase 4b: workers inherit the parent daemon's start
             // time so `get_capabilities` stays consistent across
             // clones.
@@ -572,6 +602,9 @@ impl AppState {
             scip_backend: OnceLock::new(),
             #[cfg(feature = "http")]
             session_store: None,
+            #[cfg(feature = "http")]
+            http_auth: Arc::new(crate::server::auth::HttpAuthState::default()),
+            compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
             daemon_started_at: now_rfc3339_utc(),
         }
     }

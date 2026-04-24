@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-surface-manifest-v1",
   "workspace": {
-    "version": "1.9.46",
+    "version": "1.9.50",
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
     "members": [
       "crates/codelens-engine",
@@ -11,11 +11,11 @@
     "member_count": 3
   },
   "tool_registry": {
-    "definition_count": 111,
-    "output_schema_count": 77,
+    "definition_count": 113,
+    "output_schema_count": 79,
     "namespaces": {
       "filesystem": 6,
-      "graph": 12,
+      "graph": 14,
       "lsp": 3,
       "memory": 5,
       "mutation": 16,
@@ -24,19 +24,19 @@
       "symbols": 11
     },
     "tiers": {
-      "analysis": 23,
+      "analysis": 25,
       "primitive": 56,
       "workflow": 32
     },
     "phases": {
-      "agnostic": 35,
+      "agnostic": 37,
       "build": 18,
       "eval": 8,
       "plan": 29,
       "review": 21
     },
     "preferred_executors": {
-      "any": 85,
+      "any": 87,
       "claude": 9,
       "codex-builder": 17
     },
@@ -111,7 +111,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 261
+        "estimated_tokens": 370
       },
       {
         "name": "find_symbol",
@@ -120,7 +120,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 310
+        "estimated_tokens": 419
       },
       {
         "name": "get_ranked_context",
@@ -129,7 +129,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 444
+        "estimated_tokens": 652
       },
       {
         "name": "bm25_symbol_search",
@@ -138,7 +138,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 456
+        "estimated_tokens": 565
       },
       {
         "name": "search_symbols_fuzzy",
@@ -183,7 +183,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 346
+        "estimated_tokens": 455
       },
       {
         "name": "get_file_diagnostics",
@@ -201,7 +201,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 130
+        "estimated_tokens": 167
       },
       {
         "name": "get_type_hierarchy",
@@ -258,13 +258,31 @@
         "estimated_tokens": 253
       },
       {
+        "name": "get_callers",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": true,
+        "estimated_tokens": 426
+      },
+      {
+        "name": "get_callees",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": true,
+        "estimated_tokens": 412
+      },
+      {
         "name": "find_scoped_references",
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 267
+        "estimated_tokens": 376
       },
       {
         "name": "get_symbol_importance",
@@ -1100,7 +1118,7 @@
       },
       {
         "name": "builder-minimal",
-        "tool_count": 36,
+        "tool_count": 38,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1130,6 +1148,8 @@
           "get_capabilities",
           "audit_builder_session",
           "audit_planner_session",
+          "get_callers",
+          "get_callees",
           "rename_symbol",
           "get_symbols_overview",
           "find_symbol",
@@ -1157,7 +1177,7 @@
       },
       {
         "name": "reviewer-graph",
-        "tool_count": 35,
+        "tool_count": 37,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1190,6 +1210,8 @@
           "get_analysis_section",
           "get_changed_files",
           "get_impact_analysis",
+          "get_callers",
+          "get_callees",
           "find_scoped_references",
           "get_symbols_overview",
           "find_symbol",
@@ -1244,7 +1266,7 @@
       },
       {
         "name": "refactor-full",
-        "tool_count": 49,
+        "tool_count": 51,
         "preferred_namespaces": [
           "reports",
           "session"
@@ -1297,6 +1319,8 @@
           "plan_symbol_rename",
           "get_changed_files",
           "get_impact_analysis",
+          "get_callers",
+          "get_callees",
           "find_scoped_references",
           "rename_symbol",
           "replace_content",
@@ -1310,7 +1334,7 @@
       },
       {
         "name": "ci-audit",
-        "tool_count": 43,
+        "tool_count": 45,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1344,6 +1368,8 @@
           "get_analysis_section",
           "get_changed_files",
           "get_impact_analysis",
+          "get_callers",
+          "get_callees",
           "find_scoped_references",
           "find_dead_code",
           "find_circular_dependencies",
@@ -1448,7 +1474,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 78,
+        "tool_count": 80,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1494,6 +1520,8 @@
           "get_type_hierarchy",
           "plan_symbol_rename",
           "get_impact_analysis",
+          "get_callers",
+          "get_callees",
           "find_scoped_references",
           "find_similar_code",
           "find_code_duplicates",
@@ -1543,7 +1571,7 @@
       },
       {
         "name": "full",
-        "tool_count": 111,
+        "tool_count": 113,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1595,6 +1623,8 @@
           "summarize_file",
           "get_complexity",
           "get_impact_analysis",
+          "get_callers",
+          "get_callees",
           "find_scoped_references",
           "get_symbol_importance",
           "find_dead_code",
@@ -1708,7 +1738,7 @@
               },
               {
                 "name": "builder-minimal",
-                "tool_count": 36
+                "tool_count": 38
               }
             ]
           }
@@ -1750,7 +1780,7 @@
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 35
+                "tool_count": 37
               }
             ]
           },
@@ -1761,11 +1791,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 36
+                "tool_count": 38
               },
               {
                 "name": "refactor-full",
-                "tool_count": 49
+                "tool_count": 51
               }
             ]
           }
@@ -1808,11 +1838,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 35
+                "tool_count": 37
               },
               {
                 "name": "ci-audit",
-                "tool_count": 43
+                "tool_count": 45
               }
             ]
           }
@@ -1858,7 +1888,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 43
+                "tool_count": 45
               }
             ]
           }
@@ -1915,7 +1945,7 @@
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 35
+                "tool_count": 37
               }
             ]
           },
@@ -1926,11 +1956,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 36
+                "tool_count": 38
               },
               {
                 "name": "refactor-full",
-                "tool_count": 49
+                "tool_count": 51
               }
             ]
           }
@@ -2089,11 +2119,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 35
+                "tool_count": 37
               },
               {
                 "name": "ci-audit",
-                "tool_count": 43
+                "tool_count": 45
               }
             ]
           }
@@ -2195,7 +2225,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 43
+                "tool_count": 45
               }
             ]
           }
@@ -2817,10 +2847,21 @@
         "runtime_resource": "codelens://schemas/handoff-artifact/v1",
         "doc_path": "docs/schemas/handoff-artifact.v1.json",
         "kinds": [
+          "session_baton",
           "planner_brief",
           "builder_result",
           "reviewer_verdict"
-        ]
+        ],
+        "long_running_session_baton": {
+          "kind": "session_baton",
+          "required_payload_fields": [
+            "goal",
+            "feature_list",
+            "progress_log",
+            "resume_plan",
+            "clean_state"
+          ]
+        }
       }
     ]
   },
@@ -3184,13 +3225,13 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.9.46",
+    "version": "1.9.50",
     "transport": [
       "stdio",
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 78,
+    "visible_tool_count": 80,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": true,
@@ -3220,12 +3261,12 @@
     ]
   },
   "summary": {
-    "workspace_version": "1.9.46",
+    "workspace_version": "1.9.50",
     "workspace_member_count": 3,
-    "registered_tool_definitions": 111,
+    "registered_tool_definitions": 113,
     "tool_output_schemas": {
-      "declared": 77,
-      "total": 111
+      "declared": 79,
+      "total": 113
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,

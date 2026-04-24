@@ -105,6 +105,19 @@ fn replace_file_embeddings_with_sentinels(
     engine.store.insert(&chunks).unwrap();
 }
 
+fn write_minimal_model_assets(model_dir: &std::path::Path) {
+    std::fs::create_dir_all(model_dir).unwrap();
+    for asset in [
+        "model.onnx",
+        "tokenizer.json",
+        "config.json",
+        "special_tokens_map.json",
+        "tokenizer_config.json",
+    ] {
+        std::fs::write(model_dir.join(asset), b"{}").unwrap();
+    }
+}
+
 #[test]
 fn build_embedding_text_with_signature() {
     let sym = crate::db::SymbolWithFile {
@@ -1607,7 +1620,103 @@ fn search_scored_returns_raw_chunks() {
 
 #[test]
 fn configured_embedding_model_name_defaults_to_codesearchnet() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    let previous_dir = std::env::var("CODELENS_MODEL_DIR").ok();
+    let previous_model = std::env::var("CODELENS_EMBED_MODEL").ok();
+    unsafe {
+        std::env::remove_var("CODELENS_MODEL_DIR");
+        std::env::remove_var("CODELENS_EMBED_MODEL");
+    }
+
     assert_eq!(configured_embedding_model_name(), CODESEARCH_MODEL_NAME);
+
+    unsafe {
+        match previous_dir {
+            Some(value) => std::env::set_var("CODELENS_MODEL_DIR", value),
+            None => std::env::remove_var("CODELENS_MODEL_DIR"),
+        }
+        match previous_model {
+            Some(value) => std::env::set_var("CODELENS_EMBED_MODEL", value),
+            None => std::env::remove_var("CODELENS_EMBED_MODEL"),
+        }
+    }
+}
+
+#[test]
+fn resolve_model_dir_accepts_direct_model_dir_override() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let model_dir = dir.path().join("merged-lora-model");
+    write_minimal_model_assets(&model_dir);
+
+    let previous = std::env::var("CODELENS_MODEL_DIR").ok();
+    unsafe {
+        std::env::set_var("CODELENS_MODEL_DIR", &model_dir);
+    }
+
+    let resolved = resolve_model_dir().unwrap();
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_MODEL_DIR", value),
+            None => std::env::remove_var("CODELENS_MODEL_DIR"),
+        }
+    }
+
+    assert_eq!(resolved, model_dir);
+}
+
+#[test]
+fn executable_model_roots_include_installed_sidecar_layouts() {
+    let exe_dir = std::path::Path::new("/opt/codelens/bin");
+    let roots = executable_model_roots(exe_dir);
+
+    assert!(roots.contains(&std::path::PathBuf::from("/opt/codelens/bin/models")));
+    assert!(roots.contains(&std::path::PathBuf::from("/opt/codelens/models")));
+    assert!(roots.contains(&std::path::PathBuf::from(
+        "/opt/codelens/share/codelens/models"
+    )));
+}
+
+#[test]
+fn configured_embedding_model_name_prefers_manifest_name_from_model_dir() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let model_dir = dir.path().join("merged-lora-model");
+    write_minimal_model_assets(&model_dir);
+    std::fs::write(
+        model_dir.join("model-manifest.json"),
+        r#"{
+            "model_name": "MiniLM-L12-CodeSearchNet-LoRA-Merged-v1",
+            "base_model": "MiniLM-L12-CodeSearchNet-INT8",
+            "adapter_type": "lora",
+            "lora_merged_from": "scripts/finetune/output/lora-python/model",
+            "export_backend": "onnx"
+        }"#,
+    )
+    .unwrap();
+
+    let previous_dir = std::env::var("CODELENS_MODEL_DIR").ok();
+    let previous_model = std::env::var("CODELENS_EMBED_MODEL").ok();
+    unsafe {
+        std::env::set_var("CODELENS_MODEL_DIR", &model_dir);
+        std::env::remove_var("CODELENS_EMBED_MODEL");
+    }
+
+    let configured = configured_embedding_model_name();
+
+    unsafe {
+        match previous_dir {
+            Some(value) => std::env::set_var("CODELENS_MODEL_DIR", value),
+            None => std::env::remove_var("CODELENS_MODEL_DIR"),
+        }
+        match previous_model {
+            Some(value) => std::env::set_var("CODELENS_EMBED_MODEL", value),
+            None => std::env::remove_var("CODELENS_EMBED_MODEL"),
+        }
+    }
+
+    assert_eq!(configured, "MiniLM-L12-CodeSearchNet-LoRA-Merged-v1");
 }
 
 #[test]
@@ -1677,6 +1786,60 @@ fn recommended_embed_threads_caps_macos_style_load() {
     let threads = recommended_embed_threads();
     assert!(threads >= 1);
     assert!(threads <= 8);
+}
+
+#[cfg(all(target_os = "macos", not(feature = "coreml")))]
+#[test]
+fn macos_runtime_preference_reports_cpu_when_coreml_is_not_compiled() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let previous = std::env::var("CODELENS_EMBED_PROVIDER").ok();
+    unsafe {
+        std::env::remove_var("CODELENS_EMBED_PROVIDER");
+    }
+
+    let default_preference = configured_embedding_runtime_preference();
+
+    unsafe {
+        std::env::set_var("CODELENS_EMBED_PROVIDER", "coreml");
+    }
+    let explicit_coreml_preference = configured_embedding_runtime_preference();
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_EMBED_PROVIDER", value),
+            None => std::env::remove_var("CODELENS_EMBED_PROVIDER"),
+        }
+    }
+
+    assert_eq!(default_preference, "cpu");
+    assert_eq!(explicit_coreml_preference, "cpu");
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml"))]
+#[test]
+fn macos_runtime_preference_reports_coreml_when_coreml_is_compiled() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let previous = std::env::var("CODELENS_EMBED_PROVIDER").ok();
+    unsafe {
+        std::env::remove_var("CODELENS_EMBED_PROVIDER");
+    }
+
+    let default_preference = configured_embedding_runtime_preference();
+
+    unsafe {
+        std::env::set_var("CODELENS_EMBED_PROVIDER", "coreml");
+    }
+    let explicit_coreml_preference = configured_embedding_runtime_preference();
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_EMBED_PROVIDER", value),
+            None => std::env::remove_var("CODELENS_EMBED_PROVIDER"),
+        }
+    }
+
+    assert_eq!(default_preference, "coreml_preferred");
+    assert_eq!(explicit_coreml_preference, "coreml");
 }
 
 #[test]

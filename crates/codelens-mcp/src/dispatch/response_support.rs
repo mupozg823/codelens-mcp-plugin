@@ -794,7 +794,9 @@ mod text_channel_tests {
             "parent must be flagged when an array child was shrunk"
         );
         assert_eq!(
-            obj.get("references").and_then(Value::as_array).map(Vec::len),
+            obj.get("references")
+                .and_then(Value::as_array)
+                .map(Vec::len),
             Some(TEXT_CHANNEL_MAX_ARRAY_ITEMS)
         );
         assert_eq!(obj.get("count").and_then(Value::as_i64), Some(5));
@@ -812,7 +814,9 @@ mod text_channel_tests {
         let obj = summarized.as_object().expect("object");
         assert!(obj.get("truncated").is_none());
         assert_eq!(
-            obj.get("references").and_then(Value::as_array).map(Vec::len),
+            obj.get("references")
+                .and_then(Value::as_array)
+                .map(Vec::len),
             Some(2)
         );
     }
@@ -830,9 +834,6 @@ mod text_channel_tests {
             .get("outer")
             .and_then(Value::as_object)
             .expect("outer object");
-        assert_eq!(
-            inner.get("truncated").and_then(Value::as_bool),
-            Some(true)
-        );
+        assert_eq!(inner.get("truncated").and_then(Value::as_bool), Some(true));
     }
 }

@@ -12,12 +12,14 @@ fn default_verifier_status() -> String {
 pub(crate) enum RuntimeTransportMode {
     Stdio,
     Http,
+    Https,
 }
 
 impl RuntimeTransportMode {
     pub(crate) fn from_str(value: &str) -> Self {
         match value {
             "http" => Self::Http,
+            "https" => Self::Https,
             _ => Self::Stdio,
         }
     }
@@ -26,6 +28,7 @@ impl RuntimeTransportMode {
         match self {
             Self::Stdio => "stdio",
             Self::Http => "http",
+            Self::Https => "https",
         }
     }
 }

@@ -119,28 +119,47 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         let sym_name = symbol_name_param.ok_or_else(|| {
             CodeLensError::MissingParam("symbol_name (or line+column with use_lsp=true)".into())
         })?;
+        let mut precise_available = false;
+        let mut precise_source = None;
 
         // JS/TS: use oxc_semantic for precise scope-aware reference resolution
         let resolved = state.project().resolve(&file_path)?;
-        if codelens_engine::oxc_analysis::is_js_ts(&resolved)
-            && let Ok(source) = std::fs::read_to_string(&resolved)
-            && let Ok(refs) = codelens_engine::oxc_analysis::find_references_precise(
-                &source, &file_path, sym_name,
-            )
-            && !refs.is_empty()
-        {
-            let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();
-            let count = refs_limited.len();
-            return Ok((
-                json!({
-                    "references": refs_limited,
-                    "count": count,
-                    "returned_count": count,
-                    "sampled": false,
-                    "backend": "oxc_semantic"
-                }),
-                meta_for_backend("oxc_semantic", 0.95),
-            ));
+        if codelens_engine::oxc_analysis::is_js_ts(&resolved) {
+            precise_available = true;
+            precise_source = Some("oxc_semantic");
+            if let Ok(source) = std::fs::read_to_string(&resolved)
+                && let Ok(refs) = codelens_engine::oxc_analysis::find_references_precise(
+                    &source, &file_path, sym_name,
+                )
+                && !refs.is_empty()
+            {
+                let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();
+                let count = refs_limited.len();
+                let meta = success_meta(BackendKind::Hybrid, 0.95);
+                let evidence = crate::tool_evidence::tool_evidence(
+                    "references",
+                    &meta,
+                    "oxc_semantic_precise",
+                    crate::tool_evidence::precision_signals(
+                        true,
+                        true,
+                        Some("oxc_semantic"),
+                        None,
+                        count,
+                    ),
+                );
+                return Ok((
+                    json!({
+                        "references": refs_limited,
+                        "count": count,
+                        "returned_count": count,
+                        "sampled": false,
+                        "backend": "oxc_semantic",
+                        "evidence": evidence,
+                    }),
+                    meta,
+                ));
+            }
         }
         // oxc failed or empty — try SCIP if available, then fall through to tree-sitter
 
@@ -148,10 +167,25 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         if let Some(backend) = state.scip() {
             use codelens_engine::PreciseBackend as _;
             if backend.has_index_for(&file_path) {
+                precise_available = true;
+                precise_source = Some("scip");
                 if let Ok(refs) = backend.find_references(sym_name, &file_path, 0) {
                     if !refs.is_empty() {
                         let limited: Vec<_> = refs.into_iter().take(max_results).collect();
                         let count = limited.len();
+                        let meta = success_meta(BackendKind::Scip, 0.98);
+                        let evidence = crate::tool_evidence::tool_evidence(
+                            "references",
+                            &meta,
+                            "scip_precise",
+                            crate::tool_evidence::precision_signals(
+                                true,
+                                true,
+                                Some("scip"),
+                                None,
+                                count,
+                            ),
+                        );
                         let refs_json: Vec<serde_json::Value> = limited
                             .iter()
                             .map(|r| {
@@ -170,9 +204,10 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                                 "count": count,
                                 "returned_count": count,
                                 "sampled": false,
-                                "backend": "scip"
+                                "backend": "scip",
+                                "evidence": evidence,
                             }),
-                            meta_for_backend("scip", 0.98),
+                            meta,
                         ));
                     }
                 }
@@ -188,6 +223,19 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         .map(|value| {
             let (references, total_count, sampled) =
                 compact_text_references(value, include_context, full_results, sample_limit);
+            let meta = success_meta(BackendKind::TreeSitter, 0.85);
+            let evidence = crate::tool_evidence::tool_evidence(
+                "references",
+                &meta,
+                "tree_sitter_text_references",
+                crate::tool_evidence::precision_signals(
+                    precise_available,
+                    false,
+                    precise_source,
+                    Some("tree_sitter"),
+                    0,
+                ),
+            );
             (
                 json!({
                     "references": references,
@@ -195,8 +243,9 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     "returned_count": references.len(),
                     "sampled": sampled,
                     "include_context": include_context,
+                    "evidence": evidence,
                 }),
-                meta_for_backend("tree_sitter", 0.85),
+                meta,
             )
         })?);
     }
@@ -221,6 +270,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
     let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path));
+    let lsp_command_attempted = command.is_some();
 
     if let Some(command) = command {
         let args = parse_lsp_args(arguments, &command);
@@ -238,14 +288,28 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
 
         match lsp_result {
             Ok(value) => {
+                let meta = meta_for_backend("lsp", 0.95);
+                let evidence = crate::tool_evidence::tool_evidence(
+                    "references",
+                    &meta,
+                    "lsp_precise",
+                    crate::tool_evidence::precision_signals(
+                        true,
+                        true,
+                        Some("lsp"),
+                        None,
+                        value.len(),
+                    ),
+                );
                 return Ok((
                     json!({
                         "references": value,
                         "count": value.len(),
                         "returned_count": value.len(),
                         "sampled": false,
+                        "evidence": evidence,
                     }),
-                    meta_for_backend("lsp", 0.95),
+                    meta,
                 ));
             }
             Err(_) => {
@@ -264,6 +328,20 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             .map(|value| {
             let (references, total_count, sampled) =
                 compact_text_references(value, include_context, full_results, sample_limit);
+            let mut meta = success_meta(BackendKind::TreeSitter, 0.85);
+            meta.degraded_reason = Some("LSP failed, used tree-sitter".to_owned());
+            let evidence = crate::tool_evidence::tool_evidence(
+                "references",
+                &meta,
+                "tree_sitter_text_references",
+                crate::tool_evidence::precision_signals(
+                    lsp_command_attempted,
+                    false,
+                    lsp_command_attempted.then_some("lsp"),
+                    Some("tree_sitter"),
+                    0,
+                ),
+            );
             (
                 json!({
                     "references": references,
@@ -271,8 +349,9 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     "returned_count": references.len(),
                     "sampled": sampled,
                     "include_context": include_context,
+                    "evidence": evidence,
                 }),
-                meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
+                meta,
             )
         })?,
     )

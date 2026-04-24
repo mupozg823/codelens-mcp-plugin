@@ -29,6 +29,37 @@ fn returns_symbols_via_tool_call() {
 }
 
 #[test]
+fn find_symbol_surfaces_tree_sitter_precision_evidence() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("precise_symbol.py"),
+        "def precise_target():\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "find_symbol",
+        json!({"name": "precise_target", "file_path": "precise_symbol.py"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("symbol"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(false)
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["fallback_source"],
+        json!("tree_sitter")
+    );
+}
+
+#[test]
 fn reports_symbol_index_stats() {
     let project = project_root();
     fs::write(
@@ -65,6 +96,28 @@ fn returns_ranked_context_via_tool_call() {
         payload["data"]["retrieval"]["lexical_query"],
         json!("search users")
     );
+    assert_eq!(
+        payload["data"]["retrieval"]["sparse_used_in_core"],
+        json!(true)
+    );
+    assert!(payload["data"]["sparse_evidence"].is_array());
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("retrieval"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["preferred_lane"],
+        payload["data"]["retrieval"]["preferred_lane"]
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_available"],
+        json!(false)
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(false)
+    );
 }
 
 #[test]
@@ -85,6 +138,135 @@ fn returns_ranked_context_without_semantic_when_requested() {
     assert_eq!(
         payload["data"]["retrieval"]["semantic_enabled"],
         json!(false)
+    );
+}
+
+#[test]
+fn get_callers_surfaces_file_hint_confidence_basis_and_resolution_summary() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("a.py"),
+        "def helper():\n    pass\n\ndef run():\n    helper()\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("b.py"),
+        "def helper():\n    pass\n\ndef run():\n    helper()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let payload = call_tool(
+        &state,
+        "get_callers",
+        json!({ "function_name": "helper", "file_path": "a.py" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert!(payload["data"]["callers"].is_array());
+    assert!(payload["data"]["confidence_basis"].is_string());
+    assert!(payload["data"]["resolution_summary"].is_object());
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("call_graph"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["resolution_summary"],
+        payload["data"]["resolution_summary"]
+    );
+    assert!(
+        payload["data"]["evidence"]["signals"]
+            .get("precise_source")
+            .is_some()
+            || payload["data"]["evidence"]["signals"]
+                .get("fallback_source")
+                .is_some()
+    );
+    assert!(payload["confidence"].is_number());
+    assert!(
+        matches!(
+            payload["backend_used"].as_str(),
+            Some("tree-sitter" | "hybrid")
+        ),
+        "unexpected backend {:?}",
+        payload["backend_used"]
+    );
+}
+
+#[test]
+fn get_callees_caps_tool_confidence_on_fallback_and_unresolved_mix() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("components")).unwrap();
+    fs::write(
+        project.as_path().join("page.tsx"),
+        "export function Page() { handleSubmit(); useRouter(); }\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("components/CommentSection.tsx"),
+        "export function handleSubmit() {}\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let payload = call_tool(
+        &state,
+        "get_callees",
+        json!({ "function_name": "Page", "file_path": "page.tsx" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let confidence = payload["confidence"].as_f64().unwrap_or_default();
+    assert!(
+        confidence <= 0.35,
+        "confidence should cap on unresolved mix: {confidence}"
+    );
+    assert_eq!(
+        payload["data"]["resolution_summary"]["unresolved"]
+            .as_u64()
+            .unwrap_or_default()
+            > 0,
+        true
+    );
+}
+
+#[test]
+fn get_callees_omits_external_imported_calls_from_project_graph() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("page.tsx"),
+        "import { useState } from \"react\";\nimport { handleSubmit } from \"./actions\";\nexport function Page() { useState(); handleSubmit(); }\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("actions.ts"),
+        "export function handleSubmit() {}\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let payload = call_tool(
+        &state,
+        "get_callees",
+        json!({ "function_name": "Page", "file_path": "page.tsx" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let names = payload["data"]["callees"]
+        .as_array()
+        .expect("callees array")
+        .iter()
+        .filter_map(|entry| entry.get("name"))
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        names.contains(&"handleSubmit"),
+        "expected internal callee in {names:?}"
+    );
+    assert!(
+        !names.contains(&"useState"),
+        "external imported binding should be omitted from project graph: {names:?}"
     );
 }
 
@@ -112,6 +294,19 @@ fn bm25_symbol_search_returns_symbol_cards() {
     );
     assert_eq!(payload["success"], json!(true));
     assert_eq!(payload["data"]["retrieval"]["lane"], json!("sparse_bm25f"));
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("retrieval"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["preferred_lane"],
+        json!("sparse_bm25f")
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(false)
+    );
 
     let results = payload["data"]["results"]
         .as_array()

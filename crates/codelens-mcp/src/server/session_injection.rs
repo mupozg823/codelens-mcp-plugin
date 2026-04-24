@@ -171,6 +171,12 @@ fn update_deferred_state(
         && crate::tool_defs::visible_namespaces(session.surface()).contains(&namespace)
     {
         session.record_loaded_namespace(namespace);
+        for tool in crate::tool_defs::visible_tools(session.surface())
+            .into_iter()
+            .filter(|tool| crate::tool_defs::tool_namespace(tool.name) == namespace)
+        {
+            session.record_loaded_tier(crate::tool_defs::tool_tier_label(tool.name));
+        }
     }
     if !full_listing
         && let Some(tier) = requested_tier

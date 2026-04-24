@@ -1149,6 +1149,7 @@ fn record_surface_call(
     entry.last_called_at = now;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_session_call(
     session: &mut SessionMetrics,
     name: &str,

@@ -1,14 +1,30 @@
 use crate::AppState;
 use crate::client_profile::ClientProfile;
-use crate::protocol::Tool;
+use crate::protocol::{Tool, ToolPhase};
 use crate::tool_defs::{
     ToolProfile, ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools,
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools,
+    preferred_namespaces, preferred_tier_labels, tool_deprecation, tool_namespace,
+    tool_phase_label, tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+
+const DEFAULT_LISTED_TOOL_NAMES: &[&str] = &[
+    "activate_project",
+    "prepare_harness_session",
+    "get_current_config",
+    "set_profile",
+    "set_preset",
+    "explore_codebase",
+    "get_ranked_context",
+    "get_callers",
+    "get_callees",
+    "verify_change_readiness",
+    "start_analysis_job",
+    "get_analysis_job",
+    "get_analysis_section",
+];
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResourceRequestContext {
@@ -89,6 +105,14 @@ impl ResourceRequestContext {
     pub(crate) fn lean_tool_contract(&self) -> bool {
         self.tool_contract_mode() == "lean" && !self.full_listing && !self.full_tool_exposure
     }
+
+    pub(crate) fn default_listing_requested(&self) -> bool {
+        !self.full_listing
+            && !self.full_tool_exposure
+            && !self.deferred_loading_active()
+            && self.requested_namespace.is_none()
+            && self.requested_tier.is_none()
+    }
 }
 
 pub(crate) struct VisibleToolContext {
@@ -106,6 +130,47 @@ pub(crate) struct VisibleToolContext {
     pub(crate) selected_tier: Option<String>,
     pub(crate) deferred_loading_active: bool,
     pub(crate) full_tool_exposure: bool,
+}
+
+pub(crate) fn filter_listed_tools(
+    tools: Vec<&'static Tool>,
+    requested_phase: Option<ToolPhase>,
+    include_deprecated: bool,
+) -> Vec<&'static Tool> {
+    tools
+        .into_iter()
+        .filter(|tool| include_deprecated || tool_deprecation(tool.name).is_none())
+        .filter(|tool| match requested_phase {
+            Some(phase) => {
+                is_deferred_control_tool(tool.name)
+                    || match tool_phase_label(tool.name) {
+                        Some(label) => label == phase.as_label(),
+                        None => true,
+                    }
+            }
+            None => true,
+        })
+        .collect()
+}
+
+pub(crate) fn default_listed_tool_names(_surface: ToolSurface) -> &'static [&'static str] {
+    DEFAULT_LISTED_TOOL_NAMES
+}
+
+pub(crate) fn filter_default_listed_tools(
+    tools: Vec<&'static Tool>,
+    request: &ResourceRequestContext,
+    requested_phase: Option<ToolPhase>,
+    surface: ToolSurface,
+) -> Vec<&'static Tool> {
+    if !request.default_listing_requested() || requested_phase.is_some() {
+        return tools;
+    }
+    let default_names = default_listed_tool_names(surface);
+    default_names
+        .iter()
+        .filter_map(|name| tools.iter().copied().find(|tool| tool.name == *name))
+        .collect()
 }
 
 pub(crate) fn build_visible_tool_context(

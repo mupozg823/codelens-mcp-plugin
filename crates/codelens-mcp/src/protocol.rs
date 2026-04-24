@@ -3,13 +3,13 @@ use serde_json::Value;
 
 /// MCP protocol version this server prefers in the initialize response when the
 /// client does not pin a specific supported version. Newest first.
-pub(crate) const LATEST_PROTOCOL_VERSION: &str = "2025-06-18";
+pub(crate) const LATEST_PROTOCOL_VERSION: &str = "2025-11-25";
 
 /// Versions we will accept in the `MCP-Protocol-Version` header and reply with
 /// verbatim during initialize negotiation. Anything outside this set is 400.
 /// Older MCP clients that omit the header on non-initialize requests are
 /// assumed to be on `2025-03-26` per spec §"Protocol Version Header".
-pub(crate) const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
+pub(crate) const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26"];
 
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
@@ -41,15 +41,21 @@ pub struct JsonRpcError {
 #[derive(Debug, Serialize, Clone)]
 pub struct Tool {
     pub name: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub description: &'static str,
     #[serde(rename = "inputSchema")]
     pub input_schema: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icons: Option<Vec<ToolIcon>>,
     /// MCP 2025-06 spec: structured output schema for tool results.
     /// Enables downstream agents to understand return shapes without calling the tool.
     #[serde(rename = "outputSchema", skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<ToolAnnotations>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ToolExecution>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
     /// Per-tool hard cap on response tokens. Enforced in dispatch_response.
@@ -59,6 +65,21 @@ pub struct Tool {
     /// Rough serialized token estimate for `tools/list` metrics.
     #[serde(skip)]
     pub estimated_tokens: usize,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ToolIcon {
+    pub src: String,
+    #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sizes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ToolExecution {
+    #[serde(rename = "taskSupport", skip_serializing_if = "Option::is_none")]
+    pub task_support: Option<String>,
 }
 
 /// Tool complexity tier — guides agent tool selection strategy.
@@ -321,10 +342,13 @@ impl Tool {
     pub fn new(name: &'static str, description: &'static str, input_schema: Value) -> Self {
         Self {
             name,
+            title: None,
             description,
             input_schema,
+            icons: None,
             output_schema: None,
             annotations: None,
+            execution: None,
             meta: None,
             max_response_tokens: None,
             estimated_tokens: 0,

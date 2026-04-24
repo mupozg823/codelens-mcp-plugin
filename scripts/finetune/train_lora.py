@@ -111,13 +111,30 @@ def main():
     tokenizer.save_pretrained(str(onnx_dir))
 
     # Quantize
-    fp32 = str(onnx_dir / "model.onnx")
-    int8 = str(onnx_dir / "model_qint8.onnx")
-    quantize_dynamic(fp32, int8, weight_type=QuantType.QInt8)
+    fp32 = onnx_dir / "model.onnx"
+    fp32_backup = onnx_dir / "model_fp32.onnx"
+    int8 = onnx_dir / "model_qint8.onnx"
+    quantize_dynamic(str(fp32), str(int8), weight_type=QuantType.QInt8)
+    if fp32_backup.exists():
+        fp32_backup.unlink()
+    fp32.replace(fp32_backup)
+    int8.replace(fp32)
+    manifest = {
+        "model_name": f"MiniLM-L12-CodeSearchNet-LoRA-{args.lang}",
+        "base_model": str(BASE_MODEL),
+        "fine_tuned_from": str(data_path),
+        "adapter_type": "lora",
+        "lora_merged_from": str(model_output),
+        "export_backend": "onnx",
+    }
+    (onnx_dir / "model-manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
     import os
 
-    print(f"INT8: {os.path.getsize(int8)/1024/1024:.1f}MB")
+    print(f"INT8: {os.path.getsize(fp32)/1024/1024:.1f}MB")
     print(f"\nDone: {args.lang} LoRA adapter")
 
 
