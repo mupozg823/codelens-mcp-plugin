@@ -3,6 +3,7 @@ Export MiniLM-L12-CodeSearchNet to ONNX INT8 for CodeLens integration.
 Produces both ARM64 (Apple Silicon) and AVX2 (x86) quantized models.
 """
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -13,6 +14,19 @@ from sentence_transformers import (
 
 MODEL_ID = "isuruwijesiri/all-MiniLM-L12-v2-code-search-512"
 OUTPUT_DIR = Path("./codelens-code-search")
+
+
+def write_manifest(target_dir: Path, quantization: str):
+    manifest = {
+        "model_name": "MiniLM-L12-CodeSearchNet-INT8",
+        "base_model": MODEL_ID,
+        "export_backend": "onnx",
+        "export_revision": quantization,
+    }
+    (target_dir / "model-manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def main():
@@ -27,6 +41,7 @@ def main():
         quantization_config="arm64",
         model_name_or_path=str(arm64_dir),
     )
+    write_manifest(arm64_dir, "arm64")
 
     # Export AVX2 (x86_64)
     avx2_dir = OUTPUT_DIR / "avx2"
@@ -36,6 +51,7 @@ def main():
         quantization_config="avx2",
         model_name_or_path=str(avx2_dir),
     )
+    write_manifest(avx2_dir, "avx2")
 
     # Report sizes
     print("\n4. Model sizes:")

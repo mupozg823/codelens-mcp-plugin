@@ -65,6 +65,62 @@ class FakeResponse:
 
 
 class BenchmarkRuntimeCommonTests(unittest.TestCase):
+    def write_model_assets(self, model_dir: Path):
+        model_dir.mkdir(parents=True)
+        for asset in RUNTIME.REQUIRED_MODEL_ASSETS:
+            (model_dir / asset).write_text("{}")
+
+    def test_resolve_codelens_model_dir_accepts_direct_override(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            model_dir = root / "merged-lora"
+            self.write_model_assets(model_dir)
+
+            resolved = RUNTIME.resolve_codelens_model_dir(
+                root / "bin" / "codelens-mcp",
+                env={"CODELENS_MODEL_DIR": str(model_dir)},
+            )
+
+        self.assertEqual(resolved, model_dir.resolve())
+
+    def test_resolve_codelens_model_dir_prefers_platform_variant(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            variant_dir = root / "models" / RUNTIME.preferred_model_variant()
+            self.write_model_assets(variant_dir)
+
+            resolved = RUNTIME.resolve_codelens_model_dir(
+                root / "bin" / "codelens-mcp",
+                env={"CODELENS_MODEL_DIR": str(root / "models")},
+            )
+
+        self.assertEqual(resolved, variant_dir.resolve())
+
+    def test_resolve_codelens_model_dir_rejects_partial_assets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            model_dir = root / "partial"
+            model_dir.mkdir()
+            (model_dir / "model.onnx").write_text("onnx")
+
+            resolved = RUNTIME.resolve_codelens_model_dir(
+                root / "bin" / "codelens-mcp",
+                env={"CODELENS_MODEL_DIR": str(model_dir)},
+            )
+
+        self.assertIsNone(resolved)
+
+    def test_resolve_codelens_model_dir_respects_empty_env(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            resolved = RUNTIME.resolve_codelens_model_dir(
+                root / "bin" / "codelens-mcp",
+                env={},
+                repo_root=root,
+            )
+
+        self.assertIsNone(resolved)
+
     def test_http_binary_candidates_include_sibling_build(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

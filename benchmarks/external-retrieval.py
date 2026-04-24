@@ -16,6 +16,7 @@ from pathlib import Path
 
 from benchmark_runtime_common import (
     parse_output_json,
+    resolve_codelens_model_dir,
     tool_payload_succeeded,
     validate_expected_file_suffixes,
 )
@@ -57,27 +58,17 @@ def compute_file_sha256(path: Path) -> str:
 
 
 def resolve_runtime_model_dir() -> Path:
-    exe_dir = Path(BIN).resolve().parent
-    candidates = [
-        (
-            Path(os.environ["CODELENS_MODEL_DIR"]).expanduser().resolve() / "codesearch"
-            if "CODELENS_MODEL_DIR" in os.environ
-            else None
-        ),
-        exe_dir / "models" / "codesearch",
-        Path.home() / ".cache" / "codelens" / "models" / "codesearch",
-        Path(__file__).resolve().parent.parent
-        / "crates"
-        / "codelens-core"
-        / "models"
-        / "codesearch",
-    ]
-    for candidate in candidates:
-        if candidate is not None and (candidate / "model.onnx").exists():
-            return candidate
+    model_dir = resolve_codelens_model_dir(
+        BIN,
+        env=os.environ,
+        repo_root=Path(__file__).resolve().parent.parent,
+        allow_builtin_override=False,
+    )
+    if model_dir is not None:
+        return model_dir
     raise SystemExit(
-        "Cannot resolve runtime model dir. Checked:\n"
-        + "\n".join(f"  - {candidate}" for candidate in candidates if candidate)
+        "Cannot resolve runtime model dir. Checked CODELENS_MODEL_DIR, executable models, "
+        "user cache, and repo model roots."
     )
 
 

@@ -105,6 +105,19 @@ fn replace_file_embeddings_with_sentinels(
     engine.store.insert(&chunks).unwrap();
 }
 
+fn write_minimal_model_assets(model_dir: &std::path::Path) {
+    std::fs::create_dir_all(model_dir).unwrap();
+    for asset in [
+        "model.onnx",
+        "tokenizer.json",
+        "config.json",
+        "special_tokens_map.json",
+        "tokenizer_config.json",
+    ] {
+        std::fs::write(model_dir.join(asset), b"{}").unwrap();
+    }
+}
+
 #[test]
 fn build_embedding_text_with_signature() {
     let sym = crate::db::SymbolWithFile {
@@ -1607,7 +1620,91 @@ fn search_scored_returns_raw_chunks() {
 
 #[test]
 fn configured_embedding_model_name_defaults_to_codesearchnet() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    let previous_dir = std::env::var("CODELENS_MODEL_DIR").ok();
+    let previous_model = std::env::var("CODELENS_EMBED_MODEL").ok();
+    unsafe {
+        std::env::remove_var("CODELENS_MODEL_DIR");
+        std::env::remove_var("CODELENS_EMBED_MODEL");
+    }
+
     assert_eq!(configured_embedding_model_name(), CODESEARCH_MODEL_NAME);
+
+    unsafe {
+        match previous_dir {
+            Some(value) => std::env::set_var("CODELENS_MODEL_DIR", value),
+            None => std::env::remove_var("CODELENS_MODEL_DIR"),
+        }
+        match previous_model {
+            Some(value) => std::env::set_var("CODELENS_EMBED_MODEL", value),
+            None => std::env::remove_var("CODELENS_EMBED_MODEL"),
+        }
+    }
+}
+
+#[test]
+fn resolve_model_dir_accepts_direct_model_dir_override() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let model_dir = dir.path().join("merged-lora-model");
+    write_minimal_model_assets(&model_dir);
+
+    let previous = std::env::var("CODELENS_MODEL_DIR").ok();
+    unsafe {
+        std::env::set_var("CODELENS_MODEL_DIR", &model_dir);
+    }
+
+    let resolved = resolve_model_dir().unwrap();
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_MODEL_DIR", value),
+            None => std::env::remove_var("CODELENS_MODEL_DIR"),
+        }
+    }
+
+    assert_eq!(resolved, model_dir);
+}
+
+#[test]
+fn configured_embedding_model_name_prefers_manifest_name_from_model_dir() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let model_dir = dir.path().join("merged-lora-model");
+    write_minimal_model_assets(&model_dir);
+    std::fs::write(
+        model_dir.join("model-manifest.json"),
+        r#"{
+            "model_name": "MiniLM-L12-CodeSearchNet-LoRA-Merged-v1",
+            "base_model": "MiniLM-L12-CodeSearchNet-INT8",
+            "adapter_type": "lora",
+            "lora_merged_from": "scripts/finetune/output/lora-python/model",
+            "export_backend": "onnx"
+        }"#,
+    )
+    .unwrap();
+
+    let previous_dir = std::env::var("CODELENS_MODEL_DIR").ok();
+    let previous_model = std::env::var("CODELENS_EMBED_MODEL").ok();
+    unsafe {
+        std::env::set_var("CODELENS_MODEL_DIR", &model_dir);
+        std::env::remove_var("CODELENS_EMBED_MODEL");
+    }
+
+    let configured = configured_embedding_model_name();
+
+    unsafe {
+        match previous_dir {
+            Some(value) => std::env::set_var("CODELENS_MODEL_DIR", value),
+            None => std::env::remove_var("CODELENS_MODEL_DIR"),
+        }
+        match previous_model {
+            Some(value) => std::env::set_var("CODELENS_EMBED_MODEL", value),
+            None => std::env::remove_var("CODELENS_EMBED_MODEL"),
+        }
+    }
+
+    assert_eq!(configured, "MiniLM-L12-CodeSearchNet-LoRA-Merged-v1");
 }
 
 #[test]

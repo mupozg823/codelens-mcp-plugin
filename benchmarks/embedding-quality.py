@@ -14,6 +14,7 @@ from pathlib import Path
 
 from benchmark_runtime_common import (
     parse_output_json,
+    resolve_codelens_model_dir,
     tool_payload_succeeded,
     validate_expected_file_suffixes,
 )
@@ -80,7 +81,7 @@ if "CODELENS_MODEL_DIR" not in RUN_ENV:
     repo_model_dir = (
         Path(__file__).resolve().parent.parent / "crates" / "codelens-engine" / "models"
     )
-    if (repo_model_dir / "codesearch" / "model.onnx").exists():
+    if resolve_codelens_model_dir(BIN, env={"CODELENS_MODEL_DIR": str(repo_model_dir)}):
         RUN_ENV["CODELENS_MODEL_DIR"] = str(repo_model_dir)
 
 
@@ -93,28 +94,11 @@ def compute_file_sha256(path):
 
 
 def resolve_runtime_model_dir():
-    configured = RUN_ENV.get("CODELENS_EMBED_MODEL", "")
-    if configured and configured != "MiniLM-L12-CodeSearchNet-INT8":
-        return None
-    exe_dir = Path(BIN).resolve().parent
-    candidates = [
-        (
-            Path(RUN_ENV["CODELENS_MODEL_DIR"]).expanduser().resolve() / "codesearch"
-            if "CODELENS_MODEL_DIR" in RUN_ENV
-            else None
-        ),
-        exe_dir / "models" / "codesearch",
-        Path.home() / ".cache" / "codelens" / "models" / "codesearch",
-        Path(__file__).resolve().parent.parent
-        / "crates"
-        / "codelens-engine"
-        / "models"
-        / "codesearch",
-    ]
-    for candidate in candidates:
-        if candidate is not None and (candidate / "model.onnx").exists():
-            return candidate
-    return None
+    return resolve_codelens_model_dir(
+        BIN,
+        env=RUN_ENV,
+        repo_root=Path(__file__).resolve().parent.parent,
+    )
 
 
 def payload_data(payload):

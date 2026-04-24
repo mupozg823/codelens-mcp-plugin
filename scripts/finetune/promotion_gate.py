@@ -13,11 +13,18 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+import sys
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_BINARY = ROOT / "target" / "release" / "codelens-mcp"
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "gate-results" / "promotion-gate"
 HARNESS_REPLAY_SCRIPT = ROOT / "benchmarks" / "harness" / "replay-session-pack.py"
+BENCHMARKS_DIR = ROOT / "benchmarks"
+if str(BENCHMARKS_DIR) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_DIR))
+
+from benchmark_runtime_common import resolve_codelens_model_dir
 
 
 # ---------------------------------------------------------------------------
@@ -29,24 +36,18 @@ def resolve_runtime_model_dir(
     binary: str, env: dict[str, str] | None = None
 ) -> Path:
     """Return the model dir the binary would actually load at runtime."""
-    env = env or os.environ
-    exe_dir = Path(binary).resolve().parent
-    candidates = [
-        (
-            Path(env["CODELENS_MODEL_DIR"]).expanduser().resolve() / "codesearch"
-            if "CODELENS_MODEL_DIR" in env
-            else None
-        ),
-        exe_dir / "models" / "codesearch",
-        Path.home() / ".cache" / "codelens" / "models" / "codesearch",
-        ROOT / "crates" / "codelens-core" / "models" / "codesearch",
-    ]
-    for c in candidates:
-        if c is not None and (c / "model.onnx").exists():
-            return c
+    env = os.environ if env is None else env
+    model_dir = resolve_codelens_model_dir(
+        binary,
+        env=env,
+        repo_root=ROOT,
+        allow_builtin_override=False,
+    )
+    if model_dir is not None:
+        return model_dir
     raise SystemExit(
-        "Cannot resolve runtime model dir. Checked:\n"
-        + "\n".join(f"  - {c}" for c in candidates if c)
+        "Cannot resolve runtime model dir. Checked CODELENS_MODEL_DIR, executable models, "
+        "user cache, and repo model roots."
     )
 
 

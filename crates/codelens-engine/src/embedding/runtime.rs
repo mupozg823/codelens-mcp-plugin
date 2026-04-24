@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 #[cfg(target_os = "macos")]
 use fastembed::ExecutionProviderDispatch;
 use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
+use serde::Deserialize;
 use std::sync::Once;
 use std::thread::available_parallelism;
 use tracing::debug;
@@ -23,20 +24,88 @@ pub const DEFAULT_DUPLICATE_SCAN_BATCH_SIZE: usize = 128;
 /// Default: CodeSearchNet (MiniLM-L12 fine-tuned on code, bundled ONNX INT8).
 /// Override via `CODELENS_EMBED_MODEL` env var to use fastembed built-in models.
 pub const CODESEARCH_MODEL_NAME: &str = "MiniLM-L12-CodeSearchNet-INT8";
+const REQUIRED_MODEL_ASSETS: &[&str] = &[
+    "model.onnx",
+    "tokenizer.json",
+    "config.json",
+    "special_tokens_map.json",
+    "tokenizer_config.json",
+];
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct EmbeddingModelManifest {
+    model_name: Option<String>,
+    #[allow(dead_code)]
+    base_model: Option<String>,
+    #[allow(dead_code)]
+    fine_tuned_from: Option<String>,
+    #[allow(dead_code)]
+    adapter_type: Option<String>,
+    #[allow(dead_code)]
+    lora_merged_from: Option<String>,
+    #[allow(dead_code)]
+    export_backend: Option<String>,
+    #[allow(dead_code)]
+    export_revision: Option<String>,
+}
+
+fn preferred_export_variant() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "avx2"
+    }
+}
+
+fn model_dir_candidates(base: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let variant = preferred_export_variant();
+    let mut candidates = vec![
+        base.to_path_buf(),
+        base.join("codesearch"),
+        base.join("onnx"),
+        base.join(variant),
+        base.join("codelens-code-search"),
+        base.join("codelens-code-search").join(variant),
+    ];
+    candidates.dedup();
+    candidates
+}
+
+fn model_dir_has_assets(dir: &std::path::Path) -> bool {
+    REQUIRED_MODEL_ASSETS.iter().all(|name| dir.join(name).exists())
+}
+
+fn first_model_dir_with_assets(base: &std::path::Path) -> Option<std::path::PathBuf> {
+    model_dir_candidates(base)
+        .into_iter()
+        .find(|dir| model_dir_has_assets(dir))
+}
+
+fn read_model_manifest(model_dir: &std::path::Path) -> Option<EmbeddingModelManifest> {
+    let manifest_path = model_dir.join("model-manifest.json");
+    let content = std::fs::read_to_string(manifest_path).ok()?;
+    serde_json::from_str::<EmbeddingModelManifest>(&content).ok()
+}
+
+fn configured_model_name_for_dir(model_dir: &std::path::Path) -> String {
+    read_model_manifest(model_dir)
+        .and_then(|manifest| manifest.model_name)
+        .unwrap_or_else(|| CODESEARCH_MODEL_NAME.to_string())
+}
 
 /// Resolve the sidecar model directory.
 ///
 /// Search order:
-/// 1. `$CODELENS_MODEL_DIR` env var (explicit override)
-/// 2. Next to the executable: `<exe_dir>/models/codesearch/`
-/// 3. User cache: `~/.cache/codelens/models/codesearch/`
-/// 4. Compile-time relative path (for development): `models/codesearch/` from crate root
+/// 1. `$CODELENS_MODEL_DIR` env var (direct model dir or root containing variants)
+/// 2. Next to the executable: `<exe_dir>/models/...`
+/// 3. User cache: `~/.cache/codelens/models/...`
+/// 4. Compile-time relative path (for development): `models/...` from crate root
 pub fn resolve_model_dir() -> Result<std::path::PathBuf> {
     // Explicit override
     if let Ok(dir) = std::env::var("CODELENS_MODEL_DIR") {
-        let p = std::path::PathBuf::from(dir).join("codesearch");
-        if p.join("model.onnx").exists() {
-            return Ok(p);
+        let base = std::path::PathBuf::from(dir);
+        if let Some(found) = first_model_dir_with_assets(&base) {
+            return Ok(found);
         }
     }
 
@@ -44,37 +113,34 @@ pub fn resolve_model_dir() -> Result<std::path::PathBuf> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(exe_dir) = exe.parent()
     {
-        let p = exe_dir.join("models").join("codesearch");
-        if p.join("model.onnx").exists() {
-            return Ok(p);
+        let base = exe_dir.join("models");
+        if let Some(found) = first_model_dir_with_assets(&base) {
+            return Ok(found);
         }
     }
 
     // User cache
     if let Some(home) = dirs_fallback() {
-        let p = home
-            .join(".cache")
-            .join("codelens")
-            .join("models")
-            .join("codesearch");
-        if p.join("model.onnx").exists() {
-            return Ok(p);
+        let base = home.join(".cache").join("codelens").join("models");
+        if let Some(found) = first_model_dir_with_assets(&base) {
+            return Ok(found);
         }
     }
 
     // Development: crate-relative path
-    let dev_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("models")
-        .join("codesearch");
-    if dev_path.join("model.onnx").exists() {
-        return Ok(dev_path);
+    let dev_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("models");
+    if let Some(found) = first_model_dir_with_assets(&dev_root) {
+        return Ok(found);
     }
 
     anyhow::bail!(
-        "CodeSearchNet model not found. Place model files in one of:\n\
+        "CodeSearchNet model not found. Place model files in one of these directories or variant subdirectories:\n\
+         - $CODELENS_MODEL_DIR/\n\
          - $CODELENS_MODEL_DIR/codesearch/\n\
-         - <executable>/models/codesearch/\n\
-         - ~/.cache/codelens/models/codesearch/\n\
+         - $CODELENS_MODEL_DIR/onnx/\n\
+         - $CODELENS_MODEL_DIR/arm64/ or $CODELENS_MODEL_DIR/avx2/\n\
+         - <executable>/models/...\n\
+         - ~/.cache/codelens/models/...\n\
          Required files: model.onnx, tokenizer.json, config.json, special_tokens_map.json, tokenizer_config.json"
     )
 }
@@ -502,6 +568,7 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
     }
 
     let model_dir = resolve_model_dir()?;
+    let model_name = configured_model_name_for_dir(&model_dir);
 
     let onnx_bytes =
         std::fs::read(model_dir.join("model.onnx")).context("failed to read model.onnx")?;
@@ -548,7 +615,7 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
                 return Ok((
                     model,
                     CODESEARCH_DIMENSION,
-                    CODESEARCH_MODEL_NAME.to_string(),
+                    model_name.clone(),
                     runtime_info,
                 ));
             }
@@ -581,7 +648,7 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
                 return Ok((
                     model,
                     CODESEARCH_DIMENSION,
-                    CODESEARCH_MODEL_NAME.to_string(),
+                    model_name.clone(),
                     runtime_info,
                 ));
             }
@@ -605,13 +672,19 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
     Ok((
         model,
         CODESEARCH_DIMENSION,
-        CODESEARCH_MODEL_NAME.to_string(),
+        model_name,
         runtime_info,
     ))
 }
 
 pub fn configured_embedding_model_name() -> String {
-    std::env::var("CODELENS_EMBED_MODEL").unwrap_or_else(|_| CODESEARCH_MODEL_NAME.to_string())
+    if let Ok(model) = std::env::var("CODELENS_EMBED_MODEL") {
+        return model;
+    }
+    if let Ok(model_dir) = resolve_model_dir() {
+        return configured_model_name_for_dir(&model_dir);
+    }
+    CODESEARCH_MODEL_NAME.to_string()
 }
 
 pub fn configured_rerank_blend() -> f64 {
