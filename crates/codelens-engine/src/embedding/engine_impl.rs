@@ -3,6 +3,7 @@ use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
 use fastembed::TextEmbedding;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -22,11 +23,37 @@ use super::runtime::{configured_rerank_blend, embed_batch_size, max_embed_symbol
 use super::vec_store::SqliteVecStore;
 use super::{
     CHANGED_FILE_QUERY_CHUNK, DEFAULT_DUPLICATE_SCAN_BATCH_SIZE, EmbeddingEngine,
-    EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch,
+    EmbeddingIndexInfo, EmbeddingRuntimeInfo, QueryEmbeddingCacheStats, SemanticMatch,
 };
 use rusqlite::Connection;
 
 impl EmbeddingEngine {
+    fn configured_query_embed_cache_size() -> usize {
+        std::env::var("CODELENS_QUERY_EMBED_CACHE_SIZE")
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(4096)
+            .min(50_000)
+    }
+
+    fn normalize_query_for_cache(query: &str) -> String {
+        query.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    fn query_cache_key(&self, query: &str) -> String {
+        let normalized = Self::normalize_query_for_cache(query);
+        let mut hasher = Sha256::new();
+        hasher.update(b"cache-v1\n");
+        hasher.update(self.model_name.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(self.runtime_info.backend.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(self.runtime_info.max_length.to_string().as_bytes());
+        hasher.update(b"\n");
+        hasher.update(normalized.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
     fn embed_texts_cached(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
@@ -81,6 +108,61 @@ impl EmbeddingEngine {
             .into_iter()
             .map(|item| item.ok_or_else(|| anyhow::anyhow!("missing embedding cache entry")))
             .collect()
+    }
+
+    pub fn embed_query_cached(&self, query: &str) -> Result<Vec<f32>> {
+        let max_entries = Self::configured_query_embed_cache_size();
+        if max_entries == 0 {
+            return self
+                .embed_texts_cached(&[query])?
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("missing query embedding"));
+        }
+        let normalized = Self::normalize_query_for_cache(query);
+        let cache_key = self.query_cache_key(&normalized);
+        if let Some(embedding) = self.store.get_query_embedding(&cache_key)? {
+            return Ok(embedding);
+        }
+        let embedding = self
+            .embed_texts_cached(&[normalized.as_str()])?
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("missing query embedding"))?;
+        self.store
+            .put_query_embedding(&cache_key, &normalized, &embedding)?;
+        let _ = self.store.prune_query_embeddings(max_entries)?;
+        Ok(embedding)
+    }
+
+    pub fn prewarm_queries(&self, queries: &[String]) -> Result<usize> {
+        let max_entries = Self::configured_query_embed_cache_size();
+        if max_entries == 0 || queries.is_empty() {
+            return Ok(0);
+        }
+        let mut prewarmed = 0usize;
+        for query in queries {
+            if query.trim().is_empty() {
+                continue;
+            }
+            let _ = self.embed_query_cached(query)?;
+            prewarmed += 1;
+        }
+        Ok(prewarmed)
+    }
+
+    pub fn query_cache_stats(&self) -> Result<QueryEmbeddingCacheStats> {
+        let max_entries = Self::configured_query_embed_cache_size();
+        let entries = if max_entries == 0 {
+            0
+        } else {
+            self.store.query_cache_count()?
+        };
+        Ok(QueryEmbeddingCacheStats {
+            enabled: max_entries > 0,
+            entries,
+            max_entries,
+        })
     }
 
     pub fn new(project: &ProjectRoot) -> Result<Self> {
@@ -417,11 +499,7 @@ impl EmbeddingEngine {
     /// cosine similarity. This catches cases where embedding similarity is high
     /// but the actual text relevance is low (or vice versa).
     pub fn search_scored(&self, query: &str, max_results: usize) -> Result<Vec<ScoredChunk>> {
-        let query_embedding = self.embed_texts_cached(&[query])?;
-
-        if query_embedding.is_empty() {
-            return Ok(Vec::new());
-        }
+        let query_embedding = self.embed_query_cached(query)?;
 
         // Fetch N× candidates for reranking headroom (default 5×, override via
         // CODELENS_RERANK_FACTOR). More candidates = better rerank quality at
@@ -431,7 +509,7 @@ impl EmbeddingEngine {
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(5);
         let candidate_count = max_results.saturating_mul(factor).max(max_results);
-        let mut candidates = self.store.search(&query_embedding[0], candidate_count)?;
+        let mut candidates = self.store.search(&query_embedding, candidate_count)?;
 
         if candidates.len() <= max_results {
             return Ok(candidates);

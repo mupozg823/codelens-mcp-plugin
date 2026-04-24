@@ -13,8 +13,8 @@ use crate::import_graph::GraphCache;
 
 /// Cached compiled tree-sitter Query for call graph extraction.
 /// Key: (canonical language key, query string pointer as usize).
-static CALL_QUERY_CACHE: LazyLock<Mutex<HashMap<(&'static str, usize), Arc<Query>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+type CallQueryCache = Mutex<HashMap<(&'static str, usize), Arc<Query>>>;
+static CALL_QUERY_CACHE: LazyLock<CallQueryCache> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static JS_IMPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?m)\bimport\s+([^;]+?)\s+from\s+["']([^"']+)["']"#).expect("import regex")
 });

@@ -517,6 +517,19 @@ codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-
 #   GET  http://localhost:7837/.well-known/mcp.json  (Server Card)
 ```
 
+For public remote connectors, do not bind plain HTTP to a non-loopback
+interface. The binary fails closed unless non-loopback listeners use HTTPS and
+JWKS auth:
+
+```bash
+codelens-mcp /workspace \
+  --transport https --listen 0.0.0.0 --port 7837 \
+  --tls-cert /etc/codelens/cert.pem --tls-key /etc/codelens/key.pem \
+  --auth jwks --auth-jwks-url https://issuer.example/.well-known/jwks.json \
+  --auth-issuer https://issuer.example --auth-audience codelens-mcp \
+  --auth-scope mcp:tools
+```
+
 Published binary targets in the current release workflow:
 
 - `darwin-arm64`

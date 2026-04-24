@@ -1,0 +1,53 @@
+{
+  "schema_version": "codelens-external-project-smoke-matrix-v1",
+  "projects": [
+    {
+      "name": "nextjs-fixture",
+      "kind": "nextjs",
+      "path": "benchmarks/fixtures/external-smoke/nextjs",
+      "query": "tailwind class names merge utility",
+      "path_hint": "src/lib",
+      "mutation": {
+        "file_path": "src/lib/utils.ts",
+        "symbol_name": "cn",
+        "new_name": "cnPreview"
+      }
+    },
+    {
+      "name": "flask-fixture",
+      "kind": "flask",
+      "path": "benchmarks/fixtures/external-smoke/flask",
+      "query": "create flask app route health check",
+      "path_hint": "app",
+      "mutation": {
+        "file_path": "app/server.py",
+        "symbol_name": "create_app",
+        "new_name": "create_preview_app"
+      }
+    },
+    {
+      "name": "rust-fixture",
+      "kind": "rust",
+      "path": "benchmarks/fixtures/external-smoke/rust",
+      "query": "parse request into command enum",
+      "path_hint": "src",
+      "mutation": {
+        "file_path": "src/lib.rs",
+        "symbol_name": "parse_request",
+        "new_name": "parse_preview_request"
+      }
+    },
+    {
+      "name": "spring-fixture",
+      "kind": "spring",
+      "path": "benchmarks/fixtures/external-smoke/spring",
+      "query": "spring service returns greeting message",
+      "path_hint": "src/main/java",
+      "mutation": {
+        "file_path": "src/main/java/com/example/demo/GreetingService.java",
+        "symbol_name": "greeting",
+        "new_name": "previewGreeting"
+      }
+    }
+  ]
+}

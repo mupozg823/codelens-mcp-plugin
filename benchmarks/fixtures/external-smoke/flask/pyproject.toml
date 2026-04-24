@@ -1,0 +1,4 @@
+[project]
+name = "codelens-flask-smoke"
+version = "0.0.0"
+dependencies = ["flask"]

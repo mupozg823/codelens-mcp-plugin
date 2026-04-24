@@ -1619,6 +1619,44 @@ fn search_scored_returns_raw_chunks() {
 }
 
 #[test]
+fn search_scored_reuses_persisted_query_embedding_after_restart() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    skip_without_embedding_model!();
+    let previous = std::env::var("CODELENS_QUERY_EMBED_CACHE_SIZE").ok();
+    unsafe {
+        std::env::set_var("CODELENS_QUERY_EMBED_CACHE_SIZE", "32");
+    }
+    let (_dir, project) = make_project_with_source();
+    {
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+        assert!(
+            !engine
+                .search_scored("world function", 2)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(engine.query_cache_stats().unwrap().entries >= 1);
+    }
+
+    let engine = EmbeddingEngine::new(&project).unwrap();
+    assert!(engine.query_cache_stats().unwrap().entries >= 1);
+    assert!(
+        !engine
+            .search_scored("world function", 2)
+            .unwrap()
+            .is_empty()
+    );
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_QUERY_EMBED_CACHE_SIZE", value),
+            None => std::env::remove_var("CODELENS_QUERY_EMBED_CACHE_SIZE"),
+        }
+    }
+}
+
+#[test]
 fn configured_embedding_model_name_defaults_to_codesearchnet() {
     let _lock = MODEL_LOCK.lock().unwrap();
     let previous_dir = std::env::var("CODELENS_MODEL_DIR").ok();
@@ -1664,6 +1702,109 @@ fn resolve_model_dir_accepts_direct_model_dir_override() {
     }
 
     assert_eq!(resolved, model_dir);
+}
+
+#[test]
+fn resolve_model_dir_accepts_release_arch_onnx_layout() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let model_dir = dir
+        .path()
+        .join("models")
+        .join("codelens-code-search")
+        .join(if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            "avx2"
+        })
+        .join("onnx");
+    write_minimal_model_assets(&model_dir);
+
+    let previous = std::env::var("CODELENS_MODEL_DIR").ok();
+    unsafe {
+        std::env::set_var("CODELENS_MODEL_DIR", dir.path().join("models"));
+    }
+
+    let resolved = resolve_model_dir().unwrap();
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_MODEL_DIR", value),
+            None => std::env::remove_var("CODELENS_MODEL_DIR"),
+        }
+    }
+
+    assert_eq!(resolved, model_dir);
+}
+
+#[test]
+fn resolve_model_dir_accepts_canonical_model_dir_arch_onnx_layout() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let model_dir = dir
+        .path()
+        .join("codesearch")
+        .join(if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            "avx2"
+        })
+        .join("onnx");
+    write_minimal_model_assets(&model_dir);
+
+    let previous = std::env::var("CODELENS_MODEL_DIR").ok();
+    unsafe {
+        std::env::set_var("CODELENS_MODEL_DIR", dir.path());
+    }
+
+    let resolved = resolve_model_dir().unwrap();
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_MODEL_DIR", value),
+            None => std::env::remove_var("CODELENS_MODEL_DIR"),
+        }
+    }
+
+    assert_eq!(resolved, model_dir);
+}
+
+#[test]
+fn query_embedding_cache_store_round_trips_and_prunes() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("embeddings.db");
+    let store = super::vec_store::SqliteVecStore::new(&db_path, 3, "model-a").unwrap();
+
+    store
+        .put_query_embedding("key-a", "alpha query", &[0.1, 0.2, 0.3])
+        .unwrap();
+    store
+        .put_query_embedding("key-b", "beta query", &[0.4, 0.5, 0.6])
+        .unwrap();
+
+    assert_eq!(
+        store.get_query_embedding("key-a").unwrap(),
+        Some(vec![0.1, 0.2, 0.3])
+    );
+    assert_eq!(store.query_cache_count().unwrap(), 2);
+    assert_eq!(store.prune_query_embeddings(1).unwrap(), 1);
+    assert_eq!(store.query_cache_count().unwrap(), 1);
+}
+
+#[test]
+fn query_embedding_cache_is_recreated_when_model_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("embeddings.db");
+    {
+        let store = super::vec_store::SqliteVecStore::new(&db_path, 3, "model-a").unwrap();
+        store
+            .put_query_embedding("key-a", "alpha query", &[0.1, 0.2, 0.3])
+            .unwrap();
+        assert_eq!(store.query_cache_count().unwrap(), 1);
+    }
+
+    let store = super::vec_store::SqliteVecStore::new(&db_path, 3, "model-b").unwrap();
+    assert_eq!(store.query_cache_count().unwrap(), 0);
 }
 
 #[test]

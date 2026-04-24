@@ -43,8 +43,8 @@ pub(crate) use crate::agent_coordination::{
 };
 pub(crate) use crate::client_profile::{ClientProfile, EffortLevel};
 pub(crate) use crate::runtime_types::{
-    AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisVerifierCheck, RuntimeDaemonMode,
-    RuntimeTransportMode, WatcherFailureHealth,
+    AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisVerifierCheck, RuntimeCompatMode,
+    RuntimeDaemonMode, RuntimeTransportMode, WatcherFailureHealth,
 };
 
 pub(super) fn push_unique_string(items: &mut Vec<String>, value: String) {
@@ -87,6 +87,7 @@ pub(crate) struct AppState {
     project_override: std::sync::RwLock<Option<Arc<ProjectRuntimeContext>>>,
     project_context_cache: Mutex<ProjectContextCache>,
     transport_mode: Mutex<RuntimeTransportMode>,
+    compat_mode: Mutex<RuntimeCompatMode>,
     daemon_mode: Mutex<RuntimeDaemonMode>,
     client_profile: ClientProfile,
     effort_level: std::sync::atomic::AtomicU8,
@@ -121,6 +122,8 @@ pub(crate) struct AppState {
     pub(crate) secondary_projects: Mutex<HashMap<String, SecondaryProject>>,
     #[cfg(feature = "http")]
     pub(crate) session_store: Option<crate::server::session::SessionStore>,
+    #[cfg(feature = "http")]
+    http_auth: std::sync::RwLock<crate::server::http_auth::HttpAuthConfig>,
     /// Phase 4b (§capability-reporting follow-up): wall-clock time
     /// when the daemon started, as an RFC 3339 UTC string. Exposed
     /// by `get_capabilities` alongside `binary_build_time` so
@@ -363,6 +366,36 @@ impl AppState {
         );
     }
 
+    pub(crate) fn configure_compat_mode(&self, compat_mode: RuntimeCompatMode) {
+        *self
+            .compat_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = compat_mode;
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn configure_http_auth(&self, auth: crate::server::http_auth::HttpAuthConfig) {
+        *self
+            .http_auth
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = auth;
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn http_auth(&self) -> crate::server::http_auth::HttpAuthConfig {
+        self.http_auth
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub(crate) fn compat_mode(&self) -> RuntimeCompatMode {
+        *self
+            .compat_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub(crate) fn transport_mode(&self) -> RuntimeTransportMode {
         *self
             .transport_mode
@@ -406,15 +439,15 @@ impl AppState {
 
     pub(crate) fn analysis_worker_limit(&self) -> usize {
         match self.transport_mode() {
-            RuntimeTransportMode::Http => HTTP_ANALYSIS_WORKER_COUNT,
             RuntimeTransportMode::Stdio => STDIO_ANALYSIS_WORKER_COUNT,
+            RuntimeTransportMode::Http | RuntimeTransportMode::Https => HTTP_ANALYSIS_WORKER_COUNT,
         }
     }
 
     pub(crate) fn analysis_cost_budget(&self) -> usize {
         match self.transport_mode() {
-            RuntimeTransportMode::Http => 3,
             RuntimeTransportMode::Stdio => 2,
+            RuntimeTransportMode::Http | RuntimeTransportMode::Https => 3,
         }
     }
 
@@ -459,6 +492,7 @@ impl AppState {
             project_override: std::sync::RwLock::new(None),
             project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(self.transport_mode()),
+            compat_mode: Mutex::new(self.compat_mode()),
             daemon_mode: Mutex::new(self.daemon_mode()),
             client_profile: self.client_profile,
             effort_level: std::sync::atomic::AtomicU8::new(
@@ -488,6 +522,8 @@ impl AppState {
             scip_backend: OnceLock::new(),
             #[cfg(feature = "http")]
             session_store: None,
+            #[cfg(feature = "http")]
+            http_auth: std::sync::RwLock::new(self.http_auth()),
             // Phase 4b: workers inherit the parent daemon's start
             // time so `get_capabilities` stays consistent across
             // clones.
@@ -542,6 +578,7 @@ impl AppState {
             project_override: std::sync::RwLock::new(None),
             project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
+            compat_mode: Mutex::new(RuntimeCompatMode::Default),
             daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
             client_profile: ClientProfile::detect(None),
             effort_level: std::sync::atomic::AtomicU8::new(match EffortLevel::detect() {
@@ -572,6 +609,8 @@ impl AppState {
             scip_backend: OnceLock::new(),
             #[cfg(feature = "http")]
             session_store: None,
+            #[cfg(feature = "http")]
+            http_auth: std::sync::RwLock::new(crate::server::http_auth::HttpAuthConfig::off()),
             daemon_started_at: now_rfc3339_utc(),
         }
     }

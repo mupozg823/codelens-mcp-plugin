@@ -44,7 +44,22 @@ impl StartupProjectSource {
 fn flag_takes_value(flag: &str) -> bool {
     matches!(
         flag,
-        "--preset" | "--profile" | "--daemon-mode" | "--cmd" | "--args" | "--transport" | "--port"
+        "--preset"
+            | "--profile"
+            | "--daemon-mode"
+            | "--cmd"
+            | "--args"
+            | "--transport"
+            | "--listen"
+            | "--port"
+            | "--tls-cert"
+            | "--tls-key"
+            | "--auth"
+            | "--auth-jwks-url"
+            | "--auth-issuer"
+            | "--auth-audience"
+            | "--auth-scope"
+            | "--compat"
     )
 }
 
@@ -591,14 +606,14 @@ fn inspect_text_policy_file(path: &Path, expected: &str, format: &str) -> String
         return format!("- {display} [{format}]: present (exact generated file)");
     }
     if let Some(expected_block) = extract_managed_text_block(expected)
-        && let Some(actual_block) = extract_managed_text_block(&content) {
-            if normalize_text_for_compare(&actual_block)
-                == normalize_text_for_compare(&expected_block)
-            {
-                return format!("- {display} [{format}]: present (exact managed block)");
-            }
-            return format!("- {display} [{format}]: present (customized managed block)");
+        && let Some(actual_block) = extract_managed_text_block(&content)
+    {
+        if normalize_text_for_compare(&actual_block) == normalize_text_for_compare(&expected_block)
+        {
+            return format!("- {display} [{format}]: present (exact managed block)");
         }
+        return format!("- {display} [{format}]: present (customized managed block)");
+    }
     if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
         return format!("- {display} [{format}]: present (customized)");
     }
@@ -624,24 +639,24 @@ fn inspect_text_policy_file_json(path: &Path, expected: &str, format: &str) -> V
         });
     }
     if let Some(expected_block) = extract_managed_text_block(expected)
-        && let Some(actual_block) = extract_managed_text_block(&content) {
-            if normalize_text_for_compare(&actual_block)
-                == normalize_text_for_compare(&expected_block)
-            {
-                return json!({
-                    "path": path_text,
-                    "format": format,
-                    "status": "present_exact",
-                    "message": "present (exact managed block)",
-                });
-            }
+        && let Some(actual_block) = extract_managed_text_block(&content)
+    {
+        if normalize_text_for_compare(&actual_block) == normalize_text_for_compare(&expected_block)
+        {
             return json!({
                 "path": path_text,
                 "format": format,
-                "status": "present_customized",
-                "message": "present (customized managed block)",
+                "status": "present_exact",
+                "message": "present (exact managed block)",
             });
         }
+        return json!({
+            "path": path_text,
+            "format": format,
+            "status": "present_customized",
+            "message": "present (customized managed block)",
+        });
+    }
     if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
         return json!({
             "path": path_text,
@@ -1269,13 +1284,15 @@ pub(crate) fn format_http_startup_banner(
     surface_label: &str,
     token_budget: usize,
     daemon_mode: RuntimeDaemonMode,
-    port: u16,
+    transport_endpoint: (&str, u16),
     daemon_started_at: &str,
 ) -> String {
+    let (transport, port) = transport_endpoint;
     let escaped_project_root = project_root.display().to_string().replace('"', "\\\"");
     format!(
-        "CODELENS_SESSION_START pid={} transport=http port={} project_root=\"{}\" project_source=\"{}\" surface={} token_budget={} daemon_mode={} git_sha={} build_time={} daemon_started_at={} git_dirty={}",
+        "CODELENS_SESSION_START pid={} transport={} port={} project_root=\"{}\" project_source=\"{}\" surface={} token_budget={} daemon_mode={} git_sha={} build_time={} daemon_started_at={} git_dirty={}",
         std::process::id(),
+        transport,
         port,
         escaped_project_root,
         project_source.label(),
@@ -1887,7 +1904,7 @@ url = "http://127.0.0.1:9999/mcp"
             "builder-minimal",
             2400,
             crate::state::RuntimeDaemonMode::Standard,
-            7837,
+            ("http", 7837),
             "2026-04-11T19:49:55Z",
         );
         assert!(banner.starts_with("CODELENS_SESSION_START pid="));

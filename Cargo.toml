@@ -88,6 +88,14 @@ uuid = { version = "1", features = ["v4"] }
 tokio-stream = "0.1"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+jsonwebtoken = "9"
+base64 = "0.22"
+ureq = { version = "2", features = ["json", "native-tls"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rustls-pemfile = "2"
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+native-tls = "0.2"
+rcgen = "0.13"
 
 [profile.release]
 lto = true

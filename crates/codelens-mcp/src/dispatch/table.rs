@@ -55,6 +55,11 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(20) as usize;
+    let path_hint = arguments
+        .get("path_hint")
+        .and_then(|v| v.as_str())
+        .map(|value| value.trim().trim_matches('/'))
+        .filter(|value| !value.is_empty());
 
     let project = state.project();
     let guard = state.embedding_engine();
@@ -94,6 +99,13 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         if structural_names.contains(&key) {
             result.score += 0.06;
         }
+        if let Some(path_hint) = path_hint
+            && (result.file_path == path_hint
+                || result.file_path.starts_with(&format!("{path_hint}/"))
+                || result.file_path.contains(path_hint))
+        {
+            result.score += 0.08;
+        }
     }
 
     // Merge hybrid search results: lexical/FTS/fuzzy catches symbols that
@@ -121,6 +133,11 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         for hr in hybrid {
             let key = format!("{}:{}:{}", hr.file, hr.name, hr.line);
             if seen.insert(key) {
+                let path_boosted = path_hint.is_some_and(|path_hint| {
+                    hr.file == path_hint
+                        || hr.file.starts_with(&format!("{path_hint}/"))
+                        || hr.file.contains(path_hint)
+                });
                 results.push(codelens_engine::SemanticMatch {
                     file_path: hr.file,
                     symbol_name: hr.name,
@@ -131,7 +148,13 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
                     // Scale hybrid scores to semantic range (0.1-0.3).
                     // Hybrid raw scores: exact=100, fts=40-80, fuzzy=50-90.
                     // We want them as supplementary candidates, not dominant.
-                    score: (hr.score / 100.0) * 0.35,
+                    score: {
+                        let mut score = (hr.score / 100.0) * 0.35;
+                        if path_boosted {
+                            score += 0.08;
+                        }
+                        score
+                    },
                 });
             }
         }
@@ -157,8 +180,10 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         "count": results.len(),
         "retrieval": {
             "semantic_enabled": true,
+            "mode": "hybrid_path_aware",
             "requested_query": query,
             "semantic_query": query_analysis.semantic_query,
+            "path_hint": path_hint,
         }
     });
     if let Some(entries) = payload
@@ -173,6 +198,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
                     "provenance".to_owned(),
                     json!({
                         "source": "semantic",
+                        "fusion": "hybrid_path_aware",
                         "retrieval_rank": idx + 1,
                         "prior_delta": prior_delta,
                         "adjusted_score": adjusted_score,
@@ -186,6 +212,93 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
 
 #[cfg(feature = "semantic")]
 fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let background = tools::optional_bool(_arguments, "background", false);
+    if background {
+        let scope = state.current_project_scope();
+        let job = state.store_analysis_job(
+            &scope,
+            "index_embeddings",
+            None,
+            vec!["semantic_index".to_owned(), "query_prewarm".to_owned()],
+            crate::runtime_types::JobLifecycle::Queued,
+            0,
+            Some("queued".to_owned()),
+            None,
+            None,
+        )?;
+        let job_id = job.id.clone();
+        let response_job_id = job_id.clone();
+        let worker_state = state.clone_for_worker();
+        let arguments = _arguments.clone();
+        std::thread::spawn(move || {
+            let scope = worker_state.current_project_scope();
+            let _ = worker_state.update_analysis_job(
+                &scope,
+                &job_id,
+                Some(crate::runtime_types::JobLifecycle::Running),
+                Some(10),
+                Some(Some("indexing semantic embeddings".to_owned())),
+                None,
+                None,
+                None,
+            );
+            match index_embeddings_now(&worker_state, &arguments) {
+                Ok(payload) => {
+                    let current_step = payload
+                        .get("indexed_symbols")
+                        .and_then(|value| value.as_u64())
+                        .map(|count| format!("indexed {count} symbols"))
+                        .unwrap_or_else(|| "completed".to_owned());
+                    let _ = worker_state.update_analysis_job(
+                        &scope,
+                        &job_id,
+                        Some(crate::runtime_types::JobLifecycle::Completed),
+                        Some(100),
+                        Some(Some(current_step)),
+                        None,
+                        None,
+                        None,
+                    );
+                }
+                Err(error) => {
+                    let _ = worker_state.update_analysis_job(
+                        &scope,
+                        &job_id,
+                        Some(crate::runtime_types::JobLifecycle::Error),
+                        Some(100),
+                        Some(Some("failed".to_owned())),
+                        None,
+                        None,
+                        Some(Some(error.to_string())),
+                    );
+                }
+            }
+        });
+        return Ok((
+            json!({
+                "background": true,
+                "status": "queued",
+                "job": job,
+                "poll": {
+                    "tool": "get_analysis_job",
+                    "arguments": { "job_id": response_job_id }
+                }
+            }),
+            tools::success_meta(BackendKind::Semantic, 0.90),
+        ));
+    }
+
+    Ok((
+        index_embeddings_now(state, _arguments)?,
+        tools::success_meta(BackendKind::Semantic, 0.95),
+    ))
+}
+
+#[cfg(feature = "semantic")]
+fn index_embeddings_now(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value, CodeLensError> {
     let project = state.project();
     let guard = state.embedding_engine();
     let engine = guard
@@ -213,10 +326,57 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
         _ => 0,
     };
 
-    Ok((
-        json!({"indexed_symbols": count, "bridges_generated": bridges_generated, "status": "ok"}),
-        tools::success_meta(BackendKind::Semantic, 0.95),
-    ))
+    let prewarmed = prewarm_embedding_queries(state, engine, arguments)?;
+    let query_cache = engine.query_cache_stats()?;
+
+    Ok(json!({
+        "indexed_symbols": count,
+        "bridges_generated": bridges_generated,
+        "query_cache": {
+            "enabled": query_cache.enabled,
+            "entries": query_cache.entries,
+            "max_entries": query_cache.max_entries,
+            "prewarmed": prewarmed
+        },
+        "status": "ok"
+    }))
+}
+
+#[cfg(feature = "semantic")]
+fn prewarm_embedding_queries(
+    state: &AppState,
+    engine: &codelens_engine::EmbeddingEngine,
+    arguments: &serde_json::Value,
+) -> Result<usize, CodeLensError> {
+    let limit = arguments
+        .get("prewarm_limit")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(128)
+        .min(1024) as usize;
+    if limit == 0 {
+        return Ok(0);
+    }
+    let Some(queries) = arguments
+        .get("prewarm_queries")
+        .and_then(|value| value.as_array())
+    else {
+        return Ok(0);
+    };
+    let semantic_queries = queries
+        .iter()
+        .filter_map(|value| value.as_str())
+        .map(str::trim)
+        .filter(|query| !query.is_empty())
+        .take(limit)
+        .map(|query| {
+            let query_analysis = crate::tools::query_analysis::analyze_retrieval_query(query);
+            crate::tools::query_analysis::semantic_query_for_embedding_search(
+                &query_analysis,
+                Some(state.project().as_path()),
+            )
+        })
+        .collect::<Vec<_>>();
+    Ok(engine.prewarm_queries(&semantic_queries)?)
 }
 
 #[cfg(feature = "semantic")]

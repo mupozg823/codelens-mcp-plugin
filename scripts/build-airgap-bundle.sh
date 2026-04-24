@@ -86,17 +86,7 @@ if [[ ! -f "$sbom_path" ]]; then
 	exit 1
 fi
 
-for required in \
-	"$models_dir/codesearch/model.onnx" \
-	"$models_dir/codesearch/tokenizer.json" \
-	"$models_dir/codesearch/config.json" \
-	"$models_dir/codesearch/special_tokens_map.json" \
-	"$models_dir/codesearch/tokenizer_config.json"; do
-	if [[ ! -f "$required" ]]; then
-		echo "models directory missing required payload file: $required" >&2
-		exit 1
-	fi
-done
+python3 scripts/verify-model-assets.py --root "$models_dir" --check >/dev/null
 
 if [[ -z "$platform" ]]; then
 	base="$(basename "$archive_path")"
@@ -139,7 +129,15 @@ case "$archive_path" in
 		;;
 esac
 
-cp -R "$models_dir/codesearch" "$bundle_dir/models/"
+if [[ -d "$models_dir/codesearch" ]]; then
+	cp -R "$models_dir/codesearch" "$bundle_dir/models/"
+elif [[ -d "$models_dir/codelens-code-search" ]]; then
+	cp -R "$models_dir/codelens-code-search" "$bundle_dir/models/"
+else
+	echo "models directory does not contain a supported CodeLens model layout: $models_dir" >&2
+	exit 1
+fi
+python3 scripts/verify-model-assets.py --root "$bundle_dir" --check >/dev/null
 cp "$sbom_path" "$bundle_dir/sbom/"
 cp LICENSE "$bundle_dir/"
 

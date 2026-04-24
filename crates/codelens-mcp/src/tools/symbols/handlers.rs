@@ -99,13 +99,7 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                     "symbol",
                     &meta,
                     "scip_precise",
-                    crate::tool_evidence::precision_signals(
-                        true,
-                        true,
-                        Some("scip"),
-                        None,
-                        count,
-                    ),
+                    crate::tool_evidence::precision_signals(true, true, Some("scip"), None, count),
                 );
                 let syms: Vec<serde_json::Value> = limited
                     .iter()
@@ -163,33 +157,33 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                 "body_truncated_count": body_truncated_count,
                 "body_preview": include_body && !body_full,
             });
-            if value.is_empty() {
-                if let Some(map) = payload.as_object_mut() {
-                    map.insert(
-                        "fallback_hint".to_owned(),
-                        json!({
-                            "reason": "no exact match",
-                            "query": name,
-                            "try": [
-                                {
-                                    "tool": "search_workspace_symbols",
-                                    "arguments": {"query": name, "limit": 10},
-                                    "why": "fuzzy / partial-name search across the full symbol index",
-                                },
-                                {
-                                    "tool": "search_symbols_fuzzy",
-                                    "arguments": {"query": name, "max_results": 10},
-                                    "why": "alternate fuzzy matcher with score ranking",
-                                },
-                                {
-                                    "tool": "bm25_symbol_search",
-                                    "arguments": {"query": name, "max_results": 10},
-                                    "why": "NL / identifier-token retrieval when the exact name is uncertain",
-                                },
-                            ],
-                        }),
-                    );
-                }
+            if value.is_empty()
+                && let Some(map) = payload.as_object_mut()
+            {
+                map.insert(
+                    "fallback_hint".to_owned(),
+                    json!({
+                        "reason": "no exact match",
+                        "query": name,
+                        "try": [
+                            {
+                                "tool": "search_workspace_symbols",
+                                "arguments": {"query": name, "limit": 10},
+                                "why": "fuzzy / partial-name search across the full symbol index",
+                            },
+                            {
+                                "tool": "search_symbols_fuzzy",
+                                "arguments": {"query": name, "max_results": 10},
+                                "why": "alternate fuzzy matcher with score ranking",
+                            },
+                            {
+                                "tool": "bm25_symbol_search",
+                                "arguments": {"query": name, "max_results": 10},
+                                "why": "NL / identifier-token retrieval when the exact name is uncertain",
+                            },
+                        ],
+                    }),
+                );
             }
             let meta = success_meta(BackendKind::TreeSitter, 0.93);
             if let Some(map) = payload.as_object_mut() {

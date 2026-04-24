@@ -12,7 +12,7 @@
   },
   "tool_registry": {
     "definition_count": 113,
-    "output_schema_count": 77,
+    "output_schema_count": 79,
     "namespaces": {
       "filesystem": 6,
       "graph": 14,
@@ -111,7 +111,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 261
+        "estimated_tokens": 370
       },
       {
         "name": "find_symbol",
@@ -120,7 +120,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 310
+        "estimated_tokens": 419
       },
       {
         "name": "get_ranked_context",
@@ -129,7 +129,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 444
+        "estimated_tokens": 652
       },
       {
         "name": "bm25_symbol_search",
@@ -138,7 +138,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 456
+        "estimated_tokens": 565
       },
       {
         "name": "search_symbols_fuzzy",
@@ -183,7 +183,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 346
+        "estimated_tokens": 455
       },
       {
         "name": "get_file_diagnostics",
@@ -263,8 +263,8 @@
         "tier": "analysis",
         "phase": null,
         "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 113
+        "has_output_schema": true,
+        "estimated_tokens": 426
       },
       {
         "name": "get_callees",
@@ -272,8 +272,8 @@
         "tier": "analysis",
         "phase": null,
         "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 117
+        "has_output_schema": true,
+        "estimated_tokens": 412
       },
       {
         "name": "find_scoped_references",
@@ -282,7 +282,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 267
+        "estimated_tokens": 376
       },
       {
         "name": "get_symbol_importance",
@@ -1011,7 +1011,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 304
+        "estimated_tokens": 342
       },
       {
         "name": "index_embeddings",
@@ -1020,7 +1020,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 78
+        "estimated_tokens": 179
       },
       {
         "name": "find_similar_code",
@@ -3254,7 +3254,7 @@
     "workspace_member_count": 3,
     "registered_tool_definitions": 113,
     "tool_output_schemas": {
-      "declared": 77,
+      "declared": 79,
       "total": 113
     },
     "harness_mode_count": 4,

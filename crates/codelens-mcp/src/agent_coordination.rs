@@ -254,6 +254,7 @@ impl AgentCoordinationStore {
         entry
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn fallback_claim(
         entries: &mut HashMap<String, ProjectCoordinationState>,
         scope: &str,
@@ -389,6 +390,7 @@ impl AgentCoordinationStore {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn register_agent_work(
         &self,
         scope: &str,
@@ -445,6 +447,7 @@ impl AgentCoordinationStore {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn claim_files(
         &self,
         scope: &str,

@@ -1,7 +1,7 @@
 //! Streamable HTTP transport for MCP.
 //!
 //! Negotiates protocol versions declared in `protocol::SUPPORTED_PROTOCOL_VERSIONS`
-//! (currently 2025-06-18 and 2025-03-26). Clients pin a version on subsequent
+//! (currently 2025-11-25, 2025-06-18, and 2025-03-26). Clients pin a version on subsequent
 //! requests via the `MCP-Protocol-Version` header; absent → legacy 2025-03-26,
 //! unknown → 400.
 //!
@@ -19,6 +19,7 @@ use super::transport_http_support::{
 };
 use crate::AppState;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse, SUPPORTED_PROTOCOL_VERSIONS};
+use crate::server::http_config::HttpServerConfig;
 use crate::tool_defs::{ToolProfile, ToolSurface, default_budget_for_profile};
 use anyhow::Result;
 use axum::extract::State;
@@ -31,6 +32,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
+
+pub(crate) fn install_default_rustls_provider() {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+}
 
 /// Origin header gate — spec §"Security Warning": servers MUST validate Origin
 /// to defeat DNS rebinding attacks. We allow requests that either omit Origin
@@ -95,6 +103,14 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
                 .delete(mcp_delete_handler),
         )
         .route("/.well-known/mcp.json", routing::get(server_card_handler))
+        .route(
+            "/.well-known/oauth-protected-resource",
+            routing::get(protected_resource_metadata_handler),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/mcp",
+            routing::get(protected_resource_metadata_handler),
+        )
         .with_state(state)
 }
 
@@ -109,6 +125,10 @@ async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
     )
 }
 
+async fn protected_resource_metadata_handler(State(state): State<Arc<AppState>>) -> Response {
+    super::http_auth::metadata_response(state.http_auth())
+}
+
 /// Phase 4d (§single-instance guard): probe the target port before
 /// attempting to bind. Returns `true` if the port is already
 /// accepting connections, which we interpret as "another CodeLens
@@ -121,11 +141,15 @@ async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
 /// network unreachable) is also treated as "port is free" —
 /// conservative, since the actual `bind` call will still catch a
 /// real bind conflict.
+#[cfg(test)]
 async fn port_is_occupied(port: u16) -> bool {
+    addr_is_occupied(std::net::SocketAddr::from(([127, 0, 0, 1], port))).await
+}
+
+async fn addr_is_occupied(addr: std::net::SocketAddr) -> bool {
     use tokio::net::TcpStream;
     use tokio::time::{Duration, timeout};
-    let addr = format!("127.0.0.1:{port}");
-    match timeout(Duration::from_millis(200), TcpStream::connect(&addr)).await {
+    match timeout(Duration::from_millis(200), TcpStream::connect(addr)).await {
         // Successful connect within 200 ms → something is listening.
         Ok(Ok(_stream)) => true,
         // Any error (ConnectionRefused, etc.) → port is free.
@@ -157,18 +181,21 @@ fn emit_existing_instance_exit(port: u16, project_root: String, daemon_started_a
 
 /// Start the HTTP server with Streamable HTTP transport.
 #[tokio::main]
-pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
-    state.metrics().record_transport_session("http");
+pub(crate) async fn run_http(state: Arc<AppState>, config: HttpServerConfig) -> Result<()> {
+    state
+        .metrics()
+        .record_transport_session(state.transport_mode().as_str());
+    let addr = std::net::SocketAddr::new(config.listen, config.port);
 
     // Phase 4d §single-instance guard: probe before bind. Catches
     // the common duplicate-launcher case (two launchd-style sources
     // racing for the same port) with a sub-second check instead of
     // letting both processes reach `bind()` and stack bind errors
     // in the append-only daemon log.
-    if port_is_occupied(port).await {
+    if addr_is_occupied(addr).await {
         let project_root = state.current_project_scope();
         let daemon_started_at = state.daemon_started_at().to_string();
-        emit_existing_instance_exit(port, project_root, &daemon_started_at);
+        emit_existing_instance_exit(config.port, project_root, &daemon_started_at);
     }
 
     let app = build_router(state.clone());
@@ -188,8 +215,12 @@ pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
         }
     });
 
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    tracing::info!("CodeLens MCP HTTP server listening on http://{addr}/mcp");
+    let scheme = if config.tls.is_some() {
+        "https"
+    } else {
+        "http"
+    };
+    tracing::info!("CodeLens MCP HTTP server listening on {scheme}://{addr}/mcp");
 
     // Phase 4d §single-instance guard: even with pre-probe, a
     // race window exists where a second instance bound the port
@@ -202,17 +233,17 @@ pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
             let project_root = state.current_project_scope();
             let daemon_started_at = state.daemon_started_at().to_string();
             tracing::warn!(
-                port,
+                port = config.port,
                 project_root = %project_root,
                 git_sha = crate::build_info::BUILD_GIT_SHA,
                 daemon_started_at = %daemon_started_at,
                 "bind raced with existing instance (AddrInUse after probe) — deferring"
             );
-            emit_existing_instance_exit(port, project_root, &daemon_started_at);
+            emit_existing_instance_exit(config.port, project_root, &daemon_started_at);
         }
         Err(error) => {
             tracing::error!(
-                port,
+                port = config.port,
                 project_root = %state.current_project_scope(),
                 git_sha = crate::build_info::BUILD_GIT_SHA,
                 daemon_started_at = state.daemon_started_at(),
@@ -222,9 +253,31 @@ pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
             return Err(error.into());
         }
     };
+    if let Some(tls) = config.tls {
+        let listener = listener.into_std()?;
+        install_default_rustls_provider();
+        let tls_config =
+            axum_server::tls_rustls::RustlsConfig::from_pem_file(tls.cert_path, tls.key_path)
+                .await?;
+        axum_server::from_tcp_rustls(listener, tls_config)
+            .serve(app.into_make_service())
+            .await
+            .map_err(|error| {
+                tracing::error!(
+                    port = config.port,
+                    project_root = %state.current_project_scope(),
+                    git_sha = crate::build_info::BUILD_GIT_SHA,
+                    daemon_started_at = state.daemon_started_at(),
+                    error = %error,
+                    "CodeLens MCP HTTPS server exited with error"
+                );
+                error
+            })?;
+        return Ok(());
+    }
     axum::serve(listener, app).await.map_err(|error| {
         tracing::error!(
-            port,
+            port = config.port,
             project_root = %state.current_project_scope(),
             git_sha = crate::build_info::BUILD_GIT_SHA,
             daemon_started_at = state.daemon_started_at(),
@@ -248,6 +301,9 @@ async fn mcp_post_handler(
     }
     if !protocol_version_header_ok(&headers) {
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
+    }
+    if let Err(response) = super::http_auth::authorize(&headers, state.http_auth()).await {
+        return response;
     }
 
     let session_id = headers
@@ -366,6 +422,9 @@ async fn mcp_get_handler(State(state): State<Arc<AppState>>, headers: HeaderMap)
     if !protocol_version_header_ok(&headers) {
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
     }
+    if let Err(response) = super::http_auth::authorize(&headers, state.http_auth()).await {
+        return response;
+    }
 
     let session_id = headers.get("mcp-session-id").and_then(|v| v.to_str().ok());
 
@@ -414,6 +473,9 @@ async fn mcp_delete_handler(State(state): State<Arc<AppState>>, headers: HeaderM
     }
     if !protocol_version_header_ok(&headers) {
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
+    }
+    if let Err(response) = super::http_auth::authorize(&headers, state.http_auth()).await {
+        return response;
     }
     if let Some(id) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
         && let Some(store) = &state.session_store

@@ -56,7 +56,7 @@ use cli::{
 use env_compat::dual_prefix_env;
 use server::oneshot::run_oneshot;
 use server::transport_stdio::run_stdio;
-use state::RuntimeDaemonMode;
+use state::{RuntimeCompatMode, RuntimeDaemonMode};
 use std::sync::Arc;
 use tool_defs::{
     ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
@@ -204,6 +204,10 @@ fn main() -> Result<()> {
         .map(RuntimeDaemonMode::from_str)
         .or_else(configured_daemon_mode_env)
         .unwrap_or(RuntimeDaemonMode::Standard);
+    let compat_mode = cli_option_value(&args, "--compat")
+        .as_deref()
+        .map(RuntimeCompatMode::from_str)
+        .unwrap_or(RuntimeCompatMode::Default);
 
     if args.iter().any(|arg| arg == "--print-surface-manifest") {
         let surface = profile
@@ -234,12 +238,12 @@ fn main() -> Result<()> {
 
     let cmd_args = cli_option_value(&args, "--args");
 
-    let transport = cli_option_value(&args, "--transport").unwrap_or_else(|| "stdio".to_owned());
-
     #[cfg(feature = "http")]
-    let port: u16 = cli_option_value(&args, "--port")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(7837);
+    let http_runtime = server::http_config::configured_http_runtime(&args)?;
+    #[cfg(feature = "http")]
+    let transport = http_runtime.transport.as_str().to_owned();
+    #[cfg(not(feature = "http"))]
+    let transport = cli_option_value(&args, "--transport").unwrap_or_else(|| "stdio".to_owned());
 
     let project = resolve_startup_project(&project_source)?;
     if !project_source.is_explicit() && project.as_path() == std::path::Path::new("/") {
@@ -257,6 +261,9 @@ fn main() -> Result<()> {
 
     let app_state = AppState::new(project, preset);
     app_state.configure_transport_mode(&transport);
+    app_state.configure_compat_mode(compat_mode);
+    #[cfg(feature = "http")]
+    app_state.configure_http_auth(http_runtime.auth.clone());
     app_state.configure_daemon_mode(daemon_mode);
     if let Some(profile) = profile {
         app_state.set_surface(ToolSurface::Profile(profile));
@@ -267,14 +274,17 @@ fn main() -> Result<()> {
     }
 
     #[cfg(feature = "http")]
-    if transport == "http" {
+    if matches!(
+        http_runtime.transport,
+        state::RuntimeTransportMode::Http | state::RuntimeTransportMode::Https
+    ) {
         let startup_banner = format_http_startup_banner(
             app_state.project().as_path(),
             &project_source,
             app_state.surface().as_label(),
             app_state.token_budget(),
             app_state.daemon_mode(),
-            port,
+            (http_runtime.transport.as_str(), http_runtime.port),
             app_state.daemon_started_at(),
         );
         // Intentionally `warn!`: the default CODELENS_LOG filter is `warn`,
@@ -292,12 +302,12 @@ fn main() -> Result<()> {
 
     match transport.as_str() {
         #[cfg(feature = "http")]
-        "http" => {
+        "http" | "https" => {
             let state = Arc::new(app_state.with_session_store());
-            server::transport_http::run_http(state, port)
+            server::transport_http::run_http(state, http_runtime.server_config())
         }
         #[cfg(not(feature = "http"))]
-        "http" => {
+        "http" | "https" => {
             anyhow::bail!(
                 "HTTP transport requires the `http` feature. Rebuild with: cargo build --features http"
             );

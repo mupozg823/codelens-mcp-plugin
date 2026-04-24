@@ -71,14 +71,22 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cp target/${{ matrix.target }}/release/codelens-mcp codelens-mcp
-          tar czf codelens-mcp-${{ matrix.name }}.tar.gz codelens-mcp
+          mkdir -p models
+          cp -R crates/codelens-engine/models/codesearch models/
+          python3 scripts/verify-model-assets.py --root . --check
+          tar czf codelens-mcp-${{ matrix.name }}.tar.gz codelens-mcp models
+          python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.tar.gz --check
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
           cp target/${{ matrix.target }}/release/codelens-mcp.exe codelens-mcp.exe
-          7z a codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe
+          mkdir -p models
+          cp -R crates/codelens-engine/models/codesearch models/
+          python3 scripts/verify-model-assets.py --root . --check
+          7z a codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe models
+          python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.zip --check
 
       - name: Attest build provenance
         uses: actions/attest@v4
@@ -115,9 +123,8 @@ jobs:
         run: |
           mkdir -p oci-image/models
           tar -xzf codelens-mcp-linux-x86_64.tar.gz -C oci-image
-          if [[ -f crates/codelens-engine/models/codesearch/model.onnx ]]; then
-            cp -R crates/codelens-engine/models/codesearch oci-image/models/
-          fi
+          cp -R crates/codelens-engine/models/codesearch oci-image/models/
+          python3 scripts/verify-model-assets.py --root oci-image --check
           cp Dockerfile.release oci-image/Dockerfile
 
       - name: Set up Docker Buildx
@@ -154,12 +161,8 @@ jobs:
       - name: Detect bundled model payload
         id: bundled_model
         run: |
-          if [[ -f crates/codelens-engine/models/codesearch/model.onnx ]]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping air-gapped bundle: model.onnx is not staged in this checkout."
-          fi
+          python3 scripts/verify-model-assets.py --root crates/codelens-engine/models --check
+          echo "available=true" >> "$GITHUB_OUTPUT"
 
       - name: Build air-gapped bundle
         if: steps.bundled_model.outputs.available == 'true'

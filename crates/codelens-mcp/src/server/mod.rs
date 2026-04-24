@@ -1,9 +1,14 @@
+#[cfg(feature = "http")]
+pub(crate) mod http_auth;
+#[cfg(feature = "http")]
+pub(crate) mod http_config;
 pub(crate) mod oneshot;
 pub(crate) mod router;
 #[cfg(feature = "http")]
 pub(crate) mod session;
 #[cfg(feature = "http")]
 mod session_injection;
+pub(crate) mod tools_list;
 pub(crate) mod transport_http;
 #[cfg(feature = "http")]
 mod transport_http_support;

@@ -62,17 +62,22 @@ fn model_dir_candidates(base: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut candidates = vec![
         base.to_path_buf(),
         base.join("codesearch"),
+        base.join("codesearch").join(variant).join("onnx"),
         base.join("onnx"),
         base.join(variant),
+        base.join(variant).join("onnx"),
         base.join("codelens-code-search"),
         base.join("codelens-code-search").join(variant),
+        base.join("codelens-code-search").join(variant).join("onnx"),
     ];
     candidates.dedup();
     candidates
 }
 
 fn model_dir_has_assets(dir: &std::path::Path) -> bool {
-    REQUIRED_MODEL_ASSETS.iter().all(|name| dir.join(name).exists())
+    REQUIRED_MODEL_ASSETS
+        .iter()
+        .all(|name| dir.join(name).exists())
 }
 
 fn first_model_dir_with_assets(base: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -137,8 +142,11 @@ pub fn resolve_model_dir() -> Result<std::path::PathBuf> {
         "CodeSearchNet model not found. Place model files in one of these directories or variant subdirectories:\n\
          - $CODELENS_MODEL_DIR/\n\
          - $CODELENS_MODEL_DIR/codesearch/\n\
+         - $CODELENS_MODEL_DIR/codesearch/arm64/onnx or $CODELENS_MODEL_DIR/codesearch/avx2/onnx\n\
          - $CODELENS_MODEL_DIR/onnx/\n\
          - $CODELENS_MODEL_DIR/arm64/ or $CODELENS_MODEL_DIR/avx2/\n\
+         - $CODELENS_MODEL_DIR/arm64/onnx or $CODELENS_MODEL_DIR/avx2/onnx\n\
+         - $CODELENS_MODEL_DIR/codelens-code-search/arm64/onnx or $CODELENS_MODEL_DIR/codelens-code-search/avx2/onnx\n\
          - <executable>/models/...\n\
          - ~/.cache/codelens/models/...\n\
          Required files: model.onnx, tokenizer.json, config.json, special_tokens_map.json, tokenizer_config.json"
@@ -669,12 +677,7 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
         "loaded CodeSearchNet embedding model"
     );
 
-    Ok((
-        model,
-        CODESEARCH_DIMENSION,
-        model_name,
-        runtime_info,
-    ))
+    Ok((model, CODESEARCH_DIMENSION, model_name, runtime_info))
 }
 
 pub fn configured_embedding_model_name() -> String {

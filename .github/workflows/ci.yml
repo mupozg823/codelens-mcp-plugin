@@ -87,6 +87,17 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo build --release --features http
 
+      - name: external project smoke matrix
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          CODELENS_MODEL_DIR: crates/codelens-engine/models
+        run: |
+          python3 benchmarks/external-project-smoke.py \
+            --binary target/release/codelens-mcp \
+            --matrix benchmarks/external-project-smoke-matrix.json \
+            --output benchmarks/external-project-smoke-results.json \
+            --check
+
       - name: resolve HTTP surface benchmark baseline
         if: matrix.os == 'ubuntu-latest'
         id: http_surface_baseline_ref
@@ -185,3 +196,4 @@ jobs:
             benchmarks/http-surface-benchmark.json
             benchmarks/http-surface-benchmark.md
             benchmarks/http-surface-benchmark-ci.txt
+            benchmarks/external-project-smoke-results.json

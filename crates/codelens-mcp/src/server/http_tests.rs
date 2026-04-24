@@ -7,10 +7,14 @@
 
 use super::session::SessionStore;
 use super::transport_http::build_router;
-use crate::AppState;
+use crate::server::http_auth::HttpAuthConfig;
+use crate::{AppState, state::RuntimeCompatMode};
 use axum::http::{Request, StatusCode};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use codelens_engine::ProjectRoot;
 use http_body_util::BodyExt;
+use jsonwebtoken::{Algorithm, EncodingKey, Header};
+use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 use tower::ServiceExt;
@@ -29,6 +33,67 @@ fn test_state() -> Arc<AppState> {
     let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
     let state = AppState::new(project, crate::tool_defs::ToolPreset::Balanced);
     Arc::new(state.with_session_store())
+}
+
+fn test_state_with_compat(compat_mode: RuntimeCompatMode) -> Arc<AppState> {
+    let state = test_state();
+    state.configure_compat_mode(compat_mode);
+    state
+}
+
+fn test_state_with_auth(auth: HttpAuthConfig) -> Arc<AppState> {
+    let state = test_state();
+    state.configure_http_auth(auth);
+    state
+}
+
+fn hs256_jwks(kid: &str, secret: &[u8]) -> serde_json::Value {
+    json!({
+        "keys": [{
+            "kty": "oct",
+            "kid": kid,
+            "alg": "HS256",
+            "k": URL_SAFE_NO_PAD.encode(secret),
+        }]
+    })
+}
+
+fn hs256_token_with_key(
+    issuer: &str,
+    audience: &str,
+    scope: &str,
+    exp: usize,
+    kid: &str,
+    secret: &str,
+) -> String {
+    let mut header = Header::new(Algorithm::HS256);
+    header.kid = Some(kid.to_owned());
+    let claims = json!({
+        "iss": issuer,
+        "aud": audience,
+        "scope": scope,
+        "exp": exp,
+        "nbf": 0,
+        "sub": "codelens-test",
+    });
+    jsonwebtoken::encode(
+        &header,
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .unwrap()
+}
+
+fn hs256_token(issuer: &str, audience: &str, scope: &str, exp: usize) -> String {
+    hs256_token_with_key(issuer, audience, scope, exp, "test-key", "secret")
+}
+
+fn future_exp() -> usize {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as usize
+        + 3600
 }
 
 fn temp_project_dir(name: &str) -> std::path::PathBuf {
@@ -92,6 +157,413 @@ fn first_tool_payload(body: &str) -> serde_json::Value {
     payload
 }
 
+// ── Bearer/JWKS auth ─────────────────────────────────────────────────
+
+#[tokio::test]
+async fn auth_rejects_missing_bearer_token() {
+    let auth = HttpAuthConfig::jwks_static_for_test(
+        hs256_jwks("test-key", b"secret"),
+        "https://issuer.example",
+        "codelens",
+        Some("mcp:tools"),
+    );
+    let app = build_router(test_state_with_auth(auth));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let challenge = resp
+        .headers()
+        .get("www-authenticate")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert!(challenge.contains("Bearer"));
+    assert!(challenge.contains("resource_metadata="));
+    assert!(challenge.contains("scope=\"mcp:tools\""));
+}
+
+#[tokio::test]
+async fn auth_accepts_valid_hs256_jwks_token() {
+    let auth = HttpAuthConfig::jwks_static_for_test(
+        hs256_jwks("test-key", b"secret"),
+        "https://issuer.example",
+        "codelens",
+        Some("mcp:tools"),
+    );
+    let app = build_router(test_state_with_auth(auth));
+    let token = hs256_token(
+        "https://issuer.example",
+        "codelens",
+        "mcp:tools",
+        future_exp(),
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn auth_rejects_wrong_issuer() {
+    let auth = HttpAuthConfig::jwks_static_for_test(
+        hs256_jwks("test-key", b"secret"),
+        "https://issuer.example",
+        "codelens",
+        Some("mcp:tools"),
+    );
+    let app = build_router(test_state_with_auth(auth));
+    let token = hs256_token(
+        "https://wrong.example",
+        "codelens",
+        "mcp:tools",
+        future_exp(),
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn auth_rejects_wrong_audience() {
+    let auth = HttpAuthConfig::jwks_static_for_test(
+        hs256_jwks("test-key", b"secret"),
+        "https://issuer.example",
+        "codelens",
+        Some("mcp:tools"),
+    );
+    let app = build_router(test_state_with_auth(auth));
+    let token = hs256_token(
+        "https://issuer.example",
+        "wrong-audience",
+        "mcp:tools",
+        future_exp(),
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn auth_rejects_expired_token() {
+    let auth = HttpAuthConfig::jwks_static_for_test(
+        hs256_jwks("test-key", b"secret"),
+        "https://issuer.example",
+        "codelens",
+        Some("mcp:tools"),
+    );
+    let app = build_router(test_state_with_auth(auth));
+    let token = hs256_token("https://issuer.example", "codelens", "mcp:tools", 1);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn auth_rejects_missing_scope() {
+    let auth = HttpAuthConfig::jwks_static_for_test(
+        hs256_jwks("test-key", b"secret"),
+        "https://issuer.example",
+        "codelens",
+        Some("mcp:tools"),
+    );
+    let app = build_router(test_state_with_auth(auth));
+    let token = hs256_token(
+        "https://issuer.example",
+        "codelens",
+        "other:scope",
+        future_exp(),
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let challenge = resp
+        .headers()
+        .get("www-authenticate")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert!(challenge.contains("error=\"insufficient_scope\""));
+}
+
+#[tokio::test]
+async fn auth_rejects_wrong_signature() {
+    let auth = HttpAuthConfig::jwks_static_for_test(
+        hs256_jwks("test-key", b"secret"),
+        "https://issuer.example",
+        "codelens",
+        Some("mcp:tools"),
+    );
+    let app = build_router(test_state_with_auth(auth));
+    let token = hs256_token_with_key(
+        "https://issuer.example",
+        "codelens",
+        "mcp:tools",
+        future_exp(),
+        "test-key",
+        "wrong-secret",
+    );
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn auth_refreshes_jwks_on_kid_miss() {
+    use axum::{Router, extract::State, routing};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    async fn jwks_handler(State(calls): State<Arc<AtomicUsize>>) -> String {
+        let count = calls.fetch_add(1, Ordering::SeqCst);
+        let jwks = if count == 0 {
+            hs256_jwks("old-key", b"old-secret")
+        } else {
+            hs256_jwks("new-key", b"new-secret")
+        };
+        serde_json::to_string(&jwks).unwrap()
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let jwks_app = Router::new()
+        .route("/jwks", routing::get(jwks_handler))
+        .with_state(calls.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, jwks_app).await.unwrap();
+    });
+
+    let auth = HttpAuthConfig::jwks_remote_for_test(
+        format!("http://{addr}/jwks"),
+        "https://issuer.example",
+        "codelens",
+        Some("mcp:tools"),
+    );
+    let app = build_router(test_state_with_auth(auth));
+
+    let old_token = hs256_token_with_key(
+        "https://issuer.example",
+        "codelens",
+        "mcp:tools",
+        future_exp(),
+        "old-key",
+        "old-secret",
+    );
+    let first = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {old_token}"))
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+
+    let new_token = hs256_token_with_key(
+        "https://issuer.example",
+        "codelens",
+        "mcp:tools",
+        future_exp(),
+        "new-key",
+        "new-secret",
+    );
+    let second = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {new_token}"))
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(second.status(), StatusCode::OK);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    server.abort();
+}
+
+#[tokio::test]
+async fn protected_resource_metadata_is_public() {
+    let auth = HttpAuthConfig::jwks_static_for_test(
+        hs256_jwks("test-key", b"secret"),
+        "https://issuer.example",
+        "codelens",
+        Some("mcp:tools"),
+    );
+    let app = build_router(test_state_with_auth(auth));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/.well-known/oauth-protected-resource/mcp")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    let metadata: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(metadata["resource"], json!("/mcp"));
+    assert_eq!(
+        metadata["authorization_servers"][0],
+        json!("https://issuer.example")
+    );
+    assert_eq!(metadata["scopes_supported"][0], json!("mcp:tools"));
+}
+
+#[tokio::test]
+async fn https_transport_accepts_initialize_over_tls() {
+    let temp = temp_project_dir("https_smoke");
+    let cert_path = temp.join("cert.pem");
+    let key_path = temp.join("key.pem");
+    let rcgen::CertifiedKey { cert, key_pair } =
+        rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_owned(), "localhost".to_owned()])
+            .unwrap();
+    std::fs::write(&cert_path, cert.pem()).unwrap();
+    std::fs::write(&key_path, key_pair.serialize_pem()).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    super::transport_http::install_default_rustls_provider();
+    let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert_path, &key_path)
+        .await
+        .unwrap();
+    let server = tokio::spawn(async move {
+        axum_server::from_tcp_rustls(listener, tls_config)
+            .serve(build_router(test_state()).into_make_service())
+            .await
+            .unwrap();
+    });
+
+    let body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#;
+    let response = tokio::task::spawn_blocking(move || {
+        use std::io::{Read, Write};
+        let connector = native_tls::TlsConnector::builder()
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+            .build()
+            .unwrap();
+        let stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let mut stream = connector.connect("127.0.0.1", stream).unwrap();
+        write!(
+            stream,
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nAccept: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    })
+    .await
+    .unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert!(response.contains(r#""result""#), "{response}");
+    assert!(response.contains(r#""protocolVersion""#), "{response}");
+    server.abort();
+}
+
 // ── POST /mcp ────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -149,6 +621,95 @@ async fn initialize_advertises_tools_list_changed_in_http_mode() {
         value["result"]["capabilities"]["resources"]["listChanged"],
         serde_json::json!(false)
     );
+}
+
+#[tokio::test]
+async fn anthropic_remote_compat_initialize_advertises_tools_only() {
+    let app = build_router(test_state_with_compat(RuntimeCompatMode::AnthropicRemote));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let capabilities = &value["result"]["capabilities"];
+    assert!(capabilities.get("tools").is_some());
+    assert!(capabilities.get("resources").is_none(), "body: {body}");
+    assert!(capabilities.get("prompts").is_none(), "body: {body}");
+}
+
+#[tokio::test]
+async fn anthropic_remote_compat_hides_resources_and_prompts_methods() {
+    let app = build_router(test_state_with_compat(RuntimeCompatMode::AnthropicRemote));
+    for method in ["resources/list", "prompts/list"] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(format!(
+                        r#"{{"jsonrpc":"2.0","id":1,"method":"{method}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_string(resp).await;
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["error"]["code"], -32601, "body: {body}");
+    }
+}
+
+#[tokio::test]
+async fn anthropic_remote_compat_tools_list_uses_connector_safe_shape() {
+    let app = build_router(test_state_with_compat(RuntimeCompatMode::AnthropicRemote));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let result = value["result"].as_object().expect("result object");
+    assert!(result.contains_key("tools"), "body: {body}");
+    assert_eq!(
+        result.len(),
+        1,
+        "connector-safe result should only expose tools: {body}"
+    );
+    let first_tool = result["tools"]
+        .as_array()
+        .and_then(|tools| tools.first())
+        .and_then(|tool| tool.as_object())
+        .expect("first tool object");
+    assert!(first_tool.contains_key("name"));
+    assert!(first_tool.contains_key("description"));
+    assert!(first_tool.contains_key("inputSchema"));
+    assert!(!first_tool.contains_key("_meta"));
 }
 
 #[tokio::test]
@@ -2352,14 +2913,15 @@ async fn server_card_advertises_supported_protocol_versions() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(
-        body.contains(r#""latestProtocolVersion": "2025-06-18""#),
+        body.contains(r#""latestProtocolVersion": "2025-11-25""#),
         "card should pin latest version, got: {body}"
     );
     assert!(
         body.contains(r#""supportedProtocolVersions""#)
+            && body.contains(r#""2025-11-25""#)
             && body.contains(r#""2025-03-26""#)
             && body.contains(r#""2025-06-18""#),
-        "card should list both supported versions, got: {body}"
+        "card should list supported versions, got: {body}"
     );
 }
 
@@ -2694,21 +3256,24 @@ async fn post_with_unsupported_protocol_version_header_returns_bad_request() {
 #[tokio::test]
 async fn post_with_supported_protocol_version_header_is_accepted() {
     let app = build_router(test_state());
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/mcp")
-                .header("content-type", "application/json")
-                .header("mcp-protocol-version", "2025-06-18")
-                .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
+    for version in ["2025-11-25", "2025-06-18", "2025-03-26"] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("mcp-protocol-version", version)
+                    .body(axum::body::Body::from(
+                        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "version {version}");
+    }
 }
 
 #[tokio::test]
@@ -2736,6 +3301,30 @@ async fn initialize_echoes_requested_supported_protocol_version() {
 }
 
 #[tokio::test]
+async fn initialize_echoes_latest_supported_protocol_version() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains(r#""protocolVersion":"2025-11-25""#),
+        "expected 2025-11-25 echoed, got: {body}"
+    );
+}
+
+#[tokio::test]
 async fn initialize_falls_back_to_latest_for_unknown_client_version() {
     let app = build_router(test_state());
     let resp = app
@@ -2754,7 +3343,7 @@ async fn initialize_falls_back_to_latest_for_unknown_client_version() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(
-        body.contains(r#""protocolVersion":"2025-06-18""#),
+        body.contains(r#""protocolVersion":"2025-11-25""#),
         "expected latest fallback, got: {body}"
     );
 }

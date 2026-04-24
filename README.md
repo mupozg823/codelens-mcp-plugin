@@ -24,7 +24,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 - Workspace version: `1.9.50`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
 - Registered tool definitions: `113`
-- Tool output schemas: `77 / 113`
+- Tool output schemas: `79 / 113`
 - Supported language families: `30` across `49` extensions
 - Profiles: `planner-readonly` (35), `builder-minimal` (38), `reviewer-graph` (37), `evaluator-compact` (14), `refactor-full` (51), `ci-audit` (45), `workflow-first` (19)
 - Presets: `minimal` (27), `balanced` (80), `full` (113)
@@ -119,6 +119,14 @@ codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon
 
 # Optional: a second daemon scoped for refactor-capable agents
 codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
+
+# Public remote deployment must be HTTPS + JWKS protected
+codelens-mcp /path/to/project \
+  --transport https --listen 0.0.0.0 --port 7837 \
+  --tls-cert /etc/codelens/cert.pem --tls-key /etc/codelens/key.pem \
+  --auth jwks --auth-jwks-url https://issuer.example/.well-known/jwks.json \
+  --auth-issuer https://issuer.example --auth-audience codelens-mcp \
+  --auth-scope mcp:tools
 ```
 
 Those ports are the public generic example. In this repository's local launchd
@@ -146,6 +154,7 @@ address remains the public generic example used throughout this section.
 | Single-agent, ephemeral sessions                     | stdio                     | Zero setup, auto-lifecycle, no port management                         |
 | 2+ agents (Claude + Codex + Cursor) on the same repo | **HTTP**                  | One shared index, 100–200 MB saved per extra agent                     |
 | Long-running agent or automation loop                | **HTTP**                  | Avoids cold-start on every session                                     |
+| Public remote connector                              | **HTTPS + JWKS**          | Non-loopback bind fails closed unless TLS and Bearer/JWKS auth are set |
 | CI / one-shot script                                 | stdio                     | `--oneshot` matches short-lived commands                               |
 | Mutation-heavy workflow needing isolation            | **HTTP with two daemons** | Read-only port for planners, mutation-enabled port for refactor agents |
 

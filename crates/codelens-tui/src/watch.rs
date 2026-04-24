@@ -425,17 +425,16 @@ pub fn run(trace_arg: Option<&str>, project_root: &Path) -> Result<()> {
             break Err::<(), anyhow::Error>(err.into());
         }
 
-        if event::poll(POLL_INTERVAL)? {
-            if let Event::Key(key) = event::read()?
-                && key.kind == KeyEventKind::Press
-            {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => break Ok(()),
-                    KeyCode::Char('p') => state.paused = !state.paused,
-                    KeyCode::Char('c') => state.events.clear(),
-                    KeyCode::Char('f') => state.cycle_phase(),
-                    _ => {}
-                }
+        if event::poll(POLL_INTERVAL)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => break Ok(()),
+                KeyCode::Char('p') => state.paused = !state.paused,
+                KeyCode::Char('c') => state.events.clear(),
+                KeyCode::Char('f') => state.cycle_phase(),
+                _ => {}
             }
         }
     };

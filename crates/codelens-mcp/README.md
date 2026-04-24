@@ -110,6 +110,12 @@ codelens-mcp . --cmd get_ranked_context --args '{"query":"http session bootstrap
 codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only     --port 7837
 # one mutation-enabled daemon for refactor agents
 codelens-mcp /path/to/project --transport http --profile refactor-full  --daemon-mode mutation-enabled --port 7838
+
+# public remote connector: HTTPS + Bearer/JWKS
+codelens-mcp /path/to/project --transport https --listen 0.0.0.0 --port 7837 \
+  --tls-cert /etc/codelens/cert.pem --tls-key /etc/codelens/key.pem \
+  --auth jwks --auth-jwks-url https://issuer.example/.well-known/jwks.json \
+  --auth-issuer https://issuer.example --auth-audience codelens-mcp
 ```
 
 See `docs/multi-agent-integration.md` for the full protocol.
