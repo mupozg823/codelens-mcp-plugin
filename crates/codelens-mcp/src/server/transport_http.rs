@@ -1,9 +1,9 @@
 //! Streamable HTTP transport for MCP.
 //!
 //! Negotiates protocol versions declared in `protocol::SUPPORTED_PROTOCOL_VERSIONS`
-//! (currently 2025-06-18 and 2025-03-26). Clients pin a version on subsequent
-//! requests via the `MCP-Protocol-Version` header; absent → legacy 2025-03-26,
-//! unknown → 400.
+//! (currently 2025-11-25, 2025-06-18, and 2025-03-26). Clients pin a version on
+//! subsequent requests via the `MCP-Protocol-Version` header; absent → legacy
+//! 2025-03-26, unknown → 400.
 //!
 //! Endpoints:
 //! - POST /mcp: JSON-RPC requests. Supports Accept: application/json (default) or text/event-stream (SSE).
@@ -22,15 +22,58 @@ use crate::protocol::{JsonRpcRequest, JsonRpcResponse, SUPPORTED_PROTOCOL_VERSIO
 use crate::tool_defs::{ToolProfile, ToolSurface, default_budget_for_profile};
 use anyhow::Result;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::{Router, routing};
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
+use std::sync::{Arc, Once};
 use std::time::Duration;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
+
+#[derive(Debug, Clone)]
+pub(crate) struct TlsConfig {
+    pub(crate) cert_path: PathBuf,
+    pub(crate) key_path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct HttpServerConfig {
+    pub(crate) listen: IpAddr,
+    pub(crate) port: u16,
+    pub(crate) tls: Option<TlsConfig>,
+}
+
+impl HttpServerConfig {
+    pub(crate) fn socket_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.listen, self.port)
+    }
+
+    pub(crate) fn transport_label(&self) -> &'static str {
+        if self.tls.is_some() { "https" } else { "http" }
+    }
+}
+
+fn ensure_rustls_crypto_provider() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+}
+
+pub(crate) async fn load_rustls_config(
+    tls: &TlsConfig,
+) -> Result<axum_server::tls_rustls::RustlsConfig> {
+    ensure_rustls_crypto_provider();
+    Ok(axum_server::tls_rustls::RustlsConfig::from_pem_file(
+        tls.cert_path.clone(),
+        tls.key_path.clone(),
+    )
+    .await?)
+}
 
 /// Origin header gate — spec §"Security Warning": servers MUST validate Origin
 /// to defeat DNS rebinding attacks. We allow requests that either omit Origin
@@ -95,6 +138,14 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
                 .delete(mcp_delete_handler),
         )
         .route("/.well-known/mcp.json", routing::get(server_card_handler))
+        .route(
+            "/.well-known/oauth-protected-resource",
+            routing::get(protected_resource_metadata_handler),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/{*path}",
+            routing::get(protected_resource_metadata_handler),
+        )
         .with_state(state)
 }
 
@@ -109,6 +160,43 @@ async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
     )
 }
 
+async fn protected_resource_metadata_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    match state.http_auth().protected_resource_metadata() {
+        Some(metadata) => (
+            StatusCode::OK,
+            [("content-type", "application/json")],
+            serde_json::to_string_pretty(&metadata).unwrap_or_default(),
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn auth_rejection_response(state: &AppState, headers: &HeaderMap) -> Option<Response> {
+    let auth = state.http_auth();
+    match auth.authorize(headers).await {
+        Ok(()) => None,
+        Err(crate::server::auth::AuthFailure::InsufficientScope) => Some(
+            (
+                StatusCode::FORBIDDEN,
+                [(header::WWW_AUTHENTICATE, auth.www_authenticate())],
+                "Insufficient scope",
+            )
+                .into_response(),
+        ),
+        Err(_) => Some(
+            (
+                StatusCode::UNAUTHORIZED,
+                [(header::WWW_AUTHENTICATE, auth.www_authenticate())],
+                "Unauthorized",
+            )
+                .into_response(),
+        ),
+    }
+}
+
 /// Phase 4d (§single-instance guard): probe the target port before
 /// attempting to bind. Returns `true` if the port is already
 /// accepting connections, which we interpret as "another CodeLens
@@ -121,11 +209,10 @@ async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
 /// network unreachable) is also treated as "port is free" —
 /// conservative, since the actual `bind` call will still catch a
 /// real bind conflict.
-async fn port_is_occupied(port: u16) -> bool {
+async fn addr_is_occupied(addr: SocketAddr) -> bool {
     use tokio::net::TcpStream;
     use tokio::time::{Duration, timeout};
-    let addr = format!("127.0.0.1:{port}");
-    match timeout(Duration::from_millis(200), TcpStream::connect(&addr)).await {
+    match timeout(Duration::from_millis(200), TcpStream::connect(addr)).await {
         // Successful connect within 200 ms → something is listening.
         Ok(Ok(_stream)) => true,
         // Any error (ConnectionRefused, etc.) → port is free.
@@ -133,6 +220,11 @@ async fn port_is_occupied(port: u16) -> bool {
         // Timeout → treat as free (bind will catch a real conflict).
         Err(_) => false,
     }
+}
+
+#[cfg(test)]
+async fn port_is_occupied(port: u16) -> bool {
+    addr_is_occupied(SocketAddr::from(([127, 0, 0, 1], port))).await
 }
 
 /// Phase 4d (§single-instance guard): log and exit 0 when we detect
@@ -157,18 +249,21 @@ fn emit_existing_instance_exit(port: u16, project_root: String, daemon_started_a
 
 /// Start the HTTP server with Streamable HTTP transport.
 #[tokio::main]
-pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
-    state.metrics().record_transport_session("http");
+pub(crate) async fn run_http(state: Arc<AppState>, config: HttpServerConfig) -> Result<()> {
+    state
+        .metrics()
+        .record_transport_session(config.transport_label());
+    let addr = config.socket_addr();
 
     // Phase 4d §single-instance guard: probe before bind. Catches
     // the common duplicate-launcher case (two launchd-style sources
     // racing for the same port) with a sub-second check instead of
     // letting both processes reach `bind()` and stack bind errors
     // in the append-only daemon log.
-    if port_is_occupied(port).await {
+    if addr_is_occupied(addr).await {
         let project_root = state.current_project_scope();
         let daemon_started_at = state.daemon_started_at().to_string();
-        emit_existing_instance_exit(port, project_root, &daemon_started_at);
+        emit_existing_instance_exit(config.port, project_root, &daemon_started_at);
     }
 
     let app = build_router(state.clone());
@@ -188,8 +283,11 @@ pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
         }
     });
 
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    tracing::info!("CodeLens MCP HTTP server listening on http://{addr}/mcp");
+    tracing::info!(
+        transport = config.transport_label(),
+        "CodeLens MCP server listening on {}://{addr}/mcp",
+        config.transport_label()
+    );
 
     // Phase 4d §single-instance guard: even with pre-probe, a
     // race window exists where a second instance bound the port
@@ -202,17 +300,17 @@ pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
             let project_root = state.current_project_scope();
             let daemon_started_at = state.daemon_started_at().to_string();
             tracing::warn!(
-                port,
+                port = config.port,
                 project_root = %project_root,
                 git_sha = crate::build_info::BUILD_GIT_SHA,
                 daemon_started_at = %daemon_started_at,
                 "bind raced with existing instance (AddrInUse after probe) — deferring"
             );
-            emit_existing_instance_exit(port, project_root, &daemon_started_at);
+            emit_existing_instance_exit(config.port, project_root, &daemon_started_at);
         }
         Err(error) => {
             tracing::error!(
-                port,
+                port = config.port,
                 project_root = %state.current_project_scope(),
                 git_sha = crate::build_info::BUILD_GIT_SHA,
                 daemon_started_at = state.daemon_started_at(),
@@ -222,17 +320,24 @@ pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
             return Err(error.into());
         }
     };
-    axum::serve(listener, app).await.map_err(|error| {
-        tracing::error!(
-            port,
-            project_root = %state.current_project_scope(),
-            git_sha = crate::build_info::BUILD_GIT_SHA,
-            daemon_started_at = state.daemon_started_at(),
-            error = %error,
-            "CodeLens MCP HTTP server exited with error"
-        );
-        error
-    })?;
+    if let Some(tls) = config.tls {
+        let rustls_config = load_rustls_config(&tls).await?;
+        axum_server::from_tcp_rustls(listener.into_std()?, rustls_config)
+            .serve(app.into_make_service())
+            .await?;
+    } else {
+        axum::serve(listener, app).await.map_err(|error| {
+            tracing::error!(
+                port = config.port,
+                project_root = %state.current_project_scope(),
+                git_sha = crate::build_info::BUILD_GIT_SHA,
+                daemon_started_at = state.daemon_started_at(),
+                error = %error,
+                "CodeLens MCP HTTP server exited with error"
+            );
+            error
+        })?;
+    }
     Ok(())
 }
 
@@ -248,6 +353,9 @@ async fn mcp_post_handler(
     }
     if !protocol_version_header_ok(&headers) {
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
+    }
+    if let Some(response) = auth_rejection_response(&state, &headers).await {
+        return response;
     }
 
     let session_id = headers
@@ -366,6 +474,9 @@ async fn mcp_get_handler(State(state): State<Arc<AppState>>, headers: HeaderMap)
     if !protocol_version_header_ok(&headers) {
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
     }
+    if let Some(response) = auth_rejection_response(&state, &headers).await {
+        return response;
+    }
 
     let session_id = headers.get("mcp-session-id").and_then(|v| v.to_str().ok());
 
@@ -414,6 +525,9 @@ async fn mcp_delete_handler(State(state): State<Arc<AppState>>, headers: HeaderM
     }
     if !protocol_version_header_ok(&headers) {
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
+    }
+    if let Some(response) = auth_rejection_response(&state, &headers).await {
+        return response;
     }
     if let Some(id) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
         && let Some(store) = &state.session_store

@@ -1667,6 +1667,18 @@ fn resolve_model_dir_accepts_direct_model_dir_override() {
 }
 
 #[test]
+fn executable_model_roots_include_installed_sidecar_layouts() {
+    let exe_dir = std::path::Path::new("/opt/codelens/bin");
+    let roots = executable_model_roots(exe_dir);
+
+    assert!(roots.contains(&std::path::PathBuf::from("/opt/codelens/bin/models")));
+    assert!(roots.contains(&std::path::PathBuf::from("/opt/codelens/models")));
+    assert!(roots.contains(&std::path::PathBuf::from(
+        "/opt/codelens/share/codelens/models"
+    )));
+}
+
+#[test]
 fn configured_embedding_model_name_prefers_manifest_name_from_model_dir() {
     let _lock = MODEL_LOCK.lock().unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -1774,6 +1786,60 @@ fn recommended_embed_threads_caps_macos_style_load() {
     let threads = recommended_embed_threads();
     assert!(threads >= 1);
     assert!(threads <= 8);
+}
+
+#[cfg(all(target_os = "macos", not(feature = "coreml")))]
+#[test]
+fn macos_runtime_preference_reports_cpu_when_coreml_is_not_compiled() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let previous = std::env::var("CODELENS_EMBED_PROVIDER").ok();
+    unsafe {
+        std::env::remove_var("CODELENS_EMBED_PROVIDER");
+    }
+
+    let default_preference = configured_embedding_runtime_preference();
+
+    unsafe {
+        std::env::set_var("CODELENS_EMBED_PROVIDER", "coreml");
+    }
+    let explicit_coreml_preference = configured_embedding_runtime_preference();
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_EMBED_PROVIDER", value),
+            None => std::env::remove_var("CODELENS_EMBED_PROVIDER"),
+        }
+    }
+
+    assert_eq!(default_preference, "cpu");
+    assert_eq!(explicit_coreml_preference, "cpu");
+}
+
+#[cfg(all(target_os = "macos", feature = "coreml"))]
+#[test]
+fn macos_runtime_preference_reports_coreml_when_coreml_is_compiled() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let previous = std::env::var("CODELENS_EMBED_PROVIDER").ok();
+    unsafe {
+        std::env::remove_var("CODELENS_EMBED_PROVIDER");
+    }
+
+    let default_preference = configured_embedding_runtime_preference();
+
+    unsafe {
+        std::env::set_var("CODELENS_EMBED_PROVIDER", "coreml");
+    }
+    let explicit_coreml_preference = configured_embedding_runtime_preference();
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_EMBED_PROVIDER", value),
+            None => std::env::remove_var("CODELENS_EMBED_PROVIDER"),
+        }
+    }
+
+    assert_eq!(default_preference, "coreml_preferred");
+    assert_eq!(explicit_coreml_preference, "coreml");
 }
 
 #[test]

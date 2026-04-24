@@ -139,7 +139,11 @@ case "$archive_path" in
 		;;
 esac
 
+rm -rf "$bundle_dir/models/codesearch"
 cp -R "$models_dir/codesearch" "$bundle_dir/models/"
+python3 scripts/verify-model-assets.py "$bundle_dir/models" \
+	--write-manifest "$bundle_dir/models/codesearch/model-manifest.json" \
+	--quiet
 cp "$sbom_path" "$bundle_dir/sbom/"
 cp LICENSE "$bundle_dir/"
 

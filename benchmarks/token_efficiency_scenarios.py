@@ -268,7 +268,17 @@ def run_queue_observability_benchmark(
         metrics_resp = runtime.mcp_http_tool_call(base_url, "get_tool_metrics", {}, request_id=999)
         metrics_payload = runtime.extract_tool_payload(metrics_resp).get("data", {})
         session = metrics_payload.get("session", {})
+        analysis_observability = metrics_payload.get("analysis_observability") or {}
+        if analysis_observability:
+            session = {**session, **analysis_observability}
         derived = metrics_payload.get("derived_kpis", {})
+        if analysis_observability.get("analysis_job_success_rate") is not None:
+            derived = {
+                **derived,
+                "analysis_job_success_rate": analysis_observability.get(
+                    "analysis_job_success_rate"
+                ),
+            }
         expected_jobs = 3
         for idx in range(50):
             terminal_count = (
@@ -287,7 +297,17 @@ def run_queue_observability_benchmark(
             )
             metrics_payload = runtime.extract_tool_payload(metrics_resp).get("data", {})
             session = metrics_payload.get("session", {})
+            analysis_observability = metrics_payload.get("analysis_observability") or {}
+            if analysis_observability:
+                session = {**session, **analysis_observability}
             derived = metrics_payload.get("derived_kpis", {})
+            if analysis_observability.get("analysis_job_success_rate") is not None:
+                derived = {
+                    **derived,
+                    "analysis_job_success_rate": analysis_observability.get(
+                        "analysis_job_success_rate"
+                    ),
+                }
         queue_failures = session.get("analysis_jobs_failed", 0)
         queue_max_depth = session.get("analysis_queue_max_depth", 0)
         peak_workers = session.get("peak_active_analysis_workers", 0)

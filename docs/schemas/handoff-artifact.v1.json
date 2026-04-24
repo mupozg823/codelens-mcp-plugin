@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://codelens.mcp/schemas/handoff-artifact.v1.json",
   "title": "CodeLens Harness Handoff Artifact v1",
-  "description": "Machine-readable contract for planner -> builder -> reviewer handoffs in the planner-builder harness mode. The substrate (CodeLens) persists these artifacts; agent hosts (Claude, Codex, Cursor, CI) read and write them. Live bidirectional agent chat is explicitly NOT a substrate-level feature — agents coordinate by writing and reading these artifacts.",
+  "description": "Machine-readable contract for long-running session continuation and planner -> builder -> reviewer handoffs. The substrate (CodeLens) persists these artifacts; agent hosts (Claude, Codex, Cursor, CI) read and write them. Live bidirectional agent chat is explicitly NOT a substrate-level feature — agents coordinate by writing and reading these artifacts.",
   "type": "object",
   "required": ["schema_version", "kind", "session_id", "created_at", "payload"],
   "additionalProperties": false,
@@ -13,8 +13,13 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["planner_brief", "builder_result", "reviewer_verdict"],
-      "description": "Which leg of the planner -> builder -> reviewer chain this artifact represents."
+      "enum": [
+        "session_baton",
+        "planner_brief",
+        "builder_result",
+        "reviewer_verdict"
+      ],
+      "description": "Which continuation or planner -> builder -> reviewer leg this artifact represents."
     },
     "session_id": {
       "type": "string",
@@ -33,7 +38,9 @@
             "planner-reviewer",
             "builder-refactor",
             "reviewer",
-            "solo-agent"
+            "solo-agent",
+            "initializer",
+            "coding-agent"
           ]
         },
         "surface": {
@@ -76,6 +83,7 @@
     },
     "payload": {
       "oneOf": [
+        { "$ref": "#/$defs/SessionBaton" },
         { "$ref": "#/$defs/PlannerBrief" },
         { "$ref": "#/$defs/BuilderResult" },
         { "$ref": "#/$defs/ReviewerVerdict" }
@@ -83,6 +91,87 @@
     }
   },
   "$defs": {
+    "SessionBaton": {
+      "type": "object",
+      "description": "Continuation artifact for work that must survive context-window boundaries. It carries the minimal resume state a new session needs without relying on chat history.",
+      "required": [
+        "goal",
+        "feature_list",
+        "progress_log",
+        "resume_plan",
+        "clean_state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "goal": {
+          "type": "string",
+          "description": "Single-sentence statement of the long-running objective."
+        },
+        "init_script": {
+          "type": "object",
+          "description": "Optional setup script or command that reconstructs the execution environment for the next session.",
+          "required": ["path"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } },
+            "last_status": {
+              "type": "string",
+              "enum": ["not_run", "pass", "fail", "unknown"]
+            }
+          }
+        },
+        "feature_list": {
+          "type": "array",
+          "description": "Incremental feature checklist used to resume without re-planning the whole effort.",
+          "items": { "$ref": "#/$defs/FeatureItem" }
+        },
+        "progress_log": {
+          "type": "array",
+          "description": "Ordered progress entries; keep durable facts here instead of relying on compacted chat.",
+          "items": { "$ref": "#/$defs/ProgressEntry" }
+        },
+        "resume_plan": {
+          "type": "array",
+          "description": "Concrete next actions for the receiving session.",
+          "items": { "type": "string" }
+        },
+        "artifacts": {
+          "type": "array",
+          "description": "Durable outputs that the next session should read before acting.",
+          "items": { "$ref": "#/$defs/ArtifactRef" }
+        },
+        "git": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "worktree": { "type": "string" },
+            "branch": { "type": "string" },
+            "head": { "type": "string" },
+            "commits": { "type": "array", "items": { "type": "string" } },
+            "dirty_paths": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "clean_state": {
+          "type": "object",
+          "description": "End-state contract. Handoffs should be clean; if dirty or blocked, the reason and paths are explicit.",
+          "required": ["status"],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["clean", "dirty", "blocked"]
+            },
+            "required_before_handoff": {
+              "type": "boolean",
+              "default": true
+            },
+            "paths": { "type": "array", "items": { "type": "string" } },
+            "reason": { "type": "string" }
+          }
+        }
+      }
+    },
     "PlannerBrief": {
       "type": "object",
       "description": "Planner output consumed by a builder. Must be ready for delegation — the builder should not need to re-plan.",
@@ -288,6 +377,53 @@
         },
         "rank": { "type": "number" },
         "why": { "type": "string" }
+      }
+    },
+    "FeatureItem": {
+      "type": "object",
+      "required": ["id", "title", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "done", "blocked"]
+        },
+        "evidence": { "type": "string" }
+      }
+    },
+    "ProgressEntry": {
+      "type": "object",
+      "required": ["at", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "summary": { "type": "string" },
+        "feature_id": { "type": "string" },
+        "artifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ArtifactRef" }
+        }
+      }
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "required": ["kind", "reference"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["file", "command", "report", "commit", "resource"]
+        },
+        "reference": {
+          "type": "string",
+          "description": "File path, command, commit id, or codelens:// URI."
+        },
+        "description": { "type": "string" }
       }
     },
     "PreflightReport": {

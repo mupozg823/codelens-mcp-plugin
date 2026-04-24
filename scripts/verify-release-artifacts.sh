@@ -131,14 +131,27 @@ verify_tar_structure() {
 		[[ -z "$entry" ]] && continue
 		entries+=("$entry")
 	done < <(tar -tzf "$archive")
-	if [[ ${#entries[@]} -ne 1 ]]; then
-		echo "unexpected tar contents in $archive: expected exactly 1 entry, got ${#entries[@]}" >&2
-		return 1
-	fi
-	if [[ "${entries[0]}" != "codelens-mcp" ]]; then
-		echo "unexpected tar payload in $archive: ${entries[0]}" >&2
-		return 1
-	fi
+	verify_standard_payload_entries "$archive" "codelens-mcp" "${entries[@]}"
+}
+
+verify_standard_payload_entries() {
+	local archive="$1"
+	local binary_name="$2"
+	shift 2
+	local -a entries=("$@")
+	for required in \
+		"$binary_name" \
+		"models/codesearch/model.onnx" \
+		"models/codesearch/tokenizer.json" \
+		"models/codesearch/config.json" \
+		"models/codesearch/special_tokens_map.json" \
+		"models/codesearch/tokenizer_config.json" \
+		"models/codesearch/model-manifest.json"; do
+		if ! printf '%s\n' "${entries[@]}" | grep -Fxq "$required"; then
+			echo "standard release archive missing required file $required in $archive" >&2
+			return 1
+		fi
+	done
 }
 
 verify_airgap_bundle() {
@@ -160,6 +173,9 @@ verify_airgap_bundle() {
 		"models/codesearch/model.onnx" \
 		"models/codesearch/tokenizer.json" \
 		"models/codesearch/config.json" \
+		"models/codesearch/special_tokens_map.json" \
+		"models/codesearch/tokenizer_config.json" \
+		"models/codesearch/model-manifest.json" \
 		"checksums-sha256.txt" \
 		"AIRGAP-BUNDLE.md" \
 		"bundle-manifest.json" \
@@ -194,14 +210,7 @@ verify_zip_structure() {
 		echo "missing archive tool for zip validation: need unzip or 7z" >&2
 		return 1
 	fi
-	if [[ ${#entries[@]} -ne 1 ]]; then
-		echo "unexpected zip contents in $archive: expected exactly 1 entry, got ${#entries[@]}" >&2
-		return 1
-	fi
-	if [[ "${entries[0]}" != "codelens-mcp.exe" ]]; then
-		echo "unexpected zip payload in $archive: ${entries[0]}" >&2
-		return 1
-	fi
+	verify_standard_payload_entries "$archive" "codelens-mcp.exe" "${entries[@]}"
 }
 
 verify_sbom_structure() {

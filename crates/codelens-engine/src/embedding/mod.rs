@@ -51,7 +51,8 @@ pub(super) use prompt::{
 #[cfg(test)]
 pub(super) use runtime::{
     CODESEARCH_MODEL_NAME, DEFAULT_MACOS_EMBED_BATCH_SIZE, embed_batch_size,
-    recommended_embed_threads, requested_embedding_model_override, resolve_model_dir,
+    executable_model_roots, recommended_embed_threads, requested_embedding_model_override,
+    resolve_model_dir,
 };
 
 // ── Result type ───────────────────────────────────────────────────────

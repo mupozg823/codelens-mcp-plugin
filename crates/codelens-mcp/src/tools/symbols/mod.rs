@@ -1,5 +1,6 @@
 mod analyzer;
 mod formatter;
+mod fusion;
 mod handlers;
 
 pub(crate) use analyzer::{semantic_results_for_query, semantic_status};
@@ -65,7 +66,8 @@ mod tests {
         );
 
         assert_eq!(result.symbols[0].name, "rename_symbol");
-        assert!(result.symbols[0].relevance_score >= 90);
+        assert!(result.symbols[0].relevance_score >= 80);
+        assert!(result.symbols[0].relevance_score < 90);
         assert!(
             result
                 .symbols
@@ -132,6 +134,51 @@ mod tests {
                 .symbols
                 .iter()
                 .any(|entry| entry.name == "rewrite_call_arguments")
+        );
+    }
+
+    #[test]
+    fn semantic_only_entries_do_not_outrank_strong_structural_evidence() {
+        let mut result = RankedContextResult {
+            query: "route http request to mcp handler".to_owned(),
+            count: 1,
+            token_budget: 1200,
+            chars_used: 64,
+            symbols: vec![RankedContextEntry {
+                name: "mcp_post_handler".to_owned(),
+                kind: "function".to_owned(),
+                file: "crates/codelens-mcp/src/server/transport_http.rs".to_owned(),
+                line: 344,
+                signature: "async fn mcp_post_handler".to_owned(),
+                body: None,
+                relevance_score: 91,
+            }],
+        };
+
+        merge_semantic_ranked_entries(
+            "route http request to mcp handler",
+            &mut result,
+            vec![SemanticMatch {
+                symbol_name: "unrelated_route_helper".to_owned(),
+                kind: "function".to_owned(),
+                file_path: "crates/codelens-mcp/src/server/router.rs".to_owned(),
+                line: 20,
+                signature: "fn unrelated_route_helper".to_owned(),
+                name_path: "unrelated_route_helper".to_owned(),
+                score: 0.99,
+            }],
+            8,
+        );
+
+        assert_eq!(result.symbols[0].name, "mcp_post_handler");
+        let semantic_only = result
+            .symbols
+            .iter()
+            .find(|entry| entry.name == "unrelated_route_helper")
+            .expect("semantic-only entry should still be visible as a hint");
+        assert!(
+            semantic_only.relevance_score < 90,
+            "semantic-only hints should be capped below strong structural evidence"
         );
     }
 

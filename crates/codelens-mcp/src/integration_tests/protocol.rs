@@ -744,6 +744,40 @@ fn tools_list_exposes_annotation_titles() {
 }
 
 #[test]
+fn tools_list_exposes_latest_tool_title_without_advertising_unsupported_execution() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "full": true,
+                "includeAnnotations": false,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let tools = value["result"]["tools"]
+        .as_array()
+        .expect("tools/list tools array");
+    let bootstrap = tools
+        .iter()
+        .find(|tool| tool["name"] == "prepare_harness_session")
+        .expect("prepare_harness_session present");
+
+    assert_eq!(bootstrap["title"], json!("Prepare Harness Session"));
+    assert!(bootstrap.get("annotations").is_none());
+    assert!(bootstrap.get("icons").is_none());
+    assert!(bootstrap.get("execution").is_none());
+}
+
+#[test]
 fn tool_call_result_meta_exposes_preferred_executor() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);

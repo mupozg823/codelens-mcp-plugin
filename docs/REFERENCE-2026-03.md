@@ -35,7 +35,10 @@
 
 ---
 
-## 2. MCP 스펙 업데이트 (2025-03-26)
+## 2. MCP 스펙 업데이트 (현재 기준: 2025-11-25)
+
+> 이 문서는 2026년 3월 당시 조사 자료라 일부 외부 생태계 메모는 역사적 맥락을 유지한다.
+> CodeLens 구현 기준은 현재 MCP 2025-11-25이며, 2025-06-18/2025-03-26 클라이언트는 하위 호환으로 협상한다.
 
 ### 2.1 CodeLens 구현 상태
 
@@ -46,13 +49,15 @@
 | Resources            | 확정      | ✅ 구현 완료 (3개: project/overview, symbols/index, tools/list)                     | —                       |
 | Prompts              | 확정      | ✅ 구현 완료 (3개: review-file, onboard-project, analyze-impact)                    | —                       |
 | ProgressNotification | 확정      | ⚠️ 수신만 가능, 발신 미구현                                                         | **High**                |
-| Streamable HTTP      | 확정      | ❌ 미구현 (현재 POST only)                                                          | Low (stdio가 주 사용처) |
+| Streamable HTTP      | 확정      | ✅ 구현 완료 (POST/GET SSE/DELETE + session resume)                                 | —                       |
 | Elicitation          | 확정      | ❌ 미구현                                                                           | Low                     |
-| OAuth 2.1            | 확정      | ❌ 미구현                                                                           | 해당없음 (로컬 전용)    |
+| OAuth protected resource | 확정  | ✅ Bearer/JWKS 검증 + protected resource metadata                                   | 원격 배포 필수          |
 
 ### 2.2 참고 문서
 
-- [MCP Specification 2025-03-26](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports)
+- [MCP Specification 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25)
+- [MCP Streamable HTTP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+- [MCP Authorization 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
 - [MCP Protocol Upgrade Guide (hermes_mcp)](https://hexdocs.pm/hermes_mcp/0.4.0/protocol_upgrade_2025_03_26.html)
 - [MCP Auth Spec Review (Logto)](https://blog.logto.io/mcp-auth-spec-review-2025-03-26)
 - [Streamable HTTP MCP Template (GitHub)](https://github.com/iceener/streamable-mcp-server-template)
@@ -250,10 +255,10 @@ static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> =
 | 작업                      | 이유                           |
 | ------------------------- | ------------------------------ |
 | proc macro 자체 구현      | rmcp 1.0 기다리면 됨           |
-| Streamable HTTP/SSE       | 사용할 클라이언트 없음 (YAGNI) |
+| 추가 legacy SSE transport | Streamable HTTP가 표준 경로    |
 | rmcp 마이그레이션         | 0.16.0 불안정                  |
 | Security Scanner 에이전트 | 기대치 대비 실효성 부족        |
-| OAuth 2.1                 | 로컬 전용 서버에 불필요        |
+| OAuth authorization server | 외부 issuer/JWKS 검증만 담당   |
 | 경쟁사 벤치마크 비교표    | 공정한 비교 불가, 오해 소지    |
 
 ---

@@ -20,12 +20,14 @@ categories = ["development-tools", "command-line-utilities"]
 [workspace.dependencies]
 anyhow = "1.0"
 axum = "0.8"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 globset = "0.4"
 petgraph = "0.7"
 rayon = "1.10"
 regex = "1.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 strsim = "0.11"
@@ -88,6 +90,8 @@ uuid = { version = "1", features = ["v4"] }
 tokio-stream = "0.1"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+jsonwebtoken = "9"
+ureq = "2.12"
 
 [profile.release]
 lto = true

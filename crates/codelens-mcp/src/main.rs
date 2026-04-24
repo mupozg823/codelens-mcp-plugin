@@ -50,10 +50,11 @@ use anyhow::Result;
 use cli::format_http_startup_banner;
 use cli::{
     attach_host_arg, cli_option_value, is_attach_subcommand, is_detach_subcommand,
-    is_doctor_subcommand, render_attach_instructions, resolve_startup_project, run_detach_command,
-    run_doctor_command, select_startup_project_source,
+    is_doctor_subcommand, render_attach_instructions, render_help, render_version,
+    resolve_startup_project, run_detach_command, run_doctor_command, select_startup_project_source,
 };
 use env_compat::dual_prefix_env;
+use server::compat::ServerCompatMode;
 use server::oneshot::run_oneshot;
 use server::transport_stdio::run_stdio;
 use state::RuntimeDaemonMode;
@@ -80,6 +81,14 @@ fn configured_profile_env() -> Option<ToolProfile> {
 
 fn configured_daemon_mode_env() -> Option<RuntimeDaemonMode> {
     dual_prefix_env("CODELENS_DAEMON_MODE").map(|value| RuntimeDaemonMode::from_str(&value))
+}
+
+fn configured_compat_mode(args: &[String]) -> ServerCompatMode {
+    cli_option_value(args, "--compat")
+        .or_else(|| dual_prefix_env("CODELENS_COMPAT"))
+        .as_deref()
+        .map(ServerCompatMode::from_str)
+        .unwrap_or(ServerCompatMode::Default)
 }
 
 #[cfg(feature = "otel")]
@@ -172,6 +181,14 @@ fn main() -> Result<()> {
     init_tracing();
 
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("{}", render_help());
+        return Ok(());
+    }
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        println!("{}", render_version());
+        return Ok(());
+    }
     if is_attach_subcommand(&args) {
         println!(
             "{}",
@@ -234,12 +251,13 @@ fn main() -> Result<()> {
 
     let cmd_args = cli_option_value(&args, "--args");
 
-    let transport = cli_option_value(&args, "--transport").unwrap_or_else(|| "stdio".to_owned());
-
     #[cfg(feature = "http")]
-    let port: u16 = cli_option_value(&args, "--port")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(7837);
+    let http_runtime = server::http_config::configured_http_runtime(&args)?;
+    #[cfg(feature = "http")]
+    let transport = http_runtime.transport.clone();
+    #[cfg(not(feature = "http"))]
+    let transport = cli_option_value(&args, "--transport").unwrap_or_else(|| "stdio".to_owned());
+    let compat_mode = configured_compat_mode(&args);
 
     let project = resolve_startup_project(&project_source)?;
     if !project_source.is_explicit() && project.as_path() == std::path::Path::new("/") {
@@ -258,6 +276,9 @@ fn main() -> Result<()> {
     let app_state = AppState::new(project, preset);
     app_state.configure_transport_mode(&transport);
     app_state.configure_daemon_mode(daemon_mode);
+    app_state.configure_compat_mode(compat_mode);
+    #[cfg(feature = "http")]
+    app_state.configure_http_auth(http_runtime.auth.clone());
     if let Some(profile) = profile {
         app_state.set_surface(ToolSurface::Profile(profile));
         app_state.set_token_budget(default_budget_for_profile(profile));
@@ -267,14 +288,15 @@ fn main() -> Result<()> {
     }
 
     #[cfg(feature = "http")]
-    if transport == "http" {
+    if matches!(transport.as_str(), "http" | "https") {
         let startup_banner = format_http_startup_banner(
             app_state.project().as_path(),
             &project_source,
             app_state.surface().as_label(),
             app_state.token_budget(),
             app_state.daemon_mode(),
-            port,
+            transport.as_str(),
+            http_runtime.port,
             app_state.daemon_started_at(),
         );
         // Intentionally `warn!`: the default CODELENS_LOG filter is `warn`,
@@ -292,14 +314,14 @@ fn main() -> Result<()> {
 
     match transport.as_str() {
         #[cfg(feature = "http")]
-        "http" => {
+        "http" | "https" => {
             let state = Arc::new(app_state.with_session_store());
-            server::transport_http::run_http(state, port)
+            server::transport_http::run_http(state, http_runtime.server_config())
         }
         #[cfg(not(feature = "http"))]
-        "http" => {
+        "http" | "https" => {
             anyhow::bail!(
-                "HTTP transport requires the `http` feature. Rebuild with: cargo build --features http"
+                "HTTP/HTTPS transport requires the `http` feature. Rebuild with: cargo build --features http"
             );
         }
         _ => run_stdio(Arc::new(app_state)),
@@ -360,6 +382,19 @@ mod env_config_tests {
                     Some(RuntimeDaemonMode::MutationEnabled)
                 );
             },
+        );
+    }
+
+    #[test]
+    fn configured_compat_mode_accepts_anthropic_remote() {
+        let args = vec![
+            "codelens-mcp".to_owned(),
+            "--compat".to_owned(),
+            "anthropic-remote".to_owned(),
+        ];
+        assert_eq!(
+            configured_compat_mode(&args),
+            ServerCompatMode::AnthropicRemote
         );
     }
 

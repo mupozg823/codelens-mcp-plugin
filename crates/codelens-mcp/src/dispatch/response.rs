@@ -655,6 +655,7 @@ fn codex_builder_candidate_from_suggestions(
         })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_delegate_to_codex_builder_arguments(
     current_tool: &str,
     current_args: &Value,

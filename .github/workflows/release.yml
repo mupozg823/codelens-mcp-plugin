@@ -52,7 +52,13 @@ jobs:
         run: cargo install cargo-cyclonedx --locked
 
       - name: Build
-        run: cargo build --release --features http --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          FEATURES="http"
+          if [[ "${{ matrix.target }}" == *-apple-darwin ]]; then
+            FEATURES="http,coreml"
+          fi
+          cargo build --release --features "${FEATURES}" --target ${{ matrix.target }}
 
       - name: Generate CycloneDX SBOM
         shell: bash
@@ -70,15 +76,27 @@ jobs:
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
-          cp target/${{ matrix.target }}/release/codelens-mcp codelens-mcp
-          tar czf codelens-mcp-${{ matrix.name }}.tar.gz codelens-mcp
+          MODELS_DIR="${CODELENS_RELEASE_MODELS_DIR:-crates/codelens-engine/models}"
+          mkdir -p package/models
+          cp target/${{ matrix.target }}/release/codelens-mcp package/codelens-mcp
+          cp -R "${MODELS_DIR}/codesearch" package/models/
+          python3 scripts/verify-model-assets.py package/models \
+            --write-manifest package/models/codesearch/model-manifest.json \
+            --quiet
+          tar czf codelens-mcp-${{ matrix.name }}.tar.gz -C package codelens-mcp models
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          cp target/${{ matrix.target }}/release/codelens-mcp.exe codelens-mcp.exe
-          7z a codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe
+          MODELS_DIR="${CODELENS_RELEASE_MODELS_DIR:-crates/codelens-engine/models}"
+          mkdir -p package/models
+          cp target/${{ matrix.target }}/release/codelens-mcp.exe package/codelens-mcp.exe
+          cp -R "${MODELS_DIR}/codesearch" package/models/
+          python3 scripts/verify-model-assets.py package/models \
+            --write-manifest package/models/codesearch/model-manifest.json \
+            --quiet
+          (cd package && 7z a ../codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe models)
 
       - name: Attest build provenance
         uses: actions/attest@v4
@@ -113,11 +131,8 @@ jobs:
 
       - name: Prepare OCI image context
         run: |
-          mkdir -p oci-image/models
+          mkdir -p oci-image
           tar -xzf codelens-mcp-linux-x86_64.tar.gz -C oci-image
-          if [[ -f crates/codelens-engine/models/codesearch/model.onnx ]]; then
-            cp -R crates/codelens-engine/models/codesearch oci-image/models/
-          fi
           cp Dockerfile.release oci-image/Dockerfile
 
       - name: Set up Docker Buildx
@@ -151,18 +166,7 @@ jobs:
           provenance: true
           sbom: true
 
-      - name: Detect bundled model payload
-        id: bundled_model
-        run: |
-          if [[ -f crates/codelens-engine/models/codesearch/model.onnx ]]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping air-gapped bundle: model.onnx is not staged in this checkout."
-          fi
-
       - name: Build air-gapped bundle
-        if: steps.bundled_model.outputs.available == 'true'
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           bash scripts/build-airgap-bundle.sh \
@@ -170,7 +174,7 @@ jobs:
             --sbom codelens-mcp-linux-x86_64.cdx.json \
             --platform linux-x86_64 \
             --version "${VERSION}" \
-            --models-dir crates/codelens-engine/models \
+            --models-dir oci-image/models \
             --output codelens-mcp-airgap-linux-x86_64.tar.gz
 
       - name: Generate payload checksums

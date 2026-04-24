@@ -1338,6 +1338,10 @@ fn build_harness_artifacts_summary() -> Value {
         .as_array()
         .cloned()
         .unwrap_or_default();
+    let session_baton_required = schema["$defs"]["SessionBaton"]["required"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     json!({
         "schemas": [
             {
@@ -1348,6 +1352,10 @@ fn build_harness_artifacts_summary() -> Value {
                 "runtime_resource": HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI,
                 "doc_path": HANDOFF_ARTIFACT_SCHEMA_DOC_PATH,
                 "kinds": kinds,
+                "long_running_session_baton": {
+                    "kind": "session_baton",
+                    "required_payload_fields": session_baton_required,
+                },
             }
         ]
     })
@@ -2096,6 +2104,50 @@ mod tests {
                 json!(visible_tools(ToolSurface::Preset(*preset)).len())
             );
         }
+    }
+
+    #[test]
+    fn handoff_schema_covers_long_running_session_baton_contract() {
+        let schema = handoff_artifact_schema_json();
+        let kinds = schema["properties"]["kind"]["enum"]
+            .as_array()
+            .expect("kind enum");
+        assert!(kinds.iter().any(|kind| kind == "session_baton"));
+
+        let producer_roles = schema["properties"]["producer"]["properties"]["role"]["enum"]
+            .as_array()
+            .expect("producer role enum");
+        assert!(producer_roles.iter().any(|role| role == "initializer"));
+        assert!(producer_roles.iter().any(|role| role == "coding-agent"));
+
+        let baton = &schema["$defs"]["SessionBaton"];
+        let required = baton["required"]
+            .as_array()
+            .expect("session baton required");
+        for field in [
+            "goal",
+            "feature_list",
+            "progress_log",
+            "resume_plan",
+            "clean_state",
+        ] {
+            assert!(required.iter().any(|item| item == field), "{field}");
+        }
+        assert_eq!(
+            baton["properties"]["clean_state"]["properties"]["status"]["enum"],
+            json!(["clean", "dirty", "blocked"])
+        );
+
+        let summary = build_harness_artifacts_summary();
+        assert_eq!(
+            summary["schemas"][0]["long_running_session_baton"]["kind"],
+            json!("session_baton")
+        );
+        assert!(
+            summary["schemas"][0]["long_running_session_baton"]["required_payload_fields"]
+                .as_array()
+                .is_some_and(|fields| fields.iter().any(|field| field == "progress_log"))
+        );
     }
 
     #[test]

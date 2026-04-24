@@ -125,12 +125,42 @@ python3 benchmarks/embedding-runtime.py . --isolated-copy --output benchmarks/em
 - 재현 가능한 Codex 평가용 런은 `--isolated-copy`를 권장한다. 이 모드는 `.codelens/index` 충돌을 피하기 위해 임시 워크스페이스에서 인덱싱한다.
 - `index_embeddings` 또는 측정 대상 tool call이 실패하면 즉시 종료한다. 부분 결과를 정상 벤치로 취급하지 않는다.
 
+### 1-2-1. Daemon latency gate (daemon-latency-gate.py)
+
+```bash
+python3 benchmarks/daemon-latency-gate.py . \
+  --binary target/release/codelens-mcp \
+  --check \
+  --max-ranked-context-p95-ms 250 \
+  --max-semantic-search-p95-ms 900
+
+# macOS release/package validation can additionally fail closed on CPU fallback:
+python3 benchmarks/daemon-latency-gate.py . \
+  --binary target/release/codelens-mcp \
+  --check \
+  --require-runtime-backend coreml
+```
+
+측정 항목:
+
+- release binary를 HTTP daemon으로 실행한 persistent-connection hot path 지연
+- `get_ranked_context` hybrid / lexical-only p50, p95
+- `semantic_search` p50, p95
+- embedding runtime backend/preference (`coreml` or `cpu`)
+- semantic model sidecar resolution이 실패하면 즉시 실패
+
+주의:
+
+- 이 게이트가 제품 UX 기준이다. CLI one-shot benchmark는 프로세스 시작 비용과 섞이므로 regression 참고용으로만 본다.
+- 기본적으로 `index_embeddings`를 먼저 실행한다. 이미 인덱스가 있는 로컬 smoke에서는 `--skip-index`로 지연 측정만 반복할 수 있다.
+
 ### 1-3. 임베드 품질 benchmark (embedding-quality.py)
 
 ```bash
 python3 benchmarks/embedding-quality.py . --isolated-copy
 python3 benchmarks/embedding-quality.py . \
   --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json \
   --output benchmarks/embedding-quality-results.json \
   --markdown-output benchmarks/embedding-quality-summary.md
 ```

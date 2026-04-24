@@ -24,7 +24,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 - Workspace version: `1.9.50`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
 - Registered tool definitions: `113`
-- Tool output schemas: `77 / 113`
+- Tool output schemas: `79 / 113`
 - Supported language families: `30` across `49` extensions
 - Profiles: `planner-readonly` (35), `builder-minimal` (38), `reviewer-graph` (37), `evaluator-compact` (14), `refactor-full` (51), `ci-audit` (45), `workflow-first` (19)
 - Presets: `minimal` (27), `balanced` (80), `full` (113)
@@ -81,7 +81,7 @@ Latest release: [GitHub Releases](https://github.com/mupozg823/codelens-mcp-plug
 | -------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `cargo install codelens-mcp`                 | crates.io package version, stdio-first default build             | Single-agent local MCP sessions                      | Add `--features http` if you want shared HTTP daemons                          |
 | `cargo install codelens-mcp --features http` | crates.io package version with HTTP transport                    | Shared daemon mode from crates.io                    | No extra CodeLens package, but you still need the host client config           |
-| GitHub Releases / installer / Homebrew       | latest tagged release binary, built in CI with `--features http` | Tagged release users who want HTTP without compiling | No extra CodeLens build; semantic still needs a model sidecar or airgap bundle |
+| GitHub Releases / installer / Homebrew       | latest tagged release binary, built in CI with `--features http` (`http,coreml` on macOS) | Tagged release users who want HTTP without compiling | No extra CodeLens build; semantic still needs a model sidecar or airgap bundle |
 | `cargo install --git ...` or source build    | current repository HEAD                                          | Unreleased features on `main` / branch testing       | No extra package, but you compile locally                                      |
 
 Important:
@@ -154,7 +154,7 @@ For shared HTTP deployments, treat CodeLens coordination as advisory evidence ra
 What the standalone binary does and does not cover:
 
 - `CodeLens only` is enough for stdio use, HTTP daemon use, role-based surfaces, mutation gates, and coordination tools.
-- `Semantic retrieval` needs a model sidecar (`CODELENS_MODEL_DIR/codesearch/model.onnx`) or an air-gapped bundle.
+- `Semantic retrieval` needs the packaged model sidecar at `./models/codesearch/` next to the binary, an installed prefix sidecar such as `../models/codesearch/`, or an explicit `CODELENS_MODEL_DIR`. Release packaging fails closed if the model payload is incomplete; release CI can point at a staged model root with `CODELENS_RELEASE_MODELS_DIR`. macOS release binaries enable the `coreml` feature so the INT8 ONNX model can use the CoreML execution provider instead of silently falling back to CPU.
 - `SCIP precise navigation` needs a binary built with `--features scip-backend` and an external SCIP index.
 - `Claude -> Codex` live delegation is not a CodeLens feature. It additionally needs Claude configured with a `codex` MCP server and a working Codex CLI install.
 
@@ -426,6 +426,7 @@ See [docs/serena-comparison.md](docs/serena-comparison.md) for detailed gap anal
 cargo build --release                              # semantic pipeline enabled (76MB)
 cargo build --release --no-default-features        # without ML model (23MB)
 cargo build --release --features http              # add HTTP transport
+cargo build --release --features http,coreml       # macOS HTTP + CoreML semantic runtime
 cargo build --release --features otel              # add OpenTelemetry OTLP exporter
 cargo build --release --features scip-backend      # add SCIP precise navigation
 cargo build --release --features http,otel         # HTTP + OTel
@@ -442,6 +443,7 @@ cargo test -p codelens-mcp --no-default-features   # semantic=off path
 | Feature        | Description                               | Binary Size Impact |
 | -------------- | ----------------------------------------- | ------------------ |
 | `semantic`     | Semantic pipeline with sidecar ONNX model | +53MB              |
+| `coreml`       | macOS CoreML execution provider for semantic embeddings | platform-dependent |
 | `http`         | Streamable HTTP + SSE transport           | +2MB               |
 | `otel`         | OpenTelemetry OTLP gRPC exporter          | +4MB               |
 | `scip-backend` | SCIP index precise navigation             | +1MB               |
@@ -501,21 +503,24 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 | Tool Annotations (readOnly/destructive) | Supported                              |
 | Tool Output Schemas                     | Generated from the surface manifest    |
 | `.well-known/mcp.json` Server Card      | HTTP transport                         |
+| HTTPS transport                         | Built-in rustls PEM cert/key support   |
+| Bearer/JWKS auth                        | Protected resource server mode         |
+| Anthropic remote connector              | Tool-only compatibility profile        |
 | Analysis handles + section expansion    | Supported                              |
 | Durable analysis jobs                   | Supported                              |
 | Mutation audit log                      | `.codelens/audit/mutation-audit.jsonl` |
 | Multi-project queries                   | `query_project`                        |
 | Contextual tool chaining                | `suggested_next_tools`                 |
-| MCP 2025-03-26 spec                     | Full compliance                        |
+| MCP 2025-11-25 spec                     | Latest + 2025-06-18/03-26 compatibility |
 
 ## Quality Assurance
 
-| Suite                      | Tests   | Scope                                      |
-| -------------------------- | ------- | ------------------------------------------ |
-| codelens-engine            | 286     | Parsing, ranking, embedding, IR            |
-| codelens-mcp               | 238     | Dispatch, workflows, profiles, schemas     |
-| codelens-mcp (no semantic) | ~190    | Feature-off path verification              |
-| Dataset lint               | 5 rules | file_exists, negative≠positive, duplicates |
+| Suite                      | Gate                                  | Scope                                      |
+| -------------------------- | ------------------------------------- | ------------------------------------------ |
+| codelens-engine            | `cargo test -p codelens-engine`       | Parsing, ranking, embedding, IR            |
+| codelens-mcp               | `cargo test -p codelens-mcp`          | Dispatch, workflows, profiles, schemas     |
+| codelens-mcp (no semantic) | `cargo test -p codelens-mcp --no-default-features` | Feature-off path verification              |
+| Dataset lint               | `python3 benchmarks/lint-datasets.py --project .` | file_exists, negative!=positive, duplicates |
 
 ```bash
 # Full verification

@@ -168,6 +168,9 @@ def resolve_codelens_model_dir(
 
     exe_dir = Path(binary).expanduser().resolve().parent
     roots.append(exe_dir / "models")
+    if exe_dir.parent:
+        roots.append(exe_dir.parent / "models")
+        roots.append(exe_dir.parent / "share" / "codelens" / "models")
     roots.append(Path.home() / ".cache" / "codelens" / "models")
 
     if repo_root is not None:
@@ -302,7 +305,7 @@ def http_binary_candidates(bin_path):
     return candidates
 
 
-def start_http_daemon(bin_path, project, profile=None, preset="full"):
+def start_http_daemon(bin_path, project, profile=None, preset="full", env=None):
     last_proc = None
     for candidate in http_binary_candidates(bin_path):
         port = reserve_port()
@@ -317,6 +320,7 @@ def start_http_daemon(bin_path, project, profile=None, preset="full"):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
         last_proc = proc
         base_url = f"http://127.0.0.1:{port}"

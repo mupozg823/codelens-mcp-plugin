@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -47,6 +48,45 @@ HOST_ADAPTER_SUMMARY_END = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_SUMMARY:END -->"
 HOST_ADAPTER_GUIDANCE_BEGIN = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_GUIDANCE:BEGIN -->"
 HOST_ADAPTER_GUIDANCE_END = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_GUIDANCE:END -->"
 
+GENERATED_BLOCKS = [
+    (README_SNAPSHOT_BEGIN, README_SNAPSHOT_END),
+    (README_LANG_BEGIN, README_LANG_END),
+    (ARCH_SNAPSHOT_BEGIN, ARCH_SNAPSHOT_END),
+    (ARCH_LANG_BEGIN, ARCH_LANG_END),
+    (PLATFORM_SURFACES_BEGIN, PLATFORM_SURFACES_END),
+    (PLATFORM_HARNESS_BEGIN, PLATFORM_HARNESS_END),
+    (INDEX_RELEASE_BEGIN, INDEX_RELEASE_END),
+    (HARNESS_OVERVIEW_BEGIN, HARNESS_OVERVIEW_END),
+    (HARNESS_DETAILS_BEGIN, HARNESS_DETAILS_END),
+    (HARNESS_SPEC_OVERVIEW_BEGIN, HARNESS_SPEC_OVERVIEW_END),
+    (HARNESS_SPEC_CONTRACTS_BEGIN, HARNESS_SPEC_CONTRACTS_END),
+    (HOST_ADAPTER_SUMMARY_BEGIN, HOST_ADAPTER_SUMMARY_END),
+    (HOST_ADAPTER_GUIDANCE_BEGIN, HOST_ADAPTER_GUIDANCE_END),
+]
+
+CANONICAL_TRUTH_PATTERNS = [
+    (
+        re.compile(r"Workspace version:\s*`[^`]+`"),
+        "workspace version belongs in a generated surface-manifest block",
+    ),
+    (
+        re.compile(r"Workspace members:\s*`?\d+`?"),
+        "workspace member count belongs in a generated surface-manifest block",
+    ),
+    (
+        re.compile(r"Registered tool definitions(?: in source)?:\s*`?\d+`?"),
+        "tool count belongs in a generated surface-manifest block",
+    ),
+    (
+        re.compile(r"Supported language families:\s*`?\d+`?"),
+        "language count belongs in a generated surface-manifest block",
+    ),
+    (
+        re.compile(r"current released runtime shape \(`v[^`]+`\)"),
+        "current runtime version claims must come from the generated manifest",
+    ),
+]
+
 
 def load_manifest() -> dict:
     cmd = [
@@ -81,6 +121,42 @@ def replace_block(text: str, begin: str, end: str, content: str) -> str:
     finish += len(end)
     replacement = f"{begin}\n{content}\n{end}"
     return text[:start] + replacement + text[finish:]
+
+
+def strip_generated_blocks(text: str) -> str:
+    stripped = text
+    for begin, end in GENERATED_BLOCKS:
+        while True:
+            start = stripped.find(begin)
+            finish = stripped.find(end)
+            if start == -1 or finish == -1 or finish < start:
+                break
+            finish += len(end)
+            stripped = stripped[:start] + stripped[finish:]
+    return stripped
+
+
+def canonical_truth_violations() -> list[str]:
+    violations: list[str] = []
+    for path in [
+        README_PATH,
+        ARCH_PATH,
+        PLATFORM_PATH,
+        INDEX_PATH,
+        HARNESS_PATH,
+        HARNESS_SPEC_PATH,
+        HOST_ADAPTIVE_PATH,
+    ]:
+        text = strip_generated_blocks(path.read_text(encoding="utf-8"))
+        for pattern, reason in CANONICAL_TRUTH_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                line = text[: match.start()].count("\n") + 1
+                snippet = match.group(0)
+                violations.append(
+                    f"{path.relative_to(REPO_ROOT)}:{line}: {snippet!r} ({reason})"
+                )
+    return violations
 
 
 def profile_counts(manifest: dict) -> str:
@@ -571,6 +647,11 @@ def main() -> None:
         action="store_true",
         help="write docs/generated/surface-manifest.json and refresh generated doc blocks",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="check docs/generated/surface-manifest.json and generated doc blocks for drift",
+    )
     args = parser.parse_args()
 
     manifest = load_manifest()
@@ -589,6 +670,13 @@ def main() -> None:
         print("surface manifest drift detected:")
         for path in drifted:
             print(f"- {path.relative_to(REPO_ROOT)}")
+        raise SystemExit(1)
+
+    violations = canonical_truth_violations()
+    if violations:
+        print("canonical truth drift detected:")
+        for violation in violations:
+            print(f"- {violation}")
         raise SystemExit(1)
 
     if args.write:

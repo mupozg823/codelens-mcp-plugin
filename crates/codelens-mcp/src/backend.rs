@@ -80,7 +80,6 @@ impl SemanticBackend for RustEngineBackend {
             BackendCapability::Embeddings,
         ]
     }
-
 }
 
 impl SemanticBackend for LspBridgeBackend {
@@ -96,7 +95,6 @@ impl SemanticBackend for LspBridgeBackend {
             BackendCapability::Diagnostics,
         ]
     }
-
 }
 
 impl SemanticBackend for ScipBridgeBackend {
@@ -111,7 +109,6 @@ impl SemanticBackend for ScipBridgeBackend {
             BackendCapability::ImpactAnalysis,
         ]
     }
-
 }
 
 /// Snapshot describing one backend at a single point in time. Used by the

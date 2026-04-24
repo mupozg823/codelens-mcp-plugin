@@ -96,8 +96,19 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
     });
     let metrics_payload =
         build_session_metrics_payload(state, requested_session_id, coordination_scope.as_deref());
+    let analysis_observability = json!({
+        "analysis_jobs_enqueued": metrics_payload.session.get("analysis_jobs_enqueued").cloned().unwrap_or_else(|| json!(0)),
+        "analysis_jobs_started": metrics_payload.session.get("analysis_jobs_started").cloned().unwrap_or_else(|| json!(0)),
+        "analysis_jobs_completed": metrics_payload.session.get("analysis_jobs_completed").cloned().unwrap_or_else(|| json!(0)),
+        "analysis_jobs_failed": metrics_payload.session.get("analysis_jobs_failed").cloned().unwrap_or_else(|| json!(0)),
+        "analysis_queue_max_depth": metrics_payload.session.get("analysis_queue_max_depth").cloned().unwrap_or_else(|| json!(0)),
+        "peak_active_analysis_workers": metrics_payload.session.get("peak_active_analysis_workers").cloned().unwrap_or_else(|| json!(0)),
+        "analysis_worker_limit": metrics_payload.session.get("analysis_worker_limit").cloned().unwrap_or_else(|| json!(0)),
+        "analysis_job_success_rate": metrics_payload.derived_kpis.get("analysis_job_success_rate").cloned().unwrap_or_else(|| json!(0.0)),
+    });
     Ok((
         json!({
+            "analysis_observability": analysis_observability,
             "tools": per_tool.clone(),
             "per_tool": per_tool,
             "count": count,

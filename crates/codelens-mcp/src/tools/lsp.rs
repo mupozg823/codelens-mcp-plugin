@@ -334,7 +334,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 "references",
                 &meta,
                 "tree_sitter_text_references",
-                    crate::tool_evidence::precision_signals(
+                crate::tool_evidence::precision_signals(
                     lsp_command_attempted,
                     false,
                     lsp_command_attempted.then_some("lsp"),

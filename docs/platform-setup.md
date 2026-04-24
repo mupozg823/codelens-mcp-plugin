@@ -336,7 +336,7 @@ for the read-only examples below.
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current released runtime shape (`v1.9.39`), `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
+In the generated runtime snapshot, `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -422,7 +422,7 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current released runtime shape (`v1.9.39`) in this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
+In the generated runtime snapshot for this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
 
 For `refactor-full`, use a preflight-first path:
 

@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument(
         "--dataset",
         default=os.path.join(
-            os.path.dirname(__file__), "embedding-quality-dataset.json"
+            os.path.dirname(__file__), "embedding-quality-dataset-self.json"
         ),
     )
     parser.add_argument("--preset", default="balanced")

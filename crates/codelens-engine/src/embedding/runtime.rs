@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "coreml"))]
 use fastembed::ExecutionProviderDispatch;
 use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
 use serde::Deserialize;
@@ -72,13 +72,25 @@ fn model_dir_candidates(base: &std::path::Path) -> Vec<std::path::PathBuf> {
 }
 
 fn model_dir_has_assets(dir: &std::path::Path) -> bool {
-    REQUIRED_MODEL_ASSETS.iter().all(|name| dir.join(name).exists())
+    REQUIRED_MODEL_ASSETS
+        .iter()
+        .all(|name| dir.join(name).exists())
 }
 
 fn first_model_dir_with_assets(base: &std::path::Path) -> Option<std::path::PathBuf> {
     model_dir_candidates(base)
         .into_iter()
         .find(|dir| model_dir_has_assets(dir))
+}
+
+pub(crate) fn executable_model_roots(exe_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut roots = vec![exe_dir.join("models")];
+    if let Some(prefix) = exe_dir.parent() {
+        roots.push(prefix.join("models"));
+        roots.push(prefix.join("share").join("codelens").join("models"));
+    }
+    roots.dedup();
+    roots
 }
 
 fn read_model_manifest(model_dir: &std::path::Path) -> Option<EmbeddingModelManifest> {
@@ -113,9 +125,10 @@ pub fn resolve_model_dir() -> Result<std::path::PathBuf> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(exe_dir) = exe.parent()
     {
-        let base = exe_dir.join("models");
-        if let Some(found) = first_model_dir_with_assets(&base) {
-            return Ok(found);
+        for base in executable_model_roots(exe_dir) {
+            if let Some(found) = first_model_dir_with_assets(&base) {
+                return Ok(found);
+            }
         }
     }
 
@@ -186,9 +199,11 @@ pub fn configured_embedding_runtime_preference() -> String {
 
     match requested.as_deref() {
         Some("cpu") => "cpu".to_string(),
-        Some("coreml") if cfg!(target_os = "macos") => "coreml".to_string(),
+        Some("coreml") if cfg!(all(target_os = "macos", feature = "coreml")) => {
+            "coreml".to_string()
+        }
         Some("coreml") => "cpu".to_string(),
-        _ if cfg!(target_os = "macos") => "coreml_preferred".to_string(),
+        _ if cfg!(all(target_os = "macos", feature = "coreml")) => "coreml_preferred".to_string(),
         _ => "cpu".to_string(),
     }
 }
@@ -420,7 +435,7 @@ pub fn configured_embedding_runtime_info() -> EmbeddingRuntimeInfo {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "coreml"))]
 pub fn build_coreml_execution_provider() -> ExecutionProviderDispatch {
     use ort::ep::{
         CoreML,
@@ -474,7 +489,7 @@ pub fn cpu_runtime_info(
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "coreml"))]
 pub fn coreml_runtime_info(
     runtime_preference: String,
     fallback_reason: Option<String>,
@@ -593,7 +608,7 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
 
     let runtime_preference = configured_embedding_runtime_preference();
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "coreml"))]
     if runtime_preference != "cpu" {
         let init_opts = InitOptionsUserDefined::new()
             .with_max_length(configured_embedding_max_length())
@@ -669,12 +684,7 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
         "loaded CodeSearchNet embedding model"
     );
 
-    Ok((
-        model,
-        CODESEARCH_DIMENSION,
-        model_name,
-        runtime_info,
-    ))
+    Ok((model, CODESEARCH_DIMENSION, model_name, runtime_info))
 }
 
 pub fn configured_embedding_model_name() -> String {
