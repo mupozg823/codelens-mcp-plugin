@@ -112,6 +112,23 @@ fn call_graph_analysis<'a>(
     (summary, confidence_basis, meta)
 }
 
+fn call_graph_evidence_signals(summary: &Map<String, Value>) -> Value {
+    let import_evidence = summary["import_map"].as_u64().unwrap_or_default()
+        + summary["import_suffix"].as_u64().unwrap_or_default();
+    let fallback_evidence = summary["same_file"].as_u64().unwrap_or_default()
+        + summary["unique_name"].as_u64().unwrap_or_default()
+        + summary["path_proximity"].as_u64().unwrap_or_default()
+        + summary["unresolved"].as_u64().unwrap_or_default();
+    json!({
+        "resolution_summary": summary,
+        "precise_available": import_evidence > 0,
+        "precise_used": import_evidence > 0,
+        "precise_source": if import_evidence > 0 { Some("import_graph") } else { None },
+        "fallback_source": if fallback_evidence > 0 { Some("tree_sitter_name_resolution") } else { None },
+        "precise_result_count": import_evidence,
+    })
+}
+
 pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let git_ref = optional_string(arguments, "ref");
     let include_untracked = optional_bool(arguments, "include_untracked", true);
@@ -287,6 +304,12 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
     .map(|value| {
         let (resolution_summary, confidence_basis, meta) =
             call_graph_analysis(value.iter().map(|entry| entry.resolution));
+        let evidence = crate::tool_evidence::tool_evidence(
+            "call_graph",
+            &meta,
+            confidence_basis,
+            call_graph_evidence_signals(&resolution_summary),
+        );
         (
             json!({
                 "function": function_name,
@@ -294,6 +317,7 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
                 "count": value.len(),
                 "confidence_basis": confidence_basis,
                 "resolution_summary": resolution_summary,
+                "evidence": evidence,
             }),
             meta,
         )
@@ -315,6 +339,12 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
     .map(|value| {
         let (resolution_summary, confidence_basis, meta) =
             call_graph_analysis(value.iter().map(|entry| entry.resolution));
+        let evidence = crate::tool_evidence::tool_evidence(
+            "call_graph",
+            &meta,
+            confidence_basis,
+            call_graph_evidence_signals(&resolution_summary),
+        );
         (
             json!({
                 "function": function_name,
@@ -322,6 +352,7 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
                 "count": value.len(),
                 "confidence_basis": confidence_basis,
                 "resolution_summary": resolution_summary,
+                "evidence": evidence,
             }),
             meta,
         )

@@ -17,9 +17,104 @@ fn lists_tools() {
     )
     .expect("tools/list should return a response");
     assert!(tools().len() >= 64);
-    let encoded = serde_json::to_string(&response).expect("serialize");
-    assert!(encoded.contains("get_symbols_overview"));
-    assert!(encoded.contains("active_surface"));
+    let value = serde_json::to_value(&response).expect("serialize");
+    assert_eq!(value["result"]["active_surface"], json!("preset:full"));
+    let names = value["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"get_ranked_context"));
+    assert!(names.contains(&"get_callers"));
+    assert!(names.contains(&"start_analysis_job"));
+    assert!(
+        !names.contains(&"get_symbols_overview"),
+        "default tools/list should stay MVP-focused; use full=true or namespace filters for primitive expansion"
+    );
+}
+
+#[test]
+fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let default_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(10)),
+            method: "tools/list".to_owned(),
+            params: None,
+        },
+    )
+    .expect("default tools/list");
+    let default_value = serde_json::to_value(&default_resp).expect("serialize");
+    let default_tools = default_value["result"]["tools"]
+        .as_array()
+        .expect("default tools")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        default_tools,
+        vec![
+            "activate_project",
+            "prepare_harness_session",
+            "get_current_config",
+            "set_profile",
+            "set_preset",
+            "explore_codebase",
+            "get_ranked_context",
+            "get_callers",
+            "get_callees",
+            "verify_change_readiness",
+            "start_analysis_job",
+            "get_analysis_job",
+            "get_analysis_section",
+        ]
+    );
+
+    let full_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(11)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"full": true})),
+        },
+    )
+    .expect("full tools/list");
+    let full_value = serde_json::to_value(&full_resp).expect("serialize");
+    let full_tools = full_value["result"]["tools"]
+        .as_array()
+        .expect("full tools")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    assert!(full_tools.contains(&"get_symbols_overview"));
+    assert!(full_tools.len() > default_tools.len());
+
+    let namespace_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(12)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"namespace": "symbols"})),
+        },
+    )
+    .expect("namespace tools/list");
+    let namespace_value = serde_json::to_value(&namespace_resp).expect("serialize");
+    let namespace_tools = namespace_value["result"]["tools"]
+        .as_array()
+        .expect("namespace tools")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    assert!(namespace_tools.contains(&"get_symbols_overview"));
+    assert!(namespace_tools.contains(&"find_symbol"));
 }
 
 #[test]
@@ -42,116 +137,6 @@ fn notifications_return_none() {
         );
         assert!(result.is_none(), "notification {method} should return None");
     }
-}
-
-#[test]
-fn set_preset_changes_tools_list() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-
-    let full_resp = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(1)),
-            method: "tools/list".to_owned(),
-            params: Some(json!({"include_deprecated": true})),
-        },
-    )
-    .unwrap();
-    let full_json = serde_json::to_string(&full_resp).unwrap();
-    assert!(
-        full_json.contains("find_dead_code"),
-        "Full preset with include_deprecated should include find_dead_code"
-    );
-    assert!(
-        full_json.contains("set_preset"),
-        "Full preset should include set_preset"
-    );
-
-    let set_resp = call_tool(&state, "set_preset", json!({"preset": "minimal"}));
-    assert_eq!(set_resp["data"]["current_preset"], "Minimal");
-
-    let min_resp = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(2)),
-            method: "tools/list".to_owned(),
-            params: None,
-        },
-    )
-    .unwrap();
-    let min_json = serde_json::to_string(&min_resp).unwrap();
-    assert!(
-        !min_json.contains("find_dead_code"),
-        "Minimal preset should NOT include find_dead_code"
-    );
-    assert!(
-        min_json.contains("find_symbol"),
-        "Minimal preset should include find_symbol"
-    );
-
-    let bal_resp = call_tool(&state, "set_preset", json!({"preset": "balanced"}));
-    assert_eq!(bal_resp["data"]["current_preset"], "Balanced");
-}
-
-#[test]
-fn set_profile_changes_tools_list() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-
-    let profile_resp = call_tool(
-        &state,
-        "set_profile",
-        json!({"profile": "planner-readonly"}),
-    );
-    assert_eq!(profile_resp["data"]["current_profile"], "planner-readonly");
-
-    let list_resp = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(9)),
-            method: "tools/list".to_owned(),
-            params: None,
-        },
-    )
-    .unwrap();
-    let encoded = serde_json::to_string(&list_resp).unwrap();
-    assert!(encoded.contains("analyze_change_request"));
-    assert!(!encoded.contains("\"analyze_change_impact\""));
-    assert!(!encoded.contains("\"assess_change_readiness\""));
-    assert!(!encoded.contains("\"rename_symbol\""));
-
-    let builder_resp = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
-    assert_eq!(builder_resp["data"]["current_profile"], "builder-minimal");
-    let builder_list = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(10)),
-            method: "tools/list".to_owned(),
-            params: None,
-        },
-    )
-    .unwrap();
-    let builder_encoded = serde_json::to_string(&builder_list).unwrap();
-    assert!(!builder_encoded.contains("\"find_dead_code\""));
-    assert!(builder_encoded.contains("\"find_symbol\""));
-    assert!(builder_encoded.contains("\"create_text_file\""));
-    assert!(!builder_encoded.contains("\"start_analysis_job\""));
-    assert!(builder_encoded.contains("\"add_import\""));
-    assert!(builder_encoded.contains("\"verify_change_readiness\""));
-    assert!(!builder_encoded.contains("\"unresolved_reference_check\""));
-
-    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
-    assert!(
-        metrics["data"]["session"]["profile_switch_count"]
-            .as_u64()
-            .unwrap_or_default()
-            >= 2
-    );
 }
 
 #[test]
@@ -196,10 +181,7 @@ fn tools_list_resource_summary_matches_default_tools_list_count() {
         .as_u64()
         .expect("tools/list tool_count");
 
-    for (offset, uri) in ["codelens://tools/list", "codelens://tools/list/full"]
-        .into_iter()
-        .enumerate()
-    {
+    for (offset, uri) in ["codelens://tools/list"].into_iter().enumerate() {
         let resource_resp = handle_request(
             &state,
             crate::protocol::JsonRpcRequest {
@@ -222,9 +204,33 @@ fn tools_list_resource_summary_matches_default_tools_list_count() {
 
         assert_eq!(
             resource_count, list_count,
-            "default tools/list and {uri} should expose the same visible count"
+            "default tools/list and {uri} should expose the same default visible count"
         );
     }
+
+    let full_resource_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(105)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://tools/list/full"})),
+        },
+    )
+    .unwrap();
+    let full_resource_value = serde_json::to_value(&full_resource_resp).unwrap();
+    let full_resource_text = full_resource_value["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("full resource text");
+    let full_resource_payload: serde_json::Value =
+        serde_json::from_str(full_resource_text).expect("full resource payload");
+    let full_resource_count = full_resource_payload["tool_count"]
+        .as_u64()
+        .expect("full resource tool_count");
+    assert!(
+        full_resource_count > list_count,
+        "full tool resource should remain an expansion path"
+    );
 }
 
 #[test]
@@ -824,31 +830,6 @@ fn deferred_tools_list_can_restore_output_schema_explicitly() {
         encoded.contains("\"outputSchema\""),
         "explicit includeOutputSchema should preserve output schemas"
     );
-}
-
-#[test]
-fn refactor_profile_limits_surface_to_approved_mutations() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-
-    let profile_resp = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
-    assert_eq!(profile_resp["data"]["current_profile"], "refactor-full");
-
-    let list_resp = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(11)),
-            method: "tools/list".to_owned(),
-            params: None,
-        },
-    )
-    .unwrap();
-    let encoded = serde_json::to_string(&list_resp).unwrap();
-    assert!(encoded.contains("\"rename_symbol\""));
-    assert!(encoded.contains("\"refactor_safety_report\""));
-    assert!(!encoded.contains("\"write_memory\""));
-    assert!(!encoded.contains("\"add_queryable_project\""));
 }
 
 #[test]

@@ -39,6 +39,7 @@ mod symbol_retrieval;
 mod telemetry;
 mod test_helpers;
 mod tool_defs;
+mod tool_evidence;
 mod tool_runtime;
 mod tools;
 

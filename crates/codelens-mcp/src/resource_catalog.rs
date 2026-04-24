@@ -1,6 +1,7 @@
 use crate::AppState;
 use crate::resource_context::{
-    ResourceRequestContext, build_visible_tool_context, filter_listed_tools,
+    ResourceRequestContext, build_visible_tool_context, filter_default_listed_tools,
+    filter_listed_tools,
 };
 use crate::surface_manifest::{HARNESS_HOST_COMPAT_RESOURCE_URI, HOST_ADAPTER_HOSTS};
 use crate::tool_defs::{tool_namespace, tool_preferred_executor_label, tool_tier_label};
@@ -140,7 +141,12 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
     let surface = state.execution_surface(&request.session);
     let context = build_visible_tool_context(state, &request);
     let lean_contract = request.lean_tool_contract();
-    let listed_tools = filter_listed_tools(context.tools.clone(), None, false);
+    let listed_tools = filter_default_listed_tools(
+        filter_listed_tools(context.tools.clone(), None, false),
+        &request,
+        None,
+        surface,
+    );
     let mut namespace_counts = BTreeMap::new();
     let mut tier_counts = BTreeMap::new();
     let mut executor_counts = BTreeMap::new();
@@ -230,18 +236,23 @@ pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&
     let request = ResourceRequestContext::from_request(uri, params);
     let surface = state.execution_surface(&request.session);
     let context = build_visible_tool_context(state, &request);
-    let tools = filter_listed_tools(context.tools, None, false)
-        .into_iter()
-        .map(|tool| {
-            json!({
-                "name": tool.name,
-                "namespace": tool_namespace(tool.name),
-                "description": tool.description,
-                "tier": tool_tier_label(tool.name),
-                "preferred_executor": tool_preferred_executor_label(tool.name)
-            })
+    let tools = filter_default_listed_tools(
+        filter_listed_tools(context.tools, None, false),
+        &request,
+        None,
+        surface,
+    )
+    .into_iter()
+    .map(|tool| {
+        json!({
+            "name": tool.name,
+            "namespace": tool_namespace(tool.name),
+            "description": tool.description,
+            "tier": tool_tier_label(tool.name),
+            "preferred_executor": tool_preferred_executor_label(tool.name)
         })
-        .collect::<Vec<_>>();
+    })
+    .collect::<Vec<_>>();
     json!({
         "client_profile": context_request_client_profile(&request),
         "active_surface": surface.as_label(),

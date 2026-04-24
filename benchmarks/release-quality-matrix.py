@@ -25,6 +25,7 @@ DEFAULT_SUITES = (
     "embedding_runtime",
     "http_surface",
     "call_graph",
+    "evidence_contract",
 )
 
 
@@ -233,6 +234,14 @@ def compare_http_surface(payload: dict) -> dict:
     }
 
 
+def compare_evidence_contract(payload: dict) -> dict:
+    return {
+        "ok": bool(payload.get("ok")),
+        "failure_count": int(payload.get("failure_count") or 0),
+        "checks": payload.get("checks", []),
+    }
+
+
 def compare_embedding_runtime(baseline: dict, candidate: dict) -> dict:
     keys = (
         "semantic_search",
@@ -409,6 +418,28 @@ def suite_commands(
             ],
             {"type": "single", "compare": "http_surface"},
         )
+    if suite == "evidence_contract":
+        output_json = output_dir / "evidence-contract-candidate.json"
+        return (
+            [
+                {
+                    "label": "candidate",
+                    "argv": [
+                        py,
+                        str(SCRIPT_DIR / "evidence-contract.py"),
+                        str(project),
+                        "--binary",
+                        str(candidate_binary),
+                        "--preset",
+                        preset,
+                        "--output",
+                        str(output_json),
+                    ],
+                    "json": output_json,
+                }
+            ],
+            {"type": "single", "compare": "evidence_contract"},
+        )
     raise SystemExit(f"unknown suite: {suite}")
 
 
@@ -443,6 +474,8 @@ def pair_script_commands(
 def compare_suite(suite: str, command_specs: list[dict], compare_spec: dict) -> dict:
     if compare_spec["type"] == "single":
         payload = load_json(command_specs[0]["json"])
+        if compare_spec["compare"] == "evidence_contract":
+            return compare_evidence_contract(payload)
         return compare_http_surface(payload)
     baseline = load_json(next(spec["json"] for spec in command_specs if spec["label"] == "baseline"))
     candidate = load_json(next(spec["json"] for spec in command_specs if spec["label"] == "candidate"))
@@ -481,6 +514,27 @@ def gate_results(comparisons: dict) -> list[str]:
     if ranked and pct_worse_than(latency.get("baseline"), latency.get("candidate"), 25.0):
         failures.append("external_retrieval get_ranked_context latency regressed by more than 25%")
 
+    evidence = comparisons.get("evidence_contract", {})
+    if evidence and not evidence.get("ok", False):
+        failures.append(
+            f"evidence_contract failed with {evidence.get('failure_count', 0)} failures"
+        )
+
+    http_surface = comparisons.get("http_surface", {})
+    for item in http_surface.get("comparisons", []):
+        if not item.get("supported"):
+            continue
+        baseline = item.get("baseline", {})
+        candidate = item.get("candidate", {})
+        if candidate.get("scenario") != "surface_tools_list":
+            continue
+        if numeric_greater(
+            candidate.get("tool_count_p50"),
+            baseline.get("tool_count_p50"),
+        ):
+            failures.append("http_surface default tools/list tool_count increased")
+            break
+
     return failures
 
 
@@ -488,6 +542,12 @@ def numeric_less(candidate: Any, baseline: Any) -> bool:
     if candidate is None or baseline is None:
         return False
     return float(candidate) < float(baseline)
+
+
+def numeric_greater(candidate: Any, baseline: Any) -> bool:
+    if candidate is None or baseline is None:
+        return False
+    return float(candidate) > float(baseline)
 
 
 def pct_worse_than(baseline: Any, candidate: Any, threshold_pct: float) -> bool:

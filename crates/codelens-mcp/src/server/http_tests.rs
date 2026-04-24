@@ -245,9 +245,12 @@ async fn initialize_profile_sets_http_session_surface_and_tools_list() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(body.contains("\"active_surface\":\"reviewer-graph\""));
-    assert!(body.contains("\"review_architecture\""));
-    assert!(body.contains("\"review_changes\""));
-    assert!(body.contains("\"cleanup_duplicate_logic\""));
+    assert!(body.contains("\"get_ranked_context\""));
+    assert!(body.contains("\"get_callers\""));
+    assert!(body.contains("\"start_analysis_job\""));
+    assert!(!body.contains("\"review_architecture\""));
+    assert!(!body.contains("\"review_changes\""));
+    assert!(!body.contains("\"cleanup_duplicate_logic\""));
     assert!(!body.contains("\"analyze_change_impact\""));
     assert!(!body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"assess_change_readiness\""));
@@ -2250,7 +2253,7 @@ async fn post_non_initialize_without_session_works() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(
-        body.contains("get_symbols_overview"),
+        body.contains("get_ranked_context"),
         "tools/list should return tools"
     );
 }
@@ -2584,7 +2587,7 @@ async fn full_session_lifecycle() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
-    assert!(body.contains("get_symbols_overview"));
+    assert!(body.contains("get_ranked_context"));
 
     // 3. Terminate session
     let app = build_router(state.clone());

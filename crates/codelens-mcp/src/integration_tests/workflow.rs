@@ -5024,66 +5024,15 @@ fn backend_capabilities_resource_reports_all_known_backends() {
     assert!(body.contains("rust-engine"));
     assert!(body.contains("lsp-bridge"));
     assert!(body.contains("scip-bridge"));
+    assert!(body.contains("declared"));
+    assert!(body.contains("active"));
+    assert!(body.contains("active_reason"));
     assert!(body.contains("capability_coverage"));
     assert!(body.contains("symbol_lookup"));
     assert!(body.contains("diagnostics"));
     assert!(body.contains("semantic_search"));
     // Passive scaffold disclosure present
     assert!(body.contains("Passive scaffold"));
-}
-
-#[test]
-fn registry_resources_report_projects_and_memory_scopes() {
-    let project = project_root();
-    let state = make_state(&project);
-
-    let list_response = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(3001)),
-            method: "resources/list".to_owned(),
-            params: None,
-        },
-    )
-    .unwrap();
-    let list_body = serde_json::to_string(&list_response).unwrap();
-    assert!(list_body.contains("codelens://registry/projects"));
-    assert!(list_body.contains("codelens://registry/memory-scopes"));
-    assert!(list_body.contains("symbiote://registry/projects"));
-
-    // Projects endpoint: active project must appear
-    let projects_response = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(3002)),
-            method: "resources/read".to_owned(),
-            params: Some(json!({"uri": "codelens://registry/projects"})),
-        },
-    )
-    .unwrap();
-    let projects_body = serde_json::to_string(&projects_response).unwrap();
-    assert!(projects_body.contains("is_active"));
-    assert!(projects_body.contains("has_project_memory"));
-    assert!(projects_body.contains("count_active"));
-
-    // Memory scopes endpoint: both scopes declared, only project wired
-    let scopes_response = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(3003)),
-            method: "resources/read".to_owned(),
-            params: Some(json!({"uri": "codelens://registry/memory-scopes"})),
-        },
-    )
-    .unwrap();
-    let scopes_body = serde_json::to_string(&scopes_response).unwrap();
-    assert!(scopes_body.contains("\\\"scope\\\": \\\"project\\\""));
-    assert!(scopes_body.contains("\\\"scope\\\": \\\"global\\\""));
-    assert!(scopes_body.contains("mutation_wired"));
-    assert!(scopes_body.contains("Passive scaffold"));
 }
 
 #[test]

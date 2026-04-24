@@ -5,7 +5,8 @@ use crate::protocol::{
     JsonRpcRequest, JsonRpcResponse, LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS,
 };
 use crate::resource_context::{
-    ResourceRequestContext, build_visible_tool_context, filter_listed_tools,
+    ResourceRequestContext, build_visible_tool_context, filter_default_listed_tools,
+    filter_listed_tools,
 };
 use crate::resources::{read_resource, resources};
 use crate::tool_defs::{preferred_phase_labels, tool_preferred_executor_label};
@@ -125,6 +126,11 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 .and_then(|params| params.get("phase"))
                 .and_then(|value| value.as_str())
                 .and_then(crate::protocol::ToolPhase::from_label);
+            let requested_phase_param = request
+                .params
+                .as_ref()
+                .and_then(|params| params.get("phase"))
+                .is_some();
             let full_listing = request_context.full_listing;
             let lean_contract = request_context.lean_tool_contract();
             let include_output_schema =
@@ -136,11 +142,16 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             let include_deprecated =
                 list_param_bool(&request, "includeDeprecated", "include_deprecated")
                     .unwrap_or(false);
-            let filtered = filter_listed_tools(
+            let listed = filter_listed_tools(
                 visible_context.tools.clone(),
                 requested_phase,
                 include_deprecated,
             );
+            let filtered = if requested_phase_param {
+                listed
+            } else {
+                filter_default_listed_tools(listed, &request_context, requested_phase, surface)
+            };
             let response_tools = filtered
                 .iter()
                 .map(|tool| {

@@ -2,6 +2,24 @@
 
 use serde_json::json;
 
+fn evidence_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "schema_version": {"type": "string", "enum": ["codelens-evidence-v1"]},
+            "domain": {"type": "string", "enum": ["call_graph", "retrieval", "symbol", "references"]},
+            "active_backend": {
+                "type": "string",
+                "enum": ["tree-sitter", "hybrid", "semantic", "sqlite", "scip", "lsp"]
+            },
+            "confidence": {"type": "number"},
+            "confidence_basis": {"type": "string"},
+            "degraded_reason": {"type": ["string", "null"]},
+            "signals": {"type": "object"}
+        }
+    })
+}
+
 fn health_summary_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -50,7 +68,8 @@ pub(super) fn symbol_output_schema() -> serde_json::Value {
             "truncated": {"type": "boolean"},
             "auto_summarized": {"type": "boolean"},
             "body_truncated_count": {"type": "integer"},
-            "body_preview": {"type": "boolean"}
+            "body_preview": {"type": "boolean"},
+            "evidence": evidence_output_schema()
         }
     })
 }
@@ -77,10 +96,11 @@ pub(super) fn ranked_context_output_schema() -> serde_json::Value {
                             "properties": {
                                 "source": {
                                     "type": "string",
-                                    "enum": ["structural", "semantic_boosted", "semantic_added"]
+                                    "enum": ["structural", "semantic_boosted", "semantic_added", "sparse_boosted", "sparse_added"]
                                 },
                                 "structural_candidate": {"type": "boolean"},
-                                "semantic_score": {"type": ["number", "null"]}
+                                "semantic_score": {"type": ["number", "null"]},
+                                "sparse_score": {"type": ["number", "null"]}
                             }
                         }
                     }
@@ -89,11 +109,13 @@ pub(super) fn ranked_context_output_schema() -> serde_json::Value {
             "count": {"type": "integer"},
             "token_budget": {"type": "integer"},
             "chars_used": {"type": "integer"},
+            "evidence": evidence_output_schema(),
             "retrieval": {
                 "type": "object",
                 "properties": {
                 "semantic_enabled": {"type": "boolean"},
                 "semantic_used_in_core": {"type": "boolean"},
+                "sparse_used_in_core": {"type": "boolean"},
                 "preferred_lane": {"type": "string"},
                 "sparse_lane_recommended": {"type": "boolean"},
                 "lexical_query": {"type": "string"},
@@ -108,6 +130,23 @@ pub(super) fn ranked_context_output_schema() -> serde_json::Value {
                         "symbol": {"type": "string"},
                         "file": {"type": "string"},
                         "score": {"type": "number"},
+                        "selected": {"type": "boolean"},
+                        "final_rank": {"type": ["integer", "null"]}
+                    }
+                }
+            },
+            "sparse_evidence": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string"},
+                        "file": {"type": "string"},
+                        "score": {"type": "number"},
+                        "matched_terms": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        },
                         "selected": {"type": "boolean"},
                         "final_rank": {"type": ["integer", "null"]}
                     }
@@ -168,6 +207,7 @@ pub(super) fn bm25_symbol_search_output_schema() -> serde_json::Value {
                 }
             },
             "count": {"type": "integer"},
+            "evidence": evidence_output_schema(),
             "retrieval": {
                 "type": "object",
                 "properties": {
@@ -247,7 +287,8 @@ pub(super) fn references_output_schema() -> serde_json::Value {
             "returned_count": {"type": "integer"},
             "sampled": {"type": "boolean"},
             "include_context": {"type": "boolean"},
-            "backend": {"type": "string"}
+            "backend": {"type": "string"},
+            "evidence": evidence_output_schema()
         }
     })
 }
@@ -296,7 +337,8 @@ pub(super) fn get_callers_output_schema() -> serde_json::Value {
                     "unresolved_only"
                 ]
             },
-            "resolution_summary": resolution_summary_output_schema()
+            "resolution_summary": resolution_summary_output_schema(),
+            "evidence": evidence_output_schema()
         }
     })
 }
@@ -331,7 +373,8 @@ pub(super) fn get_callees_output_schema() -> serde_json::Value {
                     "unresolved_only"
                 ]
             },
-            "resolution_summary": resolution_summary_output_schema()
+            "resolution_summary": resolution_summary_output_schema(),
+            "evidence": evidence_output_schema()
         }
     })
 }

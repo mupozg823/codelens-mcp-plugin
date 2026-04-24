@@ -10,6 +10,22 @@ use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
+const DEFAULT_LISTED_TOOL_NAMES: &[&str] = &[
+    "activate_project",
+    "prepare_harness_session",
+    "get_current_config",
+    "set_profile",
+    "set_preset",
+    "explore_codebase",
+    "get_ranked_context",
+    "get_callers",
+    "get_callees",
+    "verify_change_readiness",
+    "start_analysis_job",
+    "get_analysis_job",
+    "get_analysis_section",
+];
+
 #[derive(Clone, Debug)]
 pub(crate) struct ResourceRequestContext {
     pub(crate) session: crate::session_context::SessionRequestContext,
@@ -89,6 +105,14 @@ impl ResourceRequestContext {
     pub(crate) fn lean_tool_contract(&self) -> bool {
         self.tool_contract_mode() == "lean" && !self.full_listing && !self.full_tool_exposure
     }
+
+    pub(crate) fn default_listing_requested(&self) -> bool {
+        !self.full_listing
+            && !self.full_tool_exposure
+            && !self.deferred_loading_active()
+            && self.requested_namespace.is_none()
+            && self.requested_tier.is_none()
+    }
 }
 
 pub(crate) struct VisibleToolContext {
@@ -126,6 +150,26 @@ pub(crate) fn filter_listed_tools(
             }
             None => true,
         })
+        .collect()
+}
+
+pub(crate) fn default_listed_tool_names(_surface: ToolSurface) -> &'static [&'static str] {
+    DEFAULT_LISTED_TOOL_NAMES
+}
+
+pub(crate) fn filter_default_listed_tools(
+    tools: Vec<&'static Tool>,
+    request: &ResourceRequestContext,
+    requested_phase: Option<ToolPhase>,
+    surface: ToolSurface,
+) -> Vec<&'static Tool> {
+    if !request.default_listing_requested() || requested_phase.is_some() {
+        return tools;
+    }
+    let default_names = default_listed_tool_names(surface);
+    default_names
+        .iter()
+        .filter_map(|name| tools.iter().copied().find(|tool| tool.name == *name))
         .collect()
 }
 

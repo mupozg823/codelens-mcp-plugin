@@ -29,6 +29,37 @@ fn returns_symbols_via_tool_call() {
 }
 
 #[test]
+fn find_symbol_surfaces_tree_sitter_precision_evidence() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("precise_symbol.py"),
+        "def precise_target():\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "find_symbol",
+        json!({"name": "precise_target", "file_path": "precise_symbol.py"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("symbol"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(false)
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["fallback_source"],
+        json!("tree_sitter")
+    );
+}
+
+#[test]
 fn reports_symbol_index_stats() {
     let project = project_root();
     fs::write(
@@ -64,6 +95,28 @@ fn returns_ranked_context_via_tool_call() {
     assert_eq!(
         payload["data"]["retrieval"]["lexical_query"],
         json!("search users")
+    );
+    assert_eq!(
+        payload["data"]["retrieval"]["sparse_used_in_core"],
+        json!(true)
+    );
+    assert!(payload["data"]["sparse_evidence"].is_array());
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("retrieval"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["preferred_lane"],
+        payload["data"]["retrieval"]["preferred_lane"]
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_available"],
+        json!(false)
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(false)
     );
 }
 
@@ -113,6 +166,23 @@ fn get_callers_surfaces_file_hint_confidence_basis_and_resolution_summary() {
     assert!(payload["data"]["callers"].is_array());
     assert!(payload["data"]["confidence_basis"].is_string());
     assert!(payload["data"]["resolution_summary"].is_object());
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("call_graph"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["resolution_summary"],
+        payload["data"]["resolution_summary"]
+    );
+    assert!(
+        payload["data"]["evidence"]["signals"]
+            .get("precise_source")
+            .is_some()
+            || payload["data"]["evidence"]["signals"]
+                .get("fallback_source")
+                .is_some()
+    );
     assert!(payload["confidence"].is_number());
     assert!(
         matches!(
@@ -224,6 +294,19 @@ fn bm25_symbol_search_returns_symbol_cards() {
     );
     assert_eq!(payload["success"], json!(true));
     assert_eq!(payload["data"]["retrieval"]["lane"], json!("sparse_bm25f"));
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("retrieval"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["preferred_lane"],
+        json!("sparse_bm25f")
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(false)
+    );
 
     let results = payload["data"]["results"]
         .as_array()
