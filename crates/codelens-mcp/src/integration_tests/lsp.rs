@@ -283,6 +283,17 @@ fn rename_symbol_uses_opt_in_lsp_semantic_edit_backend() {
 
     assert_eq!(payload["success"], json!(true), "{payload}");
     assert_eq!(payload["data"]["semantic_edit_backend"], json!("lsp"));
+    assert_eq!(
+        payload["data"]["edit_authority"],
+        json!({
+            "kind": "authoritative_lsp",
+            "operation": "rename",
+            "embedding_used": false,
+            "search_used": false,
+            "position_source": "explicit",
+            "validator": "lsp_textDocument_rename"
+        })
+    );
     assert_eq!(payload["data"]["total_replacements"], json!(2));
     let updated = fs::read_to_string(project.as_path().join("rename_target.py")).unwrap();
     assert!(updated.contains("def new_name():"));

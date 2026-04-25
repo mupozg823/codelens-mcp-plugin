@@ -45,6 +45,13 @@ pub(crate) fn rename_symbol_with_lsp_backend(
         .to_owned();
     let new_name = required_string(arguments, "new_name")?.to_owned();
     let name_path = arguments.get("name_path").and_then(|value| value.as_str());
+    let position_source = match (
+        arguments.get("line").and_then(|value| value.as_u64()),
+        arguments.get("column").and_then(|value| value.as_u64()),
+    ) {
+        (Some(_), Some(_)) => "explicit",
+        _ => "symbol_index",
+    };
     let (line, column) = rename_position(state, arguments, &file_path, &symbol_name, name_path)?;
     let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
@@ -79,6 +86,14 @@ pub(crate) fn rename_symbol_with_lsp_backend(
                 json!({
                     "backend": "semantic_edit_backend",
                     "semantic_edit_backend": "lsp",
+                    "edit_authority": {
+                        "kind": "authoritative_lsp",
+                        "operation": "rename",
+                        "embedding_used": false,
+                        "search_used": false,
+                        "position_source": position_source,
+                        "validator": "lsp_textDocument_rename",
+                    },
                     "position": {"line": line, "column": column},
                     "result": result,
                     "success": success,

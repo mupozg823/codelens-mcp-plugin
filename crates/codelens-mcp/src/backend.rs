@@ -289,8 +289,44 @@ fn semantic_edit_runtime_status(state: &AppState) -> BackendRuntimeStatus {
             "installed_lsp_server_count": installed_lsp_server_count,
             "activation": "set semantic_edit_backend=lsp per call or CODELENS_SEMANTIC_EDIT_BACKEND=lsp",
             "dispatch": "rename_symbol routes to LSP textDocument/rename only when explicitly requested",
+            "operation_matrix": semantic_edit_operation_matrix(),
         }),
     }
+}
+
+fn semantic_edit_operation_matrix() -> Value {
+    json!({
+        "tree-sitter": {
+            "authoritative": false,
+            "supported_operations": ["rename"],
+            "unsupported_operations": [
+                "change_signature",
+                "move_symbol",
+                "safe_delete",
+                "extract_method",
+                "inline_symbol"
+            ],
+            "role": "syntax-bounded fallback"
+        },
+        "lsp": {
+            "authoritative": true,
+            "supported_operations": ["rename"],
+            "unsupported_operations": [
+                "change_signature",
+                "move_symbol",
+                "safe_delete",
+                "extract_method",
+                "inline_symbol"
+            ],
+            "requires": ["installed_lsp_server", "file_language_mapping"],
+            "validator": "textDocument/rename"
+        },
+        "scip": {
+            "authoritative_index": true,
+            "supported_edit_operations": [],
+            "role": "cross-reference evidence, not an edit executor"
+        }
+    })
 }
 
 /// Reverse index: for every capability, which backends claim to fulfil it
@@ -405,5 +441,29 @@ mod tests {
         assert!(caps.contains(&BackendCapability::SemanticEditBackend));
         assert!(caps.contains(&BackendCapability::Edit));
         assert!(!caps.contains(&BackendCapability::SemanticSearch));
+    }
+
+    #[test]
+    fn semantic_edit_operation_matrix_does_not_overclaim_refactors() {
+        let matrix = semantic_edit_operation_matrix();
+        assert_eq!(matrix["lsp"]["authoritative"], serde_json::json!(true));
+        assert_eq!(
+            matrix["lsp"]["supported_operations"],
+            serde_json::json!(["rename"])
+        );
+        assert!(
+            matrix["lsp"]["unsupported_operations"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("change_signature"))
+        );
+        assert_eq!(
+            matrix["tree-sitter"]["authoritative"],
+            serde_json::json!(false)
+        );
+        assert_eq!(
+            matrix["scip"]["supported_edit_operations"],
+            serde_json::json!([])
+        );
     }
 }
