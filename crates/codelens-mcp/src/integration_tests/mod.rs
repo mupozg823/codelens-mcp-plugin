@@ -26,6 +26,7 @@ mod lsp;
 mod memory;
 mod mutation;
 mod mutation_envelope;
+mod mutation_evidence;
 mod protocol;
 mod readonly;
 mod registry;
