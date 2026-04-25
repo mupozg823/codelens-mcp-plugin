@@ -132,24 +132,11 @@ impl WorkspaceEditTransaction {
         paths
     }
 
-    /// Apply edits with hash-based evidence and rollback on failure.
-    /// Implementation lands incrementally in T2~T6.
-    pub fn apply_with_evidence(&self, project: &ProjectRoot) -> Result<ApplyEvidence, ApplyError> {
-        if !self.resource_ops.is_empty() {
-            return Err(ApplyError::ResourceOpsUnsupported);
-        }
-        if self.edits.is_empty() {
-            return Ok(ApplyEvidence {
-                status: ApplyStatus::NoOp,
-                file_hashes_before: BTreeMap::new(),
-                file_hashes_after: BTreeMap::new(),
-                rollback_report: Vec::new(),
-                modified_files: 0,
-                edit_count: 0,
-            });
-        }
-
-        // Phase 1: capture pre-apply state (single read; backup + hash)
+    /// Phase 1: read each unique file once, capture sha256 + raw backup bytes.
+    pub(crate) fn capture_pre_apply(
+        &self,
+        project: &ProjectRoot,
+    ) -> Result<(HashMap<PathBuf, Vec<u8>>, BTreeMap<String, FileHash>), ApplyError> {
         let mut backups: HashMap<PathBuf, Vec<u8>> = HashMap::new();
         let mut file_hashes_before: BTreeMap<String, FileHash> = BTreeMap::new();
         for file_path in self.unique_file_paths() {
@@ -172,6 +159,67 @@ impl WorkspaceEditTransaction {
             );
             backups.insert(resolved, bytes);
         }
+        Ok((backups, file_hashes_before))
+    }
+
+    /// Phase 2: re-read each captured file and confirm sha256 still matches.
+    /// Light same-function TOCTOU window; strong guarantees deferred to Phase 2.
+    pub(crate) fn verify_pre_apply(
+        &self,
+        project: &ProjectRoot,
+        backups: &HashMap<PathBuf, Vec<u8>>,
+        hashes_before: &BTreeMap<String, FileHash>,
+    ) -> Result<(), ApplyError> {
+        for file_path in self.unique_file_paths() {
+            let resolved = project
+                .resolve(&file_path)
+                .map_err(|e| ApplyError::PreReadFailed {
+                    file_path: file_path.clone(),
+                    source: e,
+                })?;
+            let bytes_now = fs::read(&resolved).map_err(|e| ApplyError::PreReadFailed {
+                file_path: file_path.clone(),
+                source: anyhow::Error::from(e),
+            })?;
+            let hash_now = sha256_hex(&bytes_now);
+            let expected = hashes_before
+                .get(&file_path)
+                .map(|h| h.sha256.clone())
+                .unwrap_or_default();
+            if hash_now != expected {
+                return Err(ApplyError::PreApplyHashMismatch {
+                    file_path,
+                    expected,
+                    actual: hash_now,
+                });
+            }
+            let _ = backups; // referenced for invariant: same set of files captured
+        }
+        Ok(())
+    }
+
+    /// Apply edits with hash-based evidence and rollback on failure.
+    /// Implementation lands incrementally in T2~T6.
+    pub fn apply_with_evidence(&self, project: &ProjectRoot) -> Result<ApplyEvidence, ApplyError> {
+        if !self.resource_ops.is_empty() {
+            return Err(ApplyError::ResourceOpsUnsupported);
+        }
+        if self.edits.is_empty() {
+            return Ok(ApplyEvidence {
+                status: ApplyStatus::NoOp,
+                file_hashes_before: BTreeMap::new(),
+                file_hashes_after: BTreeMap::new(),
+                rollback_report: Vec::new(),
+                modified_files: 0,
+                edit_count: 0,
+            });
+        }
+
+        // Phase 1: capture pre-apply state
+        let (backups, file_hashes_before) = self.capture_pre_apply(project)?;
+
+        // Phase 2: light TOCTOU re-check (same-function window)
+        self.verify_pre_apply(project, &backups, &file_hashes_before)?;
 
         // Phase 3: apply via crate::rename::apply_edits
         if let Err(source) = crate::rename::apply_edits(project, &self.edits) {
@@ -517,5 +565,34 @@ mod tests {
         let mut restore = std::fs::metadata(&path_b).unwrap().permissions();
         restore.set_mode(0o644);
         let _ = std::fs::set_permissions(&path_b, restore);
+    }
+
+    #[test]
+    fn toctou_recheck_detects_external_mutation_between_phases() {
+        let project = empty_project();
+        let path = write_file(&project, "tt.txt", "before\n");
+        let tx = WorkspaceEditTransaction::new(
+            vec![RenameEdit {
+                file_path: "tt.txt".to_owned(),
+                line: 1,
+                column: 1,
+                old_text: "before".to_owned(),
+                new_text: "after".to_owned(),
+            }],
+            vec![],
+        );
+
+        let (backups, hashes_before) = tx.capture_pre_apply(&project).expect("phase 1 capture ok");
+        // External writer mutates the file between phases.
+        std::fs::write(&path, "TAMPERED\n").unwrap();
+
+        let result = tx.verify_pre_apply(&project, &backups, &hashes_before);
+        assert!(
+            matches!(result, Err(ApplyError::PreApplyHashMismatch { ref file_path, .. }) if file_path == "tt.txt"),
+            "expected PreApplyHashMismatch for tt.txt, got {:?}",
+            result.err()
+        );
+        // Disk contains the external mutation; substrate did not apply edits.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "TAMPERED\n");
     }
 }
