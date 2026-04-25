@@ -466,6 +466,15 @@ pub(super) fn rename_output_schema() -> serde_json::Value {
         "type": "object",
         "properties": {
             "success": {"type": "boolean"},
+            "authority": {"type": "string"},
+            "authority_backend": {"type": "string"},
+            "can_preview": {"type": "boolean"},
+            "can_apply": {"type": "boolean"},
+            "support": {"type": "string"},
+            "blocker_reason": {"type": ["string", "null"]},
+            "edit_authority": {"type": "object"},
+            "transaction": {"type": "object"},
+            "verification": {"type": "object"},
             "modified_files": {"type": "integer"},
             "total_replacements": {"type": "integer"},
             "edits": {
@@ -484,13 +493,44 @@ pub(super) fn rename_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn semantic_refactor_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "semantic_edit_backend": {"type": "string"},
+            "authority": {"type": "string"},
+            "authority_backend": {"type": "string"},
+            "can_preview": {"type": "boolean"},
+            "can_apply": {"type": "boolean"},
+            "support": {"type": "string"},
+            "blocker_reason": {"type": ["string", "null"]},
+            "operation": {"type": "string"},
+            "edit_authority": {"type": "object"},
+            "transaction": {"type": "object"},
+            "workspace_edit": {"type": "object"},
+            "verification": {"type": "object"},
+            "applied": {"type": "boolean"},
+            "message": {"type": "string"}
+        }
+    })
+}
+
 pub(super) fn safe_delete_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
             "success": {"type": "boolean"},
             "semantic_edit_backend": {"type": "string"},
+            "authority": {"type": "string"},
+            "authority_backend": {"type": "string"},
+            "can_preview": {"type": "boolean"},
+            "can_apply": {"type": "boolean"},
+            "support": {"type": "string"},
+            "blocker_reason": {"type": ["string", "null"]},
             "edit_authority": {"type": "object"},
+            "transaction": {"type": "object"},
+            "verification": {"type": "object"},
             "symbol_name": {"type": "string"},
             "file_path": {"type": "string"},
             "position": {"type": "object"},

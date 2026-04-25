@@ -6,6 +6,7 @@ mod analysis_queue;
 mod artifact_store;
 mod authority;
 mod backend;
+mod backend_operation_matrix;
 mod build_info;
 mod cli;
 mod client_profile;

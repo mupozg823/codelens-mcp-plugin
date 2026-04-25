@@ -23,7 +23,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 - Workspace version: `1.9.50`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
 - Registered tool definitions: `114`
-- Tool output schemas: `81 / 114`
+- Tool output schemas: `85 / 114`
 - Supported language families: `30` across `49` extensions
 - Profiles: `planner-readonly` (35), `builder-minimal` (38), `reviewer-graph` (37), `evaluator-compact` (14), `refactor-full` (51), `ci-audit` (45), `workflow-first` (19)
 - Presets: `minimal` (27), `balanced` (81), `full` (114)
@@ -154,6 +154,8 @@ What the standalone binary does and does not cover:
 
 - `CodeLens only` is enough for stdio use, HTTP daemon use, role-based surfaces, mutation gates, and coordination tools.
 - `Semantic retrieval` needs the packaged model sidecar at `./models/codesearch/` next to the binary, an installed prefix sidecar such as `../models/codesearch/`, or an explicit `CODELENS_MODEL_DIR`. Release packaging fails closed if the model payload is incomplete; release CI can point at a staged model root with `CODELENS_RELEASE_MODELS_DIR`. macOS release binaries enable the `coreml` feature so the INT8 ONNX model can use the CoreML execution provider instead of silently falling back to CPU.
+- `IDE adapters` are CodeLens adapter endpoints, not core product dependencies. `semantic_edit_backend=jetbrains` and `semantic_edit_backend=roslyn` only become authoritative when a local adapter returns an inspectable minimal `WorkspaceEdit`; otherwise they fail closed.
+- `Roslyn semantic edits` use the optional bundled `adapters/roslyn-workspace-service` sidecar when present, or `CODELENS_ROSLYN_ADAPTER_CMD` / `CODELENS_ADAPTERS_DIR` when installed separately. C# rename can become authoritative only when the sidecar returns an inspectable minimal Roslyn `WorkspaceEdit`; broader refactors remain unsupported/conditional until fixture and release-artifact matrix gates prove them.
 - `SCIP precise navigation` needs a binary built with `--features scip-backend` and an external SCIP index.
 - `Claude -> Codex` live delegation is not a CodeLens feature. It additionally needs Claude configured with a `codex` MCP server and a working Codex CLI install.
 

@@ -1717,6 +1717,45 @@ fn resolve_model_dir_accepts_direct_model_dir_override() {
 }
 
 #[test]
+fn resolve_model_dir_accepts_release_variant_split_onnx_layout() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let variant_dir = dir.path().join("models").join("codelens-code-search").join(
+        if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            "avx2"
+        },
+    );
+    std::fs::create_dir_all(variant_dir.join("onnx")).unwrap();
+    std::fs::write(variant_dir.join("onnx").join("model.onnx"), b"{}").unwrap();
+    for asset in [
+        "tokenizer.json",
+        "config.json",
+        "special_tokens_map.json",
+        "tokenizer_config.json",
+    ] {
+        std::fs::write(variant_dir.join(asset), b"{}").unwrap();
+    }
+
+    let previous = std::env::var("CODELENS_MODEL_DIR").ok();
+    unsafe {
+        std::env::set_var("CODELENS_MODEL_DIR", dir.path().join("models"));
+    }
+
+    let resolved = resolve_model_dir().unwrap();
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_MODEL_DIR", value),
+            None => std::env::remove_var("CODELENS_MODEL_DIR"),
+        }
+    }
+
+    assert_eq!(resolved, variant_dir);
+}
+
+#[test]
 fn executable_model_roots_include_installed_sidecar_layouts() {
     let exe_dir = std::path::Path::new("/opt/codelens/bin");
     let roots = executable_model_roots(exe_dir);

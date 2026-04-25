@@ -1,14 +1,16 @@
+use super::semantic_edit_args::{
+    code_action_kinds, code_action_range, language_for_file, position_source, symbol_position,
+};
 use super::{
     AppState, ToolResult, default_lsp_command_for_path, optional_string, parse_lsp_args,
     required_string, success_meta,
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_engine::{
-    SymbolInfo,
-    lsp::{LspCodeActionRequest, LspRenameRequest, LspRequest},
-};
-use serde_json::json;
+use codelens_engine::lsp::{LspCodeActionRequest, LspRenameRequest, LspRequest};
+use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SemanticEditBackendSelection {
@@ -16,6 +18,16 @@ pub(crate) enum SemanticEditBackendSelection {
     Lsp,
     JetBrains,
     Roslyn,
+}
+
+impl SemanticEditBackendSelection {
+    pub(crate) fn adapter_name(self) -> Option<&'static str> {
+        match self {
+            Self::JetBrains => Some("jetbrains"),
+            Self::Roslyn => Some("roslyn"),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) fn selected_backend(
@@ -49,7 +61,7 @@ pub(crate) fn unsupported_external_adapter(
         _ => "unknown",
     };
     Err(CodeLensError::Validation(format!(
-        "unsupported_semantic_refactor: semantic_edit_backend={backend_name} for `{operation}` is an opt-in adapter boundary, but no local adapter process/protocol is configured in this release"
+        "unsupported_semantic_refactor: semantic_edit_backend={backend_name} for `{operation}` is an opt-in CodeLens IDE adapter boundary, but no inspectable WorkspaceEdit adapter is configured in this release"
     )))
 }
 
@@ -94,11 +106,39 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
 
     let transaction = serde_json::to_value(&result.transaction)
         .unwrap_or_else(|_| json!({"serialization_error": true}));
+    let edit_files = result
+        .transaction
+        .edits
+        .iter()
+        .map(|edit| edit.file_path.clone())
+        .collect::<Vec<_>>();
+    let transaction_contract = semantic_transaction_contract(SemanticTransactionContractInput {
+        state,
+        backend_id: &format!("lsp:{command_ref}"),
+        operation,
+        target_symbol: None,
+        file_paths: &edit_files,
+        dry_run,
+        modified_files: result.transaction.modified_files,
+        edit_count: result.transaction.edit_count,
+        resource_ops: json!(result.transaction.resource_ops),
+        rollback_available: result.transaction.rollback_available,
+        workspace_edit: transaction.clone(),
+        apply_status: if dry_run { "preview_only" } else { "applied" },
+        references_checked: false,
+        conflicts: json!([]),
+    });
     Ok((
         json!({
             "success": result.success,
             "backend": "semantic_edit_backend",
             "semantic_edit_backend": "lsp",
+            "authority": "workspace_edit",
+            "authority_backend": format!("lsp:{command_ref}"),
+            "can_preview": true,
+            "can_apply": true,
+            "support": "conditional_authoritative_apply",
+            "blocker_reason": null,
             "operation": operation,
             "file_path": file_path,
             "range": {
@@ -128,7 +168,8 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
                 "modified_files": result.transaction.modified_files,
                 "edit_count": result.transaction.edit_count,
                 "resource_ops": result.transaction.resource_ops,
-                "rollback_available": result.transaction.rollback_available
+                "rollback_available": result.transaction.rollback_available,
+                "contract": transaction_contract
             },
             "workspace_edit": transaction,
             "verification": {
@@ -188,10 +229,37 @@ pub(crate) fn rename_symbol_with_lsp_backend(
             let modified_files = result.modified_files;
             let total_replacements = result.total_replacements;
             let edits = result.edits.clone();
+            let edit_files = edits
+                .iter()
+                .map(|edit| edit.file_path.clone())
+                .collect::<Vec<_>>();
+            let transaction_contract =
+                semantic_transaction_contract(SemanticTransactionContractInput {
+                    state,
+                    backend_id: &format!("lsp:{command_ref}"),
+                    operation: "rename",
+                    target_symbol: Some(&symbol_name),
+                    file_paths: &edit_files,
+                    dry_run,
+                    modified_files,
+                    edit_count: total_replacements,
+                    resource_ops: json!([]),
+                    rollback_available: true,
+                    workspace_edit: json!({"edits": edits}),
+                    apply_status: if dry_run { "preview_only" } else { "applied" },
+                    references_checked: false,
+                    conflicts: json!([]),
+                });
             (
                 json!({
                     "backend": "semantic_edit_backend",
                     "semantic_edit_backend": "lsp",
+                    "authority": "workspace_edit",
+                    "authority_backend": format!("lsp:{command_ref}"),
+                    "can_preview": true,
+                    "can_apply": true,
+                    "support": "authoritative_apply",
+                    "blocker_reason": null,
                     "edit_authority": {
                         "kind": "authoritative_lsp",
                         "operation": "rename",
@@ -212,7 +280,8 @@ pub(crate) fn rename_symbol_with_lsp_backend(
                         "modified_files": modified_files,
                         "edit_count": total_replacements,
                         "resource_ops": [],
-                        "rollback_available": true
+                        "rollback_available": true,
+                        "contract": transaction_contract
                     },
                     "verification": {
                         "pre_diagnostics": [],
@@ -334,218 +403,211 @@ pub(crate) fn safe_delete_with_lsp_backend(
     };
 
     Ok((
-        json!({
-            "success": true,
-            "backend": "semantic_edit_backend",
-            "semantic_edit_backend": "lsp",
-            "edit_authority": {
-                "kind": "authoritative_lsp",
-                "operation": "safe_delete_check",
-                "embedding_used": false,
-                "search_used": false,
-                "position_source": position_source,
-                "validator": "lsp_textDocument_references",
-            },
-            "symbol_name": symbol_name,
-            "file_path": file_path,
-            "position": {"line": line, "column": column},
-            "safe_to_delete": safe_to_delete,
-            "total_references": total_references,
-            "declaration_references": declaration_references,
-            "affected_references": affected_references.clone(),
-            "dry_run": dry_run,
-            "message": message,
-            "safe_delete_action": safe_delete_action,
-            "transaction": {
-                "dry_run": dry_run,
-                "modified_files": modified_files,
-                "edit_count": edit_count,
-                "resource_ops": [],
-                "rollback_available": false
-            },
-            "verification": {
-                "pre_diagnostics": [],
-                "post_diagnostics": [],
-                "references_checked": true,
-                "conflicts": if safe_to_delete {
-                    json!([])
+        {
+            let transaction_contract =
+                semantic_transaction_contract(SemanticTransactionContractInput {
+                    state,
+                    backend_id: &format!("lsp:{command_ref}"),
+                    operation: "safe_delete_check",
+                    target_symbol: Some(&symbol_name),
+                    file_paths: std::slice::from_ref(&file_path),
+                    dry_run,
+                    modified_files,
+                    edit_count,
+                    resource_ops: json!([]),
+                    rollback_available: false,
+                    workspace_edit: json!({"edits": []}),
+                    apply_status: if dry_run { "preview_only" } else { "applied" },
+                    references_checked: true,
+                    conflicts: if safe_to_delete {
+                        json!([])
+                    } else {
+                        serde_json::Value::Array(affected_references.clone())
+                    },
+                });
+            json!({
+                "success": true,
+                "backend": "semantic_edit_backend",
+                "semantic_edit_backend": "lsp",
+                "authority": if dry_run {
+                    "semantic_readonly"
                 } else {
-                    serde_json::Value::Array(affected_references.clone())
+                    "syntax"
+                },
+                "authority_backend": format!("lsp:{command_ref}"),
+                "can_preview": true,
+                "can_apply": false,
+                "support": if dry_run {
+                    "authoritative_check"
+                } else {
+                    "guarded_syntax_apply"
+                },
+                "blocker_reason": null,
+                "edit_authority": {
+                    "kind": "authoritative_lsp",
+                    "operation": "safe_delete_check",
+                    "embedding_used": false,
+                    "search_used": false,
+                    "position_source": position_source,
+                    "validator": "lsp_textDocument_references",
+                },
+                "symbol_name": symbol_name,
+                "file_path": file_path,
+                "position": {"line": line, "column": column},
+                "safe_to_delete": safe_to_delete,
+                "total_references": total_references,
+                "declaration_references": declaration_references,
+                "affected_references": affected_references.clone(),
+                "dry_run": dry_run,
+                "message": message,
+                "safe_delete_action": safe_delete_action,
+                "transaction": {
+                    "dry_run": dry_run,
+                    "modified_files": modified_files,
+                    "edit_count": edit_count,
+                    "resource_ops": [],
+                    "rollback_available": false,
+                    "contract": transaction_contract
+                },
+                "verification": {
+                    "pre_diagnostics": [],
+                    "post_diagnostics": [],
+                    "references_checked": true,
+                    "conflicts": if safe_to_delete {
+                        json!([])
+                    } else {
+                        serde_json::Value::Array(affected_references.clone())
+                    }
+                },
+                "suggested_next_tools": if safe_to_delete {
+                    json!(["delete_lines", "get_file_diagnostics"])
+                } else {
+                    json!(["find_referencing_symbols", "get_callers", "plan_safe_refactor"])
                 }
-            },
-            "suggested_next_tools": if safe_to_delete {
-                json!(["delete_lines", "get_file_diagnostics"])
-            } else {
-                json!(["find_referencing_symbols", "get_callers", "plan_safe_refactor"])
-            }
-        }),
+            })
+        },
         success_meta(BackendKind::Lsp, 0.94),
     ))
 }
 
-fn code_action_range(
-    state: &AppState,
-    arguments: &serde_json::Value,
-    file_path: &str,
-    operation: &str,
-) -> Result<(usize, usize, usize, usize, &'static str), CodeLensError> {
-    if let Some(start_line) = arguments.get("start_line").and_then(|value| value.as_u64()) {
-        let end_line = arguments
-            .get("end_line")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(start_line) as usize;
-        let start_line = start_line as usize;
-        let start_column = arguments
-            .get("start_column")
-            .or_else(|| arguments.get("column"))
-            .and_then(|value| value.as_u64())
-            .unwrap_or(1) as usize;
-        let end_column = arguments
-            .get("end_column")
-            .and_then(|value| value.as_u64())
-            .map(|value| value as usize)
-            .unwrap_or_else(|| default_end_column(state, file_path, end_line));
-        return Ok((
-            start_line,
-            start_column,
-            end_line,
-            end_column,
-            "explicit_range",
-        ));
-    }
-
-    let (symbol_name, name_path) = symbol_for_operation(arguments, operation)?;
-    let (line, column) = symbol_position(state, arguments, file_path, &symbol_name, name_path)?;
-    Ok((line, column, line, column, position_source(arguments)))
+pub(crate) struct SemanticTransactionContractInput<'a> {
+    pub(crate) state: &'a AppState,
+    pub(crate) backend_id: &'a str,
+    pub(crate) operation: &'a str,
+    pub(crate) target_symbol: Option<&'a str>,
+    pub(crate) file_paths: &'a [String],
+    pub(crate) dry_run: bool,
+    pub(crate) modified_files: usize,
+    pub(crate) edit_count: usize,
+    pub(crate) resource_ops: Value,
+    pub(crate) rollback_available: bool,
+    pub(crate) workspace_edit: Value,
+    pub(crate) apply_status: &'a str,
+    pub(crate) references_checked: bool,
+    pub(crate) conflicts: Value,
 }
 
-fn symbol_for_operation<'a>(
-    arguments: &'a serde_json::Value,
-    operation: &str,
-) -> Result<(String, Option<&'a str>), CodeLensError> {
-    let name_path = arguments.get("name_path").and_then(|value| value.as_str());
-    let key = match operation {
-        "move_symbol" => "symbol_name",
-        "inline_function" | "change_signature" => "function_name",
-        _ => "symbol_name",
-    };
-    let symbol_name = arguments
-        .get(key)
-        .or_else(|| arguments.get("symbol_name"))
-        .or_else(|| arguments.get("function_name"))
-        .or_else(|| arguments.get("name"))
-        .and_then(|value| value.as_str())
-        .ok_or_else(|| CodeLensError::MissingParam(key.into()))?
-        .to_owned();
-    Ok((symbol_name, name_path))
-}
-
-fn default_end_column(state: &AppState, file_path: &str, line: usize) -> usize {
-    state
-        .project()
-        .resolve(file_path)
-        .ok()
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .and_then(|source| {
-            source
-                .lines()
-                .nth(line.saturating_sub(1))
-                .map(|text| text.len() + 1)
-        })
-        .unwrap_or(1)
-}
-
-fn code_action_kinds(arguments: &serde_json::Value, default_kinds: &[&str]) -> Vec<String> {
-    if let Some(kind) = optional_string(arguments, "code_action_kind") {
-        return vec![kind.to_owned()];
-    }
-    if let Some(items) = arguments
-        .get("code_action_kinds")
-        .and_then(|value| value.as_array())
-    {
-        let parsed = items
-            .iter()
-            .filter_map(|item| item.as_str().map(ToOwned::to_owned))
-            .collect::<Vec<_>>();
-        if !parsed.is_empty() {
-            return parsed;
+pub(crate) fn semantic_transaction_contract(input: SemanticTransactionContractInput<'_>) -> Value {
+    let file_hashes_before = file_hashes_before(input.state, input.file_paths);
+    json!({
+        "transaction_id": transaction_id(
+            input.backend_id,
+            input.operation,
+            input.file_paths,
+            &file_hashes_before
+        ),
+        "model": "transactional_best_effort_with_rollback_evidence",
+        "workspace_id": input.state.project().as_path().display().to_string(),
+        "backend_id": input.backend_id,
+        "operation": input.operation,
+        "target_symbol": input.target_symbol,
+        "input_snapshot": {
+            "file_paths": unique_file_paths(input.file_paths),
+            "dry_run": input.dry_run,
+        },
+        "file_hashes_before": file_hashes_before,
+        "workspace_edit": input.workspace_edit,
+        "preview_diff": [],
+        "apply_status": input.apply_status,
+        "modified_files": input.modified_files,
+        "edit_count": input.edit_count,
+        "resource_ops": input.resource_ops,
+        "rollback_plan": {
+            "available": input.rollback_available,
+            "evidence": if input.rollback_available {
+                "pre-apply file snapshots are held during apply and restored on apply failure"
+            } else {
+                "rollback evidence is unavailable for this operation path"
+            }
+        },
+        "diagnostics_before": [],
+        "diagnostics_after": [],
+        "verification_result": {
+            "references_checked": input.references_checked,
+            "conflicts": input.conflicts,
+        },
+        "audit_record": {
+            "recorded": false,
+            "reason": "inline tool response only; session audit remains the durable audit channel"
         }
+    })
+}
+
+pub(crate) fn file_hashes_before(state: &AppState, file_paths: &[String]) -> Value {
+    let mut hashes = Map::new();
+    for file_path in unique_file_paths(file_paths) {
+        let value = match state
+            .project()
+            .resolve(&file_path)
+            .and_then(|path| std::fs::read(&path).map_err(anyhow::Error::from))
+        {
+            Ok(bytes) => json!({
+                "sha256": sha256_hex(&bytes),
+                "bytes": bytes.len(),
+            }),
+            Err(error) => json!({
+                "error": error.to_string(),
+            }),
+        };
+        hashes.insert(file_path, value);
     }
-    default_kinds
+    Value::Object(hashes)
+}
+
+fn unique_file_paths(file_paths: &[String]) -> Vec<String> {
+    file_paths
         .iter()
-        .map(|kind| (*kind).to_owned())
+        .filter(|path| !path.is_empty())
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect()
 }
 
-fn language_for_file(file_path: &str) -> &'static str {
-    match std::path::Path::new(file_path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or_default()
-    {
-        "rs" => "rust",
-        "ts" | "tsx" => "typescript",
-        "js" | "jsx" | "mjs" | "cjs" => "javascript",
-        "java" => "java",
-        _ => "unknown",
+fn transaction_id(
+    backend_id: &str,
+    operation: &str,
+    file_paths: &[String],
+    file_hashes_before: &Value,
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(backend_id.as_bytes());
+    digest.update(b"\0");
+    digest.update(operation.as_bytes());
+    digest.update(b"\0");
+    for file_path in unique_file_paths(file_paths) {
+        digest.update(file_path.as_bytes());
+        digest.update(b"\0");
     }
+    digest.update(file_hashes_before.to_string().as_bytes());
+    format!("semantic-tx-{}", sha256_hex(&digest.finalize()))
 }
 
-fn position_source(arguments: &serde_json::Value) -> &'static str {
-    match (
-        arguments.get("line").and_then(|value| value.as_u64()),
-        arguments.get("column").and_then(|value| value.as_u64()),
-    ) {
-        (Some(_), Some(_)) => "explicit",
-        _ => "symbol_index",
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(output, "{byte:02x}");
     }
-}
-
-fn symbol_position(
-    state: &AppState,
-    arguments: &serde_json::Value,
-    file_path: &str,
-    symbol_name: &str,
-    name_path: Option<&str>,
-) -> Result<(usize, usize), CodeLensError> {
-    match (
-        arguments.get("line").and_then(|value| value.as_u64()),
-        arguments.get("column").and_then(|value| value.as_u64()),
-    ) {
-        (Some(line), Some(column)) => return Ok((line as usize, column as usize)),
-        (None, None) => {}
-        _ => {
-            return Err(CodeLensError::MissingParam(
-                "line and column must be provided together".into(),
-            ));
-        }
-    }
-
-    let symbols = codelens_engine::get_symbols_overview(&state.project(), file_path, 0)
-        .map_err(CodeLensError::Internal)?;
-    let flat = flatten_symbols(symbols);
-    flat.iter()
-        .find(|symbol| {
-            if let Some(name_path) = name_path {
-                symbol.name_path == name_path
-            } else {
-                symbol.name == symbol_name
-            }
-        })
-        .map(|symbol| (symbol.line, symbol.column))
-        .ok_or_else(|| {
-            CodeLensError::NotFound(format!(
-                "symbol `{symbol_name}` not found in {file_path}; provide line and column for LSP rename"
-            ))
-        })
-}
-
-fn flatten_symbols(symbols: Vec<SymbolInfo>) -> Vec<SymbolInfo> {
-    let mut flat = Vec::new();
-    for mut symbol in symbols {
-        let children = std::mem::take(&mut symbol.children);
-        flat.push(symbol);
-        flat.extend(flatten_symbols(children));
-    }
-    flat
+    output
 }

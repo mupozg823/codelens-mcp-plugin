@@ -112,9 +112,12 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
         | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_edit::unsupported_external_adapter(
+            return crate::tools::semantic_adapter::refactor_with_local_adapter(
+                state,
+                arguments,
                 crate::tools::semantic_edit::selected_backend(arguments)?,
                 "refactor_extract_function",
+                "extract_function",
             );
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
@@ -233,9 +236,12 @@ pub fn refactor_inline_function(state: &AppState, arguments: &serde_json::Value)
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
         | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_edit::unsupported_external_adapter(
+            return crate::tools::semantic_adapter::refactor_with_local_adapter(
+                state,
+                arguments,
                 crate::tools::semantic_edit::selected_backend(arguments)?,
                 "refactor_inline_function",
+                "inline_function",
             );
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
@@ -279,9 +285,12 @@ pub fn refactor_move_to_file(state: &AppState, arguments: &serde_json::Value) ->
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
         | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_edit::unsupported_external_adapter(
+            return crate::tools::semantic_adapter::refactor_with_local_adapter(
+                state,
+                arguments,
                 crate::tools::semantic_edit::selected_backend(arguments)?,
                 "refactor_move_to_file",
+                "move_symbol",
             );
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
@@ -334,9 +343,12 @@ pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
         | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_edit::unsupported_external_adapter(
+            return crate::tools::semantic_adapter::refactor_with_local_adapter(
+                state,
+                arguments,
                 crate::tools::semantic_edit::selected_backend(arguments)?,
                 "refactor_change_signature",
+                "change_signature",
             );
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
@@ -385,8 +397,7 @@ pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value
 /// Analyze what would break if a symbol were deleted, and optionally
 /// propagate the deletion by removing broken import/reference lines.
 ///
-/// This closes the last functional gap vs Serena's JetBrains-only
-/// `propagate_deletions` tool, using CodeLens's existing impact
+/// This closes the guarded safe-delete gap using CodeLens's existing impact
 /// analysis + reference graph instead of an external IDE.
 pub fn propagate_deletions(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     match crate::tools::semantic_edit::selected_backend(arguments)? {

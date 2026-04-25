@@ -6,8 +6,10 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shutil
 import socket
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +27,20 @@ REQUIRED_MODEL_ASSETS = (
     "special_tokens_map.json",
     "tokenizer_config.json",
 )
+ISOLATED_COPY_IGNORE_NAMES = {
+    ".codelens",
+    ".fastembed_cache",
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".serena",
+    ".venv",
+    "__pycache__",
+    "checkpoints",
+    "node_modules",
+    "target",
+}
+ISOLATED_COPY_IGNORE_SUFFIXES = (".onnx", ".onnx.bak", ".pyc", ".pyo")
 
 
 @dataclass(frozen=True)
@@ -183,6 +199,32 @@ def resolve_codelens_model_dir(
         if found is not None:
             return found
     return None
+
+
+def isolated_project_copy(project: str | Path, *, prefix: str = "codelens-bench-"):
+    """Return (TemporaryDirectory, copied_project_path) without runtime/cache trees."""
+
+    source = Path(project).expanduser().resolve()
+    tmpdir = tempfile.TemporaryDirectory(prefix=prefix)
+    destination = Path(tmpdir.name) / source.name
+
+    def ignore(dirpath, names):
+        directory = Path(dirpath)
+        ignored = set()
+        for name in names:
+            path = directory / name
+            if name in ISOLATED_COPY_IGNORE_NAMES or name.endswith(ISOLATED_COPY_IGNORE_SUFFIXES):
+                ignored.add(name)
+                continue
+            if "adapters" in path.parts and name in {"bin", "obj"}:
+                ignored.add(name)
+                continue
+            if directory.name == "models" and path.is_dir():
+                ignored.add(name)
+        return ignored
+
+    shutil.copytree(source, destination, ignore=ignore)
+    return tmpdir, destination
 
 
 def codelens(bin_path, project, cmd, args, count_tokens, timeout=15, preset=None, profile=None):

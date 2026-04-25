@@ -25,7 +25,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--binary", default=str(DEFAULT_BINARY))
     parser.add_argument("--output", default=None)
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--preset", default="full")
+    parser.add_argument("--profile", default=None)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--require-all-backends", action="store_true")
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--keep-workdirs", action="store_true")
     return parser.parse_args()
@@ -49,6 +52,10 @@ def validate_matrix(projects: list[dict[str, Any]]) -> None:
         operations = item.get("operations")
         if not isinstance(operations, list) or not operations:
             raise ValueError(f"{item['name']}: operations must be a non-empty list")
+        for key in ("required_command", "skip_if_missing_command"):
+            if key in item and not isinstance(item[key], str):
+                raise ValueError(f"{item['name']}: {key} must be a string")
+        validate_env(item, item["name"])
         for operation in operations:
             tool = operation.get("tool")
             if tool not in {
@@ -63,6 +70,21 @@ def validate_matrix(projects: list[dict[str, Any]]) -> None:
                 raise ValueError(f"{item['name']}: unsupported semantic refactor tool {tool!r}")
             if not isinstance(operation.get("args"), dict):
                 raise ValueError(f"{item['name']}:{tool}: args must be an object")
+            for key in ("required_command", "skip_if_missing_command", "preset", "profile"):
+                if key in operation and not isinstance(operation[key], str):
+                    raise ValueError(f"{item['name']}:{tool}: {key} must be a string")
+            validate_env(operation, f"{item['name']}:{tool}")
+
+
+def validate_env(scope: dict[str, Any], label: str) -> None:
+    env = scope.get("env")
+    if env is None:
+        return
+    if not isinstance(env, dict):
+        raise ValueError(f"{label}: env must be an object")
+    for key, value in env.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise ValueError(f"{label}: env keys and values must be strings")
 
 
 def materialize_project(
@@ -130,36 +152,103 @@ def run_tool(
     operation: dict[str, Any],
     timeout: int,
     env: dict[str, str],
+    default_preset: str,
+    default_profile: str | None,
 ) -> dict[str, Any]:
-    started = time.perf_counter()
-    completed = subprocess.run(
+    missing_command = missing_required_command(operation)
+    if missing_command:
+        return skipped_step(operation["tool"], f"missing command: {missing_command}")
+
+    tool_env = merged_env(env, operation.get("env"))
+    command = [str(binary), str(project)]
+    preset = operation.get("preset", default_preset)
+    profile = operation.get("profile", default_profile)
+    if preset:
+        command.extend(["--preset", preset])
+    if profile:
+        command.extend(["--profile", profile])
+    command.extend(
         [
-            str(binary),
-            str(project),
             "--cmd",
             operation["tool"],
             "--args",
             json.dumps(operation["args"]),
-        ],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-        check=False,
+        ]
     )
-    elapsed_ms = round((time.perf_counter() - started) * 1000)
-    payload = parse_stdout(completed.stdout)
-    ok = completed.returncode == 0 and expected_payload(payload, operation.get("expect", {}))
+    started = time.perf_counter()
+    max_attempts = int(operation.get("max_attempts", 2))
+    max_attempts = max(1, min(max_attempts, 3))
+    last_result: dict[str, Any] | None = None
+    for attempt in range(1, max_attempts + 1):
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=tool_env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        payload = parse_stdout(completed.stdout)
+        unsupported = is_unsupported_payload(payload) if isinstance(payload, dict) else False
+        ok = completed.returncode == 0 and expected_payload(payload, operation.get("expect", {}))
+        last_result = {
+            "tool": operation["tool"],
+            "ok": ok,
+            "unsupported": unsupported,
+            "exit_code": completed.returncode,
+            "elapsed_ms": elapsed_ms,
+            "attempts": attempt,
+            "stdout": payload,
+            "stderr_tail": completed.stderr[-4000:],
+        }
+        if ok or attempt == max_attempts or not retryable_lsp_failure(payload, completed.stderr):
+            return last_result
+        time.sleep(1)
+    assert last_result is not None
+    return last_result
+
+
+def missing_required_command(scope: dict[str, Any]) -> str | None:
+    command = scope.get("skip_if_missing_command") or scope.get("required_command")
+    if command and shutil.which(command) is None:
+        return command
+    return None
+
+
+def skipped_step(tool: str, reason: str) -> dict[str, Any]:
     return {
-        "tool": operation["tool"],
-        "ok": ok,
-        "exit_code": completed.returncode,
-        "elapsed_ms": elapsed_ms,
-        "stdout": payload,
-        "stderr_tail": completed.stderr[-4000:],
+        "tool": tool,
+        "ok": True,
+        "skipped": True,
+        "skip_reason": reason,
+        "exit_code": None,
+        "elapsed_ms": 0,
+        "stdout": None,
+        "stderr_tail": "",
     }
+
+
+def retryable_lsp_failure(payload: Any, stderr: str) -> bool:
+    haystack = " ".join(
+        item
+        for item in [
+            payload.get("error") if isinstance(payload, dict) else None,
+            stderr,
+        ]
+        if isinstance(item, str)
+    ).lower()
+    return "content modified" in haystack or "server not initialized" in haystack
+
+
+def merged_env(base: dict[str, str], overlay: dict[str, str] | None) -> dict[str, str]:
+    if not overlay:
+        return base
+    merged = base.copy()
+    merged.update(overlay)
+    return merged
 
 
 def parse_stdout(stdout: str) -> Any:
@@ -174,6 +263,11 @@ def parse_stdout(stdout: str) -> Any:
 def expected_payload(payload: Any, expect: dict[str, Any]) -> bool:
     if not isinstance(payload, dict):
         return False
+    unsupported = is_unsupported_payload(payload)
+    if unsupported and not expect.get("unsupported"):
+        return False
+    if expect.get("unsupported") and not unsupported:
+        return False
     if "success" in expect and bool(payload.get("success")) != bool(expect["success"]):
         return False
     for dotted, expected in expect.get("equals", {}).items():
@@ -183,6 +277,26 @@ def expected_payload(payload: Any, expect: dict[str, Any]) -> bool:
         if lookup(payload, dotted) is None:
             return False
     return True
+
+
+def is_unsupported_payload(payload: dict[str, Any]) -> bool:
+    values = [
+        payload.get("status"),
+        payload.get("support"),
+        lookup(payload, "data.status"),
+        lookup(payload, "data.support"),
+        lookup(payload, "data.blocker_reason"),
+        payload.get("error"),
+    ]
+    return any(
+        isinstance(value, str)
+        and (
+            value == "unsupported"
+            or value == "unsupported_semantic_refactor"
+            or "unsupported_semantic_refactor" in value
+        )
+        for value in values
+    )
 
 
 def lookup(payload: Any, dotted: str) -> Any:
@@ -202,6 +316,7 @@ def default_env() -> dict[str, str]:
     env = os.environ.copy()
     env.setdefault("CODELENS_LOG", "warn")
     env.setdefault("CODELENS_SEMANTIC_EDIT_BACKEND", "lsp")
+    env.setdefault("CODELENS_LSP_STARTUP_GRACE_MS", "8000")
     model_dir = ROOT / "crates" / "codelens-engine" / "models"
     if "CODELENS_MODEL_DIR" not in env and model_dir.exists():
         env["CODELENS_MODEL_DIR"] = str(model_dir)
@@ -214,14 +329,39 @@ def run_project(
     timeout: int,
     keep_workdirs: bool,
     env: dict[str, str],
+    default_preset: str,
+    default_profile: str | None,
 ) -> dict[str, Any]:
+    missing_command = missing_required_command(item)
+    if missing_command:
+        return {
+            "name": item.get("name", "unknown"),
+            "kind": item.get("kind"),
+            "ok": True,
+            "skipped": True,
+            "skip_reason": f"missing command: {missing_command}",
+            "steps": [],
+        }
+
     try:
         project, cleanup = materialize_project(item, keep_workdirs, timeout)
     except (FileNotFoundError, ValueError, subprocess.SubprocessError) as error:
         return {"name": item.get("name", "unknown"), "kind": item.get("kind"), "ok": False, "error": str(error), "steps": []}
 
     try:
-        steps = [run_tool(binary, project, operation, timeout, env) for operation in item["operations"]]
+        project_env = merged_env(env, item.get("env"))
+        steps = [
+            run_tool(
+                binary,
+                project,
+                operation,
+                timeout,
+                project_env,
+                default_preset,
+                default_profile,
+            )
+            for operation in item["operations"]
+        ]
         return {
             "name": item["name"],
             "kind": item.get("kind"),
@@ -246,12 +386,42 @@ def main() -> int:
     if not binary.is_file():
         raise SystemExit(f"binary missing: {binary}")
     env = default_env()
-    results = [run_project(item, binary, args.timeout, args.keep_workdirs, env) for item in projects]
+    results = [
+        run_project(
+            item,
+            binary,
+            args.timeout,
+            args.keep_workdirs,
+            env,
+            args.preset,
+            args.profile,
+        )
+        for item in projects
+    ]
+    skipped = sum(1 for item in results if item.get("skipped"))
+    skipped += sum(
+        1
+        for item in results
+        for step in item.get("steps", [])
+        if step.get("skipped")
+    )
+    unsupported = sum(
+        1
+        for item in results
+        for step in item.get("steps", [])
+        if step.get("unsupported")
+    )
+    ok = all(item["ok"] for item in results) and (
+        skipped == 0 or not args.require_all_backends
+    )
     summary = {
         "schema_version": "codelens-semantic-refactor-results-v1",
         "matrix": str(matrix_path),
         "binary": str(binary),
-        "ok": all(item["ok"] for item in results),
+        "ok": ok,
+        "skipped": skipped,
+        "unsupported": unsupported,
+        "require_all_backends": args.require_all_backends,
         "projects": results,
     }
     encoded = json.dumps(summary, indent=2)

@@ -74,7 +74,21 @@ fn model_dir_candidates(base: &std::path::Path) -> Vec<std::path::PathBuf> {
 fn model_dir_has_assets(dir: &std::path::Path) -> bool {
     REQUIRED_MODEL_ASSETS
         .iter()
-        .all(|name| dir.join(name).exists())
+        .all(|name| model_asset_path(dir, name).exists())
+}
+
+fn model_asset_path(model_dir: &std::path::Path, asset: &str) -> std::path::PathBuf {
+    let direct = model_dir.join(asset);
+    if direct.exists() {
+        return direct;
+    }
+    if asset == "model.onnx" {
+        let split_onnx = model_dir.join("onnx").join(asset);
+        if split_onnx.exists() {
+            return split_onnx;
+        }
+    }
+    direct
 }
 
 fn first_model_dir_with_assets(base: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -152,6 +166,7 @@ pub fn resolve_model_dir() -> Result<std::path::PathBuf> {
          - $CODELENS_MODEL_DIR/codesearch/\n\
          - $CODELENS_MODEL_DIR/onnx/\n\
          - $CODELENS_MODEL_DIR/arm64/ or $CODELENS_MODEL_DIR/avx2/\n\
+         - $CODELENS_MODEL_DIR/codelens-code-search/<arch>/ with onnx/model.onnx\n\
          - <executable>/models/...\n\
          - ~/.cache/codelens/models/...\n\
          Required files: model.onnx, tokenizer.json, config.json, special_tokens_map.json, tokenizer_config.json"
@@ -585,16 +600,18 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
     let model_dir = resolve_model_dir()?;
     let model_name = configured_model_name_for_dir(&model_dir);
 
-    let onnx_bytes =
-        std::fs::read(model_dir.join("model.onnx")).context("failed to read model.onnx")?;
-    let tokenizer_bytes =
-        std::fs::read(model_dir.join("tokenizer.json")).context("failed to read tokenizer.json")?;
-    let config_bytes =
-        std::fs::read(model_dir.join("config.json")).context("failed to read config.json")?;
-    let special_tokens_bytes = std::fs::read(model_dir.join("special_tokens_map.json"))
-        .context("failed to read special_tokens_map.json")?;
-    let tokenizer_config_bytes = std::fs::read(model_dir.join("tokenizer_config.json"))
-        .context("failed to read tokenizer_config.json")?;
+    let onnx_bytes = std::fs::read(model_asset_path(&model_dir, "model.onnx"))
+        .context("failed to read model.onnx")?;
+    let tokenizer_bytes = std::fs::read(model_asset_path(&model_dir, "tokenizer.json"))
+        .context("failed to read tokenizer.json")?;
+    let config_bytes = std::fs::read(model_asset_path(&model_dir, "config.json"))
+        .context("failed to read config.json")?;
+    let special_tokens_bytes =
+        std::fs::read(model_asset_path(&model_dir, "special_tokens_map.json"))
+            .context("failed to read special_tokens_map.json")?;
+    let tokenizer_config_bytes =
+        std::fs::read(model_asset_path(&model_dir, "tokenizer_config.json"))
+            .context("failed to read tokenizer_config.json")?;
 
     let user_model = UserDefinedEmbeddingModel::new(
         onnx_bytes,

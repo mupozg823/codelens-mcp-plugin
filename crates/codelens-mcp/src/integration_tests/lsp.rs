@@ -285,6 +285,22 @@ fn rename_symbol_uses_opt_in_lsp_semantic_edit_backend() {
 
     assert_eq!(payload["success"], json!(true), "{payload}");
     assert_eq!(payload["data"]["semantic_edit_backend"], json!("lsp"));
+    assert_eq!(payload["data"]["authority"], json!("workspace_edit"));
+    assert_eq!(payload["data"]["authority_backend"], json!("lsp:python3"));
+    assert_eq!(payload["data"]["support"], json!("authoritative_apply"));
+    assert_eq!(payload["data"]["can_preview"], json!(true));
+    assert_eq!(payload["data"]["can_apply"], json!(true));
+    assert_eq!(payload["data"]["blocker_reason"], json!(null));
+    assert_eq!(
+        payload["data"]["transaction"]["contract"]["backend_id"],
+        json!("lsp:python3")
+    );
+    assert!(
+        payload["data"]["transaction"]["contract"]["file_hashes_before"]["rename_target.py"]
+            ["sha256"]
+            .is_string(),
+        "{payload}"
+    );
     assert_eq!(
         payload["data"]["edit_authority"],
         json!({
@@ -370,6 +386,16 @@ fn propagate_deletions_uses_lsp_safe_delete_check() {
 
     assert_eq!(payload["success"], json!(true), "{payload}");
     assert_eq!(payload["data"]["semantic_edit_backend"], json!("lsp"));
+    assert_eq!(payload["data"]["authority"], json!("semantic_readonly"));
+    assert_eq!(payload["data"]["authority_backend"], json!("lsp:python3"));
+    assert_eq!(payload["data"]["support"], json!("authoritative_check"));
+    assert_eq!(payload["data"]["can_preview"], json!(true));
+    assert_eq!(payload["data"]["can_apply"], json!(false));
+    assert_eq!(payload["data"]["blocker_reason"], json!(null));
+    assert_eq!(
+        payload["data"]["transaction"]["contract"]["verification_result"]["references_checked"],
+        json!(true)
+    );
     assert_eq!(
         payload["data"]["edit_authority"],
         json!({

@@ -150,13 +150,17 @@ elif [[ -d "$models_dir/codelens-code-search" ]]; then
 	if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
 		variant="arm64"
 	fi
-	src="$models_dir/codelens-code-search/$variant/onnx"
-	if [[ ! -d "$src" ]]; then
-		src="$models_dir/codelens-code-search/$variant"
-	fi
+	src="$models_dir/codelens-code-search/$variant"
 	mkdir -p "$bundle_dir/models/codesearch"
 	for asset in model.onnx tokenizer.json config.json special_tokens_map.json tokenizer_config.json; do
-		cp -L "$src/$asset" "$bundle_dir/models/codesearch/"
+		if [[ -f "$src/$asset" ]]; then
+			cp -L "$src/$asset" "$bundle_dir/models/codesearch/"
+		elif [[ -f "$src/onnx/$asset" ]]; then
+			cp -L "$src/onnx/$asset" "$bundle_dir/models/codesearch/"
+		else
+			echo "model asset missing from codelens-code-search $variant layout: $asset" >&2
+			exit 1
+		fi
 	done
 else
 	echo "models directory does not contain a supported CodeLens model layout: $models_dir" >&2
@@ -215,6 +219,7 @@ cat >"$bundle_dir/bundle-manifest.json" <<EOF
   "binary_archive": "$(basename "$archive_path")",
   "sbom_file": "$(basename "$sbom_path")",
   "models_dir": "models/codesearch",
+  "adapters_dir": "adapters",
   "entrypoint": "./codelens-mcp",
   "http_ports": [7837, 7838]
 }
@@ -229,6 +234,7 @@ Contents:
 
 - \`./codelens-mcp\` release binary
 - \`./models/codesearch/\` bundled semantic model assets
+- \`./adapters/roslyn-workspace-service/\` optional Roslyn semantic edit sidecar
 - \`./sbom/$(basename "$sbom_path")\` CycloneDX SBOM for the bundled binary
 - \`./examples/\` example MCP configs and daemon launch scripts
 - \`./checksums-sha256.txt\` checksums for bundle contents

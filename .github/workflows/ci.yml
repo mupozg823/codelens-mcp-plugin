@@ -34,6 +34,12 @@ jobs:
         with:
           components: clippy
 
+      - name: Install .NET SDK for Roslyn adapter gate
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -180,9 +186,14 @@ jobs:
         run: |
           python3 benchmarks/daemon-latency-gate.py . \
             --binary target/release/codelens-mcp \
+            --query-set benchmarks/embedding-quality-dataset-self.json \
+            --distinct-runs 10 \
+            --prewarm-distinct \
             --check \
             --max-ranked-context-p95-ms 250 \
             --max-semantic-search-p95-ms 900 \
+            --max-cold-semantic-p95-ms 1200 \
+            --max-prewarmed-semantic-p95-ms 250 \
             --output-json benchmarks/daemon-latency-gate.json \
             --markdown-output benchmarks/daemon-latency-gate.md | tee benchmarks/daemon-latency-gate-ci.txt
           cat benchmarks/daemon-latency-gate.md >> "$GITHUB_STEP_SUMMARY"
@@ -193,6 +204,19 @@ jobs:
           python3 benchmarks/embedding-quality-matrix.py \
             --require-datasets ripgrep,requests,jest,typescript,next-js,react-core,django,axum
           cat benchmarks/embedding-quality-phase3-matrix.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: semantic refactor matrix gate
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          CODELENS_BIN: target/release/codelens-mcp
+        run: |
+          dotnet build adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService/CodeLens.Roslyn.WorkspaceService.csproj
+          python3 benchmarks/semantic-refactor-matrix.py \
+            --binary target/release/codelens-mcp \
+            --matrix benchmarks/semantic-refactor-upstream-matrix.json \
+            --output benchmarks/semantic-refactor-upstream-results.json \
+            --timeout 420 \
+            --check | tee benchmarks/semantic-refactor-upstream-ci.txt
 
       - name: upload benchmark artifacts
         if: matrix.os == 'ubuntu-latest'
@@ -214,3 +238,5 @@ jobs:
             benchmarks/daemon-latency-gate.json
             benchmarks/daemon-latency-gate.md
             benchmarks/daemon-latency-gate-ci.txt
+            benchmarks/semantic-refactor-upstream-results.json
+            benchmarks/semantic-refactor-upstream-ci.txt

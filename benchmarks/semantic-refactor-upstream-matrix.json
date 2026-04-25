@@ -2,16 +2,50 @@
   "schema_version": "codelens-semantic-refactor-matrix-v1",
   "projects": [
     {
+      "name": "csharp-roslyn-rename-fixture",
+      "kind": "csharp",
+      "path": "benchmarks/fixtures/roslyn-rename",
+      "skip_if_missing_command": "dotnet",
+      "operations": [
+        {
+          "tool": "rename_symbol",
+          "env": {
+            "CODELENS_ROSLYN_ADAPTER_CMD": "dotnet",
+            "CODELENS_ROSLYN_ADAPTER_ARGS": "run --quiet --project adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService"
+          },
+          "args": {
+            "file_path": "Widget.cs",
+            "symbol_name": "Widget",
+            "new_name": "RenamedWidget",
+            "semantic_edit_backend": "roslyn",
+            "line": 3,
+            "column": 14,
+            "dry_run": false
+          },
+          "expect": {
+            "success": true,
+            "equals": {
+              "data.semantic_edit_backend": "roslyn",
+              "data.edit_authority.kind": "authoritative_local_adapter",
+              "data.applied": true
+            },
+            "present": ["data.workspace_edit"]
+          }
+        }
+      ]
+    },
+    {
       "name": "serde-json-rename-navigation",
       "kind": "rust",
       "git_url": "https://github.com/serde-rs/json.git",
       "revision": "dc8003a88e7142529cf4a7429c4778af31dadf50",
+      "skip_if_missing_command": "rust-analyzer",
       "operations": [
         {
           "tool": "resolve_symbol_target",
           "args": {
             "file_path": "src/de.rs",
-            "line": 2698,
+            "line": 2699,
             "column": 8,
             "target": "definition",
             "semantic_backend": "lsp"
@@ -28,6 +62,8 @@
             "symbol_name": "from_str",
             "new_name": "preview_from_str",
             "semantic_edit_backend": "lsp",
+            "line": 2699,
+            "column": 8,
             "dry_run": true
           },
           "expect": {
@@ -40,25 +76,41 @@
       ]
     },
     {
-      "name": "next-learn-typescript-codeactions",
+      "name": "next-learn-typescript-rename-navigation",
       "kind": "typescript",
       "git_url": "https://github.com/vercel/next-learn.git",
       "revision": "914a33426aac20f825ca52fae80b889302b92240",
+      "skip_if_missing_command": "typescript-language-server",
       "operations": [
         {
-          "tool": "refactor_extract_function",
+          "tool": "resolve_symbol_target",
           "args": {
             "file_path": "dashboard/starter-example/app/page.tsx",
-            "start_line": 9,
-            "end_line": 12,
-            "new_name": "ExtractedPreview",
+            "line": 20,
+            "column": 12,
+            "target": "definition",
+            "semantic_backend": "lsp"
+          },
+          "expect": {
+            "success": true,
+            "present": ["data.targets.0.file_path"]
+          }
+        },
+        {
+          "tool": "rename_symbol",
+          "args": {
+            "file_path": "dashboard/starter-example/app/page.tsx",
+            "symbol_name": "Page",
+            "new_name": "PreviewPage",
             "semantic_edit_backend": "lsp",
+            "line": 5,
+            "column": 25,
             "dry_run": true
           },
           "expect": {
             "success": true,
             "equals": {
-              "data.operation": "extract_function"
+              "data.semantic_edit_backend": "lsp"
             }
           }
         }
@@ -69,6 +121,7 @@
       "kind": "java",
       "git_url": "https://github.com/spring-projects/spring-petclinic.git",
       "revision": "c7ee170434ec3e369fdc9201290ba2ea4c92b557",
+      "skip_if_missing_command": "jdtls",
       "operations": [
         {
           "tool": "resolve_symbol_target",

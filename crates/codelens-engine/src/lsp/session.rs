@@ -9,21 +9,14 @@ use std::thread;
 use std::time::{Duration, Instant};
 use url::Url;
 
-use super::code_actions::{code_actions_from_response, select_code_action};
-use super::parsers::{
-    apply_workspace_edit_transaction, diagnostics_from_response, method_suffix_to_hierarchy,
-    references_from_response, rename_plan_from_response, resolved_targets_from_response,
-    type_hierarchy_node_from_item, type_hierarchy_to_map, utf16_character_for_byte_column,
-    workspace_edit_transaction_from_edit, workspace_edit_transaction_from_response,
-    workspace_symbols_from_response,
-};
+use super::commands::is_allowed_lsp_command;
 use super::protocol::{language_id_for_path, poll_readable, read_message, send_message};
 use super::registry::resolve_lsp_binary;
 use super::types::{
     LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic, LspDiagnosticRequest,
     LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest, LspRequest,
-    LspResolveTargetRequest, LspResolvedTarget, LspTypeHierarchyNode, LspTypeHierarchyRequest,
-    LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
+    LspResolveTargetRequest, LspResolvedTarget, LspTypeHierarchyRequest, LspWorkspaceSymbol,
+    LspWorkspaceSymbolRequest,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -43,8 +36,8 @@ pub struct LspSessionPool {
     sessions: std::sync::Mutex<HashMap<SessionKey, LspSession>>,
 }
 
-struct LspSession {
-    project: ProjectRoot,
+pub(super) struct LspSession {
+    pub(super) project: ProjectRoot,
     child: Child,
     stdin: ChildStdin,
     reader: BufReader<ChildStdout>,
@@ -53,41 +46,6 @@ struct LspSession {
     #[allow(dead_code)] // retained for future stderr diagnostics
     stderr_buffer: std::sync::Arc<std::sync::Mutex<String>>,
 }
-
-/// Known-safe LSP server binaries. Commands not in this list are rejected.
-pub(super) fn is_allowed_lsp_command(command: &str) -> bool {
-    // Extract the binary name from the command path (e.g., "/usr/bin/pyright-langserver" → "pyright-langserver")
-    let binary = std::path::Path::new(command)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(command);
-
-    ALLOWED_COMMANDS.contains(&binary)
-}
-
-pub(super) const ALLOWED_COMMANDS: &[&str] = &[
-    // From LSP_RECIPES
-    "pyright-langserver",
-    "typescript-language-server",
-    "rust-analyzer",
-    "gopls",
-    "jdtls",
-    "kotlin-language-server",
-    "clangd",
-    "solargraph",
-    "intelephense",
-    "sourcekit-lsp",
-    "csharp-ls",
-    "dart",
-    // Additional well-known LSP servers
-    "metals",
-    "lua-language-server",
-    "terraform-ls",
-    "yaml-language-server",
-    // Test support: allow python3/python for mock LSP in tests
-    "python3",
-    "python",
-];
 
 fn ensure_session<'a>(
     sessions: &'a mut HashMap<SessionKey, LspSession>,
@@ -299,6 +257,9 @@ impl LspSession {
             stderr_buffer,
         };
         session.initialize()?;
+        if let Some(grace) = configured_startup_grace() {
+            thread::sleep(grace);
+        }
         Ok(session)
     }
 
@@ -355,357 +316,7 @@ impl LspSession {
         Ok(())
     }
 
-    fn find_references(&mut self, request: &LspRequest) -> Result<Vec<LspReference>> {
-        let absolute_path = self.project.resolve(&request.file_path)?;
-        let (uri_string, source) = self.prepare_document(&absolute_path)?;
-        let character = utf16_character_for_byte_column(&source, request.line, request.column);
-
-        let id = self.next_id();
-        self.send_request(
-            id,
-            "textDocument/references",
-            json!({
-                "textDocument":{"uri":uri_string},
-                "position":{"line":request.line.saturating_sub(1),"character":character},
-                "context":{"includeDeclaration":true}
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        references_from_response(&self.project, response, request.max_results)
-    }
-
-    fn get_diagnostics(&mut self, request: &LspDiagnosticRequest) -> Result<Vec<LspDiagnostic>> {
-        let absolute_path = self.project.resolve(&request.file_path)?;
-        let (uri_string, _source) = self.prepare_document(&absolute_path)?;
-
-        let id = self.next_id();
-        self.send_request(
-            id,
-            "textDocument/diagnostic",
-            json!({
-                "textDocument":{"uri":uri_string}
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        diagnostics_from_response(&self.project, response, request.max_results)
-    }
-
-    fn search_workspace_symbols(
-        &mut self,
-        request: &LspWorkspaceSymbolRequest,
-    ) -> Result<Vec<LspWorkspaceSymbol>> {
-        let id = self.next_id();
-        self.send_request(
-            id,
-            "workspace/symbol",
-            json!({
-                "query": request.query
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        workspace_symbols_from_response(&self.project, response, request.max_results)
-    }
-
-    fn get_type_hierarchy(
-        &mut self,
-        request: &LspTypeHierarchyRequest,
-    ) -> Result<HashMap<String, Value>> {
-        let workspace_symbols = self.search_workspace_symbols(&LspWorkspaceSymbolRequest {
-            command: request.command.clone(),
-            args: request.args.clone(),
-            query: request.query.clone(),
-            max_results: 20,
-        })?;
-        let seed = workspace_symbols
-            .into_iter()
-            .find(|symbol| match &request.relative_path {
-                Some(path) => &symbol.file_path == path,
-                None => true,
-            })
-            .with_context(|| format!("No workspace symbol found for '{}'", request.query))?;
-
-        let absolute_path = self.project.resolve(&seed.file_path)?;
-        let (uri_string, _source) = self.prepare_document(&absolute_path)?;
-
-        let id = self.next_id();
-        self.send_request(
-            id,
-            "textDocument/prepareTypeHierarchy",
-            json!({
-                "textDocument":{"uri":uri_string},
-                "position":{"line":seed.line.saturating_sub(1),"character":seed.column.saturating_sub(1)}
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        let items = response
-            .get("result")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let root_item = items
-            .into_iter()
-            .next()
-            .context("LSP prepareTypeHierarchy returned no items")?;
-
-        let root = self.build_type_hierarchy_node(
-            &root_item,
-            request.depth,
-            request.hierarchy_type.as_str(),
-        )?;
-        Ok(type_hierarchy_to_map(&root))
-    }
-
-    fn resolve_symbol_target(
-        &mut self,
-        request: &LspResolveTargetRequest,
-    ) -> Result<Vec<LspResolvedTarget>> {
-        let absolute_path = self.project.resolve(&request.file_path)?;
-        let (uri_string, source) = self.prepare_document(&absolute_path)?;
-        let character = utf16_character_for_byte_column(&source, request.line, request.column);
-        let method = match request.target.as_str() {
-            "declaration" => "textDocument/declaration",
-            "definition" => "textDocument/definition",
-            "implementation" => "textDocument/implementation",
-            "type_definition" => "textDocument/typeDefinition",
-            other => bail!("unsupported LSP target: {other}"),
-        };
-
-        let id = self.next_id();
-        self.send_request(
-            id,
-            method,
-            json!({
-                "textDocument":{"uri":uri_string},
-                "position":{"line":request.line.saturating_sub(1),"character":character}
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        resolved_targets_from_response(
-            &self.project,
-            response,
-            &request.target,
-            method,
-            request.max_results,
-        )
-    }
-
-    fn get_rename_plan(&mut self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
-        let absolute_path = self.project.resolve(&request.file_path)?;
-        let (uri_string, source) = self.prepare_document(&absolute_path)?;
-        let character = utf16_character_for_byte_column(&source, request.line, request.column);
-
-        let id = self.next_id();
-        self.send_request(
-            id,
-            "textDocument/prepareRename",
-            json!({
-                "textDocument":{"uri":uri_string},
-                "position":{"line":request.line.saturating_sub(1),"character":character}
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        rename_plan_from_response(
-            &self.project,
-            &request.file_path,
-            &source,
-            response,
-            request.new_name.clone(),
-        )
-    }
-
-    fn rename_symbol(&mut self, request: &LspRenameRequest) -> Result<crate::rename::RenameResult> {
-        let absolute_path = self.project.resolve(&request.file_path)?;
-        let (uri_string, source) = self.prepare_document(&absolute_path)?;
-        let character = utf16_character_for_byte_column(&source, request.line, request.column);
-        let _plan = self.get_rename_plan(&LspRenamePlanRequest {
-            command: request.command.clone(),
-            args: request.args.clone(),
-            file_path: request.file_path.clone(),
-            line: request.line,
-            column: request.column,
-            new_name: Some(request.new_name.clone()),
-        })?;
-
-        let id = self.next_id();
-        self.send_request(
-            id,
-            "textDocument/rename",
-            json!({
-                "textDocument":{"uri":uri_string},
-                "position":{"line":request.line.saturating_sub(1),"character":character},
-                "newName": request.new_name.clone(),
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        let transaction = workspace_edit_transaction_from_response(&self.project, response)?;
-        let edits = transaction.edits.clone();
-        let modified_files = transaction.modified_files;
-        let total_replacements = transaction.edit_count;
-
-        if !request.dry_run {
-            apply_workspace_edit_transaction(&self.project, &transaction)?;
-        }
-
-        Ok(crate::rename::RenameResult {
-            success: true,
-            message: format!(
-                "{} {} LSP replacement(s) in {} file(s)",
-                if request.dry_run {
-                    "Would make"
-                } else {
-                    "Made"
-                },
-                total_replacements,
-                modified_files
-            ),
-            modified_files,
-            total_replacements,
-            edits,
-        })
-    }
-
-    fn code_action_refactor(
-        &mut self,
-        request: &LspCodeActionRequest,
-    ) -> Result<LspCodeActionRefactorResult> {
-        let absolute_path = self.project.resolve(&request.file_path)?;
-        let (uri_string, source) = self.prepare_document(&absolute_path)?;
-        let start_character =
-            utf16_character_for_byte_column(&source, request.start_line, request.start_column);
-        let end_character =
-            utf16_character_for_byte_column(&source, request.end_line, request.end_column);
-
-        let id = self.next_id();
-        self.send_request(
-            id,
-            "textDocument/codeAction",
-            json!({
-                "textDocument":{"uri":uri_string},
-                "range":{
-                    "start":{
-                        "line":request.start_line.saturating_sub(1),
-                        "character":start_character
-                    },
-                    "end":{
-                        "line":request.end_line.saturating_sub(1),
-                        "character":end_character
-                    }
-                },
-                "context":{
-                    "diagnostics":[],
-                    "only": request.only
-                }
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        let actions = code_actions_from_response(response, &request.only)?;
-        let action = select_code_action(&actions, request.action_id.as_deref())?;
-        if let Some(reason) = &action.disabled_reason {
-            bail!("unsupported_semantic_refactor: selected LSP codeAction is disabled: {reason}");
-        }
-
-        let (edit, resolved_via) = if let Some(edit) = action.edit.clone() {
-            (edit, "textDocument/codeAction".to_owned())
-        } else {
-            let id = self.next_id();
-            self.send_request(id, "codeAction/resolve", action.raw.clone())?;
-            let response = self.read_response_for_id(id)?;
-            let Some(result) = response.get("result") else {
-                bail!("unsupported_semantic_refactor: codeAction/resolve returned no result");
-            };
-            if let Some(edit) = result.get("edit").cloned() {
-                (edit, "codeAction/resolve".to_owned())
-            } else if action.command.is_some() || result.get("command").is_some() {
-                bail!(
-                    "unsupported_semantic_refactor: LSP codeAction returned command without inspectable WorkspaceEdit"
-                );
-            } else {
-                bail!("unsupported_semantic_refactor: LSP codeAction returned no WorkspaceEdit");
-            }
-        };
-
-        let transaction = workspace_edit_transaction_from_edit(&self.project, &edit)?;
-        if transaction.edit_count == 0 && transaction.resource_ops.is_empty() {
-            bail!("unsupported_semantic_refactor: LSP codeAction WorkspaceEdit is empty");
-        }
-        if !request.dry_run {
-            apply_workspace_edit_transaction(&self.project, &transaction)?;
-        }
-
-        Ok(LspCodeActionRefactorResult {
-            success: true,
-            message: format!(
-                "{} {} LSP codeAction edit(s) in {} file(s)",
-                if request.dry_run {
-                    "Would apply"
-                } else {
-                    "Applied"
-                },
-                transaction.edit_count,
-                transaction.modified_files
-            ),
-            operation: request.operation.clone(),
-            action_title: action.title,
-            action_kind: action.kind,
-            resolved_via,
-            applied: !request.dry_run,
-            transaction,
-        })
-    }
-
-    fn build_type_hierarchy_node(
-        &mut self,
-        item: &Value,
-        depth: usize,
-        hierarchy_type: &str,
-    ) -> Result<LspTypeHierarchyNode> {
-        let mut node = type_hierarchy_node_from_item(item)?;
-
-        if depth == 0 {
-            return Ok(node);
-        }
-
-        let next_depth = depth.saturating_sub(1);
-        if hierarchy_type == "super" || hierarchy_type == "both" {
-            node.supertypes = self.fetch_type_hierarchy_branch(item, "supertypes", next_depth)?;
-        }
-        if hierarchy_type == "sub" || hierarchy_type == "both" {
-            node.subtypes = self.fetch_type_hierarchy_branch(item, "subtypes", next_depth)?;
-        }
-        Ok(node)
-    }
-
-    fn fetch_type_hierarchy_branch(
-        &mut self,
-        item: &Value,
-        method_suffix: &str,
-        depth: usize,
-    ) -> Result<Vec<LspTypeHierarchyNode>> {
-        let id = self.next_id();
-        self.send_request(
-            id,
-            &format!("typeHierarchy/{method_suffix}"),
-            json!({
-                "item": item
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        let Some(items) = response.get("result").and_then(Value::as_array) else {
-            return Ok(Vec::new());
-        };
-
-        let mut nodes = Vec::new();
-        for child in items {
-            nodes.push(self.build_type_hierarchy_node(
-                child,
-                depth,
-                method_suffix_to_hierarchy(method_suffix),
-            )?);
-        }
-        Ok(nodes)
-    }
-
-    fn prepare_document(&mut self, absolute_path: &Path) -> Result<(String, String)> {
+    pub(super) fn prepare_document(&mut self, absolute_path: &Path) -> Result<(String, String)> {
         let uri = Url::from_file_path(absolute_path).map_err(|_| {
             anyhow::anyhow!("failed to build file uri for {}", absolute_path.display())
         })?;
@@ -757,13 +368,13 @@ impl LspSession {
         )
     }
 
-    fn next_id(&mut self) -> u64 {
+    pub(super) fn next_id(&mut self) -> u64 {
         let id = self.next_request_id;
         self.next_request_id += 1;
         id
     }
 
-    fn send_request(&mut self, id: u64, method: &str, params: Value) -> Result<()> {
+    pub(super) fn send_request(&mut self, id: u64, method: &str, params: Value) -> Result<()> {
         send_message(
             &mut self.stdin,
             &json!({
@@ -786,7 +397,7 @@ impl LspSession {
         )
     }
 
-    fn read_response_for_id(&mut self, expected_id: u64) -> Result<Value> {
+    pub(super) fn read_response_for_id(&mut self, expected_id: u64) -> Result<Value> {
         let deadline = Instant::now() + Duration::from_secs(30);
         let mut discarded = 0u32;
         const MAX_DISCARDED: u32 = 500;
@@ -837,6 +448,15 @@ impl LspSession {
         let _ = self.read_response_for_id(id)?;
         self.send_notification("exit", Value::Null)
     }
+}
+
+fn configured_startup_grace() -> Option<Duration> {
+    let millis = std::env::var("CODELENS_LSP_STARTUP_GRACE_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(0)
+        .min(10_000);
+    (millis > 0).then(|| Duration::from_millis(millis))
 }
 
 impl Drop for LspSession {

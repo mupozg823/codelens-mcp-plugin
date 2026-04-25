@@ -12,7 +12,7 @@
   },
   "tool_registry": {
     "definition_count": 114,
-    "output_schema_count": 81,
+    "output_schema_count": 85,
     "namespaces": {
       "filesystem": 6,
       "graph": 14,
@@ -336,7 +336,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": true,
-        "estimated_tokens": 521
+        "estimated_tokens": 597
       },
       {
         "name": "replace_symbol_body",
@@ -452,8 +452,8 @@
         "tier": "workflow",
         "phase": "build",
         "preferred_executor": "codex-builder",
-        "has_output_schema": false,
-        "estimated_tokens": 368
+        "has_output_schema": true,
+        "estimated_tokens": 504
       },
       {
         "name": "refactor_inline_function",
@@ -461,8 +461,8 @@
         "tier": "workflow",
         "phase": "build",
         "preferred_executor": "codex-builder",
-        "has_output_schema": false,
-        "estimated_tokens": 343
+        "has_output_schema": true,
+        "estimated_tokens": 479
       },
       {
         "name": "refactor_move_to_file",
@@ -470,8 +470,8 @@
         "tier": "analysis",
         "phase": "build",
         "preferred_executor": "codex-builder",
-        "has_output_schema": false,
-        "estimated_tokens": 347
+        "has_output_schema": true,
+        "estimated_tokens": 483
       },
       {
         "name": "refactor_change_signature",
@@ -479,8 +479,8 @@
         "tier": "analysis",
         "phase": "build",
         "preferred_executor": "codex-builder",
-        "has_output_schema": false,
-        "estimated_tokens": 383
+        "has_output_schema": true,
+        "estimated_tokens": 519
       },
       {
         "name": "propagate_deletions",
@@ -489,7 +489,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": true,
-        "estimated_tokens": 543
+        "estimated_tokens": 611
       },
       {
         "name": "explore_codebase",
@@ -3266,7 +3266,7 @@
     "workspace_member_count": 3,
     "registered_tool_definitions": 114,
     "tool_output_schemas": {
-      "declared": 81,
+      "declared": 85,
       "total": 114
     },
     "harness_mode_count": 4,

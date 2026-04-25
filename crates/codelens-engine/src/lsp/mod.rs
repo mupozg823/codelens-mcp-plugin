@@ -1,9 +1,17 @@
 pub(crate) mod code_actions;
+pub(crate) mod commands;
+#[cfg(test)]
+mod parser_tests;
 pub(crate) mod parsers;
+pub(crate) mod paths;
+pub(crate) mod position;
 pub(crate) mod protocol;
 pub mod registry;
 pub(crate) mod session;
+pub(crate) mod session_requests;
+pub(crate) mod type_hierarchy;
 pub mod types;
+pub(crate) mod workspace_edit;
 
 pub use registry::{
     LSP_RECIPES, LspRecipe, LspStatus, check_lsp_status, default_lsp_args_for_command,
@@ -88,13 +96,32 @@ pub fn code_action_refactor_via_lsp(
     pool.code_action_refactor(request)
 }
 
+pub fn workspace_edit_transaction_from_value(
+    project: &ProjectRoot,
+    edit: &Value,
+) -> Result<LspWorkspaceEditTransaction> {
+    workspace_edit::workspace_edit_transaction_from_edit(project, edit)
+}
+
+pub fn apply_workspace_edit_value(
+    project: &ProjectRoot,
+    edit: &Value,
+    dry_run: bool,
+) -> Result<LspWorkspaceEditTransaction> {
+    let transaction = workspace_edit_transaction_from_value(project, edit)?;
+    if !dry_run {
+        workspace_edit::apply_workspace_edit_transaction(project, &transaction)?;
+    }
+    Ok(transaction)
+}
+
 /// Known-safe LSP server binaries. Commands not in this list are rejected.
 pub fn is_allowed_lsp_command(command: &str) -> bool {
-    session::is_allowed_lsp_command(command)
+    commands::is_allowed_lsp_command(command)
 }
 
 /// The list of allowed LSP server binary names.
-pub const ALLOWED_COMMANDS: &[&str] = session::ALLOWED_COMMANDS;
+pub const ALLOWED_COMMANDS: &[&str] = commands::ALLOWED_COMMANDS;
 
 #[cfg(test)]
 mod tests;
