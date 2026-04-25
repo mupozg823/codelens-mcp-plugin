@@ -357,6 +357,183 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
+thread_local! {
+    /// Test-only hook: when set, called once between Phase 1 capture and
+    /// Phase 2 verify with the resolved path so a test can mutate the file
+    /// to simulate TOCTOU drift. Cleared after one call.
+    pub(crate) static FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY:
+        std::cell::RefCell<Option<Box<dyn FnOnce(&std::path::Path)>>> =
+        std::cell::RefCell::new(None);
+
+    /// Test-only hook: when set, called once immediately before the Phase 3
+    /// rollback restore write, with the resolved path. Allows a test to
+    /// reverse any permission changes that caused the initial write to fail,
+    /// so the rollback `fs::write` can succeed. Cleared after one call.
+    pub(crate) static FULL_WRITE_INJECT_BEFORE_ROLLBACK:
+        std::cell::RefCell<Option<Box<dyn FnOnce(&std::path::Path)>>> =
+        std::cell::RefCell::new(None);
+}
+
+/// Apply a full-content rewrite to a single file with hash-based evidence
+/// and rollback on write failure. Used by single-file mutation primitives
+/// (`create_text_file`, `delete_lines`, `replace_lines`, etc.) that already
+/// performed an in-memory transform and need to commit the result with the
+/// same TOCTOU + rollback guarantees as `WorkspaceEditTransaction`.
+///
+/// Phases:
+/// 1. capture: read existing file (if any), sha256 + raw backup
+/// 2. verify: re-read + sha256 compare (light TOCTOU window)
+/// 3. write: fs::write — on failure, restore backup + populate rollback_report
+/// 4. post-hash: read written file + sha256 → file_hashes_after
+///
+/// For files that do not exist (e.g., `create_text_file` against a new path),
+/// Phase 1 captures no entry and Phase 2 is a no-op for that path.
+pub fn apply_full_write_with_evidence(
+    project: &ProjectRoot,
+    relative_path: &str,
+    new_content: &str,
+) -> Result<ApplyEvidence, ApplyError> {
+    let resolved = project
+        .resolve(relative_path)
+        .map_err(|e| ApplyError::PreReadFailed {
+            file_path: relative_path.to_owned(),
+            source: e,
+        })?;
+
+    // Phase 1: capture (only if file exists)
+    let (backup_bytes, file_hashes_before) = match fs::read(&resolved) {
+        Ok(bytes) => {
+            let mut before = BTreeMap::new();
+            before.insert(
+                relative_path.to_owned(),
+                FileHash {
+                    sha256: sha256_hex(&bytes),
+                    bytes: bytes.len(),
+                },
+            );
+            (Some(bytes), before)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (None, BTreeMap::new()),
+        Err(err) => {
+            return Err(ApplyError::PreReadFailed {
+                file_path: relative_path.to_owned(),
+                source: anyhow::Error::from(err),
+            });
+        }
+    };
+
+    #[cfg(test)]
+    FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY.with(|cell| {
+        if let Some(hook) = cell.borrow_mut().take() {
+            hook(&resolved);
+        }
+    });
+
+    // Phase 2: verify (TOCTOU re-check) — only if file existed
+    if let Some(expected_hash) = file_hashes_before
+        .get(relative_path)
+        .map(|h| h.sha256.clone())
+    {
+        let bytes_now = fs::read(&resolved).map_err(|e| ApplyError::PreReadFailed {
+            file_path: relative_path.to_owned(),
+            source: anyhow::Error::from(e),
+        })?;
+        let hash_now = sha256_hex(&bytes_now);
+        if hash_now != expected_hash {
+            return Err(ApplyError::PreApplyHashMismatch {
+                file_path: relative_path.to_owned(),
+                expected: expected_hash,
+                actual: hash_now,
+            });
+        }
+    }
+
+    // Phase 3: write — on failure, restore backup + record rollback
+    if let Err(write_err) = fs::write(&resolved, new_content) {
+        let mut rollback_report: Vec<RollbackEntry> = Vec::new();
+        #[cfg(test)]
+        FULL_WRITE_INJECT_BEFORE_ROLLBACK.with(|cell| {
+            if let Some(hook) = cell.borrow_mut().take() {
+                hook(&resolved);
+            }
+        });
+        if let Some(bytes) = backup_bytes.as_ref() {
+            match fs::write(&resolved, bytes) {
+                Ok(()) => rollback_report.push(RollbackEntry {
+                    file_path: relative_path.to_owned(),
+                    restored: true,
+                    reason: None,
+                }),
+                Err(e) => rollback_report.push(RollbackEntry {
+                    file_path: relative_path.to_owned(),
+                    restored: false,
+                    reason: Some(format!("write failed: {e}")),
+                }),
+            }
+        } else {
+            rollback_report.push(RollbackEntry {
+                file_path: relative_path.to_owned(),
+                restored: false,
+                reason: Some("no backup captured (file did not exist before apply)".to_owned()),
+            });
+        }
+        let mut file_hashes_after_rb: BTreeMap<String, FileHash> = BTreeMap::new();
+        if let Ok(bytes) = fs::read(&resolved) {
+            file_hashes_after_rb.insert(
+                relative_path.to_owned(),
+                FileHash {
+                    sha256: sha256_hex(&bytes),
+                    bytes: bytes.len(),
+                },
+            );
+        }
+        return Err(ApplyError::ApplyFailed {
+            source: anyhow::Error::from(write_err),
+            evidence: ApplyEvidence {
+                status: ApplyStatus::RolledBack,
+                file_hashes_before,
+                file_hashes_after: file_hashes_after_rb,
+                rollback_report,
+                modified_files: 0,
+                edit_count: 0,
+            },
+        });
+    }
+
+    // Phase 4: post-hash
+    let mut file_hashes_after: BTreeMap<String, FileHash> = BTreeMap::new();
+    match fs::read(&resolved) {
+        Ok(bytes) => {
+            file_hashes_after.insert(
+                relative_path.to_owned(),
+                FileHash {
+                    sha256: sha256_hex(&bytes),
+                    bytes: bytes.len(),
+                },
+            );
+        }
+        Err(_) => {
+            file_hashes_after.insert(
+                relative_path.to_owned(),
+                FileHash {
+                    sha256: String::new(),
+                    bytes: 0,
+                },
+            );
+        }
+    }
+
+    Ok(ApplyEvidence {
+        status: ApplyStatus::Applied,
+        file_hashes_before,
+        file_hashes_after,
+        rollback_report: Vec::new(),
+        modified_files: 1,
+        edit_count: 1,
+    })
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -569,6 +746,32 @@ mod tests {
     }
 
     #[test]
+    fn apply_full_write_happy_returns_evidence() {
+        let project = empty_project();
+        write_file(&project, "doc.txt", "old content\n");
+        let evidence =
+            apply_full_write_with_evidence(&project, "doc.txt", "new content\n").expect("apply ok");
+        assert_eq!(evidence.status, ApplyStatus::Applied);
+        assert_eq!(evidence.modified_files, 1);
+        assert_eq!(evidence.edit_count, 1);
+        assert!(evidence.rollback_report.is_empty());
+        let before = evidence
+            .file_hashes_before
+            .get("doc.txt")
+            .expect("before entry");
+        let after = evidence
+            .file_hashes_after
+            .get("doc.txt")
+            .expect("after entry");
+        assert_ne!(before.sha256, after.sha256);
+        assert_eq!(after.bytes, "new content\n".len());
+        assert_eq!(
+            std::fs::read_to_string(project.resolve("doc.txt").unwrap()).unwrap(),
+            "new content\n"
+        );
+    }
+
+    #[test]
     fn toctou_recheck_detects_external_mutation_between_phases() {
         let project = empty_project();
         let path = write_file(&project, "tt.txt", "before\n");
@@ -595,5 +798,126 @@ mod tests {
         );
         // Disk contains the external mutation; substrate did not apply edits.
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "TAMPERED\n");
+    }
+
+    #[test]
+    fn apply_full_write_pre_read_failed_on_unresolvable_path() {
+        let project = empty_project();
+        // Path with absolute escape — project.resolve will error.
+        let result = apply_full_write_with_evidence(&project, "../escape.txt", "x");
+        assert!(
+            matches!(result, Err(ApplyError::PreReadFailed { ref file_path, .. }) if file_path == "../escape.txt"),
+            "expected PreReadFailed for ../escape.txt, got {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn apply_full_write_toctou_mismatch_via_inject_hook() {
+        let project = empty_project();
+        let path = write_file(&project, "drift.txt", "before\n");
+        FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY.with(|cell| {
+            let hook: Box<dyn FnOnce(&std::path::Path)> = Box::new(|p: &std::path::Path| {
+                std::fs::write(p, "TAMPERED\n").unwrap();
+            });
+            *cell.borrow_mut() = Some(hook);
+        });
+        let result = apply_full_write_with_evidence(&project, "drift.txt", "after\n");
+        assert!(
+            matches!(result, Err(ApplyError::PreApplyHashMismatch { ref file_path, .. }) if file_path == "drift.txt"),
+            "expected PreApplyHashMismatch, got {:?}",
+            result.err()
+        );
+        // Disk has the external mutation; substrate did not write "after\n".
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "TAMPERED\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_full_write_rollback_on_write_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let project = empty_project();
+        let path = write_file(&project, "ro.txt", "original\n");
+
+        // Use the between-capture-and-verify hook to chmod the file to 0o444
+        // (read-only), which causes the Phase 3 fs::write to fail.
+        // On macOS, parent dir 0o555 does not block writes by the file owner,
+        // so we target the file itself instead.
+        FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY.with(|cell| {
+            let p = path.clone();
+            let hook: Box<dyn FnOnce(&std::path::Path)> = Box::new(move |_resolved| {
+                let mut perms = std::fs::metadata(&p).unwrap().permissions();
+                perms.set_mode(0o444);
+                std::fs::set_permissions(&p, perms).unwrap();
+            });
+            *cell.borrow_mut() = Some(hook);
+        });
+
+        // Use the before-rollback hook to restore permissions so the substrate
+        // can successfully write back the backup (restored=true).
+        FULL_WRITE_INJECT_BEFORE_ROLLBACK.with(|cell| {
+            let p = path.clone();
+            let hook: Box<dyn FnOnce(&std::path::Path)> = Box::new(move |_resolved| {
+                let mut perms = std::fs::metadata(&p).unwrap().permissions();
+                perms.set_mode(0o644);
+                std::fs::set_permissions(&p, perms).unwrap();
+            });
+            *cell.borrow_mut() = Some(hook);
+        });
+
+        let result = apply_full_write_with_evidence(&project, "ro.txt", "new\n");
+
+        // Perms are already restored by the before-rollback hook above;
+        // tempdir cleanup (which needs a writable file) will succeed.
+
+        let evidence = match result {
+            Err(ApplyError::ApplyFailed { evidence, .. }) => evidence,
+            other => panic!("expected ApplyFailed, got {other:?}"),
+        };
+        assert_eq!(evidence.status, ApplyStatus::RolledBack);
+        assert_eq!(evidence.modified_files, 0);
+        assert_eq!(evidence.edit_count, 0);
+        assert_eq!(evidence.rollback_report.len(), 1);
+        let entry = &evidence.rollback_report[0];
+        assert_eq!(entry.file_path, "ro.txt");
+        assert!(
+            entry.restored,
+            "expected restore success, got reason: {:?}",
+            entry.reason
+        );
+        // Disk is back to original content.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+        // Hashes match between before and after (rollback succeeded).
+        let before = evidence.file_hashes_before.get("ro.txt").unwrap();
+        let after = evidence.file_hashes_after.get("ro.txt").unwrap();
+        assert_eq!(before.sha256, after.sha256);
+    }
+
+    #[test]
+    fn apply_full_write_hash_determinism() {
+        let project = empty_project();
+        write_file(&project, "stable.txt", "stable content\n");
+        let ev1 =
+            apply_full_write_with_evidence(&project, "stable.txt", "new1\n").expect("first apply");
+        write_file(&project, "stable.txt", "stable content\n"); // reset disk
+        let ev2 =
+            apply_full_write_with_evidence(&project, "stable.txt", "new2\n").expect("second apply");
+        let h1 = &ev1.file_hashes_before["stable.txt"].sha256;
+        let h2 = &ev2.file_hashes_before["stable.txt"].sha256;
+        assert_eq!(h1, h2, "same input bytes should yield identical sha256");
+    }
+
+    #[test]
+    fn apply_full_write_no_op_same_content() {
+        let project = empty_project();
+        write_file(&project, "noop.txt", "same\n");
+        let evidence =
+            apply_full_write_with_evidence(&project, "noop.txt", "same\n").expect("noop ok");
+        assert_eq!(evidence.status, ApplyStatus::Applied);
+        let before = &evidence.file_hashes_before["noop.txt"].sha256;
+        let after = &evidence.file_hashes_after["noop.txt"].sha256;
+        assert_eq!(before, after, "no-op should leave hash unchanged");
+        assert_eq!(evidence.modified_files, 1);
+        assert_eq!(evidence.edit_count, 1);
     }
 }

@@ -2,6 +2,7 @@ use super::{required_string, success_meta, AppState, ToolResult};
 use crate::backend_operation_matrix::TREE_SITTER_RENAME_BLOCKER_REASON;
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
+use codelens_engine::edit_transaction::{ApplyEvidence, ApplyStatus};
 use codelens_engine::{
     add_import, analyze_missing_imports, create_text_file, delete_lines, insert_after_symbol,
     insert_at_line, insert_before_symbol, rename, replace_content, replace_lines,
@@ -31,6 +32,33 @@ fn merge_raw_fs_envelope(mut value: Value, operation: &str) -> Value {
         for (k, v) in source {
             target.insert(k.clone(), v.clone());
         }
+    }
+    value
+}
+
+/// Merge 6 evidence keys into a tool response object: file_hashes_before,
+/// file_hashes_after, apply_status, rollback_report, modified_files, edit_count.
+/// Mirrors the G4 safe_delete_apply pattern.
+fn merge_apply_evidence(mut value: Value, evidence: &ApplyEvidence) -> Value {
+    if let Some(target) = value.as_object_mut() {
+        target.insert(
+            "file_hashes_before".to_owned(),
+            serde_json::to_value(&evidence.file_hashes_before).unwrap_or(Value::Null),
+        );
+        target.insert(
+            "file_hashes_after".to_owned(),
+            serde_json::to_value(&evidence.file_hashes_after).unwrap_or(Value::Null),
+        );
+        target.insert(
+            "apply_status".to_owned(),
+            serde_json::to_value(evidence.status).unwrap_or(Value::Null),
+        );
+        target.insert(
+            "rollback_report".to_owned(),
+            serde_json::to_value(&evidence.rollback_report).unwrap_or(Value::Null),
+        );
+        target.insert("modified_files".to_owned(), json!(evidence.modified_files));
+        target.insert("edit_count".to_owned(), json!(evidence.edit_count));
     }
     value
 }
@@ -122,14 +150,34 @@ pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) ->
         .get("overwrite")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    Ok(
-        create_text_file(&state.project(), relative_path, content, overwrite).map(|_| {
-            (
-                merge_raw_fs_envelope(json!({ "created": relative_path }), "create_text_file"),
-                success_meta(BackendKind::Filesystem, 0.7),
-            )
-        })?,
-    )
+    let evidence = create_text_file(&state.project(), relative_path, content, overwrite)?;
+    let mut response_obj = json!({ "created": relative_path });
+    if matches!(evidence.status, ApplyStatus::RolledBack)
+        && let Some(obj) = response_obj.as_object_mut() {
+            let msg = evidence
+                .rollback_report
+                .iter()
+                .filter_map(|e| e.reason.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
+            obj.insert(
+                "error_message".to_owned(),
+                serde_json::json!(format!(
+                    "apply failed: {}",
+                    if msg.is_empty() {
+                        "unknown io error".to_owned()
+                    } else {
+                        msg
+                    }
+                )),
+            );
+        }
+    let response = merge_apply_evidence(
+        merge_raw_fs_envelope(response_obj, "create_text_file"),
+        &evidence,
+    );
+    Ok((response, success_meta(BackendKind::Filesystem, 0.7)))
 }
 
 pub fn delete_lines_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -143,14 +191,34 @@ pub fn delete_lines_tool(state: &AppState, arguments: &serde_json::Value) -> Too
         .get("end_line")
         .and_then(|v| v.as_u64())
         .ok_or_else(|| CodeLensError::MissingParam("end_line".into()))? as usize;
-    Ok(
-        delete_lines(&state.project(), relative_path, start_line, end_line).map(|content| {
-            (
-                merge_raw_fs_envelope(json!({ "content": content }), "delete_lines"),
-                success_meta(BackendKind::Filesystem, 0.7),
-            )
-        })?,
-    )
+    let (content, evidence) = delete_lines(&state.project(), relative_path, start_line, end_line)?;
+    let mut response_obj = json!({ "content": content });
+    if matches!(evidence.status, ApplyStatus::RolledBack)
+        && let Some(obj) = response_obj.as_object_mut() {
+            let msg = evidence
+                .rollback_report
+                .iter()
+                .filter_map(|e| e.reason.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
+            obj.insert(
+                "error_message".to_owned(),
+                serde_json::json!(format!(
+                    "apply failed: {}",
+                    if msg.is_empty() {
+                        "unknown io error".to_owned()
+                    } else {
+                        msg
+                    }
+                )),
+            );
+        }
+    let response = merge_apply_evidence(
+        merge_raw_fs_envelope(response_obj, "delete_lines"),
+        &evidence,
+    );
+    Ok((response, success_meta(BackendKind::Filesystem, 0.7)))
 }
 
 pub fn insert_at_line_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -160,14 +228,34 @@ pub fn insert_at_line_tool(state: &AppState, arguments: &serde_json::Value) -> T
         .and_then(|v| v.as_u64())
         .ok_or_else(|| CodeLensError::MissingParam("line".into()))? as usize;
     let content = required_string(arguments, "content")?;
-    Ok(
-        insert_at_line(&state.project(), relative_path, line, content).map(|modified| {
-            (
-                merge_raw_fs_envelope(json!({ "content": modified }), "insert_at_line"),
-                success_meta(BackendKind::Filesystem, 0.7),
-            )
-        })?,
-    )
+    let (modified, evidence) = insert_at_line(&state.project(), relative_path, line, content)?;
+    let mut response_obj = json!({ "content": modified });
+    if matches!(evidence.status, ApplyStatus::RolledBack)
+        && let Some(obj) = response_obj.as_object_mut() {
+            let msg = evidence
+                .rollback_report
+                .iter()
+                .filter_map(|e| e.reason.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
+            obj.insert(
+                "error_message".to_owned(),
+                serde_json::json!(format!(
+                    "apply failed: {}",
+                    if msg.is_empty() {
+                        "unknown io error".to_owned()
+                    } else {
+                        msg
+                    }
+                )),
+            );
+        }
+    let response = merge_apply_evidence(
+        merge_raw_fs_envelope(response_obj, "insert_at_line"),
+        &evidence,
+    );
+    Ok((response, success_meta(BackendKind::Filesystem, 0.7)))
 }
 
 pub fn replace_lines_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -182,19 +270,40 @@ pub fn replace_lines_tool(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_u64())
         .ok_or_else(|| CodeLensError::MissingParam("end_line".into()))? as usize;
     let new_content = required_string(arguments, "new_content")?;
-    Ok(replace_lines(
+    let (content, evidence) = replace_lines(
         &state.project(),
         relative_path,
         start_line,
         end_line,
         new_content,
-    )
-    .map(|content| {
-        (
-            merge_raw_fs_envelope(json!({ "content": content }), "replace_lines"),
-            success_meta(BackendKind::Filesystem, 0.7),
-        )
-    })?)
+    )?;
+    let mut response_obj = json!({ "content": content });
+    if matches!(evidence.status, ApplyStatus::RolledBack)
+        && let Some(obj) = response_obj.as_object_mut() {
+            let msg = evidence
+                .rollback_report
+                .iter()
+                .filter_map(|e| e.reason.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
+            obj.insert(
+                "error_message".to_owned(),
+                serde_json::json!(format!(
+                    "apply failed: {}",
+                    if msg.is_empty() {
+                        "unknown io error".to_owned()
+                    } else {
+                        msg
+                    }
+                )),
+            );
+        }
+    let response = merge_apply_evidence(
+        merge_raw_fs_envelope(response_obj, "replace_lines"),
+        &evidence,
+    );
+    Ok((response, success_meta(BackendKind::Filesystem, 0.7)))
 }
 
 pub fn replace_content_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -205,22 +314,40 @@ pub fn replace_content_tool(state: &AppState, arguments: &serde_json::Value) -> 
         .get("regex_mode")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    Ok(replace_content(
+    let (content, count, evidence) = replace_content(
         &state.project(),
         relative_path,
         old_text,
         new_text,
         regex_mode,
-    )
-    .map(|(content, count)| {
-        (
-            merge_raw_fs_envelope(
-                json!({ "content": content, "replacements": count }),
-                "replace_content",
-            ),
-            success_meta(BackendKind::Filesystem, 0.7),
-        )
-    })?)
+    )?;
+    let mut response_obj = json!({ "content": content, "replacements": count });
+    if matches!(evidence.status, ApplyStatus::RolledBack)
+        && let Some(obj) = response_obj.as_object_mut() {
+            let msg = evidence
+                .rollback_report
+                .iter()
+                .filter_map(|e| e.reason.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
+            obj.insert(
+                "error_message".to_owned(),
+                serde_json::json!(format!(
+                    "apply failed: {}",
+                    if msg.is_empty() {
+                        "unknown io error".to_owned()
+                    } else {
+                        msg
+                    }
+                )),
+            );
+        }
+    let response = merge_apply_evidence(
+        merge_raw_fs_envelope(response_obj, "replace_content"),
+        &evidence,
+    );
+    Ok((response, success_meta(BackendKind::Filesystem, 0.7)))
 }
 
 pub fn replace_symbol_body_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -228,19 +355,40 @@ pub fn replace_symbol_body_tool(state: &AppState, arguments: &serde_json::Value)
     let symbol_name = required_string(arguments, "symbol_name")?;
     let name_path = arguments.get("name_path").and_then(|v| v.as_str());
     let new_body = required_string(arguments, "new_body")?;
-    Ok(replace_symbol_body(
+    let (content, evidence) = replace_symbol_body(
         &state.project(),
         relative_path,
         symbol_name,
         name_path,
         new_body,
-    )
-    .map(|content| {
-        (
-            merge_raw_fs_envelope(json!({ "content": content }), "replace_symbol_body"),
-            success_meta(BackendKind::TreeSitter, 0.95),
-        )
-    })?)
+    )?;
+    let mut response_obj = json!({ "content": content });
+    if matches!(evidence.status, ApplyStatus::RolledBack)
+        && let Some(obj) = response_obj.as_object_mut() {
+            let msg = evidence
+                .rollback_report
+                .iter()
+                .filter_map(|e| e.reason.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
+            obj.insert(
+                "error_message".to_owned(),
+                serde_json::json!(format!(
+                    "apply failed: {}",
+                    if msg.is_empty() {
+                        "unknown io error".to_owned()
+                    } else {
+                        msg
+                    }
+                )),
+            );
+        }
+    let response = merge_apply_evidence(
+        merge_raw_fs_envelope(response_obj, "replace_symbol_body"),
+        &evidence,
+    );
+    Ok((response, success_meta(BackendKind::TreeSitter, 0.95)))
 }
 
 pub fn insert_before_symbol_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -248,19 +396,40 @@ pub fn insert_before_symbol_tool(state: &AppState, arguments: &serde_json::Value
     let symbol_name = required_string(arguments, "symbol_name")?;
     let name_path = arguments.get("name_path").and_then(|v| v.as_str());
     let content = required_string(arguments, "content")?;
-    Ok(insert_before_symbol(
+    let (modified, evidence) = insert_before_symbol(
         &state.project(),
         relative_path,
         symbol_name,
         name_path,
         content,
-    )
-    .map(|modified| {
-        (
-            merge_raw_fs_envelope(json!({ "content": modified }), "insert_before_symbol"),
-            success_meta(BackendKind::TreeSitter, 0.95),
-        )
-    })?)
+    )?;
+    let mut response_obj = json!({ "content": modified });
+    if matches!(evidence.status, ApplyStatus::RolledBack)
+        && let Some(obj) = response_obj.as_object_mut() {
+            let msg = evidence
+                .rollback_report
+                .iter()
+                .filter_map(|e| e.reason.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
+            obj.insert(
+                "error_message".to_owned(),
+                serde_json::json!(format!(
+                    "apply failed: {}",
+                    if msg.is_empty() {
+                        "unknown io error".to_owned()
+                    } else {
+                        msg
+                    }
+                )),
+            );
+        }
+    let response = merge_apply_evidence(
+        merge_raw_fs_envelope(response_obj, "insert_before_symbol"),
+        &evidence,
+    );
+    Ok((response, success_meta(BackendKind::TreeSitter, 0.95)))
 }
 
 pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -268,19 +437,40 @@ pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value)
     let symbol_name = required_string(arguments, "symbol_name")?;
     let name_path = arguments.get("name_path").and_then(|v| v.as_str());
     let content = required_string(arguments, "content")?;
-    Ok(insert_after_symbol(
+    let (modified, evidence) = insert_after_symbol(
         &state.project(),
         relative_path,
         symbol_name,
         name_path,
         content,
-    )
-    .map(|modified| {
-        (
-            merge_raw_fs_envelope(json!({ "content": modified }), "insert_after_symbol"),
-            success_meta(BackendKind::TreeSitter, 0.95),
-        )
-    })?)
+    )?;
+    let mut response_obj = json!({ "content": modified });
+    if matches!(evidence.status, ApplyStatus::RolledBack)
+        && let Some(obj) = response_obj.as_object_mut() {
+            let msg = evidence
+                .rollback_report
+                .iter()
+                .filter_map(|e| e.reason.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
+            obj.insert(
+                "error_message".to_owned(),
+                serde_json::json!(format!(
+                    "apply failed: {}",
+                    if msg.is_empty() {
+                        "unknown io error".to_owned()
+                    } else {
+                        msg
+                    }
+                )),
+            );
+        }
+    let response = merge_apply_evidence(
+        merge_raw_fs_envelope(response_obj, "insert_after_symbol"),
+        &evidence,
+    );
+    Ok((response, success_meta(BackendKind::TreeSitter, 0.95)))
 }
 
 /// Unified insert tool — dispatches to line-based or symbol-based insertion.
@@ -317,15 +507,31 @@ pub fn analyze_missing_imports_tool(state: &AppState, arguments: &serde_json::Va
 pub fn add_import_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let import_statement = required_string(arguments, "import_statement")?;
-    Ok(
-        add_import(&state.project(), file_path, import_statement).map(|content| {
-            (
-                merge_raw_fs_envelope(
-                    json!({"success": true, "file_path": file_path, "content_length": content.len()}),
-                    "add_import",
-                ),
-                success_meta(BackendKind::Filesystem, 0.7),
-            )
-        })?,
-    )
+    let (content, evidence) = add_import(&state.project(), file_path, import_statement)?;
+    let mut response_obj =
+        json!({"success": true, "file_path": file_path, "content_length": content.len()});
+    if matches!(evidence.status, ApplyStatus::RolledBack)
+        && let Some(obj) = response_obj.as_object_mut() {
+            let msg = evidence
+                .rollback_report
+                .iter()
+                .filter_map(|e| e.reason.as_ref())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ");
+            obj.insert(
+                "error_message".to_owned(),
+                serde_json::json!(format!(
+                    "apply failed: {}",
+                    if msg.is_empty() {
+                        "unknown io error".to_owned()
+                    } else {
+                        msg
+                    }
+                )),
+            );
+        }
+    let response =
+        merge_apply_evidence(merge_raw_fs_envelope(response_obj, "add_import"), &evidence);
+    Ok((response, success_meta(BackendKind::Filesystem, 0.7)))
 }
