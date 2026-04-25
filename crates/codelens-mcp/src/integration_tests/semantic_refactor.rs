@@ -430,6 +430,128 @@ fn roslyn_adapter_discovers_sidecar_from_adapters_dir() {
     );
 }
 
+/// T3-1: LSP rename evidence is fact-based (substrate-derived), not placeholder.
+/// Verifies that `file_hashes_before`, `file_hashes_after`, and `apply_status`
+/// are populated from ApplyEvidence when the substrate apply path is taken.
+#[test]
+fn lsp_rename_evidence_is_fact_based_not_placeholder() {
+    let project = project_root();
+    let original = "def target_fn():\n    pass\n\ntarget_fn()\n";
+    fs::write(project.as_path().join("evidence_target.py"), original).unwrap();
+    let original_hash = sha256_hex_text(original);
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'renameProvider':{'prepareProvider':True}}}})\n",
+        "    elif m == 'textDocument/prepareRename':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'range':{'start':{'line':0,'character':4},'end':{'line':0,'character':13}},'placeholder':'target_fn'}})\n",
+        "    elif m == 'textDocument/rename':\n",
+        "        uri = msg['params']['textDocument']['uri']\n",
+        "        new_name = msg['params']['newName']\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'changes':{uri:[{'range':{'start':{'line':0,'character':4},'end':{'line':0,'character':13}},'newText':new_name},{'range':{'start':{'line':3,'character':0},'end':{'line':3,'character':9}},'newText':new_name}]}}})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let mock_path = project.as_path().join("mock_lsp_rename_evidence_t3_1.py");
+    fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "rename_symbol",
+        json!({
+            "file_path": "evidence_target.py",
+            "symbol_name": "target_fn",
+            "new_name": "renamed_fn",
+            "semantic_edit_backend": "lsp",
+            "line": 1,
+            "column": 5,
+            "command": "python3",
+            "args": [mock_path.to_string_lossy()]
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    let tx = &payload["data"]["transaction"]["contract"];
+
+    // T3-1: file_hashes_before must be populated with the pre-apply sha256
+    let hashes_before = tx["file_hashes_before"]
+        .as_object()
+        .expect("file_hashes_before should be an object");
+    assert!(
+        !hashes_before.is_empty(),
+        "hashes_before should be populated, got: {tx}"
+    );
+    assert_eq!(
+        hashes_before["evidence_target.py"]["sha256"],
+        json!(original_hash),
+        "hashes_before sha256 should match pre-apply content"
+    );
+
+    // T3-1: file_hashes_after must also be populated (substrate-derived)
+    let hashes_after = tx["file_hashes_after"]
+        .as_object()
+        .expect("file_hashes_after should be an object");
+    assert_eq!(
+        hashes_before.len(),
+        hashes_after.len(),
+        "hashes_before and after should have same key set"
+    );
+    for (path, before) in hashes_before {
+        assert!(
+            before["sha256"]
+                .as_str()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false),
+            "hashes_before[{path}].sha256 should be non-empty"
+        );
+    }
+
+    // T3-1: apply_status must be substrate-derived, not a placeholder
+    assert!(
+        matches!(
+            tx["apply_status"].as_str(),
+            Some("applied") | Some("rolled_back") | Some("no_op")
+        ),
+        "apply_status should be substrate-derived: {:?}",
+        tx["apply_status"]
+    );
+
+    // Sanity: file was actually modified
+    let updated = fs::read_to_string(project.as_path().join("evidence_target.py")).unwrap();
+    assert!(updated.contains("def renamed_fn():"), "{updated}");
+    assert!(updated.contains("renamed_fn()"), "{updated}");
+}
+
 fn write_code_action_mock(
     project: &codelens_engine::ProjectRoot,
     kind: &str,

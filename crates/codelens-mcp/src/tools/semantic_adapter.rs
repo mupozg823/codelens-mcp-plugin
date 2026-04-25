@@ -96,12 +96,13 @@ fn invoke_workspace_edit_adapter(
         modified_files: transaction.modified_files,
         edit_count: transaction.edit_count,
         resource_ops: json!(transaction.resource_ops),
-        rollback_available: transaction.rollback_available,
+        rollback_available: false,
         workspace_edit: serde_json::to_value(&transaction)
             .unwrap_or_else(|_| json!({"serialization_error": true})),
         apply_status: if dry_run { "preview_only" } else { "applied" },
         references_checked: false,
         conflicts: json!([]),
+        evidence: None,
     });
     if !dry_run {
         codelens_engine::lsp::apply_workspace_edit_transaction(&state.project(), &transaction)
@@ -133,7 +134,7 @@ fn invoke_workspace_edit_adapter(
                 "modified_files": transaction.modified_files,
                 "edit_count": transaction.edit_count,
                 "resource_ops": transaction.resource_ops,
-                "rollback_available": transaction.rollback_available,
+                "rollback_available": false,
                 "contract": transaction_contract
             },
             "workspace_edit": transaction,
