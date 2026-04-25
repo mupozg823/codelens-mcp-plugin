@@ -15,7 +15,7 @@
 use crate::lsp::types::LspResourceOp;
 use crate::project::ProjectRoot;
 use crate::rename::RenameEdit;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
@@ -120,6 +120,18 @@ impl WorkspaceEditTransaction {
         }
     }
 
+    fn unique_file_paths(&self) -> Vec<String> {
+        let mut paths: Vec<String> = self
+            .edits
+            .iter()
+            .map(|edit| edit.file_path.clone())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        paths.sort();
+        paths
+    }
+
     /// Apply edits with hash-based evidence and rollback on failure.
     /// Implementation lands incrementally in T2~T6.
     pub fn apply_with_evidence(&self, project: &ProjectRoot) -> Result<ApplyEvidence, ApplyError> {
@@ -136,8 +148,35 @@ impl WorkspaceEditTransaction {
                 edit_count: 0,
             });
         }
-        let _ = project;
-        unimplemented!("apply path implemented in T3~T6")
+
+        // Phase 1: capture pre-apply state (single read; backup + hash)
+        let mut backups: HashMap<PathBuf, Vec<u8>> = HashMap::new();
+        let mut file_hashes_before: BTreeMap<String, FileHash> = BTreeMap::new();
+        for file_path in self.unique_file_paths() {
+            let resolved = project
+                .resolve(&file_path)
+                .map_err(|e| ApplyError::PreReadFailed {
+                    file_path: file_path.clone(),
+                    source: e,
+                })?;
+            let bytes = fs::read(&resolved).map_err(|e| ApplyError::PreReadFailed {
+                file_path: file_path.clone(),
+                source: anyhow::Error::from(e),
+            })?;
+            file_hashes_before.insert(
+                file_path.clone(),
+                FileHash {
+                    sha256: sha256_hex(&bytes),
+                    bytes: bytes.len(),
+                },
+            );
+            backups.insert(resolved, bytes);
+        }
+
+        // T4~T6 fill in Phase 2 recheck, Phase 3 apply, Phase 4 post-hash
+        let _ = backups;
+        let _ = file_hashes_before;
+        unimplemented!("apply path T4~T6")
     }
 }
 
@@ -195,5 +234,26 @@ mod tests {
         );
         let result = tx.apply_with_evidence(&project);
         assert!(matches!(result, Err(ApplyError::ResourceOpsUnsupported)));
+    }
+
+    #[test]
+    fn pre_read_fails_when_file_missing() {
+        let project = empty_project();
+        let tx = WorkspaceEditTransaction::new(
+            vec![RenameEdit {
+                file_path: "missing.txt".to_owned(),
+                line: 1,
+                column: 1,
+                old_text: "x".to_owned(),
+                new_text: "y".to_owned(),
+            }],
+            vec![],
+        );
+        let result = tx.apply_with_evidence(&project);
+        assert!(
+            matches!(result, Err(ApplyError::PreReadFailed { ref file_path, .. }) if file_path == "missing.txt"),
+            "expected PreReadFailed for missing.txt, got {:?}",
+            result.err()
+        );
     }
 }
