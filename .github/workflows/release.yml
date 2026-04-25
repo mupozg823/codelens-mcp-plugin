@@ -77,26 +77,32 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           MODELS_DIR="${CODELENS_RELEASE_MODELS_DIR:-crates/codelens-engine/models}"
-          mkdir -p package/models
+          rm -rf package
+          mkdir -p package/models/codesearch
           cp target/${{ matrix.target }}/release/codelens-mcp package/codelens-mcp
-          cp -R "${MODELS_DIR}/codesearch" package/models/
-          python3 scripts/verify-model-assets.py package/models \
+          cp -L "${MODELS_DIR}"/codesearch/{model.onnx,tokenizer.json,config.json,special_tokens_map.json,tokenizer_config.json} package/models/codesearch/
+          python3 scripts/verify-model-assets.py --root package \
             --write-manifest package/models/codesearch/model-manifest.json \
+            --check \
             --quiet
           tar czf codelens-mcp-${{ matrix.name }}.tar.gz -C package codelens-mcp models
+          python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.tar.gz --check --quiet
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
           MODELS_DIR="${CODELENS_RELEASE_MODELS_DIR:-crates/codelens-engine/models}"
-          mkdir -p package/models
+          rm -rf package
+          mkdir -p package/models/codesearch
           cp target/${{ matrix.target }}/release/codelens-mcp.exe package/codelens-mcp.exe
-          cp -R "${MODELS_DIR}/codesearch" package/models/
-          python3 scripts/verify-model-assets.py package/models \
+          cp -L "${MODELS_DIR}"/codesearch/{model.onnx,tokenizer.json,config.json,special_tokens_map.json,tokenizer_config.json} package/models/codesearch/
+          python3 scripts/verify-model-assets.py --root package \
             --write-manifest package/models/codesearch/model-manifest.json \
+            --check \
             --quiet
           (cd package && 7z a ../codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe models)
+          python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.zip --check --quiet
 
       - name: Attest build provenance
         uses: actions/attest@v4
@@ -114,9 +120,46 @@ jobs:
           name: codelens-mcp-${{ matrix.name }}
           path: codelens-mcp-${{ matrix.name }}.*
 
+  upstream-smoke:
+    name: Upstream smoke gate
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: codelens-mcp-linux-x86_64
+
+      - name: Extract release binary
+        run: tar -xzf codelens-mcp-linux-x86_64.tar.gz
+
+      - name: Verify bundled model assets
+        run: python3 scripts/verify-model-assets.py --root . --check
+
+      - name: Run upstream project smoke matrix
+        env:
+          CODELENS_MODEL_DIR: models
+        run: |
+          python3 benchmarks/external-project-smoke.py \
+            --binary ./codelens-mcp \
+            --matrix benchmarks/external-project-smoke-upstream-matrix.json \
+            --output benchmarks/external-project-smoke-upstream-results.json \
+            --timeout 420 \
+            --check
+
+      - name: Upload upstream smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-smoke-results
+          path: benchmarks/external-project-smoke-upstream-results.json
+
   publish:
     name: GitHub Release
-    needs: [build]
+    needs: [build, upstream-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -133,6 +176,7 @@ jobs:
         run: |
           mkdir -p oci-image
           tar -xzf codelens-mcp-linux-x86_64.tar.gz -C oci-image
+          python3 scripts/verify-model-assets.py --root oci-image --check --quiet
           cp Dockerfile.release oci-image/Dockerfile
 
       - name: Set up Docker Buildx

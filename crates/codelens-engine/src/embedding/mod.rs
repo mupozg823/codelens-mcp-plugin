@@ -51,8 +51,7 @@ pub(super) use prompt::{
 #[cfg(test)]
 pub(super) use runtime::{
     CODESEARCH_MODEL_NAME, DEFAULT_MACOS_EMBED_BATCH_SIZE, embed_batch_size,
-    executable_model_roots, recommended_embed_threads, requested_embedding_model_override,
-    resolve_model_dir,
+    recommended_embed_threads, requested_embedding_model_override, resolve_model_dir,
 };
 
 // ── Result type ───────────────────────────────────────────────────────
@@ -113,6 +112,23 @@ pub struct EmbeddingRuntimeInfo {
     pub coreml_specialization_strategy: Option<String>,
     pub coreml_model_cache_dir: Option<String>,
     pub fallback_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct QueryEmbeddingCacheStats {
+    pub enabled: bool,
+    pub entries: usize,
+    pub max_entries: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct EmbeddingFreshnessReport {
+    pub checked_files: usize,
+    pub unchanged_files: usize,
+    pub refreshed_files: usize,
+    pub removed_files: usize,
+    pub skipped_new_files: usize,
+    pub indexed_symbols: usize,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────

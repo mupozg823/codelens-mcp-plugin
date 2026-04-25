@@ -91,7 +91,10 @@ tokio-stream = "0.1"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 jsonwebtoken = "9"
+base64 = "0.22"
 ureq = "2.12"
+native-tls = "0.2"
+rcgen = "0.13"
 
 [profile.release]
 lto = true

@@ -102,6 +102,32 @@ python3 benchmarks/release-quality-matrix.py . \
 - candidate는 기본적으로 매번 release build를 다시 만든다. 이미 빌드된 바이너리를 강제로 재사용할 때만 `--skip-candidate-build`를 쓴다
 - self dataset만 좋아지고 external retrieval 또는 call-graph honesty가 나빠지면 release 품질 개선으로 보지 않는다
 
+### 1-1-3. External project smoke (external-project-smoke.py)
+
+```bash
+python3 benchmarks/external-project-smoke.py \
+  --binary target/release/codelens-mcp \
+  --matrix benchmarks/external-project-smoke-matrix.json \
+  --check
+```
+
+측정 항목:
+
+- `refresh_symbol_index`
+- `index_embeddings(prewarm_queries)`
+- `semantic_search` with `path_hint`
+- `rename_symbol(dry_run=true)`
+
+기본 CI matrix는 빠른 fixture project를 사용한다. Nightly/release 검증에서는 같은 matrix schema에
+`git_url` 또는 `repo_url`과 `revision`을 넣어 pinned upstream repository를 materialize할 수 있다.
+이 경로는 네트워크와 upstream clone 비용이 있으므로 PR fast gate와 분리한다.
+
+Nightly/release upstream gate는
+`benchmarks/external-project-smoke-upstream-matrix.json`을 사용한다. 현재 pinned upstream set은
+Next.js tutorial, Flask, serde_json, Spring Petclinic이며, 각 항목은 `refresh_symbol_index`,
+`index_embeddings(prewarm_queries)`, `semantic_search(path_hint)`, `rename_symbol(dry_run=true)`를
+동일하게 통과해야 한다.
+
 ### 1-2. 임베드 런타임 benchmark (embedding-runtime.py)
 
 ```bash
@@ -125,42 +151,12 @@ python3 benchmarks/embedding-runtime.py . --isolated-copy --output benchmarks/em
 - 재현 가능한 Codex 평가용 런은 `--isolated-copy`를 권장한다. 이 모드는 `.codelens/index` 충돌을 피하기 위해 임시 워크스페이스에서 인덱싱한다.
 - `index_embeddings` 또는 측정 대상 tool call이 실패하면 즉시 종료한다. 부분 결과를 정상 벤치로 취급하지 않는다.
 
-### 1-2-1. Daemon latency gate (daemon-latency-gate.py)
-
-```bash
-python3 benchmarks/daemon-latency-gate.py . \
-  --binary target/release/codelens-mcp \
-  --check \
-  --max-ranked-context-p95-ms 250 \
-  --max-semantic-search-p95-ms 900
-
-# macOS release/package validation can additionally fail closed on CPU fallback:
-python3 benchmarks/daemon-latency-gate.py . \
-  --binary target/release/codelens-mcp \
-  --check \
-  --require-runtime-backend coreml
-```
-
-측정 항목:
-
-- release binary를 HTTP daemon으로 실행한 persistent-connection hot path 지연
-- `get_ranked_context` hybrid / lexical-only p50, p95
-- `semantic_search` p50, p95
-- embedding runtime backend/preference (`coreml` or `cpu`)
-- semantic model sidecar resolution이 실패하면 즉시 실패
-
-주의:
-
-- 이 게이트가 제품 UX 기준이다. CLI one-shot benchmark는 프로세스 시작 비용과 섞이므로 regression 참고용으로만 본다.
-- 기본적으로 `index_embeddings`를 먼저 실행한다. 이미 인덱스가 있는 로컬 smoke에서는 `--skip-index`로 지연 측정만 반복할 수 있다.
-
 ### 1-3. 임베드 품질 benchmark (embedding-quality.py)
 
 ```bash
 python3 benchmarks/embedding-quality.py . --isolated-copy
 python3 benchmarks/embedding-quality.py . \
   --isolated-copy \
-  --dataset benchmarks/embedding-quality-dataset-self.json \
   --output benchmarks/embedding-quality-results.json \
   --markdown-output benchmarks/embedding-quality-summary.md
 ```

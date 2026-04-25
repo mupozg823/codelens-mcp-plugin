@@ -21,7 +21,7 @@ use crate::AppState;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse, SUPPORTED_PROTOCOL_VERSIONS};
 use crate::tool_defs::{ToolProfile, ToolSurface, default_budget_for_profile};
 use anyhow::Result;
-use axum::extract::State;
+use axum::extract::{OriginalUri, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -57,7 +57,7 @@ impl HttpServerConfig {
     }
 }
 
-fn ensure_rustls_crypto_provider() {
+pub(crate) fn install_default_rustls_provider() {
     static INSTALL: Once = Once::new();
     INSTALL.call_once(|| {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
@@ -67,7 +67,7 @@ fn ensure_rustls_crypto_provider() {
 pub(crate) async fn load_rustls_config(
     tls: &TlsConfig,
 ) -> Result<axum_server::tls_rustls::RustlsConfig> {
-    ensure_rustls_crypto_provider();
+    install_default_rustls_provider();
     Ok(axum_server::tls_rustls::RustlsConfig::from_pem_file(
         tls.cert_path.clone(),
         tls.key_path.clone(),
@@ -162,30 +162,50 @@ async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
 
 async fn protected_resource_metadata_handler(
     State(state): State<Arc<AppState>>,
+    OriginalUri(uri): OriginalUri,
 ) -> impl IntoResponse {
     match state.http_auth().protected_resource_metadata() {
-        Some(metadata) => (
-            StatusCode::OK,
-            [("content-type", "application/json")],
-            serde_json::to_string_pretty(&metadata).unwrap_or_default(),
-        )
-            .into_response(),
+        Some(mut metadata) => {
+            if let Some(resource) = protected_resource_path(uri.path()) {
+                metadata["resource"] = serde_json::Value::String(resource);
+            }
+            (
+                StatusCode::OK,
+                [("content-type", "application/json")],
+                serde_json::to_string_pretty(&metadata).unwrap_or_default(),
+            )
+                .into_response()
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+fn protected_resource_path(request_path: &str) -> Option<String> {
+    let prefix = "/.well-known/oauth-protected-resource/";
+    request_path
+        .strip_prefix(prefix)
+        .filter(|path| !path.is_empty())
+        .map(|path| format!("/{path}"))
 }
 
 async fn auth_rejection_response(state: &AppState, headers: &HeaderMap) -> Option<Response> {
     let auth = state.http_auth();
     match auth.authorize(headers).await {
         Ok(()) => None,
-        Err(crate::server::auth::AuthFailure::InsufficientScope) => Some(
-            (
-                StatusCode::FORBIDDEN,
-                [(header::WWW_AUTHENTICATE, auth.www_authenticate())],
-                "Insufficient scope",
+        Err(crate::server::auth::AuthFailure::InsufficientScope) => {
+            let mut challenge = auth.www_authenticate();
+            if !challenge.contains("error=\"insufficient_scope\"") {
+                challenge.push_str(", error=\"insufficient_scope\"");
+            }
+            Some(
+                (
+                    StatusCode::FORBIDDEN,
+                    [(header::WWW_AUTHENTICATE, challenge)],
+                    "Insufficient scope",
+                )
+                    .into_response(),
             )
-                .into_response(),
-        ),
+        }
         Err(_) => Some(
             (
                 StatusCode::UNAUTHORIZED,

@@ -47,6 +47,17 @@ pub struct LspRenamePlanRequest {
     pub new_name: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct LspRenameRequest {
+    pub command: String,
+    pub args: Vec<String>,
+    pub file_path: String,
+    pub line: usize,
+    pub column: usize,
+    pub new_name: String,
+    pub dry_run: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LspReference {
     pub file_path: String,

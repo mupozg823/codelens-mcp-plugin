@@ -11,15 +11,15 @@ use url::Url;
 
 use super::parsers::{
     diagnostics_from_response, method_suffix_to_hierarchy, references_from_response,
-    rename_plan_from_response, type_hierarchy_node_from_item, type_hierarchy_to_map,
-    workspace_symbols_from_response,
+    rename_edits_from_workspace_edit_response, rename_plan_from_response,
+    type_hierarchy_node_from_item, type_hierarchy_to_map, workspace_symbols_from_response,
 };
 use super::protocol::{language_id_for_path, poll_readable, read_message, send_message};
 use super::registry::resolve_lsp_binary;
 use super::types::{
     LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,
-    LspRequest, LspTypeHierarchyNode, LspTypeHierarchyRequest, LspWorkspaceSymbol,
-    LspWorkspaceSymbolRequest,
+    LspRenameRequest, LspRequest, LspTypeHierarchyNode, LspTypeHierarchyRequest,
+    LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -209,6 +209,17 @@ impl LspSessionPool {
             &request.args,
         )?;
         session.get_rename_plan(request)
+    }
+
+    pub fn rename_symbol(&self, request: &LspRenameRequest) -> Result<crate::rename::RenameResult> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
+        session.rename_symbol(request)
     }
 }
 
@@ -404,6 +415,51 @@ impl LspSession {
             response,
             request.new_name.clone(),
         )
+    }
+
+    fn rename_symbol(&mut self, request: &LspRenameRequest) -> Result<crate::rename::RenameResult> {
+        let absolute_path = self.project.resolve(&request.file_path)?;
+        let (uri_string, _source) = self.prepare_document(&absolute_path)?;
+
+        let id = self.next_id();
+        self.send_request(
+            id,
+            "textDocument/rename",
+            json!({
+                "textDocument":{"uri":uri_string},
+                "position":{"line":request.line.saturating_sub(1),"character":request.column.saturating_sub(1)},
+                "newName": request.new_name.clone(),
+            }),
+        )?;
+        let response = self.read_response_for_id(id)?;
+        let edits = rename_edits_from_workspace_edit_response(&self.project, response)?;
+        let modified_files = edits
+            .iter()
+            .map(|edit| &edit.file_path)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        let total_replacements = edits.len();
+
+        if !request.dry_run {
+            crate::rename::apply_edits(&self.project, &edits)?;
+        }
+
+        Ok(crate::rename::RenameResult {
+            success: true,
+            message: format!(
+                "{} {} LSP replacement(s) in {} file(s)",
+                if request.dry_run {
+                    "Would make"
+                } else {
+                    "Made"
+                },
+                total_replacements,
+                modified_files
+            ),
+            modified_files,
+            total_replacements,
+            edits,
+        })
     }
 
     fn build_type_hierarchy_node(

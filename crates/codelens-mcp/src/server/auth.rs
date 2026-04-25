@@ -70,6 +70,39 @@ impl HttpAuthConfig {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn jwks_static_for_test(
+        jwks: Value,
+        authorization_server: &str,
+        resource: &str,
+        required_scope: Option<&str>,
+    ) -> Self {
+        Self::jwks_with_static_keys_for_tests(
+            StaticJwks::new(jwks),
+            authorization_server,
+            resource,
+            required_scope,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn jwks_remote_for_test(
+        jwks_url: String,
+        authorization_server: &str,
+        resource: &str,
+        required_scope: Option<&str>,
+    ) -> Self {
+        Self::Jwks(JwksAuthConfig {
+            jwks_url: Some(jwks_url),
+            issuer: authorization_server.to_owned(),
+            audience: resource.to_owned(),
+            authorization_server: authorization_server.to_owned(),
+            resource: resource.to_owned(),
+            required_scope: required_scope.map(ToOwned::to_owned),
+            static_jwks: None,
+        })
+    }
+
     pub(crate) fn enabled(&self) -> bool {
         matches!(self, Self::Jwks(_))
     }

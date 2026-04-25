@@ -295,8 +295,7 @@ fn main() -> Result<()> {
             app_state.surface().as_label(),
             app_state.token_budget(),
             app_state.daemon_mode(),
-            transport.as_str(),
-            http_runtime.port,
+            (transport.as_str(), http_runtime.port),
             app_state.daemon_started_at(),
         );
         // Intentionally `warn!`: the default CODELENS_LOG filter is `warn`,

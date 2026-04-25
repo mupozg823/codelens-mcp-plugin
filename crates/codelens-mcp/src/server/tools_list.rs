@@ -78,7 +78,7 @@ pub(crate) fn build_tools_list_response(
                 meta["codelens/deprecatedReplacement"] = json!(replacement);
                 meta["codelens/deprecatedRemovalTarget"] = json!(removal);
             }
-            tool.meta = Some(meta);
+            tool.meta = if connector_safe { None } else { Some(meta) };
             if !include_output_schema {
                 tool.output_schema = None;
             }

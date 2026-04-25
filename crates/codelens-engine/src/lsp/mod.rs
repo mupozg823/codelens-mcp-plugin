@@ -12,8 +12,8 @@ pub use registry::{
 pub use session::LspSessionPool;
 pub use types::{
     LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,
-    LspRequest, LspTypeHierarchyNode, LspTypeHierarchyRequest, LspWorkspaceSymbol,
-    LspWorkspaceSymbolRequest,
+    LspRenameRequest, LspRequest, LspTypeHierarchyNode, LspTypeHierarchyRequest,
+    LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
 };
 
 use crate::project::ProjectRoot;
@@ -59,6 +59,14 @@ pub fn get_rename_plan_via_lsp(
 ) -> Result<LspRenamePlan> {
     let pool = LspSessionPool::new(project.clone());
     pool.get_rename_plan(request)
+}
+
+pub fn rename_symbol_via_lsp(
+    project: &ProjectRoot,
+    request: &LspRenameRequest,
+) -> Result<crate::rename::RenameResult> {
+    let pool = LspSessionPool::new(project.clone());
+    pool.rename_symbol(request)
 }
 
 /// Known-safe LSP server binaries. Commands not in this list are rejected.

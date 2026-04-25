@@ -1,15 +1,15 @@
-//! Semantic backend abstraction (P2 scaffold).
+//! Backend capability registry (P2 scaffold).
 //!
 //! Serena-comparison §Adopt 2 calls out a formal backend adapter interface.
 //! This module establishes the passive half of that abstraction: a capability
 //! vocabulary and a `SemanticBackend` trait implemented by each existing
-//! retrieval/edit engine. The resource surface reports which backend covers
-//! which capability so callers can reason about the substrate without
-//! committing to a specific engine.
+//! retrieval backend. Precise semantic editing is deliberately modeled as a
+//! separate opt-in backend so search/ranking does not imply Serena-grade edit
+//! semantics.
 //!
-//! The trait does NOT yet own dispatch. Concrete tool handlers still call
-//! into the relevant engine directly. This file is the stable declaration
-//! point; actual routing through the trait is tracked separately.
+//! The trait does not own dispatch. Concrete tool handlers still call into
+//! the relevant engine directly. This file is the stable declaration point
+//! for capability reporting, while routing remains explicit in tool handlers.
 
 use crate::AppState;
 use serde::Serialize;
@@ -32,6 +32,7 @@ pub enum BackendCapability {
     ImpactAnalysis,
     SemanticSearch,
     Embeddings,
+    SemanticEditBackend,
 }
 
 impl BackendCapability {
@@ -47,6 +48,7 @@ impl BackendCapability {
             Self::ImpactAnalysis => "impact_analysis",
             Self::SemanticSearch => "semantic_search",
             Self::Embeddings => "embeddings",
+            Self::SemanticEditBackend => "semantic_edit_backend",
         }
     }
 }
@@ -62,6 +64,7 @@ pub trait SemanticBackend {
 pub struct RustEngineBackend;
 pub struct LspBridgeBackend;
 pub struct ScipBridgeBackend;
+pub struct SemanticEditBackend;
 
 impl SemanticBackend for RustEngineBackend {
     fn name(&self) -> &'static str {
@@ -111,6 +114,21 @@ impl SemanticBackend for ScipBridgeBackend {
     }
 }
 
+impl SemanticBackend for SemanticEditBackend {
+    fn name(&self) -> &'static str {
+        "semantic-edit-backend"
+    }
+
+    fn capabilities(&self) -> &'static [BackendCapability] {
+        &[
+            BackendCapability::SemanticEditBackend,
+            BackendCapability::Rename,
+            BackendCapability::Edit,
+            BackendCapability::Diagnostics,
+        ]
+    }
+}
+
 /// Snapshot describing one backend at a single point in time. Used by the
 /// `codelens://backend/capabilities` resource.
 #[derive(Debug, Clone, Serialize)]
@@ -127,8 +145,12 @@ pub struct BackendReport {
 
 /// Enumerate all known backends with their current availability.
 pub fn enumerate_backends(state: &AppState) -> Vec<BackendReport> {
-    let backends: [&dyn SemanticBackend; 3] =
-        [&RustEngineBackend, &LspBridgeBackend, &ScipBridgeBackend];
+    let backends: [&dyn SemanticBackend; 4] = [
+        &RustEngineBackend,
+        &LspBridgeBackend,
+        &ScipBridgeBackend,
+        &SemanticEditBackend,
+    ];
     backends
         .iter()
         .map(|backend| {
@@ -184,6 +206,7 @@ fn runtime_status_for_backend(name: &str, state: &AppState) -> BackendRuntimeSta
             }
         }
         "scip-bridge" => scip_runtime_status(state),
+        "semantic-edit-backend" => semantic_edit_runtime_status(state),
         _ => BackendRuntimeStatus {
             compiled: false,
             available: false,
@@ -228,12 +251,58 @@ fn scip_runtime_status(state: &AppState) -> BackendRuntimeStatus {
     }
 }
 
+fn semantic_edit_runtime_status(state: &AppState) -> BackendRuntimeStatus {
+    let configured = crate::env_compat::dual_prefix_env("CODELENS_SEMANTIC_EDIT_BACKEND");
+    let lsp_statuses = codelens_engine::check_lsp_status();
+    let installed_lsp_server_count = lsp_statuses
+        .iter()
+        .filter(|status| status.installed)
+        .count();
+    let _ = state;
+    let lsp_available = installed_lsp_server_count > 0;
+    let configured_lsp = configured.as_deref() == Some("lsp");
+    let configured_default = matches!(
+        configured.as_deref(),
+        Some("default" | "off" | "tree-sitter" | "tree_sitter")
+    );
+    let active = configured_lsp && lsp_available;
+    let active_reason = if active {
+        "env_opt_in_lsp".to_owned()
+    } else if configured_lsp {
+        "configured_lsp_unavailable".to_owned()
+    } else if configured_default {
+        "disabled_or_default_backend".to_owned()
+    } else if configured.is_some() {
+        "unsupported_config".to_owned()
+    } else {
+        "opt_in_required".to_owned()
+    };
+
+    BackendRuntimeStatus {
+        compiled: true,
+        available: lsp_available,
+        active,
+        active_reason,
+        details: json!({
+            "configured_backend": configured,
+            "candidate_backends": ["lsp-bridge"],
+            "installed_lsp_server_count": installed_lsp_server_count,
+            "activation": "set semantic_edit_backend=lsp per call or CODELENS_SEMANTIC_EDIT_BACKEND=lsp",
+            "dispatch": "rename_symbol routes to LSP textDocument/rename only when explicitly requested",
+        }),
+    }
+}
+
 /// Reverse index: for every capability, which backends claim to fulfil it
 /// (regardless of current availability). Callers use this to decide which
 /// backend to route a capability to once the dispatch half of P2 lands.
 pub fn capability_coverage() -> Vec<(BackendCapability, Vec<&'static str>)> {
-    let backends: [&dyn SemanticBackend; 3] =
-        [&RustEngineBackend, &LspBridgeBackend, &ScipBridgeBackend];
+    let backends: [&dyn SemanticBackend; 4] = [
+        &RustEngineBackend,
+        &LspBridgeBackend,
+        &ScipBridgeBackend,
+        &SemanticEditBackend,
+    ];
     let all_caps = [
         BackendCapability::SymbolLookup,
         BackendCapability::SymbolsOverview,
@@ -245,6 +314,7 @@ pub fn capability_coverage() -> Vec<(BackendCapability, Vec<&'static str>)> {
         BackendCapability::ImpactAnalysis,
         BackendCapability::SemanticSearch,
         BackendCapability::Embeddings,
+        BackendCapability::SemanticEditBackend,
     ];
     all_caps
         .iter()
@@ -308,6 +378,7 @@ mod tests {
             BackendCapability::ImpactAnalysis,
             BackendCapability::SemanticSearch,
             BackendCapability::Embeddings,
+            BackendCapability::SemanticEditBackend,
         ] {
             assert!(
                 !cap.as_str().is_empty(),
@@ -325,5 +396,14 @@ mod tests {
         assert!(caps.contains(&BackendCapability::References));
         // Impact analysis is the distinguishing workload for SCIP.
         assert!(caps.contains(&BackendCapability::ImpactAnalysis));
+    }
+
+    #[test]
+    fn semantic_edit_backend_is_separate_opt_in_capability() {
+        let backend = SemanticEditBackend;
+        let caps = backend.capabilities();
+        assert!(caps.contains(&BackendCapability::SemanticEditBackend));
+        assert!(caps.contains(&BackendCapability::Edit));
+        assert!(!caps.contains(&BackendCapability::SemanticSearch));
     }
 }

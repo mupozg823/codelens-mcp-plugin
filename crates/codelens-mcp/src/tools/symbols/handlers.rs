@@ -549,7 +549,38 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
 pub fn refresh_symbol_index(state: &AppState, _arguments: &Value) -> ToolResult {
     let stats = state.symbol_index().refresh_all()?;
     state.graph_cache().invalidate();
-    Ok((json!(stats), success_meta(BackendKind::TreeSitter, 0.95)))
+    #[cfg(feature = "semantic")]
+    let mut payload = json!(stats);
+    #[cfg(not(feature = "semantic"))]
+    let payload = json!(stats);
+    #[cfg(feature = "semantic")]
+    {
+        let project = state.project();
+        let guard = state.embedding_ref();
+        if let Some(engine) = guard.as_ref()
+            && engine.is_indexed()
+        {
+            match engine.ensure_index_fresh_for_project(&project) {
+                Ok(report) => {
+                    if let Some(map) = payload.as_object_mut() {
+                        map.insert("embedding_freshness".to_owned(), json!(report));
+                    }
+                }
+                Err(error) => {
+                    if let Some(map) = payload.as_object_mut() {
+                        map.insert(
+                            "embedding_freshness".to_owned(),
+                            json!({
+                                "status": "unavailable",
+                                "reason": error.to_string()
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok((payload, success_meta(BackendKind::TreeSitter, 0.95)))
 }
 
 pub fn get_complexity(state: &AppState, arguments: &Value) -> ToolResult {

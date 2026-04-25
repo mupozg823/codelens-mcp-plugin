@@ -9,6 +9,12 @@ use codelens_engine::{
 use serde_json::json;
 
 pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    if crate::tools::semantic_edit::selected_backend(arguments)?
+        == crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp
+    {
+        return crate::tools::semantic_edit::rename_symbol_with_lsp_backend(state, arguments);
+    }
+
     let file_path = required_string(arguments, "file_path")?;
     let symbol_name = arguments
         .get("symbol_name")

@@ -1,0 +1,66 @@
+name: Upstream Smoke
+
+on:
+  schedule:
+    - cron: "23 18 * * *"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  upstream-smoke:
+    name: Upstream smoke matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-v2-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-v2-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-target-upstream-v1-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-upstream-v1-
+
+      - name: Build release binary
+        run: cargo build --release --features http -p codelens-mcp
+
+      - name: Verify bundled model assets
+        run: python3 scripts/verify-model-assets.py --root crates/codelens-engine/models --check
+
+      - name: Run upstream project smoke matrix
+        env:
+          CODELENS_MODEL_DIR: crates/codelens-engine/models
+        run: |
+          python3 benchmarks/external-project-smoke.py \
+            --binary target/release/codelens-mcp \
+            --matrix benchmarks/external-project-smoke-upstream-matrix.json \
+            --output benchmarks/external-project-smoke-upstream-results.json \
+            --timeout 420 \
+            --check
+
+      - name: Upload upstream smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-smoke-results
+          path: benchmarks/external-project-smoke-upstream-results.json

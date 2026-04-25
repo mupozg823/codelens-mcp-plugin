@@ -1,3 +1,4 @@
+use super::runtime::executable_model_roots;
 use super::*;
 use crate::db::{IndexDb, NewSymbol};
 use std::sync::Mutex;
@@ -1404,6 +1405,55 @@ fn full_reindex_removes_deleted_files() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[test]
+fn ensure_index_fresh_updates_changed_symbol_rows() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    skip_without_embedding_model!();
+    let (dir, project) = make_project_with_source();
+    let engine = EmbeddingEngine::new(&project).unwrap();
+    engine.index_from_project(&project).unwrap();
+
+    let stale_hello = engine
+        .store
+        .get_embedding("main.py", "hello")
+        .unwrap()
+        .expect("hello should exist");
+    assert_eq!(stale_hello.signature, "def hello():");
+
+    let changed_source = "def hello(name):\n    print(name)\n\ndef world():\n    return 42\n";
+    write_python_file_with_symbols(
+        dir.path(),
+        "main.py",
+        changed_source,
+        "hash2",
+        &[
+            ("hello", "def hello(name):", "hello"),
+            ("world", "def world():", "world"),
+        ],
+    );
+
+    let still_stale = engine
+        .store
+        .get_embedding("main.py", "hello")
+        .unwrap()
+        .expect("hello should still exist before freshness reconciliation");
+    assert_eq!(still_stale.signature, "def hello():");
+
+    let report = engine.ensure_index_fresh_for_project(&project).unwrap();
+    assert_eq!(report.checked_files, 1);
+    assert_eq!(report.refreshed_files, 1);
+    assert_eq!(report.removed_files, 0);
+    assert_eq!(report.indexed_symbols, 2);
+
+    let fresh_hello = engine
+        .store
+        .get_embedding("main.py", "hello")
+        .unwrap()
+        .expect("hello should exist after freshness reconciliation");
+    assert_eq!(fresh_hello.signature, "def hello(name):");
+    assert_ne!(fresh_hello.text, stale_hello.text);
 }
 
 #[test]

@@ -3,6 +3,7 @@ use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
 use fastembed::TextEmbedding;
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -22,11 +23,38 @@ use super::runtime::{configured_rerank_blend, embed_batch_size, max_embed_symbol
 use super::vec_store::SqliteVecStore;
 use super::{
     CHANGED_FILE_QUERY_CHUNK, DEFAULT_DUPLICATE_SCAN_BATCH_SIZE, EmbeddingEngine,
-    EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch,
+    EmbeddingFreshnessReport, EmbeddingIndexInfo, EmbeddingRuntimeInfo, QueryEmbeddingCacheStats,
+    SemanticMatch,
 };
 use rusqlite::Connection;
 
 impl EmbeddingEngine {
+    fn configured_query_embed_cache_size() -> usize {
+        std::env::var("CODELENS_QUERY_EMBED_CACHE_SIZE")
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(4096)
+            .min(50_000)
+    }
+
+    fn normalize_query_for_cache(query: &str) -> String {
+        query.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    fn query_cache_key(&self, query: &str) -> String {
+        let normalized = Self::normalize_query_for_cache(query);
+        let mut hasher = Sha256::new();
+        hasher.update(b"cache-v1\n");
+        hasher.update(self.model_name.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(self.runtime_info.backend.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(self.runtime_info.max_length.to_string().as_bytes());
+        hasher.update(b"\n");
+        hasher.update(normalized.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
     fn embed_texts_cached(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
@@ -81,6 +109,61 @@ impl EmbeddingEngine {
             .into_iter()
             .map(|item| item.ok_or_else(|| anyhow::anyhow!("missing embedding cache entry")))
             .collect()
+    }
+
+    pub fn embed_query_cached(&self, query: &str) -> Result<Vec<f32>> {
+        let max_entries = Self::configured_query_embed_cache_size();
+        if max_entries == 0 {
+            return self
+                .embed_texts_cached(&[query])?
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("missing query embedding"));
+        }
+        let normalized = Self::normalize_query_for_cache(query);
+        let cache_key = self.query_cache_key(&normalized);
+        if let Some(embedding) = self.store.get_query_embedding(&cache_key)? {
+            return Ok(embedding);
+        }
+        let embedding = self
+            .embed_texts_cached(&[normalized.as_str()])?
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("missing query embedding"))?;
+        self.store
+            .put_query_embedding(&cache_key, &normalized, &embedding)?;
+        let _ = self.store.prune_query_embeddings(max_entries)?;
+        Ok(embedding)
+    }
+
+    pub fn prewarm_queries(&self, queries: &[String]) -> Result<usize> {
+        let max_entries = Self::configured_query_embed_cache_size();
+        if max_entries == 0 || queries.is_empty() {
+            return Ok(0);
+        }
+        let mut prewarmed = 0usize;
+        for query in queries {
+            if query.trim().is_empty() {
+                continue;
+            }
+            let _ = self.embed_query_cached(query)?;
+            prewarmed += 1;
+        }
+        Ok(prewarmed)
+    }
+
+    pub fn query_cache_stats(&self) -> Result<QueryEmbeddingCacheStats> {
+        let max_entries = Self::configured_query_embed_cache_size();
+        let entries = if max_entries == 0 {
+            0
+        } else {
+            self.store.query_cache_count()?
+        };
+        Ok(QueryEmbeddingCacheStats {
+            enabled: max_entries > 0,
+            entries,
+            max_entries,
+        })
     }
 
     pub fn new(project: &ProjectRoot) -> Result<Self> {
@@ -219,6 +302,121 @@ impl EmbeddingEngine {
         }
 
         Ok(total_indexed)
+    }
+
+    pub fn ensure_index_fresh_for_project(
+        &self,
+        project: &ProjectRoot,
+    ) -> Result<EmbeddingFreshnessReport> {
+        if self
+            .indexing
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            anyhow::bail!(
+                "Embedding indexing already in progress — wait for the current run to complete before retrying."
+            );
+        }
+
+        struct IndexGuard<'a>(&'a std::sync::atomic::AtomicBool);
+        impl Drop for IndexGuard<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, std::sync::atomic::Ordering::Release);
+            }
+        }
+        let _guard = IndexGuard(&self.indexing);
+
+        let db_path = crate::db::index_db_path(project.as_path());
+        let symbol_db = IndexDb::open(&db_path)?;
+        let batch_size = embed_batch_size();
+        let mut report = EmbeddingFreshnessReport::default();
+        let mut existing_embeddings: HashMap<
+            String,
+            HashMap<ReusableEmbeddingKey, EmbeddingChunk>,
+        > = HashMap::new();
+        let mut current_db_files = HashSet::new();
+        let mut model = None;
+
+        self.store
+            .for_each_file_embeddings(&mut |file_path, chunks| {
+                existing_embeddings.insert(
+                    file_path,
+                    chunks
+                        .into_iter()
+                        .map(|chunk| (reusable_embedding_key_for_chunk(&chunk), chunk))
+                        .collect(),
+                );
+                Ok(())
+            })?;
+
+        if existing_embeddings.is_empty() {
+            return Ok(report);
+        }
+
+        symbol_db.for_each_file_symbols_with_bytes(|file_path, symbols| {
+            current_db_files.insert(file_path.clone());
+            let Some(existing_for_file) = existing_embeddings.get(&file_path) else {
+                report.skipped_new_files += 1;
+                return Ok(());
+            };
+
+            report.checked_files += 1;
+            let source = std::fs::read_to_string(project.as_path().join(&file_path)).ok();
+            let relevant_symbols: Vec<_> = symbols
+                .into_iter()
+                .filter(|sym| !is_test_only_symbol(sym, source.as_deref()))
+                .collect();
+
+            if relevant_symbols.is_empty() {
+                self.store.delete_by_file(&[file_path.as_str()])?;
+                existing_embeddings.remove(&file_path);
+                report.refreshed_files += 1;
+                return Ok(());
+            }
+
+            let current_keys = relevant_symbols
+                .iter()
+                .map(|sym| {
+                    let text = build_embedding_text(sym, source.as_deref());
+                    reusable_embedding_key_for_symbol(sym, &text)
+                })
+                .collect::<HashSet<_>>();
+            let stored_keys = existing_for_file.keys().cloned().collect::<HashSet<_>>();
+
+            if current_keys == stored_keys {
+                existing_embeddings.remove(&file_path);
+                report.unchanged_files += 1;
+                return Ok(());
+            }
+
+            let existing_for_file = existing_embeddings.remove(&file_path).unwrap_or_default();
+            report.indexed_symbols += self.reconcile_file_embeddings(
+                &file_path,
+                relevant_symbols,
+                source.as_deref(),
+                existing_for_file,
+                batch_size,
+                &mut model,
+            )?;
+            report.refreshed_files += 1;
+            Ok(())
+        })?;
+
+        let removed_files: Vec<String> = existing_embeddings
+            .into_keys()
+            .filter(|file_path| !current_db_files.contains(file_path))
+            .collect();
+        if !removed_files.is_empty() {
+            let removed_refs: Vec<&str> = removed_files.iter().map(String::as_str).collect();
+            report.removed_files = self.store.delete_by_file(&removed_refs)?;
+        }
+
+        Ok(report)
     }
 
     /// Extract NL→code bridge candidates from indexed symbols.
@@ -417,11 +615,7 @@ impl EmbeddingEngine {
     /// cosine similarity. This catches cases where embedding similarity is high
     /// but the actual text relevance is low (or vice versa).
     pub fn search_scored(&self, query: &str, max_results: usize) -> Result<Vec<ScoredChunk>> {
-        let query_embedding = self.embed_texts_cached(&[query])?;
-
-        if query_embedding.is_empty() {
-            return Ok(Vec::new());
-        }
+        let query_embedding = self.embed_query_cached(query)?;
 
         // Fetch N× candidates for reranking headroom (default 5×, override via
         // CODELENS_RERANK_FACTOR). More candidates = better rerank quality at
@@ -431,7 +625,7 @@ impl EmbeddingEngine {
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(5);
         let candidate_count = max_results.saturating_mul(factor).max(max_results);
-        let mut candidates = self.store.search(&query_embedding[0], candidate_count)?;
+        let mut candidates = self.store.search(&query_embedding, candidate_count)?;
 
         if candidates.len() <= max_results {
             return Ok(candidates);
