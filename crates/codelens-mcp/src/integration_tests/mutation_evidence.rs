@@ -108,6 +108,34 @@ fn create_text_file_tool_response_includes_evidence() {
 }
 
 #[test]
+fn mutation_response_surfaces_invalidated_paths() {
+    // P2-E: every mutation tool response carries the list of file
+    // paths whose engine caches were invalidated, so the agent can
+    // act on stale-cache risk without an extra round-trip.
+    let project = project_root();
+    let state = make_state(&project);
+    let result = call_tool(
+        &state,
+        "create_text_file",
+        json!({
+            "relative_path": "p2e_invalidation.txt",
+            "content": "fresh\n",
+            "overwrite": false,
+        }),
+    );
+    let data = &result["data"];
+    let invalidated = data["invalidated_paths"]
+        .as_array()
+        .expect("invalidated_paths must be present and an array");
+    assert_eq!(
+        invalidated.len(),
+        1,
+        "single-file mutation must report one invalidated path, got {invalidated:?}"
+    );
+    assert_eq!(invalidated[0], "p2e_invalidation.txt");
+}
+
+#[test]
 fn add_import_tool_response_includes_evidence() {
     let project = project_root();
     let state = make_state(&project);

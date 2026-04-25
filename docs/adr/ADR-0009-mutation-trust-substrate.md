@@ -208,35 +208,38 @@ Every mutation tool response **must** include:
 "invalidated_paths": ["src/foo.py", "src/bar.py"]
 ```
 
-Engine cache layers register an invalidator:
+Each engine cache layer self-invalidates from `apply_post_mutation`
+in mcp dispatch — _before_ the response is returned to the agent —
+so the agent's next `find_*` / `bm25_*` / `semantic_search` call sees
+fresh data.
 
-```rust
-pub trait CacheInvalidator: Send + Sync {
-    fn invalidate(&self, paths: &[String]);
-}
-```
+| Cache layer             | Invalidation point                             | Trigger                                 |
+| ----------------------- | ---------------------------------------------- | --------------------------------------- |
+| `GraphCache` (PageRank) | `state.graph_cache().invalidate()`             | every mutation                          |
+| Symbol DB               | `state.symbol_index().refresh_file(path)`      | per-path tree-sitter reindex            |
+| BM25 / FTS5             | `state.symbol_index().db().invalidate_fts()`   | meta marker reset → lazy rebuild        |
+| Embedding index         | `EmbeddingEngine::index_changed_files(...)`    | only when active or on-disk index lives |
+| LSP session             | next `prepare_document` auto-emits `didChange` | lazy — handled inside `LspSession`      |
+| Recent preflights       | `state.clear_recent_preflights()`              | every mutation                          |
 
-Implementations:
-
-- `EmbeddingCacheInvalidator`: marks affected file embeddings stale
-- `Bm25IndexInvalidator`: removes entries for affected paths
-- `LspSessionInvalidator`: sends `textDocument/didChange` to attached LSP
-- `SymbolDbInvalidator`: re-runs tree-sitter on affected files
-
-Mcp dispatch wires invalidation into tool response post-processing —
-_before_ the response is returned to the agent. The agent's next
-`find_*` call sees fresh data.
+**Direct calls vs. a trait.** An earlier draft proposed a
+`CacheInvalidator` trait with four implementations registered against
+the dispatch layer. The shipped substrate uses direct method calls
+because there is exactly one caller (`apply_post_mutation`) and
+exactly four cache layers; the abstraction would buy nothing today.
+Reserving the trait for the day a fifth layer (or a second caller)
+appears keeps the boundary honest.
 
 ## Architecture Rules Compliance
 
-| Rule                                         | Compliance                                                                                                         |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 초기 버전은 모놀리식 우선                    | ✅ AuditSink + role gate live in mcp crate, no new service                                                         |
-| 역할 기반 권한은 화면/액션/API 모두 명시     | ✅ Role enum gates dispatch entry; principals.toml is the config surface                                           |
-| 감사 로그가 필요한 액션은 반드시 기록        | ✅ all 11 mutation tools + LSP rename apply + safe_delete_apply write rows                                         |
-| 상태 전이는 enum과 이벤트 기준으로 문서화    | ✅ LifecycleState enum (6 states: 2 intermediate + 4 terminal) + transitions in §3                                 |
-| 새 추상화는 중복 제거가 입증된 경우에만 추가 | ✅ AuditSink replaces ad-hoc response-only evidence; CacheInvalidator trait replaces missing implicit invalidation |
-| 다이어그램은 C4 + dynamic flow 2종 유지      | ✅ updated in `docs/architecture.md` (separate PR)                                                                 |
+| Rule                                         | Compliance                                                                                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 초기 버전은 모놀리식 우선                    | ✅ AuditSink + role gate live in mcp crate, no new service                                                                                       |
+| 역할 기반 권한은 화면/액션/API 모두 명시     | ✅ Role enum gates dispatch entry; principals.toml is the config surface                                                                         |
+| 감사 로그가 필요한 액션은 반드시 기록        | ✅ all 11 mutation tools + LSP rename apply + safe_delete_apply write rows                                                                       |
+| 상태 전이는 enum과 이벤트 기준으로 문서화    | ✅ LifecycleState enum (6 states: 2 intermediate + 4 terminal) + transitions in §3                                                               |
+| 새 추상화는 중복 제거가 입증된 경우에만 추가 | ✅ AuditSink replaces ad-hoc response-only evidence; cache invalidation uses direct method calls (no trait — single caller, fixed set of layers) |
+| 다이어그램은 C4 + dynamic flow 2종 유지      | ✅ updated in `docs/architecture.md` (separate PR)                                                                                               |
 
 ## Diagrams
 
