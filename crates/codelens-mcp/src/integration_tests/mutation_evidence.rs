@@ -127,6 +127,128 @@ fn add_import_tool_response_includes_evidence() {
     );
 }
 
+/// ADR-0009 §1 (P2-C role gate): when `CODELENS_PRINCIPAL` env var is
+/// set and `principals.toml` maps that principal to `ReadOnly`, every
+/// mutation tool call is denied with a JSON-RPC -32008 error AND an
+/// `apply_status="denied"` row is appended to the audit log. Read-only
+/// tools (e.g. `find_symbol`) still succeed.
+///
+/// `permissive_default` (no `principals.toml`, no env var) is covered
+/// implicitly by every other test in this file — they would all fail
+/// if the gate ever defaulted to `ReadOnly`.
+#[test]
+fn role_gate_denies_mutation_for_read_only_principal() {
+    use crate::audit_sink::AuditSink;
+    use crate::principals::Principals;
+
+    let project = project_root();
+
+    // Drop a `principals.toml` in the project's `.codelens/` so
+    // `Principals::discover` finds it via the audit_dir parent.
+    let codelens_dir = project.as_path().join(".codelens");
+    std::fs::create_dir_all(&codelens_dir).unwrap();
+    std::fs::write(
+        codelens_dir.join("principals.toml"),
+        r#"
+[default]
+role = "Refactor"
+
+[principal."ci-bot"]
+role = "ReadOnly"
+"#,
+    )
+    .unwrap();
+
+    // Sanity-check the loader path before touching dispatch.
+    let parsed =
+        Principals::discover(&codelens_dir.join("audit")).expect("principals.toml must parse");
+    assert_eq!(parsed.resolve(Some("ci-bot")).as_str(), "ReadOnly");
+
+    // Bind the request principal to ci-bot via env so role_gate
+    // resolves it on the dispatch path.
+    let saved_principal = std::env::var("CODELENS_PRINCIPAL").ok();
+    unsafe {
+        std::env::set_var("CODELENS_PRINCIPAL", "ci-bot");
+    }
+
+    let state = make_state(&project);
+
+    // Mutation tool MUST be denied.
+    let denied = call_tool(
+        &state,
+        "create_text_file",
+        json!({
+            "relative_path": "role_gate_target.txt",
+            "content": "should-not-be-written\n",
+            "overwrite": false,
+        }),
+    );
+    assert_eq!(
+        denied.get("success").and_then(|v| v.as_bool()),
+        Some(false),
+        "denied response must have success=false, got {denied}"
+    );
+    let error_msg = denied
+        .get("error")
+        .and_then(|e| e.as_str())
+        .unwrap_or_default();
+    assert!(
+        error_msg.contains("Permission denied"),
+        "error message must mention Permission denied, got {error_msg:?}"
+    );
+    assert!(
+        error_msg.contains("ci-bot") && error_msg.contains("ReadOnly"),
+        "error message must include principal id and role, got {error_msg:?}"
+    );
+
+    // ReadOnly tool MUST still succeed (find_symbol exists and is
+    // gated to ReadOnly).
+    let allowed = call_tool(
+        &state,
+        "find_symbol",
+        json!({
+            "name": "anything",
+        }),
+    );
+    // We do not assert on shape — only that the call did not get a
+    // PermissionDenied error.
+    let allowed_err = allowed
+        .get("error")
+        .and_then(|e| e.as_str())
+        .unwrap_or_default();
+    assert!(
+        !allowed_err.contains("Permission denied"),
+        "ReadOnly tool must NOT be denied for ReadOnly principal, got error={allowed_err:?}"
+    );
+
+    // Audit row for the denial must exist.
+    let sink = AuditSink::open(&state.audit_dir()).expect("audit_sink open");
+    let rows = sink.query(None, None, 100).expect("query");
+    let denied_row = rows
+        .iter()
+        .find(|r| r.tool == "create_text_file" && r.apply_status == "denied")
+        .expect("denied audit row must exist");
+    assert_eq!(denied_row.state_to, "Denied");
+    assert_eq!(denied_row.principal.as_deref(), Some("ci-bot"));
+    assert!(
+        denied_row
+            .error_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("ReadOnly"),
+        "denied row error_message must reference principal_role, got {:?}",
+        denied_row.error_message
+    );
+
+    // Restore env so other tests are unaffected.
+    unsafe {
+        match saved_principal {
+            Some(v) => std::env::set_var("CODELENS_PRINCIPAL", v),
+            None => std::env::remove_var("CODELENS_PRINCIPAL"),
+        }
+    }
+}
+
 /// ADR-0009 §2 (P2-B wiring): a successful mutation tool call writes
 /// exactly one row to the durable audit_sink (SQLite) with
 /// `apply_status="applied"`, transition `Applying → Audited`, and a

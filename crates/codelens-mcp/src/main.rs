@@ -19,6 +19,7 @@ mod mutation_audit;
 mod mutation_gate;
 mod operator;
 mod preflight_store;
+mod principals;
 mod prompts;
 mod protocol;
 mod recent_buffer;
