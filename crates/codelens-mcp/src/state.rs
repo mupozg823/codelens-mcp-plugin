@@ -130,6 +130,10 @@ pub(crate) struct AppState {
     /// downstream tooling can detect "daemon is running an image
     /// older than the disk binary" — the Phase 4a failure mode.
     daemon_started_at: String,
+    /// ADR-0009 §2: durable audit sink (SQLite). Lazy-init on first
+    /// access via `audit_sink()` so test helpers without an audit_dir
+    /// do not pay the open cost upfront.
+    audit_sink: OnceLock<Arc<crate::audit_sink::AuditSink>>,
 }
 
 /// A read-only project registered for cross-project queries.
@@ -255,6 +259,39 @@ impl AppState {
         self.active_project_context()
             .map(|context| context.audit_dir.clone())
             .unwrap_or_else(|| self.default_audit_dir.clone())
+    }
+
+    /// ADR-0009 §2: lazy accessor for the durable audit sink. The first
+    /// caller pays the SQLite open cost (creates schema if absent); all
+    /// subsequent calls share the same `Arc`. Failure to open returns
+    /// `None` so dispatch never fails on audit alone — the failure is
+    /// logged and the legacy jsonl audit (`mutation_audit.rs`) still
+    /// runs. Multi-project: this binds to whichever `audit_dir()` is
+    /// active at first access, and caches that. Re-targeting on
+    /// project activation is deferred to Phase 2-C; for the
+    /// single-project default path this is correct.
+    pub(crate) fn audit_sink(&self) -> Option<Arc<crate::audit_sink::AuditSink>> {
+        if let Some(existing) = self.audit_sink.get() {
+            return Some(Arc::clone(existing));
+        }
+        let dir = self.audit_dir();
+        match crate::audit_sink::AuditSink::open(&dir) {
+            Ok(sink) => {
+                let arc = Arc::new(sink);
+                // OnceLock::set returns Err if another thread won the race;
+                // either way the get() afterwards yields the winning Arc.
+                let _ = self.audit_sink.set(Arc::clone(&arc));
+                Some(self.audit_sink.get().cloned().unwrap_or(arc))
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    audit_dir = %dir.display(),
+                    "failed to open audit_log.sqlite — audit_sink disabled for this state"
+                );
+                None
+            }
+        }
     }
 
     pub(crate) fn watcher_stats(&self) -> Option<codelens_engine::WatcherStats> {
@@ -522,6 +559,10 @@ impl AppState {
             // time so `get_capabilities` stays consistent across
             // clones.
             daemon_started_at: self.daemon_started_at.clone(),
+            // ADR-0009: each clone re-initialises its own sink lazily.
+            // Multiple processes opening the same SQLite is safe (WAL
+            // serialises writes); the OnceLock just caches per-clone.
+            audit_sink: OnceLock::new(),
         }
     }
 
@@ -606,6 +647,7 @@ impl AppState {
             http_auth: Arc::new(crate::server::auth::HttpAuthState::default()),
             compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
             daemon_started_at: now_rfc3339_utc(),
+            audit_sink: OnceLock::new(),
         }
     }
 
