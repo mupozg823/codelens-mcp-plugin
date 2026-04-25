@@ -1,7 +1,7 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::tool_defs::ToolSurface;
-use crate::tool_runtime::{ToolResult, success_meta};
+use crate::tool_runtime::{success_meta, ToolResult};
+use crate::AppState;
 use serde_json::json;
 
 #[cfg(feature = "semantic")]
@@ -530,7 +530,35 @@ pub(crate) fn collect_runtime_health_snapshot(
     }
 }
 
+/// Response detail level. The default `full` preserves the historical
+/// 38-field shape. `compact` returns only the 12 core fields LLMs
+/// actually consume on a startup probe and trims response token cost
+/// from ~5K → ~1K (budget 19% → ~4%). Clients can re-call with
+/// `detail=full` when they need the runtime introspection extras
+/// (CoreML compute units, SCIP symbol counts, embedding runtime
+/// preferences, etc.).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CapabilitiesDetail {
+    Compact,
+    Full,
+}
+
+impl CapabilitiesDetail {
+    fn from_value(arguments: &serde_json::Value) -> Self {
+        match arguments
+            .get("detail")
+            .and_then(|v| v.as_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("compact") => Self::Compact,
+            _ => Self::Full,
+        }
+    }
+}
+
 pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let detail = CapabilitiesDetail::from_value(arguments);
     let file_path = arguments.get("file_path").and_then(|v| v.as_str());
 
     // Determine language from file path if provided
@@ -697,8 +725,39 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         }
     }
 
-    Ok((
-        json!({
+    let embedding_indexed_bool = embedding_index_info
+        .as_ref()
+        .map(|info| info.indexed_symbols > 0)
+        .unwrap_or(false);
+    let embedding_indexed_symbols = embedding_index_info
+        .as_ref()
+        .map(|info| info.indexed_symbols)
+        .unwrap_or(0);
+
+    let payload = match detail {
+        CapabilitiesDetail::Compact => {
+            // 12 core fields LLMs consume on a startup probe. Nested
+            // sub-objects (`diagnostics_guidance`, `health_summary`)
+            // and runtime introspection (CoreML compute units, SCIP
+            // counts, embedding runtime preferences, build_info) are
+            // only emitted when `detail=full`.
+            json!({
+                "language": language,
+                "lsp_attached": lsp_attached,
+                "intelligence_sources": intelligence_sources,
+                "semantic_search_status": semantic_search_status,
+                "embedding_model": configured_embedding_model,
+                "embedding_indexed": embedding_indexed_bool,
+                "embedding_indexed_symbols": embedding_indexed_symbols,
+                "index_fresh": index_fresh,
+                "available": available,
+                "unavailable": unavailable,
+                "binary_version": crate::build_info::BUILD_VERSION,
+                "binary_git_sha": crate::build_info::BUILD_GIT_SHA,
+                "detail_available": ["full"],
+            })
+        }
+        CapabilitiesDetail::Full => json!({
             "language": language,
             "lsp_attached": lsp_attached,
             "intelligence_sources": intelligence_sources,
@@ -718,8 +777,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "embedding_coreml_specialization_strategy": embedding_runtime.coreml_specialization_strategy,
             "embedding_coreml_model_cache_dir": embedding_runtime.coreml_model_cache_dir,
             "embedding_runtime_fallback_reason": embedding_runtime.fallback_reason,
-            "embedding_indexed": embedding_index_info.as_ref().map(|info| info.indexed_symbols > 0).unwrap_or(false),
-            "embedding_indexed_symbols": embedding_index_info.as_ref().map(|info| info.indexed_symbols).unwrap_or(0),
+            "embedding_indexed": embedding_indexed_bool,
+            "embedding_indexed_symbols": embedding_indexed_symbols,
             "index_fresh": index_fresh,
             "indexed_files": indexed_files,
             "supported_files": supported_files,
@@ -740,6 +799,60 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "scip_file_count": scip_file_count,
             "scip_symbol_count": scip_symbol_count,
         }),
-        success_meta(BackendKind::Config, 0.95),
-    ))
+    };
+
+    Ok((payload, success_meta(BackendKind::Config, 0.95)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detail_default_is_full() {
+        assert_eq!(
+            CapabilitiesDetail::from_value(&json!({})),
+            CapabilitiesDetail::Full
+        );
+        assert_eq!(
+            CapabilitiesDetail::from_value(&json!({"file_path": "x.rs"})),
+            CapabilitiesDetail::Full,
+            "unrelated args do not flip the default"
+        );
+    }
+
+    #[test]
+    fn detail_accepts_compact_and_full_case_insensitive() {
+        assert_eq!(
+            CapabilitiesDetail::from_value(&json!({"detail": "compact"})),
+            CapabilitiesDetail::Compact
+        );
+        assert_eq!(
+            CapabilitiesDetail::from_value(&json!({"detail": "COMPACT"})),
+            CapabilitiesDetail::Compact
+        );
+        assert_eq!(
+            CapabilitiesDetail::from_value(&json!({"detail": "full"})),
+            CapabilitiesDetail::Full
+        );
+    }
+
+    #[test]
+    fn detail_unknown_value_falls_back_to_full() {
+        // Future-compatible: an unknown value (e.g. "intelligence_only"
+        // proposed in a later PR) does not crash; the call returns the
+        // backward-compatible full payload.
+        assert_eq!(
+            CapabilitiesDetail::from_value(&json!({"detail": "minimal"})),
+            CapabilitiesDetail::Full
+        );
+        assert_eq!(
+            CapabilitiesDetail::from_value(&json!({"detail": ""})),
+            CapabilitiesDetail::Full
+        );
+        assert_eq!(
+            CapabilitiesDetail::from_value(&json!({"detail": 42})),
+            CapabilitiesDetail::Full
+        );
+    }
 }
