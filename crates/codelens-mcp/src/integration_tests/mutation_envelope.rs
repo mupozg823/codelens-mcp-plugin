@@ -253,3 +253,106 @@ fn delete_lines_filesystem_confidence_is_lowered() {
     );
     assert_eq!(result["backend_used"], "filesystem");
 }
+
+#[test]
+fn tree_sitter_rename_apply_attempt_returns_validation_error() {
+    let project = project_root();
+    let state = make_state(&project);
+    let path = project.as_path().join("rename_apply.py");
+    fs::write(&path, "def alpha():\n    return 1\n").unwrap();
+
+    let response = crate::server::router::handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "rename_symbol",
+                "arguments": {
+                    "_session_id": default_session_id(&state),
+                    "file_path": "rename_apply.py",
+                    "symbol_name": "alpha",
+                    "new_name": "beta",
+                    "semantic_edit_backend": "tree-sitter",
+                    "dry_run": false
+                }
+            })),
+        },
+    )
+    .expect("tools/call should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let text = value["result"]["content"][0]["text"].as_str().unwrap_or("");
+    assert!(
+        text.contains("preview-only") || text.contains("Validation"),
+        "expected validation error mentioning preview-only, got: {text}"
+    );
+}
+
+#[test]
+fn tree_sitter_rename_dry_run_advertises_preview_only() {
+    let project = project_root();
+    let state = make_state(&project);
+    let path = project.as_path().join("rename_dry.py");
+    fs::write(&path, "def alpha():\n    return 1\n").unwrap();
+
+    let result = call_tool(
+        &state,
+        "rename_symbol",
+        json!({
+            "file_path": "rename_dry.py",
+            "symbol_name": "alpha",
+            "new_name": "beta",
+            "semantic_edit_backend": "tree-sitter",
+            "dry_run": true
+        }),
+    );
+    let scope = result.get("data").unwrap_or(&result);
+    assert_eq!(scope["authority"], "syntax", "got: {result}");
+    assert_eq!(scope["can_preview"], true);
+    assert_eq!(scope["can_apply"], false);
+    assert_eq!(scope["support"], "syntax_preview");
+    assert!(
+        scope["blocker_reason"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
+        "expected non-empty blocker_reason, got: {result}"
+    );
+}
+
+#[test]
+fn unset_backend_apply_attempt_returns_validation_error() {
+    let project = project_root();
+    let state = make_state(&project);
+    let path = project.as_path().join("rename_unset.py");
+    fs::write(&path, "def alpha():\n    return 1\n").unwrap();
+
+    let response = crate::server::router::handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "rename_symbol",
+                "arguments": {
+                    "_session_id": default_session_id(&state),
+                    "file_path": "rename_unset.py",
+                    "symbol_name": "alpha",
+                    "new_name": "beta",
+                    "dry_run": false
+                }
+            })),
+        },
+    )
+    .expect("tools/call should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let text = value["result"]["content"][0]["text"].as_str().unwrap_or("");
+    assert!(
+        text.contains("preview-only") || text.contains("Validation"),
+        "expected validation error when backend unset and dry_run=false, got: {text}"
+    );
+}

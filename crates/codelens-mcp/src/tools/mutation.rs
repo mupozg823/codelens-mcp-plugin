@@ -62,20 +62,61 @@ pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         Some("file") => rename::RenameScope::File,
         _ => rename::RenameScope::Project,
     };
-    let dry_run = arguments
+    let dry_run_requested = arguments
         .get("dry_run")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    Ok(rename::rename_symbol(
+
+    // Phase 0 G2: tree-sitter rename is preview-only — fail-closed on apply attempts.
+    if !dry_run_requested {
+        return Err(CodeLensError::Validation(
+            "tree-sitter rename is preview-only; \
+             select semantic_edit_backend=lsp (or jetbrains/roslyn) to apply"
+                .into(),
+        ));
+    }
+
+    let preview = rename::rename_symbol(
         &state.project(),
         file_path,
         symbol_name,
         new_name,
         name_path,
         scope,
-        dry_run,
-    )
-    .map(|value| (json!(value), success_meta(BackendKind::TreeSitter, 0.90)))?)
+        true, // force dry_run=true; raw apply path is not authoritative
+    )?;
+
+    let mut value = json!(preview);
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("authority".to_owned(), json!("syntax"));
+        obj.insert("can_preview".to_owned(), json!(true));
+        obj.insert("can_apply".to_owned(), json!(false));
+        obj.insert("support".to_owned(), json!("syntax_preview"));
+        obj.insert(
+            "blocker_reason".to_owned(),
+            json!(
+                "tree-sitter rename is preview-only; \
+                 select semantic_edit_backend=lsp (or jetbrains/roslyn) to apply"
+            ),
+        );
+        obj.insert(
+            "edit_authority".to_owned(),
+            json!({
+                "kind": "raw_fs",
+                "operation": "rename_symbol",
+                "validator": Value::Null,
+            }),
+        );
+        obj.insert(
+            "suggested_next_tools".to_owned(),
+            json!([
+                "rename_symbol with semantic_edit_backend=lsp",
+                "verify_change_readiness"
+            ]),
+        );
+    }
+
+    Ok((value, success_meta(BackendKind::TreeSitter, 0.90)))
 }
 
 pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
