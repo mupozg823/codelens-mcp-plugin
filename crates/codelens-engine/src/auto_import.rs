@@ -139,7 +139,7 @@ pub fn add_import(
     project: &ProjectRoot,
     file_path: &str,
     import_statement: &str,
-) -> Result<String> {
+) -> Result<(String, crate::edit_transaction::ApplyEvidence)> {
     let resolved = project.resolve(file_path)?;
     let content = fs::read_to_string(&resolved)?;
     let ext = resolved
@@ -148,9 +148,17 @@ pub fn add_import(
         .unwrap_or("")
         .to_ascii_lowercase();
 
-    // Check if already imported
+    // Check if already imported — synthesize a no-op Applied evidence
     if content.contains(import_statement.trim()) {
-        return Ok(content);
+        let evidence = crate::edit_transaction::ApplyEvidence {
+            status: crate::edit_transaction::ApplyStatus::Applied,
+            file_hashes_before: Default::default(),
+            file_hashes_after: Default::default(),
+            rollback_report: vec![],
+            modified_files: 0,
+            edit_count: 0,
+        };
+        return Ok((content, evidence));
     }
 
     let insert_line = find_import_insert_line(&content, &ext);
@@ -158,12 +166,22 @@ pub fn add_import(
     let insert_idx = (insert_line - 1).min(lines.len());
     lines.insert(insert_idx, import_statement.trim());
 
-    let mut result = lines.join("\n");
+    let mut new_content = lines.join("\n");
     if content.ends_with('\n') {
-        result.push('\n');
+        new_content.push('\n');
     }
-    fs::write(&resolved, &result)?;
-    Ok(result)
+
+    let relative_path = file_path;
+    let evidence = match crate::edit_transaction::apply_full_write_with_evidence(
+        project,
+        relative_path,
+        &new_content,
+    ) {
+        Ok(ev) => ev,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed { source: _, evidence }) => evidence,
+        Err(other) => return Err(anyhow::Error::msg(other.to_string())),
+    };
+    Ok((new_content, evidence))
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -582,6 +600,8 @@ mod tests {
 
     #[test]
     fn add_import_inserts_at_correct_position() {
+        use crate::edit_transaction::ApplyStatus;
+
         let dir = std::env::temp_dir().join(format!(
             "codelens-addimport-{}",
             std::time::SystemTime::now()
@@ -596,7 +616,13 @@ mod tests {
         )
         .unwrap();
         let project = ProjectRoot::new(&dir).unwrap();
-        let result = add_import(&project, "test.py", "from models import User").unwrap();
+        let (result, evidence) =
+            add_import(&project, "test.py", "from models import User").unwrap();
+        assert_eq!(
+            evidence.status,
+            ApplyStatus::Applied,
+            "evidence should be Applied"
+        );
         let lines: Vec<&str> = result.lines().collect();
         // Should be inserted after existing imports (line 3)
         assert!(
@@ -631,7 +657,8 @@ mod tests {
         )
         .unwrap();
         let project = ProjectRoot::new(&dir).unwrap();
-        let result = add_import(&project, "test.py", "from models import User").unwrap();
+        let (result, _evidence) =
+            add_import(&project, "test.py", "from models import User").unwrap();
         // Should not duplicate
         assert_eq!(
             result.matches("from models import User").count(),
