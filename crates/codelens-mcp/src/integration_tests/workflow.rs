@@ -154,6 +154,51 @@ fn impact_report_uses_existing_embedding_index_for_semantic_status() {
     );
 }
 
+/// P1-C: dispatch envelope aliases `file_path` ↔ `path` so callers
+/// may use either name. Verified end-to-end through `tools/call`:
+/// the same tool accepts both and produces an equivalent response.
+#[test]
+fn dispatch_aliases_file_path_and_path_arguments() {
+    let project = project_root();
+    fs::write(project.as_path().join("alias_check.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    // Caller sends `file_path` — handler reads it normally.
+    let with_file_path = call_tool(
+        &state,
+        "get_capabilities",
+        json!({ "file_path": "alias_check.py", "detail": "compact" }),
+    );
+    assert_eq!(with_file_path["success"], json!(true));
+    assert_eq!(
+        with_file_path["data"]["language"],
+        json!("py"),
+        "file_path should resolve language"
+    );
+
+    // Caller sends `path` instead — alias lifts it into `file_path`
+    // before dispatch, handler reads it equally well.
+    let with_path = call_tool(
+        &state,
+        "get_capabilities",
+        json!({ "path": "alias_check.py", "detail": "compact" }),
+    );
+    assert_eq!(with_path["success"], json!(true));
+    assert_eq!(
+        with_path["data"]["language"],
+        json!("py"),
+        "path alias should resolve language identically"
+    );
+
+    // The two responses should be equivalent on the language field;
+    // we do not pin every byte because runtime introspection (binary
+    // build sha, daemon start time) is identical here too.
+    assert_eq!(
+        with_file_path["data"]["language"],
+        with_path["data"]["language"]
+    );
+}
+
 /// P1-A: `detail=compact` returns the 12 core fields only and trims
 /// response size meaningfully. Backward-compat: `detail=full` (and
 /// the unset default) keeps the historical 38-field shape — covered by
