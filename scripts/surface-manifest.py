@@ -656,6 +656,15 @@ OPERATION_MATRIX_REQUIRED_FIELDS = [
     "failure_policy",
 ]
 
+SUPPORT_ENUM = {
+    "syntax_preview",
+    "authoritative_apply",
+    "authoritative_check",
+    "conditional_authoritative_apply",
+    "evidence_only",
+    "guarded_syntax_apply",
+}
+
 
 def check_operation_matrix(matrix_path: Path) -> list[str]:
     """Return a list of violation messages. Empty list = pass."""
@@ -677,6 +686,51 @@ def check_operation_matrix(matrix_path: Path) -> list[str]:
             continue
 
         ident = f"{op.get('operation')}/{op.get('backend')}"
+
+        # Contract B-1: 모든 필수 필드 존재
+        for field in OPERATION_MATRIX_REQUIRED_FIELDS:
+            if field not in op:
+                violations.append(
+                    f"contract B violation: {ident} (operations[{index}]) "
+                    f"missing required field {field!r}"
+                )
+
+        # Contract B-2: failure_policy == "fail_closed"
+        if op.get("failure_policy") not in (None, "fail_closed"):
+            violations.append(
+                f"contract B violation: {ident} (operations[{index}]) "
+                f"has failure_policy={op.get('failure_policy')!r} but "
+                f"only 'fail_closed' is allowed"
+            )
+
+        # Contract B-3: support 값이 enum 안에 있음
+        support = op.get("support")
+        if support is not None and support not in SUPPORT_ENUM:
+            violations.append(
+                f"contract B violation: {ident} (operations[{index}]) "
+                f"has support={support!r} not in {sorted(SUPPORT_ENUM)}"
+            )
+
+        # Contract B-4: support="authoritative_apply" → can_apply=true && verified=true
+        if support == "authoritative_apply":
+            if op.get("can_apply") is not True:
+                violations.append(
+                    f"contract B violation: {ident} (operations[{index}]) "
+                    f"support=authoritative_apply but can_apply!=true"
+                )
+            if op.get("verified") is not True:
+                violations.append(
+                    f"contract B violation: {ident} (operations[{index}]) "
+                    f"support=authoritative_apply but verified!=true"
+                )
+
+        # Contract B-5: languages 리스트 비어있지 않음
+        languages = op.get("languages")
+        if isinstance(languages, list) and not languages:
+            violations.append(
+                f"contract B violation: {ident} (operations[{index}]) "
+                f"languages list is empty"
+            )
 
         # Contract A: verified=false && can_apply=true must never coexist
         if op.get("can_apply") is True and op.get("verified") is False:

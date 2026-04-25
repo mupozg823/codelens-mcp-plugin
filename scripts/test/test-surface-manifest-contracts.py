@@ -104,6 +104,46 @@ def test_contract_a_verified_false_can_apply_true_rejected() -> None:
     )
 
 
+def test_contract_b_missing_required_field_rejected() -> None:
+    bad = json.loads(json.dumps(VALID_MATRIX))
+    del bad["operations"][0]["failure_policy"]
+    proc = run_contract_check(bad)
+    assert proc.returncode == 1, (
+        f"expected exit 1 for missing failure_policy, got {proc.returncode}: "
+        f"stdout={proc.stdout} stderr={proc.stderr}"
+    )
+    assert (
+        "failure_policy" in proc.stderr
+    ), f"expected violation to mention failure_policy: stderr={proc.stderr}"
+
+
+def test_contract_b_failure_policy_must_be_fail_closed() -> None:
+    bad = json.loads(json.dumps(VALID_MATRIX))
+    bad["operations"][0]["failure_policy"] = "best_effort"
+    proc = run_contract_check(bad)
+    assert proc.returncode == 1, (
+        f"expected exit 1 for non-fail-closed policy, got {proc.returncode}: "
+        f"stdout={proc.stdout} stderr={proc.stderr}"
+    )
+    assert (
+        "fail_closed" in proc.stderr
+    ), f"expected violation to mention fail_closed: stderr={proc.stderr}"
+
+
+def test_contract_b_authoritative_apply_implies_can_apply_true() -> None:
+    bad = json.loads(json.dumps(VALID_MATRIX))
+    # support=authoritative_apply 인데 can_apply=false 모순
+    bad["operations"][1]["can_apply"] = False
+    proc = run_contract_check(bad)
+    assert proc.returncode == 1, (
+        f"expected exit 1 for authoritative_apply contradiction, got {proc.returncode}: "
+        f"stdout={proc.stdout} stderr={proc.stderr}"
+    )
+    assert (
+        "authoritative_apply" in proc.stderr
+    ), f"expected violation to mention authoritative_apply: stderr={proc.stderr}"
+
+
 def main() -> int:
     failures: list[str] = []
     for name, fn in [
@@ -111,6 +151,18 @@ def main() -> int:
         (
             "contract_a_violation_rejected",
             test_contract_a_verified_false_can_apply_true_rejected,
+        ),
+        (
+            "contract_b_missing_field_rejected",
+            test_contract_b_missing_required_field_rejected,
+        ),
+        (
+            "contract_b_failure_policy_enum",
+            test_contract_b_failure_policy_must_be_fail_closed,
+        ),
+        (
+            "contract_b_authoritative_apply_consistency",
+            test_contract_b_authoritative_apply_implies_can_apply_true,
         ),
     ]:
         try:
