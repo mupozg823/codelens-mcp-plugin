@@ -4,7 +4,10 @@ use super::{
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_engine::{SymbolInfo, lsp::LspRenameRequest};
+use codelens_engine::{
+    SymbolInfo,
+    lsp::{LspRenameRequest, LspRequest},
+};
 use serde_json::json;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,14 +48,8 @@ pub(crate) fn rename_symbol_with_lsp_backend(
         .to_owned();
     let new_name = required_string(arguments, "new_name")?.to_owned();
     let name_path = arguments.get("name_path").and_then(|value| value.as_str());
-    let position_source = match (
-        arguments.get("line").and_then(|value| value.as_u64()),
-        arguments.get("column").and_then(|value| value.as_u64()),
-    ) {
-        (Some(_), Some(_)) => "explicit",
-        _ => "symbol_index",
-    };
-    let (line, column) = rename_position(state, arguments, &file_path, &symbol_name, name_path)?;
+    let position_source = position_source(arguments);
+    let (line, column) = symbol_position(state, arguments, &file_path, &symbol_name, name_path)?;
     let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path))
@@ -107,7 +104,116 @@ pub(crate) fn rename_symbol_with_lsp_backend(
         })
 }
 
-fn rename_position(
+pub(crate) fn safe_delete_with_lsp_backend(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> ToolResult {
+    let file_path = required_string(arguments, "file_path")?.to_owned();
+    let symbol_name = required_string(arguments, "symbol_name")?.to_owned();
+    let name_path = arguments.get("name_path").and_then(|value| value.as_str());
+    let position_source = position_source(arguments);
+    let (line, column) = symbol_position(state, arguments, &file_path, &symbol_name, name_path)?;
+    let command = optional_string(arguments, "command")
+        .map(ToOwned::to_owned)
+        .or_else(|| default_lsp_command_for_path(&file_path))
+        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
+    let args = parse_lsp_args(arguments, &command);
+    let dry_run = arguments
+        .get("dry_run")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    let max_results = arguments
+        .get("max_results")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(200) as usize;
+
+    let command_ref = command.clone();
+    let references = state
+        .lsp_pool()
+        .find_referencing_symbols(&LspRequest {
+            command,
+            args,
+            file_path: file_path.clone(),
+            line,
+            column,
+            max_results,
+        })
+        .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?;
+
+    let mut declaration_references = 0usize;
+    let mut affected_references = Vec::new();
+    for reference in references {
+        if reference.file_path == file_path && reference.line == line && reference.column == column
+        {
+            declaration_references += 1;
+            continue;
+        }
+        affected_references.push(json!({
+            "file": reference.file_path,
+            "line": reference.line,
+            "column": reference.column,
+            "end_line": reference.end_line,
+            "end_column": reference.end_column,
+            "kind": "reference"
+        }));
+    }
+
+    let total_references = affected_references.len();
+    let safe_to_delete = total_references == 0;
+    let message = if safe_to_delete {
+        format!(
+            "LSP found no non-declaration references for `{symbol_name}` in `{file_path}`. Deletion can proceed through the mutation gate."
+        )
+    } else {
+        format!(
+            "LSP found {total_references} non-declaration reference(s) for `{symbol_name}` in `{file_path}`. Do not delete until callers are handled."
+        )
+    };
+
+    Ok((
+        json!({
+            "success": true,
+            "backend": "semantic_edit_backend",
+            "semantic_edit_backend": "lsp",
+            "edit_authority": {
+                "kind": "authoritative_lsp",
+                "operation": "safe_delete_check",
+                "embedding_used": false,
+                "search_used": false,
+                "position_source": position_source,
+                "validator": "lsp_textDocument_references",
+            },
+            "symbol_name": symbol_name,
+            "file_path": file_path,
+            "position": {"line": line, "column": column},
+            "safe_to_delete": safe_to_delete,
+            "total_references": total_references,
+            "declaration_references": declaration_references,
+            "affected_references": affected_references,
+            "dry_run": dry_run,
+            "message": message,
+            "safe_delete_action": "check_only",
+            "suggested_next_tools": if safe_to_delete {
+                json!(["delete_lines", "get_file_diagnostics"])
+            } else {
+                json!(["find_referencing_symbols", "get_callers", "plan_safe_refactor"])
+            }
+        }),
+        success_meta(BackendKind::Lsp, 0.94),
+    ))
+}
+
+fn position_source(arguments: &serde_json::Value) -> &'static str {
+    match (
+        arguments.get("line").and_then(|value| value.as_u64()),
+        arguments.get("column").and_then(|value| value.as_u64()),
+    ) {
+        (Some(_), Some(_)) => "explicit",
+        _ => "symbol_index",
+    }
+}
+
+fn symbol_position(
     state: &AppState,
     arguments: &serde_json::Value,
     file_path: &str,

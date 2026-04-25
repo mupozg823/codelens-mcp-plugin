@@ -457,6 +457,39 @@ pub(super) fn rename_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn safe_delete_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "semantic_edit_backend": {"type": "string"},
+            "edit_authority": {"type": "object"},
+            "symbol_name": {"type": "string"},
+            "file_path": {"type": "string"},
+            "position": {"type": "object"},
+            "safe_to_delete": {"type": "boolean"},
+            "total_references": {"type": "integer"},
+            "declaration_references": {"type": "integer"},
+            "affected_references": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "column": {"type": "integer"},
+                        "end_line": {"type": "integer"},
+                        "end_column": {"type": "integer"},
+                        "kind": {"type": "string"}
+                    }
+                }
+            },
+            "dry_run": {"type": "boolean"},
+            "safe_delete_action": {"type": "string"}
+        }
+    })
+}
+
 pub(super) fn file_content_output_schema() -> serde_json::Value {
     json!({"type":"object","properties":{"content":{"type":"string"}}})
 }

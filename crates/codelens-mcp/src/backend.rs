@@ -310,11 +310,11 @@ fn semantic_edit_operation_matrix() -> Value {
         },
         "lsp": {
             "authoritative": true,
-            "supported_operations": ["rename"],
+            "supported_operations": ["rename", "safe_delete_check"],
             "unsupported_operations": [
                 "change_signature",
                 "move_symbol",
-                "safe_delete",
+                "safe_delete_apply",
                 "extract_method",
                 "inline_symbol"
             ],
@@ -449,7 +449,7 @@ mod tests {
         assert_eq!(matrix["lsp"]["authoritative"], serde_json::json!(true));
         assert_eq!(
             matrix["lsp"]["supported_operations"],
-            serde_json::json!(["rename"])
+            serde_json::json!(["rename", "safe_delete_check"])
         );
         assert!(
             matrix["lsp"]["unsupported_operations"]

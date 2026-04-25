@@ -12,7 +12,7 @@
   },
   "tool_registry": {
     "definition_count": 113,
-    "output_schema_count": 79,
+    "output_schema_count": 80,
     "namespaces": {
       "filesystem": 6,
       "graph": 14,
@@ -479,8 +479,8 @@
         "tier": "workflow",
         "phase": "build",
         "preferred_executor": "codex-builder",
-        "has_output_schema": false,
-        "estimated_tokens": 166
+        "has_output_schema": true,
+        "estimated_tokens": 542
       },
       {
         "name": "explore_codebase",
@@ -3255,7 +3255,7 @@
     "workspace_member_count": 3,
     "registered_tool_definitions": 113,
     "tool_output_schemas": {
-      "declared": 79,
+      "declared": 80,
       "total": 113
     },
     "harness_mode_count": 4,

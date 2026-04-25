@@ -317,6 +317,12 @@ pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value
 /// `propagate_deletions` tool, using CodeLens's existing impact
 /// analysis + reference graph instead of an external IDE.
 pub fn propagate_deletions(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    if crate::tools::semantic_edit::selected_backend(arguments)?
+        == crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp
+    {
+        return crate::tools::semantic_edit::safe_delete_with_lsp_backend(state, arguments);
+    }
+
     let file_path = required_string(arguments, "file_path")?;
     let symbol_name = required_string(arguments, "symbol_name")?;
     let dry_run = arguments
