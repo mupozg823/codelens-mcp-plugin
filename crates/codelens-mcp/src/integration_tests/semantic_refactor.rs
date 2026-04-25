@@ -552,6 +552,216 @@ fn lsp_rename_evidence_is_fact_based_not_placeholder() {
     assert!(updated.contains("renamed_fn()"), "{updated}");
 }
 
+// ── T9: safe_delete substrate migration tests ──────────────────────────────
+
+/// Returns a minimal LSP mock script (as a String) that reports only the
+/// declaration reference at (line=0, char=4..9) so `safe_to_delete == true`.
+fn safe_delete_lsp_mock_src() -> String {
+    concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'referencesProvider':True}}})\n",
+        "    elif m == 'textDocument/references':\n",
+        "        uri = msg['params']['textDocument']['uri']\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':[{'uri':uri,'range':{'start':{'line':0,'character':4},'end':{'line':0,'character':9}}}]})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    )
+    .to_owned()
+}
+
+fn write_safe_delete_mock(
+    project: &codelens_engine::ProjectRoot,
+    suffix: &str,
+) -> std::path::PathBuf {
+    let mock_path = project.as_path().join(format!("mock_lsp_sd_{suffix}.py"));
+    fs::write(&mock_path, safe_delete_lsp_mock_src()).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    mock_path
+}
+
+#[test]
+fn safe_delete_substrate_dry_run_advertises_preview_only() {
+    let project = project_root();
+    let path = project.as_path().join("sd_dry.py");
+    fs::write(&path, "def alpha():\n    pass\n").unwrap();
+    let mock = write_safe_delete_mock(&project, "dry");
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "propagate_deletions",
+        json!({
+            "file_path": "sd_dry.py",
+            "symbol_name": "alpha",
+            "semantic_edit_backend": "lsp",
+            "line": 1,
+            "column": 5,
+            "command": "python3",
+            "args": [mock.to_string_lossy()],
+            "dry_run": true
+        }),
+    );
+    let scope = payload.get("data").unwrap_or(&payload);
+    let tx = &scope["transaction"]["contract"];
+    assert_eq!(tx["apply_status"], json!("preview_only"), "{payload}");
+}
+
+#[test]
+fn safe_delete_substrate_real_apply_returns_evidence() {
+    let project = project_root();
+    let path = project.as_path().join("sd_apply.py");
+    fs::write(&path, "def alpha():\n    pass\n").unwrap();
+    let mock = write_safe_delete_mock(&project, "apply");
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "propagate_deletions",
+        json!({
+            "file_path": "sd_apply.py",
+            "symbol_name": "alpha",
+            "semantic_edit_backend": "lsp",
+            "line": 1,
+            "column": 5,
+            "command": "python3",
+            "args": [mock.to_string_lossy()],
+            "dry_run": false
+        }),
+    );
+    let scope = payload.get("data").unwrap_or(&payload);
+    let tx = &scope["transaction"]["contract"];
+    assert_eq!(tx["apply_status"], json!("applied"), "{payload}");
+    assert_eq!(tx["rollback_plan"]["available"], json!(true), "{payload}");
+    let hashes_after = tx["file_hashes_after"]
+        .as_object()
+        .expect("file_hashes_after must be an object");
+    assert!(
+        !hashes_after.is_empty(),
+        "file_hashes_after must be populated"
+    );
+    let report = tx["rollback_report"]
+        .as_array()
+        .expect("rollback_report must be an array");
+    assert!(
+        report.is_empty(),
+        "rollback_report should be empty on success"
+    );
+    let after = fs::read_to_string(&path).unwrap();
+    assert!(
+        !after.contains("def alpha"),
+        "alpha should be deleted: {after:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn safe_delete_substrate_rollback_when_write_blocked() {
+    use std::os::unix::fs::PermissionsExt;
+    let project = project_root();
+    let path = project.as_path().join("sd_rollback.py");
+    fs::write(&path, "def alpha():\n    pass\n").unwrap();
+    let mock = write_safe_delete_mock(&project, "rollback");
+    let state = make_state(&project);
+
+    let mut perms = fs::metadata(&path).unwrap().permissions();
+    perms.set_mode(0o444);
+    fs::set_permissions(&path, perms).unwrap();
+
+    let payload = call_tool(
+        &state,
+        "propagate_deletions",
+        json!({
+            "file_path": "sd_rollback.py",
+            "symbol_name": "alpha",
+            "semantic_edit_backend": "lsp",
+            "line": 1,
+            "column": 5,
+            "command": "python3",
+            "args": [mock.to_string_lossy()],
+            "dry_run": false
+        }),
+    );
+
+    // Restore permissions immediately so temp dir cleanup works.
+    let mut restore = fs::metadata(&path).unwrap().permissions();
+    restore.set_mode(0o644);
+    let _ = fs::set_permissions(&path, restore);
+
+    let scope = payload.get("data").unwrap_or(&payload);
+    let tx = &scope["transaction"]["contract"];
+    assert_eq!(tx["apply_status"], json!("rolled_back"), "{payload}");
+    let report = tx["rollback_report"]
+        .as_array()
+        .expect("rollback_report must be an array");
+    assert!(
+        !report.is_empty(),
+        "rollback_report should be populated on rollback: {payload}"
+    );
+}
+
+#[test]
+fn safe_delete_substrate_dry_run_preserves_outer_fields() {
+    let project = project_root();
+    let path = project.as_path().join("sd_dry2.py");
+    fs::write(&path, "def alpha():\n    pass\n").unwrap();
+    let mock = write_safe_delete_mock(&project, "dry2");
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "propagate_deletions",
+        json!({
+            "file_path": "sd_dry2.py",
+            "symbol_name": "alpha",
+            "semantic_edit_backend": "lsp",
+            "line": 1,
+            "column": 5,
+            "command": "python3",
+            "args": [mock.to_string_lossy()],
+            "dry_run": true
+        }),
+    );
+    let scope = payload.get("data").unwrap_or(&payload);
+    assert!(
+        scope.get("safe_to_delete").is_some(),
+        "safe_to_delete must be present: {payload}"
+    );
+    assert!(
+        scope.get("affected_references").is_some(),
+        "affected_references must be present: {payload}"
+    );
+}
+
 fn write_code_action_mock(
     project: &codelens_engine::ProjectRoot,
     kind: &str,
