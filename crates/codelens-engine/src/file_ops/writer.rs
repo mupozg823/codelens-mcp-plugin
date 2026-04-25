@@ -1,5 +1,6 @@
+use crate::edit_transaction::{apply_full_write_with_evidence, ApplyEvidence};
 use crate::project::ProjectRoot;
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use regex::Regex;
 use std::fs;
 
@@ -8,7 +9,7 @@ pub fn create_text_file(
     relative_path: &str,
     content: &str,
     overwrite: bool,
-) -> Result<()> {
+) -> Result<ApplyEvidence> {
     let resolved = project.resolve(relative_path)?;
     if !overwrite && resolved.exists() {
         bail!("file already exists: {}", resolved.display());
@@ -17,7 +18,20 @@ pub fn create_text_file(
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create directories for {}", resolved.display()))?;
     }
-    fs::write(&resolved, content).with_context(|| format!("failed to write {}", resolved.display()))
+    let evidence = match apply_full_write_with_evidence(project, relative_path, content) {
+        Ok(ev) => ev,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed {
+            source: _,
+            evidence,
+        }) => {
+            // Hybrid: status=RolledBack signals fail-closed; mcp tool handler
+            // translates this to Ok response with apply_status="rolled_back" +
+            // error_message synthesised from rollback_report[].reason.
+            evidence
+        }
+        Err(other) => return Err(anyhow::Error::msg(other.to_string())),
+    };
+    Ok(evidence)
 }
 
 pub fn delete_lines(
@@ -25,7 +39,7 @@ pub fn delete_lines(
     relative_path: &str,
     start_line: usize,
     end_line: usize,
-) -> Result<String> {
+) -> Result<(String, ApplyEvidence)> {
     let resolved = project.resolve(relative_path)?;
     let content = fs::read_to_string(&resolved)
         .with_context(|| format!("failed to read {}", resolved.display()))?;
@@ -52,9 +66,20 @@ pub fn delete_lines(
     } else {
         result
     };
-    fs::write(&resolved, &result)
-        .with_context(|| format!("failed to write {}", resolved.display()))?;
-    Ok(result)
+    let evidence = match apply_full_write_with_evidence(project, relative_path, &result) {
+        Ok(ev) => ev,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed {
+            source: _,
+            evidence,
+        }) => {
+            // Hybrid: status=RolledBack signals fail-closed; mcp tool handler
+            // translates this to Ok response with apply_status="rolled_back" +
+            // error_message synthesised from rollback_report[].reason.
+            evidence
+        }
+        Err(other) => return Err(anyhow::Error::msg(other.to_string())),
+    };
+    Ok((result, evidence))
 }
 
 pub fn insert_at_line(
@@ -62,7 +87,7 @@ pub fn insert_at_line(
     relative_path: &str,
     line: usize,
     content_to_insert: &str,
-) -> Result<String> {
+) -> Result<(String, ApplyEvidence)> {
     let resolved = project.resolve(relative_path)?;
     let content = fs::read_to_string(&resolved)
         .with_context(|| format!("failed to read {}", resolved.display()))?;
@@ -82,9 +107,20 @@ pub fn insert_at_line(
     } else {
         result
     };
-    fs::write(&resolved, &result)
-        .with_context(|| format!("failed to write {}", resolved.display()))?;
-    Ok(result)
+    let evidence = match apply_full_write_with_evidence(project, relative_path, &result) {
+        Ok(ev) => ev,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed {
+            source: _,
+            evidence,
+        }) => {
+            // Hybrid: status=RolledBack signals fail-closed; mcp tool handler
+            // translates this to Ok response with apply_status="rolled_back" +
+            // error_message synthesised from rollback_report[].reason.
+            evidence
+        }
+        Err(other) => return Err(anyhow::Error::msg(other.to_string())),
+    };
+    Ok((result, evidence))
 }
 
 pub fn replace_lines(
@@ -93,7 +129,7 @@ pub fn replace_lines(
     start_line: usize,
     end_line: usize,
     new_content: &str,
-) -> Result<String> {
+) -> Result<(String, ApplyEvidence)> {
     let resolved = project.resolve(relative_path)?;
     let content = fs::read_to_string(&resolved)
         .with_context(|| format!("failed to read {}", resolved.display()))?;
@@ -122,9 +158,20 @@ pub fn replace_lines(
     } else {
         result
     };
-    fs::write(&resolved, &result)
-        .with_context(|| format!("failed to write {}", resolved.display()))?;
-    Ok(result)
+    let evidence = match apply_full_write_with_evidence(project, relative_path, &result) {
+        Ok(ev) => ev,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed {
+            source: _,
+            evidence,
+        }) => {
+            // Hybrid: status=RolledBack signals fail-closed; mcp tool handler
+            // translates this to Ok response with apply_status="rolled_back" +
+            // error_message synthesised from rollback_report[].reason.
+            evidence
+        }
+        Err(other) => return Err(anyhow::Error::msg(other.to_string())),
+    };
+    Ok((result, evidence))
 }
 
 pub fn replace_content(
@@ -133,7 +180,7 @@ pub fn replace_content(
     old_text: &str,
     new_text: &str,
     regex_mode: bool,
-) -> Result<(String, usize)> {
+) -> Result<(String, usize, ApplyEvidence)> {
     let resolved = project.resolve(relative_path)?;
     let content = fs::read_to_string(&resolved)
         .with_context(|| format!("failed to read {}", resolved.display()))?;
@@ -152,9 +199,20 @@ pub fn replace_content(
         let replaced = content.replace(old_text, new_text);
         (replaced, count)
     };
-    fs::write(&resolved, &result)
-        .with_context(|| format!("failed to write {}", resolved.display()))?;
-    Ok((result, count))
+    let evidence = match apply_full_write_with_evidence(project, relative_path, &result) {
+        Ok(ev) => ev,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed {
+            source: _,
+            evidence,
+        }) => {
+            // Hybrid: status=RolledBack signals fail-closed; mcp tool handler
+            // translates this to Ok response with apply_status="rolled_back" +
+            // error_message synthesised from rollback_report[].reason.
+            evidence
+        }
+        Err(other) => return Err(anyhow::Error::msg(other.to_string())),
+    };
+    Ok((result, count, evidence))
 }
 
 pub fn replace_symbol_body(
@@ -163,22 +221,33 @@ pub fn replace_symbol_body(
     symbol_name: &str,
     name_path: Option<&str>,
     new_body: &str,
-) -> Result<String> {
+) -> Result<(String, ApplyEvidence)> {
     let (start_byte, end_byte) =
         crate::symbols::find_symbol_range(project, relative_path, symbol_name, name_path)?;
     let resolved = project.resolve(relative_path)?;
     let content = fs::read_to_string(&resolved)
         .with_context(|| format!("failed to read {}", resolved.display()))?;
     let bytes = content.as_bytes();
-    let mut result = Vec::with_capacity(bytes.len());
-    result.extend_from_slice(&bytes[..start_byte]);
-    result.extend_from_slice(new_body.as_bytes());
-    result.extend_from_slice(&bytes[end_byte..]);
+    let mut buffer = Vec::with_capacity(bytes.len());
+    buffer.extend_from_slice(&bytes[..start_byte]);
+    buffer.extend_from_slice(new_body.as_bytes());
+    buffer.extend_from_slice(&bytes[end_byte..]);
     let result =
-        String::from_utf8(result).with_context(|| "result is not valid UTF-8 after replacement")?;
-    fs::write(&resolved, &result)
-        .with_context(|| format!("failed to write {}", resolved.display()))?;
-    Ok(result)
+        String::from_utf8(buffer).with_context(|| "result is not valid UTF-8 after replacement")?;
+    let evidence = match apply_full_write_with_evidence(project, relative_path, &result) {
+        Ok(ev) => ev,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed {
+            source: _,
+            evidence,
+        }) => {
+            // Hybrid: status=RolledBack signals fail-closed; mcp tool handler
+            // translates this to Ok response with apply_status="rolled_back" +
+            // error_message synthesised from rollback_report[].reason.
+            evidence
+        }
+        Err(other) => return Err(anyhow::Error::msg(other.to_string())),
+    };
+    Ok((result, evidence))
 }
 
 pub fn insert_before_symbol(
@@ -187,22 +256,33 @@ pub fn insert_before_symbol(
     symbol_name: &str,
     name_path: Option<&str>,
     content_to_insert: &str,
-) -> Result<String> {
+) -> Result<(String, ApplyEvidence)> {
     let (start_byte, _) =
         crate::symbols::find_symbol_range(project, relative_path, symbol_name, name_path)?;
     let resolved = project.resolve(relative_path)?;
     let content = fs::read_to_string(&resolved)
         .with_context(|| format!("failed to read {}", resolved.display()))?;
     let bytes = content.as_bytes();
-    let mut result = Vec::with_capacity(bytes.len() + content_to_insert.len());
-    result.extend_from_slice(&bytes[..start_byte]);
-    result.extend_from_slice(content_to_insert.as_bytes());
-    result.extend_from_slice(&bytes[start_byte..]);
+    let mut buffer = Vec::with_capacity(bytes.len() + content_to_insert.len());
+    buffer.extend_from_slice(&bytes[..start_byte]);
+    buffer.extend_from_slice(content_to_insert.as_bytes());
+    buffer.extend_from_slice(&bytes[start_byte..]);
     let result =
-        String::from_utf8(result).with_context(|| "result is not valid UTF-8 after insertion")?;
-    fs::write(&resolved, &result)
-        .with_context(|| format!("failed to write {}", resolved.display()))?;
-    Ok(result)
+        String::from_utf8(buffer).with_context(|| "result is not valid UTF-8 after insertion")?;
+    let evidence = match apply_full_write_with_evidence(project, relative_path, &result) {
+        Ok(ev) => ev,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed {
+            source: _,
+            evidence,
+        }) => {
+            // Hybrid: status=RolledBack signals fail-closed; mcp tool handler
+            // translates this to Ok response with apply_status="rolled_back" +
+            // error_message synthesised from rollback_report[].reason.
+            evidence
+        }
+        Err(other) => return Err(anyhow::Error::msg(other.to_string())),
+    };
+    Ok((result, evidence))
 }
 
 pub fn insert_after_symbol(
@@ -211,20 +291,85 @@ pub fn insert_after_symbol(
     symbol_name: &str,
     name_path: Option<&str>,
     content_to_insert: &str,
-) -> Result<String> {
+) -> Result<(String, ApplyEvidence)> {
     let (_, end_byte) =
         crate::symbols::find_symbol_range(project, relative_path, symbol_name, name_path)?;
     let resolved = project.resolve(relative_path)?;
     let content = fs::read_to_string(&resolved)
         .with_context(|| format!("failed to read {}", resolved.display()))?;
     let bytes = content.as_bytes();
-    let mut result = Vec::with_capacity(bytes.len() + content_to_insert.len());
-    result.extend_from_slice(&bytes[..end_byte]);
-    result.extend_from_slice(content_to_insert.as_bytes());
-    result.extend_from_slice(&bytes[end_byte..]);
+    let mut buffer = Vec::with_capacity(bytes.len() + content_to_insert.len());
+    buffer.extend_from_slice(&bytes[..end_byte]);
+    buffer.extend_from_slice(content_to_insert.as_bytes());
+    buffer.extend_from_slice(&bytes[end_byte..]);
     let result =
-        String::from_utf8(result).with_context(|| "result is not valid UTF-8 after insertion")?;
-    fs::write(&resolved, &result)
-        .with_context(|| format!("failed to write {}", resolved.display()))?;
-    Ok(result)
+        String::from_utf8(buffer).with_context(|| "result is not valid UTF-8 after insertion")?;
+    let evidence = match apply_full_write_with_evidence(project, relative_path, &result) {
+        Ok(ev) => ev,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed {
+            source: _,
+            evidence,
+        }) => {
+            // Hybrid: status=RolledBack signals fail-closed; mcp tool handler
+            // translates this to Ok response with apply_status="rolled_back" +
+            // error_message synthesised from rollback_report[].reason.
+            evidence
+        }
+        Err(other) => return Err(anyhow::Error::msg(other.to_string())),
+    };
+    Ok((result, evidence))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::edit_transaction::ApplyStatus;
+    use crate::project::ProjectRoot;
+
+    fn make_project(dir: &std::path::Path) -> ProjectRoot {
+        ProjectRoot::new(dir.to_str().unwrap()).unwrap()
+    }
+
+    fn temp_dir_with_name(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-writer-{}-{}-{}",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn replace_lines_evidence_post_apply_hash_matches_disk() {
+        use sha2::{Digest, Sha256};
+
+        let dir = temp_dir_with_name("evidence");
+        let project = make_project(&dir);
+        std::fs::write(dir.join("doc.txt"), "line1\nline2\nline3\n").unwrap();
+
+        let (content, evidence) = replace_lines(&project, "doc.txt", 2, 3, "REPLACED\n").unwrap();
+        assert!(content.contains("REPLACED"));
+        assert_eq!(evidence.status, ApplyStatus::Applied);
+        assert_eq!(evidence.modified_files, 1);
+        assert_eq!(evidence.edit_count, 1);
+
+        let on_disk = std::fs::read(dir.join("doc.txt")).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(&on_disk);
+        let mut hex = String::with_capacity(64);
+        for byte in hasher.finalize() {
+            use std::fmt::Write as _;
+            let _ = write!(hex, "{byte:02x}");
+        }
+        let evidence_hash = &evidence.file_hashes_after["doc.txt"].sha256;
+        assert_eq!(
+            evidence_hash, &hex,
+            "evidence post-apply hash must match disk content"
+        );
+    }
 }
