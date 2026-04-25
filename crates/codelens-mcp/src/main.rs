@@ -232,6 +232,13 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if args.iter().any(|arg| arg == "--print-operation-matrix") {
+        let matrix =
+            crate::backend_operation_matrix::semantic_edit_operation_matrix();
+        println!("{}", serde_json::to_string_pretty(&matrix)?);
+        return Ok(());
+    }
+
     // Project root resolution priority:
     // 1. Explicit path argument (if not ".")
     // 2. CLAUDE_PROJECT_DIR environment variable (set by Claude Code)
