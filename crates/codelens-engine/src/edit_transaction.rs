@@ -10,7 +10,7 @@
 //! same-function two-read window; disk-snapshot/lock guarantees are
 //! deferred to Phase 2.
 
-#![allow(dead_code, unused_imports)]
+#![allow(dead_code)]
 
 use crate::lsp::types::LspResourceOp;
 use crate::project::ProjectRoot;
@@ -123,8 +123,21 @@ impl WorkspaceEditTransaction {
     /// Apply edits with hash-based evidence and rollback on failure.
     /// Implementation lands incrementally in T2~T6.
     pub fn apply_with_evidence(&self, project: &ProjectRoot) -> Result<ApplyEvidence, ApplyError> {
+        if !self.resource_ops.is_empty() {
+            return Err(ApplyError::ResourceOpsUnsupported);
+        }
+        if self.edits.is_empty() {
+            return Ok(ApplyEvidence {
+                status: ApplyStatus::NoOp,
+                file_hashes_before: BTreeMap::new(),
+                file_hashes_after: BTreeMap::new(),
+                rollback_report: Vec::new(),
+                modified_files: 0,
+                edit_count: 0,
+            });
+        }
         let _ = project;
-        unimplemented!("apply_with_evidence implemented in T2~T6")
+        unimplemented!("apply path implemented in T3~T6")
     }
 }
 
@@ -136,4 +149,51 @@ fn sha256_hex(bytes: &[u8]) -> String {
         let _ = write!(output, "{byte:02x}");
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_project() -> ProjectRoot {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-edit-tx-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        ProjectRoot::new(dir.to_str().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn noop_returns_evidence_with_status_noop() {
+        let project = empty_project();
+        let tx = WorkspaceEditTransaction::new(vec![], vec![]);
+        let evidence = tx.apply_with_evidence(&project).expect("noop apply ok");
+        assert_eq!(evidence.status, ApplyStatus::NoOp);
+        assert!(evidence.file_hashes_before.is_empty());
+        assert!(evidence.file_hashes_after.is_empty());
+        assert!(evidence.rollback_report.is_empty());
+        assert_eq!(evidence.modified_files, 0);
+        assert_eq!(evidence.edit_count, 0);
+    }
+
+    #[test]
+    fn resource_ops_non_empty_returns_unsupported() {
+        let project = empty_project();
+        let tx = WorkspaceEditTransaction::new(
+            vec![],
+            vec![LspResourceOp {
+                kind: "create".to_owned(),
+                file_path: "new.txt".to_owned(),
+                old_file_path: None,
+                new_file_path: None,
+            }],
+        );
+        let result = tx.apply_with_evidence(&project);
+        assert!(matches!(result, Err(ApplyError::ResourceOpsUnsupported)));
+    }
 }
