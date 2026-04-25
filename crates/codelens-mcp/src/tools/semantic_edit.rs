@@ -2,13 +2,13 @@ use super::semantic_edit_args::{
     code_action_kinds, code_action_range, language_for_file, position_source, symbol_position,
 };
 use super::{
-    AppState, ToolResult, default_lsp_command_for_path, optional_string, parse_lsp_args,
-    required_string, success_meta,
+    default_lsp_command_for_path, optional_string, parse_lsp_args, required_string, success_meta,
+    AppState, ToolResult,
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::lsp::{LspCodeActionRequest, LspRenameRequest, LspRequest};
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
@@ -113,6 +113,26 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
         .map(|edit| edit.file_path.clone())
         .collect::<Vec<_>>();
     let backend_id = format!("lsp:{command_ref}");
+    let apply_evidence: Option<codelens_engine::ApplyEvidence> = if !dry_run {
+        Some(
+            codelens_engine::lsp::apply_workspace_edit_transaction(
+                &state.project(),
+                &plan.transaction,
+            )
+            .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?,
+        )
+    } else {
+        None
+    };
+    let rollback_available_derived = apply_evidence
+        .as_ref()
+        .map(|ev| {
+            matches!(
+                ev.status,
+                codelens_engine::ApplyStatus::Applied | codelens_engine::ApplyStatus::RolledBack
+            )
+        })
+        .unwrap_or(false);
     let transaction_contract = semantic_transaction_contract(SemanticTransactionContractInput {
         state,
         backend_id: &backend_id,
@@ -123,16 +143,13 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
         modified_files: plan.transaction.modified_files,
         edit_count: plan.transaction.edit_count,
         resource_ops: json!(plan.transaction.resource_ops),
-        rollback_available: plan.transaction.rollback_available,
+        rollback_available: rollback_available_derived,
         workspace_edit: transaction.clone(),
         apply_status: if dry_run { "preview_only" } else { "applied" },
         references_checked: false,
         conflicts: json!([]),
+        evidence: apply_evidence.as_ref(),
     });
-    if !dry_run {
-        codelens_engine::lsp::apply_workspace_edit_transaction(&state.project(), &plan.transaction)
-            .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?;
-    }
     let message = format!(
         "{} {} LSP codeAction edit(s) in {} file(s)",
         if dry_run { "Would apply" } else { "Applied" },
@@ -179,7 +196,7 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
                 "modified_files": plan.transaction.modified_files,
                 "edit_count": plan.transaction.edit_count,
                 "resource_ops": plan.transaction.resource_ops,
-                "rollback_available": plan.transaction.rollback_available,
+                "rollback_available": rollback_available_derived,
                 "contract": transaction_contract
             },
             "workspace_edit": transaction,
@@ -244,6 +261,23 @@ pub(crate) fn rename_symbol_with_lsp_backend(
     let transaction_value =
         serde_json::to_value(&transaction).unwrap_or_else(|_| json!({"serialization_error": true}));
     let backend_id = format!("lsp:{command_ref}");
+    let apply_evidence: Option<codelens_engine::ApplyEvidence> = if !dry_run {
+        Some(
+            codelens_engine::lsp::apply_workspace_edit_transaction(&state.project(), &transaction)
+                .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?,
+        )
+    } else {
+        None
+    };
+    let rollback_available_derived = apply_evidence
+        .as_ref()
+        .map(|ev| {
+            matches!(
+                ev.status,
+                codelens_engine::ApplyStatus::Applied | codelens_engine::ApplyStatus::RolledBack
+            )
+        })
+        .unwrap_or(false);
     let transaction_contract = semantic_transaction_contract(SemanticTransactionContractInput {
         state,
         backend_id: &backend_id,
@@ -254,16 +288,13 @@ pub(crate) fn rename_symbol_with_lsp_backend(
         modified_files,
         edit_count: total_replacements,
         resource_ops: json!(transaction.resource_ops),
-        rollback_available: transaction.rollback_available,
+        rollback_available: rollback_available_derived,
         workspace_edit: transaction_value,
         apply_status: if dry_run { "preview_only" } else { "applied" },
         references_checked: false,
         conflicts: json!([]),
+        evidence: apply_evidence.as_ref(),
     });
-    if !dry_run {
-        codelens_engine::lsp::apply_workspace_edit_transaction(&state.project(), &transaction)
-            .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?;
-    }
     let message = format!(
         "{} {} LSP replacement(s) in {} file(s)",
         if dry_run { "Would make" } else { "Made" },
@@ -307,7 +338,7 @@ pub(crate) fn rename_symbol_with_lsp_backend(
                 "modified_files": modified_files,
                 "edit_count": total_replacements,
                 "resource_ops": transaction.resource_ops,
-                "rollback_available": transaction.rollback_available,
+                "rollback_available": rollback_available_derived,
                 "contract": transaction_contract
             },
             "verification": {
@@ -380,6 +411,10 @@ pub(crate) fn safe_delete_with_lsp_backend(
     let mut safe_delete_action = "check_only";
     let mut modified_files = 0usize;
     let mut edit_count = 0usize;
+    let mut apply_evidence: Option<codelens_engine::ApplyEvidence> = None;
+    let mut apply_status_for_contract: &str = if dry_run { "preview_only" } else { "applied" };
+    let mut apply_failure_message: Option<String> = None;
+
     if !dry_run {
         if !safe_to_delete {
             return Err(CodeLensError::Validation(format!(
@@ -398,7 +433,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
             ))
         })?;
         let resolved = state.project().resolve(&file_path)?;
-        let mut source = std::fs::read_to_string(&resolved)?;
+        let source = std::fs::read_to_string(&resolved)?;
         if start_byte >= end_byte
             || end_byte > source.len()
             || !source.is_char_boundary(start_byte)
@@ -412,12 +447,55 @@ pub(crate) fn safe_delete_with_lsp_backend(
         if source.as_bytes().get(delete_end) == Some(&b'\n') {
             delete_end += 1;
         }
-        source.replace_range(start_byte..delete_end, "");
-        std::fs::write(&resolved, source)?;
-        safe_delete_action = "applied";
-        modified_files = 1;
-        edit_count = 1;
+        let delete_text = source[start_byte..delete_end].to_owned();
+
+        // Compute 1-based (line, column) from byte offset for RenameEdit.
+        let line_for_edit = source[..start_byte].matches('\n').count() + 1;
+        let last_newline = source[..start_byte].rfind('\n').map(|p| p + 1).unwrap_or(0);
+        let column_for_edit = start_byte - last_newline + 1;
+
+        let edits = vec![codelens_engine::RenameEdit {
+            file_path: file_path.clone(),
+            line: line_for_edit,
+            column: column_for_edit,
+            old_text: delete_text,
+            new_text: String::new(),
+        }];
+        let tx = codelens_engine::WorkspaceEditTransaction::new(edits, Vec::new());
+        match tx.apply_with_evidence(&state.project()) {
+            Ok(evidence) => {
+                modified_files = evidence.modified_files;
+                edit_count = evidence.edit_count;
+                safe_delete_action = "applied";
+                apply_status_for_contract = "applied";
+                apply_evidence = Some(evidence);
+            }
+            Err(codelens_engine::ApplyError::ApplyFailed { source, evidence }) => {
+                modified_files = 0;
+                edit_count = 0;
+                safe_delete_action = "rolled_back";
+                apply_status_for_contract = "rolled_back";
+                apply_failure_message = Some(source.to_string());
+                apply_evidence = Some(evidence);
+            }
+            Err(other) => {
+                return Err(CodeLensError::Validation(format!(
+                    "safe_delete_apply: substrate refused: {other}"
+                )));
+            }
+        }
     }
+
+    let rollback_available = apply_evidence
+        .as_ref()
+        .map(|ev| {
+            matches!(
+                ev.status,
+                codelens_engine::ApplyStatus::Applied | codelens_engine::ApplyStatus::RolledBack
+            )
+        })
+        .unwrap_or(false);
+
     let message = if safe_to_delete {
         format!(
             "LSP found no non-declaration references for `{symbol_name}` in `{file_path}`. Deletion can proceed through the mutation gate."
@@ -441,15 +519,16 @@ pub(crate) fn safe_delete_with_lsp_backend(
                     modified_files,
                     edit_count,
                     resource_ops: json!([]),
-                    rollback_available: false,
+                    rollback_available,
                     workspace_edit: json!({"edits": []}),
-                    apply_status: if dry_run { "preview_only" } else { "applied" },
+                    apply_status: apply_status_for_contract,
                     references_checked: true,
                     conflicts: if safe_to_delete {
                         json!([])
                     } else {
                         serde_json::Value::Array(affected_references.clone())
                     },
+                    evidence: apply_evidence.as_ref(),
                 });
             json!({
                 "success": true,
@@ -458,7 +537,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
                 "authority": if dry_run {
                     "semantic_readonly"
                 } else {
-                    "syntax"
+                    "workspace_edit"
                 },
                 "authority_backend": format!("lsp:{command_ref}"),
                 "can_preview": true,
@@ -487,12 +566,13 @@ pub(crate) fn safe_delete_with_lsp_backend(
                 "dry_run": dry_run,
                 "message": message,
                 "safe_delete_action": safe_delete_action,
+                "error_message": apply_failure_message,
                 "transaction": {
                     "dry_run": dry_run,
                     "modified_files": modified_files,
                     "edit_count": edit_count,
                     "resource_ops": [],
-                    "rollback_available": false,
+                    "rollback_available": rollback_available,
                     "contract": transaction_contract
                 },
                 "verification": {
@@ -531,17 +611,70 @@ pub(crate) struct SemanticTransactionContractInput<'a> {
     pub(crate) apply_status: &'a str,
     pub(crate) references_checked: bool,
     pub(crate) conflicts: Value,
+    /// When `Some`, evidence is single source of truth for file_hashes_before/
+    /// file_hashes_after / rollback_report / apply_status / modified_files /
+    /// edit_count / rollback_available. When `None` (preview/dry_run), the
+    /// existing struct fields are used and file_hashes_after is empty.
+    pub(crate) evidence: Option<&'a codelens_engine::ApplyEvidence>,
 }
 
 pub(crate) fn semantic_transaction_contract(input: SemanticTransactionContractInput<'_>) -> Value {
-    let file_hashes_before = file_hashes_before(input.state, input.file_paths);
+    let (
+        file_hashes_before_value,
+        file_hashes_after_value,
+        rollback_report_value,
+        rollback_available,
+        modified_files,
+        edit_count,
+        apply_status_resolved,
+    ) = match input.evidence {
+        Some(ev) => {
+            let hashes_before = serde_json::to_value(&ev.file_hashes_before).unwrap_or(Value::Null);
+            let hashes_after = serde_json::to_value(&ev.file_hashes_after).unwrap_or(Value::Null);
+            let rollback =
+                serde_json::to_value(&ev.rollback_report).unwrap_or(Value::Array(Vec::new()));
+            let status_str = match ev.status {
+                codelens_engine::ApplyStatus::Applied => "applied",
+                codelens_engine::ApplyStatus::RolledBack => "rolled_back",
+                codelens_engine::ApplyStatus::NoOp => "no_op",
+            };
+            (
+                hashes_before,
+                hashes_after,
+                rollback,
+                matches!(
+                    ev.status,
+                    codelens_engine::ApplyStatus::Applied
+                        | codelens_engine::ApplyStatus::RolledBack
+                ),
+                ev.modified_files,
+                ev.edit_count,
+                status_str,
+            )
+        }
+        None => {
+            let hashes_before = file_hashes_before(input.state, input.file_paths);
+            (
+                hashes_before,
+                Value::Object(serde_json::Map::new()),
+                Value::Array(Vec::new()),
+                input.rollback_available,
+                input.modified_files,
+                input.edit_count,
+                input.apply_status,
+            )
+        }
+    };
+
+    let tx_id = transaction_id(
+        input.backend_id,
+        input.operation,
+        input.file_paths,
+        &file_hashes_before_value,
+    );
+
     json!({
-        "transaction_id": transaction_id(
-            input.backend_id,
-            input.operation,
-            input.file_paths,
-            &file_hashes_before
-        ),
+        "transaction_id": tx_id,
         "model": "transactional_best_effort_with_rollback_evidence",
         "workspace_id": input.state.project().as_path().display().to_string(),
         "backend_id": input.backend_id,
@@ -551,17 +684,19 @@ pub(crate) fn semantic_transaction_contract(input: SemanticTransactionContractIn
             "file_paths": unique_file_paths(input.file_paths),
             "dry_run": input.dry_run,
         },
-        "file_hashes_before": file_hashes_before,
+        "file_hashes_before": file_hashes_before_value,
+        "file_hashes_after": file_hashes_after_value,
+        "rollback_report": rollback_report_value,
         "workspace_edit": input.workspace_edit,
         "preview_diff": [],
-        "apply_status": input.apply_status,
-        "modified_files": input.modified_files,
-        "edit_count": input.edit_count,
+        "apply_status": apply_status_resolved,
+        "modified_files": modified_files,
+        "edit_count": edit_count,
         "resource_ops": input.resource_ops,
         "rollback_plan": {
-            "available": input.rollback_available,
-            "evidence": if input.rollback_available {
-                "pre-apply file snapshots are held during apply and restored on apply failure"
+            "available": rollback_available,
+            "evidence": if rollback_available {
+                "pre-apply file snapshots are held during apply; restored on apply failure"
             } else {
                 "rollback evidence is unavailable for this operation path"
             }

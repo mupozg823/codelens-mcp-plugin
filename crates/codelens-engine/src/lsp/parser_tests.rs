@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use super::parsers::{rename_edits_from_workspace_edit_response, rename_plan_from_response};
 use super::workspace_edit::workspace_edit_transaction_from_response;
 use crate::ProjectRoot;
