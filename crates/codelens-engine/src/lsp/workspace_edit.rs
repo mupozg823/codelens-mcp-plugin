@@ -3,12 +3,12 @@ use super::position::{byte_column_for_utf16_position, extract_text_for_range};
 use super::types::{LspResourceOp, LspWorkspaceEditTransaction};
 use crate::project::ProjectRoot;
 use crate::rename::RenameEdit;
-use anyhow::{Context, Result, bail};
-use serde_json::{Map, Value, json};
-use std::collections::HashMap;
+use anyhow::{bail, Context, Result};
+use serde_json::{json, Map, Value};
 use std::fs;
 use url::Url;
 
+#[allow(deprecated)]
 pub(super) fn workspace_edit_transaction_from_response(
     project: &ProjectRoot,
     response: Value,
@@ -67,26 +67,10 @@ pub(super) fn workspace_edit_transaction_from_edit(
 pub(super) fn apply_workspace_edit_transaction(
     project: &ProjectRoot,
     transaction: &LspWorkspaceEditTransaction,
-) -> Result<()> {
-    if !transaction.resource_ops.is_empty() {
-        bail!("LSP resource operations are preview-only in this release");
-    }
-    let mut backups = HashMap::new();
-    for edit in &transaction.edits {
-        let resolved = project.resolve(&edit.file_path)?;
-        backups
-            .entry(resolved.clone())
-            .or_insert_with(|| fs::read_to_string(&resolved));
-    }
-    if let Err(error) = crate::rename::apply_edits(project, &transaction.edits) {
-        for (path, backup) in backups {
-            if let Ok(content) = backup {
-                let _ = fs::write(path, content);
-            }
-        }
-        return Err(error);
-    }
-    Ok(())
+) -> Result<crate::edit_transaction::ApplyEvidence, crate::edit_transaction::ApplyError> {
+    let workspace_tx: crate::edit_transaction::WorkspaceEditTransaction =
+        transaction.clone().into();
+    workspace_tx.apply_with_evidence(project)
 }
 
 fn collect_changes(

@@ -170,7 +170,14 @@ pub struct LspWorkspaceEditTransaction {
     pub resource_ops: Vec<LspResourceOp>,
     pub modified_files: usize,
     pub edit_count: usize,
+    #[deprecated(note = "use ApplyEvidence::status from substrate apply_with_evidence instead")]
     pub rollback_available: bool,
+}
+
+impl From<LspWorkspaceEditTransaction> for crate::edit_transaction::WorkspaceEditTransaction {
+    fn from(value: LspWorkspaceEditTransaction) -> Self {
+        crate::edit_transaction::WorkspaceEditTransaction::new(value.edits, value.resource_ops)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

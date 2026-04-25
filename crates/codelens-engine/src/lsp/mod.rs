@@ -110,7 +110,8 @@ pub fn apply_workspace_edit_value(
 ) -> Result<LspWorkspaceEditTransaction> {
     let transaction = workspace_edit_transaction_from_value(project, edit)?;
     if !dry_run {
-        apply_workspace_edit_transaction(project, &transaction)?;
+        let _ = apply_workspace_edit_transaction(project, &transaction)
+            .map_err(|e| anyhow::Error::msg(e.to_string()))?;
     }
     Ok(transaction)
 }
@@ -118,7 +119,7 @@ pub fn apply_workspace_edit_value(
 pub fn apply_workspace_edit_transaction(
     project: &ProjectRoot,
     transaction: &LspWorkspaceEditTransaction,
-) -> Result<()> {
+) -> Result<crate::edit_transaction::ApplyEvidence, crate::edit_transaction::ApplyError> {
     workspace_edit::apply_workspace_edit_transaction(project, transaction)
 }
 
