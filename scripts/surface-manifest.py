@@ -430,7 +430,9 @@ def render_harness_spec_contracts(manifest: dict) -> str:
             )
             required_tools = gate.get("required_tools")
             if required_tools:
-                line += " | required tools: " + ", ".join(f"`{tool}`" for tool in required_tools)
+                line += " | required tools: " + ", ".join(
+                    f"`{tool}`" for tool in required_tools
+                )
             sections.append(line)
 
         sections.extend(["", "**Audit Hooks**"])
@@ -444,7 +446,8 @@ def render_harness_spec_contracts(manifest: dict) -> str:
                 "**Handoff Artifact Template**",
                 f"- Name: `{artifact['name']}`",
                 f"- Format: `{artifact['format']}`",
-                "- Required fields: " + ", ".join(f"`{field}`" for field in artifact["required_fields"]),
+                "- Required fields: "
+                + ", ".join(f"`{field}`" for field in artifact["required_fields"]),
                 "- Example skeleton:",
                 "```json",
                 json.dumps(artifact["example"], indent=2),
@@ -475,7 +478,9 @@ def render_host_adapter_summary(manifest: dict) -> str:
                 + ", ".join(f"`{profile}`" for profile in host["preferred_profiles"]),
                 f"- Default compiled overlay: profile=`{host['default_profile']}`, task_overlay=`{host['default_task_overlay']}`",
                 "- Primary bootstrap sequence: "
-                + " -> ".join(f"`{step}`" for step in host["primary_bootstrap_sequence"]),
+                + " -> ".join(
+                    f"`{step}`" for step in host["primary_bootstrap_sequence"]
+                ),
                 "- Compiler targets: "
                 + ", ".join(f"`{target}`" for target in host["compiler_targets"]),
                 "",
@@ -505,10 +510,8 @@ def render_host_adapter_guidance(manifest: dict) -> str:
                 + ", ".join(f"`{profile}`" for profile in host["preferred_profiles"]),
                 "- Native host primitives: "
                 + ", ".join(f"`{item}`" for item in host["native_primitives"]),
-                "- Use CodeLens for: "
-                + "; ".join(host["preferred_codelens_use"]),
-                "- Avoid: "
-                + "; ".join(host["avoid"]),
+                "- Use CodeLens for: " + "; ".join(host["preferred_codelens_use"]),
+                "- Avoid: " + "; ".join(host["avoid"]),
                 "- Routing defaults: " + routing_summary,
                 "",
             ]
@@ -640,6 +643,52 @@ def expected_files(manifest: dict) -> dict[Path, str]:
     }
 
 
+OPERATION_MATRIX_REQUIRED_FIELDS = [
+    "operation",
+    "backend",
+    "languages",
+    "support",
+    "authority",
+    "can_preview",
+    "can_apply",
+    "verified",
+    "required_methods",
+    "failure_policy",
+]
+
+
+def check_operation_matrix(matrix_path: Path) -> list[str]:
+    """Return a list of violation messages. Empty list = pass."""
+    violations: list[str] = []
+    try:
+        matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"failed to load operation matrix from {matrix_path}: {exc}"]
+
+    operations = matrix.get("operations")
+    if not isinstance(operations, list):
+        return [
+            f"operation matrix missing 'operations' list (got {type(operations).__name__})"
+        ]
+
+    for index, op in enumerate(operations):
+        if not isinstance(op, dict):
+            violations.append(f"operations[{index}] is not an object")
+            continue
+
+        ident = f"{op.get('operation')}/{op.get('backend')}"
+
+        # Contract A: verified=false && can_apply=true must never coexist
+        if op.get("can_apply") is True and op.get("verified") is False:
+            violations.append(
+                f"contract A violation: {ident} (operations[{index}]) "
+                "advertises can_apply=true but verified=false — "
+                "fail_closed requires verified evidence before can_apply"
+            )
+
+    return violations
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -652,7 +701,23 @@ def main() -> None:
         action="store_true",
         help="check docs/generated/surface-manifest.json and generated doc blocks for drift",
     )
+    parser.add_argument(
+        "--check-operation-matrix",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="check the semantic operation matrix JSON for contract violations (Phase 0)",
+    )
     args = parser.parse_args()
+
+    if args.check_operation_matrix is not None:
+        violations = check_operation_matrix(args.check_operation_matrix)
+        if violations:
+            print("operation matrix contract violations:")
+            for violation in violations:
+                print(f"- {violation}", file=sys.stderr)
+            raise SystemExit(1)
+        return
 
     manifest = load_manifest()
     expected = expected_files(manifest)
