@@ -892,4 +892,32 @@ mod tests {
         let after = evidence.file_hashes_after.get("ro.txt").unwrap();
         assert_eq!(before.sha256, after.sha256);
     }
+
+    #[test]
+    fn apply_full_write_hash_determinism() {
+        let project = empty_project();
+        write_file(&project, "stable.txt", "stable content\n");
+        let ev1 =
+            apply_full_write_with_evidence(&project, "stable.txt", "new1\n").expect("first apply");
+        write_file(&project, "stable.txt", "stable content\n"); // reset disk
+        let ev2 =
+            apply_full_write_with_evidence(&project, "stable.txt", "new2\n").expect("second apply");
+        let h1 = &ev1.file_hashes_before["stable.txt"].sha256;
+        let h2 = &ev2.file_hashes_before["stable.txt"].sha256;
+        assert_eq!(h1, h2, "same input bytes should yield identical sha256");
+    }
+
+    #[test]
+    fn apply_full_write_no_op_same_content() {
+        let project = empty_project();
+        write_file(&project, "noop.txt", "same\n");
+        let evidence =
+            apply_full_write_with_evidence(&project, "noop.txt", "same\n").expect("noop ok");
+        assert_eq!(evidence.status, ApplyStatus::Applied);
+        let before = &evidence.file_hashes_before["noop.txt"].sha256;
+        let after = &evidence.file_hashes_after["noop.txt"].sha256;
+        assert_eq!(before, after, "no-op should leave hash unchanged");
+        assert_eq!(evidence.modified_files, 1);
+        assert_eq!(evidence.edit_count, 1);
+    }
 }
