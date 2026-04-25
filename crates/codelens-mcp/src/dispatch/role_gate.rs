@@ -12,7 +12,7 @@
 
 use crate::audit_sink::{canonical_sha256_hex, AuditRecord};
 use crate::error::CodeLensError;
-use crate::principals::{current_principal_id, required_role_for, Role};
+use crate::principals::{required_role_for, resolve_principal_id, Role};
 use crate::session_context::SessionRequestContext;
 use crate::AppState;
 use serde_json::Value;
@@ -30,7 +30,7 @@ pub(super) fn enforce_role_gate(
     session: &SessionRequestContext,
 ) -> Result<(), CodeLensError> {
     let required = required_role_for(name);
-    let principal_id = current_principal_id();
+    let principal_id = resolve_principal_id(session);
     let principal_role = state.principals().resolve(principal_id.as_deref());
     if principal_role.satisfies(required) {
         return Ok(());

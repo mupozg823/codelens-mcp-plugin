@@ -98,6 +98,20 @@ impl Principals {
         }
     }
 
+    /// Strict fallback used when `CODELENS_AUTH_MODE=strict` is set
+    /// and no `principals.toml` is present. Every principal —
+    /// including the unknown ones — gets `ReadOnly`, so any
+    /// mutation tool is denied until the operator places an explicit
+    /// principals.toml. This makes "secure by default" opt-in
+    /// rather than the global default (which would break existing
+    /// stdio installations).
+    pub fn strict_default() -> Self {
+        Self {
+            default_role: Role::ReadOnly,
+            by_id: HashMap::new(),
+        }
+    }
+
     /// Resolve a principal id to its role. Unknown ids fall back to
     /// the default role.
     pub fn resolve(&self, principal_id: Option<&str>) -> Role {
@@ -122,9 +136,14 @@ impl Principals {
     /// 1. `<project>/.codelens/principals.toml`
     /// 2. `$HOME/.codelens/principals.toml`
     ///
-    /// Returns the permissive default when no file is found. Parse
-    /// errors propagate so misconfiguration is surfaced loudly at
-    /// startup instead of silently falling back to `Refactor`.
+    /// When no file is found, the fallback is chosen by
+    /// `CODELENS_AUTH_MODE`:
+    /// - unset / `permissive` → [`Self::permissive_default`]
+    /// - `strict` → [`Self::strict_default`] (every unknown id is
+    ///   `ReadOnly`, so mutation tools are denied)
+    ///
+    /// Parse errors propagate so misconfiguration is surfaced loudly
+    /// at startup instead of silently falling back.
     pub fn discover(project_audit_dir: &Path) -> Result<Self> {
         // project audit dir is `<project>/.codelens/audit/`; principals.toml
         // lives one directory up at `<project>/.codelens/principals.toml`.
@@ -140,7 +159,20 @@ impl Principals {
                 return Self::load_from(&user_path);
             }
         }
-        Ok(Self::permissive_default())
+        Ok(Self::default_for_env())
+    }
+
+    /// Choose between [`Self::permissive_default`] and
+    /// [`Self::strict_default`] based on `CODELENS_AUTH_MODE`.
+    fn default_for_env() -> Self {
+        match std::env::var("CODELENS_AUTH_MODE")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+        {
+            Some("strict") => Self::strict_default(),
+            _ => Self::permissive_default(),
+        }
     }
 
     /// Parse a specific TOML file. Public for testability.
@@ -181,32 +213,45 @@ impl Principals {
     }
 }
 
-/// Required role to call `tool`. Maps every tool name to one of the
-/// three tiers; the rule is simple by design (mutation tools require
-/// Refactor; everything else is ReadOnly). New tools added in the
-/// future are ReadOnly by default unless they appear in
-/// [`crate::tool_defs::is_content_mutation_tool`].
+/// Required role to call `tool`. Code-mutation tools require
+/// `Refactor`; everything else is `ReadOnly`.
+///
+/// Memory tools (`write_memory`/`delete_memory`/`rename_memory`)
+/// are an explicit carve-out: they mutate agent-side context, not
+/// the project's source tree, so the role gate treats them as
+/// `ReadOnly`. They remain in `is_content_mutation_tool` so the
+/// audit sink still records each memory change.
 pub fn required_role_for(tool: &str) -> Role {
-    if crate::tool_defs::is_content_mutation_tool(tool) {
-        Role::Refactor
-    } else {
-        Role::ReadOnly
+    match tool {
+        "write_memory" | "delete_memory" | "rename_memory" => Role::ReadOnly,
+        other if crate::tool_defs::is_content_mutation_tool(other) => Role::Refactor,
+        _ => Role::ReadOnly,
     }
 }
 
 /// Resolve the principal id for the current request from the
-/// environment.
-///
-/// Priority order:
-/// 1. `CODELENS_PRINCIPAL` env var (stdio + dev mode)
-/// 2. None (caller-provided HTTP / JWT bindings come in P2-C-follow-up)
-///
-/// Phase 2-C limits the binding to env-only so the role gate can land
-/// without coupling to the HTTP feature flag. Header / JWT extraction
-/// is mechanical to add in a follow-up once the Authorization plumbing
-/// is in place.
+/// environment. Stdio-only fallback: the dispatch path prefers the
+/// session-bound id when available — see [`resolve_principal_id`].
 pub fn current_principal_id() -> Option<String> {
     std::env::var("CODELENS_PRINCIPAL").ok()
+}
+
+/// L1 (ADR-0009 §1): resolve the principal id for one dispatch call.
+///
+/// Priority order:
+/// 1. `session.principal_id` — populated from the HTTP JWT `sub`
+///    claim (or `X-Codelens-Principal` header in dev mode) by the
+///    HTTP transport before the request is dispatched.
+/// 2. `CODELENS_PRINCIPAL` env — stdio fallback.
+/// 3. `None` — falls through to the `default` role in
+///    `principals.toml`.
+pub fn resolve_principal_id(
+    session: &crate::session_context::SessionRequestContext,
+) -> Option<String> {
+    if let Some(id) = session.principal_id.as_deref().filter(|s| !s.is_empty()) {
+        return Some(id.to_owned());
+    }
+    current_principal_id()
 }
 
 #[cfg(test)]
@@ -229,6 +274,26 @@ mod tests {
         assert_eq!(p.resolve(None), Role::Refactor);
         assert_eq!(p.resolve(Some("alice")), Role::Refactor);
         assert_eq!(p.explicit_count(), 0);
+    }
+
+    #[test]
+    fn strict_default_denies_mutation_for_every_unknown_id() {
+        // CODELENS_AUTH_MODE=strict fallback: nobody is privileged
+        // until principals.toml lists them.
+        let p = Principals::strict_default();
+        assert_eq!(p.default_role(), Role::ReadOnly);
+        assert_eq!(p.resolve(None), Role::ReadOnly);
+        assert_eq!(p.resolve(Some("anyone")), Role::ReadOnly);
+        assert!(
+            !p.resolve(Some("anyone"))
+                .satisfies(required_role_for("create_text_file")),
+            "strict default must deny code-mutation tools"
+        );
+        assert!(
+            p.resolve(Some("anyone"))
+                .satisfies(required_role_for("write_memory")),
+            "strict default must still allow memory-tier tools (M6)"
+        );
     }
 
     #[test]
@@ -356,7 +421,24 @@ role = "Admin"
         assert_eq!(required_role_for("create_text_file"), Role::Refactor);
         assert_eq!(required_role_for("delete_lines"), Role::Refactor);
         assert_eq!(required_role_for("rename_symbol"), Role::Refactor);
-        assert_eq!(required_role_for("write_memory"), Role::Refactor);
+    }
+
+    #[test]
+    fn memory_tools_are_readonly_despite_being_mutation_tools() {
+        // Memory writes are agent-context, not codebase mutation.
+        // The role gate must let read-only principals call them, but
+        // the audit sink still tracks them via is_content_mutation_tool.
+        for tool in ["write_memory", "delete_memory", "rename_memory"] {
+            assert_eq!(
+                required_role_for(tool),
+                Role::ReadOnly,
+                "{tool} should be ReadOnly for the role gate"
+            );
+            assert!(
+                crate::tool_defs::is_content_mutation_tool(tool),
+                "{tool} should still appear in is_content_mutation_tool for audit"
+            );
+        }
     }
 
     #[test]
@@ -365,6 +447,33 @@ role = "Admin"
         assert_eq!(required_role_for("get_callers"), Role::ReadOnly);
         assert_eq!(required_role_for("analyze_change_request"), Role::ReadOnly);
         assert_eq!(required_role_for("semantic_search"), Role::ReadOnly);
+    }
+
+    #[test]
+    fn resolve_principal_id_prefers_session_over_env() {
+        // Build a session whose principal_id is set (e.g. JWT sub claim
+        // injected by the HTTP transport).
+        let session =
+            crate::session_context::SessionRequestContext::from_json(&serde_json::json!({
+                "_session_principal_id": "alice@example.com",
+            }));
+        let resolved = resolve_principal_id(&session);
+        assert_eq!(resolved.as_deref(), Some("alice@example.com"));
+    }
+
+    #[test]
+    fn resolve_principal_id_treats_empty_session_value_as_absent() {
+        let session =
+            crate::session_context::SessionRequestContext::from_json(&serde_json::json!({
+                "_session_principal_id": "",
+            }));
+        // Empty string must NOT shadow the env fallback. We assert the
+        // function does not return Some("") — env may still produce
+        // None depending on test runner state, which is allowed.
+        match resolve_principal_id(&session) {
+            Some(s) => assert!(!s.is_empty(), "empty session id must not surface"),
+            None => {}
+        }
     }
 
     #[test]

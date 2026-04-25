@@ -290,6 +290,19 @@ impl AppState {
                 crate::principals::Principals::permissive_default()
             }
         };
+        // Strict fallback (CODELENS_AUTH_MODE=strict + no principals.toml)
+        // produces an empty mapping with default_role=ReadOnly. Surface
+        // that loudly so the operator knows mutation tools are denied
+        // until they author the file.
+        if resolved.default_role() == crate::principals::Role::ReadOnly
+            && resolved.explicit_count() == 0
+        {
+            tracing::warn!(
+                audit_dir = %dir.display(),
+                "CODELENS_AUTH_MODE=strict in effect with no principals.toml — \
+                 every principal is ReadOnly and code-mutation tools will be denied"
+            );
+        }
         let arc = Arc::new(resolved);
         let _ = self.principals.set(Arc::clone(&arc));
         self.principals.get().cloned().unwrap_or(arc)

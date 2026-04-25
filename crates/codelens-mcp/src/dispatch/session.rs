@@ -50,15 +50,48 @@ pub(super) fn collect_session_context(
     }
 }
 
-/// Apply graph invalidation, symbol reindex, embedding reindex, and audit
-/// after a successful content-mutation tool call.
+/// Compute the canonical `transaction_id` shared by audit rows and
+/// the response envelope. Format: `{session_id}-{tool}-{args_hash[..16]}`.
+/// Stable for a given (session, tool, args) triple — that means the
+/// agent can recompute it independently and `audit_log_query` joins
+/// across the session/outcome rows for one call.
+pub(super) fn transaction_id_for(
+    session: &crate::session_context::SessionRequestContext,
+    tool: &str,
+    arguments: &serde_json::Value,
+) -> String {
+    let args_hash = crate::audit_sink::canonical_sha256_hex(arguments);
+    format!("{}-{}-{}", session.session_id, tool, &args_hash[..16])
+}
+
+/// L3: inject `transaction_id` into the response payload so the agent
+/// can use it as the lookup key for `audit_log_query` (P2-F). The id
+/// is added to `payload.data.transaction_id` when `data` is an object;
+/// otherwise to `payload.transaction_id` directly. An existing key is
+/// not overwritten — the handler may have its own (e.g. workflows
+/// composing multiple primitives).
+fn inject_transaction_id(payload: &mut serde_json::Value, transaction_id: &str) {
+    if let Some(data) = payload.get_mut("data").and_then(|v| v.as_object_mut()) {
+        data.entry("transaction_id".to_owned())
+            .or_insert_with(|| serde_json::Value::String(transaction_id.to_owned()));
+        return;
+    }
+    if let Some(obj) = payload.as_object_mut() {
+        obj.entry("transaction_id".to_owned())
+            .or_insert_with(|| serde_json::Value::String(transaction_id.to_owned()));
+    }
+}
+
+/// Apply graph invalidation, symbol reindex, embedding reindex, audit,
+/// and transaction_id surfacing after a successful content-mutation
+/// tool call.
 pub(super) fn apply_post_mutation(
     state: &AppState,
     name: &str,
     arguments: &serde_json::Value,
     session: &crate::session_context::SessionRequestContext,
     active_surface: &str,
-    payload: &serde_json::Value,
+    payload: &mut serde_json::Value,
 ) {
     state.graph_cache().invalidate();
     state.clear_recent_preflights();
@@ -111,6 +144,8 @@ pub(super) fn apply_post_mutation(
         warn!(tool = name, error = %error, "failed to write mutation audit event");
     }
     record_audit_outcome(state, name, arguments, session, payload);
+    let transaction_id = transaction_id_for(session, name, arguments);
+    inject_transaction_id(payload, &transaction_id);
     if !session.is_local() {
         tracing::info!(
             tool = name,
@@ -215,7 +250,7 @@ fn record_audit_outcome(
         transaction_id,
         timestamp_ms: now_ms,
         // P2-C resolves the principal id from CODELENS_PRINCIPAL.
-        principal: crate::principals::current_principal_id(),
+        principal: crate::principals::resolve_principal_id(session),
         tool: name.to_owned(),
         args_hash,
         apply_status: payload_apply_status,
@@ -263,7 +298,7 @@ pub(super) fn record_audit_failure(
     let record = crate::audit_sink::AuditRecord {
         transaction_id,
         timestamp_ms: now_ms,
-        principal: crate::principals::current_principal_id(),
+        principal: crate::principals::resolve_principal_id(session),
         tool: name.to_owned(),
         args_hash,
         apply_status: "failed".to_owned(),
@@ -287,6 +322,65 @@ pub(super) fn record_audit_failure(
             error = %io_err,
             "failed to write audit_sink failure row"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_context::SessionRequestContext;
+    use serde_json::json;
+
+    fn fake_session() -> SessionRequestContext {
+        SessionRequestContext::from_json(&json!({
+            "_session_id": "sess-T",
+        }))
+    }
+
+    #[test]
+    fn transaction_id_is_stable_for_same_inputs() {
+        let session = fake_session();
+        let args = json!({"file_path": "src/foo.rs", "lines": [1, 2]});
+        let a = transaction_id_for(&session, "delete_lines", &args);
+        let b = transaction_id_for(&session, "delete_lines", &args);
+        assert_eq!(a, b, "same (session, tool, args) must produce same id");
+    }
+
+    #[test]
+    fn transaction_id_changes_when_args_change() {
+        let session = fake_session();
+        let a = transaction_id_for(&session, "delete_lines", &json!({"k": 1}));
+        let b = transaction_id_for(&session, "delete_lines", &json!({"k": 2}));
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn inject_transaction_id_into_data_subobject() {
+        let mut payload = json!({ "data": { "apply_status": "applied" } });
+        inject_transaction_id(&mut payload, "tx-123");
+        assert_eq!(payload["data"]["transaction_id"], "tx-123");
+        assert_eq!(payload["data"]["apply_status"], "applied");
+    }
+
+    #[test]
+    fn inject_transaction_id_into_root_when_no_data() {
+        let mut payload = json!({ "apply_status": "applied" });
+        inject_transaction_id(&mut payload, "tx-123");
+        assert_eq!(payload["transaction_id"], "tx-123");
+    }
+
+    #[test]
+    fn inject_transaction_id_does_not_overwrite_existing() {
+        let mut payload = json!({ "data": { "transaction_id": "handler-tx" } });
+        inject_transaction_id(&mut payload, "dispatch-tx");
+        assert_eq!(payload["data"]["transaction_id"], "handler-tx");
+    }
+
+    #[test]
+    fn inject_transaction_id_no_op_on_non_object_payload() {
+        let mut scalar = json!("just a string");
+        inject_transaction_id(&mut scalar, "tx-123");
+        assert_eq!(scalar, json!("just a string"));
     }
 }
 
