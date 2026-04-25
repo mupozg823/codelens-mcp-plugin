@@ -6,7 +6,7 @@ use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::{
     SymbolInfo,
-    lsp::{LspRenameRequest, LspRequest},
+    lsp::{LspCodeActionRequest, LspRenameRequest, LspRequest},
 };
 use serde_json::json;
 
@@ -14,6 +14,8 @@ use serde_json::json;
 pub(crate) enum SemanticEditBackendSelection {
     TreeSitter,
     Lsp,
+    JetBrains,
+    Roslyn,
 }
 
 pub(crate) fn selected_backend(
@@ -29,10 +31,117 @@ pub(crate) fn selected_backend(
             Ok(SemanticEditBackendSelection::TreeSitter)
         }
         "lsp" => Ok(SemanticEditBackendSelection::Lsp),
+        "jetbrains" => Ok(SemanticEditBackendSelection::JetBrains),
+        "roslyn" => Ok(SemanticEditBackendSelection::Roslyn),
         other => Err(CodeLensError::Validation(format!(
-            "unsupported semantic_edit_backend `{other}`; expected tree-sitter or lsp"
+            "unsupported semantic_edit_backend `{other}`; expected tree-sitter, lsp, jetbrains, or roslyn"
         ))),
     }
+}
+
+pub(crate) fn unsupported_external_adapter(
+    backend: SemanticEditBackendSelection,
+    operation: &str,
+) -> ToolResult {
+    let backend_name = match backend {
+        SemanticEditBackendSelection::JetBrains => "jetbrains",
+        SemanticEditBackendSelection::Roslyn => "roslyn",
+        _ => "unknown",
+    };
+    Err(CodeLensError::Validation(format!(
+        "unsupported_semantic_refactor: semantic_edit_backend={backend_name} for `{operation}` is an opt-in adapter boundary, but no local adapter process/protocol is configured in this release"
+    )))
+}
+
+pub(crate) fn code_action_refactor_with_lsp_backend(
+    state: &AppState,
+    arguments: &serde_json::Value,
+    operation: &'static str,
+    default_kinds: &[&str],
+) -> ToolResult {
+    let file_path = required_string(arguments, "file_path")?.to_owned();
+    let (start_line, start_column, end_line, end_column, position_source) =
+        code_action_range(state, arguments, &file_path, operation)?;
+    let command = optional_string(arguments, "command")
+        .map(ToOwned::to_owned)
+        .or_else(|| default_lsp_command_for_path(&file_path))
+        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
+    let args = parse_lsp_args(arguments, &command);
+    let dry_run = arguments
+        .get("dry_run")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    let only = code_action_kinds(arguments, default_kinds);
+    let action_id = optional_string(arguments, "action_id").map(ToOwned::to_owned);
+
+    let command_ref = command.clone();
+    let result = state
+        .lsp_pool()
+        .code_action_refactor(&LspCodeActionRequest {
+            command,
+            args,
+            file_path: file_path.clone(),
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+            only: only.clone(),
+            action_id,
+            operation: operation.to_owned(),
+            dry_run,
+        })
+        .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?;
+
+    let transaction = serde_json::to_value(&result.transaction)
+        .unwrap_or_else(|_| json!({"serialization_error": true}));
+    Ok((
+        json!({
+            "success": result.success,
+            "backend": "semantic_edit_backend",
+            "semantic_edit_backend": "lsp",
+            "operation": operation,
+            "file_path": file_path,
+            "range": {
+                "start_line": start_line,
+                "start_column": start_column,
+                "end_line": end_line,
+                "end_column": end_column,
+                "position_source": position_source,
+            },
+            "action": {
+                "title": result.action_title,
+                "kind": result.action_kind,
+                "resolved_via": result.resolved_via,
+                "requested_kinds": only,
+            },
+            "edit_authority": {
+                "kind": "authoritative_lsp",
+                "backend": "lsp",
+                "operation": operation,
+                "language": language_for_file(&file_path),
+                "methods": ["textDocument/codeAction", "codeAction/resolve"],
+                "embedding_used": false,
+                "search_used": false
+            },
+            "transaction": {
+                "dry_run": dry_run,
+                "modified_files": result.transaction.modified_files,
+                "edit_count": result.transaction.edit_count,
+                "resource_ops": result.transaction.resource_ops,
+                "rollback_available": result.transaction.rollback_available
+            },
+            "workspace_edit": transaction,
+            "verification": {
+                "pre_diagnostics": [],
+                "post_diagnostics": [],
+                "references_checked": false,
+                "conflicts": []
+            },
+            "applied": result.applied,
+            "message": result.message,
+        }),
+        success_meta(BackendKind::Lsp, 0.93),
+    ))
 }
 
 pub(crate) fn rename_symbol_with_lsp_backend(
@@ -272,6 +381,114 @@ pub(crate) fn safe_delete_with_lsp_backend(
         }),
         success_meta(BackendKind::Lsp, 0.94),
     ))
+}
+
+fn code_action_range(
+    state: &AppState,
+    arguments: &serde_json::Value,
+    file_path: &str,
+    operation: &str,
+) -> Result<(usize, usize, usize, usize, &'static str), CodeLensError> {
+    if let Some(start_line) = arguments.get("start_line").and_then(|value| value.as_u64()) {
+        let end_line = arguments
+            .get("end_line")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(start_line) as usize;
+        let start_line = start_line as usize;
+        let start_column = arguments
+            .get("start_column")
+            .or_else(|| arguments.get("column"))
+            .and_then(|value| value.as_u64())
+            .unwrap_or(1) as usize;
+        let end_column = arguments
+            .get("end_column")
+            .and_then(|value| value.as_u64())
+            .map(|value| value as usize)
+            .unwrap_or_else(|| default_end_column(state, file_path, end_line));
+        return Ok((
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+            "explicit_range",
+        ));
+    }
+
+    let (symbol_name, name_path) = symbol_for_operation(arguments, operation)?;
+    let (line, column) = symbol_position(state, arguments, file_path, &symbol_name, name_path)?;
+    Ok((line, column, line, column, position_source(arguments)))
+}
+
+fn symbol_for_operation<'a>(
+    arguments: &'a serde_json::Value,
+    operation: &str,
+) -> Result<(String, Option<&'a str>), CodeLensError> {
+    let name_path = arguments.get("name_path").and_then(|value| value.as_str());
+    let key = match operation {
+        "move_symbol" => "symbol_name",
+        "inline_function" | "change_signature" => "function_name",
+        _ => "symbol_name",
+    };
+    let symbol_name = arguments
+        .get(key)
+        .or_else(|| arguments.get("symbol_name"))
+        .or_else(|| arguments.get("function_name"))
+        .or_else(|| arguments.get("name"))
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| CodeLensError::MissingParam(key.into()))?
+        .to_owned();
+    Ok((symbol_name, name_path))
+}
+
+fn default_end_column(state: &AppState, file_path: &str, line: usize) -> usize {
+    state
+        .project()
+        .resolve(file_path)
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|source| {
+            source
+                .lines()
+                .nth(line.saturating_sub(1))
+                .map(|text| text.len() + 1)
+        })
+        .unwrap_or(1)
+}
+
+fn code_action_kinds(arguments: &serde_json::Value, default_kinds: &[&str]) -> Vec<String> {
+    if let Some(kind) = optional_string(arguments, "code_action_kind") {
+        return vec![kind.to_owned()];
+    }
+    if let Some(items) = arguments
+        .get("code_action_kinds")
+        .and_then(|value| value.as_array())
+    {
+        let parsed = items
+            .iter()
+            .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+            .collect::<Vec<_>>();
+        if !parsed.is_empty() {
+            return parsed;
+        }
+    }
+    default_kinds
+        .iter()
+        .map(|kind| (*kind).to_owned())
+        .collect()
+}
+
+fn language_for_file(file_path: &str) -> &'static str {
+    match std::path::Path::new(file_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+    {
+        "rs" => "rust",
+        "ts" | "tsx" => "typescript",
+        "js" | "jsx" | "mjs" | "cjs" => "javascript",
+        "java" => "java",
+        _ => "unknown",
+    }
 }
 
 fn position_source(arguments: &serde_json::Value) -> &'static str {

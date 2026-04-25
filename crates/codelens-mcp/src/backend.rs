@@ -285,10 +285,14 @@ fn semantic_edit_runtime_status(state: &AppState) -> BackendRuntimeStatus {
         active_reason,
         details: json!({
             "configured_backend": configured,
-            "candidate_backends": ["lsp-bridge"],
+            "candidate_backends": ["lsp-bridge", "jetbrains-adapter", "roslyn-adapter"],
             "installed_lsp_server_count": installed_lsp_server_count,
             "activation": "set semantic_edit_backend=lsp per call or CODELENS_SEMANTIC_EDIT_BACKEND=lsp",
-            "dispatch": "rename_symbol routes to LSP textDocument/rename only when explicitly requested",
+            "dispatch": "rename_symbol routes to LSP textDocument/rename; extract/inline/move/change-signature route to LSP codeAction only when explicitly requested",
+            "external_adapters": {
+                "jetbrains": {"available": false, "activation": "future local loopback adapter", "failure_policy": "fail_closed"},
+                "roslyn": {"available": false, "activation": "future local workspace adapter", "failure_policy": "fail_closed"}
+            },
             "operation_matrix": semantic_edit_operation_matrix(),
         }),
     }
@@ -365,29 +369,43 @@ fn semantic_edit_operation_descriptors() -> Vec<Value> {
             "extract_function",
             "lsp",
             tier1.clone(),
-            "unsupported",
+            "authoritative_apply",
             json!(["textDocument/codeAction", "codeAction/resolve"]),
         ),
         operation_descriptor(
             "inline_function",
             "lsp",
             tier1.clone(),
-            "unsupported",
+            "authoritative_apply",
             json!(["textDocument/codeAction", "codeAction/resolve"]),
         ),
         operation_descriptor(
             "move_symbol",
             "lsp",
             tier1.clone(),
-            "unsupported",
+            "authoritative_apply",
             json!(["textDocument/codeAction", "codeAction/resolve"]),
         ),
         operation_descriptor(
             "change_signature",
             "lsp",
-            tier1,
-            "unsupported",
+            tier1.clone(),
+            "authoritative_apply",
             json!(["textDocument/codeAction", "codeAction/resolve"]),
+        ),
+        operation_descriptor(
+            "extract_function",
+            "jetbrains",
+            tier1.clone(),
+            "unsupported",
+            json!(["jetbrains_local_adapter"]),
+        ),
+        operation_descriptor(
+            "change_signature",
+            "roslyn",
+            json!(["csharp"]),
+            "unsupported",
+            json!(["roslyn_workspace_adapter"]),
         ),
         operation_descriptor(
             "references",
@@ -547,6 +565,11 @@ mod tests {
         assert!(operations.iter().any(|op| {
             op["operation"] == "change_signature"
                 && op["backend"] == "lsp"
+                && op["support"] == "authoritative_apply"
+        }));
+        assert!(operations.iter().any(|op| {
+            op["operation"] == "extract_function"
+                && op["backend"] == "jetbrains"
                 && op["support"] == "unsupported"
         }));
         assert!(

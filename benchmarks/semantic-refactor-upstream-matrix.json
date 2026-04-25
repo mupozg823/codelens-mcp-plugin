@@ -1,0 +1,106 @@
+{
+  "schema_version": "codelens-semantic-refactor-matrix-v1",
+  "projects": [
+    {
+      "name": "serde-json-rename-navigation",
+      "kind": "rust",
+      "git_url": "https://github.com/serde-rs/json.git",
+      "revision": "dc8003a88e7142529cf4a7429c4778af31dadf50",
+      "operations": [
+        {
+          "tool": "resolve_symbol_target",
+          "args": {
+            "file_path": "src/de.rs",
+            "line": 2698,
+            "column": 8,
+            "target": "definition",
+            "semantic_backend": "lsp"
+          },
+          "expect": {
+            "success": true,
+            "present": ["data.targets"]
+          }
+        },
+        {
+          "tool": "rename_symbol",
+          "args": {
+            "file_path": "src/de.rs",
+            "symbol_name": "from_str",
+            "new_name": "preview_from_str",
+            "semantic_edit_backend": "lsp",
+            "dry_run": true
+          },
+          "expect": {
+            "success": true,
+            "equals": {
+              "data.semantic_edit_backend": "lsp"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "next-learn-typescript-codeactions",
+      "kind": "typescript",
+      "git_url": "https://github.com/vercel/next-learn.git",
+      "revision": "914a33426aac20f825ca52fae80b889302b92240",
+      "operations": [
+        {
+          "tool": "refactor_extract_function",
+          "args": {
+            "file_path": "dashboard/starter-example/app/page.tsx",
+            "start_line": 9,
+            "end_line": 12,
+            "new_name": "ExtractedPreview",
+            "semantic_edit_backend": "lsp",
+            "dry_run": true
+          },
+          "expect": {
+            "success": true,
+            "equals": {
+              "data.operation": "extract_function"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "spring-petclinic-navigation-rename",
+      "kind": "java",
+      "git_url": "https://github.com/spring-projects/spring-petclinic.git",
+      "revision": "c7ee170434ec3e369fdc9201290ba2ea4c92b557",
+      "operations": [
+        {
+          "tool": "resolve_symbol_target",
+          "args": {
+            "file_path": "src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java",
+            "line": 160,
+            "column": 9,
+            "target": "implementation",
+            "semantic_backend": "lsp"
+          },
+          "expect": {
+            "success": true,
+            "present": ["data.targets"]
+          }
+        },
+        {
+          "tool": "rename_symbol",
+          "args": {
+            "file_path": "src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java",
+            "symbol_name": "showOwner",
+            "new_name": "previewShowOwner",
+            "semantic_edit_backend": "lsp",
+            "dry_run": true
+          },
+          "expect": {
+            "success": true,
+            "equals": {
+              "data.semantic_edit_backend": "lsp"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -549,6 +549,42 @@ fn lsp_refactor_without_concrete_workspace_edit_fails_closed() {
         "const value = 1;\nconsole.log(value);\n",
     )
     .unwrap();
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    b = json.dumps(r).encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    method = msg.get('method', '')\n",
+        "    if method == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if method == 'initialize': send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'codeActionProvider': True}}})\n",
+        "    elif method == 'textDocument/codeAction': send({'jsonrpc':'2.0','id':rid,'result':[]})\n",
+        "    elif method == 'shutdown': send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else: send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let mock_path = project.as_path().join("mock_no_code_actions.py");
+    fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let state = make_state(&project);
     let payload = call_tool(
         &state,
@@ -559,6 +595,8 @@ fn lsp_refactor_without_concrete_workspace_edit_fails_closed() {
             "end_line": 1,
             "new_name": "extracted",
             "semantic_edit_backend": "lsp",
+            "command": "python3",
+            "args": [mock_path.to_string_lossy()],
             "dry_run": true
         }),
     );

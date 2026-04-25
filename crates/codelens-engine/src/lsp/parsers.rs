@@ -378,6 +378,13 @@ pub(super) fn workspace_edit_transaction_from_response(
     })
 }
 
+pub(super) fn workspace_edit_transaction_from_edit(
+    project: &ProjectRoot,
+    edit: &Value,
+) -> Result<LspWorkspaceEditTransaction> {
+    workspace_edit_transaction_from_response(project, json!({ "result": edit }))
+}
+
 pub(super) fn apply_workspace_edit_transaction(
     project: &ProjectRoot,
     transaction: &LspWorkspaceEditTransaction,
@@ -518,9 +525,6 @@ fn collect_text_edits_for_uri(
             end_line,
             end.get("character").and_then(Value::as_u64).unwrap_or(0) as usize,
         );
-        if line != end_line {
-            bail!("multi-line LSP rename edits are not supported");
-        }
         let old_text = extract_text_for_range(&source, line, column, end_line, end_column);
         let new_text = edit
             .get("newText")

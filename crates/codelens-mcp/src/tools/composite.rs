@@ -101,13 +101,23 @@ pub fn explain_code_flow(state: &AppState, arguments: &serde_json::Value) -> Too
 }
 
 pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    if crate::tools::semantic_edit::selected_backend(arguments)?
-        == crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp
-    {
-        return Err(CodeLensError::Validation(
-            "unsupported_semantic_refactor: refactor_extract_function requires an LSP codeAction with a concrete WorkspaceEdit; approximate fallback is blocked"
-                .into(),
-        ));
+    match crate::tools::semantic_edit::selected_backend(arguments)? {
+        crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp => {
+            return crate::tools::semantic_edit::code_action_refactor_with_lsp_backend(
+                state,
+                arguments,
+                "extract_function",
+                &["refactor.extract"],
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
+        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
+            return crate::tools::semantic_edit::unsupported_external_adapter(
+                crate::tools::semantic_edit::selected_backend(arguments)?,
+                "refactor_extract_function",
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
     let file_path = required_string(arguments, "file_path")?;
     let start_line = arguments
@@ -212,13 +222,23 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
 }
 
 pub fn refactor_inline_function(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    if crate::tools::semantic_edit::selected_backend(arguments)?
-        == crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp
-    {
-        return Err(CodeLensError::Validation(
-            "unsupported_semantic_refactor: refactor_inline_function requires an LSP codeAction with a concrete WorkspaceEdit; approximate fallback is blocked"
-                .into(),
-        ));
+    match crate::tools::semantic_edit::selected_backend(arguments)? {
+        crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp => {
+            return crate::tools::semantic_edit::code_action_refactor_with_lsp_backend(
+                state,
+                arguments,
+                "inline_function",
+                &["refactor.inline"],
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
+        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
+            return crate::tools::semantic_edit::unsupported_external_adapter(
+                crate::tools::semantic_edit::selected_backend(arguments)?,
+                "refactor_inline_function",
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
     let file_path = required_string(arguments, "file_path")?;
     let function_name = required_string(arguments, "function_name")?;
@@ -248,13 +268,23 @@ pub fn refactor_inline_function(state: &AppState, arguments: &serde_json::Value)
 }
 
 pub fn refactor_move_to_file(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    if crate::tools::semantic_edit::selected_backend(arguments)?
-        == crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp
-    {
-        return Err(CodeLensError::Validation(
-            "unsupported_semantic_refactor: refactor_move_to_file requires a concrete WorkspaceEdit or vetted server command; approximate fallback is blocked"
-                .into(),
-        ));
+    match crate::tools::semantic_edit::selected_backend(arguments)? {
+        crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp => {
+            return crate::tools::semantic_edit::code_action_refactor_with_lsp_backend(
+                state,
+                arguments,
+                "move_symbol",
+                &["refactor.rewrite", "refactor"],
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
+        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
+            return crate::tools::semantic_edit::unsupported_external_adapter(
+                crate::tools::semantic_edit::selected_backend(arguments)?,
+                "refactor_move_to_file",
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
     let file_path = required_string(arguments, "file_path")?;
     let symbol_name = required_string(arguments, "symbol_name")?;
@@ -293,13 +323,23 @@ pub fn refactor_move_to_file(state: &AppState, arguments: &serde_json::Value) ->
 }
 
 pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    if crate::tools::semantic_edit::selected_backend(arguments)?
-        == crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp
-    {
-        return Err(CodeLensError::Validation(
-            "unsupported_semantic_refactor: refactor_change_signature requires a concrete WorkspaceEdit or vetted server command; approximate fallback is blocked"
-                .into(),
-        ));
+    match crate::tools::semantic_edit::selected_backend(arguments)? {
+        crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp => {
+            return crate::tools::semantic_edit::code_action_refactor_with_lsp_backend(
+                state,
+                arguments,
+                "change_signature",
+                &["refactor.rewrite", "refactor"],
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
+        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
+            return crate::tools::semantic_edit::unsupported_external_adapter(
+                crate::tools::semantic_edit::selected_backend(arguments)?,
+                "refactor_change_signature",
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
     let file_path = required_string(arguments, "file_path")?;
     let function_name = required_string(arguments, "function_name")?;
@@ -349,10 +389,18 @@ pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value
 /// `propagate_deletions` tool, using CodeLens's existing impact
 /// analysis + reference graph instead of an external IDE.
 pub fn propagate_deletions(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    if crate::tools::semantic_edit::selected_backend(arguments)?
-        == crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp
-    {
-        return crate::tools::semantic_edit::safe_delete_with_lsp_backend(state, arguments);
+    match crate::tools::semantic_edit::selected_backend(arguments)? {
+        crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp => {
+            return crate::tools::semantic_edit::safe_delete_with_lsp_backend(state, arguments);
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
+        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
+            return crate::tools::semantic_edit::unsupported_external_adapter(
+                crate::tools::semantic_edit::selected_backend(arguments)?,
+                "propagate_deletions",
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
 
     let file_path = required_string(arguments, "file_path")?;

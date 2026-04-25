@@ -9,18 +9,21 @@ use std::thread;
 use std::time::{Duration, Instant};
 use url::Url;
 
+use super::code_actions::{code_actions_from_response, select_code_action};
 use super::parsers::{
     apply_workspace_edit_transaction, diagnostics_from_response, method_suffix_to_hierarchy,
     references_from_response, rename_plan_from_response, resolved_targets_from_response,
     type_hierarchy_node_from_item, type_hierarchy_to_map, utf16_character_for_byte_column,
-    workspace_edit_transaction_from_response, workspace_symbols_from_response,
+    workspace_edit_transaction_from_edit, workspace_edit_transaction_from_response,
+    workspace_symbols_from_response,
 };
 use super::protocol::{language_id_for_path, poll_readable, read_message, send_message};
 use super::registry::resolve_lsp_binary;
 use super::types::{
-    LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,
-    LspRenameRequest, LspRequest, LspResolveTargetRequest, LspResolvedTarget, LspTypeHierarchyNode,
-    LspTypeHierarchyRequest, LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
+    LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic, LspDiagnosticRequest,
+    LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest, LspRequest,
+    LspResolveTargetRequest, LspResolvedTarget, LspTypeHierarchyNode, LspTypeHierarchyRequest,
+    LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -235,6 +238,20 @@ impl LspSessionPool {
             &request.args,
         )?;
         session.rename_symbol(request)
+    }
+
+    pub fn code_action_refactor(
+        &self,
+        request: &LspCodeActionRequest,
+    ) -> Result<LspCodeActionRefactorResult> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
+        session.code_action_refactor(request)
     }
 }
 
@@ -544,6 +561,95 @@ impl LspSession {
             modified_files,
             total_replacements,
             edits,
+        })
+    }
+
+    fn code_action_refactor(
+        &mut self,
+        request: &LspCodeActionRequest,
+    ) -> Result<LspCodeActionRefactorResult> {
+        let absolute_path = self.project.resolve(&request.file_path)?;
+        let (uri_string, source) = self.prepare_document(&absolute_path)?;
+        let start_character =
+            utf16_character_for_byte_column(&source, request.start_line, request.start_column);
+        let end_character =
+            utf16_character_for_byte_column(&source, request.end_line, request.end_column);
+
+        let id = self.next_id();
+        self.send_request(
+            id,
+            "textDocument/codeAction",
+            json!({
+                "textDocument":{"uri":uri_string},
+                "range":{
+                    "start":{
+                        "line":request.start_line.saturating_sub(1),
+                        "character":start_character
+                    },
+                    "end":{
+                        "line":request.end_line.saturating_sub(1),
+                        "character":end_character
+                    }
+                },
+                "context":{
+                    "diagnostics":[],
+                    "only": request.only
+                }
+            }),
+        )?;
+        let response = self.read_response_for_id(id)?;
+        let actions = code_actions_from_response(response, &request.only)?;
+        let action = select_code_action(&actions, request.action_id.as_deref())?;
+        if let Some(reason) = &action.disabled_reason {
+            bail!("unsupported_semantic_refactor: selected LSP codeAction is disabled: {reason}");
+        }
+
+        let (edit, resolved_via) = if let Some(edit) = action.edit.clone() {
+            (edit, "textDocument/codeAction".to_owned())
+        } else {
+            let id = self.next_id();
+            self.send_request(id, "codeAction/resolve", action.raw.clone())?;
+            let response = self.read_response_for_id(id)?;
+            let Some(result) = response.get("result") else {
+                bail!("unsupported_semantic_refactor: codeAction/resolve returned no result");
+            };
+            if let Some(edit) = result.get("edit").cloned() {
+                (edit, "codeAction/resolve".to_owned())
+            } else if action.command.is_some() || result.get("command").is_some() {
+                bail!(
+                    "unsupported_semantic_refactor: LSP codeAction returned command without inspectable WorkspaceEdit"
+                );
+            } else {
+                bail!("unsupported_semantic_refactor: LSP codeAction returned no WorkspaceEdit");
+            }
+        };
+
+        let transaction = workspace_edit_transaction_from_edit(&self.project, &edit)?;
+        if transaction.edit_count == 0 && transaction.resource_ops.is_empty() {
+            bail!("unsupported_semantic_refactor: LSP codeAction WorkspaceEdit is empty");
+        }
+        if !request.dry_run {
+            apply_workspace_edit_transaction(&self.project, &transaction)?;
+        }
+
+        Ok(LspCodeActionRefactorResult {
+            success: true,
+            message: format!(
+                "{} {} LSP codeAction edit(s) in {} file(s)",
+                if request.dry_run {
+                    "Would apply"
+                } else {
+                    "Applied"
+                },
+                transaction.edit_count,
+                transaction.modified_files
+            ),
+            operation: request.operation.clone(),
+            action_title: action.title,
+            action_kind: action.kind,
+            resolved_via,
+            applied: !request.dry_run,
+            transaction,
         })
     }
 

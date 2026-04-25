@@ -1,3 +1,4 @@
+pub(crate) mod code_actions;
 pub(crate) mod parsers;
 pub(crate) mod protocol;
 pub mod registry;
@@ -11,9 +12,10 @@ pub use registry::{
 };
 pub use session::LspSessionPool;
 pub use types::{
-    LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,
-    LspRenameRequest, LspRequest, LspResolveTargetRequest, LspResolvedTarget, LspResourceOp,
-    LspTypeHierarchyNode, LspTypeHierarchyRequest, LspWorkspaceEditTransaction, LspWorkspaceSymbol,
+    LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic, LspDiagnosticRequest,
+    LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest, LspRequest,
+    LspResolveTargetRequest, LspResolvedTarget, LspResourceOp, LspTypeHierarchyNode,
+    LspTypeHierarchyRequest, LspWorkspaceEditTransaction, LspWorkspaceSymbol,
     LspWorkspaceSymbolRequest,
 };
 
@@ -76,6 +78,14 @@ pub fn rename_symbol_via_lsp(
 ) -> Result<crate::rename::RenameResult> {
     let pool = LspSessionPool::new(project.clone());
     pool.rename_symbol(request)
+}
+
+pub fn code_action_refactor_via_lsp(
+    project: &ProjectRoot,
+    request: &LspCodeActionRequest,
+) -> Result<LspCodeActionRefactorResult> {
+    let pool = LspSessionPool::new(project.clone());
+    pool.code_action_refactor(request)
 }
 
 /// Known-safe LSP server binaries. Commands not in this list are rejected.

@@ -69,6 +69,21 @@ pub struct LspRenameRequest {
     pub dry_run: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct LspCodeActionRequest {
+    pub command: String,
+    pub args: Vec<String>,
+    pub file_path: String,
+    pub start_line: usize,
+    pub start_column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+    pub only: Vec<String>,
+    pub action_id: Option<String>,
+    pub operation: String,
+    pub dry_run: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LspReference {
     pub file_path: String,
@@ -156,4 +171,16 @@ pub struct LspWorkspaceEditTransaction {
     pub modified_files: usize,
     pub edit_count: usize,
     pub rollback_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LspCodeActionRefactorResult {
+    pub success: bool,
+    pub message: String,
+    pub operation: String,
+    pub action_title: String,
+    pub action_kind: Option<String>,
+    pub resolved_via: String,
+    pub applied: bool,
+    pub transaction: LspWorkspaceEditTransaction,
 }

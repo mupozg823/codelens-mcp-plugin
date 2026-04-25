@@ -336,7 +336,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": true,
-        "estimated_tokens": 503
+        "estimated_tokens": 521
       },
       {
         "name": "replace_symbol_body",
@@ -453,7 +453,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": false,
-        "estimated_tokens": 213
+        "estimated_tokens": 368
       },
       {
         "name": "refactor_inline_function",
@@ -462,7 +462,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": false,
-        "estimated_tokens": 226
+        "estimated_tokens": 343
       },
       {
         "name": "refactor_move_to_file",
@@ -471,7 +471,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": false,
-        "estimated_tokens": 232
+        "estimated_tokens": 347
       },
       {
         "name": "refactor_change_signature",
@@ -480,7 +480,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": false,
-        "estimated_tokens": 268
+        "estimated_tokens": 383
       },
       {
         "name": "propagate_deletions",
@@ -489,7 +489,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": true,
-        "estimated_tokens": 542
+        "estimated_tokens": 543
       },
       {
         "name": "explore_codebase",

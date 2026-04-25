@@ -412,8 +412,10 @@ fn flatten_symbol_infos(symbols: Vec<SymbolInfo>) -> Vec<SymbolInfo> {
     flat
 }
 
-/// Apply edits to files on disk. Edits are sorted (line desc, col desc) per file
-/// and applied back-to-front to preserve offsets.
+/// Apply edits to files on disk. Edits are sorted by byte offset descending per
+/// file and applied back-to-front to preserve offsets. `RenameEdit` is also used
+/// by LSP WorkspaceEdit text edits, so this handles insertions and multi-line
+/// replacements when `old_text` spans a range.
 pub fn apply_edits(project: &ProjectRoot, edits: &[RenameEdit]) -> Result<()> {
     // Group by file
     let mut by_file: HashMap<String, Vec<&RenameEdit>> = HashMap::new();
@@ -424,41 +426,81 @@ pub fn apply_edits(project: &ProjectRoot, edits: &[RenameEdit]) -> Result<()> {
             .push(edit);
     }
 
-    for (file_path, mut file_edits) in by_file {
+    for (file_path, file_edits) in by_file {
         let resolved = project.resolve(&file_path)?;
-        let content = fs::read_to_string(&resolved)?;
-        let mut lines: Vec<String> = content.lines().map(String::from).collect();
-
-        // Sort by line desc, then column desc — apply from end to preserve earlier offsets
-        file_edits.sort_by(|a, b| b.line.cmp(&a.line).then(b.column.cmp(&a.column)));
-
-        for edit in &file_edits {
-            if edit.line == 0 || edit.column == 0 {
+        let mut content = fs::read_to_string(&resolved)?;
+        let mut positioned = Vec::new();
+        for (index, edit) in file_edits.iter().enumerate() {
+            let Some(start) = byte_offset_for_line_column(&content, edit.line, edit.column) else {
+                continue;
+            };
+            let end = start.saturating_add(edit.old_text.len());
+            if end > content.len() || !content.is_char_boundary(end) {
                 continue;
             }
-            let line_idx = edit.line - 1;
-            if line_idx >= lines.len() {
-                continue;
-            }
-            let line = &mut lines[line_idx];
-            let col_idx = edit.column - 1;
-            let old_len = edit.old_text.len();
-            if col_idx + old_len <= line.len()
-                && line
-                    .get(col_idx..col_idx + old_len)
-                    .is_some_and(|text| text == edit.old_text)
+            if content
+                .get(start..end)
+                .is_some_and(|text| text == edit.old_text)
             {
-                line.replace_range(col_idx..col_idx + old_len, &edit.new_text);
+                positioned.push((start, end, index, *edit));
             }
         }
 
-        let mut result = lines.join("\n");
-        if content.ends_with('\n') {
-            result.push('\n');
+        reject_overlapping_edits(&positioned)?;
+        positioned.sort_by(|a, b| b.0.cmp(&a.0).then(b.2.cmp(&a.2)));
+
+        for (start, end, _, edit) in positioned {
+            content.replace_range(start..end, &edit.new_text);
         }
-        fs::write(&resolved, &result)?;
+        fs::write(&resolved, &content)?;
     }
 
+    Ok(())
+}
+
+fn byte_offset_for_line_column(content: &str, line: usize, column: usize) -> Option<usize> {
+    if line == 0 || column == 0 {
+        return None;
+    }
+
+    let mut current_line = 1usize;
+    let mut line_start = 0usize;
+    for (byte_index, ch) in content.char_indices() {
+        if current_line == line {
+            break;
+        }
+        if ch == '\n' {
+            current_line += 1;
+            line_start = byte_index + ch.len_utf8();
+        }
+    }
+    if current_line != line {
+        return None;
+    }
+
+    let line_end = content[line_start..]
+        .find('\n')
+        .map(|offset| line_start + offset)
+        .unwrap_or(content.len());
+    let offset = line_start.checked_add(column.saturating_sub(1))?;
+    if offset > line_end || !content.is_char_boundary(offset) {
+        return None;
+    }
+    Some(offset)
+}
+
+fn reject_overlapping_edits(edits: &[(usize, usize, usize, &RenameEdit)]) -> Result<()> {
+    let mut ranges = edits
+        .iter()
+        .filter(|(start, end, _, _)| start != end)
+        .map(|(start, end, _, _)| (*start, *end))
+        .collect::<Vec<_>>();
+    ranges.sort_unstable();
+    for pair in ranges.windows(2) {
+        if pair[0].1 > pair[1].0 {
+            bail!("overlapping text edits are not supported");
+        }
+    }
     Ok(())
 }
 
@@ -688,6 +730,59 @@ mod tests {
         assert!(result.unwrap().is_ok());
         let updated = fs::read_to_string(dir.join("src/unicode.py")).unwrap();
         assert_eq!(updated, "🙂 old_name()\n");
+    }
+
+    #[test]
+    fn apply_edits_handles_multiline_lsp_workspace_edit() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-rename-multiline-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("sample.ts"), "function main() {\n  old();\n}\n").unwrap();
+        let project = ProjectRoot::new_exact(&dir).unwrap();
+        let edits = vec![RenameEdit {
+            file_path: "sample.ts".to_owned(),
+            line: 1,
+            column: 1,
+            old_text: "function main() {\n  old();\n}".to_owned(),
+            new_text: "function main() {\n  extracted();\n}\nfunction extracted() {}\n".to_owned(),
+        }];
+
+        apply_edits(&project, &edits).expect("multiline edit applies");
+
+        let updated = fs::read_to_string(dir.join("sample.ts")).unwrap();
+        assert!(updated.contains("function extracted()"));
+        assert!(updated.contains("extracted();"));
+    }
+
+    #[test]
+    fn apply_edits_handles_empty_old_text_insertion() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-rename-insert-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("sample.ts"), "const value = 1;\n").unwrap();
+        let project = ProjectRoot::new_exact(&dir).unwrap();
+        let edits = vec![RenameEdit {
+            file_path: "sample.ts".to_owned(),
+            line: 2,
+            column: 1,
+            old_text: String::new(),
+            new_text: "console.log(value);\n".to_owned(),
+        }];
+
+        apply_edits(&project, &edits).expect("insert applies");
+
+        let updated = fs::read_to_string(dir.join("sample.ts")).unwrap();
+        assert_eq!(updated, "const value = 1;\nconsole.log(value);\n");
     }
 
     #[test]

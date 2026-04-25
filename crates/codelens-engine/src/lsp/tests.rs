@@ -1,10 +1,10 @@
 use super::LspRenameRequest;
 use super::{
-    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
-    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, default_lsp_args_for_command,
-    default_lsp_command_for_path, find_referencing_symbols_via_lsp, get_diagnostics_via_lsp,
-    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, rename_symbol_via_lsp,
-    search_workspace_symbols_via_lsp,
+    LspCodeActionRequest, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
+    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, code_action_refactor_via_lsp,
+    default_lsp_args_for_command, default_lsp_command_for_path, find_referencing_symbols_via_lsp,
+    get_diagnostics_via_lsp, get_rename_plan_via_lsp, get_type_hierarchy_via_lsp,
+    rename_symbol_via_lsp, search_workspace_symbols_via_lsp,
 };
 use crate::ProjectRoot;
 use serde_json::Value;
@@ -309,6 +309,80 @@ fn rename_via_lsp_runs_prepare_rename_before_workspace_edit() {
 }
 
 #[test]
+fn applies_lsp_code_action_workspace_edit() {
+    let dir = temp_dir("codelens-lsp-code-action-apply");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(
+        dir.join("sample.ts"),
+        "function main() {\n  const value = 1;\n  console.log(value);\n}\n",
+    )
+    .expect("write sample");
+    let server_path = dir.join("mock_code_action_lsp.py");
+    fs::write(&server_path, code_action_mock_server_script(false)).expect("write mock server");
+    chmod_exec(&server_path);
+
+    let result = code_action_refactor_via_lsp(
+        &project,
+        &LspCodeActionRequest {
+            command: "python3".to_owned(),
+            args: vec![server_path.display().to_string()],
+            file_path: "sample.ts".to_owned(),
+            start_line: 2,
+            start_column: 3,
+            end_line: 2,
+            end_column: "  const value = 1;".len() + 1,
+            only: vec!["refactor.extract".to_owned()],
+            action_id: None,
+            operation: "extract_function".to_owned(),
+            dry_run: false,
+        },
+    )
+    .expect("code action refactor");
+
+    assert_eq!(result.transaction.edit_count, 2);
+    assert_eq!(result.action_kind.as_deref(), Some("refactor.extract"));
+    let updated = fs::read_to_string(dir.join("sample.ts")).expect("read updated");
+    assert!(updated.contains("extracted();"));
+    assert!(updated.contains("function extracted()"));
+}
+
+#[test]
+fn resolves_lsp_code_action_before_workspace_edit_apply() {
+    let dir = temp_dir("codelens-lsp-code-action-resolve");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(
+        dir.join("sample.ts"),
+        "function main() {\n  const value = 1;\n}\n",
+    )
+    .expect("write sample");
+    let server_path = dir.join("mock_code_action_resolve_lsp.py");
+    fs::write(&server_path, code_action_mock_server_script(true)).expect("write mock server");
+    chmod_exec(&server_path);
+
+    let result = code_action_refactor_via_lsp(
+        &project,
+        &LspCodeActionRequest {
+            command: "python3".to_owned(),
+            args: vec![server_path.display().to_string()],
+            file_path: "sample.ts".to_owned(),
+            start_line: 2,
+            start_column: 3,
+            end_line: 2,
+            end_column: "  const value = 1;".len() + 1,
+            only: vec!["refactor.extract".to_owned()],
+            action_id: None,
+            operation: "extract_function".to_owned(),
+            dry_run: false,
+        },
+    )
+    .expect("resolved code action refactor");
+
+    assert_eq!(result.resolved_via, "codeAction/resolve");
+    let updated = fs::read_to_string(dir.join("sample.ts")).expect("read updated");
+    assert!(updated.contains("extracted();"));
+}
+
+#[test]
 fn default_lsp_command_is_derived_from_registry_by_path() {
     assert_eq!(
         default_lsp_command_for_path("src/main.py"),
@@ -487,6 +561,86 @@ while True:
     elif method == "exit":
         break
 "#
+}
+
+fn code_action_mock_server_script(resolve_required: bool) -> String {
+    format!(
+        r#"#!/usr/bin/env python3
+import json
+import sys
+
+RESOLVE_REQUIRED = {resolve_required}
+
+def read_message():
+    headers = {{}}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        name, value = line.decode("utf-8").split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+    body = sys.stdin.buffer.read(int(headers["content-length"]))
+    return json.loads(body.decode("utf-8"))
+
+def send(payload):
+    body = json.dumps(payload).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {{len(body)}}\r\n\r\n".encode("utf-8"))
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+
+def edit(uri):
+    return {{
+        "changes": {{
+            uri: [
+                {{
+                    "range": {{
+                        "start": {{"line": 1, "character": 2}},
+                        "end": {{"line": 1, "character": 18}}
+                    }},
+                    "newText": "extracted();"
+                }},
+                {{
+                    "range": {{
+                        "start": {{"line": 4, "character": 0}},
+                        "end": {{"line": 4, "character": 0}}
+                    }},
+                    "newText": "\nfunction extracted() {{\n  const value = 1;\n}}\n"
+                }}
+            ]
+        }}
+    }}
+
+while True:
+    message = read_message()
+    if message is None:
+        break
+    method = message.get("method")
+    if method == "initialize":
+        send({{"jsonrpc":"2.0","id":message["id"],"result":{{"capabilities":{{"codeActionProvider":{{"resolveProvider": True}}}}}}}})
+    elif method == "textDocument/codeAction":
+        uri = message["params"]["textDocument"]["uri"]
+        action = {{
+            "title": "Extract function",
+            "kind": "refactor.extract",
+            "data": {{"uri": uri}}
+        }}
+        if not RESOLVE_REQUIRED:
+            action["edit"] = edit(uri)
+        send({{"jsonrpc":"2.0","id":message["id"],"result":[action]}})
+    elif method == "codeAction/resolve":
+        uri = message["params"]["data"]["uri"]
+        action = dict(message["params"])
+        action["edit"] = edit(uri)
+        send({{"jsonrpc":"2.0","id":message["id"],"result":action}})
+    elif method == "shutdown":
+        send({{"jsonrpc":"2.0","id":message["id"],"result":None}})
+    elif method == "exit":
+        break
+"#,
+        resolve_required = if resolve_required { "True" } else { "False" }
+    )
 }
 
 fn mock_server_script() -> &'static str {

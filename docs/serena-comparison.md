@@ -6,7 +6,7 @@ This document answers a narrower question than marketing:
 
 Current answer as of 2026-04-25: **no, but the gap is now narrower and more explicit**.
 
-CodeLens is already stronger as a harness-native MCP layer. It now has an opt-in semantic edit substrate for LSP-authoritative `rename`, declaration/definition/implementation/type-definition resolution, `safe_delete_check`, and guarded `safe_delete_apply`. Serena is still stronger as a broad IDE/LSP-centric semantic backend because advanced refactors such as move, inline, change signature, extract method, and JetBrains-backed workspace intelligence are not complete in CodeLens.
+CodeLens is already stronger as a harness-native MCP layer. It now has an opt-in semantic edit substrate for LSP-authoritative `rename`, declaration/definition/implementation/type-definition resolution, `safe_delete_check`, guarded `safe_delete_apply`, and LSP `codeAction` refactors when the server returns an inspectable `WorkspaceEdit`. Serena is still stronger as a broad IDE/LSP-centric semantic backend because JetBrains-backed workspace intelligence and language-specific adapter coverage are not complete in CodeLens.
 
 ## 1. Current Verdict
 
@@ -15,7 +15,7 @@ CodeLens is already stronger as a harness-native MCP layer. It now has an opt-in
 | Harness ergonomics | CodeLens | Role-based surfaces, deferred bootstrap, bounded reports, durable jobs |
 | Semantic retrieval for NL queries | CodeLens | Bundled embedding model and hybrid ranking with measured external benchmarks |
 | Offline setup and cold start | CodeLens | Single Rust binary, no per-language server requirement by default |
-| Deep type-aware editing/refactoring | Serena | CodeLens has LSP-authoritative rename/navigation/safe-delete, but Serena still leads on broad IDE-backed move/inline/change-signature/extract |
+| Deep type-aware editing/refactoring | Serena | CodeLens can apply LSP `WorkspaceEdit` refactors fail-closed, but Serena still leads on broad JetBrains-backed workspace intelligence |
 | Memory and long-lived knowledge | Serena | Mature project/global memory model and onboarding workflow |
 | Broad language-backend coverage | Serena | 40+ LSP-backed languages plus JetBrains backend |
 | Benchmark/eval discipline | CodeLens | Explicit evaluation contract and external retrieval matrix in-repo |
@@ -307,8 +307,8 @@ This is a product-readiness estimate, not a marketing score.
 | Retrieval and ranking | 75-80% | Hybrid/path-aware retrieval, query cache, freshness checks, and model fail-closed behavior are useful; pure semantic remains supporting evidence only. |
 | Release packaging | 70-75% | Model verification and release gates exist; final release artifact payload discipline still needs ongoing CI enforcement. |
 | Memory/project knowledge | 45-55% | Project memories exist, but memory is not yet a public system layer connected to handles, audits, and policies. |
-| Semantic edit substrate | 45-55% | LSP-authoritative rename/navigation/safe-delete now exists; broad Serena/JetBrains/Roslyn-grade code-action refactors do not. |
-| External proof matrix | 60-70% | External smoke/eval matrix exists, but semantic edit correctness gates are still incomplete. |
+| Semantic edit substrate | 55-65% | LSP-authoritative rename/navigation/safe-delete plus inspectable `codeAction` WorkspaceEdit apply now exists; JetBrains/Roslyn adapters remain fail-closed boundaries. |
+| External proof matrix | 65-75% | External smoke/eval matrix exists, and semantic-refactor matrix gate now covers pinned upstream LSP refactor dry-runs for nightly/release. |
 
 Overall: **roughly 65-70% toward the stated final product goal**. It is already useful as a harness-native MCP product and retrieval/control-plane substrate. It is not yet a full IDE-grade semantic edit platform.
 
