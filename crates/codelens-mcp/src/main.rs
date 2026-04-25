@@ -4,6 +4,7 @@ mod agent_coordination;
 mod analysis_handles;
 mod analysis_queue;
 mod artifact_store;
+mod audit_sink;
 mod authority;
 mod backend;
 mod backend_operation_matrix;
