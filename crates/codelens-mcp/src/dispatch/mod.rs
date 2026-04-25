@@ -174,9 +174,16 @@ pub(crate) fn dispatch_tool(
     let (result, gate_allowance, gate_failure) =
         engine.submit_message(name, arguments, session, ctx.surface);
 
-    // 7. Post-mutation side effects (graph invalidation, audit, incremental reindex).
-    if result.is_ok() && is_content_mutation_tool(name) {
-        apply_post_mutation(state, name, arguments, session, &ctx.active_surface);
+    // 7. Post-mutation side effects (graph invalidation, audit,
+    //    incremental reindex). The Ok-branch audit row is written
+    //    here with the full payload so evidence_hash captures the
+    //    structured response. The Err-branch row is written below
+    //    in the response match arm because we need to consume the
+    //    error.
+    if let Ok((payload, _)) = &result
+        && is_content_mutation_tool(name)
+    {
+        apply_post_mutation(state, name, arguments, session, &ctx.active_surface, payload);
     }
 
     let elapsed_ms = start.elapsed().as_millis();
@@ -215,18 +222,27 @@ pub(crate) fn dispatch_tool(
             start,
             id,
         }),
-        Err(error) => build_error_response(
-            name,
-            error,
-            gate_failure,
-            arguments,
-            &ctx.active_surface,
-            &session.session_id,
-            state,
-            start,
-            id,
-            ctx.doom_count,
-            ctx.doom_rapid,
-        ),
+        Err(error) => {
+            // ADR-0009 §3 Err-branch audit row: when a mutation tool
+            // returns Err (pre-substrate validation, substrate failure
+            // beyond rollback, etc.) write a Failed-state row so the
+            // audit trail mirrors the success path.
+            if is_content_mutation_tool(name) {
+                session::record_audit_failure(state, name, arguments, session, &error);
+            }
+            build_error_response(
+                name,
+                error,
+                gate_failure,
+                arguments,
+                &ctx.active_surface,
+                &session.session_id,
+                state,
+                start,
+                id,
+                ctx.doom_count,
+                ctx.doom_rapid,
+            )
+        }
     }
 }

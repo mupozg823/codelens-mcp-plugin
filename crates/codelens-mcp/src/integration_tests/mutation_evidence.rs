@@ -127,6 +127,117 @@ fn add_import_tool_response_includes_evidence() {
     );
 }
 
+/// ADR-0009 §3 (P2-D lifecycle): a successful mutation now writes
+/// `state_to=Audited`, `evidence_hash` populated (canonical sha256 of
+/// the response payload's data subobject), `principal` set when
+/// CODELENS_PRINCIPAL is bound. This builds on the
+/// create_text_file_writes_audit_sink_row test from P2-B by checking
+/// the new fields.
+#[test]
+fn audit_outcome_row_carries_evidence_hash_and_correct_terminal_state() {
+    let project = project_root();
+    let saved_principal = std::env::var("CODELENS_PRINCIPAL").ok();
+    unsafe {
+        std::env::set_var("CODELENS_PRINCIPAL", "p2d-test-user");
+    }
+    let state = make_state(&project);
+    let _ = call_tool(
+        &state,
+        "create_text_file",
+        json!({
+            "relative_path": "p2d_audit_target.txt",
+            "content": "p2d\n",
+            "overwrite": false,
+        }),
+    );
+    let sink = state.audit_sink().expect("audit_sink available");
+    let rows = sink.query(None, None, 100).expect("query");
+    let row = rows
+        .iter()
+        .find(|r| r.tool == "create_text_file" && r.apply_status == "applied")
+        .expect("applied audit row");
+
+    assert_eq!(row.state_to, "Audited", "Ok mutation reaches Audited");
+    assert_eq!(row.state_from.as_deref(), Some("Applying"));
+    assert!(
+        row.evidence_hash.is_some(),
+        "P2-D must populate evidence_hash on Ok branch"
+    );
+    let hash = row.evidence_hash.as_deref().unwrap();
+    assert_eq!(
+        hash.len(),
+        64,
+        "evidence_hash must be 64-char sha256 hex, got {hash:?}"
+    );
+    assert_eq!(
+        row.principal.as_deref(),
+        Some("p2d-test-user"),
+        "principal must reflect CODELENS_PRINCIPAL env"
+    );
+
+    unsafe {
+        match saved_principal {
+            Some(v) => std::env::set_var("CODELENS_PRINCIPAL", v),
+            None => std::env::remove_var("CODELENS_PRINCIPAL"),
+        }
+    }
+}
+
+/// ADR-0009 §3 (P2-D lifecycle): when a mutation tool returns Err
+/// (pre-substrate validation rejected the call, e.g. line out of
+/// range), the audit log gets a `state_to=Failed`, `apply_status=failed`
+/// row carrying the error message. Mirrors the success-path audit row
+/// shape so `audit_log_query` (P2-F) can reconstruct full lifecycle.
+#[test]
+fn audit_failure_row_recorded_for_error_response() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    // delete_lines with start_line=99 in a 1-line file forces the
+    // engine primitive to bail with `start_line out of range`. The
+    // Err propagates back to dispatch's match arm.
+    fs::write(project.as_path().join("p2d_failure_target.txt"), "only\n").unwrap();
+    let err_response = call_tool(
+        &state,
+        "delete_lines",
+        json!({
+            "relative_path": "p2d_failure_target.txt",
+            "start_line": 99,
+            "end_line": 100,
+        }),
+    );
+    assert_eq!(
+        err_response.get("success").and_then(|v| v.as_bool()),
+        Some(false),
+        "out-of-range delete_lines must surface success=false, got {err_response}"
+    );
+
+    let sink = state.audit_sink().expect("audit_sink available");
+    let rows = sink.query(None, None, 100).expect("query");
+    let failure_row = rows
+        .iter()
+        .find(|r| r.tool == "delete_lines" && r.apply_status == "failed")
+        .expect("failed audit row must exist");
+
+    assert_eq!(
+        failure_row.state_to, "Failed",
+        "Err response writes terminal Failed"
+    );
+    assert_eq!(failure_row.state_from.as_deref(), Some("Verifying"));
+    assert!(
+        failure_row.evidence_hash.is_none(),
+        "no evidence on Err branch"
+    );
+    let msg = failure_row
+        .error_message
+        .as_deref()
+        .expect("error_message populated on Err");
+    assert!(
+        msg.contains("out of range") || msg.contains("start_line"),
+        "error_message must reflect the error cause, got {msg:?}"
+    );
+}
+
 /// ADR-0009 §1 (P2-C role gate): when `CODELENS_PRINCIPAL` env var is
 /// set and `principals.toml` maps that principal to `ReadOnly`, every
 /// mutation tool call is denied with a JSON-RPC -32008 error AND an
