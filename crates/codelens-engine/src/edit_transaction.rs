@@ -356,6 +356,152 @@ fn sha256_hex(bytes: &[u8]) -> String {
     output
 }
 
+/// Apply a full-content rewrite to a single file with hash-based evidence
+/// and rollback on write failure. Used by single-file mutation primitives
+/// (`create_text_file`, `delete_lines`, `replace_lines`, etc.) that already
+/// performed an in-memory transform and need to commit the result with the
+/// same TOCTOU + rollback guarantees as `WorkspaceEditTransaction`.
+///
+/// Phases:
+/// 1. capture: read existing file (if any), sha256 + raw backup
+/// 2. verify: re-read + sha256 compare (light TOCTOU window)
+/// 3. write: fs::write — on failure, restore backup + populate rollback_report
+/// 4. post-hash: read written file + sha256 → file_hashes_after
+///
+/// For files that do not exist (e.g., `create_text_file` against a new path),
+/// Phase 1 captures no entry and Phase 2 is a no-op for that path.
+pub fn apply_full_write_with_evidence(
+    project: &ProjectRoot,
+    relative_path: &str,
+    new_content: &str,
+) -> Result<ApplyEvidence, ApplyError> {
+    let resolved = project
+        .resolve(relative_path)
+        .map_err(|e| ApplyError::PreReadFailed {
+            file_path: relative_path.to_owned(),
+            source: e,
+        })?;
+
+    // Phase 1: capture (only if file exists)
+    let (backup_bytes, file_hashes_before) = match fs::read(&resolved) {
+        Ok(bytes) => {
+            let mut before = BTreeMap::new();
+            before.insert(
+                relative_path.to_owned(),
+                FileHash {
+                    sha256: sha256_hex(&bytes),
+                    bytes: bytes.len(),
+                },
+            );
+            (Some(bytes), before)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => (None, BTreeMap::new()),
+        Err(err) => {
+            return Err(ApplyError::PreReadFailed {
+                file_path: relative_path.to_owned(),
+                source: anyhow::Error::from(err),
+            });
+        }
+    };
+
+    // Phase 2: verify (TOCTOU re-check) — only if file existed
+    if let Some(expected_hash) = file_hashes_before
+        .get(relative_path)
+        .map(|h| h.sha256.clone())
+    {
+        let bytes_now = fs::read(&resolved).map_err(|e| ApplyError::PreReadFailed {
+            file_path: relative_path.to_owned(),
+            source: anyhow::Error::from(e),
+        })?;
+        let hash_now = sha256_hex(&bytes_now);
+        if hash_now != expected_hash {
+            return Err(ApplyError::PreApplyHashMismatch {
+                file_path: relative_path.to_owned(),
+                expected: expected_hash,
+                actual: hash_now,
+            });
+        }
+    }
+
+    // Phase 3: write — on failure, restore backup + record rollback
+    if let Err(write_err) = fs::write(&resolved, new_content) {
+        let mut rollback_report: Vec<RollbackEntry> = Vec::new();
+        if let Some(bytes) = backup_bytes.as_ref() {
+            match fs::write(&resolved, bytes) {
+                Ok(()) => rollback_report.push(RollbackEntry {
+                    file_path: relative_path.to_owned(),
+                    restored: true,
+                    reason: None,
+                }),
+                Err(e) => rollback_report.push(RollbackEntry {
+                    file_path: relative_path.to_owned(),
+                    restored: false,
+                    reason: Some(format!("write failed: {e}")),
+                }),
+            }
+        } else {
+            rollback_report.push(RollbackEntry {
+                file_path: relative_path.to_owned(),
+                restored: false,
+                reason: Some("no backup captured (file did not exist before apply)".to_owned()),
+            });
+        }
+        let mut file_hashes_after_rb: BTreeMap<String, FileHash> = BTreeMap::new();
+        if let Ok(bytes) = fs::read(&resolved) {
+            file_hashes_after_rb.insert(
+                relative_path.to_owned(),
+                FileHash {
+                    sha256: sha256_hex(&bytes),
+                    bytes: bytes.len(),
+                },
+            );
+        }
+        return Err(ApplyError::ApplyFailed {
+            source: anyhow::Error::from(write_err),
+            evidence: ApplyEvidence {
+                status: ApplyStatus::RolledBack,
+                file_hashes_before,
+                file_hashes_after: file_hashes_after_rb,
+                rollback_report,
+                modified_files: 0,
+                edit_count: 0,
+            },
+        });
+    }
+
+    // Phase 4: post-hash
+    let mut file_hashes_after: BTreeMap<String, FileHash> = BTreeMap::new();
+    match fs::read(&resolved) {
+        Ok(bytes) => {
+            file_hashes_after.insert(
+                relative_path.to_owned(),
+                FileHash {
+                    sha256: sha256_hex(&bytes),
+                    bytes: bytes.len(),
+                },
+            );
+        }
+        Err(_) => {
+            file_hashes_after.insert(
+                relative_path.to_owned(),
+                FileHash {
+                    sha256: String::new(),
+                    bytes: 0,
+                },
+            );
+        }
+    }
+
+    Ok(ApplyEvidence {
+        status: ApplyStatus::Applied,
+        file_hashes_before,
+        file_hashes_after,
+        rollback_report: Vec::new(),
+        modified_files: 1,
+        edit_count: 1,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,6 +712,32 @@ mod tests {
         let mut restore = std::fs::metadata(&path_b).unwrap().permissions();
         restore.set_mode(0o644);
         let _ = std::fs::set_permissions(&path_b, restore);
+    }
+
+    #[test]
+    fn apply_full_write_happy_returns_evidence() {
+        let project = empty_project();
+        write_file(&project, "doc.txt", "old content\n");
+        let evidence =
+            apply_full_write_with_evidence(&project, "doc.txt", "new content\n").expect("apply ok");
+        assert_eq!(evidence.status, ApplyStatus::Applied);
+        assert_eq!(evidence.modified_files, 1);
+        assert_eq!(evidence.edit_count, 1);
+        assert!(evidence.rollback_report.is_empty());
+        let before = evidence
+            .file_hashes_before
+            .get("doc.txt")
+            .expect("before entry");
+        let after = evidence
+            .file_hashes_after
+            .get("doc.txt")
+            .expect("after entry");
+        assert_ne!(before.sha256, after.sha256);
+        assert_eq!(after.bytes, "new content\n".len());
+        assert_eq!(
+            std::fs::read_to_string(project.resolve("doc.txt").unwrap()).unwrap(),
+            "new content\n"
+        );
     }
 
     #[test]
