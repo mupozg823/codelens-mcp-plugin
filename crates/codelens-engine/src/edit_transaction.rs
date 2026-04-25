@@ -173,10 +173,70 @@ impl WorkspaceEditTransaction {
             backups.insert(resolved, bytes);
         }
 
-        // T4~T6 fill in Phase 2 recheck, Phase 3 apply, Phase 4 post-hash
-        let _ = backups;
-        let _ = file_hashes_before;
-        unimplemented!("apply path T4~T6")
+        // Phase 3: apply via crate::rename::apply_edits
+        if let Err(source) = crate::rename::apply_edits(project, &self.edits) {
+            // T5 will replace this with full rollback logic; for now
+            // wrap in ApplyFailed with empty evidence so the type matches.
+            return Err(ApplyError::ApplyFailed {
+                source,
+                evidence: ApplyEvidence {
+                    status: ApplyStatus::RolledBack,
+                    file_hashes_before,
+                    file_hashes_after: BTreeMap::new(),
+                    rollback_report: Vec::new(),
+                    modified_files: 0,
+                    edit_count: 0,
+                },
+            });
+        }
+
+        // Phase 4: capture post-apply state
+        let mut file_hashes_after: BTreeMap<String, FileHash> = BTreeMap::new();
+        for file_path in self.unique_file_paths() {
+            let resolved = match project.resolve(&file_path) {
+                Ok(path) => path,
+                Err(_) => {
+                    file_hashes_after.insert(
+                        file_path.clone(),
+                        FileHash {
+                            sha256: String::new(),
+                            bytes: 0,
+                        },
+                    );
+                    continue;
+                }
+            };
+            match fs::read(&resolved) {
+                Ok(bytes) => {
+                    file_hashes_after.insert(
+                        file_path.clone(),
+                        FileHash {
+                            sha256: sha256_hex(&bytes),
+                            bytes: bytes.len(),
+                        },
+                    );
+                }
+                Err(_) => {
+                    file_hashes_after.insert(
+                        file_path.clone(),
+                        FileHash {
+                            sha256: String::new(),
+                            bytes: 0,
+                        },
+                    );
+                }
+            }
+        }
+
+        let _ = &backups;
+        Ok(ApplyEvidence {
+            status: ApplyStatus::Applied,
+            file_hashes_before,
+            file_hashes_after,
+            rollback_report: Vec::new(),
+            modified_files: self.modified_files,
+            edit_count: self.edit_count,
+        })
     }
 }
 
@@ -255,5 +315,84 @@ mod tests {
             "expected PreReadFailed for missing.txt, got {:?}",
             result.err()
         );
+    }
+
+    fn write_file(project: &ProjectRoot, name: &str, content: &str) -> PathBuf {
+        let resolved = project.resolve(name).unwrap();
+        std::fs::create_dir_all(resolved.parent().unwrap()).ok();
+        std::fs::write(&resolved, content).unwrap();
+        resolved
+    }
+
+    #[test]
+    fn happy_path_two_files_apply_succeeds_with_evidence() {
+        let project = empty_project();
+        write_file(&project, "a.txt", "alpha\n");
+        write_file(&project, "b.txt", "beta\n");
+        let tx = WorkspaceEditTransaction::new(
+            vec![
+                RenameEdit {
+                    file_path: "a.txt".to_owned(),
+                    line: 1,
+                    column: 1,
+                    old_text: "alpha".to_owned(),
+                    new_text: "ALPHA".to_owned(),
+                },
+                RenameEdit {
+                    file_path: "b.txt".to_owned(),
+                    line: 1,
+                    column: 1,
+                    old_text: "beta".to_owned(),
+                    new_text: "BETA".to_owned(),
+                },
+            ],
+            vec![],
+        );
+        let evidence = tx
+            .apply_with_evidence(&project)
+            .expect("happy path apply ok");
+        assert_eq!(evidence.status, ApplyStatus::Applied);
+        assert_eq!(evidence.file_hashes_before.len(), 2);
+        assert_eq!(evidence.file_hashes_after.len(), 2);
+        assert!(evidence.rollback_report.is_empty());
+        assert_eq!(evidence.modified_files, 2);
+        assert_eq!(evidence.edit_count, 2);
+        for (path, before) in &evidence.file_hashes_before {
+            let after = evidence
+                .file_hashes_after
+                .get(path)
+                .expect("after entry exists");
+            assert_ne!(before.sha256, after.sha256, "hash for {path} should differ");
+        }
+        assert_eq!(
+            std::fs::read_to_string(project.resolve("a.txt").unwrap()).unwrap(),
+            "ALPHA\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(project.resolve("b.txt").unwrap()).unwrap(),
+            "BETA\n"
+        );
+    }
+
+    #[test]
+    fn pre_apply_hash_is_deterministic_for_same_input() {
+        let project = empty_project();
+        write_file(&project, "x.txt", "stable\n");
+        let tx_a = WorkspaceEditTransaction::new(
+            vec![RenameEdit {
+                file_path: "x.txt".to_owned(),
+                line: 1,
+                column: 1,
+                old_text: "stable".to_owned(),
+                new_text: "stable".to_owned(),
+            }],
+            vec![],
+        );
+        let ev_a = tx_a.apply_with_evidence(&project).unwrap();
+        let tx_b = tx_a.clone();
+        let ev_b = tx_b.apply_with_evidence(&project).unwrap();
+        let hash_a = &ev_a.file_hashes_before["x.txt"].sha256;
+        let hash_b = &ev_b.file_hashes_before["x.txt"].sha256;
+        assert_eq!(hash_a, hash_b);
     }
 }
