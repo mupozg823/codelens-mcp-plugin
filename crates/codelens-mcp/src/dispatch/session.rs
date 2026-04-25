@@ -109,11 +109,68 @@ pub(super) fn apply_post_mutation(
     if let Err(error) = state.record_mutation_audit(name, active_surface, arguments, session) {
         warn!(tool = name, error = %error, "failed to write mutation audit event");
     }
+    record_audit_outcome(state, name, arguments, session);
     if !session.is_local() {
         tracing::info!(
             tool = name,
             session_id = session.session_id.as_str(),
             "mutation completed for trusted session"
+        );
+    }
+}
+
+/// ADR-0009 §2 + §3: write a single row to the durable audit_sink
+/// describing the outcome of a successful mutation. For Phase 2-B this
+/// uses placeholder state values (`Applying` → `Audited` and apply
+/// status `applied`); the lifecycle state machine and rolled_back /
+/// failed branches land in P2-D once handlers expose evidence to
+/// dispatch.
+///
+/// Failures here are logged at warn but never propagated — losing one
+/// audit row must not break the call. The legacy jsonl sink in
+/// `mutation_audit.rs` still captures the intent record.
+fn record_audit_outcome(
+    state: &AppState,
+    name: &str,
+    arguments: &serde_json::Value,
+    session: &crate::session_context::SessionRequestContext,
+) {
+    let Some(sink) = state.audit_sink() else {
+        return;
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let args_hash = crate::audit_sink::canonical_sha256_hex(arguments);
+    // Transaction id derives from session + tool + args_hash + ts so
+    // distinct calls of the same tool+args yield distinct ids while
+    // a future state-machine transition for the same call can reuse
+    // it (P2-D wires this through dispatch context).
+    let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
+    let record = crate::audit_sink::AuditRecord {
+        transaction_id,
+        timestamp_ms: now_ms,
+        // Phase 2-C populates this from the resolved principal binding.
+        principal: None,
+        tool: name.to_owned(),
+        args_hash,
+        apply_status: "applied".to_owned(),
+        // Phase 2-D will set the actual previous state by querying the
+        // sink for the same transaction_id.
+        state_from: Some("Applying".to_owned()),
+        state_to: "Audited".to_owned(),
+        // Phase 2-D + handler-level evidence threading lands the real
+        // hash; for P2-B this stays None as a deliberate marker.
+        evidence_hash: None,
+        rollback_restored: None,
+        error_message: None,
+    };
+    if let Err(error) = sink.write(&record) {
+        warn!(
+            tool = name,
+            error = %error,
+            "failed to write audit_sink outcome row"
         );
     }
 }

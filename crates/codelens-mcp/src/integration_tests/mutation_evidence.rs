@@ -127,6 +127,56 @@ fn add_import_tool_response_includes_evidence() {
     );
 }
 
+/// ADR-0009 §2 (P2-B wiring): a successful mutation tool call writes
+/// exactly one row to the durable audit_sink (SQLite) with
+/// `apply_status="applied"`, transition `Applying → Audited`, and a
+/// `transaction_id` derived from session + tool + args_hash. The legacy
+/// jsonl audit (`mutation_audit.rs`) still runs in parallel; this test
+/// only asserts the new SQLite path.
+#[test]
+fn create_text_file_writes_audit_sink_row() {
+    let project = project_root();
+    let state = make_state(&project);
+    let _ = call_tool(
+        &state,
+        "create_text_file",
+        json!({
+            "relative_path": "audit_evidence_target.txt",
+            "content": "audit-row-proof\n",
+            "overwrite": false,
+        }),
+    );
+    let sink = state
+        .audit_sink()
+        .expect("audit_sink must be available for default project");
+    let rows = sink
+        .query(None, None, 100)
+        .expect("audit_sink query should succeed");
+    let matching: Vec<_> = rows
+        .into_iter()
+        .filter(|r| r.tool == "create_text_file")
+        .collect();
+    assert_eq!(
+        matching.len(),
+        1,
+        "expected exactly 1 audit row for create_text_file, got {}",
+        matching.len()
+    );
+    let row = &matching[0];
+    assert_eq!(row.apply_status, "applied");
+    assert_eq!(row.state_from.as_deref(), Some("Applying"));
+    assert_eq!(row.state_to, "Audited");
+    assert!(
+        !row.transaction_id.is_empty(),
+        "transaction_id must be populated"
+    );
+    assert!(
+        !row.args_hash.is_empty(),
+        "args_hash must be populated (canonical sha256)"
+    );
+    assert_eq!(row.args_hash.len(), 64, "sha256 hex is 64 chars");
+}
+
 /// M5: Hybrid rollback contract — when fs::write fails, response is Ok
 /// (not Err) with apply_status="rolled_back" and error_message synthesised
 /// from rollback_report[].reason.
