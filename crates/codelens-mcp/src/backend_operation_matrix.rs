@@ -1,4 +1,7 @@
-use serde_json::{Value, json};
+use serde_json::{json, Value};
+
+pub(crate) const TREE_SITTER_RENAME_BLOCKER_REASON: &str =
+    "tree-sitter rename is preview-only; select semantic_edit_backend=lsp (or jetbrains/roslyn) to apply";
 
 pub(crate) struct ProductCapabilityRegistry;
 
@@ -33,7 +36,7 @@ fn semantic_edit_operation_descriptors() -> Vec<Value> {
             can_apply: false,
             verified: true,
             required_methods: json!([]),
-            blocker_reason: "tree-sitter rename is syntax-scoped evidence; semantic apply requires LSP/compiler authority",
+            blocker_reason: TREE_SITTER_RENAME_BLOCKER_REASON,
         }),
         operation_descriptor(OperationDescriptorSpec {
             operation: "rename",

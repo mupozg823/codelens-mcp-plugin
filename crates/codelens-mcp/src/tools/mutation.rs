@@ -1,4 +1,5 @@
 use super::{required_string, success_meta, AppState, ToolResult};
+use crate::backend_operation_matrix::TREE_SITTER_RENAME_BLOCKER_REASON;
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::{
@@ -70,9 +71,7 @@ pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolRes
     // Phase 0 G2: tree-sitter rename is preview-only — fail-closed on apply attempts.
     if !dry_run_requested {
         return Err(CodeLensError::Validation(
-            "tree-sitter rename is preview-only; \
-             select semantic_edit_backend=lsp (or jetbrains/roslyn) to apply"
-                .into(),
+            TREE_SITTER_RENAME_BLOCKER_REASON.into(),
         ));
     }
 
@@ -94,10 +93,7 @@ pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         obj.insert("support".to_owned(), json!("syntax_preview"));
         obj.insert(
             "blocker_reason".to_owned(),
-            json!(
-                "tree-sitter rename is preview-only; \
-                 select semantic_edit_backend=lsp (or jetbrains/roslyn) to apply"
-            ),
+            json!(TREE_SITTER_RENAME_BLOCKER_REASON),
         );
         obj.insert(
             "edit_authority".to_owned(),
