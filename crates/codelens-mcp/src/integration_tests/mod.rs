@@ -25,6 +25,7 @@ mod coordination;
 mod lsp;
 mod memory;
 mod mutation;
+mod mutation_envelope;
 mod protocol;
 mod readonly;
 mod registry;

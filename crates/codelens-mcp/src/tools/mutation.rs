@@ -1,4 +1,4 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::{
@@ -6,7 +6,33 @@ use codelens_engine::{
     insert_at_line, insert_before_symbol, rename, replace_content, replace_lines,
     replace_symbol_body,
 };
-use serde_json::json;
+use serde_json::{json, Value};
+
+/// Envelope advertising that this is a raw filesystem mutation with no semantic authority.
+/// Agents that read these fields know "syntax-level edit, no LSP/compiler verification".
+fn raw_fs_envelope(operation: &str) -> Value {
+    json!({
+        "authority": "syntax",
+        "can_preview": true,
+        "can_apply": true,
+        "edit_authority": {
+            "kind": "raw_fs",
+            "operation": operation,
+            "validator": Value::Null,
+        }
+    })
+}
+
+/// Merge `raw_fs_envelope(operation)` fields into an existing JSON object.
+fn merge_raw_fs_envelope(mut value: Value, operation: &str) -> Value {
+    let envelope = raw_fs_envelope(operation);
+    if let (Some(target), Some(source)) = (value.as_object_mut(), envelope.as_object()) {
+        for (k, v) in source {
+            target.insert(k.clone(), v.clone());
+        }
+    }
+    value
+}
 
 pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     match crate::tools::semantic_edit::selected_backend(arguments)? {
@@ -62,7 +88,7 @@ pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) ->
     Ok(
         create_text_file(&state.project(), relative_path, content, overwrite).map(|_| {
             (
-                json!({ "created": relative_path }),
+                merge_raw_fs_envelope(json!({ "created": relative_path }), "create_text_file"),
                 success_meta(BackendKind::Filesystem, 1.0),
             )
         })?,
@@ -83,7 +109,7 @@ pub fn delete_lines_tool(state: &AppState, arguments: &serde_json::Value) -> Too
     Ok(
         delete_lines(&state.project(), relative_path, start_line, end_line).map(|content| {
             (
-                json!({ "content": content }),
+                merge_raw_fs_envelope(json!({ "content": content }), "delete_lines"),
                 success_meta(BackendKind::Filesystem, 1.0),
             )
         })?,
@@ -100,7 +126,7 @@ pub fn insert_at_line_tool(state: &AppState, arguments: &serde_json::Value) -> T
     Ok(
         insert_at_line(&state.project(), relative_path, line, content).map(|modified| {
             (
-                json!({ "content": modified }),
+                merge_raw_fs_envelope(json!({ "content": modified }), "insert_at_line"),
                 success_meta(BackendKind::Filesystem, 1.0),
             )
         })?,
@@ -128,7 +154,7 @@ pub fn replace_lines_tool(state: &AppState, arguments: &serde_json::Value) -> To
     )
     .map(|content| {
         (
-            json!({ "content": content }),
+            merge_raw_fs_envelope(json!({ "content": content }), "replace_lines"),
             success_meta(BackendKind::Filesystem, 1.0),
         )
     })?)
@@ -151,7 +177,10 @@ pub fn replace_content_tool(state: &AppState, arguments: &serde_json::Value) -> 
     )
     .map(|(content, count)| {
         (
-            json!({ "content": content, "replacements": count }),
+            merge_raw_fs_envelope(
+                json!({ "content": content, "replacements": count }),
+                "replace_content",
+            ),
             success_meta(BackendKind::Filesystem, 1.0),
         )
     })?)
@@ -171,7 +200,7 @@ pub fn replace_symbol_body_tool(state: &AppState, arguments: &serde_json::Value)
     )
     .map(|content| {
         (
-            json!({ "content": content }),
+            merge_raw_fs_envelope(json!({ "content": content }), "replace_symbol_body"),
             success_meta(BackendKind::TreeSitter, 0.95),
         )
     })?)
@@ -191,7 +220,7 @@ pub fn insert_before_symbol_tool(state: &AppState, arguments: &serde_json::Value
     )
     .map(|modified| {
         (
-            json!({ "content": modified }),
+            merge_raw_fs_envelope(json!({ "content": modified }), "insert_before_symbol"),
             success_meta(BackendKind::TreeSitter, 0.95),
         )
     })?)
@@ -211,7 +240,7 @@ pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value)
     )
     .map(|modified| {
         (
-            json!({ "content": modified }),
+            merge_raw_fs_envelope(json!({ "content": modified }), "insert_after_symbol"),
             success_meta(BackendKind::TreeSitter, 0.95),
         )
     })?)
@@ -254,7 +283,10 @@ pub fn add_import_tool(state: &AppState, arguments: &serde_json::Value) -> ToolR
     Ok(
         add_import(&state.project(), file_path, import_statement).map(|content| {
             (
-                json!({"success": true, "file_path": file_path, "content_length": content.len()}),
+                merge_raw_fs_envelope(
+                    json!({"success": true, "file_path": file_path, "content_length": content.len()}),
+                    "add_import",
+                ),
                 success_meta(BackendKind::Filesystem, 1.0),
             )
         })?,
