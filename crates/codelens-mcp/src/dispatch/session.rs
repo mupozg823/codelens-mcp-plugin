@@ -82,6 +82,31 @@ fn inject_transaction_id(payload: &mut serde_json::Value, transaction_id: &str) 
     }
 }
 
+/// P2-E: inject the list of file paths whose engine caches were
+/// invalidated by this mutation. Mirrors the placement rules of
+/// [`inject_transaction_id`]: prefer `payload.data.invalidated_paths`,
+/// fall back to `payload.invalidated_paths`. Existing entries are not
+/// overwritten so handlers that already populate the field (e.g.
+/// future multi-file workflows) keep their own value. An empty `paths`
+/// vec still surfaces an empty array — the response contract is "if
+/// you mutated, you tell the caller which files moved" and an empty
+/// list is the honest answer for, say, a no-op rewrite.
+fn inject_invalidated_paths(payload: &mut serde_json::Value, paths: &[String]) {
+    let value = serde_json::Value::Array(
+        paths
+            .iter()
+            .map(|p| serde_json::Value::String(p.clone()))
+            .collect(),
+    );
+    if let Some(data) = payload.get_mut("data").and_then(|v| v.as_object_mut()) {
+        data.entry("invalidated_paths".to_owned()).or_insert(value);
+        return;
+    }
+    if let Some(obj) = payload.as_object_mut() {
+        obj.entry("invalidated_paths".to_owned()).or_insert(value);
+    }
+}
+
 /// Apply graph invalidation, symbol reindex, embedding reindex, audit,
 /// and transaction_id surfacing after a successful content-mutation
 /// tool call.
@@ -96,14 +121,27 @@ pub(super) fn apply_post_mutation(
     state.graph_cache().invalidate();
     state.clear_recent_preflights();
 
+    // P2-E: collect the file paths whose caches were invalidated so we
+    //        can surface them in the response (`invalidated_paths`).
+    let mut invalidated_paths: Vec<String> = Vec::new();
+
     // Incremental reindex: refresh symbol DB + embedding index for the mutated file.
     if let Some(fp) = arguments
         .get("file_path")
         .or_else(|| arguments.get("relative_path"))
         .and_then(|v| v.as_str())
     {
+        invalidated_paths.push(fp.to_owned());
         if let Err(e) = state.symbol_index().refresh_file(fp) {
             tracing::debug!(file = fp, error = %e, "incremental symbol reindex failed");
+        }
+        // P2-E: BM25/FTS uses `content=symbols` external-content
+        //        storage; mutating `symbols` does not auto-update the
+        //        FTS shadow table, so the next BM25 search would see
+        //        stale results until the lazy rebuild trigger fires.
+        //        Invalidate the meta marker so the next search rebuilds.
+        if let Err(e) = state.symbol_index().db().invalidate_fts() {
+            tracing::debug!(file = fp, error = %e, "BM25/FTS invalidation failed");
         }
         // Refresh embedding index if it is active or an on-disk index already exists.
         #[cfg(feature = "semantic")]
@@ -146,6 +184,7 @@ pub(super) fn apply_post_mutation(
     record_audit_outcome(state, name, arguments, session, payload);
     let transaction_id = transaction_id_for(session, name, arguments);
     inject_transaction_id(payload, &transaction_id);
+    inject_invalidated_paths(payload, &invalidated_paths);
     if !session.is_local() {
         tracing::info!(
             tool = name,
@@ -381,6 +420,41 @@ mod tests {
         let mut scalar = json!("just a string");
         inject_transaction_id(&mut scalar, "tx-123");
         assert_eq!(scalar, json!("just a string"));
+    }
+
+    #[test]
+    fn inject_invalidated_paths_into_data_subobject() {
+        let mut payload = json!({ "data": { "apply_status": "applied" } });
+        inject_invalidated_paths(&mut payload, &["src/foo.rs".to_owned()]);
+        assert_eq!(payload["data"]["invalidated_paths"], json!(["src/foo.rs"]));
+    }
+
+    #[test]
+    fn inject_invalidated_paths_empty_list_still_surfaces() {
+        // Empty list is not a no-op — it tells the agent "no caches
+        // moved" rather than "the field was forgotten".
+        let mut payload = json!({ "data": {} });
+        inject_invalidated_paths(&mut payload, &[]);
+        assert_eq!(payload["data"]["invalidated_paths"], json!([]));
+    }
+
+    #[test]
+    fn inject_invalidated_paths_does_not_overwrite_existing() {
+        let mut payload = json!({
+            "data": { "invalidated_paths": ["handler/owned.rs"] }
+        });
+        inject_invalidated_paths(&mut payload, &["dispatch/added.rs".to_owned()]);
+        assert_eq!(
+            payload["data"]["invalidated_paths"],
+            json!(["handler/owned.rs"])
+        );
+    }
+
+    #[test]
+    fn inject_invalidated_paths_falls_back_to_root_when_no_data() {
+        let mut payload = json!({ "apply_status": "applied" });
+        inject_invalidated_paths(&mut payload, &["src/x.rs".to_owned()]);
+        assert_eq!(payload["invalidated_paths"], json!(["src/x.rs"]));
     }
 }
 
