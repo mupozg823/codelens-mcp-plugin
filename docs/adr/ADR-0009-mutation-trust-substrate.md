@@ -96,28 +96,39 @@ Store: `<project>/.codelens/audit_log.sqlite`. Single append-only table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS audit_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    transaction_id  TEXT NOT NULL,
-    timestamp_ms    INTEGER NOT NULL,
-    principal       TEXT,
-    tool            TEXT NOT NULL,
-    args_hash       TEXT NOT NULL,         -- sha256 of canonicalised args JSON
-    apply_status    TEXT NOT NULL,         -- enum: see §3 transition table
-    state_from      TEXT,                  -- previous state, NULL for first row
-    state_to        TEXT NOT NULL,         -- new state
-    evidence_hash   TEXT,                  -- sha256 of ApplyEvidence JSON, NULL if N/A
-    rollback_restored INTEGER,             -- 0/1 if status=rolled_back, else NULL
-    error_message   TEXT
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id    TEXT NOT NULL,
+    timestamp_ms      INTEGER NOT NULL,
+    principal         TEXT,
+    tool              TEXT NOT NULL,
+    args_hash         TEXT NOT NULL,         -- sha256 of canonicalised args JSON
+    apply_status      TEXT NOT NULL,         -- enum: see §3 transition table
+    state_from        TEXT,                  -- previous state, NULL for first row
+    state_to          TEXT NOT NULL,         -- new state
+    evidence_hash     TEXT,                  -- sha256 of ApplyEvidence JSON, NULL if N/A
+    rollback_restored INTEGER,               -- 0/1 if status=rolled_back, else NULL
+    error_message     TEXT,
+    session_metadata  TEXT                   -- JSON: project_scope/surface/client_name/...
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_tx ON audit_log(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(timestamp_ms);
 ```
 
-Rotation: rows older than `CODELENS_AUDIT_RETENTION_DAYS` (default 90)
-are gzip-archived to `<project>/.codelens/audit_archive/` on startup.
-File never exceeds ~50 MB before rotation triggers a
-`VACUUM INTO new_path; mv` swap.
+`session_metadata` is the carve-out that absorbed the legacy
+`mutation-audit.jsonl` intent record (Phase 2 close part 4): operators
+get one queryable store instead of two. The migration from v1 to v2
+adds the column in place; existing audit logs round-trip without data
+loss.
+
+Retention: on every `AuditSink::open` (i.e. once per `AppState`
+lifetime — first call to `audit_sink()`), rows older than
+`CODELENS_AUDIT_RETENTION_DAYS` (default 90) are deleted and the
+file is `VACUUM`-ed. Setting the env var to `0` or any negative
+integer disables retention. gzip archival to a sibling
+`audit_archive/` directory was scoped out — the immediate need is
+disk-fill protection; cold-archive shipping is left to operators
+(rsync / S3 sync of the SQLite file).
 
 Write API (engine or mcp module — see §6):
 

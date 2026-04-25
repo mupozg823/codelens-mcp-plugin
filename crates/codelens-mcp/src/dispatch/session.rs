@@ -64,6 +64,26 @@ pub(super) fn transaction_id_for(
     format!("{}-{}-{}", session.session_id, tool, &args_hash[..16])
 }
 
+/// Capture the per-call session metadata that used to live in the
+/// retired jsonl intent record. Stored as JSON inside the audit_log
+/// `session_metadata` column — operators can query the trail without
+/// joining a second store.
+pub(super) fn session_metadata_for(
+    state: &AppState,
+    session: &crate::session_context::SessionRequestContext,
+    active_surface: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "project_scope": state.current_project_scope(),
+        "surface": active_surface,
+        "daemon_mode": state.daemon_mode().as_str(),
+        "trusted_client": session.trusted_client,
+        "requested_profile": session.requested_profile,
+        "client_name": session.client_name,
+        "client_version": session.client_version,
+    })
+}
+
 /// L3: inject `transaction_id` into the response payload so the agent
 /// can use it as the lookup key for `audit_log_query` (P2-F). The id
 /// is added to `payload.data.transaction_id` when `data` is an object;
@@ -178,10 +198,7 @@ pub(super) fn apply_post_mutation(
         }
     }
 
-    if let Err(error) = state.record_mutation_audit(name, active_surface, arguments, session) {
-        warn!(tool = name, error = %error, "failed to write mutation audit event");
-    }
-    record_audit_outcome(state, name, arguments, session, payload);
+    record_audit_outcome(state, name, arguments, session, active_surface, payload);
     let transaction_id = transaction_id_for(session, name, arguments);
     inject_transaction_id(payload, &transaction_id);
     inject_invalidated_paths(payload, &invalidated_paths);
@@ -209,13 +226,13 @@ pub(super) fn apply_post_mutation(
 /// verify replay equivalence without storing user content.
 ///
 /// Failures here are logged at warn but never propagated — losing one
-/// audit row must not break the call. The legacy jsonl sink in
-/// `mutation_audit.rs` still captures the intent record.
+/// audit row must not break the call.
 fn record_audit_outcome(
     state: &AppState,
     name: &str,
     arguments: &serde_json::Value,
     session: &crate::session_context::SessionRequestContext,
+    active_surface: &str,
     payload: &serde_json::Value,
 ) {
     let Some(sink) = state.audit_sink() else {
@@ -285,6 +302,7 @@ fn record_audit_outcome(
         None
     };
 
+    let session_metadata = Some(session_metadata_for(state, session, active_surface));
     let record = crate::audit_sink::AuditRecord {
         transaction_id,
         timestamp_ms: now_ms,
@@ -302,6 +320,7 @@ fn record_audit_outcome(
         evidence_hash,
         rollback_restored,
         error_message,
+        session_metadata,
     };
     if let Err(error) = sink.write(&record) {
         warn!(
@@ -323,6 +342,7 @@ pub(super) fn record_audit_failure(
     name: &str,
     arguments: &serde_json::Value,
     session: &crate::session_context::SessionRequestContext,
+    active_surface: &str,
     error: &crate::error::CodeLensError,
 ) {
     let Some(sink) = state.audit_sink() else {
@@ -334,6 +354,7 @@ pub(super) fn record_audit_failure(
         .unwrap_or(0);
     let args_hash = crate::audit_sink::canonical_sha256_hex(arguments);
     let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
+    let session_metadata = Some(session_metadata_for(state, session, active_surface));
     let record = crate::audit_sink::AuditRecord {
         transaction_id,
         timestamp_ms: now_ms,
@@ -354,6 +375,7 @@ pub(super) fn record_audit_failure(
         evidence_hash: None,
         rollback_restored: None,
         error_message: Some(error.to_string()),
+        session_metadata,
     };
     if let Err(io_err) = sink.write(&record) {
         warn!(

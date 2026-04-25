@@ -309,14 +309,12 @@ impl AppState {
     }
 
     /// ADR-0009 §2: lazy accessor for the durable audit sink. The first
-    /// caller pays the SQLite open cost (creates schema if absent); all
-    /// subsequent calls share the same `Arc`. Failure to open returns
-    /// `None` so dispatch never fails on audit alone — the failure is
-    /// logged and the legacy jsonl audit (`mutation_audit.rs`) still
-    /// runs. Multi-project: this binds to whichever `audit_dir()` is
-    /// active at first access, and caches that. Re-targeting on
-    /// project activation is deferred to Phase 2-C; for the
-    /// single-project default path this is correct.
+    /// caller pays the SQLite open cost (creates schema if absent + runs
+    /// retention sweep); all subsequent calls share the same `Arc`.
+    /// Failure to open returns `None` so dispatch never fails on audit
+    /// alone — the failure is logged and the call proceeds. Multi-project:
+    /// binds to whichever `audit_dir()` is active at first access and
+    /// caches that.
     pub(crate) fn audit_sink(&self) -> Option<Arc<crate::audit_sink::AuditSink>> {
         if let Some(existing) = self.audit_sink.get() {
             return Some(Arc::clone(existing));
@@ -324,6 +322,7 @@ impl AppState {
         let dir = self.audit_dir();
         match crate::audit_sink::AuditSink::open(&dir) {
             Ok(sink) => {
+                run_audit_retention_sweep(&sink);
                 let arc = Arc::new(sink);
                 // OnceLock::set returns Err if another thread won the race;
                 // either way the get() afterwards yields the winning Arc.
@@ -787,6 +786,53 @@ pub(crate) fn extract_symbol_hint(arguments: &Value) -> Option<String> {
         }
     }
     None
+}
+
+/// ADR-0009 §2: prune audit rows older than the retention window.
+/// Runs once per `AuditSink::open` (i.e. on the first call to
+/// `audit_sink()` per AppState lifetime). The window is controlled
+/// by `CODELENS_AUDIT_RETENTION_DAYS`:
+/// - unset → 90 days (ADR default)
+/// - `0` or negative → retention disabled, no rows pruned
+/// - any positive integer → rows older than that many days deleted
+///
+/// Failures (parse / SQL) are logged at warn and never propagated;
+/// the audit sink stays usable even if the prune step misfires.
+fn run_audit_retention_sweep(sink: &crate::audit_sink::AuditSink) {
+    let days = std::env::var("CODELENS_AUDIT_RETENTION_DAYS")
+        .ok()
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .unwrap_or(90);
+    if days <= 0 {
+        tracing::debug!(
+            "CODELENS_AUDIT_RETENTION_DAYS={days} — audit retention disabled"
+        );
+        return;
+    }
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let cutoff_ms = now_ms.saturating_sub(days.saturating_mul(86_400_000));
+    match sink.prune_older_than(cutoff_ms) {
+        Ok(0) => {
+            tracing::debug!(retention_days = days, "audit retention sweep — no rows pruned");
+        }
+        Ok(removed) => {
+            tracing::info!(
+                retention_days = days,
+                pruned_rows = removed,
+                "audit retention sweep removed {removed} rows"
+            );
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                retention_days = days,
+                "audit retention sweep failed — sink remains usable"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

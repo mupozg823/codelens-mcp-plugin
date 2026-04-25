@@ -198,9 +198,19 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
     let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
     let text = envelope["result"]["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("\"success\": true") || text.contains("\"success\":true"));
-    let audit_path = state.audit_dir().join("mutation-audit.jsonl");
-    let audit_body = std::fs::read_to_string(audit_path).unwrap();
-    assert!(audit_body.contains("\"trusted_client\":true"));
-    assert!(audit_body.contains("\"requested_profile\":\"refactor-full\""));
-    assert!(audit_body.contains("\"client_name\":\"HarnessQA\""));
+    // Phase 2 close part 4: jsonl intent log retired — the same
+    // metadata now lives in the audit_sink session_metadata column.
+    let sink = state.audit_sink().expect("audit_sink available");
+    let rows = sink.query(None, None, 100).expect("query");
+    let row = rows
+        .iter()
+        .find(|r| r.tool == "create_text_file")
+        .expect("create_text_file row in audit_sink");
+    let metadata = row
+        .session_metadata
+        .as_ref()
+        .expect("session_metadata captured");
+    assert_eq!(metadata["trusted_client"], serde_json::json!(true));
+    assert_eq!(metadata["requested_profile"], serde_json::json!("refactor-full"));
+    assert_eq!(metadata["client_name"], serde_json::json!("HarnessQA"));
 }

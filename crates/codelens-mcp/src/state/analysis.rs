@@ -1,12 +1,11 @@
 use serde_json::Value;
 
-use crate::analysis_queue::{AnalysisJobRequest, AnalysisWorkerQueue, analysis_job_cost_units};
+use crate::analysis_queue::{analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue};
 use crate::error::CodeLensError;
 use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisSummary, AnalysisVerifierCheck,
     JobLifecycle,
 };
-use crate::{mutation_audit, session_context};
 
 use super::AppState;
 
@@ -148,25 +147,6 @@ impl AppState {
             analysis_id,
             error,
             Some(scope),
-        )
-    }
-
-    pub(crate) fn record_mutation_audit(
-        &self,
-        tool: &str,
-        surface: &str,
-        arguments: &serde_json::Value,
-        session: &session_context::SessionRequestContext,
-    ) -> Result<(), CodeLensError> {
-        mutation_audit::record_mutation_audit(
-            &self.audit_dir(),
-            Self::now_ms(),
-            &self.current_project_scope(),
-            self.daemon_mode().as_str(),
-            surface,
-            tool,
-            arguments,
-            session,
         )
     }
 

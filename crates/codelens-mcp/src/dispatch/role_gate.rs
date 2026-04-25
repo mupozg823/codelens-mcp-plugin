@@ -28,6 +28,7 @@ pub(super) fn enforce_role_gate(
     name: &str,
     arguments: &Value,
     session: &SessionRequestContext,
+    active_surface: &str,
 ) -> Result<(), CodeLensError> {
     let required = required_role_for(name);
     let principal_id = resolve_principal_id(session);
@@ -40,6 +41,7 @@ pub(super) fn enforce_role_gate(
         name,
         arguments,
         session,
+        active_surface,
         principal_id.as_deref(),
         principal_role,
         required,
@@ -52,11 +54,13 @@ pub(super) fn enforce_role_gate(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_denied_audit_row(
     state: &AppState,
     name: &str,
     arguments: &Value,
     session: &SessionRequestContext,
+    active_surface: &str,
     principal_id: Option<&str>,
     principal_role: Role,
     required_role: Role,
@@ -74,6 +78,11 @@ fn record_denied_audit_row(
     // the denied attempt against later retry attempts of the same
     // call.
     let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
+    let session_metadata = Some(super::session::session_metadata_for(
+        state,
+        session,
+        active_surface,
+    ));
     let record = AuditRecord {
         transaction_id,
         timestamp_ms: now_ms,
@@ -90,6 +99,7 @@ fn record_denied_audit_row(
             principal_role.as_str(),
             required_role.as_str()
         )),
+        session_metadata,
     };
     if let Err(error) = sink.write(&record) {
         tracing::warn!(

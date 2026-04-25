@@ -3478,6 +3478,9 @@ fn foreign_project_scoped_job_file_is_ignored() {
 
 #[test]
 fn mutation_tools_write_audit_log() {
+    // Phase 2 close part 4: jsonl intent log retired. The sqlite
+    // audit_sink absorbs the same per-call metadata via the new
+    // session_metadata column.
     let project = project_root();
     let state = make_state(&project);
     let payload = call_tool(
@@ -3487,15 +3490,21 @@ fn mutation_tools_write_audit_log() {
     );
     assert_eq!(payload["success"], json!(true));
 
-    let audit_path = project
-        .as_path()
-        .join(".codelens")
-        .join("audit")
-        .join("mutation-audit.jsonl");
-    let audit = fs::read_to_string(audit_path).unwrap();
-    let event: serde_json::Value = serde_json::from_str(audit.lines().last().unwrap()).unwrap();
-    assert_eq!(event["tool"], json!("create_text_file"));
-    assert_eq!(event["project_scope"], json!(state.current_project_scope()));
+    let sink = state.audit_sink().expect("audit sink available");
+    let rows = sink.query(None, None, 100).expect("query rows");
+    let row = rows
+        .iter()
+        .find(|r| r.tool == "create_text_file")
+        .expect("create_text_file row");
+    let metadata = row
+        .session_metadata
+        .as_ref()
+        .expect("session_metadata captured");
+    assert_eq!(
+        metadata["project_scope"],
+        json!(state.current_project_scope()),
+        "project_scope must round-trip through session_metadata, got {metadata}"
+    );
 }
 
 #[test]
