@@ -1,5 +1,3 @@
-#![cfg(feature = "http")]
-
 use axum::http::HeaderMap;
 use jsonwebtoken::jwk::{Jwk, JwkSet, KeyAlgorithm};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
@@ -22,16 +20,17 @@ impl StaticJwks {
     }
 }
 
-#[derive(Debug, Clone)]
+/// Box<JwksAuthConfig> would equalise variant size, but the enum is
+/// constructed once at server startup and stored in Arc<HttpAuthState>;
+/// the Off variant is rarely chosen in production and the per-request
+/// match cost is dwarfed by jsonwebtoken validation. `#[allow]` instead
+/// of boxing keeps construction code straightforward.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Default)]
 pub(crate) enum HttpAuthConfig {
+    #[default]
     Off,
     Jwks(JwksAuthConfig),
-}
-
-impl Default for HttpAuthConfig {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 impl HttpAuthConfig {

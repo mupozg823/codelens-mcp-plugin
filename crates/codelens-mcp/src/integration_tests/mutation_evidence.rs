@@ -11,6 +11,19 @@
 
 use super::*;
 
+/// Tests that mutate the `CODELENS_PRINCIPAL` env var must hold this
+/// guard. `unsafe { env::set_var(...) }` is process-global, so two
+/// such tests running in parallel race on the snapshot the role gate /
+/// audit_sink read. The mutex serialises only the env-mutating
+/// section; tests that do not touch the env are unaffected.
+fn principal_env_guard() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[test]
 fn replace_lines_tool_response_includes_evidence() {
     let project = project_root();
@@ -135,6 +148,7 @@ fn add_import_tool_response_includes_evidence() {
 /// the new fields.
 #[test]
 fn audit_outcome_row_carries_evidence_hash_and_correct_terminal_state() {
+    let _guard = principal_env_guard();
     let project = project_root();
     let saved_principal = std::env::var("CODELENS_PRINCIPAL").ok();
     unsafe {
@@ -249,6 +263,7 @@ fn audit_failure_row_recorded_for_error_response() {
 /// if the gate ever defaulted to `ReadOnly`.
 #[test]
 fn role_gate_denies_mutation_for_read_only_principal() {
+    let _guard = principal_env_guard();
     use crate::audit_sink::AuditSink;
     use crate::principals::Principals;
 
