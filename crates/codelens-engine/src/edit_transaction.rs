@@ -133,6 +133,7 @@ impl WorkspaceEditTransaction {
     }
 
     /// Phase 1: read each unique file once, capture sha256 + raw backup bytes.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn capture_pre_apply(
         &self,
         project: &ProjectRoot,
