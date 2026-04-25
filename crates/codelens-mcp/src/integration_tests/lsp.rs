@@ -217,11 +217,9 @@ fn returns_rename_plan_via_tool_call() {
 #[test]
 fn rename_symbol_uses_opt_in_lsp_semantic_edit_backend() {
     let project = project_root();
-    fs::write(
-        project.as_path().join("rename_target.py"),
-        "def old_name():\n    pass\n\nold_name()\n",
-    )
-    .unwrap();
+    let original = "def old_name():\n    pass\n\nold_name()\n";
+    fs::write(project.as_path().join("rename_target.py"), original).unwrap();
+    let original_hash = sha256_hex_text(original);
     let mock_lsp = concat!(
         "#!/usr/bin/env python3\n",
         "import sys, json\n",
@@ -295,10 +293,9 @@ fn rename_symbol_uses_opt_in_lsp_semantic_edit_backend() {
         payload["data"]["transaction"]["contract"]["backend_id"],
         json!("lsp:python3")
     );
-    assert!(
-        payload["data"]["transaction"]["contract"]["file_hashes_before"]["rename_target.py"]
-            ["sha256"]
-            .is_string(),
+    assert_eq!(
+        payload["data"]["transaction"]["contract"]["file_hashes_before"]["rename_target.py"]["sha256"],
+        json!(original_hash),
         "{payload}"
     );
     assert_eq!(

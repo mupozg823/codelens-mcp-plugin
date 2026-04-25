@@ -174,6 +174,15 @@ pub struct LspWorkspaceEditTransaction {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct LspCodeActionRefactorPlan {
+    pub operation: String,
+    pub action_title: String,
+    pub action_kind: Option<String>,
+    pub resolved_via: String,
+    pub transaction: LspWorkspaceEditTransaction,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct LspCodeActionRefactorResult {
     pub success: bool,
     pub message: String,

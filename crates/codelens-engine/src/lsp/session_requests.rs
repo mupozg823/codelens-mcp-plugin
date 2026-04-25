@@ -9,10 +9,11 @@ use super::type_hierarchy::{
     method_suffix_to_hierarchy, type_hierarchy_node_from_item, type_hierarchy_to_map,
 };
 use super::types::{
-    LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic, LspDiagnosticRequest,
-    LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest, LspRequest,
-    LspResolveTargetRequest, LspResolvedTarget, LspTypeHierarchyNode, LspTypeHierarchyRequest,
-    LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
+    LspCodeActionRefactorPlan, LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic,
+    LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest,
+    LspRequest, LspResolveTargetRequest, LspResolvedTarget, LspTypeHierarchyNode,
+    LspTypeHierarchyRequest, LspWorkspaceEditTransaction, LspWorkspaceSymbol,
+    LspWorkspaceSymbolRequest,
 };
 use super::workspace_edit::{
     apply_workspace_edit_transaction, workspace_edit_transaction_from_edit,
@@ -191,30 +192,7 @@ impl LspSession {
         &mut self,
         request: &LspRenameRequest,
     ) -> Result<crate::rename::RenameResult> {
-        let absolute_path = self.project.resolve(&request.file_path)?;
-        let (uri_string, source) = self.prepare_document(&absolute_path)?;
-        let character = utf16_character_for_byte_column(&source, request.line, request.column);
-        let _plan = self.get_rename_plan(&LspRenamePlanRequest {
-            command: request.command.clone(),
-            args: request.args.clone(),
-            file_path: request.file_path.clone(),
-            line: request.line,
-            column: request.column,
-            new_name: Some(request.new_name.clone()),
-        })?;
-
-        let id = self.next_id();
-        self.send_request(
-            id,
-            "textDocument/rename",
-            json!({
-                "textDocument":{"uri":uri_string},
-                "position":{"line":request.line.saturating_sub(1),"character":character},
-                "newName": request.new_name.clone(),
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
-        let transaction = workspace_edit_transaction_from_response(&self.project, response)?;
+        let transaction = self.rename_symbol_transaction(request)?;
         let edits = transaction.edits.clone();
         let modified_files = transaction.modified_files;
         let total_replacements = transaction.edit_count;
@@ -241,10 +219,70 @@ impl LspSession {
         })
     }
 
+    pub(super) fn rename_symbol_transaction(
+        &mut self,
+        request: &LspRenameRequest,
+    ) -> Result<LspWorkspaceEditTransaction> {
+        let absolute_path = self.project.resolve(&request.file_path)?;
+        let (uri_string, source) = self.prepare_document(&absolute_path)?;
+        let character = utf16_character_for_byte_column(&source, request.line, request.column);
+        let _plan = self.get_rename_plan(&LspRenamePlanRequest {
+            command: request.command.clone(),
+            args: request.args.clone(),
+            file_path: request.file_path.clone(),
+            line: request.line,
+            column: request.column,
+            new_name: Some(request.new_name.clone()),
+        })?;
+
+        let id = self.next_id();
+        self.send_request(
+            id,
+            "textDocument/rename",
+            json!({
+                "textDocument":{"uri":uri_string},
+                "position":{"line":request.line.saturating_sub(1),"character":character},
+                "newName": request.new_name.clone(),
+            }),
+        )?;
+        let response = self.read_response_for_id(id)?;
+        workspace_edit_transaction_from_response(&self.project, response)
+    }
+
     pub(super) fn code_action_refactor(
         &mut self,
         request: &LspCodeActionRequest,
     ) -> Result<LspCodeActionRefactorResult> {
+        let plan = self.code_action_refactor_plan(request)?;
+        if !request.dry_run {
+            apply_workspace_edit_transaction(&self.project, &plan.transaction)?;
+        }
+
+        Ok(LspCodeActionRefactorResult {
+            success: true,
+            message: format!(
+                "{} {} LSP codeAction edit(s) in {} file(s)",
+                if request.dry_run {
+                    "Would apply"
+                } else {
+                    "Applied"
+                },
+                plan.transaction.edit_count,
+                plan.transaction.modified_files
+            ),
+            operation: plan.operation,
+            action_title: plan.action_title,
+            action_kind: plan.action_kind,
+            resolved_via: plan.resolved_via,
+            applied: !request.dry_run,
+            transaction: plan.transaction,
+        })
+    }
+
+    pub(super) fn code_action_refactor_plan(
+        &mut self,
+        request: &LspCodeActionRequest,
+    ) -> Result<LspCodeActionRefactorPlan> {
         let absolute_path = self.project.resolve(&request.file_path)?;
         let (uri_string, source) = self.prepare_document(&absolute_path)?;
         let start_character =
@@ -305,27 +343,12 @@ impl LspSession {
         if transaction.edit_count == 0 && transaction.resource_ops.is_empty() {
             bail!("unsupported_semantic_refactor: LSP codeAction WorkspaceEdit is empty");
         }
-        if !request.dry_run {
-            apply_workspace_edit_transaction(&self.project, &transaction)?;
-        }
 
-        Ok(LspCodeActionRefactorResult {
-            success: true,
-            message: format!(
-                "{} {} LSP codeAction edit(s) in {} file(s)",
-                if request.dry_run {
-                    "Would apply"
-                } else {
-                    "Applied"
-                },
-                transaction.edit_count,
-                transaction.modified_files
-            ),
+        Ok(LspCodeActionRefactorPlan {
             operation: request.operation.clone(),
             action_title: action.title,
             action_kind: action.kind,
             resolved_via,
-            applied: !request.dry_run,
             transaction,
         })
     }

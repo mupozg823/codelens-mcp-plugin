@@ -5,11 +5,9 @@ static ADAPTER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[test]
 fn refactor_extract_function_applies_lsp_code_action_workspace_edit() {
     let project = project_root();
-    fs::write(
-        project.as_path().join("target.ts"),
-        "const value = 1;\nexport {};\n",
-    )
-    .unwrap();
+    let original = "const value = 1;\nexport {};\n";
+    fs::write(project.as_path().join("target.ts"), original).unwrap();
+    let original_hash = sha256_hex_text(original);
     let mock_path = write_code_action_mock(&project, "refactor.extract", "extracted();");
     let state = make_state(&project);
 
@@ -43,9 +41,9 @@ fn refactor_extract_function_applies_lsp_code_action_workspace_edit() {
         payload["data"]["transaction"]["contract"]["model"],
         json!("transactional_best_effort_with_rollback_evidence")
     );
-    assert!(
-        payload["data"]["transaction"]["contract"]["file_hashes_before"]["target.ts"]["sha256"]
-            .is_string(),
+    assert_eq!(
+        payload["data"]["transaction"]["contract"]["file_hashes_before"]["target.ts"]["sha256"],
+        json!(original_hash),
         "{payload}"
     );
     assert_eq!(
@@ -214,11 +212,9 @@ fn ide_adapters_fail_closed_until_configured() {
 fn jetbrains_adapter_applies_workspace_edit_when_configured() {
     let _lock = ADAPTER_ENV_LOCK.lock().unwrap();
     let project = project_root();
-    fs::write(
-        project.as_path().join("target.ts"),
-        "const value = 1;\nexport {};\n",
-    )
-    .unwrap();
+    let original = "const value = 1;\nexport {};\n";
+    fs::write(project.as_path().join("target.ts"), original).unwrap();
+    let original_hash = sha256_hex_text(original);
     let adapter = write_semantic_adapter_mock(&project, "adapterInline();");
     let state = make_state(&project);
 
@@ -258,6 +254,11 @@ fn jetbrains_adapter_applies_workspace_edit_when_configured() {
     assert_eq!(payload["data"]["can_preview"], json!(true));
     assert_eq!(payload["data"]["can_apply"], json!(true));
     assert_eq!(payload["data"]["blocker_reason"], json!(null));
+    assert_eq!(
+        payload["data"]["transaction"]["contract"]["file_hashes_before"]["target.ts"]["sha256"],
+        json!(original_hash),
+        "{payload}"
+    );
     assert_eq!(
         fs::read_to_string(project.as_path().join("target.ts")).unwrap(),
         "adapterInline();\nexport {};\n"
@@ -315,11 +316,9 @@ fn ide_adapter_rejects_opaque_command_without_workspace_edit() {
 fn roslyn_adapter_rename_uses_workspace_edit_when_configured() {
     let _lock = ADAPTER_ENV_LOCK.lock().unwrap();
     let project = project_root();
-    fs::write(
-        project.as_path().join("target.cs"),
-        "class OldName {}\nclass Consumer {}\n",
-    )
-    .unwrap();
+    let original = "class OldName {}\nclass Consumer {}\n";
+    fs::write(project.as_path().join("target.cs"), original).unwrap();
+    let original_hash = sha256_hex_text(original);
     let adapter = write_semantic_adapter_mock(&project, "class NewName {}");
     let state = make_state(&project);
 
@@ -358,6 +357,11 @@ fn roslyn_adapter_rename_uses_workspace_edit_when_configured() {
     assert_eq!(payload["data"]["can_preview"], json!(true));
     assert_eq!(payload["data"]["can_apply"], json!(true));
     assert_eq!(payload["data"]["blocker_reason"], json!(null));
+    assert_eq!(
+        payload["data"]["transaction"]["contract"]["file_hashes_before"]["target.cs"]["sha256"],
+        json!(original_hash),
+        "{payload}"
+    );
     assert_eq!(
         fs::read_to_string(project.as_path().join("target.cs")).unwrap(),
         "class NewName {}\nclass Consumer {}\n"

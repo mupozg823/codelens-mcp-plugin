@@ -87,9 +87,9 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
     let action_id = optional_string(arguments, "action_id").map(ToOwned::to_owned);
 
     let command_ref = command.clone();
-    let result = state
+    let plan = state
         .lsp_pool()
-        .code_action_refactor(&LspCodeActionRequest {
+        .code_action_refactor_plan(&LspCodeActionRequest {
             command,
             args,
             file_path: file_path.clone(),
@@ -104,37 +104,48 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
         })
         .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?;
 
-    let transaction = serde_json::to_value(&result.transaction)
+    let transaction = serde_json::to_value(&plan.transaction)
         .unwrap_or_else(|_| json!({"serialization_error": true}));
-    let edit_files = result
+    let edit_files = plan
         .transaction
         .edits
         .iter()
         .map(|edit| edit.file_path.clone())
         .collect::<Vec<_>>();
+    let backend_id = format!("lsp:{command_ref}");
     let transaction_contract = semantic_transaction_contract(SemanticTransactionContractInput {
         state,
-        backend_id: &format!("lsp:{command_ref}"),
+        backend_id: &backend_id,
         operation,
         target_symbol: None,
         file_paths: &edit_files,
         dry_run,
-        modified_files: result.transaction.modified_files,
-        edit_count: result.transaction.edit_count,
-        resource_ops: json!(result.transaction.resource_ops),
-        rollback_available: result.transaction.rollback_available,
+        modified_files: plan.transaction.modified_files,
+        edit_count: plan.transaction.edit_count,
+        resource_ops: json!(plan.transaction.resource_ops),
+        rollback_available: plan.transaction.rollback_available,
         workspace_edit: transaction.clone(),
         apply_status: if dry_run { "preview_only" } else { "applied" },
         references_checked: false,
         conflicts: json!([]),
     });
+    if !dry_run {
+        codelens_engine::lsp::apply_workspace_edit_transaction(&state.project(), &plan.transaction)
+            .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?;
+    }
+    let message = format!(
+        "{} {} LSP codeAction edit(s) in {} file(s)",
+        if dry_run { "Would apply" } else { "Applied" },
+        plan.transaction.edit_count,
+        plan.transaction.modified_files
+    );
     Ok((
         json!({
-            "success": result.success,
+            "success": true,
             "backend": "semantic_edit_backend",
             "semantic_edit_backend": "lsp",
             "authority": "workspace_edit",
-            "authority_backend": format!("lsp:{command_ref}"),
+            "authority_backend": backend_id,
             "can_preview": true,
             "can_apply": true,
             "support": "conditional_authoritative_apply",
@@ -149,9 +160,9 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
                 "position_source": position_source,
             },
             "action": {
-                "title": result.action_title,
-                "kind": result.action_kind,
-                "resolved_via": result.resolved_via,
+                "title": plan.action_title,
+                "kind": plan.action_kind,
+                "resolved_via": plan.resolved_via,
                 "requested_kinds": only,
             },
             "edit_authority": {
@@ -165,10 +176,10 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
             },
             "transaction": {
                 "dry_run": dry_run,
-                "modified_files": result.transaction.modified_files,
-                "edit_count": result.transaction.edit_count,
-                "resource_ops": result.transaction.resource_ops,
-                "rollback_available": result.transaction.rollback_available,
+                "modified_files": plan.transaction.modified_files,
+                "edit_count": plan.transaction.edit_count,
+                "resource_ops": plan.transaction.resource_ops,
+                "rollback_available": plan.transaction.rollback_available,
                 "contract": transaction_contract
             },
             "workspace_edit": transaction,
@@ -178,8 +189,8 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
                 "references_checked": false,
                 "conflicts": []
             },
-            "applied": result.applied,
-            "message": result.message,
+            "applied": !dry_run,
+            "message": message,
         }),
         success_meta(BackendKind::Lsp, 0.93),
     ))
@@ -211,88 +222,103 @@ pub(crate) fn rename_symbol_with_lsp_backend(
         .unwrap_or(false);
 
     let command_ref = command.clone();
-    state
+    let transaction = state
         .lsp_pool()
-        .rename_symbol(&LspRenameRequest {
+        .rename_symbol_transaction(&LspRenameRequest {
             command,
             args,
             file_path: file_path.clone(),
             line,
             column,
-            new_name,
+            new_name: new_name.clone(),
             dry_run,
         })
-        .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))
-        .map(|result| {
-            let success = result.success;
-            let message = result.message.clone();
-            let modified_files = result.modified_files;
-            let total_replacements = result.total_replacements;
-            let edits = result.edits.clone();
-            let edit_files = edits
-                .iter()
-                .map(|edit| edit.file_path.clone())
-                .collect::<Vec<_>>();
-            let transaction_contract =
-                semantic_transaction_contract(SemanticTransactionContractInput {
-                    state,
-                    backend_id: &format!("lsp:{command_ref}"),
-                    operation: "rename",
-                    target_symbol: Some(&symbol_name),
-                    file_paths: &edit_files,
-                    dry_run,
-                    modified_files,
-                    edit_count: total_replacements,
-                    resource_ops: json!([]),
-                    rollback_available: true,
-                    workspace_edit: json!({"edits": edits}),
-                    apply_status: if dry_run { "preview_only" } else { "applied" },
-                    references_checked: false,
-                    conflicts: json!([]),
-                });
-            (
-                json!({
-                    "backend": "semantic_edit_backend",
-                    "semantic_edit_backend": "lsp",
-                    "authority": "workspace_edit",
-                    "authority_backend": format!("lsp:{command_ref}"),
-                    "can_preview": true,
-                    "can_apply": true,
-                    "support": "authoritative_apply",
-                    "blocker_reason": null,
-                    "edit_authority": {
-                        "kind": "authoritative_lsp",
-                        "operation": "rename",
-                        "embedding_used": false,
-                        "search_used": false,
-                        "position_source": position_source,
-                        "validator": "lsp_textDocument_rename",
-                    },
-                    "position": {"line": line, "column": column},
-                    "result": result,
-                    "success": success,
-                    "message": message,
-                    "modified_files": modified_files,
-                    "total_replacements": total_replacements,
-                    "edits": edits,
-                    "transaction": {
-                        "dry_run": dry_run,
-                        "modified_files": modified_files,
-                        "edit_count": total_replacements,
-                        "resource_ops": [],
-                        "rollback_available": true,
-                        "contract": transaction_contract
-                    },
-                    "verification": {
-                        "pre_diagnostics": [],
-                        "post_diagnostics": [],
-                        "references_checked": false,
-                        "conflicts": []
-                    },
-                }),
-                success_meta(BackendKind::Lsp, 0.96),
-            )
-        })
+        .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?;
+    let modified_files = transaction.modified_files;
+    let total_replacements = transaction.edit_count;
+    let edits = transaction.edits.clone();
+    let edit_files = edits
+        .iter()
+        .map(|edit| edit.file_path.clone())
+        .collect::<Vec<_>>();
+    let transaction_value =
+        serde_json::to_value(&transaction).unwrap_or_else(|_| json!({"serialization_error": true}));
+    let backend_id = format!("lsp:{command_ref}");
+    let transaction_contract = semantic_transaction_contract(SemanticTransactionContractInput {
+        state,
+        backend_id: &backend_id,
+        operation: "rename",
+        target_symbol: Some(&symbol_name),
+        file_paths: &edit_files,
+        dry_run,
+        modified_files,
+        edit_count: total_replacements,
+        resource_ops: json!(transaction.resource_ops),
+        rollback_available: transaction.rollback_available,
+        workspace_edit: transaction_value,
+        apply_status: if dry_run { "preview_only" } else { "applied" },
+        references_checked: false,
+        conflicts: json!([]),
+    });
+    if !dry_run {
+        codelens_engine::lsp::apply_workspace_edit_transaction(&state.project(), &transaction)
+            .map_err(|error| CodeLensError::LspError(format!("LSP {command_ref}: {error}")))?;
+    }
+    let message = format!(
+        "{} {} LSP replacement(s) in {} file(s)",
+        if dry_run { "Would make" } else { "Made" },
+        total_replacements,
+        modified_files
+    );
+    let result = codelens_engine::RenameResult {
+        success: true,
+        message: message.clone(),
+        modified_files,
+        total_replacements,
+        edits: edits.clone(),
+    };
+    Ok((
+        json!({
+            "backend": "semantic_edit_backend",
+            "semantic_edit_backend": "lsp",
+            "authority": "workspace_edit",
+            "authority_backend": backend_id,
+            "can_preview": true,
+            "can_apply": true,
+            "support": "authoritative_apply",
+            "blocker_reason": null,
+            "edit_authority": {
+                "kind": "authoritative_lsp",
+                "operation": "rename",
+                "embedding_used": false,
+                "search_used": false,
+                "position_source": position_source,
+                "validator": "lsp_textDocument_rename",
+            },
+            "position": {"line": line, "column": column},
+            "result": result,
+            "success": true,
+            "message": message,
+            "modified_files": modified_files,
+            "total_replacements": total_replacements,
+            "edits": edits,
+            "transaction": {
+                "dry_run": dry_run,
+                "modified_files": modified_files,
+                "edit_count": total_replacements,
+                "resource_ops": transaction.resource_ops,
+                "rollback_available": transaction.rollback_available,
+                "contract": transaction_contract
+            },
+            "verification": {
+                "pre_diagnostics": [],
+                "post_diagnostics": [],
+                "references_checked": false,
+                "conflicts": []
+            },
+        }),
+        success_meta(BackendKind::Lsp, 0.96),
+    ))
 }
 
 pub(crate) fn safe_delete_with_lsp_backend(
@@ -562,7 +588,7 @@ pub(crate) fn file_hashes_before(state: &AppState, file_paths: &[String]) -> Val
             .and_then(|path| std::fs::read(&path).map_err(anyhow::Error::from))
         {
             Ok(bytes) => json!({
-                "sha256": sha256_hex(&bytes),
+                "sha256": sha256_digest_hex(&bytes),
                 "bytes": bytes.len(),
             }),
             Err(error) => json!({
@@ -600,10 +626,15 @@ fn transaction_id(
         digest.update(b"\0");
     }
     digest.update(file_hashes_before.to_string().as_bytes());
-    format!("semantic-tx-{}", sha256_hex(&digest.finalize()))
+    format!("semantic-tx-{}", hex_bytes(&digest.finalize()))
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+fn sha256_digest_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    hex_bytes(&digest)
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         use std::fmt::Write as _;

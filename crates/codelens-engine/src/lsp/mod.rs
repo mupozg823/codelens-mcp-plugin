@@ -20,9 +20,9 @@ pub use registry::{
 };
 pub use session::LspSessionPool;
 pub use types::{
-    LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic, LspDiagnosticRequest,
-    LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest, LspRequest,
-    LspResolveTargetRequest, LspResolvedTarget, LspResourceOp, LspTypeHierarchyNode,
+    LspCodeActionRefactorPlan, LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic,
+    LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest,
+    LspRequest, LspResolveTargetRequest, LspResolvedTarget, LspResourceOp, LspTypeHierarchyNode,
     LspTypeHierarchyRequest, LspWorkspaceEditTransaction, LspWorkspaceSymbol,
     LspWorkspaceSymbolRequest,
 };
@@ -110,9 +110,16 @@ pub fn apply_workspace_edit_value(
 ) -> Result<LspWorkspaceEditTransaction> {
     let transaction = workspace_edit_transaction_from_value(project, edit)?;
     if !dry_run {
-        workspace_edit::apply_workspace_edit_transaction(project, &transaction)?;
+        apply_workspace_edit_transaction(project, &transaction)?;
     }
     Ok(transaction)
+}
+
+pub fn apply_workspace_edit_transaction(
+    project: &ProjectRoot,
+    transaction: &LspWorkspaceEditTransaction,
+) -> Result<()> {
+    workspace_edit::apply_workspace_edit_transaction(project, transaction)
 }
 
 /// Known-safe LSP server binaries. Commands not in this list are rejected.

@@ -72,9 +72,11 @@ fn invoke_workspace_edit_adapter(
                 "unsupported_semantic_refactor: {backend_name} adapter returned no inspectable WorkspaceEdit"
             ))
         })?;
-    let transaction =
-        codelens_engine::lsp::apply_workspace_edit_value(&state.project(), workspace_edit, dry_run)
-            .map_err(|error| CodeLensError::LspError(format!("{backend_name} adapter: {error}")))?;
+    let transaction = codelens_engine::lsp::workspace_edit_transaction_from_value(
+        &state.project(),
+        workspace_edit,
+    )
+    .map_err(|error| CodeLensError::LspError(format!("{backend_name} adapter: {error}")))?;
     let edit_files = transaction
         .edits
         .iter()
@@ -101,6 +103,10 @@ fn invoke_workspace_edit_adapter(
         references_checked: false,
         conflicts: json!([]),
     });
+    if !dry_run {
+        codelens_engine::lsp::apply_workspace_edit_transaction(&state.project(), &transaction)
+            .map_err(|error| CodeLensError::LspError(format!("{backend_name} adapter: {error}")))?;
+    }
 
     Ok((
         json!({

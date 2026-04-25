@@ -13,10 +13,10 @@ use super::commands::is_allowed_lsp_command;
 use super::protocol::{language_id_for_path, poll_readable, read_message, send_message};
 use super::registry::resolve_lsp_binary;
 use super::types::{
-    LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic, LspDiagnosticRequest,
-    LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest, LspRequest,
-    LspResolveTargetRequest, LspResolvedTarget, LspTypeHierarchyRequest, LspWorkspaceSymbol,
-    LspWorkspaceSymbolRequest,
+    LspCodeActionRefactorPlan, LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic,
+    LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest,
+    LspRequest, LspResolveTargetRequest, LspResolvedTarget, LspTypeHierarchyRequest,
+    LspWorkspaceEditTransaction, LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -198,6 +198,20 @@ impl LspSessionPool {
         session.rename_symbol(request)
     }
 
+    pub fn rename_symbol_transaction(
+        &self,
+        request: &LspRenameRequest,
+    ) -> Result<LspWorkspaceEditTransaction> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
+        session.rename_symbol_transaction(request)
+    }
+
     pub fn code_action_refactor(
         &self,
         request: &LspCodeActionRequest,
@@ -210,6 +224,20 @@ impl LspSessionPool {
             &request.args,
         )?;
         session.code_action_refactor(request)
+    }
+
+    pub fn code_action_refactor_plan(
+        &self,
+        request: &LspCodeActionRequest,
+    ) -> Result<LspCodeActionRefactorPlan> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
+        session.code_action_refactor_plan(request)
     }
 }
 
