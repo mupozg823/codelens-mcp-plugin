@@ -58,6 +58,7 @@ pub(super) fn apply_post_mutation(
     arguments: &serde_json::Value,
     session: &crate::session_context::SessionRequestContext,
     active_surface: &str,
+    payload: &serde_json::Value,
 ) {
     state.graph_cache().invalidate();
     state.clear_recent_preflights();
@@ -109,7 +110,7 @@ pub(super) fn apply_post_mutation(
     if let Err(error) = state.record_mutation_audit(name, active_surface, arguments, session) {
         warn!(tool = name, error = %error, "failed to write mutation audit event");
     }
-    record_audit_outcome(state, name, arguments, session);
+    record_audit_outcome(state, name, arguments, session, payload);
     if !session.is_local() {
         tracing::info!(
             tool = name,
@@ -120,11 +121,18 @@ pub(super) fn apply_post_mutation(
 }
 
 /// ADR-0009 §2 + §3: write a single row to the durable audit_sink
-/// describing the outcome of a successful mutation. For Phase 2-B this
-/// uses placeholder state values (`Applying` → `Audited` and apply
-/// status `applied`); the lifecycle state machine and rolled_back /
-/// failed branches land in P2-D once handlers expose evidence to
-/// dispatch.
+/// describing the outcome of a successful mutation.
+///
+/// `state_from` is `Applying` (substrate Phase 3) and `state_to` is
+/// determined from the response payload's `apply_status` field
+/// (Hybrid contract from G7) — `applied` → `Audited`, `rolled_back` →
+/// `RolledBack`, `no_op` → `Audited`. Unknown / missing apply_status
+/// defaults to `Audited` since the handler succeeded.
+///
+/// `evidence_hash` is the canonical sha256 of the response payload's
+/// `data` subobject if present (the structured evidence-bearing
+/// section); else of the entire payload. This lets the audit log
+/// verify replay equivalence without storing user content.
 ///
 /// Failures here are logged at warn but never propagated — losing one
 /// audit row must not break the call. The legacy jsonl sink in
@@ -134,6 +142,7 @@ fn record_audit_outcome(
     name: &str,
     arguments: &serde_json::Value,
     session: &crate::session_context::SessionRequestContext,
+    payload: &serde_json::Value,
 ) {
     let Some(sink) = state.audit_sink() else {
         return;
@@ -143,34 +152,140 @@ fn record_audit_outcome(
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
     let args_hash = crate::audit_sink::canonical_sha256_hex(arguments);
-    // Transaction id derives from session + tool + args_hash + ts so
-    // distinct calls of the same tool+args yield distinct ids while
-    // a future state-machine transition for the same call can reuse
-    // it (P2-D wires this through dispatch context).
     let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
+
+    // ADR-0009 §3: derive terminal state from the Hybrid apply_status.
+    // The handler returned Ok, so the call definitely traversed
+    // Verifying → Applying. The payload's apply_status (set by G7
+    // Hybrid contract on raw_fs primitives) determines whether we
+    // reached Committed→Audited (applied/no_op) or RolledBack.
+    let payload_apply_status = payload
+        .get("data")
+        .and_then(|d| d.get("apply_status"))
+        .or_else(|| payload.get("apply_status"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("applied")
+        .to_owned();
+    let state_to =
+        crate::lifecycle::LifecycleState::terminal_for_apply_status(&payload_apply_status)
+            .unwrap_or(crate::lifecycle::LifecycleState::Audited);
+
+    // ADR-0009 §3 rollback_restored: when Hybrid returned RolledBack,
+    // probe the rollback_report to summarise restore success. This is
+    // a single-file aggregate ("did *every* restore succeed?"); the
+    // detailed rollback_report stays in the response, not the audit
+    // column.
+    let rollback_restored = if state_to == crate::lifecycle::LifecycleState::RolledBack {
+        payload
+            .get("data")
+            .and_then(|d| d.get("rollback_report"))
+            .or_else(|| payload.get("rollback_report"))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                !arr.is_empty()
+                    && arr.iter().all(|entry| {
+                        entry
+                            .get("restored")
+                            .and_then(|r| r.as_bool())
+                            .unwrap_or(false)
+                    })
+            })
+    } else {
+        None
+    };
+
+    // ADR-0009 §3 evidence_hash: hash the structured `data` subobject
+    // when the response uses the standard envelope; fall back to the
+    // whole payload otherwise.
+    let evidence_value = payload.get("data").unwrap_or(payload);
+    let evidence_hash = Some(crate::audit_sink::canonical_sha256_hex(evidence_value));
+
+    let error_message = if state_to == crate::lifecycle::LifecycleState::RolledBack {
+        payload
+            .get("data")
+            .and_then(|d| d.get("error_message"))
+            .or_else(|| payload.get("error_message"))
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+    } else {
+        None
+    };
+
     let record = crate::audit_sink::AuditRecord {
         transaction_id,
         timestamp_ms: now_ms,
-        // Phase 2-C populates this from the resolved principal binding.
-        principal: None,
+        // P2-C resolves the principal id from CODELENS_PRINCIPAL.
+        principal: crate::principals::current_principal_id(),
         tool: name.to_owned(),
         args_hash,
-        apply_status: "applied".to_owned(),
-        // Phase 2-D will set the actual previous state by querying the
-        // sink for the same transaction_id.
-        state_from: Some("Applying".to_owned()),
-        state_to: "Audited".to_owned(),
-        // Phase 2-D + handler-level evidence threading lands the real
-        // hash; for P2-B this stays None as a deliberate marker.
-        evidence_hash: None,
-        rollback_restored: None,
-        error_message: None,
+        apply_status: payload_apply_status,
+        state_from: Some(
+            crate::lifecycle::LifecycleState::Applying
+                .as_str()
+                .to_owned(),
+        ),
+        state_to: state_to.as_str().to_owned(),
+        evidence_hash,
+        rollback_restored,
+        error_message,
     };
     if let Err(error) = sink.write(&record) {
         warn!(
             tool = name,
             error = %error,
             "failed to write audit_sink outcome row"
+        );
+    }
+}
+
+/// ADR-0009 §3: write one row for a mutation that returned `Err`.
+/// Terminal state is `Failed`; `apply_status` is `failed`. Used when
+/// the handler reports an error before the substrate runs (e.g. line
+/// out of range) or after a substrate write that could not even
+/// roll back. Hybrid `RolledBack` is *not* an Err — that case is
+/// handled by `record_audit_outcome` because the handler returns Ok.
+pub(super) fn record_audit_failure(
+    state: &AppState,
+    name: &str,
+    arguments: &serde_json::Value,
+    session: &crate::session_context::SessionRequestContext,
+    error: &crate::error::CodeLensError,
+) {
+    let Some(sink) = state.audit_sink() else {
+        return;
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let args_hash = crate::audit_sink::canonical_sha256_hex(arguments);
+    let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
+    let record = crate::audit_sink::AuditRecord {
+        transaction_id,
+        timestamp_ms: now_ms,
+        principal: crate::principals::current_principal_id(),
+        tool: name.to_owned(),
+        args_hash,
+        apply_status: "failed".to_owned(),
+        // Pre-substrate validation rejection happens before Applying;
+        // we use Verifying as the most informative `state_from`
+        // marker for "got past the role gate but the substrate did
+        // not commit".
+        state_from: Some(
+            crate::lifecycle::LifecycleState::Verifying
+                .as_str()
+                .to_owned(),
+        ),
+        state_to: crate::lifecycle::LifecycleState::Failed.as_str().to_owned(),
+        evidence_hash: None,
+        rollback_restored: None,
+        error_message: Some(error.to_string()),
+    };
+    if let Err(io_err) = sink.write(&record) {
+        warn!(
+            tool = name,
+            error = %io_err,
+            "failed to write audit_sink failure row"
         );
     }
 }

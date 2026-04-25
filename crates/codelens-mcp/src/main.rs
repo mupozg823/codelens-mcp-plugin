@@ -15,6 +15,7 @@ mod dispatch;
 mod env_compat;
 mod error;
 mod job_store;
+mod lifecycle;
 mod mutation_audit;
 mod mutation_gate;
 mod operator;
