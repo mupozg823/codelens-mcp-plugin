@@ -134,6 +134,10 @@ pub(crate) struct AppState {
     /// access via `audit_sink()` so test helpers without an audit_dir
     /// do not pay the open cost upfront.
     audit_sink: OnceLock<Arc<crate::audit_sink::AuditSink>>,
+    /// ADR-0009 §1: resolved principal-to-role mapping. Lazy-init on
+    /// first access via `principals()` so test helpers do not pay the
+    /// TOML discovery cost when they never invoke a gated path.
+    principals: OnceLock<Arc<crate::principals::Principals>>,
 }
 
 /// A read-only project registered for cross-project queries.
@@ -259,6 +263,36 @@ impl AppState {
         self.active_project_context()
             .map(|context| context.audit_dir.clone())
             .unwrap_or_else(|| self.default_audit_dir.clone())
+    }
+
+    /// ADR-0009 §1: lazy accessor for the resolved principal-to-role
+    /// mapping. The first caller pays the TOML discovery + parse cost
+    /// (one stat for the project file, one stat for the user-global
+    /// file, one parse if either is found); all subsequent calls share
+    /// the same `Arc`. Discovery failures fall back to the permissive
+    /// default (every id maps to `Refactor`) so a malformed file does
+    /// not block the dispatch path — but the parse error is logged at
+    /// warn so operators see it loudly.
+    pub(crate) fn principals(&self) -> Arc<crate::principals::Principals> {
+        if let Some(existing) = self.principals.get() {
+            return Arc::clone(existing);
+        }
+        let dir = self.audit_dir();
+        let resolved = match crate::principals::Principals::discover(&dir) {
+            Ok(p) => p,
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    audit_dir = %dir.display(),
+                    "failed to load principals.toml — falling back to permissive default \
+                     (every principal mapped to Refactor)"
+                );
+                crate::principals::Principals::permissive_default()
+            }
+        };
+        let arc = Arc::new(resolved);
+        let _ = self.principals.set(Arc::clone(&arc));
+        self.principals.get().cloned().unwrap_or(arc)
     }
 
     /// ADR-0009 §2: lazy accessor for the durable audit sink. The first
@@ -563,6 +597,7 @@ impl AppState {
             // Multiple processes opening the same SQLite is safe (WAL
             // serialises writes); the OnceLock just caches per-clone.
             audit_sink: OnceLock::new(),
+            principals: OnceLock::new(),
         }
     }
 
@@ -648,6 +683,7 @@ impl AppState {
             compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
             daemon_started_at: now_rfc3339_utc(),
             audit_sink: OnceLock::new(),
+            principals: OnceLock::new(),
         }
     }
 

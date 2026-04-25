@@ -60,6 +60,17 @@ pub enum CodeLensError {
     #[allow(dead_code)]
     ResourceExhausted(String),
 
+    /// ADR-0009 §1: principal does not hold the role required by the
+    /// tool. Surfaces as JSON-RPC -32008 (note: ADR named -32004 but
+    /// that code is already taken by `IndexNotReady`).
+    #[error("Permission denied: principal '{principal}' (role={principal_role}) cannot call tool '{tool}' which requires role={required_role}")]
+    PermissionDenied {
+        principal: String,
+        principal_role: String,
+        tool: String,
+        required_role: String,
+    },
+
     /// I/O error.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -90,6 +101,7 @@ impl CodeLensError {
             Self::Timeout { .. } => -32005,
             Self::StaleSession(_) => -32006,
             Self::ResourceExhausted(_) => -32007,
+            Self::PermissionDenied { .. } => -32008,
             Self::Io(_) => -32603,
             Self::Internal(_) => -32603,
         }

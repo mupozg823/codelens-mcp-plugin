@@ -15,6 +15,7 @@ mod query_engine;
 mod rate_limit;
 mod response;
 mod response_support;
+mod role_gate;
 mod session;
 mod table;
 mod validation;
@@ -115,7 +116,26 @@ pub(crate) fn dispatch_tool(
         }
     };
 
-    // 4. Validate tool access (surface, namespace, tier, daemon mode).
+    // 4a. Role gate (ADR-0009 §1): principal must hold required role
+    //     for this tool. On deny, an audit row is written and the
+    //     caller receives a JSON-RPC -32008 error.
+    if let Err(role_err) = role_gate::enforce_role_gate(state, name, arguments, session) {
+        return build_error_response(
+            name,
+            role_err,
+            None,
+            arguments,
+            &ctx.active_surface,
+            &session.session_id,
+            state,
+            start,
+            id,
+            ctx.doom_count,
+            ctx.doom_rapid,
+        );
+    }
+
+    // 4b. Validate tool access (surface, namespace, tier, daemon mode).
     if let Err(access_err) = validate_tool_access(name, session, ctx.surface, state) {
         return build_error_response(
             name,
