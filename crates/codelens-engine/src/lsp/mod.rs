@@ -12,8 +12,9 @@ pub use registry::{
 pub use session::LspSessionPool;
 pub use types::{
     LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,
-    LspRenameRequest, LspRequest, LspTypeHierarchyNode, LspTypeHierarchyRequest,
-    LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
+    LspRenameRequest, LspRequest, LspResolveTargetRequest, LspResolvedTarget, LspResourceOp,
+    LspTypeHierarchyNode, LspTypeHierarchyRequest, LspWorkspaceEditTransaction, LspWorkspaceSymbol,
+    LspWorkspaceSymbolRequest,
 };
 
 use crate::project::ProjectRoot;
@@ -51,6 +52,14 @@ pub fn get_type_hierarchy_via_lsp(
 ) -> Result<HashMap<String, Value>> {
     let pool = LspSessionPool::new(project.clone());
     pool.get_type_hierarchy(request)
+}
+
+pub fn resolve_symbol_target_via_lsp(
+    project: &ProjectRoot,
+    request: &LspResolveTargetRequest,
+) -> Result<Vec<LspResolvedTarget>> {
+    let pool = LspSessionPool::new(project.clone());
+    pool.resolve_symbol_target(request)
 }
 
 pub fn get_rename_plan_via_lsp(

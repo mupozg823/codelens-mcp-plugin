@@ -98,6 +98,19 @@ pub(crate) fn rename_symbol_with_lsp_backend(
                     "modified_files": modified_files,
                     "total_replacements": total_replacements,
                     "edits": edits,
+                    "transaction": {
+                        "dry_run": dry_run,
+                        "modified_files": modified_files,
+                        "edit_count": total_replacements,
+                        "resource_ops": [],
+                        "rollback_available": true
+                    },
+                    "verification": {
+                        "pre_diagnostics": [],
+                        "post_diagnostics": [],
+                        "references_checked": false,
+                        "conflicts": []
+                    },
                 }),
                 success_meta(BackendKind::Lsp, 0.96),
             )
@@ -160,6 +173,47 @@ pub(crate) fn safe_delete_with_lsp_backend(
 
     let total_references = affected_references.len();
     let safe_to_delete = total_references == 0;
+    let mut safe_delete_action = "check_only";
+    let mut modified_files = 0usize;
+    let mut edit_count = 0usize;
+    if !dry_run {
+        if !safe_to_delete {
+            return Err(CodeLensError::Validation(format!(
+                "safe_delete_apply blocked: `{symbol_name}` still has {total_references} non-declaration reference(s)"
+            )));
+        }
+        let (start_byte, end_byte) = codelens_engine::find_symbol_range(
+            &state.project(),
+            &file_path,
+            &symbol_name,
+            name_path,
+        )
+        .map_err(|error| {
+            CodeLensError::Validation(format!(
+                "safe_delete_apply blocked: tree-sitter could not isolate declaration range: {error}"
+            ))
+        })?;
+        let resolved = state.project().resolve(&file_path)?;
+        let mut source = std::fs::read_to_string(&resolved)?;
+        if start_byte >= end_byte
+            || end_byte > source.len()
+            || !source.is_char_boundary(start_byte)
+            || !source.is_char_boundary(end_byte)
+        {
+            return Err(CodeLensError::Validation(
+                "safe_delete_apply blocked: invalid declaration byte range".into(),
+            ));
+        }
+        let mut delete_end = end_byte;
+        if source.as_bytes().get(delete_end) == Some(&b'\n') {
+            delete_end += 1;
+        }
+        source.replace_range(start_byte..delete_end, "");
+        std::fs::write(&resolved, source)?;
+        safe_delete_action = "applied";
+        modified_files = 1;
+        edit_count = 1;
+    }
     let message = if safe_to_delete {
         format!(
             "LSP found no non-declaration references for `{symbol_name}` in `{file_path}`. Deletion can proceed through the mutation gate."
@@ -189,10 +243,27 @@ pub(crate) fn safe_delete_with_lsp_backend(
             "safe_to_delete": safe_to_delete,
             "total_references": total_references,
             "declaration_references": declaration_references,
-            "affected_references": affected_references,
+            "affected_references": affected_references.clone(),
             "dry_run": dry_run,
             "message": message,
-            "safe_delete_action": "check_only",
+            "safe_delete_action": safe_delete_action,
+            "transaction": {
+                "dry_run": dry_run,
+                "modified_files": modified_files,
+                "edit_count": edit_count,
+                "resource_ops": [],
+                "rollback_available": false
+            },
+            "verification": {
+                "pre_diagnostics": [],
+                "post_diagnostics": [],
+                "references_checked": true,
+                "conflicts": if safe_to_delete {
+                    json!([])
+                } else {
+                    serde_json::Value::Array(affected_references.clone())
+                }
+            },
             "suggested_next_tools": if safe_to_delete {
                 json!(["delete_lines", "get_file_diagnostics"])
             } else {

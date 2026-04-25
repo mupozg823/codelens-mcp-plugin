@@ -22,11 +22,11 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 
 - Workspace version: `1.9.50`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions: `113`
-- Tool output schemas: `80 / 113`
+- Registered tool definitions: `114`
+- Tool output schemas: `81 / 114`
 - Supported language families: `30` across `49` extensions
 - Profiles: `planner-readonly` (35), `builder-minimal` (38), `reviewer-graph` (37), `evaluator-compact` (14), `refactor-full` (51), `ci-audit` (45), `workflow-first` (19)
-- Presets: `minimal` (27), `balanced` (80), `full` (113)
+- Presets: `minimal` (27), `balanced` (81), `full` (114)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
 
@@ -413,7 +413,7 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 | Token efficiency | Bounded workflows, 50-87% savings           | Standard tool responses   |
 | Workflow layer   | Composite reports + analysis handles        | Symbolic tools            |
 | Semantic search  | Sidecar ONNX + hybrid ranking + NL bridging | No bundled model          |
-| Refactoring      | Gated mutations + LSP rename/safe-delete check | Stronger broad IDE-backed edits |
+| Refactoring      | Gated mutations + LSP rename/navigation/safe-delete apply | Stronger broad IDE-backed edits |
 | Enterprise       | Config policy, rate limit, OTel, SBOM       | None                      |
 | Offline          | Works offline with a staged sidecar model   | Depends on backend        |
 

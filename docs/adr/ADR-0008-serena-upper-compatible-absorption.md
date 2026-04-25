@@ -41,7 +41,7 @@ CodeLens's existing runtime gates and substrate contract. Concretely:
 | Phase | Serena idea                | CodeLens landing (passive)                                                                                                                                       | Active rerouting                                                                                        |
 | ----- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | P1    | context + mode composition | `HostContext` × `TaskOverlay` overlays on top of existing role profiles, compiled into a `SurfaceOverlayPlan`. Resource: `codelens://surface/overlay`.           | `prepare_harness_session` accepts the two args and compiles the plan — plan is advisory, not enforcing. |
-| P2    | backend abstraction        | `BackendCapability` enum + `SemanticBackend` trait with Rust engine / LSP bridge / SCIP bridge descriptors. Resource: `codelens://backend/capabilities`.        | **Partial.** `rename_symbol` and `propagate_deletions` can opt into LSP authority for `rename` and `safe_delete_check`; generic dispatch still calls concrete handlers. |
+| P2    | backend abstraction        | `BackendCapability` enum + `SemanticBackend` trait with Rust engine / LSP bridge / SCIP bridge descriptors. Resource: `codelens://backend/capabilities`.        | **Partial.** `rename_symbol`, `resolve_symbol_target`, and `propagate_deletions` can opt into LSP authority for rename/navigation/safe-delete; generic dispatch still calls concrete handlers. |
 | P3    | project + memory registry  | `MemoryScope::{Project, Global}` enum + `global_memory_dir()` + snapshots. Resources: `codelens://registry/projects`, `codelens://registry/memory-scopes`.       | **Not yet.** `write_memory`/`read_memory` still operate on project scope only.                          |
 | P4    | operator dashboard         | `build_operator_dashboard()` aggregator. Resource: `codelens://operator/dashboard`.                                                                              | Pure aggregator — no active rerouting planned.                                                          |
 
@@ -58,8 +58,8 @@ Layer 5  Operator plane            (dashboard, this ADR, passive)
 Workflow + audit stay **above** the backend line. Retrieval/edit
 operations will eventually compile down to backend capabilities, but
 this ADR does not mandate generic dispatch rewiring. As of 2026-04-25,
-the first active P2 slice exists only where it reduces risk: LSP rename
-and LSP safe-delete check. Both are opt-in, operation-scoped, and expose
+the first active P2 slice exists only where it reduces risk: LSP rename,
+navigation target resolution, and safe-delete check/apply. These paths are opt-in, operation-scoped, and expose
 `edit_authority` metadata so agents do not confuse retrieval evidence
 with edit authority.
 

@@ -277,9 +277,10 @@ blocking an honest "usable product" claim:
 - Query embedding cache, prewarm, freshness reconciliation, and daemon
   latency gates separate hot, cold, and prewarmed paths.
 - The semantic edit substrate is no longer only a roadmap item:
-  `rename_symbol` can use LSP `textDocument/rename`, and
-  `propagate_deletions` can use LSP `textDocument/references` for an
-  authoritative `safe_delete_check`.
+  `rename_symbol` can use LSP `prepareRename` + `textDocument/rename`,
+  `resolve_symbol_target` can use LSP declaration/definition/implementation/type-definition,
+  and `propagate_deletions` can use LSP `textDocument/references` for
+  authoritative safe-delete check/apply.
 - Surface manifest drift is gated and generated docs are synchronized.
 
 The remaining high-risk gap is not "more tools"; it is completing
@@ -294,9 +295,8 @@ retrieval and harness policy strengths.
    - Focus on inter-file callee resolution and cross-module symbol matching.
    - Do not benchmark-hack specific rows.
 2. Continue semantic edit backend hardening operation by operation.
-   - Current LSP-authoritative operations: `rename`, `safe_delete_check`.
-   - Next candidates: declaration/implementation routing, type-aware references,
-     then change signature/move/extract/inline only when backed by LSP/compiler evidence.
+   - Current LSP-authoritative operations: `rename`, declaration/definition/implementation/type-definition resolution, `safe_delete_check`, guarded `safe_delete_apply`.
+   - Next candidates: code-action-backed extract/inline, then change signature/move only when backed by LSP/compiler evidence.
 3. Collapse or sharply reduce [session_host.rs](/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-mcp/src/state/session_host.rs).
 4. Split [tool_defs/presets.rs](/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-mcp/src/tool_defs/presets.rs) by:
    - surface membership

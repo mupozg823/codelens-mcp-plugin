@@ -293,6 +293,33 @@ pub(super) fn references_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn resolve_symbol_target_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "semantic_backend": {"type": "string"},
+            "edit_authority": {"type": "object"},
+            "targets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "column": {"type": "integer"},
+                        "end_line": {"type": "integer"},
+                        "end_column": {"type": "integer"},
+                        "target": {"type": "string"},
+                        "method": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
 fn resolution_summary_output_schema() -> serde_json::Value {
     json!({
         "type": "object",

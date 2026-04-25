@@ -296,36 +296,123 @@ fn semantic_edit_runtime_status(state: &AppState) -> BackendRuntimeStatus {
 
 fn semantic_edit_operation_matrix() -> Value {
     json!({
-        "tree-sitter": {
-            "authoritative": false,
-            "supported_operations": ["rename"],
-            "unsupported_operations": [
-                "change_signature",
-                "move_symbol",
-                "safe_delete",
-                "extract_method",
-                "inline_symbol"
-            ],
-            "role": "syntax-bounded fallback"
-        },
-        "lsp": {
-            "authoritative": true,
-            "supported_operations": ["rename", "safe_delete_check"],
-            "unsupported_operations": [
-                "change_signature",
-                "move_symbol",
-                "safe_delete_apply",
-                "extract_method",
-                "inline_symbol"
-            ],
-            "requires": ["installed_lsp_server", "file_language_mapping"],
-            "validator": "textDocument/rename"
-        },
-        "scip": {
-            "authoritative_index": true,
-            "supported_edit_operations": [],
-            "role": "cross-reference evidence, not an edit executor"
-        }
+        "schema": "codelens-semantic-operation-matrix-v1",
+        "tier1_languages": ["rust", "typescript", "javascript", "java"],
+        "operations": semantic_edit_operation_descriptors()
+    })
+}
+
+fn semantic_edit_operation_descriptors() -> Vec<Value> {
+    let tier1 = json!(["rust", "typescript", "javascript", "java"]);
+    vec![
+        operation_descriptor(
+            "rename",
+            "tree-sitter",
+            json!(["rust", "typescript", "javascript", "java", "python", "go"]),
+            "authoritative_preview",
+            json!([]),
+        ),
+        operation_descriptor(
+            "rename",
+            "lsp",
+            tier1.clone(),
+            "authoritative_apply",
+            json!(["textDocument/prepareRename", "textDocument/rename"]),
+        ),
+        operation_descriptor(
+            "safe_delete_check",
+            "lsp",
+            tier1.clone(),
+            "authoritative_check",
+            json!(["textDocument/references"]),
+        ),
+        operation_descriptor(
+            "safe_delete_apply",
+            "lsp",
+            tier1.clone(),
+            "authoritative_apply",
+            json!(["textDocument/references", "tree_sitter_symbol_range"]),
+        ),
+        operation_descriptor(
+            "declaration",
+            "lsp",
+            tier1.clone(),
+            "authoritative_check",
+            json!(["textDocument/declaration"]),
+        ),
+        operation_descriptor(
+            "definition",
+            "lsp",
+            tier1.clone(),
+            "authoritative_check",
+            json!(["textDocument/definition"]),
+        ),
+        operation_descriptor(
+            "implementation",
+            "lsp",
+            tier1.clone(),
+            "authoritative_check",
+            json!(["textDocument/implementation"]),
+        ),
+        operation_descriptor(
+            "type_definition",
+            "lsp",
+            tier1.clone(),
+            "authoritative_check",
+            json!(["textDocument/typeDefinition"]),
+        ),
+        operation_descriptor(
+            "extract_function",
+            "lsp",
+            tier1.clone(),
+            "unsupported",
+            json!(["textDocument/codeAction", "codeAction/resolve"]),
+        ),
+        operation_descriptor(
+            "inline_function",
+            "lsp",
+            tier1.clone(),
+            "unsupported",
+            json!(["textDocument/codeAction", "codeAction/resolve"]),
+        ),
+        operation_descriptor(
+            "move_symbol",
+            "lsp",
+            tier1.clone(),
+            "unsupported",
+            json!(["textDocument/codeAction", "codeAction/resolve"]),
+        ),
+        operation_descriptor(
+            "change_signature",
+            "lsp",
+            tier1,
+            "unsupported",
+            json!(["textDocument/codeAction", "codeAction/resolve"]),
+        ),
+        operation_descriptor(
+            "references",
+            "scip",
+            json!(["rust", "typescript", "javascript", "java"]),
+            "evidence_only",
+            json!(["scip_index"]),
+        ),
+    ]
+}
+
+fn operation_descriptor(
+    operation: &'static str,
+    backend: &'static str,
+    languages: Value,
+    support: &'static str,
+    required_methods: Value,
+) -> Value {
+    json!({
+        "operation": operation,
+        "backend": backend,
+        "languages": languages,
+        "support": support,
+        "required_methods": required_methods,
+        "failure_policy": "fail_closed"
     })
 }
 
@@ -446,24 +533,26 @@ mod tests {
     #[test]
     fn semantic_edit_operation_matrix_does_not_overclaim_refactors() {
         let matrix = semantic_edit_operation_matrix();
-        assert_eq!(matrix["lsp"]["authoritative"], serde_json::json!(true));
-        assert_eq!(
-            matrix["lsp"]["supported_operations"],
-            serde_json::json!(["rename", "safe_delete_check"])
-        );
+        let operations = matrix["operations"].as_array().unwrap();
+        assert!(operations.iter().any(|op| {
+            op["operation"] == "rename"
+                && op["backend"] == "lsp"
+                && op["support"] == "authoritative_apply"
+        }));
+        assert!(operations.iter().any(|op| {
+            op["operation"] == "safe_delete_check"
+                && op["backend"] == "lsp"
+                && op["support"] == "authoritative_check"
+        }));
+        assert!(operations.iter().any(|op| {
+            op["operation"] == "change_signature"
+                && op["backend"] == "lsp"
+                && op["support"] == "unsupported"
+        }));
         assert!(
-            matrix["lsp"]["unsupported_operations"]
-                .as_array()
-                .unwrap()
-                .contains(&serde_json::json!("change_signature"))
-        );
-        assert_eq!(
-            matrix["tree-sitter"]["authoritative"],
-            serde_json::json!(false)
-        );
-        assert_eq!(
-            matrix["scip"]["supported_edit_operations"],
-            serde_json::json!([])
+            operations
+                .iter()
+                .any(|op| { op["backend"] == "scip" && op["support"] == "evidence_only" })
         );
     }
 }

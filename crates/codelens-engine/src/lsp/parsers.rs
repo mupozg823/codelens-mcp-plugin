@@ -1,5 +1,6 @@
 use super::types::{
-    LspDiagnostic, LspReference, LspRenamePlan, LspTypeHierarchyNode, LspWorkspaceSymbol,
+    LspDiagnostic, LspReference, LspRenamePlan, LspResolvedTarget, LspResourceOp,
+    LspTypeHierarchyNode, LspWorkspaceEditTransaction, LspWorkspaceSymbol,
 };
 use crate::project::ProjectRoot;
 use crate::rename::RenameEdit;
@@ -39,12 +40,23 @@ pub(super) fn references_from_response(
         let Some(end) = range.get("end") else {
             continue;
         };
+        let source = fs::read_to_string(&path).unwrap_or_default();
+        let line = start.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
+        let end_line = end.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
         references.push(LspReference {
             file_path: project.to_relative(path),
-            line: start.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1,
-            column: start.get("character").and_then(Value::as_u64).unwrap_or(0) as usize + 1,
-            end_line: end.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1,
-            end_column: end.get("character").and_then(Value::as_u64).unwrap_or(0) as usize + 1,
+            line,
+            column: byte_column_for_utf16_position(
+                &source,
+                line,
+                start.get("character").and_then(Value::as_u64).unwrap_or(0) as usize,
+            ),
+            end_line,
+            end_column: byte_column_for_utf16_position(
+                &source,
+                end_line,
+                end.get("character").and_then(Value::as_u64).unwrap_or(0) as usize,
+            ),
         });
     }
     Ok(references)
@@ -306,14 +318,27 @@ pub(super) fn rename_plan_from_response(
     })
 }
 
+#[cfg(test)]
 pub(super) fn rename_edits_from_workspace_edit_response(
     project: &ProjectRoot,
     response: Value,
 ) -> Result<Vec<RenameEdit>> {
+    let transaction = workspace_edit_transaction_from_response(project, response)?;
+    if transaction.edits.is_empty() {
+        bail!("LSP rename returned no text edits");
+    }
+    Ok(transaction.edits)
+}
+
+pub(super) fn workspace_edit_transaction_from_response(
+    project: &ProjectRoot,
+    response: Value,
+) -> Result<LspWorkspaceEditTransaction> {
     let result = response
         .get("result")
         .context("LSP rename returned no result")?;
     let mut edits = Vec::new();
+    let mut resource_ops = Vec::new();
 
     if let Some(changes) = result.get("changes").and_then(Value::as_object) {
         collect_changes(project, changes, &mut edits)?;
@@ -321,22 +346,122 @@ pub(super) fn rename_edits_from_workspace_edit_response(
 
     if let Some(document_changes) = result.get("documentChanges").and_then(Value::as_array) {
         for change in document_changes {
-            let Some(text_edits) = change.get("edits").and_then(Value::as_array) else {
-                bail!("unsupported LSP documentChanges operation in rename edit");
-            };
-            let uri = change
-                .get("textDocument")
-                .and_then(|value| value.get("uri"))
-                .and_then(Value::as_str)
-                .context("LSP documentChanges textDocument uri missing")?;
-            collect_text_edits_for_uri(project, uri, text_edits, &mut edits)?;
+            if let Some(text_edits) = change.get("edits").and_then(Value::as_array) {
+                let uri = change
+                    .get("textDocument")
+                    .and_then(|value| value.get("uri"))
+                    .and_then(Value::as_str)
+                    .context("LSP documentChanges textDocument uri missing")?;
+                collect_text_edits_for_uri(project, uri, text_edits, &mut edits)?;
+                continue;
+            }
+            if let Some(kind) = change.get("kind").and_then(Value::as_str) {
+                resource_ops.push(resource_op_from_document_change(project, kind, change)?);
+                continue;
+            }
+            bail!("unsupported LSP documentChanges operation in workspace edit");
         }
     }
 
-    if edits.is_empty() {
-        bail!("LSP rename returned no text edits");
+    let modified_files = edits
+        .iter()
+        .map(|edit| &edit.file_path)
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    let edit_count = edits.len();
+    Ok(LspWorkspaceEditTransaction {
+        edits,
+        resource_ops,
+        modified_files,
+        edit_count,
+        rollback_available: true,
+    })
+}
+
+pub(super) fn apply_workspace_edit_transaction(
+    project: &ProjectRoot,
+    transaction: &LspWorkspaceEditTransaction,
+) -> Result<()> {
+    if !transaction.resource_ops.is_empty() {
+        bail!("LSP resource operations are preview-only in this release");
     }
-    Ok(edits)
+    let mut backups = HashMap::new();
+    for edit in &transaction.edits {
+        let resolved = project.resolve(&edit.file_path)?;
+        backups
+            .entry(resolved.clone())
+            .or_insert_with(|| fs::read_to_string(&resolved));
+    }
+    if let Err(error) = crate::rename::apply_edits(project, &transaction.edits) {
+        for (path, backup) in backups {
+            if let Ok(content) = backup {
+                let _ = fs::write(path, content);
+            }
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+pub(super) fn resolved_targets_from_response(
+    project: &ProjectRoot,
+    response: Value,
+    target: &str,
+    method: &str,
+    max_results: usize,
+) -> Result<Vec<LspResolvedTarget>> {
+    let Some(result) = response.get("result") else {
+        return Ok(Vec::new());
+    };
+    if result.is_null() {
+        return Ok(Vec::new());
+    }
+
+    let items = if let Some(items) = result.as_array() {
+        items.clone()
+    } else {
+        vec![result.clone()]
+    };
+
+    let mut targets = Vec::new();
+    for item in items.iter().take(max_results) {
+        let Some((uri, range)) = location_uri_and_range(item) else {
+            continue;
+        };
+        let absolute_path = Url::parse(uri)
+            .ok()
+            .and_then(|uri| uri.to_file_path().ok())
+            .with_context(|| format!("invalid LSP target uri: {uri}"))?;
+        let canonical_path = canonicalize_lsp_path(absolute_path);
+        let resolved_path = project.resolve(&canonical_path)?;
+        let source = fs::read_to_string(&resolved_path).unwrap_or_default();
+        let Some(start) = range.get("start") else {
+            continue;
+        };
+        let Some(end) = range.get("end") else {
+            continue;
+        };
+        let line = start.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
+        let end_line = end.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
+        targets.push(LspResolvedTarget {
+            file_path: project.to_relative(&resolved_path),
+            line,
+            column: byte_column_for_utf16_position(
+                &source,
+                line,
+                start.get("character").and_then(Value::as_u64).unwrap_or(0) as usize,
+            ),
+            end_line,
+            end_column: byte_column_for_utf16_position(
+                &source,
+                end_line,
+                end.get("character").and_then(Value::as_u64).unwrap_or(0) as usize,
+            ),
+            target: target.to_owned(),
+            method: method.to_owned(),
+        });
+    }
+    Ok(targets)
 }
 
 fn collect_changes(
@@ -364,7 +489,7 @@ fn collect_text_edits_for_uri(
         .ok()
         .and_then(|uri| uri.to_file_path().ok())
         .with_context(|| format!("invalid LSP file uri: {uri}"))?;
-    let canonical_path = absolute_path.canonicalize().unwrap_or(absolute_path);
+    let canonical_path = canonicalize_lsp_path(absolute_path);
     let resolved_path = project.resolve(&canonical_path)?;
     let source = fs::read_to_string(&resolved_path).with_context(|| {
         format!(
@@ -413,14 +538,77 @@ fn collect_text_edits_for_uri(
     Ok(())
 }
 
+fn resource_op_from_document_change(
+    project: &ProjectRoot,
+    kind: &str,
+    change: &Value,
+) -> Result<LspResourceOp> {
+    let file_path = match kind {
+        "create" | "delete" => change
+            .get("uri")
+            .and_then(Value::as_str)
+            .map(|uri| lsp_uri_to_project_relative(project, uri))
+            .transpose()?
+            .unwrap_or_default(),
+        "rename" => change
+            .get("newUri")
+            .and_then(Value::as_str)
+            .map(|uri| lsp_uri_to_project_relative(project, uri))
+            .transpose()?
+            .unwrap_or_default(),
+        _ => bail!("unsupported LSP resource operation kind: {kind}"),
+    };
+    let old_file_path = change
+        .get("oldUri")
+        .and_then(Value::as_str)
+        .map(|uri| lsp_uri_to_project_relative(project, uri))
+        .transpose()?;
+    let new_file_path = change
+        .get("newUri")
+        .and_then(Value::as_str)
+        .map(|uri| lsp_uri_to_project_relative(project, uri))
+        .transpose()?;
+    Ok(LspResourceOp {
+        kind: kind.to_owned(),
+        file_path,
+        old_file_path,
+        new_file_path,
+    })
+}
+
+fn location_uri_and_range(item: &Value) -> Option<(&str, &Value)> {
+    if let Some(uri) = item.get("uri").and_then(Value::as_str) {
+        return item.get("range").map(|range| (uri, range));
+    }
+    if let Some(uri) = item.get("targetUri").and_then(Value::as_str) {
+        return item
+            .get("targetSelectionRange")
+            .or_else(|| item.get("targetRange"))
+            .map(|range| (uri, range));
+    }
+    None
+}
+
 fn lsp_uri_to_project_relative(project: &ProjectRoot, uri: &str) -> Result<String> {
     let absolute_path = Url::parse(uri)
         .ok()
         .and_then(|uri| uri.to_file_path().ok())
         .with_context(|| format!("invalid LSP file uri: {uri}"))?;
-    let canonical_path = absolute_path.canonicalize().unwrap_or(absolute_path);
+    let canonical_path = canonicalize_lsp_path(absolute_path);
     let resolved_path = project.resolve(&canonical_path)?;
     Ok(project.to_relative(&resolved_path))
+}
+
+fn canonicalize_lsp_path(path: std::path::PathBuf) -> std::path::PathBuf {
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+    if let (Some(parent), Some(file_name)) = (path.parent(), path.file_name())
+        && let Ok(parent) = parent.canonicalize()
+    {
+        return parent.join(file_name);
+    }
+    path
 }
 
 pub(super) fn extract_text_for_range(
@@ -477,6 +665,26 @@ fn byte_column_for_utf16_position(source: &str, line: usize, character_utf16: us
         consumed_utf16 = next_utf16;
     }
     text.len() + 1
+}
+
+pub(super) fn utf16_character_for_byte_column(source: &str, line: usize, column: usize) -> usize {
+    let Some(text) = source.lines().nth(line.saturating_sub(1)) else {
+        return 0;
+    };
+
+    let target_byte = column.saturating_sub(1).min(text.len());
+    let mut consumed_utf16 = 0usize;
+    for (byte_index, ch) in text.char_indices() {
+        if byte_index >= target_byte {
+            return consumed_utf16;
+        }
+        let next_byte = byte_index + ch.len_utf8();
+        if next_byte > target_byte {
+            return consumed_utf16;
+        }
+        consumed_utf16 += ch.len_utf16();
+    }
+    consumed_utf16
 }
 
 fn type_hierarchy_child_to_map(node: &LspTypeHierarchyNode) -> HashMap<String, Value> {
@@ -688,6 +896,52 @@ mod tests {
         crate::rename::apply_edits(&project, &edits).expect("apply edit");
         let updated = fs::read_to_string(path).expect("read updated");
         assert_eq!(updated, "🙂 new_name()\n");
+    }
+
+    #[test]
+    fn workspace_edit_transaction_keeps_text_edits_and_resource_ops_separate() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-lsp-parser-transaction-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("mkdir project");
+        let path = dir.join("sample.py");
+        fs::write(&path, "old_name()\n").expect("write sample");
+        let project = ProjectRoot::new_exact(&dir).expect("project root");
+        let uri = Url::from_file_path(&path).expect("file uri").to_string();
+        let created_uri = Url::from_file_path(dir.join("created.py"))
+            .expect("created uri")
+            .to_string();
+        let response = json!({
+            "result": {
+                "documentChanges": [
+                    {
+                        "textDocument": {"uri": uri},
+                        "edits": [{
+                            "range": {
+                                "start": {"line": 0, "character": 0},
+                                "end": {"line": 0, "character": 8}
+                            },
+                            "newText": "new_name"
+                        }]
+                    },
+                    {"kind": "create", "uri": created_uri}
+                ]
+            }
+        });
+
+        let transaction = workspace_edit_transaction_from_response(&project, response)
+            .expect("transaction should parse");
+
+        assert_eq!(transaction.edit_count, 1);
+        assert_eq!(transaction.modified_files, 1);
+        assert_eq!(transaction.resource_ops.len(), 1);
+        assert_eq!(transaction.resource_ops[0].kind, "create");
+        assert_eq!(transaction.resource_ops[0].file_path, "created.py");
+        assert!(transaction.rollback_available);
     }
 
     #[test]

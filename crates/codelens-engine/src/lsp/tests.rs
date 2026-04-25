@@ -247,6 +247,68 @@ fn applies_rename_workspace_edit_from_mock_lsp() {
 }
 
 #[test]
+fn lsp_requests_translate_byte_columns_to_utf16_positions() {
+    let dir = temp_dir("codelens-lsp-utf16-request");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(dir.join("sample.py"), "🙂 greet()\n").expect("write sample");
+    let server_path = dir.join("mock_utf16_lsp.py");
+    fs::write(&server_path, utf16_position_mock_server_script()).expect("write mock server");
+    chmod_exec(&server_path);
+
+    let refs = find_referencing_symbols_via_lsp(
+        &project,
+        &LspRequest {
+            command: "python3".to_owned(),
+            args: vec![server_path.display().to_string()],
+            file_path: "sample.py".to_owned(),
+            line: 1,
+            column: "🙂 ".len() + 1,
+            max_results: 10,
+        },
+    )
+    .expect("lsp references");
+
+    assert_eq!(
+        refs.len(),
+        1,
+        "server only returns a reference for UTF-16 character 3"
+    );
+    assert_eq!(refs[0].file_path, "sample.py");
+    assert_eq!(refs[0].column, "🙂 ".len() + 1);
+}
+
+#[test]
+fn rename_via_lsp_runs_prepare_rename_before_workspace_edit() {
+    let dir = temp_dir("codelens-lsp-rename-prepare-first");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(
+        dir.join("sample.py"),
+        "class Service:\n    pass\n\nService()\n",
+    )
+    .expect("write sample");
+    let server_path = dir.join("mock_prepare_required_lsp.py");
+    fs::write(&server_path, prepare_required_rename_mock_server_script())
+        .expect("write mock server");
+    chmod_exec(&server_path);
+
+    let result = rename_symbol_via_lsp(
+        &project,
+        &LspRenameRequest {
+            command: "python3".to_owned(),
+            args: vec![server_path.display().to_string()],
+            file_path: "sample.py".to_owned(),
+            line: 1,
+            column: 7,
+            new_name: "RenamedService".to_owned(),
+            dry_run: true,
+        },
+    )
+    .expect("rename result");
+
+    assert_eq!(result.total_replacements, 2);
+}
+
+#[test]
 fn default_lsp_command_is_derived_from_registry_by_path() {
     assert_eq!(
         default_lsp_command_for_path("src/main.py"),
@@ -291,6 +353,140 @@ fn temp_dir(prefix: &str) -> std::path::PathBuf {
     ));
     fs::create_dir_all(&dir).expect("create dir");
     dir
+}
+
+fn utf16_position_mock_server_script() -> &'static str {
+    r#"#!/usr/bin/env python3
+import json
+import sys
+
+def read_message():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        name, value = line.decode("utf-8").split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+    body = sys.stdin.buffer.read(int(headers["content-length"]))
+    return json.loads(body.decode("utf-8"))
+
+def send(payload):
+    body = json.dumps(payload).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8"))
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+
+while True:
+    message = read_message()
+    if message is None:
+        break
+    method = message.get("method")
+    if method == "initialize":
+        send({"jsonrpc":"2.0","id":message["id"],"result":{"capabilities":{"referencesProvider": True}}})
+    elif method == "textDocument/references":
+        uri = message["params"]["textDocument"]["uri"]
+        character = message["params"]["position"]["character"]
+        result = []
+        if character == 3:
+            result = [{
+                "uri": uri,
+                "range": {
+                    "start": {"line": 0, "character": 3},
+                    "end": {"line": 0, "character": 8}
+                }
+            }]
+        send({"jsonrpc":"2.0","id":message["id"],"result":result})
+    elif method == "shutdown":
+        send({"jsonrpc":"2.0","id":message["id"],"result":None})
+    elif method == "exit":
+        break
+"#
+}
+
+fn prepare_required_rename_mock_server_script() -> &'static str {
+    r#"#!/usr/bin/env python3
+import json
+import sys
+
+prepared = False
+
+def read_message():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        name, value = line.decode("utf-8").split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+    body = sys.stdin.buffer.read(int(headers["content-length"]))
+    return json.loads(body.decode("utf-8"))
+
+def send(payload):
+    body = json.dumps(payload).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8"))
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+
+while True:
+    message = read_message()
+    if message is None:
+        break
+    method = message.get("method")
+    if method == "initialize":
+        send({"jsonrpc":"2.0","id":message["id"],"result":{"capabilities":{"renameProvider":{"prepareProvider": True}}}})
+    elif method == "textDocument/prepareRename":
+        prepared = True
+        send({
+            "jsonrpc":"2.0",
+            "id":message["id"],
+            "result":{
+                "range":{
+                    "start":{"line":0,"character":6},
+                    "end":{"line":0,"character":13}
+                },
+                "placeholder":"Service"
+            }
+        })
+    elif method == "textDocument/rename":
+        if not prepared:
+            send({"jsonrpc":"2.0","id":message["id"],"error":{"code":-32000,"message":"prepareRename required"}})
+            continue
+        uri = message["params"]["textDocument"]["uri"]
+        new_name = message["params"]["newName"]
+        send({
+            "jsonrpc":"2.0",
+            "id":message["id"],
+            "result":{
+                "changes": {
+                    uri: [
+                        {
+                            "range":{
+                                "start":{"line":0,"character":6},
+                                "end":{"line":0,"character":13}
+                            },
+                            "newText": new_name
+                        },
+                        {
+                            "range":{
+                                "start":{"line":3,"character":0},
+                                "end":{"line":3,"character":7}
+                            },
+                            "newText": new_name
+                        }
+                    ]
+                }
+            }
+        })
+    elif method == "shutdown":
+        send({"jsonrpc":"2.0","id":message["id"],"result":None})
+    elif method == "exit":
+        break
+"#
 }
 
 fn mock_server_script() -> &'static str {

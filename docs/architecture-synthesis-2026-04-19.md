@@ -12,8 +12,10 @@ longer supersedes the newer product-readiness notes in
   query cache/prewarm, and remote compatibility moved forward after this
   v1.9.49 synthesis.
 - P2 is no longer purely passive: `rename_symbol` can use LSP
-  `textDocument/rename`, and `propagate_deletions` can use LSP
-  `textDocument/references` for a check-only `safe_delete_check`.
+  `prepareRename` + `textDocument/rename`, `resolve_symbol_target` can use
+  LSP declaration/definition/implementation/type-definition, and
+  `propagate_deletions` can use LSP `textDocument/references` for
+  safe-delete check/apply.
 - CodeLens is still not Serena/JetBrains/Roslyn-grade for broad semantic
   refactors. Move, inline, change signature, extract method,
   declaration/implementation, and safe-delete apply need operation-level
@@ -277,7 +279,7 @@ graph TB
   Dispatch --> Audit
 
   Dispatch -->|default retrieval and tools| Engine
-  Backend -->|active for LSP rename and safe_delete_check| LSP
+  Backend -->|active for LSP rename/navigation/safe_delete| LSP
   Backend -.->|future operation gates| Engine
 
   Engine --> TS
@@ -323,7 +325,7 @@ Scoring rubric:
 
 - Mature / Active : **10 / 13 areas** (77 %)
 - Scaffold only : 1 / 13 areas (8 %) — P3 passive memory registry
-- Partial active : 1 / 13 areas (8 %) — P2 LSP rename + safe-delete check
+- Partial active : 1 / 13 areas (8 %) — P2 LSP rename/navigation/safe-delete
 - No enforcement : 1 / 13 areas (8 %) — perf baseline not CI-gated
 
 Overall: **production-ready substrate**, Serena-compatible surface
@@ -334,7 +336,7 @@ ADR-0008 and the 2026-04-24 architecture audit.
 
 | Item                                           | Status       | Policy                                                                                                      |
 | ---------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------- |
-| P2-active broad semantic edits                 | Partial      | LSP rename and safe-delete check are active; every new edit operation needs matrix + negative tests + smoke |
+| P2-active broad semantic edits                 | Partial      | LSP rename/navigation/safe-delete are active; every new edit operation needs matrix + negative tests + smoke |
 | P3-active (write routing to global memory)     | Parked       | Lands when an explicit global-memory tool is requested                                                      |
 | 6 `too_many_arguments` clippy warnings         | Parked       | All on internal coordination helpers; parameter-struct refactor = multi-site churn without behaviour change |
 | Dashboard UI renderer                          | Out of scope | Serena §Layer 5 explicitly scopes P4 to data, not render                                                    |

@@ -27,12 +27,17 @@ CHANGELOG will resume per-release entries starting with the next minor bump. Tre
   `semantic_edit_backend=lsp`. The operation uses `textDocument/references`
   as edit authority, reports `edit_authority.operation=safe_delete_check`,
   and remains check-only; actual deletion still flows through mutation gates.
+- IDE-refactor foundation slice: LSP request positions now convert byte columns
+  to UTF-16, LSP rename runs `prepareRename` before `rename`, WorkspaceEdit
+  parsing records text edits and resource operations, `resolve_symbol_target`
+  resolves declaration/definition/implementation/type-definition through LSP,
+  and `safe_delete_apply` is guarded behind zero non-declaration references.
 
 ### Docs
 
 - Serena comparison, ADR-0008, architecture audit, README, and platform setup
-  updated to reflect the current partial semantic edit substrate: LSP rename
-  and LSP safe-delete check are real, while broad IDE-grade refactors remain
+  updated to reflect the current partial semantic edit substrate: LSP rename,
+  navigation, and guarded safe-delete are real, while broad IDE-grade refactors remain
   roadmap work.
 - README retrieval-quality table re-anchored on commit `26d513e` (v1.9.32, 2026-04-17). Self-benchmark now reports Hybrid MRR **0.712** (was 0.758 on `84c825d` / v1.9.23 re-measurement), Semantic 0.689 (was 0.732), Lexical 0.583 (was 0.601). Dataset (`benchmarks/embedding-quality-dataset-self.json`, 104 queries) and embedding model (`MiniLM-L12-CodeSearchNet-INT8` sha prefix `ef1d1e9c`) are unchanged. Two independent runs on v1.9.32 produced identical numbers (deterministic). Raw + summary under `benchmarks/results/v1.9.32-mrr.{json,md}` and `...-run2.{json,md}` for variance evidence. **Bisect (2026-04-17)**: a full re-run of the same benchmark on `84c825d` reproduces 0.758 exactly, confirming both ends are real. The span `84c825d..26d513e` touches the retrieval path only for whitespace / re-export-order changes (`embedding/mod.rs`, `embedding/vec_store.rs`, `lib.rs`); external `Cargo.lock` dependencies, the benchmark harness, the dataset, and the ONNX model are all unchanged. Source diff alone cannot explain the delta — remaining hypotheses are fastembed/ort/CoreML non-determinism, float-point associativity under LTO, and benchmark isolate-copy ordering. Full write-up: `docs/design/retrieval-regression-bisect-2026-04-17.md`. Baseline artifact: `benchmarks/results/v1.9.26-mrr.{json,md}`. **Full root-cause resolved same day (2026-04-17)**: all four hypotheses probed, and a cross-tree / cross-binary experiment identified the actual cause. (1) CoreML ANE scheduling — ruled out (`cpu_only` = 0.712). (2) FP associativity under LTO — ruled out (`lto=false` = 0.712). (3) Build codegen diff — ruled out (two builds, different SHA, identical MRR). (4) Isolate-copy ordering — partial only (±0.003 MRR). **Root cause**: the v1.9.26 binary reproduces 0.758 on the v1.9.26 tree and 0.712 on the v1.9.32 tree. Binary is not contributing to the drift; the project tree itself is the input that moved. Between `84c825d` and `26d513e` the repo grew ~8 new files (dispatch decomposition, `cli.rs`, `tools/suggestions.rs`, `tools/reasoning_scaffold.rs`, release notes, bisect artifacts) and ~1,100 lines, enlarging the haystack and introducing same-named tokens that tie-break against the fixed ground-truth of the 104-query self-benchmark. This is **not a product regression** — it is a codebase-growth artifact of measuring with a self-benchmark whose ground-truth paths were refactored. Follow-ups (benchmark-hygiene sort, self-dataset path refresh, cross-project MRR policy) listed in the bisect doc. All per-hypothesis bench artifacts under `benchmarks/results/v1.9.32-mrr-{cpuonly,ltooff,buildB,noisolate}.{json,md}` and the cross-experiment under `benchmarks/results/v1.9.26-binary-on-v1.9.32-tree.{json,md}`.
 

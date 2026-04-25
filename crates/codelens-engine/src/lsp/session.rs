@@ -10,16 +10,17 @@ use std::time::{Duration, Instant};
 use url::Url;
 
 use super::parsers::{
-    diagnostics_from_response, method_suffix_to_hierarchy, references_from_response,
-    rename_edits_from_workspace_edit_response, rename_plan_from_response,
-    type_hierarchy_node_from_item, type_hierarchy_to_map, workspace_symbols_from_response,
+    apply_workspace_edit_transaction, diagnostics_from_response, method_suffix_to_hierarchy,
+    references_from_response, rename_plan_from_response, resolved_targets_from_response,
+    type_hierarchy_node_from_item, type_hierarchy_to_map, utf16_character_for_byte_column,
+    workspace_edit_transaction_from_response, workspace_symbols_from_response,
 };
 use super::protocol::{language_id_for_path, poll_readable, read_message, send_message};
 use super::registry::resolve_lsp_binary;
 use super::types::{
     LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,
-    LspRenameRequest, LspRequest, LspTypeHierarchyNode, LspTypeHierarchyRequest,
-    LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
+    LspRenameRequest, LspRequest, LspResolveTargetRequest, LspResolvedTarget, LspTypeHierarchyNode,
+    LspTypeHierarchyRequest, LspWorkspaceSymbol, LspWorkspaceSymbolRequest,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -200,6 +201,20 @@ impl LspSessionPool {
         session.get_type_hierarchy(request)
     }
 
+    pub fn resolve_symbol_target(
+        &self,
+        request: &LspResolveTargetRequest,
+    ) -> Result<Vec<LspResolvedTarget>> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
+        session.resolve_symbol_target(request)
+    }
+
     pub fn get_rename_plan(&self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let session = ensure_session(
@@ -281,7 +296,35 @@ impl LspSession {
             json!({
                 "processId":null,
                 "rootUri": root_uri,
-                "capabilities":{},
+                "capabilities":{
+                    "workspace":{
+                        "workspaceEdit":{
+                            "documentChanges":true,
+                            "resourceOperations":["create","rename","delete"],
+                            "failureHandling":"textOnlyTransactional"
+                        },
+                        "symbol":{"dynamicRegistration":false}
+                    },
+                    "textDocument":{
+                        "declaration":{"dynamicRegistration":false},
+                        "definition":{"dynamicRegistration":false},
+                        "implementation":{"dynamicRegistration":false},
+                        "typeDefinition":{"dynamicRegistration":false},
+                        "references":{"dynamicRegistration":false},
+                        "rename":{"dynamicRegistration":false,"prepareSupport":true},
+                        "diagnostic":{"dynamicRegistration":false},
+                        "typeHierarchy":{"dynamicRegistration":false},
+                        "codeAction":{
+                            "dynamicRegistration":false,
+                            "codeActionLiteralSupport":{
+                                "codeActionKind":{
+                                    "valueSet":["quickfix","refactor","refactor.extract","refactor.inline","refactor.rewrite"]
+                                }
+                            },
+                            "resolveSupport":{"properties":["edit","command"]}
+                        }
+                    }
+                },
                 "workspaceFolders":[
                     {
                         "uri": Url::from_directory_path(self.project.as_path()).ok().map(|url| url.to_string()),
@@ -297,7 +340,8 @@ impl LspSession {
 
     fn find_references(&mut self, request: &LspRequest) -> Result<Vec<LspReference>> {
         let absolute_path = self.project.resolve(&request.file_path)?;
-        let (uri_string, _source) = self.prepare_document(&absolute_path)?;
+        let (uri_string, source) = self.prepare_document(&absolute_path)?;
+        let character = utf16_character_for_byte_column(&source, request.line, request.column);
 
         let id = self.next_id();
         self.send_request(
@@ -305,7 +349,7 @@ impl LspSession {
             "textDocument/references",
             json!({
                 "textDocument":{"uri":uri_string},
-                "position":{"line":request.line.saturating_sub(1),"character":request.column.saturating_sub(1)},
+                "position":{"line":request.line.saturating_sub(1),"character":character},
                 "context":{"includeDeclaration":true}
             }),
         )?;
@@ -394,9 +438,44 @@ impl LspSession {
         Ok(type_hierarchy_to_map(&root))
     }
 
+    fn resolve_symbol_target(
+        &mut self,
+        request: &LspResolveTargetRequest,
+    ) -> Result<Vec<LspResolvedTarget>> {
+        let absolute_path = self.project.resolve(&request.file_path)?;
+        let (uri_string, source) = self.prepare_document(&absolute_path)?;
+        let character = utf16_character_for_byte_column(&source, request.line, request.column);
+        let method = match request.target.as_str() {
+            "declaration" => "textDocument/declaration",
+            "definition" => "textDocument/definition",
+            "implementation" => "textDocument/implementation",
+            "type_definition" => "textDocument/typeDefinition",
+            other => bail!("unsupported LSP target: {other}"),
+        };
+
+        let id = self.next_id();
+        self.send_request(
+            id,
+            method,
+            json!({
+                "textDocument":{"uri":uri_string},
+                "position":{"line":request.line.saturating_sub(1),"character":character}
+            }),
+        )?;
+        let response = self.read_response_for_id(id)?;
+        resolved_targets_from_response(
+            &self.project,
+            response,
+            &request.target,
+            method,
+            request.max_results,
+        )
+    }
+
     fn get_rename_plan(&mut self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
         let absolute_path = self.project.resolve(&request.file_path)?;
         let (uri_string, source) = self.prepare_document(&absolute_path)?;
+        let character = utf16_character_for_byte_column(&source, request.line, request.column);
 
         let id = self.next_id();
         self.send_request(
@@ -404,7 +483,7 @@ impl LspSession {
             "textDocument/prepareRename",
             json!({
                 "textDocument":{"uri":uri_string},
-                "position":{"line":request.line.saturating_sub(1),"character":request.column.saturating_sub(1)}
+                "position":{"line":request.line.saturating_sub(1),"character":character}
             }),
         )?;
         let response = self.read_response_for_id(id)?;
@@ -419,7 +498,16 @@ impl LspSession {
 
     fn rename_symbol(&mut self, request: &LspRenameRequest) -> Result<crate::rename::RenameResult> {
         let absolute_path = self.project.resolve(&request.file_path)?;
-        let (uri_string, _source) = self.prepare_document(&absolute_path)?;
+        let (uri_string, source) = self.prepare_document(&absolute_path)?;
+        let character = utf16_character_for_byte_column(&source, request.line, request.column);
+        let _plan = self.get_rename_plan(&LspRenamePlanRequest {
+            command: request.command.clone(),
+            args: request.args.clone(),
+            file_path: request.file_path.clone(),
+            line: request.line,
+            column: request.column,
+            new_name: Some(request.new_name.clone()),
+        })?;
 
         let id = self.next_id();
         self.send_request(
@@ -427,21 +515,18 @@ impl LspSession {
             "textDocument/rename",
             json!({
                 "textDocument":{"uri":uri_string},
-                "position":{"line":request.line.saturating_sub(1),"character":request.column.saturating_sub(1)},
+                "position":{"line":request.line.saturating_sub(1),"character":character},
                 "newName": request.new_name.clone(),
             }),
         )?;
         let response = self.read_response_for_id(id)?;
-        let edits = rename_edits_from_workspace_edit_response(&self.project, response)?;
-        let modified_files = edits
-            .iter()
-            .map(|edit| &edit.file_path)
-            .collect::<std::collections::HashSet<_>>()
-            .len();
-        let total_replacements = edits.len();
+        let transaction = workspace_edit_transaction_from_response(&self.project, response)?;
+        let edits = transaction.edits.clone();
+        let modified_files = transaction.modified_files;
+        let total_replacements = transaction.edit_count;
 
         if !request.dry_run {
-            crate::rename::apply_edits(&self.project, &edits)?;
+            apply_workspace_edit_transaction(&self.project, &transaction)?;
         }
 
         Ok(crate::rename::RenameResult {

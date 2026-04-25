@@ -38,6 +38,17 @@ pub struct LspTypeHierarchyRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct LspResolveTargetRequest {
+    pub command: String,
+    pub args: Vec<String>,
+    pub file_path: String,
+    pub line: usize,
+    pub column: usize,
+    pub target: String,
+    pub max_results: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct LspRenamePlanRequest {
     pub command: String,
     pub args: Vec<String>,
@@ -65,6 +76,17 @@ pub struct LspReference {
     pub column: usize,
     pub end_line: usize,
     pub end_column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspResolvedTarget {
+    pub file_path: String,
+    pub line: usize,
+    pub column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+    pub target: String,
+    pub method: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,4 +139,21 @@ pub struct LspRenamePlan {
     pub current_name: String,
     pub placeholder: Option<String>,
     pub new_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspResourceOp {
+    pub kind: String,
+    pub file_path: String,
+    pub old_file_path: Option<String>,
+    pub new_file_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LspWorkspaceEditTransaction {
+    pub edits: Vec<crate::rename::RenameEdit>,
+    pub resource_ops: Vec<LspResourceOp>,
+    pub modified_files: usize,
+    pub edit_count: usize,
+    pub rollback_available: bool,
 }

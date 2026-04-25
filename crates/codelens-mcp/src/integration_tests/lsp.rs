@@ -248,7 +248,9 @@ fn rename_symbol_uses_opt_in_lsp_semantic_edit_backend() {
         "    if m == 'initialized': continue\n",
         "    if rid is None: continue\n",
         "    if m == 'initialize':\n",
-        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'renameProvider':True}}})\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'renameProvider':{'prepareProvider':True}}}})\n",
+        "    elif m == 'textDocument/prepareRename':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'range':{'start':{'line':0,'character':4},'end':{'line':0,'character':12}},'placeholder':'old_name'}})\n",
         "    elif m == 'textDocument/rename':\n",
         "        uri = msg['params']['textDocument']['uri']\n",
         "        new_name = msg['params']['newName']\n",
@@ -384,6 +386,189 @@ fn propagate_deletions_uses_lsp_safe_delete_check() {
     assert_eq!(
         payload["data"]["declaration_references"],
         json!(1),
+        "{payload}"
+    );
+}
+
+#[test]
+fn propagate_deletions_lsp_safe_delete_apply_removes_isolated_symbol() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("delete_apply.py"),
+        "def old_name():\n    return 1\n\nvalue = 2\n",
+    )
+    .unwrap();
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'referencesProvider':True}}})\n",
+        "    elif m == 'textDocument/references':\n",
+        "        uri = msg['params']['textDocument']['uri']\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':[{'uri':uri,'range':{'start':{'line':0,'character':4},'end':{'line':0,'character':12}}}]})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let mock_path = project.as_path().join("mock_lsp_safe_delete_apply.py");
+    fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "propagate_deletions",
+        json!({
+            "file_path": "delete_apply.py",
+            "symbol_name": "old_name",
+            "semantic_edit_backend": "lsp",
+            "line": 1,
+            "column": 5,
+            "command": "python3",
+            "args": [mock_path.to_string_lossy()],
+            "dry_run": false
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(payload["data"]["safe_delete_action"], json!("applied"));
+    assert_eq!(payload["data"]["transaction"]["modified_files"], json!(1));
+    let updated = fs::read_to_string(project.as_path().join("delete_apply.py")).unwrap();
+    assert!(!updated.contains("old_name"));
+    assert!(updated.contains("value = 2"));
+}
+
+#[test]
+fn resolve_symbol_target_uses_lsp_definition_family() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("target.rs"),
+        "fn greet() {}\nfn main() { greet(); }\n",
+    )
+    .unwrap();
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'definitionProvider':True,'implementationProvider':True,'typeDefinitionProvider':True}}})\n",
+        "    elif m in ['textDocument/definition','textDocument/implementation','textDocument/typeDefinition']:\n",
+        "        uri = msg['params']['textDocument']['uri']\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':[{'uri':uri,'range':{'start':{'line':0,'character':3},'end':{'line':0,'character':8}}}]})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let mock_path = project.as_path().join("mock_lsp_resolve.py");
+    fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "resolve_symbol_target",
+        json!({
+            "file_path": "target.rs",
+            "line": 2,
+            "column": 13,
+            "target": "implementation",
+            "semantic_backend": "lsp",
+            "command": "python3",
+            "args": [mock_path.to_string_lossy()]
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(payload["data"]["semantic_backend"], json!("lsp"));
+    assert_eq!(
+        payload["data"]["edit_authority"]["operation"],
+        json!("implementation")
+    );
+    assert_eq!(
+        payload["data"]["targets"][0]["file_path"],
+        json!("target.rs")
+    );
+}
+
+#[test]
+fn lsp_refactor_without_concrete_workspace_edit_fails_closed() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("target.ts"),
+        "const value = 1;\nconsole.log(value);\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "refactor_extract_function",
+        json!({
+            "file_path": "target.ts",
+            "start_line": 1,
+            "end_line": 1,
+            "new_name": "extracted",
+            "semantic_edit_backend": "lsp",
+            "dry_run": true
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(false), "{payload}");
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("unsupported_semantic_refactor"),
         "{payload}"
     );
 }

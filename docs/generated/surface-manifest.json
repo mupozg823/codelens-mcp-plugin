@@ -11,8 +11,8 @@
     "member_count": 3
   },
   "tool_registry": {
-    "definition_count": 113,
-    "output_schema_count": 80,
+    "definition_count": 114,
+    "output_schema_count": 81,
     "namespaces": {
       "filesystem": 6,
       "graph": 14,
@@ -20,23 +20,23 @@
       "memory": 5,
       "mutation": 16,
       "reports": 28,
-      "session": 30,
+      "session": 31,
       "symbols": 11
     },
     "tiers": {
-      "analysis": 25,
+      "analysis": 26,
       "primitive": 56,
       "workflow": 32
     },
     "phases": {
-      "agnostic": 37,
+      "agnostic": 38,
       "build": 18,
       "eval": 8,
       "plan": 29,
       "review": 21
     },
     "preferred_executors": {
-      "any": 87,
+      "any": 88,
       "claude": 9,
       "codex-builder": 17
     },
@@ -211,6 +211,15 @@
         "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 214
+      },
+      {
+        "name": "resolve_symbol_target",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": true,
+        "estimated_tokens": 360
       },
       {
         "name": "plan_symbol_rename",
@@ -444,7 +453,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": false,
-        "estimated_tokens": 173
+        "estimated_tokens": 213
       },
       {
         "name": "refactor_inline_function",
@@ -453,7 +462,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": false,
-        "estimated_tokens": 186
+        "estimated_tokens": 226
       },
       {
         "name": "refactor_move_to_file",
@@ -462,7 +471,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": false,
-        "estimated_tokens": 190
+        "estimated_tokens": 232
       },
       {
         "name": "refactor_change_signature",
@@ -471,7 +480,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": false,
-        "estimated_tokens": 226
+        "estimated_tokens": 268
       },
       {
         "name": "propagate_deletions",
@@ -1474,7 +1483,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 80,
+        "tool_count": 81,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1526,6 +1535,7 @@
           "find_similar_code",
           "find_code_duplicates",
           "classify_symbol",
+          "resolve_symbol_target",
           "query_project",
           "get_capabilities",
           "rename_symbol",
@@ -1571,7 +1581,7 @@
       },
       {
         "name": "full",
-        "tool_count": 113,
+        "tool_count": 114,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1637,6 +1647,7 @@
           "refactor_move_to_file",
           "refactor_change_signature",
           "find_relevant_rules",
+          "resolve_symbol_target",
           "query_project",
           "get_capabilities",
           "audit_builder_session",
@@ -3221,7 +3232,7 @@
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 80,
+    "visible_tool_count": 81,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": true,
@@ -3253,10 +3264,10 @@
   "summary": {
     "workspace_version": "1.9.50",
     "workspace_member_count": 3,
-    "registered_tool_definitions": 113,
+    "registered_tool_definitions": 114,
     "tool_output_schemas": {
-      "declared": 80,
-      "total": 113
+      "declared": 81,
+      "total": 114
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,

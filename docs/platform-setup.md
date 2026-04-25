@@ -577,7 +577,7 @@ agent = client.agents.create(
 - Planner/reviewer paths should start with `analyze_change_request`, `impact_report`, `module_boundary_report`, or `dead_code_report`.
 - Refactor paths should start with `refactor_safety_report` or `safe_rename_report`.
 - `refactor-full` mutation execution is preflight-gated. Missing, stale, or blocked verifier evidence is rejected at runtime.
-- Precise edit paths should opt into `semantic_edit_backend=lsp` only when a language server is available. Current LSP-authoritative operations are `rename` and `safe_delete_check`; broad refactors still require verifier evidence and operation-specific gates.
+- Precise edit paths should opt into `semantic_edit_backend=lsp` only when a language server is available. Current LSP-authoritative operations are `rename`, declaration/definition/implementation/type-definition resolution, `safe_delete_check`, and guarded `safe_delete_apply`; broad refactors still require verifier evidence and operation-specific gates.
 - Heavier reports can use `start_analysis_job` and poll via `get_analysis_job`.
 - Expand detail only through `get_analysis_section` or `codelens://analysis/{id}/...` resources.
 - Mutation-enabled profiles write audit logs to `.codelens/audit/mutation-audit.jsonl`.
@@ -588,7 +588,7 @@ agent = client.agents.create(
 
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:BEGIN -->
 - Workspace version: `1.9.50`
-- Presets: `minimal` (27), `balanced` (80), `full` (113)
+- Presets: `minimal` (27), `balanced` (81), `full` (114)
 - Profiles: `planner-readonly` (35), `builder-minimal` (38), `reviewer-graph` (37), `evaluator-compact` (14), `refactor-full` (51), `ci-audit` (45), `workflow-first` (19)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:END -->
