@@ -1,9 +1,23 @@
-# CodeLens MCP — Architecture Synthesis (v1.9.49)
+# CodeLens MCP — Architecture Synthesis (v1.9.49, updated status addendum)
 
 Date: 2026-04-19
-Status: Authoritative — supersedes scattered notes in `ARCHITECTURE.md`,
-ADR-0005, ADR-0008, `docs/design/serena-comparison-2026-04-18.md`
-for the single-document summary.
+Status: Historical synthesis with 2026-04-25 addendum. This document no
+longer supersedes the newer product-readiness notes in
+`docs/serena-comparison.md`,
+`docs/architecture-audit-2026-04-24.md`, and ADR-0008.
+
+2026-04-25 addendum:
+
+- MCP productization, model fail-closed behavior, embedding freshness,
+  query cache/prewarm, and remote compatibility moved forward after this
+  v1.9.49 synthesis.
+- P2 is no longer purely passive: `rename_symbol` can use LSP
+  `textDocument/rename`, and `propagate_deletions` can use LSP
+  `textDocument/references` for a check-only `safe_delete_check`.
+- CodeLens is still not Serena/JetBrains/Roslyn-grade for broad semantic
+  refactors. Move, inline, change signature, extract method,
+  declaration/implementation, and safe-delete apply need operation-level
+  gates and external smoke/eval proof.
 
 ## 1. Identity — what CodeLens is, what it is not
 
@@ -262,8 +276,9 @@ graph TB
   Resources --> Backend
   Dispatch --> Audit
 
-  Dispatch -->|today| Engine
-  Backend -.->|future P2-active| Engine
+  Dispatch -->|default retrieval and tools| Engine
+  Backend -->|active for LSP rename and safe_delete_check| LSP
+  Backend -.->|future operation gates| Engine
 
   Engine --> TS
   Engine --> FTS
@@ -297,7 +312,7 @@ Scoring rubric:
 | Schema validation                 |   ✅    |      ✅       |   ✅   |           ✅            |    ✅    | **Mature**                 |
 | Doom-loop detection               |   ✅    |      ✅       |   ✅   |           ✅            |    ✅    | **Mature**                 |
 | P1 context overlay compiler       |   ✅    |      ✅       |   ✅   |       ⚠ advisory        |    ✅    | **Active, advisory**       |
-| P2 semantic backend abstraction   |   ✅    |  ✅ passive   |   ✅   |   ❌ dispatch bypass    |    ✅    | **Scaffold only**          |
+| P2 semantic backend abstraction   |   ✅    | ✅ partial active | ✅ | ⚠ operation-scoped only | ✅ | **Partial active** |
 | P3 project + memory registry      |   ✅    |  ✅ passive   |   ✅   | ❌ write routing bypass |    ✅    | **Scaffold only**          |
 | P4 operator dashboard             |   ✅    | ✅ aggregator |   ✅   |     ✅ (read-only)      |    ✅    | **Active, read-only**      |
 | Host adapter doctor CLI           |   ✅    |      ✅       |   ✅   |           ✅            |    ✅    | **Mature**                 |
@@ -307,17 +322,19 @@ Scoring rubric:
 **Aggregate maturity (weighted by area)**
 
 - Mature / Active : **10 / 13 areas** (77 %)
-- Scaffold only : 2 / 13 areas (15 %) — P2, P3 passive halves
+- Scaffold only : 1 / 13 areas (8 %) — P3 passive memory registry
+- Partial active : 1 / 13 areas (8 %) — P2 LSP rename + safe-delete check
 - No enforcement : 1 / 13 areas (8 %) — perf baseline not CI-gated
 
 Overall: **production-ready substrate**, Serena-compatible surface
-absorbed with known scaffold debt tracked in ADR-0008.
+absorbed with known semantic-edit and memory-routing debt tracked in
+ADR-0008 and the 2026-04-24 architecture audit.
 
 ## 10. Known debt + explicit scope
 
 | Item                                           | Status       | Policy                                                                                                      |
 | ---------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------- |
-| P2-active (dispatch through `SemanticBackend`) | Parked       | Lands when a new backend (e.g. JetBrains bridge) creates driving need                                       |
+| P2-active broad semantic edits                 | Partial      | LSP rename and safe-delete check are active; every new edit operation needs matrix + negative tests + smoke |
 | P3-active (write routing to global memory)     | Parked       | Lands when an explicit global-memory tool is requested                                                      |
 | 6 `too_many_arguments` clippy warnings         | Parked       | All on internal coordination helpers; parameter-struct refactor = multi-site churn without behaviour change |
 | Dashboard UI renderer                          | Out of scope | Serena §Layer 5 explicitly scopes P4 to data, not render                                                    |

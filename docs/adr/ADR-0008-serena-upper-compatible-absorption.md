@@ -1,4 +1,4 @@
-# ADR-0008 — Serena upper-compatible absorption (P1-P4 passive halves)
+# ADR-0008 — Serena upper-compatible absorption (P1-P4, passive first)
 
 Date: 2026-04-19
 Status: Accepted
@@ -41,7 +41,7 @@ CodeLens's existing runtime gates and substrate contract. Concretely:
 | Phase | Serena idea                | CodeLens landing (passive)                                                                                                                                       | Active rerouting                                                                                        |
 | ----- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | P1    | context + mode composition | `HostContext` × `TaskOverlay` overlays on top of existing role profiles, compiled into a `SurfaceOverlayPlan`. Resource: `codelens://surface/overlay`.           | `prepare_harness_session` accepts the two args and compiles the plan — plan is advisory, not enforcing. |
-| P2    | backend abstraction        | `BackendCapability` enum + `SemanticBackend` trait with passive Rust engine / LSP bridge / SCIP bridge descriptors. Resource: `codelens://backend/capabilities`. | **Not yet.** Dispatch still calls engines directly.                                                     |
+| P2    | backend abstraction        | `BackendCapability` enum + `SemanticBackend` trait with Rust engine / LSP bridge / SCIP bridge descriptors. Resource: `codelens://backend/capabilities`.        | **Partial.** `rename_symbol` and `propagate_deletions` can opt into LSP authority for `rename` and `safe_delete_check`; generic dispatch still calls concrete handlers. |
 | P3    | project + memory registry  | `MemoryScope::{Project, Global}` enum + `global_memory_dir()` + snapshots. Resources: `codelens://registry/projects`, `codelens://registry/memory-scopes`.       | **Not yet.** `write_memory`/`read_memory` still operate on project scope only.                          |
 | P4    | operator dashboard         | `build_operator_dashboard()` aggregator. Resource: `codelens://operator/dashboard`.                                                                              | Pure aggregator — no active rerouting planned.                                                          |
 
@@ -57,7 +57,11 @@ Layer 5  Operator plane            (dashboard, this ADR, passive)
 
 Workflow + audit stay **above** the backend line. Retrieval/edit
 operations will eventually compile down to backend capabilities, but
-this ADR does not mandate the dispatch rewiring.
+this ADR does not mandate generic dispatch rewiring. As of 2026-04-25,
+the first active P2 slice exists only where it reduces risk: LSP rename
+and LSP safe-delete check. Both are opt-in, operation-scoped, and expose
+`edit_authority` metadata so agents do not confuse retrieval evidence
+with edit authority.
 
 ## Consequences
 
@@ -77,15 +81,19 @@ this ADR does not mandate the dispatch rewiring.
 
 - Two resource URIs (`codelens://backend/capabilities`,
   `codelens://registry/memory-scopes`) report capabilities the
-  runtime does not yet honour. Agents that assume "listed ⇒ routed"
-  will be surprised. Mitigation: explicit `note` field + `mutation_wired`
-  boolean on memory scopes.
+  runtime does not fully honour. Agents that assume "listed ⇒ routed"
+  will be surprised. Mitigation: explicit operation matrix, `note`
+  fields, `mutation_wired` boolean on memory scopes, and
+  `edit_authority` on LSP-backed edits.
 - The `SurfaceCompilerInput` builder API duplicates what
   `compile_surface_overlay(surface, host, task)` already does. Two
   entry points for the same compile step until P2-active lands and
   consolidates them.
-- Deferred work (P2/P3 active) has no deadline. The passive halves
-  could drift if dispatch evolves faster than the trait.
+- Deferred work (P2/P3 active) is now incremental rather than all-or-nothing.
+  P2 has two active operations; P3 memory scope routing is still passive.
+  The remaining risk is drift between the operation matrix and concrete
+  handler behavior, so every new edit operation must add a negative test
+  and a dry-run/apply smoke where applicable.
 
 ### Rejected alternatives
 
@@ -107,6 +115,14 @@ this ADR does not mandate the dispatch rewiring.
   consecutive runs deterministic (after v1.9.49 flake fix)
 - `onboard_project.has_cycles` → `false`
 - Release cadence: v1.9.47 (P1-P3) → v1.9.48 (P4) → v1.9.49 (CI fix)
+
+Latest follow-up verification on 2026-04-25:
+
+- `cargo test -p codelens-mcp --quiet -- --test-threads=2` → 415/415
+- `cargo test -p codelens-mcp --features http --quiet -- --test-threads=2` → 494/494
+- `cargo test -p codelens-mcp --no-default-features --quiet -- --test-threads=2` → 383/383
+- `cargo clippy --quiet -- -W clippy::all` → clean
+- `scripts/surface-manifest.py --check` → clean
 
 ## References
 

@@ -413,7 +413,7 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 | Token efficiency | Bounded workflows, 50-87% savings           | Standard tool responses   |
 | Workflow layer   | Composite reports + analysis handles        | Symbolic tools            |
 | Semantic search  | Sidecar ONNX + hybrid ranking + NL bridging | No bundled model          |
-| Refactoring      | Preview-first gated mutations               | Stronger IDE-backed edits |
+| Refactoring      | Gated mutations + LSP rename/safe-delete check | Stronger broad IDE-backed edits |
 | Enterprise       | Config policy, rate limit, OTel, SBOM       | None                      |
 | Offline          | Works offline with a staged sidecar model   | Depends on backend        |
 
