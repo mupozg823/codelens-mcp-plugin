@@ -48,6 +48,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked
 
@@ -80,12 +84,15 @@ jobs:
           rm -rf package
           mkdir -p package/models/codesearch
           cp target/${{ matrix.target }}/release/codelens-mcp package/codelens-mcp
+          dotnet publish adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService/CodeLens.Roslyn.WorkspaceService.csproj \
+            -c Release \
+            -o package/adapters/roslyn-workspace-service
           cp -L "${MODELS_DIR}"/codesearch/{model.onnx,tokenizer.json,config.json,special_tokens_map.json,tokenizer_config.json} package/models/codesearch/
           python3 scripts/verify-model-assets.py --root package \
             --write-manifest package/models/codesearch/model-manifest.json \
             --check \
             --quiet
-          tar czf codelens-mcp-${{ matrix.name }}.tar.gz -C package codelens-mcp models
+          tar czf codelens-mcp-${{ matrix.name }}.tar.gz -C package codelens-mcp models adapters
           python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.tar.gz --check --quiet
 
       - name: Package (Windows)
@@ -96,12 +103,15 @@ jobs:
           rm -rf package
           mkdir -p package/models/codesearch
           cp target/${{ matrix.target }}/release/codelens-mcp.exe package/codelens-mcp.exe
+          dotnet publish adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService/CodeLens.Roslyn.WorkspaceService.csproj \
+            -c Release \
+            -o package/adapters/roslyn-workspace-service
           cp -L "${MODELS_DIR}"/codesearch/{model.onnx,tokenizer.json,config.json,special_tokens_map.json,tokenizer_config.json} package/models/codesearch/
           python3 scripts/verify-model-assets.py --root package \
             --write-manifest package/models/codesearch/model-manifest.json \
             --check \
             --quiet
-          (cd package && 7z a ../codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe models)
+          (cd package && 7z a ../codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe models adapters)
           python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.zip --check --quiet
 
       - name: Attest build provenance
@@ -129,6 +139,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
       - uses: actions/download-artifact@v4
         with:
           name: codelens-mcp-linux-x86_64
@@ -150,12 +164,25 @@ jobs:
             --timeout 420 \
             --check
 
+      - name: Run semantic refactor matrix
+        env:
+          CODELENS_MODEL_DIR: models
+        run: |
+          python3 benchmarks/semantic-refactor-matrix.py \
+            --binary ./codelens-mcp \
+            --matrix benchmarks/semantic-refactor-upstream-matrix.json \
+            --output benchmarks/semantic-refactor-upstream-results.json \
+            --timeout 420 \
+            --check
+
       - name: Upload upstream smoke results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: upstream-smoke-results
-          path: benchmarks/external-project-smoke-upstream-results.json
+          path: |
+            benchmarks/external-project-smoke-upstream-results.json
+            benchmarks/semantic-refactor-upstream-results.json
 
   publish:
     name: GitHub Release

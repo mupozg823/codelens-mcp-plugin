@@ -264,6 +264,29 @@ Why this matters:
 - lower drift risk between MCP method and resource surface
 - tighter contract for hosts and harnesses
 
+## 2026-04-25 Status Update
+
+Since this audit, the product line moved forward in the areas that were
+blocking an honest "usable product" claim:
+
+- MCP productization is now anchored on MCP 2025-11-25 with HTTP/HTTPS,
+  JWKS auth, Anthropic tool-only compatibility, and OpenAI-compatible
+  Streamable HTTP behavior.
+- Model and embedding readiness now fail closed instead of silently
+  treating missing assets or stale embedding rows as product-safe.
+- Query embedding cache, prewarm, freshness reconciliation, and daemon
+  latency gates separate hot, cold, and prewarmed paths.
+- The semantic edit substrate is no longer only a roadmap item:
+  `rename_symbol` can use LSP `prepareRename` + `textDocument/rename`,
+  `resolve_symbol_target` can use LSP declaration/definition/implementation/type-definition,
+  and `propagate_deletions` can use LSP `textDocument/references` for
+  authoritative safe-delete check/apply.
+- Surface manifest drift is gated and generated docs are synchronized.
+
+The remaining high-risk gap is not "more tools"; it is completing
+operation-level semantic edit proof without losing CodeLens's fast
+retrieval and harness policy strengths.
+
 ## Priority Order
 
 ### P1
@@ -271,8 +294,11 @@ Why this matters:
 1. Fix call-graph generalization before broad release claims.
    - Focus on inter-file callee resolution and cross-module symbol matching.
    - Do not benchmark-hack specific rows.
-2. Collapse or sharply reduce [session_host.rs](/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-mcp/src/state/session_host.rs).
-3. Split [tool_defs/presets.rs](/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-mcp/src/tool_defs/presets.rs) by:
+2. Continue semantic edit backend hardening operation by operation.
+   - Current LSP-authoritative operations: `rename`, declaration/definition/implementation/type-definition resolution, `safe_delete_check`, guarded `safe_delete_apply`.
+   - Next candidates: code-action-backed extract/inline, then change signature/move only when backed by LSP/compiler evidence.
+3. Collapse or sharply reduce [session_host.rs](/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-mcp/src/state/session_host.rs).
+4. Split [tool_defs/presets.rs](/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-mcp/src/tool_defs/presets.rs) by:
    - surface membership
    - overlay compilation
    - namespace/phase metadata
@@ -301,9 +327,10 @@ But it is also not yet in the “trust it as a general code intelligence product
 The honest status today is:
 
 - **usable as a harness-native MCP product**
-- **improving against the last release**
-- **still overdesigned in the control plane**
-- **still underperforming on general call-graph accuracy**
+- **strong on retrieval, compression, mutation gating, and remote MCP productization**
+- **partially through the semantic edit substrate transition**
+- **still below Serena/JetBrains/Roslyn on broad language-specific refactor authority**
+- **still carrying some control-plane size and call-graph correctness debt**
 
 That means the next phase should optimize for:
 

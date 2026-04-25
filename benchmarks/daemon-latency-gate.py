@@ -20,12 +20,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--binary", default=os.environ.get("CODELENS_BIN", "target/release/codelens-mcp"))
     parser.add_argument("--preset", default="full")
     parser.add_argument("--query", default="embedding model and semantic search")
+    parser.add_argument("--query-set", default="")
     parser.add_argument("--warmups", type=int, default=3)
     parser.add_argument("--runs", type=int, default=20)
+    parser.add_argument("--distinct-runs", type=int, default=0)
+    parser.add_argument("--prewarm-distinct", action="store_true")
     parser.add_argument("--skip-index", action="store_true")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--max-ranked-context-p95-ms", type=float, default=250.0)
     parser.add_argument("--max-semantic-search-p95-ms", type=float, default=900.0)
+    parser.add_argument("--max-cold-semantic-p95-ms", type=float, default=1200.0)
+    parser.add_argument("--max-prewarmed-semantic-p95-ms", type=float, default=250.0)
     parser.add_argument("--require-runtime-backend", default="")
     parser.add_argument("--output-json", default="")
     parser.add_argument("--markdown-output", default="")
@@ -117,6 +122,40 @@ def benchmark_tool(
     return summarize(samples, bytes_out)
 
 
+def load_distinct_queries(query_set: str, fallback: str, count: int) -> list[str]:
+    queries: list[str] = []
+    if query_set:
+        rows = json.loads(Path(query_set).expanduser().read_text(encoding="utf-8"))
+        if not isinstance(rows, list):
+            raise SystemExit(f"query-set must be a JSON list: {query_set}")
+        for row in rows:
+            query = row if isinstance(row, str) else row.get("query") if isinstance(row, dict) else None
+            if isinstance(query, str) and query.strip() and query.strip() not in queries:
+                queries.append(query.strip())
+    while len(queries) < count:
+        queries.append(f"{fallback} distinct {len(queries) + 1}")
+    return queries[:count]
+
+
+def benchmark_distinct_semantic(
+    conn: http.client.HTTPConnection,
+    queries: list[str],
+    *,
+    request_id_base: int,
+) -> dict:
+    samples = []
+    bytes_out = 0
+    for idx, query in enumerate(queries):
+        elapsed, bytes_out, _ = tool_call(
+            conn,
+            "semantic_search",
+            {"query": query, "max_results": 5},
+            request_id_base + idx,
+        )
+        samples.append(elapsed)
+    return summarize(samples, bytes_out)
+
+
 def render_markdown(result: dict) -> str:
     lines = [
         "# CodeLens Daemon Latency Gate",
@@ -127,6 +166,8 @@ def render_markdown(result: dict) -> str:
         f"- Runtime backend: `{result['runtime']['embedding_runtime_backend']}`",
         f"- Runtime preference: `{result['runtime']['embedding_runtime_preference']}`",
         "",
+        "## Hot Path",
+        "",
         "| Tool | p50 ms | p95 ms | max ms | bytes |",
         "|---|---:|---:|---:|---:|",
     ]
@@ -134,6 +175,32 @@ def render_markdown(result: dict) -> str:
         lines.append(
             f"| `{name}` | {row['p50_ms']} | {row['p95_ms']} | {row['max_ms']} | {row['bytes']} |"
         )
+    if result.get("cold_distinct"):
+        cold = result["cold_distinct"]
+        lines.extend(
+            [
+                "",
+                "## Cold Distinct",
+                "",
+                f"- Runs: `{cold['runs']}`",
+                f"- p95 ms: `{cold['p95_ms']}`",
+                f"- max ms: `{cold['max_ms']}`",
+            ]
+        )
+    if result.get("prewarmed_distinct"):
+        prewarmed = result["prewarmed_distinct"]
+        lines.extend(
+            [
+                "",
+                "## Prewarmed Distinct",
+                "",
+                f"- Runs: `{prewarmed['runs']}`",
+                f"- p95 ms: `{prewarmed['p95_ms']}`",
+                f"- max ms: `{prewarmed['max_ms']}`",
+            ]
+        )
+    if result.get("query_cache"):
+        lines.extend(["", f"- Query cache: `{json.dumps(result['query_cache'], sort_keys=True)}`"])
     lines.append("")
     lines.append(f"- Gate passed: `{result['gate']['passed']}`")
     for failure in result["gate"]["failures"]:
@@ -145,6 +212,7 @@ def main() -> None:
     args = parse_args()
     binary = Path(args.binary).expanduser().resolve()
     project = Path(args.project_path).expanduser().resolve()
+    query_set = str(Path(args.query_set).expanduser().resolve()) if args.query_set else ""
     env = os.environ.copy()
     model_dir = runtime_common.resolve_codelens_model_dir(binary, env=env, repo_root=Path.cwd())
     if model_dir is None:
@@ -153,12 +221,22 @@ def main() -> None:
         )
     env["CODELENS_MODEL_DIR"] = str(model_dir)
 
+    isolated_tmp = None
+    benchmark_project = project
+    if args.distinct_runs > 0 or args.prewarm_distinct:
+        isolated_tmp, benchmark_project = runtime_common.isolated_project_copy(project)
+
     base_url, port, proc = runtime_common.start_http_daemon(
-        binary, project, preset=args.preset, env=env
+        binary, benchmark_project, preset=args.preset, env=env
     )
     if not base_url:
+        if isolated_tmp is not None:
+            isolated_tmp.cleanup()
         raise SystemExit("failed to start CodeLens HTTP daemon")
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=120)
+    cold_distinct = None
+    prewarmed_distinct = None
+    query_cache = {}
     try:
         mcp_call(
             conn,
@@ -168,6 +246,34 @@ def main() -> None:
         )
         if not args.skip_index:
             tool_call(conn, "index_embeddings", {}, 2)
+        distinct_queries = load_distinct_queries(
+            query_set,
+            args.query,
+            max(args.distinct_runs * (2 if args.prewarm_distinct else 1), 0),
+        )
+        if args.distinct_runs > 0:
+            cold_distinct = benchmark_distinct_semantic(
+                conn,
+                distinct_queries[: args.distinct_runs],
+                request_id_base=1_000,
+            )
+        if args.prewarm_distinct and args.distinct_runs > 0:
+            prewarm_queries = distinct_queries[args.distinct_runs : args.distinct_runs * 2]
+            _, _, prewarm_response = tool_call(
+                conn,
+                "index_embeddings",
+                {
+                    "prewarm_queries": prewarm_queries,
+                    "prewarm_limit": len(prewarm_queries),
+                },
+                2_000,
+            )
+            query_cache = tool_structured_content(prewarm_response).get("query_cache", {})
+            prewarmed_distinct = benchmark_distinct_semantic(
+                conn,
+                prewarm_queries,
+                request_id_base=3_000,
+            )
         tools = {
             "get_ranked_context_hybrid": benchmark_tool(
                 conn,
@@ -201,6 +307,8 @@ def main() -> None:
     finally:
         conn.close()
         runtime_common.stop_http_daemon(proc)
+        if isolated_tmp is not None:
+            isolated_tmp.cleanup()
 
     failures = []
     if tools["get_ranked_context_hybrid"]["p95_ms"] > args.max_ranked_context_p95_ms:
@@ -212,6 +320,15 @@ def main() -> None:
         failures.append(
             f"semantic_search p95 {tools['semantic_search']['p95_ms']}ms > {args.max_semantic_search_p95_ms}ms"
         )
+    if cold_distinct and cold_distinct["p95_ms"] > args.max_cold_semantic_p95_ms:
+        failures.append(
+            f"cold_distinct semantic_search p95 {cold_distinct['p95_ms']}ms > {args.max_cold_semantic_p95_ms}ms"
+        )
+    if prewarmed_distinct and prewarmed_distinct["p95_ms"] > args.max_prewarmed_semantic_p95_ms:
+        failures.append(
+            "prewarmed_distinct semantic_search p95 "
+            f"{prewarmed_distinct['p95_ms']}ms > {args.max_prewarmed_semantic_p95_ms}ms"
+        )
     if args.require_runtime_backend and runtime_backend != args.require_runtime_backend:
         failures.append(
             "embedding_runtime_backend "
@@ -219,6 +336,8 @@ def main() -> None:
         )
     result = {
         "project": str(project),
+        "benchmark_project": str(benchmark_project),
+        "project_isolated": isolated_tmp is not None,
         "binary": str(binary),
         "model_dir": str(model_dir),
         "runtime": {
@@ -226,12 +345,18 @@ def main() -> None:
             "embedding_runtime_preference": runtime_preference,
         },
         "tools": tools,
+        "hot_path": tools,
+        "cold_distinct": cold_distinct,
+        "prewarmed_distinct": prewarmed_distinct,
+        "query_cache": query_cache,
         "gate": {
             "passed": not failures,
             "failures": failures,
             "thresholds": {
                 "max_ranked_context_p95_ms": args.max_ranked_context_p95_ms,
                 "max_semantic_search_p95_ms": args.max_semantic_search_p95_ms,
+                "max_cold_semantic_p95_ms": args.max_cold_semantic_p95_ms,
+                "max_prewarmed_semantic_p95_ms": args.max_prewarmed_semantic_p95_ms,
             },
         },
     }

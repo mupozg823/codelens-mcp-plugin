@@ -1,4 +1,5 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
+use crate::backend_operation_matrix::TREE_SITTER_RENAME_BLOCKER_REASON;
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::{
@@ -6,13 +7,48 @@ use codelens_engine::{
     insert_at_line, insert_before_symbol, rename, replace_content, replace_lines,
     replace_symbol_body,
 };
-use serde_json::json;
+use serde_json::{json, Value};
+
+/// Envelope advertising that this is a raw filesystem mutation with no semantic authority.
+/// Agents that read these fields know "syntax-level edit, no LSP/compiler verification".
+fn raw_fs_envelope(operation: &str) -> Value {
+    json!({
+        "authority": "syntax",
+        "can_preview": true,
+        "can_apply": true,
+        "edit_authority": {
+            "kind": "raw_fs",
+            "operation": operation,
+            "validator": Value::Null,
+        }
+    })
+}
+
+/// Merge `raw_fs_envelope(operation)` fields into an existing JSON object.
+fn merge_raw_fs_envelope(mut value: Value, operation: &str) -> Value {
+    let envelope = raw_fs_envelope(operation);
+    if let (Some(target), Some(source)) = (value.as_object_mut(), envelope.as_object()) {
+        for (k, v) in source {
+            target.insert(k.clone(), v.clone());
+        }
+    }
+    value
+}
 
 pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    if crate::tools::semantic_edit::selected_backend(arguments)?
-        == crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp
-    {
-        return crate::tools::semantic_edit::rename_symbol_with_lsp_backend(state, arguments);
+    match crate::tools::semantic_edit::selected_backend(arguments)? {
+        crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp => {
+            return crate::tools::semantic_edit::rename_symbol_with_lsp_backend(state, arguments);
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
+        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
+            return crate::tools::semantic_adapter::rename_with_local_adapter(
+                state,
+                arguments,
+                crate::tools::semantic_edit::selected_backend(arguments)?,
+            );
+        }
+        crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
 
     let file_path = required_string(arguments, "file_path")?;
@@ -27,20 +63,56 @@ pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         Some("file") => rename::RenameScope::File,
         _ => rename::RenameScope::Project,
     };
-    let dry_run = arguments
+    let dry_run_requested = arguments
         .get("dry_run")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    Ok(rename::rename_symbol(
+
+    // Phase 0 G2: tree-sitter rename is preview-only — fail-closed on apply attempts.
+    if !dry_run_requested {
+        return Err(CodeLensError::Validation(
+            TREE_SITTER_RENAME_BLOCKER_REASON.into(),
+        ));
+    }
+
+    let preview = rename::rename_symbol(
         &state.project(),
         file_path,
         symbol_name,
         new_name,
         name_path,
         scope,
-        dry_run,
-    )
-    .map(|value| (json!(value), success_meta(BackendKind::TreeSitter, 0.90)))?)
+        true, // force dry_run=true; raw apply path is not authoritative
+    )?;
+
+    let mut value = json!(preview);
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("authority".to_owned(), json!("syntax"));
+        obj.insert("can_preview".to_owned(), json!(true));
+        obj.insert("can_apply".to_owned(), json!(false));
+        obj.insert("support".to_owned(), json!("syntax_preview"));
+        obj.insert(
+            "blocker_reason".to_owned(),
+            json!(TREE_SITTER_RENAME_BLOCKER_REASON),
+        );
+        obj.insert(
+            "edit_authority".to_owned(),
+            json!({
+                "kind": "raw_fs",
+                "operation": "rename_symbol",
+                "validator": Value::Null,
+            }),
+        );
+        obj.insert(
+            "suggested_next_tools".to_owned(),
+            json!([
+                "rename_symbol with semantic_edit_backend=lsp",
+                "verify_change_readiness"
+            ]),
+        );
+    }
+
+    Ok((value, success_meta(BackendKind::TreeSitter, 0.90)))
 }
 
 pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -53,8 +125,8 @@ pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) ->
     Ok(
         create_text_file(&state.project(), relative_path, content, overwrite).map(|_| {
             (
-                json!({ "created": relative_path }),
-                success_meta(BackendKind::Filesystem, 1.0),
+                merge_raw_fs_envelope(json!({ "created": relative_path }), "create_text_file"),
+                success_meta(BackendKind::Filesystem, 0.7),
             )
         })?,
     )
@@ -74,8 +146,8 @@ pub fn delete_lines_tool(state: &AppState, arguments: &serde_json::Value) -> Too
     Ok(
         delete_lines(&state.project(), relative_path, start_line, end_line).map(|content| {
             (
-                json!({ "content": content }),
-                success_meta(BackendKind::Filesystem, 1.0),
+                merge_raw_fs_envelope(json!({ "content": content }), "delete_lines"),
+                success_meta(BackendKind::Filesystem, 0.7),
             )
         })?,
     )
@@ -91,8 +163,8 @@ pub fn insert_at_line_tool(state: &AppState, arguments: &serde_json::Value) -> T
     Ok(
         insert_at_line(&state.project(), relative_path, line, content).map(|modified| {
             (
-                json!({ "content": modified }),
-                success_meta(BackendKind::Filesystem, 1.0),
+                merge_raw_fs_envelope(json!({ "content": modified }), "insert_at_line"),
+                success_meta(BackendKind::Filesystem, 0.7),
             )
         })?,
     )
@@ -119,8 +191,8 @@ pub fn replace_lines_tool(state: &AppState, arguments: &serde_json::Value) -> To
     )
     .map(|content| {
         (
-            json!({ "content": content }),
-            success_meta(BackendKind::Filesystem, 1.0),
+            merge_raw_fs_envelope(json!({ "content": content }), "replace_lines"),
+            success_meta(BackendKind::Filesystem, 0.7),
         )
     })?)
 }
@@ -142,8 +214,11 @@ pub fn replace_content_tool(state: &AppState, arguments: &serde_json::Value) -> 
     )
     .map(|(content, count)| {
         (
-            json!({ "content": content, "replacements": count }),
-            success_meta(BackendKind::Filesystem, 1.0),
+            merge_raw_fs_envelope(
+                json!({ "content": content, "replacements": count }),
+                "replace_content",
+            ),
+            success_meta(BackendKind::Filesystem, 0.7),
         )
     })?)
 }
@@ -162,7 +237,7 @@ pub fn replace_symbol_body_tool(state: &AppState, arguments: &serde_json::Value)
     )
     .map(|content| {
         (
-            json!({ "content": content }),
+            merge_raw_fs_envelope(json!({ "content": content }), "replace_symbol_body"),
             success_meta(BackendKind::TreeSitter, 0.95),
         )
     })?)
@@ -182,7 +257,7 @@ pub fn insert_before_symbol_tool(state: &AppState, arguments: &serde_json::Value
     )
     .map(|modified| {
         (
-            json!({ "content": modified }),
+            merge_raw_fs_envelope(json!({ "content": modified }), "insert_before_symbol"),
             success_meta(BackendKind::TreeSitter, 0.95),
         )
     })?)
@@ -202,7 +277,7 @@ pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value)
     )
     .map(|modified| {
         (
-            json!({ "content": modified }),
+            merge_raw_fs_envelope(json!({ "content": modified }), "insert_after_symbol"),
             success_meta(BackendKind::TreeSitter, 0.95),
         )
     })?)
@@ -245,8 +320,11 @@ pub fn add_import_tool(state: &AppState, arguments: &serde_json::Value) -> ToolR
     Ok(
         add_import(&state.project(), file_path, import_statement).map(|content| {
             (
-                json!({"success": true, "file_path": file_path, "content_length": content.len()}),
-                success_meta(BackendKind::Filesystem, 1.0),
+                merge_raw_fs_envelope(
+                    json!({"success": true, "file_path": file_path, "content_length": content.len()}),
+                    "add_import",
+                ),
+                success_meta(BackendKind::Filesystem, 0.7),
             )
         })?,
     )

@@ -6,6 +6,7 @@ mod analysis_queue;
 mod artifact_store;
 mod authority;
 mod backend;
+mod backend_operation_matrix;
 mod build_info;
 mod cli;
 mod client_profile;
@@ -228,6 +229,13 @@ fn main() -> Result<()> {
             .unwrap_or_else(|| ToolSurface::Preset(preset));
         let manifest = surface_manifest::build_surface_manifest(surface, daemon_mode);
         println!("{}", serde_json::to_string_pretty(&manifest)?);
+        return Ok(());
+    }
+
+    if args.iter().any(|arg| arg == "--print-operation-matrix") {
+        let matrix =
+            crate::backend_operation_matrix::semantic_edit_operation_matrix();
+        println!("{}", serde_json::to_string_pretty(&matrix)?);
         return Ok(());
     }
 

@@ -293,6 +293,33 @@ pub(super) fn references_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn resolve_symbol_target_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "semantic_backend": {"type": "string"},
+            "edit_authority": {"type": "object"},
+            "targets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "column": {"type": "integer"},
+                        "end_line": {"type": "integer"},
+                        "end_column": {"type": "integer"},
+                        "target": {"type": "string"},
+                        "method": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
 fn resolution_summary_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -439,6 +466,15 @@ pub(super) fn rename_output_schema() -> serde_json::Value {
         "type": "object",
         "properties": {
             "success": {"type": "boolean"},
+            "authority": {"type": "string"},
+            "authority_backend": {"type": "string"},
+            "can_preview": {"type": "boolean"},
+            "can_apply": {"type": "boolean"},
+            "support": {"type": "string"},
+            "blocker_reason": {"type": ["string", "null"]},
+            "edit_authority": {"type": "object"},
+            "transaction": {"type": "object"},
+            "verification": {"type": "object"},
             "modified_files": {"type": "integer"},
             "total_replacements": {"type": "integer"},
             "edits": {
@@ -453,6 +489,70 @@ pub(super) fn rename_output_schema() -> serde_json::Value {
                     }
                 }
             }
+        }
+    })
+}
+
+pub(super) fn semantic_refactor_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "semantic_edit_backend": {"type": "string"},
+            "authority": {"type": "string"},
+            "authority_backend": {"type": "string"},
+            "can_preview": {"type": "boolean"},
+            "can_apply": {"type": "boolean"},
+            "support": {"type": "string"},
+            "blocker_reason": {"type": ["string", "null"]},
+            "operation": {"type": "string"},
+            "edit_authority": {"type": "object"},
+            "transaction": {"type": "object"},
+            "workspace_edit": {"type": "object"},
+            "verification": {"type": "object"},
+            "applied": {"type": "boolean"},
+            "message": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn safe_delete_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "semantic_edit_backend": {"type": "string"},
+            "authority": {"type": "string"},
+            "authority_backend": {"type": "string"},
+            "can_preview": {"type": "boolean"},
+            "can_apply": {"type": "boolean"},
+            "support": {"type": "string"},
+            "blocker_reason": {"type": ["string", "null"]},
+            "edit_authority": {"type": "object"},
+            "transaction": {"type": "object"},
+            "verification": {"type": "object"},
+            "symbol_name": {"type": "string"},
+            "file_path": {"type": "string"},
+            "position": {"type": "object"},
+            "safe_to_delete": {"type": "boolean"},
+            "total_references": {"type": "integer"},
+            "declaration_references": {"type": "integer"},
+            "affected_references": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "column": {"type": "integer"},
+                        "end_line": {"type": "integer"},
+                        "end_column": {"type": "integer"},
+                        "kind": {"type": "string"}
+                    }
+                }
+            },
+            "dry_run": {"type": "boolean"},
+            "safe_delete_action": {"type": "string"}
         }
     })
 }

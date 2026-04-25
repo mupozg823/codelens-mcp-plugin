@@ -13,7 +13,9 @@ mod report_utils;
 mod report_verifier;
 pub mod reports;
 pub mod rules;
+pub(crate) mod semantic_adapter;
 pub(crate) mod semantic_edit;
+pub(crate) mod semantic_edit_args;
 pub mod session;
 mod suggestions;
 pub mod symbols;
@@ -78,6 +80,7 @@ pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_
         "get_file_diagnostics"         => lsp::get_file_diagnostics,
         "search_workspace_symbols"     => lsp::search_workspace_symbols,
         "get_type_hierarchy"           => lsp::get_type_hierarchy,
+        "resolve_symbol_target"        => lsp::resolve_symbol_target,
         "plan_symbol_rename"           => lsp::plan_symbol_rename,
         "check_lsp_status"             => lsp::check_lsp_status,
         "get_lsp_recipe"               => lsp::get_lsp_recipe,

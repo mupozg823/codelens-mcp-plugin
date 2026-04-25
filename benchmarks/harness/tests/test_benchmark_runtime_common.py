@@ -180,6 +180,30 @@ class BenchmarkRuntimeCommonTests(unittest.TestCase):
         call.assert_called_once()
         self.assertEqual(call.call_args.kwargs["timeout_seconds"], 37)
 
+    def test_isolated_project_copy_excludes_runtime_and_model_payloads(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "repo"
+            (root / "src").mkdir(parents=True)
+            (root / "src" / "lib.rs").write_text("fn main() {}\n")
+            (root / ".codelens").mkdir()
+            (root / ".codelens" / "index.db").write_text("runtime")
+            (root / "target").mkdir()
+            (root / "target" / "binary").write_text("runtime")
+            (root / "models" / "codesearch").mkdir(parents=True)
+            (root / "models" / "codesearch" / "model.onnx").write_text("big")
+            (root / "adapters" / "roslyn" / "bin").mkdir(parents=True)
+            (root / "adapters" / "roslyn" / "bin" / "adapter.dll").write_text("build")
+
+            tmp_copy, copied = RUNTIME.isolated_project_copy(root)
+            try:
+                self.assertTrue((copied / "src" / "lib.rs").is_file())
+                self.assertFalse((copied / ".codelens").exists())
+                self.assertFalse((copied / "target").exists())
+                self.assertFalse((copied / "models" / "codesearch").exists())
+                self.assertFalse((copied / "adapters" / "roslyn" / "bin").exists())
+            finally:
+                tmp_copy.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

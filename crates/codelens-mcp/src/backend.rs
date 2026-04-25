@@ -1,17 +1,12 @@
 //! Backend capability registry (P2 scaffold).
 //!
-//! Serena-comparison §Adopt 2 calls out a formal backend adapter interface.
-//! This module establishes the passive half of that abstraction: a capability
-//! vocabulary and a `SemanticBackend` trait implemented by each existing
-//! retrieval backend. Precise semantic editing is deliberately modeled as a
-//! separate opt-in backend so search/ranking does not imply Serena-grade edit
-//! semantics.
-//!
-//! The trait does not own dispatch. Concrete tool handlers still call into
-//! the relevant engine directly. This file is the stable declaration point
-//! for capability reporting, while routing remains explicit in tool handlers.
+//! This module is a product capability registry, not a dispatch abstraction.
+//! Concrete handlers still call the relevant engine directly. The registry is
+//! deliberately descriptor-based so a single implementation cannot grow into a
+//! fake all-purpose semantic backend trait.
 
 use crate::AppState;
+use crate::backend_operation_matrix::semantic_edit_operation_matrix;
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -53,81 +48,61 @@ impl BackendCapability {
     }
 }
 
-/// Passive descriptor for a backend. Future work replaces this with a real
-/// trait object that executes retrieval/edit. For now each concrete backend
-/// is a unit struct whose `report` returns a stable snapshot.
-pub trait SemanticBackend {
-    fn name(&self) -> &'static str;
-    fn capabilities(&self) -> &'static [BackendCapability];
+#[derive(Debug, Clone, Copy)]
+struct BackendDescriptor {
+    name: &'static str,
+    capabilities: &'static [BackendCapability],
 }
 
-pub struct RustEngineBackend;
-pub struct LspBridgeBackend;
-pub struct ScipBridgeBackend;
-pub struct SemanticEditBackend;
+const RUST_ENGINE_CAPABILITIES: &[BackendCapability] = &[
+    BackendCapability::SymbolLookup,
+    BackendCapability::SymbolsOverview,
+    BackendCapability::References,
+    BackendCapability::Rename,
+    BackendCapability::Edit,
+    BackendCapability::ImpactAnalysis,
+    BackendCapability::SemanticSearch,
+    BackendCapability::Embeddings,
+];
 
-impl SemanticBackend for RustEngineBackend {
-    fn name(&self) -> &'static str {
-        "rust-engine"
-    }
+const LSP_BRIDGE_CAPABILITIES: &[BackendCapability] = &[
+    BackendCapability::References,
+    BackendCapability::TypeHierarchy,
+    BackendCapability::Rename,
+    BackendCapability::Diagnostics,
+];
 
-    fn capabilities(&self) -> &'static [BackendCapability] {
-        &[
-            BackendCapability::SymbolLookup,
-            BackendCapability::SymbolsOverview,
-            BackendCapability::References,
-            BackendCapability::Rename,
-            BackendCapability::Edit,
-            BackendCapability::ImpactAnalysis,
-            BackendCapability::SemanticSearch,
-            BackendCapability::Embeddings,
-        ]
-    }
-}
+const SCIP_BRIDGE_CAPABILITIES: &[BackendCapability] = &[
+    BackendCapability::SymbolLookup,
+    BackendCapability::References,
+    BackendCapability::ImpactAnalysis,
+];
 
-impl SemanticBackend for LspBridgeBackend {
-    fn name(&self) -> &'static str {
-        "lsp-bridge"
-    }
+const SEMANTIC_EDIT_CAPABILITIES: &[BackendCapability] = &[
+    BackendCapability::SemanticEditBackend,
+    BackendCapability::Rename,
+    BackendCapability::Edit,
+    BackendCapability::Diagnostics,
+];
 
-    fn capabilities(&self) -> &'static [BackendCapability] {
-        &[
-            BackendCapability::References,
-            BackendCapability::TypeHierarchy,
-            BackendCapability::Rename,
-            BackendCapability::Diagnostics,
-        ]
-    }
-}
-
-impl SemanticBackend for ScipBridgeBackend {
-    fn name(&self) -> &'static str {
-        "scip-bridge"
-    }
-
-    fn capabilities(&self) -> &'static [BackendCapability] {
-        &[
-            BackendCapability::SymbolLookup,
-            BackendCapability::References,
-            BackendCapability::ImpactAnalysis,
-        ]
-    }
-}
-
-impl SemanticBackend for SemanticEditBackend {
-    fn name(&self) -> &'static str {
-        "semantic-edit-backend"
-    }
-
-    fn capabilities(&self) -> &'static [BackendCapability] {
-        &[
-            BackendCapability::SemanticEditBackend,
-            BackendCapability::Rename,
-            BackendCapability::Edit,
-            BackendCapability::Diagnostics,
-        ]
-    }
-}
+const BACKENDS: &[BackendDescriptor] = &[
+    BackendDescriptor {
+        name: "rust-engine",
+        capabilities: RUST_ENGINE_CAPABILITIES,
+    },
+    BackendDescriptor {
+        name: "lsp-bridge",
+        capabilities: LSP_BRIDGE_CAPABILITIES,
+    },
+    BackendDescriptor {
+        name: "scip-bridge",
+        capabilities: SCIP_BRIDGE_CAPABILITIES,
+    },
+    BackendDescriptor {
+        name: "semantic-edit-backend",
+        capabilities: SEMANTIC_EDIT_CAPABILITIES,
+    },
+];
 
 /// Snapshot describing one backend at a single point in time. Used by the
 /// `codelens://backend/capabilities` resource.
@@ -145,25 +120,19 @@ pub struct BackendReport {
 
 /// Enumerate all known backends with their current availability.
 pub fn enumerate_backends(state: &AppState) -> Vec<BackendReport> {
-    let backends: [&dyn SemanticBackend; 4] = [
-        &RustEngineBackend,
-        &LspBridgeBackend,
-        &ScipBridgeBackend,
-        &SemanticEditBackend,
-    ];
-    backends
+    BACKENDS
         .iter()
         .map(|backend| {
-            let runtime = runtime_status_for_backend(backend.name(), state);
+            let runtime = runtime_status_for_backend(backend.name, state);
             BackendReport {
-                name: backend.name(),
+                name: backend.name,
                 declared: true,
                 compiled: runtime.compiled,
                 available: runtime.available,
                 active: runtime.active,
                 active_reason: runtime.active_reason,
                 capabilities: backend
-                    .capabilities()
+                    .capabilities
                     .iter()
                     .map(|cap| cap.as_str())
                     .collect(),
@@ -253,6 +222,8 @@ fn scip_runtime_status(state: &AppState) -> BackendRuntimeStatus {
 
 fn semantic_edit_runtime_status(state: &AppState) -> BackendRuntimeStatus {
     let configured = crate::env_compat::dual_prefix_env("CODELENS_SEMANTIC_EDIT_BACKEND");
+    let jetbrains_available = std::env::var_os("CODELENS_JETBRAINS_ADAPTER_CMD").is_some();
+    let roslyn_available = std::env::var_os("CODELENS_ROSLYN_ADAPTER_CMD").is_some();
     let lsp_statuses = codelens_engine::check_lsp_status();
     let installed_lsp_server_count = lsp_statuses
         .iter()
@@ -261,15 +232,23 @@ fn semantic_edit_runtime_status(state: &AppState) -> BackendRuntimeStatus {
     let _ = state;
     let lsp_available = installed_lsp_server_count > 0;
     let configured_lsp = configured.as_deref() == Some("lsp");
+    let configured_jetbrains = configured.as_deref() == Some("jetbrains");
+    let configured_roslyn = configured.as_deref() == Some("roslyn");
     let configured_default = matches!(
         configured.as_deref(),
         Some("default" | "off" | "tree-sitter" | "tree_sitter")
     );
-    let active = configured_lsp && lsp_available;
+    let active = (configured_lsp && lsp_available)
+        || (configured_jetbrains && jetbrains_available)
+        || (configured_roslyn && roslyn_available);
     let active_reason = if active {
-        "env_opt_in_lsp".to_owned()
+        "env_opt_in_semantic_edit_backend".to_owned()
     } else if configured_lsp {
         "configured_lsp_unavailable".to_owned()
+    } else if configured_jetbrains {
+        "configured_jetbrains_adapter_unavailable".to_owned()
+    } else if configured_roslyn {
+        "configured_roslyn_adapter_unavailable".to_owned()
     } else if configured_default {
         "disabled_or_default_backend".to_owned()
     } else if configured.is_some() {
@@ -285,60 +264,23 @@ fn semantic_edit_runtime_status(state: &AppState) -> BackendRuntimeStatus {
         active_reason,
         details: json!({
             "configured_backend": configured,
-            "candidate_backends": ["lsp-bridge"],
+            "candidate_backends": ["lsp-bridge", "jetbrains-adapter", "roslyn-adapter"],
             "installed_lsp_server_count": installed_lsp_server_count,
             "activation": "set semantic_edit_backend=lsp per call or CODELENS_SEMANTIC_EDIT_BACKEND=lsp",
-            "dispatch": "rename_symbol routes to LSP textDocument/rename only when explicitly requested",
+            "dispatch": "rename_symbol routes to LSP textDocument/rename; extract/inline/move/change-signature route to LSP codeAction only when explicitly requested",
+            "external_adapters": {
+                "jetbrains": {"available": jetbrains_available, "activation": "set CODELENS_JETBRAINS_ADAPTER_CMD to a local WorkspaceEdit adapter", "failure_policy": "fail_closed"},
+                "roslyn": {"available": roslyn_available, "activation": "set CODELENS_ROSLYN_ADAPTER_CMD to a local WorkspaceEdit adapter", "failure_policy": "fail_closed"}
+            },
             "operation_matrix": semantic_edit_operation_matrix(),
         }),
     }
-}
-
-fn semantic_edit_operation_matrix() -> Value {
-    json!({
-        "tree-sitter": {
-            "authoritative": false,
-            "supported_operations": ["rename"],
-            "unsupported_operations": [
-                "change_signature",
-                "move_symbol",
-                "safe_delete",
-                "extract_method",
-                "inline_symbol"
-            ],
-            "role": "syntax-bounded fallback"
-        },
-        "lsp": {
-            "authoritative": true,
-            "supported_operations": ["rename"],
-            "unsupported_operations": [
-                "change_signature",
-                "move_symbol",
-                "safe_delete",
-                "extract_method",
-                "inline_symbol"
-            ],
-            "requires": ["installed_lsp_server", "file_language_mapping"],
-            "validator": "textDocument/rename"
-        },
-        "scip": {
-            "authoritative_index": true,
-            "supported_edit_operations": [],
-            "role": "cross-reference evidence, not an edit executor"
-        }
-    })
 }
 
 /// Reverse index: for every capability, which backends claim to fulfil it
 /// (regardless of current availability). Callers use this to decide which
 /// backend to route a capability to once the dispatch half of P2 lands.
 pub fn capability_coverage() -> Vec<(BackendCapability, Vec<&'static str>)> {
-    let backends: [&dyn SemanticBackend; 4] = [
-        &RustEngineBackend,
-        &LspBridgeBackend,
-        &ScipBridgeBackend,
-        &SemanticEditBackend,
-    ];
     let all_caps = [
         BackendCapability::SymbolLookup,
         BackendCapability::SymbolsOverview,
@@ -355,10 +297,10 @@ pub fn capability_coverage() -> Vec<(BackendCapability, Vec<&'static str>)> {
     all_caps
         .iter()
         .map(|cap| {
-            let fulfillers = backends
+            let fulfillers = BACKENDS
                 .iter()
-                .filter(|backend| backend.capabilities().contains(cap))
-                .map(|backend| backend.name())
+                .filter(|backend| backend.capabilities.contains(cap))
+                .map(|backend| backend.name)
                 .collect::<Vec<_>>();
             (*cap, fulfillers)
         })
@@ -371,8 +313,7 @@ mod tests {
 
     #[test]
     fn rust_engine_backend_claims_core_capabilities() {
-        let backend = RustEngineBackend;
-        let caps = backend.capabilities();
+        let caps = backend_capabilities("rust-engine");
         assert!(caps.contains(&BackendCapability::SymbolLookup));
         assert!(caps.contains(&BackendCapability::Rename));
         assert!(caps.contains(&BackendCapability::Edit));
@@ -380,12 +321,8 @@ mod tests {
 
     #[test]
     fn lsp_backend_claims_diagnostics() {
-        let backend = LspBridgeBackend;
-        assert!(
-            backend
-                .capabilities()
-                .contains(&BackendCapability::Diagnostics)
-        );
+        let caps = backend_capabilities("lsp-bridge");
+        assert!(caps.contains(&BackendCapability::Diagnostics));
     }
 
     #[test]
@@ -426,8 +363,7 @@ mod tests {
 
     #[test]
     fn scip_backend_claims_symbol_lookup_and_references() {
-        let backend = ScipBridgeBackend;
-        let caps = backend.capabilities();
+        let caps = backend_capabilities("scip-bridge");
         assert!(caps.contains(&BackendCapability::SymbolLookup));
         assert!(caps.contains(&BackendCapability::References));
         // Impact analysis is the distinguishing workload for SCIP.
@@ -436,34 +372,80 @@ mod tests {
 
     #[test]
     fn semantic_edit_backend_is_separate_opt_in_capability() {
-        let backend = SemanticEditBackend;
-        let caps = backend.capabilities();
+        let caps = backend_capabilities("semantic-edit-backend");
         assert!(caps.contains(&BackendCapability::SemanticEditBackend));
         assert!(caps.contains(&BackendCapability::Edit));
         assert!(!caps.contains(&BackendCapability::SemanticSearch));
     }
 
+    fn backend_capabilities(name: &str) -> &'static [BackendCapability] {
+        BACKENDS
+            .iter()
+            .find(|backend| backend.name == name)
+            .map(|backend| backend.capabilities)
+            .unwrap_or_else(|| panic!("missing backend descriptor {name}"))
+    }
+
     #[test]
     fn semantic_edit_operation_matrix_does_not_overclaim_refactors() {
         let matrix = semantic_edit_operation_matrix();
-        assert_eq!(matrix["lsp"]["authoritative"], serde_json::json!(true));
-        assert_eq!(
-            matrix["lsp"]["supported_operations"],
-            serde_json::json!(["rename"])
+        let operations = matrix["operations"].as_array().unwrap();
+        assert!(operations.iter().any(|op| {
+            op["operation"] == "rename"
+                && op["backend"] == "lsp"
+                && op["support"] == "authoritative_apply"
+                && op["authority"] == "workspace_edit"
+                && op["can_apply"] == true
+        }));
+        assert!(operations.iter().any(|op| {
+            op["operation"] == "safe_delete_check"
+                && op["backend"] == "lsp"
+                && op["support"] == "authoritative_check"
+                && op["authority"] == "semantic_readonly"
+                && op["can_apply"] == false
+        }));
+        for operation in [
+            "extract_function",
+            "inline_function",
+            "move_symbol",
+            "change_signature",
+        ] {
+            let descriptor = operations
+                .iter()
+                .find(|op| op["operation"] == operation && op["backend"] == "lsp")
+                .unwrap_or_else(|| panic!("missing LSP descriptor for {operation}"));
+            assert_ne!(descriptor["support"], "authoritative_apply");
+            assert_eq!(descriptor["authority"], "workspace_edit");
+            assert_eq!(descriptor["can_apply"], false);
+            assert_eq!(descriptor["verified"], false);
+            assert!(
+                descriptor["blocker_reason"].as_str().is_some_and(|reason| {
+                    reason.contains("fixture") && reason.contains("WorkspaceEdit")
+                }),
+                "{descriptor}"
+            );
+        }
+        let tree_sitter_rename = operations
+            .iter()
+            .find(|op| op["operation"] == "rename" && op["backend"] == "tree-sitter")
+            .expect("missing tree-sitter rename descriptor");
+        assert_eq!(tree_sitter_rename["authority"], "syntax");
+        assert_eq!(tree_sitter_rename["can_apply"], false);
+        assert!(operations.iter().any(|op| {
+            op["operation"] == "rename"
+                && op["backend"] == "roslyn"
+                && op["support"] == "conditional_authoritative_apply"
+                && op["can_apply"] == false
+        }));
+        assert!(
+            !operations.iter().any(|op| {
+                op["backend"] == "jetbrains" && op["support"] == "authoritative_apply"
+            })
         );
         assert!(
-            matrix["lsp"]["unsupported_operations"]
-                .as_array()
-                .unwrap()
-                .contains(&serde_json::json!("change_signature"))
-        );
-        assert_eq!(
-            matrix["tree-sitter"]["authoritative"],
-            serde_json::json!(false)
-        );
-        assert_eq!(
-            matrix["scip"]["supported_edit_operations"],
-            serde_json::json!([])
+            operations
+                .iter()
+                .any(|op| { op["backend"] == "scip" && op["support"] == "evidence_only" })
         );
     }
 }

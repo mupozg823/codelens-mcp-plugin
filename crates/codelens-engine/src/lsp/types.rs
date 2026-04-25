@@ -38,6 +38,17 @@ pub struct LspTypeHierarchyRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct LspResolveTargetRequest {
+    pub command: String,
+    pub args: Vec<String>,
+    pub file_path: String,
+    pub line: usize,
+    pub column: usize,
+    pub target: String,
+    pub max_results: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct LspRenamePlanRequest {
     pub command: String,
     pub args: Vec<String>,
@@ -58,6 +69,21 @@ pub struct LspRenameRequest {
     pub dry_run: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct LspCodeActionRequest {
+    pub command: String,
+    pub args: Vec<String>,
+    pub file_path: String,
+    pub start_line: usize,
+    pub start_column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+    pub only: Vec<String>,
+    pub action_id: Option<String>,
+    pub operation: String,
+    pub dry_run: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LspReference {
     pub file_path: String,
@@ -65,6 +91,17 @@ pub struct LspReference {
     pub column: usize,
     pub end_line: usize,
     pub end_column: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspResolvedTarget {
+    pub file_path: String,
+    pub line: usize,
+    pub column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+    pub target: String,
+    pub method: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,4 +154,42 @@ pub struct LspRenamePlan {
     pub current_name: String,
     pub placeholder: Option<String>,
     pub new_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspResourceOp {
+    pub kind: String,
+    pub file_path: String,
+    pub old_file_path: Option<String>,
+    pub new_file_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LspWorkspaceEditTransaction {
+    pub edits: Vec<crate::rename::RenameEdit>,
+    pub resource_ops: Vec<LspResourceOp>,
+    pub modified_files: usize,
+    pub edit_count: usize,
+    pub rollback_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LspCodeActionRefactorPlan {
+    pub operation: String,
+    pub action_title: String,
+    pub action_kind: Option<String>,
+    pub resolved_via: String,
+    pub transaction: LspWorkspaceEditTransaction,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LspCodeActionRefactorResult {
+    pub success: bool,
+    pub message: String,
+    pub operation: String,
+    pub action_title: String,
+    pub action_kind: Option<String>,
+    pub resolved_via: String,
+    pub applied: bool,
+    pub transaction: LspWorkspaceEditTransaction,
 }

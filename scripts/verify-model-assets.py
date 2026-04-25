@@ -75,9 +75,13 @@ def candidate_dirs(root: Path, arch: str) -> list[Path]:
         for variant in variants:
             dirs.extend(
                 [
+                    base / "models" / "codelens-code-search" / variant,
                     base / "models" / "codelens-code-search" / variant / "onnx",
+                    base / "models" / "codesearch" / variant,
                     base / "models" / "codesearch" / variant / "onnx",
+                    base / "codelens-code-search" / variant,
                     base / "codelens-code-search" / variant / "onnx",
+                    base / "codesearch" / variant,
                     base / "codesearch" / variant / "onnx",
                 ]
             )
@@ -91,12 +95,23 @@ def candidate_dirs(root: Path, arch: str) -> list[Path]:
     return unique
 
 
+def asset_path(model_dir: Path, name: str) -> Path:
+    direct = model_dir / name
+    if direct.exists():
+        return direct
+    if name == "model.onnx":
+        split_onnx = model_dir / "onnx" / name
+        if split_onnx.exists():
+            return split_onnx
+    return direct
+
+
 def missing_files(model_dir: Path) -> list[str]:
-    return [name for name in REQUIRED_MODEL_ASSETS if not (model_dir / name).is_file()]
+    return [name for name in REQUIRED_MODEL_ASSETS if not asset_path(model_dir, name).is_file()]
 
 
 def symlinked_required_files(model_dir: Path) -> list[str]:
-    return [name for name in REQUIRED_MODEL_ASSETS if (model_dir / name).is_symlink()]
+    return [name for name in REQUIRED_MODEL_ASSETS if asset_path(model_dir, name).is_symlink()]
 
 
 def find_model_dir(root: Path, arch: str) -> tuple[Path | None, list[dict[str, object]]]:
@@ -143,7 +158,7 @@ def root_from_args(args: argparse.Namespace, tmpdir: Path | None) -> Path:
 def model_manifest(model_dir: Path, model_name: str) -> dict[str, object]:
     assets = []
     for asset in REQUIRED_MODEL_ASSETS:
-        path = model_dir / asset
+        path = asset_path(model_dir, asset)
         assets.append(
             {
                 "name": asset,

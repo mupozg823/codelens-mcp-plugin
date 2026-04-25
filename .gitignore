@@ -32,6 +32,10 @@ __pycache__/
 # Gradle (orphaned legacy)
 .gradle/
 
+# Optional semantic adapter build outputs
+adapters/**/bin/
+adapters/**/obj/
+
 # Environment
 .env
 .env.local

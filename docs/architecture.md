@@ -3,13 +3,13 @@
 > Pure Rust MCP server and harness optimization tool for code intelligence
 > Harness optimization control plane with generated surface governance and tree-sitter-first retrieval
 
-## Current Snapshot (2026-04-16)
+## Current Snapshot (2026-04-25)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
 - Workspace version: `1.9.50`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions in source: `113`
-- Tool output schemas in source: `79 / 113`
+- Registered tool definitions in source: `114`
+- Tool output schemas in source: `85 / 114`
 - Supported language families: `30` across `49` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:END -->
@@ -18,7 +18,7 @@
 - Current release notes: [latest GitHub release](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). For local release-quality comparisons, resolve the baseline tag with `git tag --sort=-v:refname | head -1`.
 - Current release verification guide: [docs/release-verification.md](release-verification.md)
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
-- Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
+- Current audit and simplification report: [docs/architecture-audit-2026-04-24.md](architecture-audit-2026-04-24.md)
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
 - Current enterprise productization decision record: [docs/adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
 
@@ -364,7 +364,7 @@ codelens-mcp-plugin/
 ## 4. Tool Ecosystem (Historical Shape Reference)
 
 This section is a broad shape reference for the product surface.
-For the latest authoritative counts, use the **Current Snapshot** at the top of this file and the audit report in [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md).
+For the latest authoritative counts, use the **Current Snapshot** at the top of this file and the audit report in [docs/architecture-audit-2026-04-24.md](architecture-audit-2026-04-24.md).
 
 ### Preset Distribution
 

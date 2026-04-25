@@ -128,6 +128,25 @@ Next.js tutorial, Flask, serde_json, Spring Petclinic이며, 각 항목은 `refr
 `index_embeddings(prewarm_queries)`, `semantic_search(path_hint)`, `rename_symbol(dry_run=true)`를
 동일하게 통과해야 한다.
 
+### 1-1-4. Semantic refactor matrix (semantic-refactor-matrix.py)
+
+```bash
+python3 benchmarks/semantic-refactor-matrix.py \
+  --binary target/release/codelens-mcp \
+  --matrix benchmarks/semantic-refactor-upstream-matrix.json \
+  --check
+```
+
+측정 항목:
+
+- LSP-backed `resolve_symbol_target`, `rename_symbol`, `refactor_extract_function`
+- 각 operation의 `semantic_edit_backend=lsp` fail-closed contract
+- pinned Rust/TypeScript/Java upstream project에서 dry-run correctness
+
+이 gate는 실제 LSP 서버(`rust-analyzer`, TypeScript language server, `jdtls`) 설치 상태에
+의존하므로 PR fast gate가 아니라 nightly/release gate다. `--validate-only`는 matrix schema만
+확인한다.
+
 ### 1-2. 임베드 런타임 benchmark (embedding-runtime.py)
 
 ```bash

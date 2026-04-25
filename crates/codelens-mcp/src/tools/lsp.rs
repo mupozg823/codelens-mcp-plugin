@@ -6,10 +6,10 @@ use crate::authority::{meta_degraded, meta_for_backend};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::{
-    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspTypeHierarchyRequest,
-    LspWorkspaceSymbolRequest, check_lsp_status as core_check_lsp_status, extract_word_at_position,
-    find_referencing_symbols_via_text, get_lsp_recipe as core_get_lsp_recipe,
-    get_type_hierarchy_native,
+    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspResolveTargetRequest,
+    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, check_lsp_status as core_check_lsp_status,
+    extract_word_at_position, find_referencing_symbols_via_text,
+    get_lsp_recipe as core_get_lsp_recipe, get_type_hierarchy_native,
 };
 use serde_json::json;
 
@@ -565,12 +565,103 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
         .map(|value| (json!(value), success_meta(BackendKind::Lsp, 0.86)))
 }
 
+pub fn resolve_symbol_target(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let file_path = required_string(arguments, "file_path")?.to_owned();
+    let line = arguments
+        .get("line")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| CodeLensError::MissingParam("line".into()))? as usize;
+    let column = arguments
+        .get("column")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| CodeLensError::MissingParam("column".into()))? as usize;
+    let target = optional_string(arguments, "target")
+        .unwrap_or("definition")
+        .to_owned();
+    let semantic_backend = optional_string(arguments, "semantic_backend").unwrap_or("lsp");
+    if semantic_backend != "lsp" {
+        return Err(CodeLensError::Validation(
+            "resolve_symbol_target currently supports semantic_backend=lsp only".into(),
+        ));
+    }
+    if !matches!(
+        target.as_str(),
+        "declaration" | "definition" | "implementation" | "type_definition"
+    ) {
+        return Err(CodeLensError::Validation(format!(
+            "unsupported resolve target `{target}`"
+        )));
+    }
+    let command = optional_string(arguments, "command")
+        .map(ToOwned::to_owned)
+        .or_else(|| default_lsp_command_for_path(&file_path))
+        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
+    let args = parse_lsp_args(arguments, &command);
+    let max_results = optional_usize(arguments, "max_results", 20);
+
+    let command_ref = command.clone();
+    state
+        .lsp_pool()
+        .resolve_symbol_target(&LspResolveTargetRequest {
+            command,
+            args,
+            file_path: file_path.clone(),
+            line,
+            column,
+            target: target.clone(),
+            max_results,
+        })
+        .map_err(|e| enhance_lsp_error(e, &command_ref))
+        .map(|targets| {
+            let method = match target.as_str() {
+                "declaration" => "textDocument/declaration",
+                "definition" => "textDocument/definition",
+                "implementation" => "textDocument/implementation",
+                "type_definition" => "textDocument/typeDefinition",
+                _ => "unknown",
+            };
+            (
+                json!({
+                    "success": true,
+                    "semantic_backend": "lsp",
+                    "edit_authority": {
+                        "kind": "authoritative_lsp",
+                        "backend": "lsp",
+                        "operation": target,
+                        "language": language_name_for_path(&file_path),
+                        "methods": [method],
+                        "embedding_used": false,
+                        "search_used": false
+                    },
+                    "targets": targets,
+                    "count": targets.len(),
+                }),
+                success_meta(BackendKind::Lsp, 0.95),
+            )
+        })
+}
+
 pub fn check_lsp_status(_state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let statuses = core_check_lsp_status();
     Ok((
         json!({ "servers": statuses, "count": statuses.len() }),
         success_meta(BackendKind::Lsp, 1.0),
     ))
+}
+
+fn language_name_for_path(file_path: &str) -> &'static str {
+    match std::path::Path::new(file_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+    {
+        "rs" => "rust",
+        "ts" | "tsx" => "typescript",
+        "js" | "jsx" | "mjs" | "cjs" => "javascript",
+        "java" => "java",
+        "py" => "python",
+        _ => "unknown",
+    }
 }
 
 pub fn get_lsp_recipe(_state: &AppState, arguments: &serde_json::Value) -> ToolResult {

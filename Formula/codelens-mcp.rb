@@ -18,6 +18,7 @@ class CodelensMcp < Formula
 
   def install
     bin.install "codelens-mcp"
+    bin.install "adapters" if File.directory?("adapters")
   end
 
   def caveats

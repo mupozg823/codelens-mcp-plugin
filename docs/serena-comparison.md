@@ -4,9 +4,9 @@ This document answers a narrower question than marketing:
 
 > Is CodeLens already a strict superset of Serena?
 
-Current answer: **no**.
+Current answer as of 2026-04-25: **no, but the gap is now narrower and more explicit**.
 
-CodeLens is already stronger as a harness-native MCP layer. Serena is still stronger as an IDE/LSP-centric semantic backend. A real superset requires merging those two shapes instead of pretending one replaces the other.
+CodeLens is already stronger as a harness-native MCP layer. It now has an opt-in semantic edit substrate for LSP-authoritative `rename`, declaration/definition/implementation/type-definition resolution, and `safe_delete_check`. Broader LSP `codeAction` refactors remain conditional: CodeLens may execute them only when the server returns an inspectable minimal `WorkspaceEdit`, but they are not advertised as product-green `authoritative_apply` until fixture and external matrix gates prove them per language. CodeLens also keeps an IDE adapter protocol boundary for local JetBrains/Roslyn-style integrations. Serena is still stronger as a broad IDE/LSP-centric semantic backend because JetBrains-backed workspace intelligence and language-specific adapter coverage are not complete in CodeLens.
 
 ## 1. Current Verdict
 
@@ -15,7 +15,7 @@ CodeLens is already stronger as a harness-native MCP layer. Serena is still stro
 | Harness ergonomics | CodeLens | Role-based surfaces, deferred bootstrap, bounded reports, durable jobs |
 | Semantic retrieval for NL queries | CodeLens | Bundled embedding model and hybrid ranking with measured external benchmarks |
 | Offline setup and cold start | CodeLens | Single Rust binary, no per-language server requirement by default |
-| Deep type-aware editing/refactoring | Serena | LSP-first backend and JetBrains-backed move/inline/declaration/implementation |
+| Deep type-aware editing/refactoring | Serena | CodeLens has LSP/Roslyn `WorkspaceEdit` boundaries and authoritative rename/check paths, but broad refactor apply remains conditional until per-language matrix gates are green |
 | Memory and long-lived knowledge | Serena | Mature project/global memory model and onboarding workflow |
 | Broad language-backend coverage | Serena | 40+ LSP-backed languages plus JetBrains backend |
 | Benchmark/eval discipline | CodeLens | Explicit evaluation contract and external retrieval matrix in-repo |
@@ -24,7 +24,7 @@ If the target definition of "superior" is:
 
 - better harness behavior under token pressure: CodeLens already wins.
 - better semantic IDE replacement for all agent coding tasks: CodeLens does not win yet.
-- strict superset of Serena capabilities: CodeLens does not qualify yet.
+- strict superset of Serena capabilities: CodeLens does not qualify yet, because the semantic edit backend is partial.
 
 ## 2. CodeLens Advantages Today
 
@@ -101,7 +101,7 @@ These come from Serena's current public repo and docs:
 
 ### 3.1 Serena has a broader semantic backend story
 
-Serena is built around LSP by default and can switch to a JetBrains-backed language intelligence backend. In its own docs, Serena explicitly positions the JetBrains plugin as the preferred option for IDE users and lists capabilities that CodeLens does not yet match consistently:
+Serena is built around LSP by default and can switch to a JetBrains-backed language intelligence backend. CodeLens has started closing this gap with opt-in LSP authority metadata and operation routing for rename, navigation targets, and safe-delete checks/apply, but Serena still lists capabilities that CodeLens does not yet match consistently:
 
 - type hierarchy
 - declaration lookup
@@ -149,7 +149,7 @@ Neither fully subsumes the other.
 
 ### 5.1 Introduce a pluggable semantic backend interface
 
-CodeLens already mixes tree-sitter, optional LSP, graph, and embeddings, but the abstraction boundary is still too engine-internal.
+CodeLens already mixes tree-sitter, optional LSP, graph, and embeddings. The abstraction boundary is now partially productized: `codelens://backend/capabilities` exposes an operation matrix, and `semantic_edit_backend=lsp` routes `rename_symbol` and `propagate_deletions` through LSP-backed authority paths. The missing move is completing that contract across the remaining edit operations without turning it into a single-implementation framework.
 
 The missing move is a single backend contract for:
 
@@ -161,14 +161,15 @@ The missing move is a single backend contract for:
 - type hierarchy
 - rename preview
 - workspace edit application
-- safe delete
+- safe delete check and apply
 - move / inline / change signature
 
-Recommended shape:
+Current shape:
 
-- `TreeSitterBackend` for fast always-on fallback
-- `LspBackend` for language-server semantics
-- future `IdeBackend` for JetBrains-like remote semantic adapters
+- tree-sitter remains the fast always-on fallback.
+- LSP is the authoritative edit substrate for `rename`, declaration/definition/implementation/type-definition resolution, `safe_delete_check`, and guarded `safe_delete_apply`.
+- SCIP remains cross-reference evidence, not an edit executor.
+- a future IDE bridge can be added only when it has a real second implementation and a measurable operation gate.
 
 Then tool capabilities become backend-derived rather than hard-coded product claims.
 
@@ -261,34 +262,57 @@ Until those exist, "strictly better than Serena" is not a scientific statement. 
 
 ### Phase A — Stop overstating
 
-- keep the README comparison honest
-- report capability gaps explicitly via `get_capabilities`
-- expose backend/fallback provenance in tool outputs
+- **Status: mostly complete.**
+- README comparison is honest about Serena still leading broad edit depth.
+- `codelens://backend/capabilities` reports operation-level capability.
+- LSP edit outputs include `edit_authority` and explicitly mark `embedding_used=false`.
 
 ### Phase B — Superset substrate
 
-- add `SemanticBackend` and `SemanticEditBackend` traits
-- route rename/type/declaration/implementation through backend capability checks
-- keep tree-sitter retrieval as the fast fallback
+- **Status: partial.**
+- Passive backend capability reporting exists.
+- Active LSP routing exists for `rename`, declaration, definition, implementation, type definition, `safe_delete_check`, and guarded `safe_delete_apply`.
+- Remaining active routes: change signature, move, extract, inline, and code-action apply are conditional only; they must not be counted as product-green until concrete WorkspaceEdit fixtures and external matrix gates pass.
+- Tree-sitter remains the fast fallback.
 
 ### Phase C — Transactional refactors
 
-- unify preview/apply/verify into one workspace-edit pipeline
-- make mutation gate consume backend capability and transaction evidence
+- **Status: partial.**
+- Rename has dry-run/apply via LSP workspace edits.
+- Safe delete is intentionally check-only; apply remains a separate mutation-gated action.
+- There is not yet one unified transaction envelope with rollback metadata.
 
 ### Phase D — Memory + project fabric
 
-- promote memory to a first-class public surface
-- bind memories to projects, artifacts, and sessions
-- make cross-project querying a durable subsystem, not a side feature
+- **Status: partial.**
+- Project memories and registry resources exist.
+- Memory is not yet a first-class policy surface tied to analysis handles, mutation audit, and release gates.
+- Cross-project querying remains a durable roadmap item.
 
 ### Phase E — Prove it
 
-- run semantic-refactor benchmarks against representative repos
-- run harness token/latency comparisons against Serena-equipped workflows
-- publish the failure cases, not just the wins
+- **Status: partial.**
+- Retrieval and daemon latency evidence exists.
+- External smoke coverage exists for product/runtime paths.
+- Missing: semantic-refactor correctness matrix for rename, safe delete, declaration/implementation, move, inline, and change signature.
 
-## 7. Bottom Line
+## 7. Current Completion Estimate
+
+This is a product-readiness estimate, not a marketing score.
+
+| Area | Completion vs final goal | Current state |
+| --- | ---: | --- |
+| MCP transport/productization | 85-90% | MCP 2025-11-25, Streamable HTTP, HTTPS/JWKS, Anthropic tool-only, and OpenAI-compatible HTTP behavior are in place. |
+| Harness/runtime control plane | 80-85% | Profiles, deferred loading, mutation gate, jobs, reports, coordination, and audit are strong; some large files still need split. |
+| Retrieval and ranking | 75-80% | Hybrid/path-aware retrieval, query cache, freshness checks, and model fail-closed behavior are useful; pure semantic remains supporting evidence only. |
+| Release packaging | 70-75% | Model verification and release gates exist; final release artifact payload discipline still needs ongoing CI enforcement. |
+| Memory/project knowledge | 45-55% | Project memories exist, but memory is not yet a public system layer connected to handles, audits, and policies. |
+| Semantic edit substrate | 55-65% | LSP-authoritative rename/navigation/check paths exist, and a Roslyn sidecar boundary can return C# rename `WorkspaceEdit`. Extract/inline/move/change-signature are conditional WorkspaceEdit paths, not product-green claims. JetBrains-style IDE integration remains an opt-in CodeLens adapter boundary, and non-rename adapter refactors remain fail-closed gaps. |
+| External proof matrix | 65-75% | External smoke/eval matrix exists, and semantic-refactor matrix gate now covers pinned upstream LSP refactor dry-runs for nightly/release. |
+
+Overall: **roughly 65-70% toward the stated final product goal**. It is already useful as a harness-native MCP product and retrieval/control-plane substrate. It is not yet a full IDE-grade semantic edit platform.
+
+## 8. Bottom Line
 
 If the question is:
 
@@ -297,7 +321,7 @@ If the question is:
 The answer is:
 
 - **for harness-native bounded workflows**: mostly yes
-- **for deep semantic IDE behavior**: no
+- **for deep semantic IDE behavior**: no, though LSP rename/navigation/safe-delete are now real footholds
 - **as a strict overall superset**: no
 
 If the question is:
@@ -307,7 +331,7 @@ If the question is:
 The answer is yes, but only if it stops treating tree-sitter, LSP, embeddings, memory, and refactoring as one flat tool pile and instead becomes:
 
 - a fast retrieval layer
-- a pluggable semantic backend layer
+- a pluggable semantic backend layer with operation-level proof
 - a transactional workflow/policy layer
 - a persistent project knowledge layer
 
