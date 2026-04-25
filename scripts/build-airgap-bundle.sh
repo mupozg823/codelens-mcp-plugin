@@ -130,9 +130,23 @@ case "$archive_path" in
 esac
 
 if [[ -d "$models_dir/codesearch" ]]; then
-	cp -R "$models_dir/codesearch" "$bundle_dir/models/"
+	mkdir -p "$bundle_dir/models/codesearch"
+	for asset in model.onnx tokenizer.json config.json special_tokens_map.json tokenizer_config.json; do
+		cp "$models_dir/codesearch/$asset" "$bundle_dir/models/codesearch/"
+	done
 elif [[ -d "$models_dir/codelens-code-search" ]]; then
-	cp -R "$models_dir/codelens-code-search" "$bundle_dir/models/"
+	variant="avx2"
+	if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
+		variant="arm64"
+	fi
+	src="$models_dir/codelens-code-search/$variant/onnx"
+	if [[ ! -d "$src" ]]; then
+		src="$models_dir/codelens-code-search/$variant"
+	fi
+	mkdir -p "$bundle_dir/models/codesearch"
+	for asset in model.onnx tokenizer.json config.json special_tokens_map.json tokenizer_config.json; do
+		cp "$src/$asset" "$bundle_dir/models/codesearch/"
+	done
 else
 	echo "models directory does not contain a supported CodeLens model layout: $models_dir" >&2
 	exit 1

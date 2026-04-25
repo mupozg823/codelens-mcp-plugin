@@ -121,6 +121,16 @@ pub struct QueryEmbeddingCacheStats {
     pub max_entries: usize,
 }
 
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct EmbeddingFreshnessReport {
+    pub checked_files: usize,
+    pub unchanged_files: usize,
+    pub refreshed_files: usize,
+    pub removed_files: usize,
+    pub skipped_new_files: usize,
+    pub indexed_symbols: usize,
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests;

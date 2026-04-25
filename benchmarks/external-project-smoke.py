@@ -72,20 +72,40 @@ def materialize_project(
     work_root = Path(tempfile.mkdtemp(prefix="codelens-external-smoke-")) if keep else Path(tmp.name)
     name = item.get("name", "project").replace("/", "-")
     dest = work_root / name
+    clone_depth = item.get("clone_depth", 1)
+    clone_cmd = ["git", "clone", "--quiet"]
+    if clone_depth:
+        clone_cmd.extend(["--depth", str(clone_depth)])
+    clone_cmd.extend([str(git_url), str(dest)])
     subprocess.run(
-        ["git", "clone", "--quiet", str(git_url), str(dest)],
+        clone_cmd,
         cwd=ROOT,
         timeout=timeout,
         check=True,
     )
     revision = item.get("revision") or item.get("rev")
     if revision:
-        subprocess.run(
+        checkout = subprocess.run(
             ["git", "checkout", "--quiet", str(revision)],
             cwd=dest,
             timeout=timeout,
-            check=True,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
+        if checkout.returncode != 0:
+            subprocess.run(
+                ["git", "fetch", "--quiet", "--depth", "1", "origin", str(revision)],
+                cwd=dest,
+                timeout=timeout,
+                check=True,
+            )
+            subprocess.run(
+                ["git", "checkout", "--quiet", str(revision)],
+                cwd=dest,
+                timeout=timeout,
+                check=True,
+            )
     return dest, tmp
 
 

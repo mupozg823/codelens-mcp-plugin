@@ -27,6 +27,8 @@ mod mutation;
 mod protocol;
 mod readonly;
 mod registry;
+#[cfg(feature = "semantic")]
+mod semantic;
 mod session_mutation;
 mod workflow;
 

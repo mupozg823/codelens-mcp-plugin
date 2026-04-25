@@ -1,0 +1,57 @@
+{
+  "schema_version": "codelens-external-project-smoke-matrix-v1",
+  "projects": [
+    {
+      "name": "next-learn-upstream",
+      "kind": "nextjs",
+      "git_url": "https://github.com/vercel/next-learn.git",
+      "revision": "914a33426aac20f825ca52fae80b889302b92240",
+      "query": "next.js dashboard landing page login link",
+      "path_hint": "dashboard/starter-example/app",
+      "mutation": {
+        "file_path": "dashboard/starter-example/app/page.tsx",
+        "symbol_name": "Page",
+        "new_name": "PreviewPage"
+      }
+    },
+    {
+      "name": "flask-upstream",
+      "kind": "flask",
+      "git_url": "https://github.com/pallets/flask.git",
+      "revision": "2ac89889f4cc330eabd50f295dcef02828522c69",
+      "query": "dispatch flask request and return response",
+      "path_hint": "src/flask",
+      "mutation": {
+        "file_path": "src/flask/app.py",
+        "symbol_name": "dispatch_request",
+        "new_name": "preview_dispatch_request"
+      }
+    },
+    {
+      "name": "serde-json-upstream",
+      "kind": "rust",
+      "git_url": "https://github.com/serde-rs/json.git",
+      "revision": "dc8003a88e7142529cf4a7429c4778af31dadf50",
+      "query": "deserialize json string into typed value",
+      "path_hint": "src",
+      "mutation": {
+        "file_path": "src/de.rs",
+        "symbol_name": "from_str",
+        "new_name": "preview_from_str"
+      }
+    },
+    {
+      "name": "spring-petclinic-upstream",
+      "kind": "spring",
+      "git_url": "https://github.com/spring-projects/spring-petclinic.git",
+      "revision": "c7ee170434ec3e369fdc9201290ba2ea4c92b557",
+      "query": "spring owner controller show owner details",
+      "path_hint": "src/main/java",
+      "mutation": {
+        "file_path": "src/main/java/org/springframework/samples/petclinic/owner/OwnerController.java",
+        "symbol_name": "showOwner",
+        "new_name": "previewShowOwner"
+      }
+    }
+  ]
+}

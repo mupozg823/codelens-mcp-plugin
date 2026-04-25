@@ -80,12 +80,19 @@ def missing_files(model_dir: Path) -> list[str]:
     return [name for name in REQUIRED_FILES if not (model_dir / name).is_file()]
 
 
+def symlinked_required_files(model_dir: Path) -> list[str]:
+    return [name for name in REQUIRED_FILES if (model_dir / name).is_symlink()]
+
+
 def find_model_dir(root: Path, arch: str) -> tuple[Path | None, list[dict[str, object]]]:
     attempts = []
     for path in candidate_dirs(root, arch):
         missing = missing_files(path)
-        attempts.append({"path": str(path), "missing": missing})
-        if not missing:
+        symlinked = symlinked_required_files(path)
+        attempts.append(
+            {"path": str(path), "missing": missing, "symlinked": symlinked}
+        )
+        if not missing and not symlinked:
             return path, attempts
     return None, attempts
 
@@ -137,7 +144,14 @@ def main() -> None:
         else:
             print(f"model assets missing under: {root}")
             for attempt in attempts:
-                print(f"- {attempt['path']}: missing {', '.join(attempt['missing'])}")
+                details = []
+                if attempt["missing"]:
+                    details.append(f"missing {', '.join(attempt['missing'])}")
+                if attempt["symlinked"]:
+                    details.append(
+                        f"symlinked required files {', '.join(attempt['symlinked'])}"
+                    )
+                print(f"- {attempt['path']}: {'; '.join(details) or 'ok'}")
         if model_dir is None:
             raise SystemExit(1)
 

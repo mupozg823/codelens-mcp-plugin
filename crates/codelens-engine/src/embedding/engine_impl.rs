@@ -23,7 +23,8 @@ use super::runtime::{configured_rerank_blend, embed_batch_size, max_embed_symbol
 use super::vec_store::SqliteVecStore;
 use super::{
     CHANGED_FILE_QUERY_CHUNK, DEFAULT_DUPLICATE_SCAN_BATCH_SIZE, EmbeddingEngine,
-    EmbeddingIndexInfo, EmbeddingRuntimeInfo, QueryEmbeddingCacheStats, SemanticMatch,
+    EmbeddingFreshnessReport, EmbeddingIndexInfo, EmbeddingRuntimeInfo, QueryEmbeddingCacheStats,
+    SemanticMatch,
 };
 use rusqlite::Connection;
 
@@ -301,6 +302,121 @@ impl EmbeddingEngine {
         }
 
         Ok(total_indexed)
+    }
+
+    pub fn ensure_index_fresh_for_project(
+        &self,
+        project: &ProjectRoot,
+    ) -> Result<EmbeddingFreshnessReport> {
+        if self
+            .indexing
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            anyhow::bail!(
+                "Embedding indexing already in progress — wait for the current run to complete before retrying."
+            );
+        }
+
+        struct IndexGuard<'a>(&'a std::sync::atomic::AtomicBool);
+        impl Drop for IndexGuard<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, std::sync::atomic::Ordering::Release);
+            }
+        }
+        let _guard = IndexGuard(&self.indexing);
+
+        let db_path = crate::db::index_db_path(project.as_path());
+        let symbol_db = IndexDb::open(&db_path)?;
+        let batch_size = embed_batch_size();
+        let mut report = EmbeddingFreshnessReport::default();
+        let mut existing_embeddings: HashMap<
+            String,
+            HashMap<ReusableEmbeddingKey, EmbeddingChunk>,
+        > = HashMap::new();
+        let mut current_db_files = HashSet::new();
+        let mut model = None;
+
+        self.store
+            .for_each_file_embeddings(&mut |file_path, chunks| {
+                existing_embeddings.insert(
+                    file_path,
+                    chunks
+                        .into_iter()
+                        .map(|chunk| (reusable_embedding_key_for_chunk(&chunk), chunk))
+                        .collect(),
+                );
+                Ok(())
+            })?;
+
+        if existing_embeddings.is_empty() {
+            return Ok(report);
+        }
+
+        symbol_db.for_each_file_symbols_with_bytes(|file_path, symbols| {
+            current_db_files.insert(file_path.clone());
+            let Some(existing_for_file) = existing_embeddings.get(&file_path) else {
+                report.skipped_new_files += 1;
+                return Ok(());
+            };
+
+            report.checked_files += 1;
+            let source = std::fs::read_to_string(project.as_path().join(&file_path)).ok();
+            let relevant_symbols: Vec<_> = symbols
+                .into_iter()
+                .filter(|sym| !is_test_only_symbol(sym, source.as_deref()))
+                .collect();
+
+            if relevant_symbols.is_empty() {
+                self.store.delete_by_file(&[file_path.as_str()])?;
+                existing_embeddings.remove(&file_path);
+                report.refreshed_files += 1;
+                return Ok(());
+            }
+
+            let current_keys = relevant_symbols
+                .iter()
+                .map(|sym| {
+                    let text = build_embedding_text(sym, source.as_deref());
+                    reusable_embedding_key_for_symbol(sym, &text)
+                })
+                .collect::<HashSet<_>>();
+            let stored_keys = existing_for_file.keys().cloned().collect::<HashSet<_>>();
+
+            if current_keys == stored_keys {
+                existing_embeddings.remove(&file_path);
+                report.unchanged_files += 1;
+                return Ok(());
+            }
+
+            let existing_for_file = existing_embeddings.remove(&file_path).unwrap_or_default();
+            report.indexed_symbols += self.reconcile_file_embeddings(
+                &file_path,
+                relevant_symbols,
+                source.as_deref(),
+                existing_for_file,
+                batch_size,
+                &mut model,
+            )?;
+            report.refreshed_files += 1;
+            Ok(())
+        })?;
+
+        let removed_files: Vec<String> = existing_embeddings
+            .into_keys()
+            .filter(|file_path| !current_db_files.contains(file_path))
+            .collect();
+        if !removed_files.is_empty() {
+            let removed_refs: Vec<&str> = removed_files.iter().map(String::as_str).collect();
+            report.removed_files = self.store.delete_by_file(&removed_refs)?;
+        }
+
+        Ok(report)
     }
 
     /// Extract NL→code bridge candidates from indexed symbols.

@@ -2,9 +2,11 @@ use super::types::{
     LspDiagnostic, LspReference, LspRenamePlan, LspTypeHierarchyNode, LspWorkspaceSymbol,
 };
 use crate::project::ProjectRoot;
+use crate::rename::RenameEdit;
 use anyhow::{Context, Result, bail};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::HashMap;
+use std::fs;
 use url::Url;
 
 pub(super) fn references_from_response(
@@ -237,14 +239,15 @@ pub(super) fn rename_plan_from_response(
     };
 
     let (file_path, start, end, placeholder) = if let Some(range) = result.get("range") {
-        let file_path = result
+        let file_path = if let Some(uri) = result
             .get("textDocument")
             .and_then(|v| v.get("uri"))
             .and_then(Value::as_str)
-            .and_then(|uri| Url::parse(uri).ok())
-            .and_then(|uri| uri.to_file_path().ok())
-            .map(|path| project.to_relative(path))
-            .unwrap_or_else(|| request_file_path.to_owned());
+        {
+            lsp_uri_to_project_relative(project, uri)?
+        } else {
+            request_file_path.to_owned()
+        };
         (
             file_path,
             range
@@ -276,9 +279,17 @@ pub(super) fn rename_plan_from_response(
     };
 
     let line = start.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
-    let column = start.get("character").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
     let end_line = end.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
-    let end_column = end.get("character").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
+    let column = byte_column_for_utf16_position(
+        source,
+        line,
+        start.get("character").and_then(Value::as_u64).unwrap_or(0) as usize,
+    );
+    let end_column = byte_column_for_utf16_position(
+        source,
+        end_line,
+        end.get("character").and_then(Value::as_u64).unwrap_or(0) as usize,
+    );
     let current_name = placeholder
         .clone()
         .unwrap_or_else(|| extract_text_for_range(source, line, column, end_line, end_column));
@@ -293,6 +304,123 @@ pub(super) fn rename_plan_from_response(
         placeholder,
         new_name,
     })
+}
+
+pub(super) fn rename_edits_from_workspace_edit_response(
+    project: &ProjectRoot,
+    response: Value,
+) -> Result<Vec<RenameEdit>> {
+    let result = response
+        .get("result")
+        .context("LSP rename returned no result")?;
+    let mut edits = Vec::new();
+
+    if let Some(changes) = result.get("changes").and_then(Value::as_object) {
+        collect_changes(project, changes, &mut edits)?;
+    }
+
+    if let Some(document_changes) = result.get("documentChanges").and_then(Value::as_array) {
+        for change in document_changes {
+            let Some(text_edits) = change.get("edits").and_then(Value::as_array) else {
+                bail!("unsupported LSP documentChanges operation in rename edit");
+            };
+            let uri = change
+                .get("textDocument")
+                .and_then(|value| value.get("uri"))
+                .and_then(Value::as_str)
+                .context("LSP documentChanges textDocument uri missing")?;
+            collect_text_edits_for_uri(project, uri, text_edits, &mut edits)?;
+        }
+    }
+
+    if edits.is_empty() {
+        bail!("LSP rename returned no text edits");
+    }
+    Ok(edits)
+}
+
+fn collect_changes(
+    project: &ProjectRoot,
+    changes: &Map<String, Value>,
+    edits: &mut Vec<RenameEdit>,
+) -> Result<()> {
+    for (uri, text_edits) in changes {
+        let text_edits = text_edits
+            .as_array()
+            .with_context(|| format!("LSP changes entry for {uri} is not an array"))?;
+        collect_text_edits_for_uri(project, uri, text_edits, edits)?;
+    }
+    Ok(())
+}
+
+fn collect_text_edits_for_uri(
+    project: &ProjectRoot,
+    uri: &str,
+    text_edits: &[Value],
+    edits: &mut Vec<RenameEdit>,
+) -> Result<()> {
+    let file_path = lsp_uri_to_project_relative(project, uri)?;
+    let absolute_path = Url::parse(uri)
+        .ok()
+        .and_then(|uri| uri.to_file_path().ok())
+        .with_context(|| format!("invalid LSP file uri: {uri}"))?;
+    let canonical_path = absolute_path.canonicalize().unwrap_or(absolute_path);
+    let resolved_path = project.resolve(&canonical_path)?;
+    let source = fs::read_to_string(&resolved_path).with_context(|| {
+        format!(
+            "failed to read LSP rename target {}",
+            resolved_path.display()
+        )
+    })?;
+
+    for edit in text_edits {
+        let range = edit.get("range").context("LSP text edit missing range")?;
+        let start = range
+            .get("start")
+            .context("LSP text edit missing start range")?;
+        let end = range
+            .get("end")
+            .context("LSP text edit missing end range")?;
+        let line = start.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
+        let end_line = end.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1;
+        let column = byte_column_for_utf16_position(
+            &source,
+            line,
+            start.get("character").and_then(Value::as_u64).unwrap_or(0) as usize,
+        );
+        let end_column = byte_column_for_utf16_position(
+            &source,
+            end_line,
+            end.get("character").and_then(Value::as_u64).unwrap_or(0) as usize,
+        );
+        if line != end_line {
+            bail!("multi-line LSP rename edits are not supported");
+        }
+        let old_text = extract_text_for_range(&source, line, column, end_line, end_column);
+        let new_text = edit
+            .get("newText")
+            .and_then(Value::as_str)
+            .context("LSP text edit missing newText")?
+            .to_owned();
+        edits.push(RenameEdit {
+            file_path: file_path.clone(),
+            line,
+            column,
+            old_text,
+            new_text,
+        });
+    }
+    Ok(())
+}
+
+fn lsp_uri_to_project_relative(project: &ProjectRoot, uri: &str) -> Result<String> {
+    let absolute_path = Url::parse(uri)
+        .ok()
+        .and_then(|uri| uri.to_file_path().ok())
+        .with_context(|| format!("invalid LSP file uri: {uri}"))?;
+    let canonical_path = absolute_path.canonicalize().unwrap_or(absolute_path);
+    let resolved_path = project.resolve(&canonical_path)?;
+    Ok(project.to_relative(&resolved_path))
 }
 
 pub(super) fn extract_text_for_range(
@@ -330,6 +458,25 @@ pub(super) fn extract_text_for_range(
         }
     }
     result
+}
+
+fn byte_column_for_utf16_position(source: &str, line: usize, character_utf16: usize) -> usize {
+    let Some(text) = source.lines().nth(line.saturating_sub(1)) else {
+        return 1;
+    };
+
+    let mut consumed_utf16 = 0usize;
+    for (byte_index, ch) in text.char_indices() {
+        if consumed_utf16 >= character_utf16 {
+            return byte_index + 1;
+        }
+        let next_utf16 = consumed_utf16 + ch.len_utf16();
+        if next_utf16 > character_utf16 {
+            return byte_index + 1;
+        }
+        consumed_utf16 = next_utf16;
+    }
+    text.len() + 1
 }
 
 fn type_hierarchy_child_to_map(node: &LspTypeHierarchyNode) -> HashMap<String, Value> {
@@ -462,4 +609,152 @@ pub(super) fn symbol_kind_label(value: u64) -> String {
         _ => "unknown",
     }
     .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ProjectRoot;
+
+    #[test]
+    fn rename_edits_reject_outside_project_uri_before_reading() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-lsp-parser-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("mkdir project");
+        let project = ProjectRoot::new_exact(&dir).expect("project root");
+        let outside = dir
+            .parent()
+            .expect("parent")
+            .join(format!("outside-{}.py", std::process::id()));
+        fs::write(&outside, "old_name()\n").expect("write outside file");
+        let uri = Url::from_file_path(&outside).expect("file uri").to_string();
+        let response = json!({
+            "result": {
+                "changes": {
+                    uri: [{
+                        "range": {
+                            "start": {"line": 0, "character": 0},
+                            "end": {"line": 0, "character": 8}
+                        },
+                        "newText": "new_name"
+                    }]
+                }
+            }
+        });
+
+        let error = rename_edits_from_workspace_edit_response(&project, response)
+            .expect_err("outside URI must be rejected");
+        assert!(error.to_string().contains("escapes project root"));
+    }
+
+    #[test]
+    fn rename_edits_translate_lsp_utf16_offsets_before_apply() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-lsp-parser-utf16-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("mkdir project");
+        let path = dir.join("sample.py");
+        fs::write(&path, "🙂 old_name()\n").expect("write sample");
+        let project = ProjectRoot::new_exact(&dir).expect("project root");
+        let uri = Url::from_file_path(&path).expect("file uri").to_string();
+        let response = json!({
+            "result": {
+                "changes": {
+                    uri: [{
+                        "range": {
+                            "start": {"line": 0, "character": 3},
+                            "end": {"line": 0, "character": 11}
+                        },
+                        "newText": "new_name"
+                    }]
+                }
+            }
+        });
+
+        let edits = rename_edits_from_workspace_edit_response(&project, response)
+            .expect("utf16 edit should parse");
+
+        assert_eq!(edits[0].old_text, "old_name");
+        assert_eq!(edits[0].column, "🙂 ".len() + 1);
+        crate::rename::apply_edits(&project, &edits).expect("apply edit");
+        let updated = fs::read_to_string(path).expect("read updated");
+        assert_eq!(updated, "🙂 new_name()\n");
+    }
+
+    #[test]
+    fn rename_plan_rejects_outside_project_uri() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-lsp-parser-plan-outside-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("mkdir project");
+        let project = ProjectRoot::new_exact(&dir).expect("project root");
+        let outside = dir
+            .parent()
+            .expect("parent")
+            .join(format!("outside-plan-{}.py", std::process::id()));
+        fs::write(&outside, "old_name()\n").expect("write outside file");
+        let uri = Url::from_file_path(&outside).expect("file uri").to_string();
+        let response = json!({
+            "result": {
+                "range": {
+                    "start": {"line": 0, "character": 0},
+                    "end": {"line": 0, "character": 8}
+                },
+                "textDocument": {"uri": uri},
+                "placeholder": "old_name"
+            }
+        });
+
+        let error =
+            rename_plan_from_response(&project, "sample.py", "old_name()\n", response, None)
+                .expect_err("outside prepareRename URI must be rejected");
+        assert!(error.to_string().contains("escapes project root"));
+    }
+
+    #[test]
+    fn rename_plan_translates_lsp_utf16_offsets() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-lsp-parser-plan-utf16-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("mkdir project");
+        let path = dir.join("sample.py");
+        let source = "🙂 old_name()\n";
+        fs::write(&path, source).expect("write sample");
+        let project = ProjectRoot::new_exact(&dir).expect("project root");
+        let uri = Url::from_file_path(&path).expect("file uri").to_string();
+        let response = json!({
+            "result": {
+                "range": {
+                    "start": {"line": 0, "character": 3},
+                    "end": {"line": 0, "character": 11}
+                },
+                "textDocument": {"uri": uri}
+            }
+        });
+
+        let plan = rename_plan_from_response(&project, "sample.py", source, response, None)
+            .expect("utf16 prepareRename should parse");
+
+        assert_eq!(plan.file_path, "sample.py");
+        assert_eq!(plan.column, "🙂 ".len() + 1);
+        assert_eq!(plan.end_column, "🙂 old_name".len() + 1);
+        assert_eq!(plan.current_name, "old_name");
+    }
 }

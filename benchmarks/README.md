@@ -122,6 +122,12 @@ python3 benchmarks/external-project-smoke.py \
 `git_url` 또는 `repo_url`과 `revision`을 넣어 pinned upstream repository를 materialize할 수 있다.
 이 경로는 네트워크와 upstream clone 비용이 있으므로 PR fast gate와 분리한다.
 
+Nightly/release upstream gate는
+`benchmarks/external-project-smoke-upstream-matrix.json`을 사용한다. 현재 pinned upstream set은
+Next.js tutorial, Flask, serde_json, Spring Petclinic이며, 각 항목은 `refresh_symbol_index`,
+`index_embeddings(prewarm_queries)`, `semantic_search(path_hint)`, `rename_symbol(dry_run=true)`를
+동일하게 통과해야 한다.
+
 ### 1-2. 임베드 런타임 benchmark (embedding-runtime.py)
 
 ```bash

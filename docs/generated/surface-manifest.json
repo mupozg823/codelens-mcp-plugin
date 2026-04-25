@@ -327,7 +327,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": true,
-        "estimated_tokens": 322
+        "estimated_tokens": 503
       },
       {
         "name": "replace_symbol_body",

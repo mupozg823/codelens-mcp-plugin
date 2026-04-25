@@ -433,6 +433,9 @@ pub fn apply_edits(project: &ProjectRoot, edits: &[RenameEdit]) -> Result<()> {
         file_edits.sort_by(|a, b| b.line.cmp(&a.line).then(b.column.cmp(&a.column)));
 
         for edit in &file_edits {
+            if edit.line == 0 || edit.column == 0 {
+                continue;
+            }
             let line_idx = edit.line - 1;
             if line_idx >= lines.len() {
                 continue;
@@ -440,7 +443,10 @@ pub fn apply_edits(project: &ProjectRoot, edits: &[RenameEdit]) -> Result<()> {
             let line = &mut lines[line_idx];
             let col_idx = edit.column - 1;
             let old_len = edit.old_text.len();
-            if col_idx + old_len <= line.len() && line[col_idx..col_idx + old_len] == edit.old_text
+            if col_idx + old_len <= line.len()
+                && line
+                    .get(col_idx..col_idx + old_len)
+                    .is_some_and(|text| text == edit.old_text)
             {
                 line.replace_range(col_idx..col_idx + old_len, &edit.new_text);
             }
@@ -654,6 +660,69 @@ mod tests {
         let content = fs::read_to_string(project.resolve("test.py").unwrap()).unwrap();
         assert_eq!(content.trim(), "x = bar + bar");
         assert_eq!(result.total_replacements, 2);
+    }
+
+    #[test]
+    fn apply_edits_ignores_invalid_utf8_boundary_column() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-rename-boundary-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/unicode.py"), "🙂 old_name()\n").unwrap();
+        let project = ProjectRoot::new_exact(&dir).unwrap();
+        let edits = vec![RenameEdit {
+            file_path: "src/unicode.py".to_owned(),
+            line: 1,
+            column: 2,
+            old_text: "old_name".to_owned(),
+            new_text: "new_name".to_owned(),
+        }];
+
+        let result = std::panic::catch_unwind(|| apply_edits(&project, &edits));
+
+        assert!(result.is_ok(), "invalid byte boundary must not panic");
+        assert!(result.unwrap().is_ok());
+        let updated = fs::read_to_string(dir.join("src/unicode.py")).unwrap();
+        assert_eq!(updated, "🙂 old_name()\n");
+    }
+
+    #[test]
+    fn apply_edits_ignores_zero_line_or_column() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-rename-zero-position-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("sample.py"), "old_name()\n").unwrap();
+        let project = ProjectRoot::new_exact(&dir).unwrap();
+        let edits = vec![
+            RenameEdit {
+                file_path: "sample.py".to_owned(),
+                line: 0,
+                column: 1,
+                old_text: "old_name".to_owned(),
+                new_text: "new_name".to_owned(),
+            },
+            RenameEdit {
+                file_path: "sample.py".to_owned(),
+                line: 1,
+                column: 0,
+                old_text: "old_name".to_owned(),
+                new_text: "new_name".to_owned(),
+            },
+        ];
+
+        apply_edits(&project, &edits).expect("invalid zero positions should be ignored");
+
+        let updated = fs::read_to_string(dir.join("sample.py")).unwrap();
+        assert_eq!(updated, "old_name()\n");
     }
 
     #[test]

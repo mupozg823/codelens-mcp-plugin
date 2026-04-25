@@ -62,7 +62,12 @@ class ExternalProjectSmokeTests(unittest.TestCase):
             ).strip()
 
             project, cleanup = EXTERNAL_SMOKE.materialize_project(
-                {"name": "local-git", "git_url": str(source), "revision": revision},
+                {
+                    "name": "local-git",
+                    "git_url": str(source),
+                    "revision": revision,
+                    "clone_depth": 0,
+                },
                 keep=False,
                 timeout=30,
             )
@@ -74,6 +79,72 @@ class ExternalProjectSmokeTests(unittest.TestCase):
                     text=True,
                 ).strip()
                 self.assertEqual(checked_out, revision)
+            finally:
+                cleanup.cleanup()
+
+    def test_materialize_project_fetches_revision_missing_from_shallow_clone(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "source"
+            source.mkdir()
+            subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+            (source / "app.py").write_text("def health():\n    return 'ok'\n")
+            subprocess.run(["git", "add", "app.py"], cwd=source, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.email=test@example.com",
+                    "-c",
+                    "user.name=Test User",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "init",
+                ],
+                cwd=source,
+                check=True,
+            )
+            first_revision = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=source,
+                text=True,
+            ).strip()
+            (source / "app.py").write_text("def health():\n    return 'ready'\n")
+            subprocess.run(["git", "add", "app.py"], cwd=source, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "user.email=test@example.com",
+                    "-c",
+                    "user.name=Test User",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "update",
+                ],
+                cwd=source,
+                check=True,
+            )
+
+            project, cleanup = EXTERNAL_SMOKE.materialize_project(
+                {
+                    "name": "local-git",
+                    "git_url": source.as_uri(),
+                    "revision": first_revision,
+                    "clone_depth": 1,
+                },
+                keep=False,
+                timeout=30,
+            )
+            try:
+                checked_out = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=project,
+                    text=True,
+                ).strip()
+                self.assertEqual(checked_out, first_revision)
+                self.assertIn("return 'ok'", (project / "app.py").read_text())
             finally:
                 cleanup.cleanup()
 

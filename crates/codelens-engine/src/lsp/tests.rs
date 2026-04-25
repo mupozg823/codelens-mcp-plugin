@@ -1,8 +1,10 @@
+use super::LspRenameRequest;
 use super::{
     LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
     LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, default_lsp_args_for_command,
     default_lsp_command_for_path, find_referencing_symbols_via_lsp, get_diagnostics_via_lsp,
-    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
+    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, rename_symbol_via_lsp,
+    search_workspace_symbols_via_lsp,
 };
 use crate::ProjectRoot;
 use serde_json::Value;
@@ -208,6 +210,40 @@ fn reads_rename_plan_from_mock_lsp() {
     assert_eq!(plan.current_name, "Service");
     assert_eq!(plan.placeholder.as_deref(), Some("Service"));
     assert_eq!(plan.new_name.as_deref(), Some("RenamedService"));
+}
+
+#[test]
+fn applies_rename_workspace_edit_from_mock_lsp() {
+    let dir = temp_dir("codelens-lsp-rename-apply");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(
+        dir.join("sample.py"),
+        "class Service:\n    pass\n\nService()\n",
+    )
+    .expect("write sample");
+    let server_path = dir.join("mock_lsp.py");
+    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    chmod_exec(&server_path);
+
+    let result = rename_symbol_via_lsp(
+        &project,
+        &LspRenameRequest {
+            command: "python3".to_owned(),
+            args: vec![server_path.display().to_string()],
+            file_path: "sample.py".to_owned(),
+            line: 1,
+            column: 8,
+            new_name: "RenamedService".to_owned(),
+            dry_run: false,
+        },
+    )
+    .expect("rename result");
+
+    assert_eq!(result.total_replacements, 2);
+    assert_eq!(result.modified_files, 1);
+    let updated = fs::read_to_string(dir.join("sample.py")).expect("read updated sample");
+    assert!(updated.contains("class RenamedService:"));
+    assert!(updated.contains("RenamedService()"));
 }
 
 #[test]
@@ -422,6 +458,33 @@ while True:
                     "end":{"line":0,"character":13}
                 },
                 "placeholder":"Service"
+            }
+        })
+    elif method == "textDocument/rename":
+        uri = message["params"]["textDocument"]["uri"]
+        new_name = message["params"]["newName"]
+        send({
+            "jsonrpc":"2.0",
+            "id":message["id"],
+            "result":{
+                "changes": {
+                    uri: [
+                        {
+                            "range":{
+                                "start":{"line":0,"character":6},
+                                "end":{"line":0,"character":13}
+                            },
+                            "newText": new_name
+                        },
+                        {
+                            "range":{
+                                "start":{"line":3,"character":0},
+                                "end":{"line":3,"character":7}
+                            },
+                            "newText": new_name
+                        }
+                    ]
+                }
             }
         })
     elif method == "shutdown":

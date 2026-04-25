@@ -71,8 +71,8 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cp target/${{ matrix.target }}/release/codelens-mcp codelens-mcp
-          mkdir -p models
-          cp -R crates/codelens-engine/models/codesearch models/
+          mkdir -p models/codesearch
+          cp crates/codelens-engine/models/codesearch/{model.onnx,tokenizer.json,config.json,special_tokens_map.json,tokenizer_config.json} models/codesearch/
           python3 scripts/verify-model-assets.py --root . --check
           tar czf codelens-mcp-${{ matrix.name }}.tar.gz codelens-mcp models
           python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.tar.gz --check
@@ -82,8 +82,8 @@ jobs:
         shell: bash
         run: |
           cp target/${{ matrix.target }}/release/codelens-mcp.exe codelens-mcp.exe
-          mkdir -p models
-          cp -R crates/codelens-engine/models/codesearch models/
+          mkdir -p models/codesearch
+          cp crates/codelens-engine/models/codesearch/{model.onnx,tokenizer.json,config.json,special_tokens_map.json,tokenizer_config.json} models/codesearch/
           python3 scripts/verify-model-assets.py --root . --check
           7z a codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe models
           python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.zip --check
@@ -104,9 +104,46 @@ jobs:
           name: codelens-mcp-${{ matrix.name }}
           path: codelens-mcp-${{ matrix.name }}.*
 
+  upstream-smoke:
+    name: Upstream smoke gate
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: codelens-mcp-linux-x86_64
+
+      - name: Extract release binary
+        run: tar -xzf codelens-mcp-linux-x86_64.tar.gz
+
+      - name: Verify bundled model assets
+        run: python3 scripts/verify-model-assets.py --root . --check
+
+      - name: Run upstream project smoke matrix
+        env:
+          CODELENS_MODEL_DIR: models
+        run: |
+          python3 benchmarks/external-project-smoke.py \
+            --binary ./codelens-mcp \
+            --matrix benchmarks/external-project-smoke-upstream-matrix.json \
+            --output benchmarks/external-project-smoke-upstream-results.json \
+            --timeout 420 \
+            --check
+
+      - name: Upload upstream smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-smoke-results
+          path: benchmarks/external-project-smoke-upstream-results.json
+
   publish:
     name: GitHub Release
-    needs: [build]
+    needs: [build, upstream-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -121,9 +158,9 @@ jobs:
 
       - name: Prepare OCI image context
         run: |
-          mkdir -p oci-image/models
+          mkdir -p oci-image/models/codesearch
           tar -xzf codelens-mcp-linux-x86_64.tar.gz -C oci-image
-          cp -R crates/codelens-engine/models/codesearch oci-image/models/
+          cp crates/codelens-engine/models/codesearch/{model.onnx,tokenizer.json,config.json,special_tokens_map.json,tokenizer_config.json} oci-image/models/codesearch/
           python3 scripts/verify-model-assets.py --root oci-image --check
           cp Dockerfile.release oci-image/Dockerfile
 

@@ -13,6 +13,7 @@ mod report_utils;
 mod report_verifier;
 pub mod reports;
 pub mod rules;
+pub(crate) mod semantic_edit;
 pub mod session;
 mod suggestions;
 pub mod symbols;

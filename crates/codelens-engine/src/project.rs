@@ -241,6 +241,7 @@ pub fn compute_dominant_language(root: &Path) -> Option<String> {
 /// Walk up from `start` until a directory containing a root marker is found.
 fn detect_root(start: &Path) -> Option<PathBuf> {
     let home = dirs_fallback();
+    let temp = temp_dir_fallback();
     let mut current = start.to_path_buf();
     loop {
         // `~/.codelens` stores global CodeLens state, so treating the home directory as an
@@ -250,6 +251,10 @@ fn detect_root(start: &Path) -> Option<PathBuf> {
             break;
         }
         for marker in ROOT_MARKERS {
+            if marker == &".codelens" && current != start && is_temp_root(&current, temp.as_deref())
+            {
+                continue;
+            }
             if current.join(marker).exists() {
                 return Some(current);
             }
@@ -269,6 +274,21 @@ fn dirs_fallback() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .map(|path| path.canonicalize().unwrap_or(path))
+}
+
+fn temp_dir_fallback() -> Option<PathBuf> {
+    let path = std::env::temp_dir();
+    path.canonicalize().ok().or(Some(path))
+}
+
+fn is_temp_root(path: &Path, configured_temp: Option<&Path>) -> bool {
+    if Some(path) == configured_temp {
+        return true;
+    }
+    ["/tmp", "/private/tmp", "/var/tmp"]
+        .iter()
+        .filter_map(|candidate| Path::new(candidate).canonicalize().ok())
+        .any(|candidate| candidate == path)
 }
 
 // ── Framework detection ─────────────────────────────────────────────────
@@ -591,6 +611,40 @@ mod tests {
             project.as_path(),
             nested.canonicalize().expect("canonical nested").as_path()
         );
+    }
+
+    #[test]
+    fn does_not_promote_temp_directory_from_global_codelens_marker() {
+        let _guard = env_lock().lock().expect("lock");
+        let temp_root = tempfile_dir();
+        let nested = temp_root.join("projectless-fixture");
+        fs::create_dir_all(temp_root.join(".codelens")).expect("mkdir temp codelens");
+        fs::create_dir_all(&nested).expect("mkdir nested");
+
+        let previous_tmpdir = env::var_os("TMPDIR");
+        unsafe {
+            env::set_var("TMPDIR", &temp_root);
+        }
+
+        let project = ProjectRoot::new(&nested).expect("project root");
+
+        match previous_tmpdir {
+            Some(value) => unsafe { env::set_var("TMPDIR", value) },
+            None => unsafe { env::remove_var("TMPDIR") },
+        }
+
+        assert_eq!(
+            project.as_path(),
+            nested.canonicalize().expect("canonical nested").as_path()
+        );
+    }
+
+    #[test]
+    fn standard_tmp_paths_are_treated_as_global_temp_roots() {
+        let tmp = Path::new("/tmp")
+            .canonicalize()
+            .expect("standard /tmp should exist");
+        assert!(super::is_temp_root(&tmp, None));
     }
 
     #[test]

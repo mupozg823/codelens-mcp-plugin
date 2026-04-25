@@ -210,7 +210,7 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                 json!({
                     "backends": reports,
                     "capability_coverage": coverage_payload,
-                    "note": "Passive scaffold (P2). Backend reports separate declared capability from active runtime availability. Dispatch does not yet route through the SemanticBackend trait.",
+                    "note": "Passive scaffold (P2). Backend reports separate declared capability from active runtime availability. Retrieval and semantic_edit_backend are intentionally separate; dispatch does not yet route through the SemanticBackend trait.",
                 }),
             )
         }

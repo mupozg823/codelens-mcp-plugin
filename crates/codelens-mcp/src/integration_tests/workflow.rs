@@ -5009,7 +5009,7 @@ fn backend_capabilities_resource_reports_all_known_backends() {
     assert!(list_body.contains("codelens://backend/capabilities"));
     assert!(list_body.contains("symbiote://backend/capabilities"));
 
-    // 2. Read returns the three declared backends + capability coverage
+    // 2. Read returns the declared backends + capability coverage
     let read_response = handle_request(
         &state,
         crate::protocol::JsonRpcRequest {
@@ -5024,6 +5024,7 @@ fn backend_capabilities_resource_reports_all_known_backends() {
     assert!(body.contains("rust-engine"));
     assert!(body.contains("lsp-bridge"));
     assert!(body.contains("scip-bridge"));
+    assert!(body.contains("semantic-edit-backend"));
     assert!(body.contains("declared"));
     assert!(body.contains("active"));
     assert!(body.contains("active_reason"));
@@ -5031,6 +5032,7 @@ fn backend_capabilities_resource_reports_all_known_backends() {
     assert!(body.contains("symbol_lookup"));
     assert!(body.contains("diagnostics"));
     assert!(body.contains("semantic_search"));
+    assert!(body.contains("semantic_edit_backend"));
     // Passive scaffold disclosure present
     assert!(body.contains("Passive scaffold"));
 }
