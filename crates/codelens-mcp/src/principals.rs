@@ -213,16 +213,24 @@ impl Principals {
     }
 }
 
-/// Required role to call `tool`. Code-mutation tools require
-/// `Refactor`; everything else is `ReadOnly`.
+/// Required role to call `tool`.
+///
+/// Tier mapping:
+/// - `Admin` — `audit_log_query` and other administrative queries
+///   that touch the durable audit log or principals registry.
+/// - `Refactor` — code-mutation tools (every entry in
+///   [`crate::tool_defs::is_content_mutation_tool`] except the
+///   memory carve-out).
+/// - `ReadOnly` — everything else, including memory tools.
 ///
 /// Memory tools (`write_memory`/`delete_memory`/`rename_memory`)
-/// are an explicit carve-out: they mutate agent-side context, not
+/// are a deliberate exception: they mutate agent-side context, not
 /// the project's source tree, so the role gate treats them as
 /// `ReadOnly`. They remain in `is_content_mutation_tool` so the
 /// audit sink still records each memory change.
 pub fn required_role_for(tool: &str) -> Role {
     match tool {
+        "audit_log_query" => Role::Admin,
         "write_memory" | "delete_memory" | "rename_memory" => Role::ReadOnly,
         other if crate::tool_defs::is_content_mutation_tool(other) => Role::Refactor,
         _ => Role::ReadOnly,
@@ -474,6 +482,25 @@ role = "Admin"
             Some(s) => assert!(!s.is_empty(), "empty session id must not surface"),
             None => {}
         }
+    }
+
+    #[test]
+    fn audit_log_query_requires_admin() {
+        // P2-F: durable audit log is admin-tier; ReadOnly + Refactor
+        // principals must be denied.
+        assert_eq!(required_role_for("audit_log_query"), Role::Admin);
+        assert!(
+            !Role::ReadOnly.satisfies(required_role_for("audit_log_query")),
+            "ReadOnly must NOT call audit_log_query"
+        );
+        assert!(
+            !Role::Refactor.satisfies(required_role_for("audit_log_query")),
+            "Refactor must NOT call audit_log_query"
+        );
+        assert!(
+            Role::Admin.satisfies(required_role_for("audit_log_query")),
+            "Admin must be able to call audit_log_query"
+        );
     }
 
     #[test]
