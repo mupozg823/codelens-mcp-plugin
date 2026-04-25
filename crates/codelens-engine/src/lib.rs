@@ -4,6 +4,7 @@ pub mod circular;
 pub mod community;
 pub mod coupling;
 pub mod db;
+pub mod edit_transaction;
 #[cfg(feature = "semantic")]
 pub mod embedding;
 pub mod embedding_store;
@@ -31,6 +32,9 @@ pub use circular::{CircularDependency, find_circular_dependencies};
 pub use coupling::{CouplingEntry, get_change_coupling};
 pub use db::{
     DirStats, IndexDb, NewCall, NewImport, NewSymbol, SymbolWithFile, content_hash, index_db_path,
+};
+pub use edit_transaction::{
+    ApplyError, ApplyEvidence, ApplyStatus, FileHash, RollbackEntry, WorkspaceEditTransaction,
 };
 pub use file_ops::{
     DirectoryEntry, EnclosingSymbol, FileMatch, FileReadResult, PatternMatch, SmartPatternMatch,
