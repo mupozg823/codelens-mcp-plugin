@@ -1,5 +1,3 @@
-#![cfg(feature = "http")]
-
 use super::auth::HttpAuthConfig;
 use super::transport_http::{HttpServerConfig, TlsConfig};
 use crate::cli::cli_option_value;
