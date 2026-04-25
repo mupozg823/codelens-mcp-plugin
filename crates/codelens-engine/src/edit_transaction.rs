@@ -768,4 +768,16 @@ mod tests {
         // Disk contains the external mutation; substrate did not apply edits.
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "TAMPERED\n");
     }
+
+    #[test]
+    fn apply_full_write_pre_read_failed_on_unresolvable_path() {
+        let project = empty_project();
+        // Path with absolute escape — project.resolve will error.
+        let result = apply_full_write_with_evidence(&project, "../escape.txt", "x");
+        assert!(
+            matches!(result, Err(ApplyError::PreReadFailed { ref file_path, .. }) if file_path == "../escape.txt"),
+            "expected PreReadFailed for ../escape.txt, got {:?}",
+            result.err()
+        );
+    }
 }
