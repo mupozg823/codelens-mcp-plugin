@@ -211,3 +211,45 @@ fn add_import_advertises_raw_fs() {
     );
     assert_raw_fs_envelope(&result, "add_import");
 }
+
+/// `confidence` and `backend_used` are top-level fields in the parsed text
+/// payload (see `format_structured_response` in dispatch/response_support.rs).
+/// There is no `_meta` wrapper; they sit directly on the returned JSON object.
+fn extract_confidence(result: &serde_json::Value) -> f64 {
+    result["confidence"].as_f64().unwrap_or(1.0)
+}
+
+#[test]
+fn create_text_file_filesystem_confidence_is_lowered() {
+    let project = project_root();
+    let state = make_state(&project);
+    let result = call_tool(
+        &state,
+        "create_text_file",
+        json!({"relative_path": "conf_create.txt", "content": "x\n"}),
+    );
+    let confidence = extract_confidence(&result);
+    assert!(
+        confidence <= 0.7 + f64::EPSILON,
+        "expected Filesystem confidence ≤ 0.7, got {confidence} (result={result})"
+    );
+    assert_eq!(result["backend_used"], "filesystem");
+}
+
+#[test]
+fn delete_lines_filesystem_confidence_is_lowered() {
+    let project = project_root();
+    let state = make_state(&project);
+    seed_lines(&project, "conf_delete.txt");
+    let result = call_tool(
+        &state,
+        "delete_lines",
+        json!({"relative_path": "conf_delete.txt", "start_line": 1, "end_line": 1}),
+    );
+    let confidence = extract_confidence(&result);
+    assert!(
+        confidence <= 0.7 + f64::EPSILON,
+        "expected Filesystem confidence ≤ 0.7, got {confidence} (result={result})"
+    );
+    assert_eq!(result["backend_used"], "filesystem");
+}

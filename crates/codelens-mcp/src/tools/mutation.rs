@@ -89,7 +89,7 @@ pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) ->
         create_text_file(&state.project(), relative_path, content, overwrite).map(|_| {
             (
                 merge_raw_fs_envelope(json!({ "created": relative_path }), "create_text_file"),
-                success_meta(BackendKind::Filesystem, 1.0),
+                success_meta(BackendKind::Filesystem, 0.7),
             )
         })?,
     )
@@ -110,7 +110,7 @@ pub fn delete_lines_tool(state: &AppState, arguments: &serde_json::Value) -> Too
         delete_lines(&state.project(), relative_path, start_line, end_line).map(|content| {
             (
                 merge_raw_fs_envelope(json!({ "content": content }), "delete_lines"),
-                success_meta(BackendKind::Filesystem, 1.0),
+                success_meta(BackendKind::Filesystem, 0.7),
             )
         })?,
     )
@@ -127,7 +127,7 @@ pub fn insert_at_line_tool(state: &AppState, arguments: &serde_json::Value) -> T
         insert_at_line(&state.project(), relative_path, line, content).map(|modified| {
             (
                 merge_raw_fs_envelope(json!({ "content": modified }), "insert_at_line"),
-                success_meta(BackendKind::Filesystem, 1.0),
+                success_meta(BackendKind::Filesystem, 0.7),
             )
         })?,
     )
@@ -155,7 +155,7 @@ pub fn replace_lines_tool(state: &AppState, arguments: &serde_json::Value) -> To
     .map(|content| {
         (
             merge_raw_fs_envelope(json!({ "content": content }), "replace_lines"),
-            success_meta(BackendKind::Filesystem, 1.0),
+            success_meta(BackendKind::Filesystem, 0.7),
         )
     })?)
 }
@@ -181,7 +181,7 @@ pub fn replace_content_tool(state: &AppState, arguments: &serde_json::Value) -> 
                 json!({ "content": content, "replacements": count }),
                 "replace_content",
             ),
-            success_meta(BackendKind::Filesystem, 1.0),
+            success_meta(BackendKind::Filesystem, 0.7),
         )
     })?)
 }
@@ -287,7 +287,7 @@ pub fn add_import_tool(state: &AppState, arguments: &serde_json::Value) -> ToolR
                     json!({"success": true, "file_path": file_path, "content_length": content.len()}),
                     "add_import",
                 ),
-                success_meta(BackendKind::Filesystem, 1.0),
+                success_meta(BackendKind::Filesystem, 0.7),
             )
         })?,
     )
