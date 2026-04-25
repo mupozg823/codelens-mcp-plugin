@@ -364,6 +364,14 @@ thread_local! {
     pub(crate) static FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY:
         std::cell::RefCell<Option<Box<dyn FnOnce(&std::path::Path)>>> =
         std::cell::RefCell::new(None);
+
+    /// Test-only hook: when set, called once immediately before the Phase 3
+    /// rollback restore write, with the resolved path. Allows a test to
+    /// reverse any permission changes that caused the initial write to fail,
+    /// so the rollback `fs::write` can succeed. Cleared after one call.
+    pub(crate) static FULL_WRITE_INJECT_BEFORE_ROLLBACK:
+        std::cell::RefCell<Option<Box<dyn FnOnce(&std::path::Path)>>> =
+        std::cell::RefCell::new(None);
 }
 
 /// Apply a full-content rewrite to a single file with hash-based evidence
@@ -443,6 +451,12 @@ pub fn apply_full_write_with_evidence(
     // Phase 3: write — on failure, restore backup + record rollback
     if let Err(write_err) = fs::write(&resolved, new_content) {
         let mut rollback_report: Vec<RollbackEntry> = Vec::new();
+        #[cfg(test)]
+        FULL_WRITE_INJECT_BEFORE_ROLLBACK.with(|cell| {
+            if let Some(hook) = cell.borrow_mut().take() {
+                hook(&resolved);
+            }
+        });
         if let Some(bytes) = backup_bytes.as_ref() {
             match fs::write(&resolved, bytes) {
                 Ok(()) => rollback_report.push(RollbackEntry {
@@ -816,5 +830,66 @@ mod tests {
         );
         // Disk has the external mutation; substrate did not write "after\n".
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "TAMPERED\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_full_write_rollback_on_write_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let project = empty_project();
+        let path = write_file(&project, "ro.txt", "original\n");
+
+        // Use the between-capture-and-verify hook to chmod the file to 0o444
+        // (read-only), which causes the Phase 3 fs::write to fail.
+        // On macOS, parent dir 0o555 does not block writes by the file owner,
+        // so we target the file itself instead.
+        FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY.with(|cell| {
+            let p = path.clone();
+            let hook: Box<dyn FnOnce(&std::path::Path)> = Box::new(move |_resolved| {
+                let mut perms = std::fs::metadata(&p).unwrap().permissions();
+                perms.set_mode(0o444);
+                std::fs::set_permissions(&p, perms).unwrap();
+            });
+            *cell.borrow_mut() = Some(hook);
+        });
+
+        // Use the before-rollback hook to restore permissions so the substrate
+        // can successfully write back the backup (restored=true).
+        FULL_WRITE_INJECT_BEFORE_ROLLBACK.with(|cell| {
+            let p = path.clone();
+            let hook: Box<dyn FnOnce(&std::path::Path)> = Box::new(move |_resolved| {
+                let mut perms = std::fs::metadata(&p).unwrap().permissions();
+                perms.set_mode(0o644);
+                std::fs::set_permissions(&p, perms).unwrap();
+            });
+            *cell.borrow_mut() = Some(hook);
+        });
+
+        let result = apply_full_write_with_evidence(&project, "ro.txt", "new\n");
+
+        // Perms are already restored by the before-rollback hook above;
+        // tempdir cleanup (which needs a writable file) will succeed.
+
+        let evidence = match result {
+            Err(ApplyError::ApplyFailed { evidence, .. }) => evidence,
+            other => panic!("expected ApplyFailed, got {other:?}"),
+        };
+        assert_eq!(evidence.status, ApplyStatus::RolledBack);
+        assert_eq!(evidence.modified_files, 0);
+        assert_eq!(evidence.edit_count, 0);
+        assert_eq!(evidence.rollback_report.len(), 1);
+        let entry = &evidence.rollback_report[0];
+        assert_eq!(entry.file_path, "ro.txt");
+        assert!(
+            entry.restored,
+            "expected restore success, got reason: {:?}",
+            entry.reason
+        );
+        // Disk is back to original content.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "original\n");
+        // Hashes match between before and after (rollback succeeded).
+        let before = evidence.file_hashes_before.get("ro.txt").unwrap();
+        let after = evidence.file_hashes_after.get("ro.txt").unwrap();
+        assert_eq!(before.sha256, after.sha256);
     }
 }
