@@ -175,15 +175,73 @@ impl WorkspaceEditTransaction {
 
         // Phase 3: apply via crate::rename::apply_edits
         if let Err(source) = crate::rename::apply_edits(project, &self.edits) {
-            // T5 will replace this with full rollback logic; for now
-            // wrap in ApplyFailed with empty evidence so the type matches.
+            let mut rollback_report: Vec<RollbackEntry> = Vec::new();
+            let mut file_hashes_after_rb: BTreeMap<String, FileHash> = BTreeMap::new();
+
+            // Restore each backup; record per-file success/failure.
+            // Iterate sorted file paths for deterministic ordering.
+            let sorted_paths = self.unique_file_paths();
+            for file_path in &sorted_paths {
+                let resolved = match project.resolve(file_path) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        rollback_report.push(RollbackEntry {
+                            file_path: file_path.clone(),
+                            restored: false,
+                            reason: Some(format!("resolve failed: {e}")),
+                        });
+                        continue;
+                    }
+                };
+                let backup_bytes = match backups.get(&resolved) {
+                    Some(bytes) => bytes,
+                    None => {
+                        rollback_report.push(RollbackEntry {
+                            file_path: file_path.clone(),
+                            restored: false,
+                            reason: Some("no backup captured".to_owned()),
+                        });
+                        continue;
+                    }
+                };
+                match fs::write(&resolved, backup_bytes) {
+                    Ok(()) => rollback_report.push(RollbackEntry {
+                        file_path: file_path.clone(),
+                        restored: true,
+                        reason: None,
+                    }),
+                    Err(e) => rollback_report.push(RollbackEntry {
+                        file_path: file_path.clone(),
+                        restored: false,
+                        reason: Some(format!("write failed: {e}")),
+                    }),
+                }
+            }
+
+            // Capture post-rollback hashes (truth check).
+            for file_path in &sorted_paths {
+                let resolved = match project.resolve(file_path) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                if let Ok(bytes) = fs::read(&resolved) {
+                    file_hashes_after_rb.insert(
+                        file_path.clone(),
+                        FileHash {
+                            sha256: sha256_hex(&bytes),
+                            bytes: bytes.len(),
+                        },
+                    );
+                }
+            }
+
             return Err(ApplyError::ApplyFailed {
                 source,
                 evidence: ApplyEvidence {
                     status: ApplyStatus::RolledBack,
                     file_hashes_before,
-                    file_hashes_after: BTreeMap::new(),
-                    rollback_report: Vec::new(),
+                    file_hashes_after: file_hashes_after_rb,
+                    rollback_report,
                     modified_files: 0,
                     edit_count: 0,
                 },
@@ -228,7 +286,6 @@ impl WorkspaceEditTransaction {
             }
         }
 
-        let _ = &backups;
         Ok(ApplyEvidence {
             status: ApplyStatus::Applied,
             file_hashes_before,
@@ -394,5 +451,71 @@ mod tests {
         let hash_a = &ev_a.file_hashes_before["x.txt"].sha256;
         let hash_b = &ev_b.file_hashes_before["x.txt"].sha256;
         assert_eq!(hash_a, hash_b);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rollback_restores_first_file_when_second_apply_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let project = empty_project();
+        let path_a = write_file(&project, "ra.txt", "alpha\n");
+        let path_b = write_file(&project, "rb.txt", "beta\n");
+        let mut perms = std::fs::metadata(&path_b).unwrap().permissions();
+        perms.set_mode(0o444);
+        std::fs::set_permissions(&path_b, perms).unwrap();
+
+        let tx = WorkspaceEditTransaction::new(
+            vec![
+                RenameEdit {
+                    file_path: "ra.txt".to_owned(),
+                    line: 1,
+                    column: 1,
+                    old_text: "alpha".to_owned(),
+                    new_text: "ALPHA".to_owned(),
+                },
+                RenameEdit {
+                    file_path: "rb.txt".to_owned(),
+                    line: 1,
+                    column: 1,
+                    old_text: "beta".to_owned(),
+                    new_text: "BETA".to_owned(),
+                },
+            ],
+            vec![],
+        );
+
+        let result = tx.apply_with_evidence(&project);
+        let evidence = match result {
+            Err(ApplyError::ApplyFailed { evidence, .. }) => evidence,
+            other => panic!("expected ApplyFailed, got {other:?}"),
+        };
+        assert_eq!(evidence.status, ApplyStatus::RolledBack);
+        assert_eq!(evidence.modified_files, 0);
+        assert_eq!(evidence.edit_count, 0);
+        let ra_now = std::fs::read_to_string(&path_a).unwrap();
+        assert_eq!(ra_now, "alpha\n", "ra.txt should be restored to alpha");
+        let before = evidence.file_hashes_before.get("ra.txt").unwrap();
+        let after = evidence.file_hashes_after.get("ra.txt").unwrap();
+        assert_eq!(
+            before.sha256, after.sha256,
+            "ra.txt hash should match pre-apply after rollback"
+        );
+        let entry_a = evidence
+            .rollback_report
+            .iter()
+            .find(|e| e.file_path == "ra.txt")
+            .expect("rollback entry for ra.txt");
+        assert!(entry_a.restored, "ra.txt restore should succeed");
+        assert!(entry_a.reason.is_none());
+        let entry_b = evidence
+            .rollback_report
+            .iter()
+            .find(|e| e.file_path == "rb.txt");
+        assert!(entry_b.is_some(), "rb.txt rollback entry should exist");
+
+        // restore perms so tempdir cleanup works
+        let mut restore = std::fs::metadata(&path_b).unwrap().permissions();
+        restore.set_mode(0o644);
+        let _ = std::fs::set_permissions(&path_b, restore);
     }
 }
