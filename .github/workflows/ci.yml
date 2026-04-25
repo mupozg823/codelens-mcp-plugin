@@ -77,6 +77,18 @@ jobs:
         shell: bash
         run: python3 scripts/surface-manifest.py
 
+      - name: operation matrix dump and contract check
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          cargo run -q -p codelens-mcp --features http -- --print-operation-matrix > /tmp/operation-matrix.json
+          python3 scripts/surface-manifest.py --check-operation-matrix /tmp/operation-matrix.json
+
+      - name: surface manifest contract fixtures
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: python3 scripts/test/test-surface-manifest-contracts.py
+
       - name: cargo test (mcp + http)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p codelens-mcp --features http
