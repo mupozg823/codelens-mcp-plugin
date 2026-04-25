@@ -356,6 +356,16 @@ fn sha256_hex(bytes: &[u8]) -> String {
     output
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test-only hook: when set, called once between Phase 1 capture and
+    /// Phase 2 verify with the resolved path so a test can mutate the file
+    /// to simulate TOCTOU drift. Cleared after one call.
+    pub(crate) static FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY:
+        std::cell::RefCell<Option<Box<dyn FnOnce(&std::path::Path)>>> =
+        std::cell::RefCell::new(None);
+}
+
 /// Apply a full-content rewrite to a single file with hash-based evidence
 /// and rollback on write failure. Used by single-file mutation primitives
 /// (`create_text_file`, `delete_lines`, `replace_lines`, etc.) that already
@@ -403,6 +413,13 @@ pub fn apply_full_write_with_evidence(
             });
         }
     };
+
+    #[cfg(test)]
+    FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY.with(|cell| {
+        if let Some(hook) = cell.borrow_mut().take() {
+            hook(&resolved);
+        }
+    });
 
     // Phase 2: verify (TOCTOU re-check) — only if file existed
     if let Some(expected_hash) = file_hashes_before
@@ -779,5 +796,25 @@ mod tests {
             "expected PreReadFailed for ../escape.txt, got {:?}",
             result.err()
         );
+    }
+
+    #[test]
+    fn apply_full_write_toctou_mismatch_via_inject_hook() {
+        let project = empty_project();
+        let path = write_file(&project, "drift.txt", "before\n");
+        FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY.with(|cell| {
+            let hook: Box<dyn FnOnce(&std::path::Path)> = Box::new(|p: &std::path::Path| {
+                std::fs::write(p, "TAMPERED\n").unwrap();
+            });
+            *cell.borrow_mut() = Some(hook);
+        });
+        let result = apply_full_write_with_evidence(&project, "drift.txt", "after\n");
+        assert!(
+            matches!(result, Err(ApplyError::PreApplyHashMismatch { ref file_path, .. }) if file_path == "drift.txt"),
+            "expected PreApplyHashMismatch, got {:?}",
+            result.err()
+        );
+        // Disk has the external mutation; substrate did not write "after\n".
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "TAMPERED\n");
     }
 }
