@@ -16,6 +16,12 @@ pub(crate) struct SessionRequestContext {
     pub requested_profile: Option<String>,
     pub client_name: Option<String>,
     pub client_version: Option<String>,
+    /// L1 (ADR-0009 §1): principal id derived from the request channel
+    /// (HTTP JWT `sub` claim or `X-Codelens-Principal` header). When
+    /// present, the role gate uses this in preference to
+    /// `CODELENS_PRINCIPAL` env. None for stdio + dev mode where no
+    /// channel binding is available — env fallback applies.
+    pub principal_id: Option<String>,
 }
 
 impl SessionRequestContext {
@@ -32,6 +38,7 @@ impl SessionRequestContext {
             requested_profile: str_field(value, "_session_requested_profile"),
             client_name: str_field(value, "_session_client_name"),
             client_version: str_field(value, "_session_client_version"),
+            principal_id: str_field(value, "_session_principal_id"),
         }
     }
 
@@ -63,4 +70,25 @@ fn string_array_field(value: &serde_json::Value, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn from_json_reads_principal_id_when_present() {
+        // L1: HTTP transport injects _session_principal_id from JWT sub.
+        let ctx = SessionRequestContext::from_json(&json!({
+            "_session_principal_id": "alice@example.com",
+        }));
+        assert_eq!(ctx.principal_id.as_deref(), Some("alice@example.com"));
+    }
+
+    #[test]
+    fn from_json_returns_none_principal_when_absent() {
+        let ctx = SessionRequestContext::from_json(&json!({"_session_id": "sess-1"}));
+        assert!(ctx.principal_id.is_none());
+    }
 }

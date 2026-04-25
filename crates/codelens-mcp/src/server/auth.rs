@@ -139,6 +139,9 @@ pub(crate) enum AuthFailure {
 
 #[derive(Debug, Deserialize)]
 struct Claims {
+    /// JWT subject claim — used as the ADR-0009 §1 principal id when
+    /// the role gate consults the authorization context.
+    sub: Option<String>,
     scope: Option<String>,
     scp: Option<Vec<String>>,
 }
@@ -162,9 +165,17 @@ impl HttpAuthState {
             .clone()
     }
 
-    pub(crate) async fn authorize(&self, headers: &HeaderMap) -> Result<(), AuthFailure> {
+    /// Validate the request's `Authorization` header. On success
+    /// returns the principal id derived from the JWT `sub` claim
+    /// (or `None` when auth is `Off` / no `sub` was present —
+    /// e.g. an `X-Codelens-Principal` dev-mode header takes over in
+    /// that case, see [`Self::dev_principal_header`]).
+    pub(crate) async fn authorize(
+        &self,
+        headers: &HeaderMap,
+    ) -> Result<Option<String>, AuthFailure> {
         let config = match self.config() {
-            HttpAuthConfig::Off => return Ok(()),
+            HttpAuthConfig::Off => return Ok(Self::dev_principal_header(headers)),
             HttpAuthConfig::Jwks(config) => config,
         };
         let token = bearer_token(headers).ok_or(AuthFailure::Missing)?;
@@ -174,7 +185,20 @@ impl HttpAuthState {
         {
             return Err(AuthFailure::InsufficientScope);
         }
-        Ok(())
+        Ok(claims.sub)
+    }
+
+    /// L1 (ADR-0009 §1) dev-mode fallback: when JWT auth is disabled
+    /// the operator may still tag requests with `X-Codelens-Principal`
+    /// so the role gate can be exercised in tests / local proxies.
+    /// Production deployments should use JWT validation instead.
+    fn dev_principal_header(headers: &HeaderMap) -> Option<String> {
+        headers
+            .get("x-codelens-principal")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
     }
 
     async fn validate_jwt(

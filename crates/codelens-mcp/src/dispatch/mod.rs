@@ -171,16 +171,16 @@ pub(crate) fn dispatch_tool(
 
     // 6. Execute via mutation gate (if applicable) or directly via dispatch table.
     let engine = QueryEngine::new(state);
-    let (result, gate_allowance, gate_failure) =
+    let (mut result, gate_allowance, gate_failure) =
         engine.submit_message(name, arguments, session, ctx.surface);
 
     // 7. Post-mutation side effects (graph invalidation, audit,
-    //    incremental reindex). The Ok-branch audit row is written
-    //    here with the full payload so evidence_hash captures the
-    //    structured response. The Err-branch row is written below
-    //    in the response match arm because we need to consume the
-    //    error.
-    if let Ok((payload, _)) = &result
+    //    incremental reindex, transaction_id injection). The Ok-branch
+    //    audit row is written here with the full payload so
+    //    evidence_hash captures the structured response. The Err-branch
+    //    row is written below in the response match arm because we
+    //    need to consume the error.
+    if let Ok((payload, _)) = &mut result
         && is_content_mutation_tool(name)
     {
         apply_post_mutation(state, name, arguments, session, &ctx.active_surface, payload);

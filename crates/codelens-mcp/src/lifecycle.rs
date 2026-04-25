@@ -11,36 +11,26 @@
 //! - `Failed`: handler returned `Err`, no on-disk mutation happened
 //!   (or it happened but rollback failed). Caller should treat as
 //!   partial-state and consult the rollback_report.
-//! - `Denied`: ADR-0009 §1 deviation — pre-handler rejection by the
-//!   role gate; the handler never ran. ADR §3 did not include this
-//!   terminal explicitly, but P2-C surfaced it as a discrete audit
-//!   value. Documented here as a recognised state value rather than
-//!   forcing it through `Failed`.
+//! - `Denied`: pre-handler rejection by the role gate; the handler
+//!   never ran.
 //!
-//! The intermediate states (`Drafted`, `Previewed`, `Verifying`,
-//! `Applying`, `Committed`) are reserved for the multi-row trail
-//! that P2-F's `audit_log_query` will surface; today the audit sink
-//! writes one row per call directly to the terminal value with
-//! `state_from` populated to indicate which intermediate the call
-//! traversed.
-
-#![allow(dead_code)]
+//! The intermediate states (`Verifying`, `Applying`) are written into
+//! the audit `state_from` column to identify which dispatch phase the
+//! call traversed before reaching its terminal state.
 
 use serde::{Deserialize, Serialize};
 
-/// 8-state mutation lifecycle (plus the `Denied` deviation from §1).
+/// 6-state mutation lifecycle: 2 intermediate (`Verifying`, `Applying`)
+/// + 4 terminal (`Audited`, `RolledBack`, `Failed`, `Denied`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LifecycleState {
-    /// Mutation request constructed but not yet previewed.
-    Drafted,
-    /// Preview produced; no apply attempted.
-    Previewed,
     /// Pre-apply hash capture happening (G4/G7 substrate Phase 1+2).
+    /// Recorded as `state_from` for failures rejected before the
+    /// substrate runs (e.g. line out of range, validation Err).
     Verifying,
     /// Verify passed; substrate is performing fs::write (Phase 3).
+    /// Recorded as `state_from` for the success/rollback outcome path.
     Applying,
-    /// Apply succeeded; substrate has post-hash evidence ready.
-    Committed,
     /// Apply succeeded AND audit row written. Terminal success state.
     Audited,
     /// Apply failed; substrate restored backup. Terminal partial state.
@@ -56,11 +46,8 @@ pub enum LifecycleState {
 impl LifecycleState {
     pub fn as_str(self) -> &'static str {
         match self {
-            LifecycleState::Drafted => "Drafted",
-            LifecycleState::Previewed => "Previewed",
             LifecycleState::Verifying => "Verifying",
             LifecycleState::Applying => "Applying",
-            LifecycleState::Committed => "Committed",
             LifecycleState::Audited => "Audited",
             LifecycleState::RolledBack => "RolledBack",
             LifecycleState::Failed => "Failed",
@@ -82,16 +69,6 @@ impl LifecycleState {
             _ => None,
         }
     }
-
-    pub fn is_terminal(self) -> bool {
-        matches!(
-            self,
-            LifecycleState::Audited
-                | LifecycleState::RolledBack
-                | LifecycleState::Failed
-                | LifecycleState::Denied
-        )
-    }
 }
 
 #[cfg(test)]
@@ -100,8 +77,6 @@ mod tests {
 
     #[test]
     fn as_str_round_trips_through_terminal_for_apply_status() {
-        // Every state that has a corresponding apply_status string must
-        // round-trip back to itself.
         let cases = [
             ("applied", LifecycleState::Audited),
             ("rolled_back", LifecycleState::RolledBack),
@@ -134,32 +109,12 @@ mod tests {
     }
 
     #[test]
-    fn is_terminal_covers_terminals_only() {
-        for s in [
-            LifecycleState::Audited,
-            LifecycleState::RolledBack,
-            LifecycleState::Failed,
-            LifecycleState::Denied,
-        ] {
-            assert!(s.is_terminal(), "{s:?} should be terminal");
-        }
-        for s in [
-            LifecycleState::Drafted,
-            LifecycleState::Previewed,
-            LifecycleState::Verifying,
-            LifecycleState::Applying,
-            LifecycleState::Committed,
-        ] {
-            assert!(!s.is_terminal(), "{s:?} should NOT be terminal");
-        }
-    }
-
-    #[test]
     fn as_str_and_known_strings_match() {
         // Audit log column values written elsewhere in the codebase
         // depend on these exact strings.
         assert_eq!(LifecycleState::Audited.as_str(), "Audited");
         assert_eq!(LifecycleState::Applying.as_str(), "Applying");
+        assert_eq!(LifecycleState::Verifying.as_str(), "Verifying");
         assert_eq!(LifecycleState::RolledBack.as_str(), "RolledBack");
         assert_eq!(LifecycleState::Failed.as_str(), "Failed");
         assert_eq!(LifecycleState::Denied.as_str(), "Denied");

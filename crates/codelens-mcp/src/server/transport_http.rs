@@ -188,33 +188,64 @@ fn protected_resource_path(request_path: &str) -> Option<String> {
         .map(|path| format!("/{path}"))
 }
 
-async fn auth_rejection_response(state: &AppState, headers: &HeaderMap) -> Option<Response> {
+/// L1 (ADR-0009 §1): authenticate the HTTP request and surface the
+/// resolved principal id. Returns `Ok(Some(sub))` when JWT auth is
+/// enabled and validation succeeds, `Ok(None)` when auth is `Off`
+/// and no `X-Codelens-Principal` dev header is present, and `Err`
+/// (with the rejection response) on auth failure.
+async fn authenticate_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<String>, Response> {
     let auth = state.http_auth();
     match auth.authorize(headers).await {
-        Ok(()) => None,
+        Ok(principal) => Ok(principal),
         Err(crate::server::auth::AuthFailure::InsufficientScope) => {
             let mut challenge = auth.www_authenticate();
             if !challenge.contains("error=\"insufficient_scope\"") {
                 challenge.push_str(", error=\"insufficient_scope\"");
             }
-            Some(
-                (
-                    StatusCode::FORBIDDEN,
-                    [(header::WWW_AUTHENTICATE, challenge)],
-                    "Insufficient scope",
-                )
-                    .into_response(),
+            Err((
+                StatusCode::FORBIDDEN,
+                [(header::WWW_AUTHENTICATE, challenge)],
+                "Insufficient scope",
             )
+                .into_response())
         }
-        Err(_) => Some(
-            (
-                StatusCode::UNAUTHORIZED,
-                [(header::WWW_AUTHENTICATE, auth.www_authenticate())],
-                "Unauthorized",
-            )
-                .into_response(),
-        ),
+        Err(_) => Err((
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, auth.www_authenticate())],
+            "Unauthorized",
+        )
+            .into_response()),
     }
+}
+
+/// L1 (ADR-0009 §1): inject the authenticated principal id into the
+/// JSON-RPC request params under the `_session_principal_id` key.
+/// `SessionRequestContext::from_json` reads that key, and the role
+/// gate prefers it over `CODELENS_PRINCIPAL` env. No-op when no
+/// principal id is bound (stdio + auth=off) or when the request is
+/// not a `tools/call` (the only method whose params is a structured
+/// object the dispatch path reads `_session_*` from).
+fn inject_principal_id_into_params(request: &mut JsonRpcRequest, principal_id: &str) {
+    if request.method != "tools/call" {
+        return;
+    }
+    let Some(params) = request.params.as_mut() else {
+        return;
+    };
+    let Some(arguments) = params
+        .as_object_mut()
+        .and_then(|p| p.get_mut("arguments"))
+        .and_then(|a| a.as_object_mut())
+    else {
+        return;
+    };
+    arguments.insert(
+        "_session_principal_id".to_owned(),
+        serde_json::Value::String(principal_id.to_owned()),
+    );
 }
 
 /// Phase 4d (§single-instance guard): probe the target port before
@@ -374,9 +405,10 @@ async fn mcp_post_handler(
     if !protocol_version_header_ok(&headers) {
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
     }
-    if let Some(response) = auth_rejection_response(&state, &headers).await {
-        return response;
-    }
+    let principal_id = match authenticate_request(&state, &headers).await {
+        Ok(principal_id) => principal_id,
+        Err(response) => return response,
+    };
 
     let session_id = headers
         .get("mcp-session-id")
@@ -412,6 +444,15 @@ async fn mcp_post_handler(
         && store.get(sid).is_none()
     {
         return (StatusCode::NOT_FOUND, "Unknown session").into_response();
+    }
+
+    // L1: thread the authenticated principal id through to the
+    //     dispatch path. Done before session metadata injection so the
+    //     `_session_principal_id` key sits alongside the rest of the
+    //     `_session_*` block when SessionRequestContext::from_json
+    //     reads it back out.
+    if let Some(principal_id) = principal_id.as_deref() {
+        inject_principal_id_into_params(&mut request, principal_id);
     }
 
     // Inject session metadata into request params based on method
@@ -494,7 +535,7 @@ async fn mcp_get_handler(State(state): State<Arc<AppState>>, headers: HeaderMap)
     if !protocol_version_header_ok(&headers) {
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
     }
-    if let Some(response) = auth_rejection_response(&state, &headers).await {
+    if let Err(response) = authenticate_request(&state, &headers).await {
         return response;
     }
 
@@ -546,7 +587,7 @@ async fn mcp_delete_handler(State(state): State<Arc<AppState>>, headers: HeaderM
     if !protocol_version_header_ok(&headers) {
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
     }
-    if let Some(response) = auth_rejection_response(&state, &headers).await {
+    if let Err(response) = authenticate_request(&state, &headers).await {
         return response;
     }
     if let Some(id) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
@@ -629,5 +670,65 @@ mod single_instance_guard_tests {
         // Port 0 is reserved and unbindable via TcpStream::connect.
         // Should return false (not-occupied) without panicking.
         let _ = port_is_occupied(0).await;
+    }
+}
+
+#[cfg(test)]
+mod principal_injection_tests {
+    use super::*;
+    use crate::protocol::JsonRpcRequest;
+
+    fn parse(body: &str) -> JsonRpcRequest {
+        serde_json::from_str(body).expect("test request body must be valid json-rpc")
+    }
+
+    #[test]
+    fn injects_principal_id_into_tools_call_arguments() {
+        let mut request = parse(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_text_file","arguments":{"relative_path":"x"}}}"#,
+        );
+        inject_principal_id_into_params(&mut request, "alice@example.com");
+        let arguments = request
+            .params
+            .as_ref()
+            .and_then(|p| p.get("arguments"))
+            .expect("arguments must remain present");
+        assert_eq!(arguments["_session_principal_id"], "alice@example.com");
+        // Existing fields untouched.
+        assert_eq!(arguments["relative_path"], "x");
+    }
+
+    #[test]
+    fn does_not_inject_when_method_is_not_tools_call() {
+        let mut request = parse(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#,
+        );
+        inject_principal_id_into_params(&mut request, "alice@example.com");
+        assert!(
+            request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("_session_principal_id"))
+                .is_none(),
+            "non tools/call methods must not be mutated"
+        );
+    }
+
+    #[test]
+    fn does_not_inject_when_arguments_missing() {
+        // Notification-style tools/call without arguments object — the
+        // injector must be a no-op rather than panic.
+        let mut request = parse(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_text_file"}}"#,
+        );
+        inject_principal_id_into_params(&mut request, "alice@example.com");
+        assert!(
+            request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("arguments"))
+                .is_none(),
+            "missing arguments must remain missing"
+        );
     }
 }

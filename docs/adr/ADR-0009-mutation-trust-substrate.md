@@ -8,8 +8,8 @@
 ## Context
 
 Phase 0 + Phase 1 G4 + Phase 1 G7 made _what_ an apply does honest:
-authority, can_apply, edit_authority, hash-based ApplyEvidence, rollback
-report. But _who is allowed to call_ and _what actually happened
+authority, can*apply, edit_authority, hash-based ApplyEvidence, rollback
+report. But \_who is allowed to call* and _what actually happened
 durably_ are still implicit:
 
 - MCP stdio = anyone-with-process-access calls every mutation tool.
@@ -87,7 +87,8 @@ Principal binding source (priority order):
 Enforcement is in `dispatch.rs`: one call to
 `enforce_role(tool_name, principal_role)?` before handler invocation.
 On reject: `Err(CodeLensError::PermissionDenied)`, JSON-RPC error code
-`-32004`, audit row written with `apply_status="denied"`.
+`-32008` (deviation: `-32004` was already used by `IndexNotReady`),
+audit row written with `apply_status="denied"`.
 
 ### 2. Durable Audit Sink
 
@@ -137,47 +138,67 @@ impl AuditSink {
 
 ### 3. Mutation Lifecycle State Machine
 
+The dispatch entry decides between two intermediate states based on
+where the call exits the pipeline. Pre-handler rejections (role gate)
+short-circuit to `Denied` without ever entering the substrate.
+
 ```
-         preview_requested
-Drafted ───────────────────► Previewed
-                                │
-                                │ apply_requested
-                                ▼
-                            Verifying
-                       ┌────────┴───────┐
-        verify_failed │                │ verify_passed
-                      ▼                ▼
-                  Failed            Applying
-                                ┌─────┴─────┐
-                  apply_failed_ │           │ apply_succeeded
-                  restored      │           │
-                                ▼           ▼
-                          RolledBack   Committed
-                              │             │
-                              │             │ audit_recorded
-                  apply_failed│             ▼
-                  _lost       │         Audited
-                              ▼
-                          Failed
+                     role_gate_denied
+         (request) ─────────────────────► Denied   (terminal)
+
+         (request)
+            │ role_gate_passed
+            ▼
+        Verifying
+       ┌────┴─────┐
+verify │          │ verify_passed
+failed │          ▼
+       │       Applying
+       │      ┌────┴────┐
+       │      │         │ apply_succeeded
+       │      │         ▼
+       │      │      Audited      (terminal — Hybrid "applied" or "no_op")
+       │      │
+       │      │ apply_failed_restored
+       │      ▼
+       │   RolledBack    (terminal — Hybrid "rolled_back")
+       ▼
+     Failed              (terminal — handler Err, no on-disk mutation
+                          OR apply_failed_lost)
 ```
 
 ```rust
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub enum LifecycleState {
-    Drafted,
-    Previewed,
+    // Intermediate (recorded as `state_from` in audit rows)
     Verifying,
     Applying,
-    Committed,
+    // Terminal (recorded as `state_to` in audit rows)
     Audited,
     RolledBack,
     Failed,
+    Denied,
 }
 ```
 
-Each transition is a single audit-log row. Terminal states:
-`Audited`, `RolledBack`, `Failed`. The agent reads back via
-`audit_log_query(transaction_id)` to recover the trail.
+Each call writes one audit-log row whose `state_from`/`state_to` pair
+identifies which path through the machine the call traversed.
+Terminal states: `Audited`, `RolledBack`, `Failed`, `Denied`. The
+agent reads back via `audit_log_query(transaction_id)` to recover the
+outcome.
+
+**Deviation from earlier draft.** Prior versions of this ADR enumerated
+9 states (`Drafted`, `Previewed`, `Committed`, plus the 6 above). Those
+3 intermediates were never wired into a transition; the substrate
+collapses preview/draft into the apply-time `Verifying` capture and
+treats `Committed` as the same row as `Audited` (one row per call,
+written after substrate write succeeds). They were removed for
+self-consistency with the architecture rule "no dead variants".
+
+**JSON-RPC code deviation.** §1 specified `-32004` for
+`PermissionDenied`; that code is already used by `IndexNotReady`. The
+shipped error returns `-32008` instead. The semantics (pre-handler
+denial, no on-disk effect, `Denied` row written) are unchanged.
 
 ### 4. Cache Invalidation Contract
 
@@ -213,7 +234,7 @@ _before_ the response is returned to the agent. The agent's next
 | 초기 버전은 모놀리식 우선                    | ✅ AuditSink + role gate live in mcp crate, no new service                                                         |
 | 역할 기반 권한은 화면/액션/API 모두 명시     | ✅ Role enum gates dispatch entry; principals.toml is the config surface                                           |
 | 감사 로그가 필요한 액션은 반드시 기록        | ✅ all 11 mutation tools + LSP rename apply + safe_delete_apply write rows                                         |
-| 상태 전이는 enum과 이벤트 기준으로 문서화    | ✅ LifecycleState enum + 9 named transitions in §3                                                                 |
+| 상태 전이는 enum과 이벤트 기준으로 문서화    | ✅ LifecycleState enum (6 states: 2 intermediate + 4 terminal) + transitions in §3                                 |
 | 새 추상화는 중복 제거가 입증된 경우에만 추가 | ✅ AuditSink replaces ad-hoc response-only evidence; CacheInvalidator trait replaces missing implicit invalidation |
 | 다이어그램은 C4 + dynamic flow 2종 유지      | ✅ updated in `docs/architecture.md` (separate PR)                                                                 |
 
@@ -263,7 +284,7 @@ Agent       dispatch                AppState         engine          audit_log  
   │─tools/call►│                       │                │                │           │
   │            │── principal_resolve ──┤                │                │           │
   │            │── role_gate ──────────┤                │                │           │
-  │            │   (deny? → audit row "denied", return -32004)            │           │
+  │            │   (deny? → audit row state_to=Denied, return -32008)     │           │
   │            │                                                                     │
   │            │── tool dispatch ──────────────────────►│                │           │
   │            │                                        │── apply ──►(disk)          │
@@ -273,9 +294,9 @@ Agent       dispatch                AppState         engine          audit_log  
   │            │── cache_invalidate(paths) ─────────────────────────────────────────►│
   │            │   (Embedding/Bm25/Lsp/SymbolDb self-clear for those paths)          │
   │            │                                                                     │
-  │            │── audit_record(transition: Applying→Committed) ──────────►│         │
-  │            │                                                            │        │
-  │            │── audit_record(transition: Committed→Audited) ────────────►│         │
+  │            │── audit_record(state_from=Applying, state_to=Audited)──►│         │
+  │            │   (Hybrid "applied"/"no_op" → Audited; "rolled_back" → RolledBack;  │
+  │            │    handler Err → state_from=Verifying, state_to=Failed)             │
   │            │                                                                     │
   │◄─response──│  (apply_status, transaction_id, evidence, invalidated_paths)        │
 ```
@@ -289,7 +310,7 @@ Agent       dispatch                AppState         engine          audit_log  
 | **P2-C** | Role gate + principals.toml loader + dispatch enforcement + denied-row audit                    | ~400     |
 | **P2-D** | LifecycleState enum + state-transition events + audit_record per transition                     | ~300     |
 | **P2-E** | CacheInvalidator trait + engine implementations (Embedding/Bm25/Lsp/SymbolDb) + dispatch wiring | ~600     |
-| **P2-F** | `audit_log_query` tool + JSON-RPC error code -32004 docs + retention/rotation                   | ~300     |
+| **P2-F** | `audit_log_query` tool + JSON-RPC error code -32008 docs + retention/rotation                   | ~300     |
 
 Each PR stands alone, cargo green, has a single observable contract. Stacked
 on each other in this order.
