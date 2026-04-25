@@ -136,6 +136,95 @@ fn mutation_response_surfaces_invalidated_paths() {
 }
 
 #[test]
+fn audit_log_query_denied_for_non_admin_principal() {
+    // P2-F: the role gate must reject `audit_log_query` for any
+    // principal whose role is below Admin. Default principals.toml
+    // resolution lands every id at Refactor (permissive default), so
+    // the call must surface a PermissionDenied response without ever
+    // reading the sink.
+    let project = project_root();
+    let state = make_state(&project);
+    let response = call_tool(&state, "audit_log_query", json!({}));
+    assert_eq!(
+        response["success"], false,
+        "non-admin must be denied, response={response}"
+    );
+    assert!(
+        response["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("requires role=Admin")),
+        "denial must name Admin as required role, response={response}"
+    );
+}
+
+#[test]
+fn audit_log_query_returns_rows_for_admin_principal() {
+    // P2-F: after a mutation, calling audit_log_query as an Admin
+    // principal must yield the row the audit sink wrote.
+    let _guard = principal_env_guard();
+    let project = project_root();
+    // Make this principal Admin via project-local principals.toml.
+    let codelens_dir = project.as_path().join(".codelens");
+    std::fs::create_dir_all(&codelens_dir).unwrap();
+    std::fs::write(
+        codelens_dir.join("principals.toml"),
+        "[principal.\"p2f-admin\"]\nrole = \"Admin\"\n",
+    )
+    .unwrap();
+
+    let saved_principal = std::env::var("CODELENS_PRINCIPAL").ok();
+    unsafe {
+        std::env::set_var("CODELENS_PRINCIPAL", "p2f-admin");
+    }
+    let state = make_state(&project);
+
+    let mutation = call_tool(
+        &state,
+        "create_text_file",
+        json!({
+            "relative_path": "p2f_audit.txt",
+            "content": "x\n",
+            "overwrite": false,
+        }),
+    );
+    let tx_id = mutation["data"]["transaction_id"]
+        .as_str()
+        .expect("create_text_file must surface transaction_id (L3)")
+        .to_owned();
+
+    let response = call_tool(
+        &state,
+        "audit_log_query",
+        json!({ "transaction_id": tx_id }),
+    );
+
+    unsafe {
+        match saved_principal {
+            Some(v) => std::env::set_var("CODELENS_PRINCIPAL", v),
+            None => std::env::remove_var("CODELENS_PRINCIPAL"),
+        }
+    }
+
+    assert_eq!(
+        response["data"]["sink_available"], true,
+        "audit sink must be available after a successful mutation, response={response}"
+    );
+    let rows = response["data"]["rows"]
+        .as_array()
+        .expect("rows must be an array");
+    assert!(
+        !rows.is_empty(),
+        "audit_log_query must find at least one row for the just-written mutation"
+    );
+    let row = rows
+        .iter()
+        .find(|r| r["tool"] == "create_text_file")
+        .expect("row for create_text_file");
+    assert_eq!(row["state_to"], "Audited");
+    assert_eq!(row["apply_status"], "applied");
+}
+
+#[test]
 fn add_import_tool_response_includes_evidence() {
     let project = project_root();
     let state = make_state(&project);

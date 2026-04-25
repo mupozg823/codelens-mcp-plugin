@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod composite;
 pub mod filesystem;
 pub mod graph;
@@ -140,6 +141,7 @@ pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_
         "get_tool_metrics"             => session::get_tool_metrics,
         "audit_builder_session"        => session::audit_builder_session,
         "audit_planner_session"        => session::audit_planner_session,
+        "audit_log_query"              => admin::audit_log_query,
         "export_session_markdown"      => session::export_session_markdown,
         // ── Composite ──
         "summarize_file"               => composite::summarize_file,
