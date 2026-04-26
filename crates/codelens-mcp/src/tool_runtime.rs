@@ -89,6 +89,13 @@ pub fn optional_usize_with_aliases(
 /// not honor `threshold` sees the field was ignored, instead of
 /// receiving silent default behavior.
 ///
+/// Keys whose name begins with `_` are treated as harness-internal
+/// metadata (e.g. the `_session_id` that `call_tool` auto-injects in
+/// integration tests, the `_meta` envelope MCP clients sometimes
+/// attach) and are NEVER reported as unknown — they are not user
+/// input. Without this exception every `unknown_args` array on every
+/// tool would noisily include `_session_id`.
+///
 /// Returns an empty Vec for non-object values so non-object inputs
 /// fall through to the handler's existing argument parsing without
 /// spurious "unknown" claims.
@@ -98,6 +105,7 @@ pub fn collect_unknown_args(value: &serde_json::Value, known: &[&str]) -> Vec<St
     };
     let mut unknown: Vec<String> = map
         .keys()
+        .filter(|k| !k.starts_with('_'))
         .filter(|k| !known.iter().any(|allowed| allowed == k))
         .cloned()
         .collect();
@@ -151,6 +159,23 @@ mod tests {
         let args = json!({"query": "x", "limit": 5});
         let unknown = collect_unknown_args(&args, &["query", "limit"]);
         assert!(unknown.is_empty());
+    }
+
+    #[test]
+    fn collect_unknown_args_skips_underscore_prefixed_harness_keys() {
+        // Harness-internal keys like `_session_id` (auto-injected by
+        // the integration-test `call_tool` helper) and `_meta` (some
+        // MCP clients attach this to every tool call) are not user
+        // input. They must never surface as "unknown" or every tool
+        // response would carry noisy `unknown_args: ["_session_id"]`.
+        let args = json!({
+            "query": "x",
+            "_session_id": "abc",
+            "_meta": {"trace": "..."},
+            "real_unknown": 1,
+        });
+        let unknown = collect_unknown_args(&args, &["query"]);
+        assert_eq!(unknown, vec!["real_unknown".to_owned()]);
     }
 
     #[test]

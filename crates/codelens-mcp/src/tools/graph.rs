@@ -232,9 +232,27 @@ pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Val
 }
 
 pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    // P1-B — accept `limit`/`top_k` aliases for `max_results` and surface
+    // unknown top-level keys so an agent that passes (e.g.) `threshold:
+    // 0.5` to a tool that does not honor it sees the field was ignored.
+    // See docs/design/arg-validation-policy.md.
+    const KNOWN_ARGS: &[&str] = &[
+        "function_name",
+        "file_path",
+        "path",
+        "max_results",
+        "limit",
+        "top_k",
+    ];
     let function_name = required_string(arguments, "function_name")?;
     let file_path = optional_string(arguments, "file_path");
-    let max_results = optional_usize(arguments, "max_results", 50);
+    let max_results = crate::tool_runtime::optional_usize_with_aliases(
+        arguments,
+        "max_results",
+        &["limit", "top_k"],
+        50,
+    );
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
     let graph_cache = state.graph_cache();
     Ok(get_callers(
         &state.project(),
@@ -280,24 +298,41 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
             confidence_basis,
             call_graph_evidence_signals(&resolution_summary),
         );
-        (
-            json!({
-                "function": function_name,
-                "callers": value,
-                "count": value.len(),
-                "confidence_basis": confidence_basis,
-                "resolution_summary": resolution_summary,
-                "evidence": evidence,
-            }),
-            meta,
-        )
+        let mut payload = json!({
+            "function": function_name,
+            "callers": value,
+            "count": value.len(),
+            "confidence_basis": confidence_basis,
+            "resolution_summary": resolution_summary,
+            "evidence": evidence,
+        });
+        if !unknown_args.is_empty()
+            && let Some(map) = payload.as_object_mut()
+        {
+            map.insert("unknown_args".to_owned(), json!(unknown_args));
+        }
+        (payload, meta)
     })?)
 }
 
 pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    const KNOWN_ARGS: &[&str] = &[
+        "function_name",
+        "file_path",
+        "path",
+        "max_results",
+        "limit",
+        "top_k",
+    ];
     let function_name = required_string(arguments, "function_name")?;
     let file_path = optional_string(arguments, "file_path");
-    let max_results = optional_usize(arguments, "max_results", 50);
+    let max_results = crate::tool_runtime::optional_usize_with_aliases(
+        arguments,
+        "max_results",
+        &["limit", "top_k"],
+        50,
+    );
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
     let graph_cache = state.graph_cache();
     Ok(get_callees(
         &state.project(),
@@ -346,17 +381,20 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
             confidence_basis,
             call_graph_evidence_signals(&resolution_summary),
         );
-        (
-            json!({
-                "function": function_name,
-                "callees": value,
-                "count": value.len(),
-                "confidence_basis": confidence_basis,
-                "resolution_summary": resolution_summary,
-                "evidence": evidence,
-            }),
-            meta,
-        )
+        let mut payload = json!({
+            "function": function_name,
+            "callees": value,
+            "count": value.len(),
+            "confidence_basis": confidence_basis,
+            "resolution_summary": resolution_summary,
+            "evidence": evidence,
+        });
+        if !unknown_args.is_empty()
+            && let Some(map) = payload.as_object_mut()
+        {
+            map.insert("unknown_args".to_owned(), json!(unknown_args));
+        }
+        (payload, meta)
     })?)
 }
 

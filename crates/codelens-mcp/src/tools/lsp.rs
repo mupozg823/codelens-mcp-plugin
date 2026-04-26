@@ -104,13 +104,35 @@ fn enhance_lsp_error(err: anyhow::Error, command: &str) -> CodeLensError {
 /// over IDE-grade type precision. LSP adds latency (cold start 2-30s),
 /// requires external server installation, and fails on incomplete code.
 pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    // P1-B — limit/top_k aliases + unknown_args.
+    // See docs/design/arg-validation-policy.md.
+    const KNOWN_ARGS: &[&str] = &[
+        "file_path",
+        "path",
+        "symbol_name",
+        "max_results",
+        "limit",
+        "top_k",
+        "use_lsp",
+        "include_context",
+        "full_results",
+        "sample_limit",
+        "line",
+        "column",
+    ];
     let file_path = required_string(arguments, "file_path")?.to_owned();
     let symbol_name_param = optional_string(arguments, "symbol_name");
-    let max_results = optional_usize(arguments, "max_results", 20);
+    let max_results = crate::tool_runtime::optional_usize_with_aliases(
+        arguments,
+        "max_results",
+        &["limit", "top_k"],
+        20,
+    );
     let use_lsp = optional_bool(arguments, "use_lsp", false);
     let include_context = optional_bool(arguments, "include_context", false);
     let full_results = optional_bool(arguments, "full_results", false);
     let sample_limit = optional_usize(arguments, "sample_limit", 8);
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
 
     let has_position = arguments.get("line").is_some() && arguments.get("column").is_some();
 
@@ -148,17 +170,20 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         count,
                     ),
                 );
-                return Ok((
-                    json!({
-                        "references": refs_limited,
-                        "count": count,
-                        "returned_count": count,
-                        "sampled": false,
-                        "backend": "oxc_semantic",
-                        "evidence": evidence,
-                    }),
-                    meta,
-                ));
+                let mut payload = json!({
+                    "references": refs_limited,
+                    "count": count,
+                    "returned_count": count,
+                    "sampled": false,
+                    "backend": "oxc_semantic",
+                    "evidence": evidence,
+                });
+                if !unknown_args.is_empty()
+                    && let Some(map) = payload.as_object_mut()
+                {
+                    map.insert("unknown_args".to_owned(), json!(unknown_args));
+                }
+                return Ok((payload, meta));
             }
         }
         // oxc failed or empty — try SCIP if available, then fall through to tree-sitter
@@ -198,17 +223,20 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                                 })
                             })
                             .collect();
-                        return Ok((
-                            json!({
-                                "references": refs_json,
-                                "count": count,
-                                "returned_count": count,
-                                "sampled": false,
-                                "backend": "scip",
-                                "evidence": evidence,
-                            }),
-                            meta,
-                        ));
+                        let mut payload = json!({
+                            "references": refs_json,
+                            "count": count,
+                            "returned_count": count,
+                            "sampled": false,
+                            "backend": "scip",
+                            "evidence": evidence,
+                        });
+                        if !unknown_args.is_empty()
+                            && let Some(map) = payload.as_object_mut()
+                        {
+                            map.insert("unknown_args".to_owned(), json!(unknown_args));
+                        }
+                        return Ok((payload, meta));
                     }
                 }
             }
@@ -236,17 +264,20 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     0,
                 ),
             );
-            (
-                json!({
-                    "references": references,
-                    "count": total_count,
-                    "returned_count": references.len(),
-                    "sampled": sampled,
-                    "include_context": include_context,
-                    "evidence": evidence,
-                }),
-                meta,
-            )
+            let mut payload = json!({
+                "references": references,
+                "count": total_count,
+                "returned_count": references.len(),
+                "sampled": sampled,
+                "include_context": include_context,
+                "evidence": evidence,
+            });
+            if !unknown_args.is_empty()
+                && let Some(map) = payload.as_object_mut()
+            {
+                map.insert("unknown_args".to_owned(), json!(unknown_args));
+            }
+            (payload, meta)
         })?);
     }
 
@@ -301,16 +332,19 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         value.len(),
                     ),
                 );
-                return Ok((
-                    json!({
-                        "references": value,
-                        "count": value.len(),
-                        "returned_count": value.len(),
-                        "sampled": false,
-                        "evidence": evidence,
-                    }),
-                    meta,
-                ));
+                let mut payload = json!({
+                    "references": value,
+                    "count": value.len(),
+                    "returned_count": value.len(),
+                    "sampled": false,
+                    "evidence": evidence,
+                });
+                if !unknown_args.is_empty()
+                    && let Some(map) = payload.as_object_mut()
+                {
+                    map.insert("unknown_args".to_owned(), json!(unknown_args));
+                }
+                return Ok((payload, meta));
             }
             Err(_) => {
                 // LSP failed — fall through to tree-sitter

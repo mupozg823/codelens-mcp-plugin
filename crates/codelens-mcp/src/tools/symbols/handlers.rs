@@ -64,6 +64,23 @@ pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
 }
 
 pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
+    // P1-B — `find_symbol`'s canonical limit field is `max_matches`,
+    // not `max_results`, but agents typing `limit`/`top_k` mean the
+    // same thing. See docs/design/arg-validation-policy.md.
+    const KNOWN_ARGS: &[&str] = &[
+        "symbol_id",
+        "name",
+        "file_path",
+        "path",
+        "include_body",
+        "exact_match",
+        "max_matches",
+        "limit",
+        "top_k",
+        "body_full",
+        "body_line_limit",
+        "body_char_limit",
+    ];
     let symbol_id = optional_string(arguments, "symbol_id");
     let name = symbol_id
         .or_else(|| optional_string(arguments, "name"))
@@ -71,7 +88,13 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
     let file_path = optional_string(arguments, "file_path");
     let include_body = optional_bool(arguments, "include_body", false);
     let exact_match = optional_bool(arguments, "exact_match", false);
-    let max_matches = optional_usize(arguments, "max_matches", 50);
+    let max_matches = crate::tool_runtime::optional_usize_with_aliases(
+        arguments,
+        "max_matches",
+        &["limit", "top_k"],
+        50,
+    );
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
     let body_full = optional_bool(arguments, "body_full", false);
     let body_line_limit = optional_usize(arguments, "body_line_limit", 12);
     let body_char_limit = optional_usize(arguments, "body_char_limit", 600);
@@ -125,17 +148,20 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         sym
                     })
                     .collect();
-                return Ok((
-                    json!({
-                        "symbols": syms,
-                        "count": count,
-                        "body_truncated_count": 0,
-                        "body_preview": false,
-                        "backend": "scip",
-                        "evidence": evidence,
-                    }),
-                    meta,
-                ));
+                let mut payload = json!({
+                    "symbols": syms,
+                    "count": count,
+                    "body_truncated_count": 0,
+                    "body_preview": false,
+                    "backend": "scip",
+                    "evidence": evidence,
+                });
+                if !unknown_args.is_empty()
+                    && let Some(map) = payload.as_object_mut()
+                {
+                    map.insert("unknown_args".to_owned(), json!(unknown_args));
+                }
+                return Ok((payload, meta));
             }
         }
     }
@@ -202,6 +228,9 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         ),
                     ),
                 );
+                if !unknown_args.is_empty() {
+                    map.insert("unknown_args".to_owned(), json!(unknown_args));
+                }
             }
             (payload, meta)
         })?)
@@ -354,6 +383,22 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
 }
 
 pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
+    // P1-B — surface unknown_args. No `limit`/`top_k` alias here:
+    // get_ranked_context's relevant control is `depth` (graph
+    // expansion), not a top-N. See docs/design/arg-validation-policy.md.
+    const KNOWN_ARGS: &[&str] = &[
+        "query",
+        "path",
+        "file_path",
+        "max_tokens",
+        "include_body",
+        "depth",
+        "disable_semantic",
+        "session_id",
+        "logical_session_id",
+        "harness_phase",
+        "lsp_boost",
+    ];
     let query = required_string(arguments, "query")?;
     let query_analysis = analyze_retrieval_query(query);
     let path = optional_string(arguments, "path");
@@ -366,6 +411,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     let include_body = optional_bool(arguments, "include_body", false);
     let depth = optional_usize(arguments, "depth", 2);
     let disable_semantic = optional_bool(arguments, "disable_semantic", false);
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
     let exact_identifier_projection = query_analysis.original_query
         != query_analysis.expanded_query
         && !query_analysis.expanded_query.contains(char::is_whitespace);
@@ -541,6 +587,9 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
             map.insert("sparse_evidence".to_owned(), json!(sparse_evidence));
         }
         map.insert("evidence".to_owned(), evidence);
+        if !unknown_args.is_empty() {
+            map.insert("unknown_args".to_owned(), json!(unknown_args));
+        }
     }
 
     Ok((payload, meta))
