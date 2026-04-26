@@ -93,6 +93,20 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p codelens-mcp --features http
 
+      - name: SCIP backend regression gate
+        if: matrix.os == 'ubuntu-latest'
+        # L1 slices 1-4 (#104, #105, #106, #107) wired SCIP into
+        # get_callees, get_callers, capabilities discovery, and
+        # stale-index detection. Without a CI gate, future refactors
+        # could silently disable the scip-backend feature path or break
+        # the unit tests that pin the find_callers/find_callees
+        # heuristics. This step exercises the feature flag end-to-end
+        # at the unit-test level (no rust-analyzer install required).
+        run: |
+          cargo build --features scip-backend --bin codelens-mcp
+          cargo test -p codelens-engine --features scip-backend
+          cargo test -p codelens-mcp --features scip-backend --bin codelens-mcp
+
       - name: cargo check (macOS CoreML)
         if: matrix.os == 'macos-latest'
         run: |
