@@ -837,6 +837,8 @@ const RUST_CALL_QUERY: &str = r#"
 (call_expression function: (identifier) @callee)
 (call_expression function: (field_expression field: (field_identifier) @callee))
 (call_expression function: (scoped_identifier name: (identifier) @callee))
+(macro_invocation macro: (identifier) @callee)
+(macro_invocation macro: (scoped_identifier name: (identifier) @callee))
 "#;
 
 #[cfg(test)]
@@ -948,6 +950,64 @@ mod tests {
                 .any(|e| e.caller_name == "main" && e.callee_name == "run"),
             "expected main->run edge, got {edges:?}"
         );
+    }
+
+    /// Rust macro invocations (`vec!`, `assert_eq!`, project-defined macros,
+    /// scoped macros like `mycrate::log!`) are extremely common — but before
+    /// 2026-04-26 they were silently dropped from the call graph because
+    /// `macro_invocation` is a distinct AST node from `call_expression`.
+    ///
+    /// `println!` / `eprintln!` / `format!` / `print!` are intentionally
+    /// filtered by `is_noise_callee` to keep std-debug lines out of the
+    /// graph; the query DOES discover them but the noise filter drops them.
+    /// Project-named macros and `vec!` / `assert_eq!` survive — those are
+    /// the meaningful edges this PR unlocks.
+    #[test]
+    fn extracts_rust_macro_invocations_as_callers() {
+        let dir = temp_dir("rs-macros");
+        let path = dir.join("macros.rs");
+        fs::write(
+            &path,
+            r#"macro_rules! my_log { ($($t:tt)*) => {} }
+fn run() {
+    let v = vec![1, 2, 3];
+    assert_eq!(v.len(), 3);
+    my_log!("hello");
+}
+"#,
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        for expected in ["vec", "assert_eq", "my_log"] {
+            assert!(
+                edges
+                    .iter()
+                    .any(|e| e.caller_name == "run" && e.callee_name == expected),
+                "expected run->{expected} macro edge, got {edges:?}"
+            );
+        }
+    }
+
+    /// Scoped macro invocations (`mycrate::my_macro!`). Uses project-named
+    /// macros so they survive the std-noise filter.
+    #[test]
+    fn extracts_rust_scoped_macro_invocations() {
+        let dir = temp_dir("rs-scoped-macros");
+        let path = dir.join("scoped.rs");
+        fs::write(
+            &path,
+            "fn run() {\n    mycrate::trace_event!(\"hi\");\n    helpers::record_metric!(42);\n}\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        for expected in ["trace_event", "record_metric"] {
+            assert!(
+                edges
+                    .iter()
+                    .any(|e| e.caller_name == "run" && e.callee_name == expected),
+                "expected run->{expected} scoped macro edge, got {edges:?}"
+            );
+        }
     }
 
     #[test]
