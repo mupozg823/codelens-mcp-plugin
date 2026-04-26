@@ -724,6 +724,48 @@ impl TruncationInfo {
     }
 }
 
+/// When the call-graph extractor produced only `unresolved` edges and the
+/// response was clipped, the default `recovery_hint` ("narrow with file_path
+/// or smaller max_results") is misleading — the issue is extractor coverage,
+/// not budget. Append a tool-aware grep cue that names the actual symbol so
+/// an agent can fall back to direct text search instead of retrying the same
+/// low-confidence call-graph query with smaller bounds.
+///
+/// No-op for stages < 4, missing structured content, or non-`unresolved_only`
+/// confidence bases — the existing hint is correct in those cases.
+pub(crate) fn enrich_recovery_hint_for_signals(
+    info: TruncationInfo,
+    structured_content: Option<&Value>,
+) -> TruncationInfo {
+    if info.stage < 4 {
+        return info;
+    }
+    let Some(content) = structured_content.and_then(|v| v.as_object()) else {
+        return info;
+    };
+    let basis = content
+        .get("confidence_basis")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if basis != "unresolved_only" {
+        return info;
+    }
+    let symbol = content
+        .get("function")
+        .or_else(|| content.get("symbol_name"))
+        .or_else(|| content.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("the symbol");
+    let mut recovery_hint = info.recovery_hint;
+    recovery_hint.push_str(&format!(
+        " Call graph returned only `unresolved` edges and the result was clipped — `Grep '{symbol}'` directly may surface raw matches the tree-sitter call query missed."
+    ));
+    TruncationInfo {
+        recovery_hint,
+        ..info
+    }
+}
+
 fn recovery_hint_for_stage(stage: u8, estimate: usize, budget: usize) -> String {
     match stage {
         2 => format!(
@@ -991,6 +1033,80 @@ mod text_channel_tests {
             Some((287 - TEXT_CHANNEL_MAX_ARRAY_ITEMS) as i64),
             "expected callers_omitted_count to record dropped items"
         );
+    }
+
+    #[test]
+    fn unresolved_only_truncation_appends_grep_fallback_hint() {
+        // S2: when call-graph extractor reports `confidence_basis:
+        // "unresolved_only"` and the response was clipped at stage 4-5,
+        // the recovery hint should name the symbol and suggest a direct
+        // grep rather than telling the agent to retry with smaller bounds
+        // (which won't help — the extractor missed the edges).
+        let info = TruncationInfo {
+            stage: 5,
+            original_payload_estimate: 12_000,
+            effective_budget: 4_000,
+            recovery_hint: recovery_hint_for_stage(5, 12_000, 4_000),
+        };
+        let structured = json!({
+            "function": "register_route",
+            "callers": [{"name": "a"}, {"name": "b"}, {"name": "c"}],
+            "confidence_basis": "unresolved_only",
+        });
+        let enriched = enrich_recovery_hint_for_signals(info, Some(&structured));
+        assert!(
+            enriched.recovery_hint.contains("Grep")
+                && enriched.recovery_hint.contains("register_route"),
+            "expected grep-fallback cue with symbol name, got: {}",
+            enriched.recovery_hint
+        );
+        assert!(
+            enriched.recovery_hint.contains("file_path")
+                || enriched.recovery_hint.contains("max_results"),
+            "base recovery_hint must remain (got: {})",
+            enriched.recovery_hint
+        );
+    }
+
+    #[test]
+    fn mixed_resolution_truncation_keeps_default_hint() {
+        // Negative case: when the call graph has real evidence
+        // (import_evidence / mixed), the budget-narrowing hint is the
+        // correct guidance — do not append the grep-fallback cue.
+        let base = recovery_hint_for_stage(5, 12_000, 4_000);
+        let info = TruncationInfo {
+            stage: 5,
+            original_payload_estimate: 12_000,
+            effective_budget: 4_000,
+            recovery_hint: base.clone(),
+        };
+        let structured = json!({
+            "function": "register_route",
+            "callers": [{"name": "a"}],
+            "confidence_basis": "import_evidence",
+        });
+        let enriched = enrich_recovery_hint_for_signals(info, Some(&structured));
+        assert_eq!(enriched.recovery_hint, base);
+    }
+
+    #[test]
+    fn enrichment_skipped_for_stage_below_four() {
+        // Stage 2-3 already get tool-agnostic guidance and leave the
+        // structured payload mostly intact, so the unresolved_only label
+        // here is informational, not a wall to recovery. Don't enrich.
+        let base = recovery_hint_for_stage(3, 9_000, 10_000);
+        let info = TruncationInfo {
+            stage: 3,
+            original_payload_estimate: 9_000,
+            effective_budget: 10_000,
+            recovery_hint: base.clone(),
+        };
+        let structured = json!({
+            "function": "register_route",
+            "confidence_basis": "unresolved_only",
+        });
+        let enriched = enrich_recovery_hint_for_signals(info, Some(&structured));
+        assert_eq!(enriched.recovery_hint, base);
     }
 
     #[test]
