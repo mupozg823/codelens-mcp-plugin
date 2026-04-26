@@ -608,13 +608,21 @@ fn summarize_text_value(value: &Value, depth: usize) -> Value {
 /// Stage 3: 85-95% → aggressive summarize (depth=0)
 /// Stage 4: 95-100% → drop structured content entirely
 /// Stage 5: >100% → hard truncation to error payload
+///
+/// Returns (text, structured_content, truncation_info). When the payload
+/// passes through (stage 1), `truncation_info` is `None`. When any
+/// summarization or truncation happens, `truncation_info` carries the
+/// stage, original payload size estimate, effective budget, and a
+/// human-readable recovery hint so callers can surface the loss to
+/// agents at the top level instead of burying `truncated: true` in the
+/// data envelope.
 pub(crate) fn bounded_result_payload(
     mut text: String,
     mut structured_content: Option<Value>,
     payload_estimate: usize,
     effective_budget: usize,
     effort_offset: i32,
-) -> (String, Option<Value>, bool) {
+) -> (String, Option<Value>, Option<TruncationInfo>) {
     let usage_pct = if effective_budget > 0 {
         payload_estimate * 100 / effective_budget
     } else {
@@ -627,30 +635,30 @@ pub(crate) fn bounded_result_payload(
     let t4 = (100i32 + effort_offset).clamp(80, 110) as usize;
 
     let max_chars = effective_budget * 8;
-    let mut truncated = false;
+    let stage: u8;
 
     if usage_pct <= t1 {
         // Stage 1: pass through
+        stage = 1;
     } else if usage_pct <= t2 {
         // Stage 2: light summarization
+        stage = 2;
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 1));
         }
     } else if usage_pct <= t3 {
         // Stage 3: aggressive summarization
+        stage = 3;
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 0));
         }
     } else if usage_pct <= t4 {
         // Stage 4: aggressive summarize structured + truncate text if needed
+        stage = 4;
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 0));
         }
         if text.len() > max_chars {
-            // In-place truncation: find the char boundary at max_chars,
-            // truncate the existing allocation, and append the marker —
-            // avoids the two intermediate String allocations that
-            // `chars().take().collect::<String>()` + `format!()` paid.
             let byte_idx = text
                 .char_indices()
                 .nth(max_chars)
@@ -659,10 +667,9 @@ pub(crate) fn bounded_result_payload(
             text.truncate(byte_idx);
             text.push_str("...[truncated]");
         }
-        truncated = true;
     } else {
         // Stage 5: hard truncation — summarize structured to minimal skeleton
-        truncated = true;
+        stage = 5;
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 0));
         }
@@ -678,7 +685,65 @@ pub(crate) fn bounded_result_payload(
         }))
         .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned());
     }
-    (text, structured_content, truncated)
+
+    let info = if stage >= 2 {
+        Some(TruncationInfo {
+            stage,
+            original_payload_estimate: payload_estimate,
+            effective_budget,
+            recovery_hint: recovery_hint_for_stage(stage, payload_estimate, effective_budget),
+        })
+    } else {
+        None
+    };
+    (text, structured_content, info)
+}
+
+/// Top-level metadata describing what the adaptive compressor did.
+///
+/// This is surfaced into the structured response so that an agent can
+/// detect "I asked for X but only got a summarized view" without having
+/// to reach into the data envelope. Stage 1 (pass-through) returns
+/// `None` from `bounded_result_payload`; stages 2–5 emit one of these.
+#[derive(Debug, Clone)]
+pub(crate) struct TruncationInfo {
+    pub stage: u8,
+    pub original_payload_estimate: usize,
+    pub effective_budget: usize,
+    pub recovery_hint: String,
+}
+
+impl TruncationInfo {
+    pub fn to_json(&self) -> Value {
+        json!({
+            "compression_stage": self.stage,
+            "original_payload_estimate": self.original_payload_estimate,
+            "effective_budget": self.effective_budget,
+            "recovery_hint": self.recovery_hint,
+        })
+    }
+}
+
+fn recovery_hint_for_stage(stage: u8, estimate: usize, budget: usize) -> String {
+    match stage {
+        2 => format!(
+            "Light summarization applied ({} of {} budget). Drill into a specific file or symbol for full detail.",
+            estimate, budget
+        ),
+        3 => format!(
+            "Aggressive summarization applied ({} of {} budget). Arrays clipped to 3 items each — use file_path / max_results to narrow scope.",
+            estimate, budget
+        ),
+        4 => format!(
+            "Near-budget summarization applied ({} of {} budget). Result arrays clipped — narrow scope with file_path or smaller max_results to recover the full set.",
+            estimate, budget
+        ),
+        5 => format!(
+            "Response over budget ({} tokens vs {}); structured arrays clipped to 3 items each. Use file_path / smaller max_results / get_analysis_section to recover items.",
+            estimate, budget
+        ),
+        _ => "Compression applied".to_owned(),
+    }
 }
 
 /// Determine `_meta["anthropic/maxResultSizeChars"]` based on tool tier.
@@ -759,11 +824,27 @@ fn summarize_structured_content(value: &Value, depth: usize) -> Value {
                 usize::MAX
             };
             let mut summarized = serde_json::Map::with_capacity(map.len().min(max_items));
+            // Track sibling `<key>_omitted_count` markers so an agent
+            // sees both the top-level `truncation_warning` AND the
+            // per-array original size at the call site (e.g. callers
+            // array clipped from 287 → 3 records `callers_omitted_count: 284`).
+            let mut omitted_markers: Vec<(String, usize)> = Vec::new();
             for (index, (key, item)) in map.iter().enumerate() {
                 if index >= max_items {
                     break;
                 }
+                if let Value::Array(items) = item
+                    && items.len() > MAX_ARRAY_ITEMS
+                {
+                    omitted_markers
+                        .push((format!("{key}_omitted_count"), items.len() - MAX_ARRAY_ITEMS));
+                }
                 summarized.insert(key.clone(), summarize_structured_content(item, depth + 1));
+            }
+            for (marker_key, omitted) in omitted_markers {
+                if !summarized.contains_key(&marker_key) {
+                    summarized.insert(marker_key, json!(omitted));
+                }
             }
             if map.contains_key("truncated") {
                 summarized.insert("truncated".to_owned(), Value::Bool(true));
@@ -835,5 +916,93 @@ mod text_channel_tests {
             .and_then(Value::as_object)
             .expect("outer object");
         assert_eq!(inner.get("truncated").and_then(Value::as_bool), Some(true));
+    }
+
+    #[test]
+    fn bounded_payload_passthrough_returns_no_truncation_info() {
+        // Stage 1 passthrough: payload well below budget should report
+        // no compression so callers can keep the fast path.
+        let (text, structured, info) = bounded_result_payload(
+            r#"{"ok":true}"#.to_owned(),
+            Some(json!({"ok": true})),
+            10,    // payload tokens
+            1000,  // budget
+            0,     // medium effort
+        );
+        assert_eq!(text, r#"{"ok":true}"#);
+        assert!(info.is_none(), "stage 1 must not surface truncation_info");
+        assert!(structured.is_some());
+    }
+
+    #[test]
+    fn bounded_payload_stage_5_emits_truncation_info_with_recovery_hint() {
+        // Stage 5 (over-budget) is the dogfood case: Flask `route` extracted
+        // 287 callers but the response showed 3, with `truncated: true`
+        // buried in the data envelope. The new contract surfaces a
+        // top-level TruncationInfo with stage + estimate + budget +
+        // human-readable recovery_hint.
+        let (_text, _structured, info) = bounded_result_payload(
+            "x".repeat(50_000),
+            Some(json!({
+                "callers": (0..300).map(|n| json!({"name": n})).collect::<Vec<_>>(),
+                "count": 300,
+            })),
+            12_000, // payload tokens (over budget)
+            4_000,  // budget
+            10,     // high effort
+        );
+        let info = info.expect("stage 5 must emit truncation info");
+        assert_eq!(info.stage, 5);
+        assert_eq!(info.original_payload_estimate, 12_000);
+        assert_eq!(info.effective_budget, 4_000);
+        assert!(
+            info.recovery_hint.contains("12000")
+                && info.recovery_hint.contains("4000")
+                && (info.recovery_hint.contains("file_path")
+                    || info.recovery_hint.contains("max_results")),
+            "recovery_hint should include both estimate, budget, and a recovery cue: {}",
+            info.recovery_hint
+        );
+        let info_json = info.to_json();
+        assert_eq!(info_json["compression_stage"], json!(5));
+        assert_eq!(info_json["original_payload_estimate"], json!(12_000));
+        assert_eq!(info_json["effective_budget"], json!(4_000));
+        assert!(info_json["recovery_hint"].is_string());
+    }
+
+    #[test]
+    fn array_clipping_records_omitted_count_marker() {
+        // When an array of length N gets clipped to MAX_ARRAY_ITEMS=3,
+        // the parent object should carry `<key>_omitted_count` so the
+        // call site (e.g. `data.callers`) shows how much was dropped.
+        let payload = json!({
+            "callers": (0..287).map(|n| json!({"name": n})).collect::<Vec<_>>(),
+            "count": 287,
+        });
+        let summarized = summarize_structured_content(&payload, 0);
+        let obj = summarized.as_object().expect("object");
+        let arr = obj
+            .get("callers")
+            .and_then(Value::as_array)
+            .expect("callers array");
+        assert_eq!(arr.len(), TEXT_CHANNEL_MAX_ARRAY_ITEMS);
+        assert_eq!(
+            obj.get("callers_omitted_count").and_then(Value::as_i64),
+            Some((287 - TEXT_CHANNEL_MAX_ARRAY_ITEMS) as i64),
+            "expected callers_omitted_count to record dropped items"
+        );
+    }
+
+    #[test]
+    fn short_arrays_get_no_omitted_marker() {
+        // Backward-compat: arrays at or below MAX_ARRAY_ITEMS keep the
+        // current shape — no extra `_omitted_count` marker is added.
+        let payload = json!({
+            "callers": [{"name": "a"}, {"name": "b"}],
+            "count": 2,
+        });
+        let summarized = summarize_structured_content(&payload, 0);
+        let obj = summarized.as_object().expect("object");
+        assert!(obj.get("callers_omitted_count").is_none());
     }
 }
