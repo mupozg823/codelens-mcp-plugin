@@ -130,14 +130,20 @@ pub(crate) struct AppState {
     /// downstream tooling can detect "daemon is running an image
     /// older than the disk binary" — the Phase 4a failure mode.
     daemon_started_at: String,
-    /// ADR-0009 §2: durable audit sink (SQLite). Lazy-init on first
-    /// access via `audit_sink()` so test helpers without an audit_dir
-    /// do not pay the open cost upfront.
-    audit_sink: OnceLock<Arc<crate::audit_sink::AuditSink>>,
-    /// ADR-0009 §1: resolved principal-to-role mapping. Lazy-init on
-    /// first access via `principals()` so test helpers do not pay the
-    /// TOML discovery cost when they never invoke a gated path.
-    principals: OnceLock<Arc<crate::principals::Principals>>,
+    /// ADR-0009 §2: durable audit sinks keyed by audit_dir. L6 — when a
+    /// daemon serves multiple projects (e.g. via `activate_project` or
+    /// `add_secondary_project`), each project has its own
+    /// `<audit_dir>/audit_log.sqlite`. The cache lets a project's first
+    /// audited mutation pay the SQLite-open + retention cost once and
+    /// reuse the connection across subsequent calls; switching back
+    /// to a previously-active project hits a hot entry without
+    /// reopening.
+    audit_sinks: Mutex<HashMap<PathBuf, Arc<crate::audit_sink::AuditSink>>>,
+    /// ADR-0009 §1: resolved principal-to-role mappings keyed by
+    /// audit_dir. Each project may have its own `principals.toml`
+    /// (project-local override beats user-global default), so the
+    /// resolver must isolate per-project. Lazy-init on first access.
+    principals_by_audit_dir: Mutex<HashMap<PathBuf, Arc<crate::principals::Principals>>>,
 }
 
 /// A read-only project registered for cross-project queries.
@@ -266,18 +272,26 @@ impl AppState {
     }
 
     /// ADR-0009 §1: lazy accessor for the resolved principal-to-role
-    /// mapping. The first caller pays the TOML discovery + parse cost
-    /// (one stat for the project file, one stat for the user-global
-    /// file, one parse if either is found); all subsequent calls share
-    /// the same `Arc`. Discovery failures fall back to the permissive
-    /// default (every id maps to `Refactor`) so a malformed file does
-    /// not block the dispatch path — but the parse error is logged at
-    /// warn so operators see it loudly.
+    /// mapping for the *currently active* project. L6 — multi-project:
+    /// each `audit_dir()` (which traces the active project) maps to
+    /// its own cached `Principals`. Switching projects mid-session
+    /// pulls the right `principals.toml` from the cache or discovers
+    /// it on first access.
+    ///
+    /// Discovery failures fall back to the permissive default (every
+    /// id maps to `Refactor`) so a malformed file does not block the
+    /// dispatch path — the parse error is logged at warn.
     pub(crate) fn principals(&self) -> Arc<crate::principals::Principals> {
-        if let Some(existing) = self.principals.get() {
-            return Arc::clone(existing);
-        }
         let dir = self.audit_dir();
+        {
+            let cache = self
+                .principals_by_audit_dir
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Some(existing) = cache.get(&dir) {
+                return Arc::clone(existing);
+            }
+        }
         let resolved = match crate::principals::Principals::discover(&dir) {
             Ok(p) => p,
             Err(error) => {
@@ -290,10 +304,6 @@ impl AppState {
                 crate::principals::Principals::permissive_default()
             }
         };
-        // Strict fallback (CODELENS_AUTH_MODE=strict + no principals.toml)
-        // produces an empty mapping with default_role=ReadOnly. Surface
-        // that loudly so the operator knows mutation tools are denied
-        // until they author the file.
         if resolved.default_role() == crate::principals::Role::ReadOnly
             && resolved.explicit_count() == 0
         {
@@ -304,30 +314,38 @@ impl AppState {
             );
         }
         let arc = Arc::new(resolved);
-        let _ = self.principals.set(Arc::clone(&arc));
-        self.principals.get().cloned().unwrap_or(arc)
+        let mut cache = self
+            .principals_by_audit_dir
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        cache.entry(dir).or_insert_with(|| Arc::clone(&arc));
+        arc
     }
 
-    /// ADR-0009 §2: lazy accessor for the durable audit sink. The first
-    /// caller pays the SQLite open cost (creates schema if absent + runs
-    /// retention sweep); all subsequent calls share the same `Arc`.
-    /// Failure to open returns `None` so dispatch never fails on audit
-    /// alone — the failure is logged and the call proceeds. Multi-project:
-    /// binds to whichever `audit_dir()` is active at first access and
-    /// caches that.
+    /// ADR-0009 §2: lazy accessor for the durable audit sink for the
+    /// *currently active* project. L6 — multi-project: each
+    /// `audit_dir()` is bound to its own SQLite log; activating
+    /// another project switches to that project's sink while keeping
+    /// the original alive in cache for when we come back.
+    /// `prune_older_than` runs once per (state, project) pair —
+    /// re-activating a project does not re-prune.
+    /// Failure to open returns `None` so dispatch never fails on
+    /// audit alone — the failure is logged and the call proceeds.
     pub(crate) fn audit_sink(&self) -> Option<Arc<crate::audit_sink::AuditSink>> {
-        if let Some(existing) = self.audit_sink.get() {
-            return Some(Arc::clone(existing));
-        }
         let dir = self.audit_dir();
+        {
+            let cache = self.audit_sinks.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(existing) = cache.get(&dir) {
+                return Some(Arc::clone(existing));
+            }
+        }
         match crate::audit_sink::AuditSink::open(&dir) {
             Ok(sink) => {
                 run_audit_retention_sweep(&sink);
                 let arc = Arc::new(sink);
-                // OnceLock::set returns Err if another thread won the race;
-                // either way the get() afterwards yields the winning Arc.
-                let _ = self.audit_sink.set(Arc::clone(&arc));
-                Some(self.audit_sink.get().cloned().unwrap_or(arc))
+                let mut cache = self.audit_sinks.lock().unwrap_or_else(|p| p.into_inner());
+                let entry = cache.entry(dir).or_insert_with(|| Arc::clone(&arc));
+                Some(Arc::clone(entry))
             }
             Err(error) => {
                 tracing::warn!(
@@ -608,8 +626,8 @@ impl AppState {
             // ADR-0009: each clone re-initialises its own sink lazily.
             // Multiple processes opening the same SQLite is safe (WAL
             // serialises writes); the OnceLock just caches per-clone.
-            audit_sink: OnceLock::new(),
-            principals: OnceLock::new(),
+            audit_sinks: Mutex::new(HashMap::new()),
+            principals_by_audit_dir: Mutex::new(HashMap::new()),
         }
     }
 
@@ -694,8 +712,8 @@ impl AppState {
             http_auth: Arc::new(crate::server::auth::HttpAuthState::default()),
             compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
             daemon_started_at: now_rfc3339_utc(),
-            audit_sink: OnceLock::new(),
-            principals: OnceLock::new(),
+            audit_sinks: Mutex::new(HashMap::new()),
+            principals_by_audit_dir: Mutex::new(HashMap::new()),
         }
     }
 
@@ -840,6 +858,68 @@ mod tests {
     use super::*;
 
     use crate::test_helpers::fixtures::temp_project_root;
+
+    #[test]
+    fn audit_sink_isolates_per_project_audit_dir() {
+        // L6: a single AppState that switches between two project
+        // audit dirs must produce two distinct AuditSink instances —
+        // one per project — so rows from project A don't leak into
+        // project B's audit_log.sqlite.
+        let default_project = temp_project_root("audit-default");
+        let project_a = temp_project_root("audit-a");
+        let project_b = temp_project_root("audit-b");
+        let state = AppState::new_minimal(default_project, ToolPreset::Balanced);
+
+        state
+            .switch_project(project_a.as_path().to_str().unwrap())
+            .unwrap();
+        let sink_a = state.audit_sink().expect("project A audit sink");
+        state
+            .switch_project(project_b.as_path().to_str().unwrap())
+            .unwrap();
+        let sink_b = state.audit_sink().expect("project B audit sink");
+
+        assert!(
+            !Arc::ptr_eq(&sink_a, &sink_b),
+            "different audit dirs must yield different AuditSink Arcs"
+        );
+
+        // Returning to project A reuses the original sink — open cost
+        // pays only once per (state, project).
+        state
+            .switch_project(project_a.as_path().to_str().unwrap())
+            .unwrap();
+        let sink_a_again = state.audit_sink().expect("project A audit sink (cached)");
+        assert!(
+            Arc::ptr_eq(&sink_a, &sink_a_again),
+            "audit_sink cache must rebind to project A's existing sink"
+        );
+    }
+
+    #[test]
+    fn principals_isolate_per_project_audit_dir() {
+        // L6: principals.toml is project-local, so two projects must
+        // resolve to distinct Principals instances. Confirms the L6
+        // cache keys correctly.
+        let default_project = temp_project_root("principals-default");
+        let project_a = temp_project_root("principals-a");
+        let project_b = temp_project_root("principals-b");
+        let state = AppState::new_minimal(default_project, ToolPreset::Balanced);
+
+        state
+            .switch_project(project_a.as_path().to_str().unwrap())
+            .unwrap();
+        let p_a = state.principals();
+        state
+            .switch_project(project_b.as_path().to_str().unwrap())
+            .unwrap();
+        let p_b = state.principals();
+
+        assert!(
+            !Arc::ptr_eq(&p_a, &p_b),
+            "different audit dirs must yield different Principals Arcs"
+        );
+    }
 
     #[test]
     fn switch_project_reuses_cached_symbol_index_and_lsp_pool() {
