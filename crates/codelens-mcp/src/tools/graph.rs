@@ -1,15 +1,15 @@
 use super::{
-    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
-    success_meta,
+    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
+    ToolResult,
 };
 use crate::protocol::{BackendKind, ToolResponseMeta};
 use crate::tools::symbols::flatten_symbols;
 use codelens_engine::{
     find_circular_dependencies, find_dead_code_v2, find_scoped_references, get_blast_radius,
     get_callees, get_callers, get_change_coupling, get_changed_files, get_importance,
-    get_importers, search_for_pattern,
+    get_importers,
 };
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 
 const CALL_GRAPH_RESOLUTIONS: [&str; 6] = [
     "same_file",
@@ -185,23 +185,6 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
     ))
 }
 
-pub fn find_importers_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let file_path = required_string(arguments, "file_path")?;
-    let max_results = optional_usize(arguments, "max_results", 50);
-    Ok(get_importers(
-        &state.project(),
-        file_path,
-        max_results,
-        &state.graph_cache(),
-    )
-    .map(|value| {
-        (
-            json!({ "file": file_path, "importers": value, "count": value.len() }),
-            success_meta(BackendKind::Hybrid, 0.87),
-        )
-    })?)
-}
-
 pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let top_n = optional_usize(arguments, "top_n", 20);
     Ok(
@@ -228,49 +211,6 @@ pub fn find_dead_code_v2_tool(state: &AppState, arguments: &serde_json::Value) -
             )
         })?,
     )
-}
-
-pub fn find_referencing_code_snippets(
-    state: &AppState,
-    arguments: &serde_json::Value,
-) -> ToolResult {
-    let symbol_name = required_string(arguments, "symbol_name")?;
-    let file_glob = optional_string(arguments, "file_glob");
-    let context_lines = optional_usize(arguments, "context_lines", 2);
-    let max_results = optional_usize(arguments, "max_results", 50);
-    Ok(search_for_pattern(
-        &state.project(),
-        symbol_name,
-        file_glob,
-        max_results,
-        context_lines,
-        context_lines,
-    )
-    .map(|matches| {
-        let snippets = matches
-            .iter()
-            .map(|m| {
-                let mut obj = json!({
-                    "file_path": m.file_path,
-                    "line": m.line,
-                    "column": m.column,
-                    "matched_text": m.matched_text,
-                    "line_content": m.line_content,
-                });
-                if !m.context_before.is_empty() {
-                    obj["context_before"] = json!(m.context_before);
-                }
-                if !m.context_after.is_empty() {
-                    obj["context_after"] = json!(m.context_after);
-                }
-                obj
-            })
-            .collect::<Vec<_>>();
-        (
-            json!({ "snippets": snippets, "count": snippets.len() }),
-            success_meta(BackendKind::Filesystem, 0.92),
-        )
-    })?)
 }
 
 pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -397,25 +337,4 @@ pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value)
             success_meta(BackendKind::Git, 0.85),
         )
     })?)
-}
-
-pub fn get_architecture_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let min_size = arguments
-        .get("min_community_size")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(2) as usize;
-
-    let graph = state.graph_cache().get_or_build(&state.project())?;
-    let overview = codelens_engine::community::detect_communities(&graph, min_size)?;
-
-    Ok((
-        json!({
-            "communities": overview.communities,
-            "total_files": overview.total_files,
-            "total_edges": overview.total_edges,
-            "modularity": (overview.modularity * 1000.0).round() / 1000.0,
-            "community_count": overview.communities.len(),
-        }),
-        success_meta(BackendKind::Hybrid, 0.88),
-    ))
 }

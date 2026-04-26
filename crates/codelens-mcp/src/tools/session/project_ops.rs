@@ -675,69 +675,6 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     ))
 }
 
-pub fn onboarding(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let force = arguments
-        .get("force")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    if !force {
-        let existing = list_memory_names(&state.memories_dir(), None);
-        let required = [
-            "project_overview",
-            "style_and_conventions",
-            "suggested_commands",
-            "task_completion",
-        ];
-        if required.iter().all(|r| existing.contains(&r.to_string())) {
-            return Ok((
-                json!({"status":"already_onboarded","existing_memories": existing}),
-                success_meta(BackendKind::Session, 1.0),
-            ));
-        }
-    }
-    let memories_dir = state.memories_dir();
-    std::fs::create_dir_all(&memories_dir)?;
-    let project = state.project();
-    let project_name = project
-        .as_path()
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let defaults = [
-        (
-            "project_overview",
-            format!(
-                "# Project: {project_name}\nBase path: {}\n",
-                project.as_path().display()
-            ),
-        ),
-        (
-            "style_and_conventions",
-            "# Style & Conventions\nTo be filled during onboarding.".to_string(),
-        ),
-        (
-            "suggested_commands",
-            "# Suggested Commands\n- cargo build\n- cargo test".to_string(),
-        ),
-        (
-            "task_completion",
-            "# Task Completion Checklist\n- Build passes\n- Tests pass\n- No regressions"
-                .to_string(),
-        ),
-    ];
-    for (name, content) in &defaults {
-        let path = memories_dir.join(format!("{name}.md"));
-        if !path.exists() {
-            std::fs::write(&path, content)?;
-        }
-    }
-    let created = list_memory_names(&state.memories_dir(), None);
-    Ok((
-        json!({"status":"onboarded","project_name": project_name,"memories_created": created}),
-        success_meta(BackendKind::Session, 1.0),
-    ))
-}
-
 pub fn prepare_for_new_conversation(
     state: &AppState,
     _arguments: &serde_json::Value,
