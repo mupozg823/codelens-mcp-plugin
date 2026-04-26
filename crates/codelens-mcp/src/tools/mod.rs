@@ -87,9 +87,7 @@ pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_
         "get_lsp_recipe"               => lsp::get_lsp_recipe,
         // ── Analysis ──
         "get_changed_files"            => graph::get_changed_files_tool,
-        "get_impact_analysis"          => graph::get_impact_analysis,
         "get_symbol_importance"        => graph::get_symbol_importance,
-        "find_dead_code"               => graph::find_dead_code_v2_tool,
         "find_scoped_references"       => graph::find_scoped_references_tool,
         "get_callers"                  => graph::get_callers_tool,
         "get_callees"                  => graph::get_callees_tool,
@@ -149,19 +147,12 @@ pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_
         "propagate_deletions"          => composite::propagate_deletions,
         "onboard_project"              => composite::onboard_project,
         // ── Workflow aliases (problem-first) ──
-        // Dispatch of deprecated workflow wrappers (audit_security_context,
-        // analyze_change_impact, assess_change_readiness) stays here until v2.0
-        // removal so existing callers keep working. The `#[allow(deprecated)]`
-        // on the enclosing fn suppresses the dispatch-site warnings.
         "explore_codebase"             => workflows::explore_codebase,
         "trace_request_path"           => workflows::trace_request_path,
         "review_architecture"          => workflows::review_architecture,
         "plan_safe_refactor"           => workflows::plan_safe_refactor,
-        "audit_security_context"       => workflows::audit_security_context,
-        "analyze_change_impact"        => workflows::analyze_change_impact,
         "cleanup_duplicate_logic"      => workflows::cleanup_duplicate_logic,
         "review_changes"               => workflows::review_changes,
-        "assess_change_readiness"      => workflows::assess_change_readiness,
         "diagnose_issues"              => workflows::diagnose_issues,
         // ── Reports / compressed context ──
         "analyze_change_request"       => reports::analyze_change_request,

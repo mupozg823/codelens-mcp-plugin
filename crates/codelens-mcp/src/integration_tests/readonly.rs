@@ -483,8 +483,8 @@ fn returns_blast_radius_via_tool_call() {
     let state = make_state(&project);
     let payload = call_tool(
         &state,
-        "get_impact_analysis",
-        json!({ "file_path": "pkg/core.py" }),
+        "impact_report",
+        json!({ "changed_files": ["pkg/core.py"] }),
     );
     assert_eq!(payload["success"], json!(true));
 }
@@ -525,7 +525,7 @@ fn returns_dead_code_via_tool_call() {
     )
     .unwrap();
     let state = make_state(&project);
-    let payload = call_tool(&state, "find_dead_code", json!({ "max_results": 10 }));
+    let payload = call_tool(&state, "dead_code_report", json!({ "max_results": 10 }));
     assert_eq!(payload["success"], json!(true));
 }
 

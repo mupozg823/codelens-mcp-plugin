@@ -17,8 +17,8 @@ fn set_preset_changes_tools_list() {
     .unwrap();
     let full_json = serde_json::to_string(&full_resp).unwrap();
     assert!(
-        full_json.contains("find_dead_code"),
-        "Full preset with include_deprecated should include find_dead_code"
+        full_json.contains("dead_code_report"),
+        "Full preset should include dead_code_report"
     );
     assert!(
         full_json.contains("set_preset"),
@@ -40,8 +40,8 @@ fn set_preset_changes_tools_list() {
     .unwrap();
     let min_json = serde_json::to_string(&min_resp).unwrap();
     assert!(
-        !min_json.contains("find_dead_code"),
-        "Minimal preset should NOT include find_dead_code"
+        !min_json.contains("dead_code_report"),
+        "Minimal preset should NOT include dead_code_report"
     );
     assert!(
         min_json.contains("get_ranked_context"),

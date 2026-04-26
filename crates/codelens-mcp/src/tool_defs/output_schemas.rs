@@ -406,40 +406,6 @@ pub(super) fn get_callees_output_schema() -> serde_json::Value {
     })
 }
 
-pub(super) fn impact_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "file": {"type": "string"},
-            "symbols": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "kind": {"type": "string"},
-                        "line": {"type": "integer"}
-                    }
-                }
-            },
-            "symbol_count": {"type": "integer"},
-            "direct_importers": {"type": "array", "items": {"type": "string"}},
-            "total_affected_files": {"type": "integer"},
-            "blast_radius": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "file": {"type": "string"},
-                        "depth": {"type": "integer"},
-                        "symbol_count": {"type": "integer"}
-                    }
-                }
-            }
-        }
-    })
-}
-
 pub(super) fn diagnostics_output_schema() -> serde_json::Value {
     json!({
         "type": "object",

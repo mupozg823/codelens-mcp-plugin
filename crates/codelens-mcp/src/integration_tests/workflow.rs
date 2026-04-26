@@ -2475,20 +2475,6 @@ fn oversized_analysis_handle_keeps_structured_content_schema_shape() {
 }
 
 #[test]
-fn impact_analysis_schema_matches_payload_shape() {
-    let schema = crate::tool_defs::tool_definition("get_impact_analysis")
-        .and_then(|tool| tool.output_schema.as_ref())
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let properties = schema["properties"]
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
-    assert!(properties.contains_key("symbols"));
-    assert!(properties.contains_key("direct_importers"));
-}
-
-#[test]
 fn onboard_project_schema_matches_payload_shape() {
     let schema = crate::tool_defs::tool_definition("onboard_project")
         .and_then(|tool| tool.output_schema.as_ref())
@@ -2652,68 +2638,41 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
     );
 }
 
+/// Verifies the v2.0 removal landed: the five aliases (`get_impact_analysis`,
+/// `find_dead_code`, `analyze_change_impact`, `audit_security_context`,
+/// `assess_change_readiness`) are no longer in the registered surface or
+/// any profile. Replaces the older `deprecated_aliases_are_hidden_*` and
+/// `deprecated_alias_direct_calls_still_work_*` tests.
 #[test]
-fn deprecated_aliases_are_hidden_from_non_full_visible_surfaces() {
+fn removed_v2_aliases_are_absent_from_every_surface() {
     use crate::tool_defs::{visible_tools, ToolPreset, ToolProfile, ToolSurface};
 
-    let reviewer_tools = visible_tools(ToolSurface::Profile(ToolProfile::ReviewerGraph))
-        .into_iter()
-        .map(|tool| tool.name)
-        .collect::<Vec<_>>();
-    assert!(!reviewer_tools.contains(&"analyze_change_impact"));
-    assert!(!reviewer_tools.contains(&"audit_security_context"));
-    assert!(!reviewer_tools.contains(&"assess_change_readiness"));
-    assert!(reviewer_tools.contains(&"review_changes"));
-    assert!(reviewer_tools.contains(&"cleanup_duplicate_logic"));
-
-    let full_tools = visible_tools(ToolSurface::Preset(ToolPreset::Full))
-        .into_iter()
-        .map(|tool| tool.name)
-        .collect::<Vec<_>>();
-    assert!(full_tools.contains(&"analyze_change_impact"));
-    assert!(full_tools.contains(&"audit_security_context"));
-    assert!(full_tools.contains(&"assess_change_readiness"));
-}
-
-#[test]
-fn deprecated_alias_direct_calls_still_work_when_replacement_is_in_surface() {
-    let cases = [
-        (
-            "planner-readonly",
-            "analyze_change_impact",
-            json!({"path": "compat.py"}),
-            "impact_report",
-        ),
-        (
-            "reviewer-graph",
-            "audit_security_context",
-            json!({"changed_files": ["compat.py"]}),
-            "semantic_code_review",
-        ),
-        (
-            "refactor-full",
-            "assess_change_readiness",
-            json!({"task": "check compat.py", "changed_files": ["compat.py"]}),
-            "verify_change_readiness",
-        ),
+    let removed = [
+        "get_impact_analysis",
+        "find_dead_code",
+        "analyze_change_impact",
+        "audit_security_context",
+        "assess_change_readiness",
     ];
 
-    for (profile, alias_tool, arguments, replacement_tool) in cases {
-        let project = project_root();
-        fs::write(
-            project.as_path().join("compat.py"),
-            "def alpha():\n    return 1\n",
-        )
-        .unwrap();
-        let state = make_state(&project);
-        let _ = call_tool(&state, "set_profile", json!({"profile": profile}));
-
-        let payload = call_tool(&state, alias_tool, arguments);
-        assert_eq!(payload["success"], json!(true), "{profile} / {alias_tool}");
-        assert_eq!(payload["data"]["workflow"], json!(alias_tool));
-        assert_eq!(payload["data"]["deprecated"], json!(true));
-        assert_eq!(payload["data"]["replacement_tool"], json!(replacement_tool));
-        assert_eq!(payload["data"]["removal_target"], json!("v2.0"));
+    for surface in [
+        ToolSurface::Preset(ToolPreset::Full),
+        ToolSurface::Preset(ToolPreset::Balanced),
+        ToolSurface::Preset(ToolPreset::Minimal),
+        ToolSurface::Profile(ToolProfile::PlannerReadonly),
+        ToolSurface::Profile(ToolProfile::BuilderMinimal),
+        ToolSurface::Profile(ToolProfile::ReviewerGraph),
+    ] {
+        let names: Vec<_> = visible_tools(surface)
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect();
+        for old in removed {
+            assert!(
+                !names.contains(&old),
+                "removed alias {old} unexpectedly visible in {surface:?}"
+            );
+        }
     }
 }
 
@@ -4853,42 +4812,6 @@ fn diagnose_issues_returns_structured_content() {
             })
         })
         .unwrap_or(false));
-}
-
-#[test]
-fn assess_change_readiness_returns_structured_content() {
-    // assess_change_readiness delegates to verify_change_readiness which
-    // requires a `task` string (used as the ranked-context query).
-    let project = project_root();
-    fs::write(
-        project.as_path().join("ready_test.py"),
-        "class Foo:\n    pass\n",
-    )
-    .unwrap();
-    let state = make_state(&project);
-    let payload = call_tool(
-        &state,
-        "assess_change_readiness",
-        json!({
-            "task": "check readiness for ready_test.py",
-            "changed_files": ["ready_test.py"]
-        }),
-    );
-    assert_eq!(payload["success"], json!(true));
-    assert_eq!(
-        payload["data"]["workflow"],
-        json!("assess_change_readiness")
-    );
-    assert_eq!(
-        payload["data"]["delegated_tool"],
-        json!("verify_change_readiness")
-    );
-    assert_eq!(payload["data"]["deprecated"], json!(true));
-    assert_eq!(
-        payload["data"]["replacement_tool"],
-        json!("verify_change_readiness")
-    );
-    assert_eq!(payload["data"]["removal_target"], json!("v2.0"));
 }
 
 #[test]
