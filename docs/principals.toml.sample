@@ -1,0 +1,38 @@
+# CodeLens MCP — sample principals.toml
+#
+# Copy to one of:
+#   <project>/.codelens/principals.toml   (project-local, wins)
+#   ~/.codelens/principals.toml           (user-global default)
+#
+# When no file is present, the loader falls back to:
+#   - CODELENS_AUTH_MODE unset / =permissive → every id is Refactor
+#   - CODELENS_AUTH_MODE=strict              → every id is ReadOnly
+#                                              (mutations denied until
+#                                               you list the principal
+#                                               here)
+#
+# Roles (most → least privileged):
+#   Admin     — audit_log_query, future job-control tools
+#   Refactor  — code-mutation tools (raw_fs primitives, rename_symbol, ...)
+#   ReadOnly  — analyze_*, find_*, get_*, semantic_search, memory_*, ...
+#
+# Higher roles inherit lower roles' tools (Admin can call Refactor and
+# ReadOnly tools; Refactor can call ReadOnly tools).
+
+# Default role applied to any principal id not listed below.
+# `ReadOnly` is the sensible production default — opt principals in to
+# mutation explicitly.
+[default]
+role = "ReadOnly"
+
+# Human operators with full mutation rights but not audit access.
+[principal."alice@example.com"]
+role = "Refactor"
+
+# CI bot scoped to read-only checks (PR review, capability probes).
+[principal."ci-bot"]
+role = "ReadOnly"
+
+# On-call operator who needs audit_log_query for incident response.
+[principal."ops-admin@example.com"]
+role = "Admin"
