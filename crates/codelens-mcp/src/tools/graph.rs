@@ -11,7 +11,8 @@ use codelens_engine::{
 };
 use serde_json::{json, Map, Value};
 
-const CALL_GRAPH_RESOLUTIONS: [&str; 6] = [
+const CALL_GRAPH_RESOLUTIONS: [&str; 7] = [
+    "scip",
     "same_file",
     "import_map",
     "import_suffix",
@@ -22,6 +23,7 @@ const CALL_GRAPH_RESOLUTIONS: [&str; 6] = [
 
 fn resolution_score(strategy: &str) -> f64 {
     match strategy {
+        "scip" => 0.98,
         "same_file" => 0.90,
         "import_map" => 0.95,
         "import_suffix" => 0.70,
@@ -277,6 +279,37 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         Some(graph_cache.as_ref()),
     )
     .map(|value| {
+        // L1: when a SCIP index is loaded, prepend type-aware callee
+        // entries that the tree-sitter cascade missed (e.g. Rust dispatch
+        // table dispatch_tool → tree-sitter sees a path expression, not a
+        // call). Dedup against tree-sitter results by (name, line) so we
+        // never inflate counts; SCIP entries win on conflicts because
+        // their resolved_file is authoritative.
+        #[cfg(feature = "scip-backend")]
+        let mut value = value;
+        #[cfg(feature = "scip-backend")]
+        if let (Some(target_file), Some(backend)) = (file_path, state.scip()) {
+            use codelens_engine::PreciseBackend as _;
+            if backend.has_index_for(target_file) {
+                let scip_entries = backend.find_callees(function_name, target_file);
+                if !scip_entries.is_empty() {
+                    let existing: std::collections::HashSet<(String, usize)> = value
+                        .iter()
+                        .map(|edge| (edge.name.clone(), edge.line))
+                        .collect();
+                    let mut merged: Vec<_> = scip_entries
+                        .into_iter()
+                        .filter(|entry| !existing.contains(&(entry.name.clone(), entry.line)))
+                        .collect();
+                    merged.append(&mut value);
+                    value = merged;
+                    if value.len() > max_results {
+                        value.truncate(max_results);
+                    }
+                }
+            }
+        }
+
         let (resolution_summary, confidence_basis, meta) =
             call_graph_analysis(value.iter().map(|entry| entry.resolution));
         let evidence = crate::tool_evidence::tool_evidence(
