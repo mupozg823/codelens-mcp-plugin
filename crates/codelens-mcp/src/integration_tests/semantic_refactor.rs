@@ -2,6 +2,158 @@ use super::*;
 
 static ADAPTER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+// ── P1-A: tree-sitter honesty tests ─────────────────────────────────
+
+/// AC5 — For each of the 4 tree-sitter refactor handlers, verify:
+///  1. `tree_sitter_caveats` is a non-empty array
+///  2. `unknown_args == ["banana"]` for a deliberately-unknown key
+///  3. `degraded_reason` at top level equals the expected honesty string
+#[test]
+fn p1_a_refactor_tools_emit_tree_sitter_caveats_and_unknown_args() {
+    let project = project_root();
+    // Create a small Python file with a real function so tree-sitter path succeeds
+    fs::write(
+        project.as_path().join("caveat_target.py"),
+        "def greet(name):\n    print(name)\n\ngreet('world')\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    const DEGRADED_REASON: &str = "tree-sitter heuristic — no semantic analysis";
+
+    // ── refactor_extract_function ──────────────────────────────────────
+    {
+        let payload = call_tool(
+            &state,
+            "refactor_extract_function",
+            json!({
+                "file_path": "caveat_target.py",
+                "start_line": 2,
+                "end_line": 2,
+                "new_name": "print_name",
+                "dry_run": true,
+                "banana": true
+            }),
+        );
+        let data = payload.get("data").unwrap_or(&payload);
+        let caveats = data
+            .get("tree_sitter_caveats")
+            .expect("tree_sitter_caveats must be present in refactor_extract_function response");
+        assert!(
+            caveats.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+            "tree_sitter_caveats must be a non-empty array: {payload}"
+        );
+        assert_eq!(
+            data["unknown_args"],
+            json!(["banana"]),
+            "refactor_extract_function: unknown_args mismatch: {payload}"
+        );
+        assert_eq!(
+            data["degraded_reason"],
+            json!(DEGRADED_REASON),
+            "refactor_extract_function: degraded_reason mismatch: {payload}"
+        );
+    }
+
+    // ── refactor_inline_function ───────────────────────────────────────
+    {
+        let payload = call_tool(
+            &state,
+            "refactor_inline_function",
+            json!({
+                "file_path": "caveat_target.py",
+                "function_name": "greet",
+                "dry_run": true,
+                "banana": true
+            }),
+        );
+        let data = payload.get("data").unwrap_or(&payload);
+        let caveats = data
+            .get("tree_sitter_caveats")
+            .expect("tree_sitter_caveats must be present in refactor_inline_function response");
+        assert!(
+            caveats.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+            "tree_sitter_caveats must be a non-empty array: {payload}"
+        );
+        assert_eq!(
+            data["unknown_args"],
+            json!(["banana"]),
+            "refactor_inline_function: unknown_args mismatch: {payload}"
+        );
+        assert_eq!(
+            data["degraded_reason"],
+            json!(DEGRADED_REASON),
+            "refactor_inline_function: degraded_reason mismatch: {payload}"
+        );
+    }
+
+    // ── refactor_move_to_file ──────────────────────────────────────────
+    {
+        let payload = call_tool(
+            &state,
+            "refactor_move_to_file",
+            json!({
+                "file_path": "caveat_target.py",
+                "symbol_name": "greet",
+                "target_file": "dest.py",
+                "dry_run": true,
+                "banana": true
+            }),
+        );
+        let data = payload.get("data").unwrap_or(&payload);
+        let caveats = data
+            .get("tree_sitter_caveats")
+            .expect("tree_sitter_caveats must be present in refactor_move_to_file response");
+        assert!(
+            caveats.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+            "tree_sitter_caveats must be a non-empty array: {payload}"
+        );
+        assert_eq!(
+            data["unknown_args"],
+            json!(["banana"]),
+            "refactor_move_to_file: unknown_args mismatch: {payload}"
+        );
+        assert_eq!(
+            data["degraded_reason"],
+            json!(DEGRADED_REASON),
+            "refactor_move_to_file: degraded_reason mismatch: {payload}"
+        );
+    }
+
+    // ── refactor_change_signature ──────────────────────────────────────
+    {
+        let payload = call_tool(
+            &state,
+            "refactor_change_signature",
+            json!({
+                "file_path": "caveat_target.py",
+                "function_name": "greet",
+                "new_parameters": [{"name": "greeting", "type": "str"}],
+                "dry_run": true,
+                "banana": true
+            }),
+        );
+        let data = payload.get("data").unwrap_or(&payload);
+        let caveats = data
+            .get("tree_sitter_caveats")
+            .expect("tree_sitter_caveats must be present in refactor_change_signature response");
+        assert!(
+            caveats.as_array().map(|a| !a.is_empty()).unwrap_or(false),
+            "tree_sitter_caveats must be a non-empty array: {payload}"
+        );
+        assert_eq!(
+            data["unknown_args"],
+            json!(["banana"]),
+            "refactor_change_signature: unknown_args mismatch: {payload}"
+        );
+        assert_eq!(
+            data["degraded_reason"],
+            json!(DEGRADED_REASON),
+            "refactor_change_signature: degraded_reason mismatch: {payload}"
+        );
+    }
+}
+
 #[test]
 fn refactor_extract_function_applies_lsp_code_action_workspace_edit() {
     let project = project_root();
