@@ -1,12 +1,13 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_engine::change_signature::{ParamSpec, change_signature};
+use crate::tool_runtime::degraded_meta;
+use codelens_engine::change_signature::{change_signature, ParamSpec};
 use codelens_engine::inline::inline_function;
 use codelens_engine::move_symbol::move_symbol;
 use codelens_engine::{
-    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
-    get_importers, get_symbols_overview,
+    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
+    get_symbols_overview, SymbolKind,
 };
 use serde_json::json;
 
@@ -122,6 +123,23 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
+
+    const KNOWN_ARGS: &[&str] = &[
+        "file_path",
+        "path",
+        "start_line",
+        "end_line",
+        "new_name",
+        "dry_run",
+        "semantic_edit_backend",
+        "command",
+        "args",
+        "line",
+        "column",
+        "action_id",
+    ];
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+
     let file_path = required_string(arguments, "file_path")?;
     let start_line = arguments
         .get("start_line")
@@ -210,17 +228,31 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
         std::fs::write(&resolved, &result)?;
     }
 
+    const DEGRADED_REASON: &str = "tree-sitter heuristic — no semantic analysis";
+    let mut payload = json!({
+        "success": true,
+        "file_path": file_path,
+        "extracted_lines": format!("{start_line}-{end_line}"),
+        "new_function_name": new_name,
+        "function_definition": func_def,
+        "call_replacement": func_call,
+        "dry_run": dry_run,
+        "degraded_reason": DEGRADED_REASON,
+        "tree_sitter_caveats": [
+            "captured local variables not detected — caller must verify",
+            "indentation inferred from first line only",
+            "no scope analysis — extracted code may reference unavailable bindings",
+            "no return-value inference — function returns nothing"
+        ]
+    });
+    if !unknown_args.is_empty()
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    }
     Ok((
-        json!({
-            "success": true,
-            "file_path": file_path,
-            "extracted_lines": format!("{start_line}-{end_line}"),
-            "new_function_name": new_name,
-            "function_definition": func_def,
-            "call_replacement": func_call,
-            "dry_run": dry_run
-        }),
-        success_meta(BackendKind::Hybrid, 0.90),
+        payload,
+        degraded_meta(BackendKind::Hybrid, 0.65, DEGRADED_REASON),
     ))
 }
 
@@ -246,6 +278,22 @@ pub fn refactor_inline_function(state: &AppState, arguments: &serde_json::Value)
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
+
+    const KNOWN_ARGS_INLINE: &[&str] = &[
+        "file_path",
+        "path",
+        "function_name",
+        "name_path",
+        "dry_run",
+        "semantic_edit_backend",
+        "command",
+        "args",
+        "line",
+        "column",
+        "action_id",
+    ];
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS_INLINE);
+
     let file_path = required_string(arguments, "file_path")?;
     let function_name = required_string(arguments, "function_name")?;
     let name_path = arguments.get("name_path").and_then(|v| v.as_str());
@@ -257,19 +305,32 @@ pub fn refactor_inline_function(state: &AppState, arguments: &serde_json::Value)
     let project = state.project();
     let result = inline_function(&project, file_path, function_name, name_path, dry_run)?;
 
+    const DEGRADED_REASON_INLINE: &str = "tree-sitter heuristic — no semantic analysis";
+    let mut payload = json!({
+        "success": result.success,
+        "message": result.message,
+        "call_sites_inlined": result.call_sites_inlined,
+        "definition_removed": result.definition_removed,
+        "modified_files": result.modified_files,
+        "edits": result.edits.iter().map(|e| json!({
+            "file": e.file_path, "line": e.line, "old": e.old_text, "new": e.new_text
+        })).collect::<Vec<_>>(),
+        "dry_run": dry_run,
+        "degraded_reason": DEGRADED_REASON_INLINE,
+        "tree_sitter_caveats": [
+            "no scope analysis — inlined code may shadow caller-side bindings",
+            "no argument-substitution — call-site arguments left as-is",
+            "definition removal heuristic; trailing comments may be stranded"
+        ]
+    });
+    if !unknown_args.is_empty()
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    }
     Ok((
-        json!({
-            "success": result.success,
-            "message": result.message,
-            "call_sites_inlined": result.call_sites_inlined,
-            "definition_removed": result.definition_removed,
-            "modified_files": result.modified_files,
-            "edits": result.edits.iter().map(|e| json!({
-                "file": e.file_path, "line": e.line, "old": e.old_text, "new": e.new_text
-            })).collect::<Vec<_>>(),
-            "dry_run": dry_run
-        }),
-        success_meta(BackendKind::Hybrid, 0.85),
+        payload,
+        degraded_meta(BackendKind::Hybrid, 0.60, DEGRADED_REASON_INLINE),
     ))
 }
 
@@ -295,6 +356,23 @@ pub fn refactor_move_to_file(state: &AppState, arguments: &serde_json::Value) ->
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
+
+    const KNOWN_ARGS_MOVE: &[&str] = &[
+        "file_path",
+        "path",
+        "symbol_name",
+        "target_file",
+        "name_path",
+        "dry_run",
+        "semantic_edit_backend",
+        "command",
+        "args",
+        "line",
+        "column",
+        "action_id",
+    ];
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS_MOVE);
+
     let file_path = required_string(arguments, "file_path")?;
     let symbol_name = required_string(arguments, "symbol_name")?;
     let target_file = required_string(arguments, "target_file")?;
@@ -314,20 +392,33 @@ pub fn refactor_move_to_file(state: &AppState, arguments: &serde_json::Value) ->
         dry_run,
     )?;
 
+    const DEGRADED_REASON_MOVE: &str = "tree-sitter heuristic — no semantic analysis";
+    let mut payload = json!({
+        "success": result.success,
+        "message": result.message,
+        "source_file": result.source_file,
+        "target_file": result.target_file,
+        "symbol_name": result.symbol_name,
+        "import_updates": result.import_updates,
+        "edits": result.edits.iter().map(|e| json!({
+            "file": e.file_path, "action": e.action, "content": e.content
+        })).collect::<Vec<_>>(),
+        "dry_run": dry_run,
+        "degraded_reason": DEGRADED_REASON_MOVE,
+        "tree_sitter_caveats": [
+            "import dependencies not auto-resolved at target file",
+            "no cross-file reference rewrite for callers in third files",
+            "name-collision at target file not detected"
+        ]
+    });
+    if !unknown_args.is_empty()
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    }
     Ok((
-        json!({
-            "success": result.success,
-            "message": result.message,
-            "source_file": result.source_file,
-            "target_file": result.target_file,
-            "symbol_name": result.symbol_name,
-            "import_updates": result.import_updates,
-            "edits": result.edits.iter().map(|e| json!({
-                "file": e.file_path, "action": e.action, "content": e.content
-            })).collect::<Vec<_>>(),
-            "dry_run": dry_run
-        }),
-        success_meta(BackendKind::Hybrid, 0.85),
+        payload,
+        degraded_meta(BackendKind::Hybrid, 0.60, DEGRADED_REASON_MOVE),
     ))
 }
 
@@ -353,6 +444,23 @@ pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
+
+    const KNOWN_ARGS_CHANGE_SIG: &[&str] = &[
+        "file_path",
+        "path",
+        "function_name",
+        "name_path",
+        "new_parameters",
+        "dry_run",
+        "semantic_edit_backend",
+        "command",
+        "args",
+        "line",
+        "column",
+        "action_id",
+    ];
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS_CHANGE_SIG);
+
     let file_path = required_string(arguments, "file_path")?;
     let function_name = required_string(arguments, "function_name")?;
     let name_path = arguments.get("name_path").and_then(|v| v.as_str());
@@ -377,20 +485,33 @@ pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value
         dry_run,
     )?;
 
+    const DEGRADED_REASON_CHANGE_SIG: &str = "tree-sitter heuristic — no semantic analysis";
+    let mut payload = json!({
+        "success": result.success,
+        "message": result.message,
+        "old_params": result.old_params,
+        "new_params": result.new_params,
+        "call_sites_updated": result.call_sites_updated,
+        "modified_files": result.modified_files,
+        "edits": result.edits.iter().map(|e| json!({
+            "file": e.file_path, "line": e.line, "old": e.old_text, "new": e.new_text
+        })).collect::<Vec<_>>(),
+        "dry_run": dry_run,
+        "degraded_reason": DEGRADED_REASON_CHANGE_SIG,
+        "tree_sitter_caveats": [
+            "no call-site argument re-ordering or default insertion",
+            "no type-checker validation of new parameter types",
+            "callers in non-source files (e.g. tests) may need manual updates"
+        ]
+    });
+    if !unknown_args.is_empty()
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    }
     Ok((
-        json!({
-            "success": result.success,
-            "message": result.message,
-            "old_params": result.old_params,
-            "new_params": result.new_params,
-            "call_sites_updated": result.call_sites_updated,
-            "modified_files": result.modified_files,
-            "edits": result.edits.iter().map(|e| json!({
-                "file": e.file_path, "line": e.line, "old": e.old_text, "new": e.new_text
-            })).collect::<Vec<_>>(),
-            "dry_run": dry_run
-        }),
-        success_meta(BackendKind::Hybrid, 0.85),
+        payload,
+        degraded_meta(BackendKind::Hybrid, 0.60, DEGRADED_REASON_CHANGE_SIG),
     ))
 }
 

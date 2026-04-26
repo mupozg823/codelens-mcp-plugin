@@ -17,6 +17,21 @@ pub fn success_meta(backend: BackendKind, confidence: f64) -> ToolResponseMeta {
     }
 }
 
+/// Like `success_meta` but sets `degraded_reason` to flag that the result
+/// is from a heuristic / non-semantic backend (e.g. tree-sitter line-range
+/// arithmetic). Confidence should be lowered from the ideal semantic value.
+pub fn degraded_meta(backend: BackendKind, confidence: f64, reason: &str) -> ToolResponseMeta {
+    ToolResponseMeta {
+        backend_used: backend.to_string(),
+        confidence,
+        degraded_reason: Some(reason.to_owned()),
+        source: crate::protocol::AnalysisSource::Native,
+        partial: false,
+        freshness: crate::protocol::Freshness::Live,
+        staleness_ms: None,
+    }
+}
+
 pub fn required_string<'a>(
     value: &'a serde_json::Value,
     key: &str,

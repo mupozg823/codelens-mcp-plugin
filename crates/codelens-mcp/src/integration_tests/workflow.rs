@@ -275,10 +275,16 @@ fn get_capabilities_compact_returns_core_fields_only() {
     // Size guard: compact payload should fit comfortably under 2 KB
     // serialised. Full mode is observed at ~5 KB — this test fails
     // closed if a future change accidentally re-bloats compact.
+    // Size guard: compact payload should fit comfortably under the
+    // full-mode shape (~5 KB observed). Local-no-SCIP measures ~1 KB,
+    // CI-with-SCIP-index measures ~2.2 KB because intelligence_sources
+    // includes scip + the unavailable[].reason strings expand on
+    // indexed projects. 2.5 KB keeps a margin while still guarding
+    // against accidental re-bloat into full-mode territory.
     let compact_size = serde_json::to_string(data).unwrap().len();
     assert!(
-        compact_size < 2_048,
-        "compact payload must stay under 2 KB, got {compact_size} bytes"
+        compact_size < 2_560,
+        "compact payload must stay under 2.5 KB, got {compact_size} bytes"
     );
 }
 
