@@ -42,8 +42,8 @@
           "min_confidence": 0.4
         },
         {
-          "name": "build_visible_tool_context",
-          "file_suffix": "crates/codelens-mcp/src/resource_context.rs",
+          "name": "build_tools_list_response",
+          "file_suffix": "crates/codelens-mcp/src/server/tools_list.rs",
           "min_confidence": 0.4
         }
       ]
@@ -52,9 +52,7 @@
       "id": "claw-dev-main-callees",
       "repo_id": "claw-dev",
       "path": "/Users/bagjaeseog/Downloads/claudex/claw-dev",
-      "ignore_paths": [
-        "Leonxlnx-claude-code"
-      ],
+      "ignore_paths": ["Leonxlnx-claude-code"],
       "tool": "get_callees",
       "function_name": "main",
       "file_path": "src/index.ts",
@@ -91,9 +89,7 @@
       "id": "claw-dev-load-config-callers",
       "repo_id": "claw-dev",
       "path": "/Users/bagjaeseog/Downloads/claudex/claw-dev",
-      "ignore_paths": [
-        "Leonxlnx-claude-code"
-      ],
+      "ignore_paths": ["Leonxlnx-claude-code"],
       "tool": "get_callers",
       "function_name": "loadConfig",
       "max_results": 20,

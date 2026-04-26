@@ -115,7 +115,7 @@ type JSImportBindingIndex = HashMap<String, HashMap<String, JSImportBinding>>;
 /// Only a subset of languages have call graph queries defined.
 /// Filter out common std/builtin method calls that add noise to the call graph.
 /// Covers Rust std, Python builtins, JS/TS builtins, Go builtins, and Java/Kotlin stdlib.
-fn is_noise_callee(name: &str) -> bool {
+pub(crate) fn is_noise_callee(name: &str) -> bool {
     matches!(
         name,
         // ── cross-language common ──

@@ -13,6 +13,7 @@ use std::path::Path;
 use protobuf::Message;
 use scip::types::{self as scip_types, Index};
 
+use crate::call_graph::{is_noise_callee, CalleeEntry};
 use crate::ir::{
     CodeDiagnostic, DiagnosticSeverity, IntelligenceSource, PreciseBackend, SearchCandidate,
 };
@@ -113,6 +114,94 @@ impl ScipBackend {
             4 => (r[0] as usize, r[1] as usize, r[2] as usize, r[3] as usize),
             _ => (0, 0, 0, 0),
         }
+    }
+
+    /// Find callees of `function_name` defined in `file_path` using SCIP occurrences.
+    ///
+    /// Strategy: SCIP does not directly model "function body extent", so we
+    /// approximate it as the line range between the function's definition
+    /// occurrence and the next definition occurrence in the same document.
+    /// Reference (non-definition) occurrences whose line falls in that
+    /// half-open range are treated as call sites originating from the
+    /// queried function.
+    ///
+    /// For each call site we resolve the callee's definition file by
+    /// scanning the index for a matching definition occurrence — providing
+    /// the type-aware accuracy that tree-sitter's name-based heuristic
+    /// cascade cannot achieve on patterns like Rust dispatch tables.
+    ///
+    /// Returns an empty Vec when the function cannot be located in the
+    /// document (caller should fall back to tree-sitter).
+    pub fn find_callees(&self, function_name: &str, file_path: &str) -> Vec<CalleeEntry> {
+        let Some(doc) = self.documents.get(file_path) else {
+            return Vec::new();
+        };
+
+        // Locate the queried function's definition occurrence.
+        let mut sorted_defs: Vec<&scip_types::Occurrence> = doc
+            .occurrences
+            .iter()
+            .filter(|occ| Self::is_definition(occ))
+            .collect();
+        sorted_defs.sort_by_key(|occ| Self::parse_range(occ).0);
+
+        let Some(fn_def_idx) = sorted_defs
+            .iter()
+            .position(|occ| Self::short_name(&occ.symbol) == function_name)
+        else {
+            return Vec::new();
+        };
+        let fn_def = sorted_defs[fn_def_idx];
+        let body_start = Self::parse_range(fn_def).0;
+        let body_end = sorted_defs
+            .get(fn_def_idx + 1)
+            .map(|next_def| Self::parse_range(next_def).0)
+            .unwrap_or(usize::MAX);
+
+        // Build a global map from SCIP symbol → its definition (file, line)
+        // for resolving callee locations on the fly. Keep it lazy and
+        // bounded to symbols actually referenced in this body.
+        let mut callees: Vec<CalleeEntry> = Vec::new();
+        let mut seen: std::collections::HashSet<(String, usize)> = std::collections::HashSet::new();
+        for occ in &doc.occurrences {
+            if Self::is_definition(occ) {
+                continue;
+            }
+            let (line, _, _, _) = Self::parse_range(occ);
+            if line < body_start || line >= body_end {
+                continue;
+            }
+            // Self-reference inside its own body (recursion) — skip; keeps
+            // parity with tree-sitter behavior for the call_graph harness.
+            if Self::short_name(&occ.symbol) == function_name {
+                continue;
+            }
+            let name = Self::short_name(&occ.symbol).to_owned();
+            if name.is_empty() || is_noise_callee(&name) {
+                continue;
+            }
+            if !seen.insert((name.clone(), line)) {
+                continue;
+            }
+
+            // Resolve callee's definition site by scanning the index.
+            let resolved_file = self.documents.iter().find_map(|(other_path, other_doc)| {
+                other_doc
+                    .occurrences
+                    .iter()
+                    .find(|o| o.symbol == occ.symbol && Self::is_definition(o))
+                    .map(|_| other_path.clone())
+            });
+
+            callees.push(CalleeEntry {
+                name,
+                line,
+                resolved_file,
+                confidence: 0.95,
+                resolution: Some("scip"),
+            });
+        }
+        callees
     }
 }
 
@@ -490,5 +579,142 @@ mod tests {
         let file = write_index_to_file(&idx);
         let backend = ScipBackend::load(file.path()).unwrap();
         assert!(matches!(backend.source(), IntelligenceSource::Scip));
+    }
+
+    /// Build a SCIP fixture with two functions in router.rs:
+    ///   line 10: `fn handle_request(...)` — definition
+    ///   line 12: `dispatch_tool(...)` — reference inside handle_request body
+    ///   line 14: `read_resource(...)` — reference inside handle_request body
+    ///   line 25: `fn other_fn(...)` — next definition (closes handle_request body at 25)
+    ///   line 27: `read_resource(...)` — reference in other_fn (must NOT be a callee)
+    /// Plus dispatch_tool's def in dispatch/mod.rs:5 and read_resource's def in
+    /// resources.rs:8 so callees can be resolved to their files.
+    fn build_callees_fixture() -> Index {
+        let mut idx = Index::new();
+
+        let dispatch_tool = "scip-rust cargo codelens-mcp 1.9 dispatch/mod/dispatch_tool().";
+        let read_resource = "scip-rust cargo codelens-mcp 1.9 resources/read_resource().";
+        let handle_request = "scip-rust cargo codelens-mcp 1.9 server/router/handle_request().";
+        let other_fn = "scip-rust cargo codelens-mcp 1.9 server/router/other_fn().";
+
+        let mut router = scip_types::Document::new();
+        router.relative_path = "crates/codelens-mcp/src/server/router.rs".to_owned();
+        // handle_request def @ line 10
+        let mut def = scip_types::Occurrence::new();
+        def.range = vec![10, 4, 18];
+        def.symbol = handle_request.to_owned();
+        def.symbol_roles = 1;
+        router.occurrences.push(def);
+        // call to dispatch_tool @ line 12
+        let mut c1 = scip_types::Occurrence::new();
+        c1.range = vec![12, 8, 21];
+        c1.symbol = dispatch_tool.to_owned();
+        c1.symbol_roles = 0;
+        router.occurrences.push(c1);
+        // call to read_resource @ line 14
+        let mut c2 = scip_types::Occurrence::new();
+        c2.range = vec![14, 8, 21];
+        c2.symbol = read_resource.to_owned();
+        c2.symbol_roles = 0;
+        router.occurrences.push(c2);
+        // other_fn def @ line 25 (closes handle_request body)
+        let mut def2 = scip_types::Occurrence::new();
+        def2.range = vec![25, 4, 12];
+        def2.symbol = other_fn.to_owned();
+        def2.symbol_roles = 1;
+        router.occurrences.push(def2);
+        // call to read_resource @ line 27 — inside other_fn, NOT handle_request
+        let mut c3 = scip_types::Occurrence::new();
+        c3.range = vec![27, 8, 21];
+        c3.symbol = read_resource.to_owned();
+        c3.symbol_roles = 0;
+        router.occurrences.push(c3);
+        idx.documents.push(router);
+
+        let mut dispatch_doc = scip_types::Document::new();
+        dispatch_doc.relative_path = "crates/codelens-mcp/src/dispatch/mod.rs".to_owned();
+        let mut d_def = scip_types::Occurrence::new();
+        d_def.range = vec![5, 4, 17];
+        d_def.symbol = dispatch_tool.to_owned();
+        d_def.symbol_roles = 1;
+        dispatch_doc.occurrences.push(d_def);
+        idx.documents.push(dispatch_doc);
+
+        let mut resources_doc = scip_types::Document::new();
+        resources_doc.relative_path = "crates/codelens-mcp/src/resources.rs".to_owned();
+        let mut r_def = scip_types::Occurrence::new();
+        r_def.range = vec![8, 4, 17];
+        r_def.symbol = read_resource.to_owned();
+        r_def.symbol_roles = 1;
+        resources_doc.occurrences.push(r_def);
+        idx.documents.push(resources_doc);
+
+        idx
+    }
+
+    #[test]
+    fn find_callees_within_function_body_resolves_files() {
+        // L1 acceptance — `find_callees(handle_request, router.rs)` must
+        // surface the two callees inside the body (dispatch_tool,
+        // read_resource) with correct resolved files, and must NOT return
+        // the read_resource call that lives in the *next* function.
+        let idx = build_callees_fixture();
+        let file = write_index_to_file(&idx);
+        let backend = ScipBackend::load(file.path()).unwrap();
+
+        let callees =
+            backend.find_callees("handle_request", "crates/codelens-mcp/src/server/router.rs");
+        let names: Vec<&str> = callees.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            names.contains(&"dispatch_tool"),
+            "dispatch_tool missing: {names:?}"
+        );
+        assert!(
+            names.contains(&"read_resource"),
+            "read_resource missing: {names:?}"
+        );
+        // Body extent must exclude the call in the next function.
+        let read_lines: Vec<usize> = callees
+            .iter()
+            .filter(|c| c.name == "read_resource")
+            .map(|c| c.line)
+            .collect();
+        assert_eq!(
+            read_lines,
+            vec![14],
+            "read_resource at line 27 belongs to other_fn, not handle_request"
+        );
+
+        let dispatch = callees
+            .iter()
+            .find(|c| c.name == "dispatch_tool")
+            .expect("dispatch_tool entry");
+        assert_eq!(
+            dispatch.resolved_file.as_deref(),
+            Some("crates/codelens-mcp/src/dispatch/mod.rs"),
+            "callee def file must be resolved via SCIP"
+        );
+        assert_eq!(dispatch.resolution, Some("scip"));
+        assert!(dispatch.confidence >= 0.9);
+    }
+
+    #[test]
+    fn find_callees_returns_empty_when_function_absent() {
+        // Negative case: when the requested function has no def
+        // occurrence in the given file, return empty so the MCP layer
+        // cleanly falls through to tree-sitter without claiming a
+        // false-positive resolution.
+        let idx = build_callees_fixture();
+        let file = write_index_to_file(&idx);
+        let backend = ScipBackend::load(file.path()).unwrap();
+
+        let callees = backend.find_callees(
+            "no_such_function",
+            "crates/codelens-mcp/src/server/router.rs",
+        );
+        assert!(callees.is_empty());
+
+        let callees_wrong_file = backend.find_callees("handle_request", "src/unknown.rs");
+        assert!(callees_wrong_file.is_empty());
     }
 }
