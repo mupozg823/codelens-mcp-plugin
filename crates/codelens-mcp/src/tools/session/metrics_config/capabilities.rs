@@ -715,15 +715,27 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let mut scip_file_count: Option<usize> = None;
     #[allow(unused_mut)]
     let mut scip_symbol_count: Option<usize> = None;
+    // intelligence_sources reports backends the binary can ACTUALLY use.
+    // A stray index.scip on disk does not count when the binary lacks
+    // the scip-backend feature — claiming "scip" in that case would
+    // mislead agents into routing through type-aware tools that fall
+    // back to tree-sitter anyway.
+    #[cfg(feature = "scip-backend")]
     if scip_available {
         intelligence_sources.push("scip");
-        // Report SCIP index stats if the backend is loaded.
-        #[cfg(feature = "scip-backend")]
         if let Some(backend) = state.scip() {
             scip_file_count = Some(backend.file_count());
             scip_symbol_count = Some(backend.symbol_count());
         }
     }
+
+    // Tri-state SCIP discovery signal so an agent on the compact startup
+    // probe knows whether type-aware get_callers/get_callees are wired,
+    // available-but-uninitialized, or not compiled. Pre-slice-3 the
+    // compact probe was silent on SCIP entirely — the get_callers SCIP
+    // boost shipped in #105 was invisible to agents that didn't drill
+    // into `detail=full`.
+    let (scip_status, scip_setup_hint) = scip_status_for_response(scip_available);
 
     let embedding_indexed_bool = embedding_index_info
         .as_ref()
@@ -736,11 +748,15 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
 
     let payload = match detail {
         CapabilitiesDetail::Compact => {
-            // 12 core fields LLMs consume on a startup probe. Nested
+            // Core fields LLMs consume on a startup probe. Nested
             // sub-objects (`diagnostics_guidance`, `health_summary`)
             // and runtime introspection (CoreML compute units, SCIP
-            // counts, embedding runtime preferences, build_info) are
-            // only emitted when `detail=full`.
+            // file/symbol counts, embedding runtime preferences,
+            // build_info) are only emitted when `detail=full`.
+            // L1 slice 3 added `scip_status` (and an optional
+            // `scip_setup_hint` when actionable) so an agent can route
+            // to type-aware get_callers/get_callees without first
+            // asking for the full payload.
             json!({
                 "language": language,
                 "lsp_attached": lsp_attached,
@@ -754,6 +770,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
                 "unavailable": unavailable,
                 "binary_version": crate::build_info::BUILD_VERSION,
                 "binary_git_sha": crate::build_info::BUILD_GIT_SHA,
+                "scip_status": scip_status,
+                "scip_setup_hint": scip_setup_hint,
                 "detail_available": ["full"],
             })
         }
@@ -798,10 +816,43 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "scip_available": scip_available,
             "scip_file_count": scip_file_count,
             "scip_symbol_count": scip_symbol_count,
+            "scip_status": scip_status,
+            "scip_setup_hint": scip_setup_hint,
         }),
     };
 
     Ok((payload, success_meta(BackendKind::Config, 0.95)))
+}
+
+/// Tri-state SCIP discovery signal:
+/// - `"enabled"` — feature compiled AND `index.scip` present at one of
+///   the standard locations
+/// - `"available_no_index"` — feature compiled but no index detected;
+///   pair with the actionable `scip_setup_hint` so agents can guide
+///   users to generate one
+/// - `"not_compiled"` — feature disabled in this binary; no hint is
+///   emitted because the binary cannot benefit from an index even if
+///   one were generated
+fn scip_status_for_response(scip_available: bool) -> (&'static str, Option<String>) {
+    #[cfg(feature = "scip-backend")]
+    {
+        if scip_available {
+            ("enabled", None)
+        } else {
+            (
+                "available_no_index",
+                Some(
+                    "Run `scripts/generate-scip-index.sh` (wraps `rust-analyzer scip .`) at the project root to enable type-aware get_callers/get_callees."
+                        .to_owned(),
+                ),
+            )
+        }
+    }
+    #[cfg(not(feature = "scip-backend"))]
+    {
+        let _ = scip_available;
+        ("not_compiled", None)
+    }
 }
 
 #[cfg(test)]
@@ -835,6 +886,56 @@ mod tests {
             CapabilitiesDetail::from_value(&json!({"detail": "full"})),
             CapabilitiesDetail::Full
         );
+    }
+
+    #[cfg(feature = "scip-backend")]
+    #[test]
+    fn scip_status_when_compiled_with_index_present() {
+        // L1 slice 3 — `index.scip` was just generated → status flips
+        // from `available_no_index` to `enabled` and the actionable
+        // setup hint disappears (no work left to do).
+        let (status, hint) = scip_status_for_response(true);
+        assert_eq!(status, "enabled");
+        assert!(
+            hint.is_none(),
+            "no setup hint needed once the index is present"
+        );
+    }
+
+    #[cfg(feature = "scip-backend")]
+    #[test]
+    fn scip_status_when_compiled_without_index_emits_setup_hint() {
+        // The reverse case: agent on a fresh checkout sees `enabled` is
+        // not yet reachable, so we surface a one-line shell command
+        // pointing at the helper script. This must mention the script
+        // by name so an agent can copy-paste it without further lookup.
+        let (status, hint) = scip_status_for_response(false);
+        assert_eq!(status, "available_no_index");
+        let hint = hint.expect("setup hint required when index missing");
+        assert!(
+            hint.contains("scripts/generate-scip-index.sh"),
+            "hint must point at the helper script (got: {hint})"
+        );
+        assert!(
+            hint.contains("rust-analyzer scip"),
+            "hint must reference the underlying tool (got: {hint})"
+        );
+    }
+
+    #[cfg(not(feature = "scip-backend"))]
+    #[test]
+    fn scip_status_when_feature_disabled_is_not_compiled() {
+        // Binary built without `--features scip-backend` cannot ever
+        // benefit from an index file. We report `not_compiled` and emit
+        // no hint to avoid sending agents on a wild goose chase that
+        // would not change behavior. Whether `scip_available` is true
+        // (stray index file in project root) doesn't matter — the
+        // binary cannot read it.
+        for scip_available in [false, true] {
+            let (status, hint) = scip_status_for_response(scip_available);
+            assert_eq!(status, "not_compiled");
+            assert!(hint.is_none());
+        }
     }
 
     #[test]
