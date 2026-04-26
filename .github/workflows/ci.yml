@@ -72,6 +72,11 @@ jobs:
         shell: bash
         run: python3 scripts/agent-contract-check.py --project . --strict
 
+      - name: refactor honesty surface lint
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: python3 scripts/lint-refactor-honesty.py
+
       - name: surface manifest drift check
         if: matrix.os == 'ubuntu-latest'
         shell: bash
