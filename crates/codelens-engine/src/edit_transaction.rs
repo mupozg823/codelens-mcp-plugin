@@ -1,5 +1,14 @@
 //! Workspace edit transaction substrate.
 //!
+//! **Internal API.** `apply_full_write_with_evidence` and
+//! `WorkspaceEditTransaction::apply` are the lowest-level disk-write
+//! primitives in CodeLens. They produce `ApplyEvidence` and an
+//! optional rollback report but **do not** enforce ADR-0009 role
+//! gates, write audit rows, or invalidate engine caches — those
+//! guarantees are layered on top by `codelens-mcp` dispatch. Direct
+//! callers from outside the workspace silently bypass the trust
+//! substrate. See the crate-level docs in `lib.rs`.
+//!
 //! Provides a reusable domain object for multi-file mutations with
 //! pre-apply hash capture, post-apply hash verification, and rollback
 //! evidence. Used by LSP rename, safe_delete_apply, and future engine
