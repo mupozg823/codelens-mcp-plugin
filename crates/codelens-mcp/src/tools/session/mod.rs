@@ -15,7 +15,7 @@ pub use metrics_config::{
 };
 pub use planner_audit::audit_planner_session;
 pub use project_ops::{
-    activate_project, auto_set_embed_hint_lang, onboarding, prepare_for_new_conversation,
+    activate_project, auto_set_embed_hint_lang, prepare_for_new_conversation,
     prepare_harness_session, summarize_changes,
 };
 pub use registry_ops::{

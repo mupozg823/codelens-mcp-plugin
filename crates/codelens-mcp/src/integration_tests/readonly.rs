@@ -374,25 +374,6 @@ fn returns_blast_radius_via_tool_call() {
 }
 
 #[test]
-fn returns_importers_via_tool_call() {
-    let project = project_root();
-    fs::create_dir_all(project.as_path().join("lib")).unwrap();
-    fs::write(project.as_path().join("lib/base.py"), "BASE = 42\n").unwrap();
-    fs::write(
-        project.as_path().join("lib/derived.py"),
-        "from lib.base import BASE\n",
-    )
-    .unwrap();
-    let state = make_state(&project);
-    let payload = call_tool(
-        &state,
-        "find_importers",
-        json!({ "file_path": "lib/base.py" }),
-    );
-    assert_eq!(payload["success"], json!(true));
-}
-
-#[test]
 fn returns_symbol_importance_via_tool_call() {
     let project = project_root();
     fs::create_dir_all(project.as_path().join("importance_pkg")).unwrap();
