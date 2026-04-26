@@ -168,9 +168,9 @@ fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
     // Map canonical extension to call graph queries (not all languages support this)
     let (language_key, func_query, call_query) = match lang_config.extension {
         "py" => ("py", PYTHON_FUNC_QUERY, PYTHON_CALL_QUERY),
-        "js" => ("js", JS_FUNC_QUERY, JS_CALL_QUERY),
+        "js" => ("js", JS_FUNC_QUERY, JS_JSX_CALL_QUERY),
         "ts" => ("ts", JS_FUNC_QUERY, JS_CALL_QUERY),
-        "tsx" => ("tsx", JS_FUNC_QUERY, JS_CALL_QUERY),
+        "tsx" => ("tsx", JS_FUNC_QUERY, JS_JSX_CALL_QUERY),
         "go" => ("go", GO_FUNC_QUERY, GO_CALL_QUERY),
         "java" => ("java", JAVA_FUNC_QUERY, JAVA_CALL_QUERY),
         "kt" => ("kt", KOTLIN_FUNC_QUERY, JAVA_CALL_QUERY),
@@ -770,6 +770,10 @@ const PYTHON_FUNC_QUERY: &str = r#"
 const PYTHON_CALL_QUERY: &str = r#"
 (call function: (identifier) @callee)
 (call function: (attribute attribute: (identifier) @callee))
+(decorator (identifier) @callee)
+(decorator (call function: (identifier) @callee))
+(decorator (attribute attribute: (identifier) @callee))
+(decorator (call function: (attribute attribute: (identifier) @callee)))
 "#;
 
 const JS_FUNC_QUERY: &str = r#"
@@ -788,6 +792,18 @@ const JS_FUNC_QUERY: &str = r#"
 const JS_CALL_QUERY: &str = r#"
 (call_expression function: (identifier) @callee)
 (call_expression function: (member_expression property: (property_identifier) @callee))
+"#;
+
+// JSX/TSX adds React-style component usage (`<Foo />`, `<Foo>`) as caller→callee
+// edges. Plain TypeScript (.ts) has no JSX node types — keep this off the JS/TS
+// path. tree-sitter-javascript also supports JSX, so .jsx files share this set.
+const JS_JSX_CALL_QUERY: &str = r#"
+(call_expression function: (identifier) @callee)
+(call_expression function: (member_expression property: (property_identifier) @callee))
+(jsx_self_closing_element name: (identifier) @callee)
+(jsx_opening_element name: (identifier) @callee)
+(jsx_self_closing_element name: (member_expression property: (property_identifier) @callee))
+(jsx_opening_element name: (member_expression property: (property_identifier) @callee))
 "#;
 
 const GO_FUNC_QUERY: &str = r#"
@@ -858,6 +874,65 @@ mod tests {
                 .iter()
                 .any(|e| e.caller_name == "greet" && e.callee_name == "helper"),
             "expected greet->helper edge, got {edges:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_python_decorator_callers() {
+        // Python decorator pattern is THE most common Flask/FastAPI/click usage.
+        // tree-sitter call extractor previously missed it entirely (Flask: 1/292
+        // recall on `route`). Decorators must be treated as caller→callee edges.
+        let dir = temp_dir("py-deco");
+        let path = dir.join("views.py");
+        fs::write(
+            &path,
+            "from flask import Flask\napp = Flask(__name__)\n\
+             @app.route('/')\ndef home():\n    return 'hi'\n\n\
+             @app.route('/x')\ndef x_view():\n    return 'x'\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        let route_edges = edges
+            .iter()
+            .filter(|e| e.callee_name == "route")
+            .count();
+        assert!(
+            route_edges >= 2,
+            "expected at least 2 caller edges for `route` decorator, got {route_edges}: {edges:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_jsx_component_callers() {
+        // JSX <Component /> usage is THE core React pattern. Previously
+        // tree-sitter call extractor missed it entirely (rg-family: 0/14
+        // on `<Footer />`). JSX elements must be treated as caller→callee
+        // edges to the component function.
+        let dir = temp_dir("tsx");
+        let path = dir.join("page.tsx");
+        fs::write(
+            &path,
+            "import Footer from './Footer';\nimport { Button } from './ui';\n\
+             export default function Page() {\n  return (<div><Footer />\n\
+             <Button>OK</Button></div>);\n}\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        let footer_edges = edges
+            .iter()
+            .filter(|e| e.callee_name == "Footer")
+            .count();
+        let button_edges = edges
+            .iter()
+            .filter(|e| e.callee_name == "Button")
+            .count();
+        assert!(
+            footer_edges >= 1,
+            "expected at least 1 caller edge for `<Footer />`, got {footer_edges}: {edges:?}"
+        );
+        assert!(
+            button_edges >= 1,
+            "expected at least 1 caller edge for `<Button>`, got {button_edges}: {edges:?}"
         );
     }
 
