@@ -63,7 +63,8 @@ pub use db::{
     DirStats, IndexDb, NewCall, NewImport, NewSymbol, SymbolWithFile, content_hash, index_db_path,
 };
 pub use edit_transaction::{
-    ApplyError, ApplyEvidence, ApplyStatus, FileHash, RollbackEntry, WorkspaceEditTransaction,
+    apply_full_write_with_evidence, apply_full_writes_with_evidence, ApplyError, ApplyEvidence,
+    ApplyStatus, FileHash, RollbackEntry, WorkspaceEditTransaction,
 };
 pub use file_ops::{
     DirectoryEntry, EnclosingSymbol, FileMatch, FileReadResult, PatternMatch, SmartPatternMatch,
