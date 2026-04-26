@@ -3,14 +3,14 @@ use super::response_support::{
     effective_budget_for_tool, max_result_size_chars_for_tool, routing_hint_for_payload,
     success_jsonrpc_response, text_payload_for_response,
 };
-use crate::AppState;
 use crate::error::CodeLensError;
-use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
+use crate::mutation_gate::{is_verifier_source_tool, MutationGateAllowance, MutationGateFailure};
 use crate::protocol::{JsonRpcResponse, SuggestedNextCall, ToolCallResponse, ToolResponseMeta};
 use crate::telemetry::CallTelemetryHints;
-use crate::tool_defs::{ToolSurface, tool_definition};
+use crate::tool_defs::{tool_definition, ToolSurface};
 use crate::tools;
-use serde_json::{Map, Value, json};
+use crate::AppState;
+use serde_json::{json, Map, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -167,13 +167,23 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
 
     let effort_offset = state.effort_level().compression_threshold_offset();
     let text = text_payload_for_response(&resp, structured_content.as_ref());
-    let (text, structured_content, truncated) = bounded_result_payload(
+    let (text, mut structured_content, truncation_info) = bounded_result_payload(
         text,
         structured_content,
         payload_estimate,
         effective_budget,
         effort_offset,
     );
+    let truncated = truncation_info.is_some();
+    // Surface the truncation envelope at the top level of structured_content
+    // so an agent does not have to reach into the data envelope to discover
+    // arrays were clipped. Pre-PR101 dogfood case (Flask `route` callers
+    // 287→3) was a recall regression hidden by stage-5 compression.
+    if let (Some(info), Some(Value::Object(map))) =
+        (truncation_info.as_ref(), structured_content.as_mut())
+    {
+        map.insert("truncation_warning".to_owned(), info.to_json());
+    }
     let suggested_next_tools = resp.suggested_next_tools.as_deref().unwrap_or(&[]);
     let handoff_id = arguments.get("handoff_id").and_then(|value| value.as_str());
     let (delegate_hint_trigger, delegate_target_tool, delegate_handoff_id) =
