@@ -8,8 +8,8 @@
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
 - Workspace version: `1.9.59`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions in source: `117`
-- Tool output schemas in source: `86 / 117`
+- Registered tool definitions in source: `112`
+- Tool output schemas in source: `82 / 112`
 - Supported language families: `30` across `49` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:END -->

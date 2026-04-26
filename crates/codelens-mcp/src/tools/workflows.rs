@@ -1,8 +1,8 @@
-use crate::AppState;
 use crate::error::CodeLensError;
 use crate::tool_defs::deprecated_workflow_alias;
 use crate::tool_runtime::{ToolHandler, ToolResult};
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 
 #[cfg(feature = "semantic")]
 use crate::protocol::BackendKind;
@@ -169,34 +169,6 @@ pub fn plan_safe_refactor(state: &AppState, arguments: &Value) -> ToolResult {
     )
 }
 
-#[deprecated(
-    since = "1.12.0",
-    note = "Pure delegate. Call `semantic_code_review` directly. Scheduled for removal in v2.0."
-)]
-pub fn audit_security_context(state: &AppState, arguments: &Value) -> ToolResult {
-    delegate_workflow(
-        state,
-        "audit_security_context",
-        "semantic_code_review",
-        arguments.clone(),
-        crate::tools::reports::semantic_code_review,
-    )
-}
-
-#[deprecated(
-    since = "1.12.0",
-    note = "Pure delegate. Call `impact_report` directly. Scheduled for removal in v2.0."
-)]
-pub fn analyze_change_impact(state: &AppState, arguments: &Value) -> ToolResult {
-    delegate_workflow(
-        state,
-        "analyze_change_impact",
-        "impact_report",
-        arguments.clone(),
-        crate::tools::reports::impact_report,
-    )
-}
-
 pub fn review_changes(state: &AppState, arguments: &Value) -> ToolResult {
     if arguments
         .get("changed_files")
@@ -218,20 +190,6 @@ pub fn review_changes(state: &AppState, arguments: &Value) -> ToolResult {
         "impact_report",
         arguments.clone(),
         crate::tools::reports::impact_report,
-    )
-}
-
-#[deprecated(
-    since = "1.12.0",
-    note = "Pure delegate. Call `verify_change_readiness` directly. Scheduled for removal in v2.0."
-)]
-pub fn assess_change_readiness(state: &AppState, arguments: &Value) -> ToolResult {
-    delegate_workflow(
-        state,
-        "assess_change_readiness",
-        "verify_change_readiness",
-        arguments.clone(),
-        crate::tools::reports::verify_change_readiness,
     )
 }
 

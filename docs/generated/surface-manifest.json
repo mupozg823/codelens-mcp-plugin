@@ -11,32 +11,32 @@
     "member_count": 3
   },
   "tool_registry": {
-    "definition_count": 117,
-    "output_schema_count": 86,
+    "definition_count": 112,
+    "output_schema_count": 82,
     "namespaces": {
       "filesystem": 6,
-      "graph": 14,
+      "graph": 12,
       "lsp": 3,
       "memory": 5,
       "mutation": 16,
-      "reports": 28,
+      "reports": 25,
       "session": 34,
       "symbols": 11
     },
     "tiers": {
-      "analysis": 28,
+      "analysis": 26,
       "primitive": 56,
-      "workflow": 33
+      "workflow": 30
     },
     "phases": {
       "agnostic": 41,
       "build": 18,
       "eval": 8,
-      "plan": 29,
-      "review": 21
+      "plan": 27,
+      "review": 18
     },
     "preferred_executors": {
-      "any": 91,
+      "any": 86,
       "claude": 9,
       "codex-builder": 17
     },
@@ -258,15 +258,6 @@
         "estimated_tokens": 156
       },
       {
-        "name": "get_impact_analysis",
-        "namespace": "graph",
-        "tier": "analysis",
-        "phase": "plan",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 253
-      },
-      {
         "name": "get_callers",
         "namespace": "graph",
         "tier": "analysis",
@@ -301,15 +292,6 @@
         "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 92
-      },
-      {
-        "name": "find_dead_code",
-        "namespace": "graph",
-        "tier": "analysis",
-        "phase": "review",
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 105
       },
       {
         "name": "find_circular_dependencies",
@@ -537,24 +519,6 @@
         "estimated_tokens": 198
       },
       {
-        "name": "audit_security_context",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "review",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 185
-      },
-      {
-        "name": "analyze_change_impact",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "plan",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 184
-      },
-      {
         "name": "cleanup_duplicate_logic",
         "namespace": "reports",
         "tier": "workflow",
@@ -571,15 +535,6 @@
         "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 200
-      },
-      {
-        "name": "assess_change_readiness",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "review",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 214
       },
       {
         "name": "diagnose_issues",
@@ -1100,7 +1055,7 @@
     "profiles": [
       {
         "name": "planner-readonly",
-        "tool_count": 35,
+        "tool_count": 34,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1137,7 +1092,6 @@
           "semantic_search",
           "index_embeddings",
           "get_changed_files",
-          "get_impact_analysis",
           "get_current_config",
           "activate_project",
           "register_agent_work",
@@ -1213,7 +1167,7 @@
       },
       {
         "name": "reviewer-graph",
-        "tool_count": 37,
+        "tool_count": 36,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1245,7 +1199,6 @@
           "get_analysis_job",
           "get_analysis_section",
           "get_changed_files",
-          "get_impact_analysis",
           "get_callers",
           "get_callees",
           "find_scoped_references",
@@ -1302,7 +1255,7 @@
       },
       {
         "name": "refactor-full",
-        "tool_count": 51,
+        "tool_count": 50,
         "preferred_namespaces": [
           "reports",
           "session"
@@ -1354,7 +1307,6 @@
           "get_file_diagnostics",
           "plan_symbol_rename",
           "get_changed_files",
-          "get_impact_analysis",
           "get_callers",
           "get_callees",
           "find_scoped_references",
@@ -1370,7 +1322,7 @@
       },
       {
         "name": "ci-audit",
-        "tool_count": 45,
+        "tool_count": 43,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1403,11 +1355,9 @@
           "get_analysis_job",
           "get_analysis_section",
           "get_changed_files",
-          "get_impact_analysis",
           "get_callers",
           "get_callees",
           "find_scoped_references",
-          "find_dead_code",
           "find_circular_dependencies",
           "get_change_coupling",
           "get_current_config",
@@ -1510,7 +1460,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 84,
+        "tool_count": 83,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1556,7 +1506,6 @@
           "bm25_symbol_search",
           "get_type_hierarchy",
           "plan_symbol_rename",
-          "get_impact_analysis",
           "get_callers",
           "get_callees",
           "find_scoped_references",
@@ -1611,7 +1560,7 @@
       },
       {
         "name": "full",
-        "tool_count": 117,
+        "tool_count": 112,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1636,11 +1585,8 @@
           "refactor_extract_function",
           "refactor_inline_function",
           "trace_request_path",
-          "audit_security_context",
-          "analyze_change_impact",
           "cleanup_duplicate_logic",
           "review_changes",
-          "assess_change_readiness",
           "diagnose_issues",
           "onboard_project",
           "analyze_change_request",
@@ -1663,12 +1609,10 @@
           "retry_analysis_job",
           "summarize_file",
           "get_complexity",
-          "get_impact_analysis",
           "get_callers",
           "get_callees",
           "find_scoped_references",
           "get_symbol_importance",
-          "find_dead_code",
           "find_circular_dependencies",
           "get_change_coupling",
           "find_similar_code",
@@ -1778,7 +1722,7 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 35
+                "tool_count": 34
               },
               {
                 "name": "builder-minimal",
@@ -1820,11 +1764,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 35
+                "tool_count": 34
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 37
+                "tool_count": 36
               }
             ]
           },
@@ -1839,7 +1783,7 @@
               },
               {
                 "name": "refactor-full",
-                "tool_count": 51
+                "tool_count": 50
               }
             ]
           }
@@ -1882,11 +1826,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 37
+                "tool_count": 36
               },
               {
                 "name": "ci-audit",
-                "tool_count": 45
+                "tool_count": 43
               }
             ]
           }
@@ -1932,7 +1876,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 45
+                "tool_count": 43
               }
             ]
           }
@@ -1985,11 +1929,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 35
+                "tool_count": 34
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 37
+                "tool_count": 36
               }
             ]
           },
@@ -2004,7 +1948,7 @@
               },
               {
                 "name": "refactor-full",
-                "tool_count": 51
+                "tool_count": 50
               }
             ]
           }
@@ -2163,11 +2107,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 37
+                "tool_count": 36
               },
               {
                 "name": "ci-audit",
-                "tool_count": 45
+                "tool_count": 43
               }
             ]
           }
@@ -2269,7 +2213,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 45
+                "tool_count": 43
               }
             ]
           }
@@ -3265,7 +3209,7 @@
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 84,
+    "visible_tool_count": 83,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": true,
@@ -3297,10 +3241,10 @@
   "summary": {
     "workspace_version": "1.9.59",
     "workspace_member_count": 3,
-    "registered_tool_definitions": 117,
+    "registered_tool_definitions": 112,
     "tool_output_schemas": {
-      "declared": 86,
-      "total": 117
+      "declared": 82,
+      "total": 112
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,

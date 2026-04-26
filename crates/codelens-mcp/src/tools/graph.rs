@@ -142,11 +142,15 @@ pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -
     ))
 }
 
-#[deprecated(
-    since = "1.9.46",
-    note = "Use `impact_report` for richer structured blast-radius output. Scheduled for removal in v2.0."
-)]
-pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+/// Internal helper — historically the `get_impact_analysis` MCP tool. The
+/// public tool was removed when superseded by `impact_report`, but several
+/// internal builders (boundary/impact reports, mermaid graph, report_jobs)
+/// still consume this exact JSON shape, so the implementation lives on as
+/// a `pub(crate)` helper.
+pub(crate) fn get_impact_analysis(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let max_depth = optional_usize(arguments, "max_depth", 3);
 
@@ -199,11 +203,14 @@ pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) ->
     )
 }
 
-#[deprecated(
-    since = "1.9.46",
-    note = "Use `dead_code_report` for richer structured output. Scheduled for removal in v2.0."
-)]
-pub fn find_dead_code_v2_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+/// Internal helper — historically the `find_dead_code` MCP tool. The
+/// public tool was removed when superseded by `dead_code_report`, but
+/// internal report builders (boundary, report_jobs) still consume this
+/// JSON shape.
+pub(crate) fn find_dead_code_v2_tool(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> ToolResult {
     let max_results = optional_usize(arguments, "max_results", 50);
     Ok(
         find_dead_code_v2(&state.project(), max_results, &state.graph_cache()).map(|value| {
