@@ -244,6 +244,34 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         Some(graph_cache.as_ref()),
     )
     .map(|value| {
+        // L1 slice 2: when a SCIP index is loaded, prepend type-aware
+        // caller entries (resolution: "scip"). SCIP enclosing-scope walk
+        // catches callers that tree-sitter's name-based cascade
+        // misclassifies — Rust dispatch tables and macro-generated
+        // wrappers are the canonical example. Dedup against tree-sitter
+        // by (file, function, line) so counts are not inflated.
+        #[cfg(feature = "scip-backend")]
+        let mut value = value;
+        #[cfg(feature = "scip-backend")]
+        if let Some(backend) = state.scip() {
+            let scip_entries = backend.find_callers(function_name);
+            if !scip_entries.is_empty() {
+                let existing: std::collections::HashSet<(String, String, usize)> = value
+                    .iter()
+                    .map(|c| (c.file.clone(), c.function.clone(), c.line))
+                    .collect();
+                let mut merged: Vec<_> = scip_entries
+                    .into_iter()
+                    .filter(|c| !existing.contains(&(c.file.clone(), c.function.clone(), c.line)))
+                    .collect();
+                merged.append(&mut value);
+                value = merged;
+                if value.len() > max_results {
+                    value.truncate(max_results);
+                }
+            }
+        }
+
         let (resolution_summary, confidence_basis, meta) =
             call_graph_analysis(value.iter().map(|entry| entry.resolution));
         let evidence = crate::tool_evidence::tool_evidence(

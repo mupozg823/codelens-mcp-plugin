@@ -13,7 +13,7 @@ use std::path::Path;
 use protobuf::Message;
 use scip::types::{self as scip_types, Index};
 
-use crate::call_graph::{is_noise_callee, CalleeEntry};
+use crate::call_graph::{is_noise_callee, CalleeEntry, CallerEntry};
 use crate::ir::{
     CodeDiagnostic, DiagnosticSeverity, IntelligenceSource, PreciseBackend, SearchCandidate,
 };
@@ -202,6 +202,122 @@ impl ScipBackend {
             });
         }
         callees
+    }
+
+    /// Find callers of `function_name` across the indexed corpus using
+    /// reference occurrences plus a next-definition enclosing-scope walk.
+    ///
+    /// SCIP does not directly model "X calls Y"; it records occurrences
+    /// (symbol, role, range) per document. To answer "who calls foo?":
+    ///
+    ///   1. Resolve foo to one or more SCIP symbols (function-like only,
+    ///      filtered by `is_function_like_symbol`).
+    ///   2. For every reference (non-definition) occurrence of those
+    ///      symbols across all documents, locate the nearest preceding
+    ///      function-like definition in the same document — that is the
+    ///      enclosing caller. The caller's body extent is approximated by
+    ///      "from this def to the next function-like def" (mirrors the
+    ///      heuristic used in `find_callees`).
+    ///
+    /// Returns an empty Vec when no function-like symbol matches the
+    /// requested name; callers fall through to tree-sitter cleanly.
+    pub fn find_callers(&self, function_name: &str) -> Vec<CallerEntry> {
+        // Step 1 — resolve target symbols (must be function-like; we don't
+        // want to surface struct/type defs as "callees of themselves").
+        let target_symbols: std::collections::HashSet<String> = self
+            .symbol_info
+            .keys()
+            .filter(|s| Self::short_name(s) == function_name && Self::is_function_like_symbol(s))
+            .cloned()
+            .chain(self.documents.values().flat_map(|doc| {
+                doc.occurrences
+                    .iter()
+                    .filter(|occ| Self::is_definition(occ))
+                    .filter(|occ| {
+                        Self::short_name(&occ.symbol) == function_name
+                            && Self::is_function_like_symbol(&occ.symbol)
+                    })
+                    .map(|occ| occ.symbol.clone())
+            }))
+            .collect();
+        if target_symbols.is_empty() {
+            return Vec::new();
+        }
+
+        let mut callers: Vec<CallerEntry> = Vec::new();
+        let mut seen: std::collections::HashSet<(String, String, usize)> =
+            std::collections::HashSet::new();
+
+        for (path, doc) in &self.documents {
+            // Per-document sorted list of function-like definitions for
+            // enclosing-scope lookup. Building this once amortizes the
+            // O(occ * fn_def) work over each candidate occurrence.
+            let mut fn_defs: Vec<(usize, &str)> = doc
+                .occurrences
+                .iter()
+                .filter(|occ| {
+                    Self::is_definition(occ) && Self::is_function_like_symbol(&occ.symbol)
+                })
+                .map(|occ| (Self::parse_range(occ).0, occ.symbol.as_str()))
+                .collect();
+            fn_defs.sort_by_key(|(line, _)| *line);
+
+            for occ in &doc.occurrences {
+                if Self::is_definition(occ) {
+                    continue;
+                }
+                if !target_symbols.contains(&occ.symbol) {
+                    continue;
+                }
+                let (line, _, _, _) = Self::parse_range(occ);
+
+                // Find the nearest fn def at or before `line` whose body
+                // extends past `line` (i.e. the next fn def is strictly
+                // greater). Skip references that fall outside any
+                // function body — they're top-level/static-init refs.
+                let Some(enc_idx) = fn_defs.iter().rposition(|(def_line, _)| *def_line <= line)
+                else {
+                    continue;
+                };
+                let next_def_line = fn_defs
+                    .get(enc_idx + 1)
+                    .map(|(l, _)| *l)
+                    .unwrap_or(usize::MAX);
+                if line >= next_def_line {
+                    continue;
+                }
+
+                let enc_symbol = fn_defs[enc_idx].1;
+                let caller_name = Self::short_name(enc_symbol).to_owned();
+                // Self-reference within own body (recursion) — skip to
+                // mirror tree-sitter behavior so the call graph harness
+                // treats the two backends consistently.
+                if caller_name == function_name {
+                    continue;
+                }
+                if !seen.insert((path.clone(), caller_name.clone(), line)) {
+                    continue;
+                }
+
+                callers.push(CallerEntry {
+                    file: path.clone(),
+                    function: caller_name,
+                    line,
+                    confidence: 0.95,
+                    resolution: Some("scip"),
+                });
+            }
+        }
+        callers
+    }
+
+    /// SCIP descriptor heuristic: function/method symbols include `()` in
+    /// their descriptor string (e.g. `pkg/mod/foo().` or
+    /// `pkg/mod/impl#[`Bar`]baz().`). Types end with `#`, fields with `.`,
+    /// neither carries `()`. Cheaper and more portable than reading the
+    /// optional SymbolInformation.kind field.
+    fn is_function_like_symbol(scip_symbol: &str) -> bool {
+        scip_symbol.contains("()")
     }
 }
 
@@ -716,5 +832,75 @@ mod tests {
 
         let callees_wrong_file = backend.find_callees("handle_request", "src/unknown.rs");
         assert!(callees_wrong_file.is_empty());
+    }
+
+    #[test]
+    fn find_callers_resolves_enclosing_function_via_next_def() {
+        // L1 slice 2 acceptance — `find_callers(dispatch_tool)` must
+        // attribute the call site at router.rs:12 to handle_request (the
+        // function whose body contains line 12) and the call at line 27
+        // to other_fn. Top-level references (outside any fn body) are
+        // skipped. The fixture covers both happy paths and the
+        // "outside-body" rejection case.
+        let idx = build_callees_fixture();
+        let file = write_index_to_file(&idx);
+        let backend = ScipBackend::load(file.path()).unwrap();
+
+        let callers = backend.find_callers("read_resource");
+        // read_resource is referenced at router.rs:14 (in handle_request)
+        // AND at router.rs:27 (in other_fn). Both are valid callers.
+        let mut caller_pairs: Vec<(String, usize)> = callers
+            .iter()
+            .map(|c| (c.function.clone(), c.line))
+            .collect();
+        caller_pairs.sort();
+        assert_eq!(
+            caller_pairs,
+            vec![
+                ("handle_request".to_owned(), 14),
+                ("other_fn".to_owned(), 27),
+            ],
+            "callers should attribute occurrences to their enclosing fn"
+        );
+
+        for c in &callers {
+            assert_eq!(c.resolution, Some("scip"));
+            assert!(c.confidence >= 0.9);
+            assert_eq!(c.file, "crates/codelens-mcp/src/server/router.rs");
+        }
+    }
+
+    #[test]
+    fn find_callers_returns_empty_for_unknown_or_non_function() {
+        // Negative cases:
+        //   1. Unknown name → empty (caller falls through to tree-sitter).
+        //   2. A symbol that exists but is not function-like (no `()` in
+        //      its descriptor — a struct or field) must not be reported
+        //      as having callers; otherwise `get_callers("MyStruct")`
+        //      would return everywhere the type is mentioned, which is
+        //      not the call-graph contract.
+        let mut idx = build_callees_fixture();
+        // Append a struct-like symbol "Config#" referenced from inside
+        // handle_request body. find_callers("Config") must NOT pick it up.
+        let struct_sym = "scip-rust cargo codelens-mcp 1.9 server/router/Config#".to_owned();
+        let mut struct_def = scip_types::Occurrence::new();
+        struct_def.range = vec![18, 4, 10];
+        struct_def.symbol = struct_sym.clone();
+        struct_def.symbol_roles = 1; // definition (struct)
+        idx.documents[0].occurrences.push(struct_def);
+        let mut struct_ref = scip_types::Occurrence::new();
+        struct_ref.range = vec![13, 8, 14];
+        struct_ref.symbol = struct_sym.clone();
+        struct_ref.symbol_roles = 0;
+        idx.documents[0].occurrences.push(struct_ref);
+
+        let file = write_index_to_file(&idx);
+        let backend = ScipBackend::load(file.path()).unwrap();
+
+        assert!(backend.find_callers("no_such_function").is_empty());
+        assert!(
+            backend.find_callers("Config").is_empty(),
+            "non-function symbols must be filtered by is_function_like_symbol"
+        );
     }
 }
