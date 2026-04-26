@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-surface-manifest-v1",
   "workspace": {
-    "version": "1.9.50",
+    "version": "1.9.59",
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
     "members": [
       "crates/codelens-engine",
@@ -11,8 +11,8 @@
     "member_count": 3
   },
   "tool_registry": {
-    "definition_count": 114,
-    "output_schema_count": 85,
+    "definition_count": 117,
+    "output_schema_count": 86,
     "namespaces": {
       "filesystem": 6,
       "graph": 14,
@@ -20,23 +20,23 @@
       "memory": 5,
       "mutation": 16,
       "reports": 28,
-      "session": 31,
+      "session": 34,
       "symbols": 11
     },
     "tiers": {
-      "analysis": 26,
+      "analysis": 28,
       "primitive": 56,
-      "workflow": 32
+      "workflow": 33
     },
     "phases": {
-      "agnostic": 38,
+      "agnostic": 41,
       "build": 18,
       "eval": 8,
       "plan": 29,
       "review": 21
     },
     "preferred_executors": {
-      "any": 88,
+      "any": 91,
       "claude": 9,
       "codex-builder": 17
     },
@@ -510,6 +510,15 @@
         "estimated_tokens": 186
       },
       {
+        "name": "explain_code_flow",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 131
+      },
+      {
         "name": "review_architecture",
         "namespace": "reports",
         "tier": "workflow",
@@ -733,6 +742,15 @@
         "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 257
+      },
+      {
+        "name": "retry_analysis_job",
+        "namespace": "session",
+        "tier": "workflow",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": true,
+        "estimated_tokens": 267
       },
       {
         "name": "list_analysis_jobs",
@@ -966,7 +984,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 1023
+        "estimated_tokens": 1080
       },
       {
         "name": "get_tool_metrics",
@@ -1003,6 +1021,15 @@
         "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 227
+      },
+      {
+        "name": "audit_log_query",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 191
       },
       {
         "name": "summarize_file",
@@ -1483,7 +1510,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 81,
+        "tool_count": 84,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1522,6 +1549,7 @@
           "refresh_symbol_index",
           "propagate_deletions",
           "semantic_code_review",
+          "retry_analysis_job",
           "replace_symbol_body",
           "find_relevant_rules",
           "get_ranked_context",
@@ -1536,8 +1564,10 @@
           "find_code_duplicates",
           "classify_symbol",
           "resolve_symbol_target",
+          "explain_code_flow",
           "query_project",
           "get_capabilities",
+          "audit_log_query",
           "rename_symbol",
           "get_analysis_job",
           "get_analysis_section",
@@ -1581,7 +1611,7 @@
       },
       {
         "name": "full",
-        "tool_count": 114,
+        "tool_count": 117,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1630,6 +1660,7 @@
           "refresh_symbol_index",
           "propagate_deletions",
           "semantic_code_review",
+          "retry_analysis_job",
           "summarize_file",
           "get_complexity",
           "get_impact_analysis",
@@ -1648,10 +1679,12 @@
           "refactor_change_signature",
           "find_relevant_rules",
           "resolve_symbol_target",
+          "explain_code_flow",
           "query_project",
           "get_capabilities",
           "audit_builder_session",
           "audit_planner_session",
+          "audit_log_query",
           "get_ranked_context",
           "bm25_symbol_search",
           "search_symbols_fuzzy",
@@ -3226,13 +3259,13 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.9.50",
+    "version": "1.9.59",
     "transport": [
       "stdio",
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 81,
+    "visible_tool_count": 84,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": true,
@@ -3262,12 +3295,12 @@
     ]
   },
   "summary": {
-    "workspace_version": "1.9.50",
+    "workspace_version": "1.9.59",
     "workspace_member_count": 3,
-    "registered_tool_definitions": 114,
+    "registered_tool_definitions": 117,
     "tool_output_schemas": {
-      "declared": 85,
-      "total": 114
+      "declared": 86,
+      "total": 117
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,
