@@ -1,7 +1,7 @@
 use super::response_support::{
     apply_contextual_guidance, bounded_result_payload, budget_hint, compact_response_payload,
-    effective_budget_for_tool, max_result_size_chars_for_tool, routing_hint_for_payload,
-    success_jsonrpc_response, text_payload_for_response,
+    effective_budget_for_tool, enrich_recovery_hint_for_signals, max_result_size_chars_for_tool,
+    routing_hint_for_payload, success_jsonrpc_response, text_payload_for_response,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{is_verifier_source_tool, MutationGateAllowance, MutationGateFailure};
@@ -174,6 +174,13 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         effective_budget,
         effort_offset,
     );
+    // S2: when the response was clipped AND structured signals show the
+    // call-graph extractor only emitted unresolved edges, replace the
+    // generic budget-narrowing recovery hint with a grep-fallback cue
+    // that names the symbol — retrying with smaller max_results would
+    // not recover edges the extractor failed to discover.
+    let truncation_info = truncation_info
+        .map(|info| enrich_recovery_hint_for_signals(info, structured_content.as_ref()));
     let truncated = truncation_info.is_some();
     // Surface the truncation envelope at the top level of structured_content
     // so an agent does not have to reach into the data envelope to discover
