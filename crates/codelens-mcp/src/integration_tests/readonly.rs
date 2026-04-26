@@ -28,6 +28,122 @@ fn returns_symbols_via_tool_call() {
     assert_eq!(payload["success"], json!(true));
 }
 
+// P1-B contract: every read-only tool in the second wave must
+// 1) honor `limit` / `top_k` aliases for whatever its canonical
+//    limit field is (or skip the alias if it has no limit field),
+// 2) surface unknown top-level keys in `unknown_args: [...]` so
+//    silent drops of agent input become observable.
+//
+// Doc: docs/design/arg-validation-policy.md
+#[test]
+fn p1_b_arg_validation_contract_across_five_tools() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("contract.py"),
+        "def alpha():\n    pass\n\
+         def beta():\n    alpha()\n    print('x')\n\
+         def gamma():\n    beta()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    // get_callers — limit alias narrows result set; banana surfaced
+    let p = call_tool(
+        &state,
+        "get_callers",
+        json!({"function_name": "alpha", "limit": 1, "banana": 1}),
+    );
+    assert_eq!(p["success"], json!(true));
+    assert_eq!(
+        p["data"]["unknown_args"],
+        json!(["banana"]),
+        "get_callers must surface unknown banana key"
+    );
+
+    // get_callees — top_k alias works as well
+    let p = call_tool(
+        &state,
+        "get_callees",
+        json!({"function_name": "beta", "top_k": 5, "threshold": 0.5}),
+    );
+    assert_eq!(p["success"], json!(true));
+    assert_eq!(
+        p["data"]["unknown_args"],
+        json!(["threshold"]),
+        "get_callees must surface unknown threshold key"
+    );
+
+    // find_symbol — canonical is `max_matches`, but `limit` should still alias to it
+    let p = call_tool(
+        &state,
+        "find_symbol",
+        json!({"name": "alpha", "limit": 3, "carrot": "c"}),
+    );
+    assert_eq!(p["success"], json!(true));
+    assert_eq!(
+        p["data"]["unknown_args"],
+        json!(["carrot"]),
+        "find_symbol must surface unknown carrot key"
+    );
+
+    // find_referencing_symbols — limit alias on tree-sitter fallback path
+    let p = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({"file_path": "contract.py", "symbol_name": "alpha", "limit": 5, "fizz": true}),
+    );
+    assert_eq!(p["success"], json!(true));
+    assert_eq!(
+        p["data"]["unknown_args"],
+        json!(["fizz"]),
+        "find_referencing_symbols must surface unknown fizz key"
+    );
+
+    // get_ranked_context — no limit alias (depth is the relevant control),
+    // but unknown args still surface
+    let p = call_tool(
+        &state,
+        "get_ranked_context",
+        json!({"query": "alpha", "buzz": 9}),
+    );
+    assert_eq!(p["success"], json!(true));
+    assert_eq!(
+        p["data"]["unknown_args"],
+        json!(["buzz"]),
+        "get_ranked_context must surface unknown buzz key"
+    );
+
+    // Negative case: clean args produce no `unknown_args` key on any
+    // of the five tools (backward compatibility for happy-path agents).
+    for (tool, args) in [
+        (
+            "get_callers",
+            json!({"function_name": "alpha", "max_results": 5}),
+        ),
+        (
+            "get_callees",
+            json!({"function_name": "beta", "max_results": 5}),
+        ),
+        ("find_symbol", json!({"name": "alpha", "max_matches": 3})),
+        (
+            "find_referencing_symbols",
+            json!({"file_path": "contract.py", "symbol_name": "alpha", "max_results": 5}),
+        ),
+        ("get_ranked_context", json!({"query": "alpha", "depth": 2})),
+    ] {
+        let p = call_tool(&state, tool, args);
+        assert_eq!(
+            p["success"],
+            json!(true),
+            "{tool} clean call should succeed"
+        );
+        assert!(
+            p["data"].get("unknown_args").is_none(),
+            "{tool} clean args must not include unknown_args key (backward compat)"
+        );
+    }
+}
+
 #[test]
 fn find_symbol_surfaces_tree_sitter_precision_evidence() {
     let project = project_root();
