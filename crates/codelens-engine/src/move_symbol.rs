@@ -1,7 +1,8 @@
+use crate::edit_transaction::{apply_full_writes_with_evidence, ApplyEvidence};
 use crate::project::ProjectRoot;
-use crate::rename::{RenameEdit, apply_edits, find_all_word_matches};
+use crate::rename::{apply_edits, find_all_word_matches, RenameEdit};
 use crate::symbols::{find_symbol, find_symbol_range};
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use serde::Serialize;
 use std::fs;
 
@@ -14,6 +15,12 @@ pub struct MoveResult {
     pub symbol_name: String,
     pub import_updates: usize,
     pub edits: Vec<MoveEdit>,
+    /// G7b — `ApplyEvidence` for the source+target atomic transaction.
+    /// `None` on dry runs (no on-disk write attempted) and on the
+    /// pre-substrate validation failures that bail before the
+    /// transaction begins.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apply_evidence: Option<ApplyEvidence>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -133,7 +140,7 @@ pub fn move_symbol(
         .filter(|e| matches!(e.action, MoveAction::UpdateImport))
         .count();
 
-    let result = MoveResult {
+    let mut result = MoveResult {
         success: true,
         message: format!(
             "Moved '{}' from '{}' to '{}', updated {} import(s)",
@@ -144,10 +151,11 @@ pub fn move_symbol(
         symbol_name: symbol_name.to_string(),
         import_updates,
         edits,
+        apply_evidence: None,
     };
 
     if !dry_run {
-        // Remove symbol from source file
+        // Compute the post-move source content (symbol removed).
         let source_lines: Vec<String> = source_content.lines().map(String::from).collect();
         let start_idx = if start_line > 0 { start_line - 1 } else { 0 };
         let end_idx = end_line.min(source_lines.len());
@@ -169,16 +177,14 @@ pub fn move_symbol(
         if source_content.ends_with('\n') {
             new_source.push('\n');
         }
-        fs::write(&resolved_source, &new_source)?;
 
-        // Add symbol to target file
+        // Compute the post-move target content (symbol appended).
         let resolved_target = project.resolve(target_file)?;
         let mut target_content = if resolved_target.exists() {
             fs::read_to_string(&resolved_target)?
         } else {
             String::new()
         };
-
         if !target_content.is_empty() && !target_content.ends_with('\n') {
             target_content.push('\n');
         }
@@ -188,12 +194,38 @@ pub fn move_symbol(
         target_content.push_str(&symbol_text);
         target_content.push('\n');
 
-        if let Some(parent) = resolved_target.parent() {
-            fs::create_dir_all(parent)?;
+        // G7b — atomic 2-file substrate. If the target write fails, the
+        // source write is rolled back to its pre-move bytes so the
+        // symbol never disappears mid-flight.
+        let writes: Vec<(&str, &str)> = vec![
+            (file_path, new_source.as_str()),
+            (target_file, target_content.as_str()),
+        ];
+        match apply_full_writes_with_evidence(project, &writes) {
+            Ok(evidence) => {
+                result.apply_evidence = Some(evidence);
+            }
+            Err(err) => {
+                // Surface the substrate's evidence on rollback so callers
+                // can confirm the disk state is back to its pre-move
+                // shape. Other errors (PreReadFailed,
+                // PreApplyHashMismatch) propagate as-is.
+                if let crate::edit_transaction::ApplyError::ApplyFailed { evidence, source } = err {
+                    result.apply_evidence = Some(evidence);
+                    result.success = false;
+                    result.message = format!(
+                        "move '{symbol_name}' failed mid-write: {source}; source+target rolled back"
+                    );
+                    return Ok(result);
+                }
+                return Err(anyhow::anyhow!(err));
+            }
         }
-        fs::write(&resolved_target, &target_content)?;
 
-        // Update imports across the project
+        // Update imports across the project. These edits operate on
+        // files outside the source/target pair so a failure here does
+        // not undo the move itself; the import-update step is best-
+        // effort the same way it was pre-G7b.
         if !import_edits.is_empty() {
             apply_edits(project, &import_edits)?;
         }
