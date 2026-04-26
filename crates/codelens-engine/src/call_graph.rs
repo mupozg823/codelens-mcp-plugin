@@ -823,6 +823,8 @@ const JAVA_FUNC_QUERY: &str = r#"
 
 const JAVA_CALL_QUERY: &str = r#"
 (method_invocation name: (identifier) @callee)
+(object_creation_expression type: (type_identifier) @callee)
+(method_reference (identifier) @callee)
 "#;
 
 const KOTLIN_FUNC_QUERY: &str = r#"
@@ -1026,6 +1028,55 @@ fn run() {
                 .any(|e| e.caller_name == "handleRequest" && e.callee_name == "validateUser"),
             "expected handleRequest->validateUser edge, got {edges:?}"
         );
+    }
+
+    /// Java `new Foo()` — `object_creation_expression`, NOT method_invocation.
+    /// Before C-2 the constructor target was silently dropped; only the
+    /// follow-up `.method()` call was captured.
+    #[test]
+    fn extracts_java_constructor_invocations() {
+        let dir = temp_dir("java-ctor");
+        let path = dir.join("App.java");
+        fs::write(
+            &path,
+            "class App { void caller() { Foo f = new Foo(); Bar b = new Bar(1, 2); f.process(); } }\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        for expected in ["Foo", "Bar", "process"] {
+            assert!(
+                edges
+                    .iter()
+                    .any(|e| e.caller_name == "caller" && e.callee_name == expected),
+                "expected caller->{expected} edge, got {edges:?}"
+            );
+        }
+    }
+
+    /// Java method references (`Foo::bar`). Modern Java + streams uses
+    /// these heavily; pre-C-3 they emitted no edges because tree-sitter-java
+    /// models `method_reference` as a distinct AST node from
+    /// `method_invocation`. Uses non-noise method names so edges survive
+    /// the std-noise filter (forEach/stream/map/println/toUpperCase are
+    /// all in is_noise_callee).
+    #[test]
+    fn extracts_java_method_references() {
+        let dir = temp_dir("java-mref");
+        let path = dir.join("App.java");
+        fs::write(
+            &path,
+            "class App { void caller(Bus b) { b.attach(Handler::dispatchEvent); b.subscribe(MyService::handleRequest); } }\n",
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        for expected in ["attach", "dispatchEvent", "subscribe", "handleRequest"] {
+            assert!(
+                edges
+                    .iter()
+                    .any(|e| e.caller_name == "caller" && e.callee_name == expected),
+                "expected caller->{expected} edge, got {edges:?}"
+            );
+        }
     }
 
     #[test]
