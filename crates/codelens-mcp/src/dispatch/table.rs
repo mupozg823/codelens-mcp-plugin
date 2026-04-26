@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 #[cfg(feature = "semantic")]
-use crate::{AppState, error::CodeLensError, protocol::BackendKind, tools::ToolResult};
+use crate::{error::CodeLensError, protocol::BackendKind, tools::ToolResult, AppState};
 #[cfg(feature = "semantic")]
 use serde_json::json;
 
@@ -51,10 +51,18 @@ pub(crate) static DISPATCH_TABLE: LazyLock<
 #[cfg(feature = "semantic")]
 fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = tools::required_string(arguments, "query")?;
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20) as usize;
+    // P0-3 — accept `limit`/`top_k` as aliases for `max_results` so an
+    // agent that sends the common alias is not silently dropped to the
+    // default of 20. The canonical name still wins when both are
+    // present.
+    const KNOWN_ARGS: &[&str] = &["query", "max_results", "limit", "top_k"];
+    let max_results = crate::tool_runtime::optional_usize_with_aliases(
+        arguments,
+        "max_results",
+        &["limit", "top_k"],
+        20,
+    );
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
 
     let project = state.project();
     let guard = state.embedding_engine();
@@ -165,6 +173,15 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
                 );
             }
         }
+    }
+    // Surface unknown top-level argument keys so an agent that passed
+    // (e.g.) `threshold: 0.5` to a tool that does not honor it sees
+    // the field was ignored. Only emitted when non-empty so the
+    // existing happy-path response shape is unchanged.
+    if !unknown_args.is_empty()
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert("unknown_args".to_owned(), json!(unknown_args));
     }
     Ok((payload, tools::success_meta(BackendKind::Semantic, 0.85)))
 }
