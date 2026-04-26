@@ -3,6 +3,7 @@ use crate::tool_defs::ToolSurface;
 use crate::tool_runtime::{success_meta, ToolResult};
 use crate::AppState;
 use serde_json::json;
+use std::path::Path;
 
 #[cfg(feature = "semantic")]
 use crate::tool_defs::is_tool_in_surface;
@@ -735,7 +736,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     // compact probe was silent on SCIP entirely — the get_callers SCIP
     // boost shipped in #105 was invisible to agents that didn't drill
     // into `detail=full`.
-    let (scip_status, scip_setup_hint) = scip_status_for_response(scip_available);
+    let (scip_status, scip_setup_hint) =
+        scip_status_for_response(scip_available, project_root.as_path());
 
     let embedding_indexed_bool = embedding_index_info
         .as_ref()
@@ -824,35 +826,85 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     Ok((payload, success_meta(BackendKind::Config, 0.95)))
 }
 
-/// Tri-state SCIP discovery signal:
-/// - `"enabled"` — feature compiled AND `index.scip` present at one of
-///   the standard locations
+/// Four-state SCIP discovery signal:
+/// - `"enabled"` — feature compiled, `index.scip` present, and fresher
+///   than `Cargo.lock`/`Cargo.toml` (the cheap proxy for "code state
+///   the index was generated from")
+/// - `"stale_index"` — index present but its mtime predates Cargo.lock
+///   or Cargo.toml. The index will mostly still work but type
+///   resolutions for newly-added/removed crates or symbols will be
+///   inaccurate; `scip_setup_hint` recommends a regeneration
 /// - `"available_no_index"` — feature compiled but no index detected;
 ///   pair with the actionable `scip_setup_hint` so agents can guide
 ///   users to generate one
 /// - `"not_compiled"` — feature disabled in this binary; no hint is
 ///   emitted because the binary cannot benefit from an index even if
 ///   one were generated
-fn scip_status_for_response(scip_available: bool) -> (&'static str, Option<String>) {
+fn scip_status_for_response(
+    scip_available: bool,
+    project_root: &Path,
+) -> (&'static str, Option<String>) {
     #[cfg(feature = "scip-backend")]
     {
-        if scip_available {
-            ("enabled", None)
-        } else {
-            (
+        if !scip_available {
+            return (
                 "available_no_index",
                 Some(
                     "Run `scripts/generate-scip-index.sh` (wraps `rust-analyzer scip .`) at the project root to enable type-aware get_callers/get_callees."
                         .to_owned(),
                 ),
-            )
+            );
         }
+        if is_scip_index_stale(project_root) {
+            return (
+                "stale_index",
+                Some(
+                    "SCIP index is older than Cargo.lock/Cargo.toml — re-run `scripts/generate-scip-index.sh` to refresh type-aware navigation against the current dependency tree."
+                        .to_owned(),
+                ),
+            );
+        }
+        ("enabled", None)
     }
     #[cfg(not(feature = "scip-backend"))]
     {
-        let _ = scip_available;
+        let _ = (scip_available, project_root);
         ("not_compiled", None)
     }
+}
+
+/// Compares the mtime of the detected `index.scip` against
+/// `Cargo.lock` (preferred — captures every dep change including
+/// transitive bumps) and `Cargo.toml` (fallback — captures workspace
+/// member additions). Returns false on any I/O error so the helper
+/// stays best-effort: a missing index, missing manifest, or unreadable
+/// metadata simply leaves the status as `enabled`/`available_no_index`
+/// without spurious "stale" claims.
+#[cfg(feature = "scip-backend")]
+fn is_scip_index_stale(project_root: &Path) -> bool {
+    let Some(index_path) = codelens_engine::ScipBackend::detect(project_root) else {
+        return false;
+    };
+    let Ok(index_meta) = std::fs::metadata(&index_path) else {
+        return false;
+    };
+    let Ok(index_mtime) = index_meta.modified() else {
+        return false;
+    };
+
+    for manifest in ["Cargo.lock", "Cargo.toml"] {
+        let manifest_path = project_root.join(manifest);
+        let Ok(meta) = std::fs::metadata(&manifest_path) else {
+            continue;
+        };
+        let Ok(mtime) = meta.modified() else {
+            continue;
+        };
+        if mtime > index_mtime {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -890,26 +942,76 @@ mod tests {
 
     #[cfg(feature = "scip-backend")]
     #[test]
-    fn scip_status_when_compiled_with_index_present() {
-        // L1 slice 3 — `index.scip` was just generated → status flips
-        // from `available_no_index` to `enabled` and the actionable
-        // setup hint disappears (no work left to do).
-        let (status, hint) = scip_status_for_response(true);
+    fn scip_status_when_compiled_with_fresh_index_is_enabled() {
+        // L1 slice 3 + 4 — index.scip is fresher than Cargo.lock /
+        // Cargo.toml, so status is `enabled` and no setup hint is
+        // needed. The fixture builds an actual on-disk layout so the
+        // staleness check (mtime compare) sees real metadata.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), b"[package]\nname=\"x\"\n").unwrap();
+        std::fs::write(dir.path().join("Cargo.lock"), b"# dummy\n").unwrap();
+        let index_path = dir.path().join("index.scip");
+        std::fs::write(&index_path, b"placeholder").unwrap();
+        // Backdate manifests by 60s so the index is unambiguously fresher
+        // than they are even on filesystems with second-granularity mtimes.
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        filetime::set_file_mtime(
+            dir.path().join("Cargo.toml"),
+            filetime::FileTime::from_system_time(past),
+        )
+        .unwrap();
+        filetime::set_file_mtime(
+            dir.path().join("Cargo.lock"),
+            filetime::FileTime::from_system_time(past),
+        )
+        .unwrap();
+
+        let (status, hint) = scip_status_for_response(true, dir.path());
         assert_eq!(status, "enabled");
+        assert!(hint.is_none(), "fresh index needs no hint");
+    }
+
+    #[cfg(feature = "scip-backend")]
+    #[test]
+    fn scip_status_when_index_predates_cargo_lock_is_stale() {
+        // L1 slice 4 — when Cargo.lock was touched after the index
+        // was built (the canonical "ran cargo update without
+        // regenerating SCIP" failure mode), surface `stale_index`
+        // plus an actionable regeneration hint. The same path tree
+        // also confirms that Cargo.toml-only changes (workspace
+        // member added without a lock bump) trigger the same signal.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), b"[package]\nname=\"x\"\n").unwrap();
+        std::fs::write(dir.path().join("Cargo.lock"), b"# dummy\n").unwrap();
+        let index_path = dir.path().join("index.scip");
+        std::fs::write(&index_path, b"placeholder").unwrap();
+        // Backdate the index so the manifests appear newer than it.
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
+        filetime::set_file_mtime(&index_path, filetime::FileTime::from_system_time(past)).unwrap();
+
+        let (status, hint) = scip_status_for_response(true, dir.path());
+        assert_eq!(status, "stale_index");
+        let hint = hint.expect("stale_index must surface a regeneration hint");
         assert!(
-            hint.is_none(),
-            "no setup hint needed once the index is present"
+            hint.contains("scripts/generate-scip-index.sh"),
+            "regenerate hint must reference the helper script (got: {hint})"
+        );
+        assert!(
+            hint.to_lowercase().contains("regenerate")
+                || hint.to_lowercase().contains("refresh")
+                || hint.contains("Cargo.lock"),
+            "hint must indicate the regen rationale (got: {hint})"
         );
     }
 
     #[cfg(feature = "scip-backend")]
     #[test]
     fn scip_status_when_compiled_without_index_emits_setup_hint() {
-        // The reverse case: agent on a fresh checkout sees `enabled` is
-        // not yet reachable, so we surface a one-line shell command
-        // pointing at the helper script. This must mention the script
-        // by name so an agent can copy-paste it without further lookup.
-        let (status, hint) = scip_status_for_response(false);
+        // The "no index yet" case: agent on a fresh checkout sees
+        // `enabled` is not yet reachable, so we surface a one-line
+        // shell command pointing at the helper script.
+        let dir = tempfile::tempdir().unwrap();
+        let (status, hint) = scip_status_for_response(false, dir.path());
         assert_eq!(status, "available_no_index");
         let hint = hint.expect("setup hint required when index missing");
         assert!(
@@ -931,8 +1033,9 @@ mod tests {
         // would not change behavior. Whether `scip_available` is true
         // (stray index file in project root) doesn't matter — the
         // binary cannot read it.
+        let dir = tempfile::tempdir().unwrap();
         for scip_available in [false, true] {
-            let (status, hint) = scip_status_for_response(scip_available);
+            let (status, hint) = scip_status_for_response(scip_available, dir.path());
             assert_eq!(status, "not_compiled");
             assert!(hint.is_none());
         }
