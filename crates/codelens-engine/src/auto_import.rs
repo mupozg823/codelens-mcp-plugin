@@ -2,6 +2,12 @@
 //!
 //! Detects unresolved symbols in a file and suggests imports from the project's symbol index.
 //! Generates language-appropriate import statements and inserts at the correct position.
+//!
+//! **Internal API.** `add_import` writes through
+//! `apply_full_write_with_evidence` and bypasses ADR-0009 role
+//! gates, audit sinks, and cache invalidation when called outside
+//! `codelens-mcp` dispatch. Route mutations through MCP — see the
+//! crate-level docs in `lib.rs`.
 
 use crate::import_graph::extract_imports_for_file;
 use crate::project::ProjectRoot;

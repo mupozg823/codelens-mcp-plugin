@@ -1,3 +1,32 @@
+//! # codelens-engine
+//!
+//! Read/mutate/index primitives for CodeLens. **Internal API.**
+//!
+//! Mutation primitives — every function that writes to the project
+//! tree (`file_ops::writer::*`, `auto_import::add_import`,
+//! `edit_transaction::apply_full_write_with_evidence`,
+//! `lsp::LspWorkspaceEditTransaction::apply`, `rename::apply_rename`) —
+//! **do NOT enforce ADR-0009 role gates, audit sinks, or cache
+//! invalidation contracts**. Those guarantees live exclusively in
+//! `codelens-mcp`'s dispatch pipeline (`dispatch::role_gate`,
+//! `dispatch::session::apply_post_mutation`).
+//!
+//! Consumers — including third-party crates that depend on
+//! `codelens-engine` — **MUST** route mutations through
+//! `codelens-mcp` (HTTP / stdio MCP protocol, or in-process
+//! `dispatch_tool`) so the trust substrate can audit, gate, and
+//! invalidate consistently. Calling mutation primitives directly is
+//! supported only inside the workspace (mcp + engine tests + benches);
+//! anything else is at the caller's own risk and will silently bypass
+//! the project's principals.toml configuration.
+//!
+//! Read primitives (`find_*`, `get_*`, `search_*`, `LspSessionPool`)
+//! are safe to call directly — they have no side effects on disk or
+//! audit state.
+//!
+//! See ADR-0009 (`docs/adr/ADR-0009-mutation-trust-substrate.md`)
+//! for the full contract this crate participates in.
+
 pub mod auto_import;
 pub mod call_graph;
 pub mod circular;

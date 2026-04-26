@@ -1,3 +1,18 @@
+//! Raw single-file write primitives.
+//!
+//! **Internal API — bypass-the-substrate warning.** Every function in
+//! this module performs an unconditional disk write through
+//! `apply_full_write_with_evidence`. None of them enforce
+//! ADR-0009 role gates, write audit rows, or invalidate engine
+//! caches. That contract lives in `codelens-mcp`'s
+//! `dispatch::session::apply_post_mutation`.
+//!
+//! Consumers must call these primitives only via `codelens-mcp`
+//! dispatch (HTTP / stdio MCP, or in-process `dispatch_tool`) —
+//! direct calls from third-party crates silently bypass the
+//! principals.toml configuration, the audit log, and downstream
+//! cache invalidation. See the crate-level docs in `lib.rs`.
+
 use crate::edit_transaction::{apply_full_write_with_evidence, ApplyEvidence};
 use crate::project::ProjectRoot;
 use anyhow::{bail, Context, Result};
