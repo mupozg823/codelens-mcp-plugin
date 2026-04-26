@@ -119,7 +119,9 @@ pub(crate) fn dispatch_tool(
     // 4a. Role gate (ADR-0009 §1): principal must hold required role
     //     for this tool. On deny, an audit row is written and the
     //     caller receives a JSON-RPC -32008 error.
-    if let Err(role_err) = role_gate::enforce_role_gate(state, name, arguments, session) {
+    if let Err(role_err) =
+        role_gate::enforce_role_gate(state, name, arguments, session, &ctx.active_surface)
+    {
         return build_error_response(
             name,
             role_err,
@@ -228,7 +230,14 @@ pub(crate) fn dispatch_tool(
             // beyond rollback, etc.) write a Failed-state row so the
             // audit trail mirrors the success path.
             if is_content_mutation_tool(name) {
-                session::record_audit_failure(state, name, arguments, session, &error);
+                session::record_audit_failure(
+                    state,
+                    name,
+                    arguments,
+                    session,
+                    &ctx.active_surface,
+                    &error,
+                );
             }
             build_error_response(
                 name,

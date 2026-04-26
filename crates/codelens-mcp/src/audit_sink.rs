@@ -4,28 +4,30 @@
 //! mutation lifecycle state transition. Queryable by transaction id or
 //! timestamp window.
 //!
-//! Schema (frozen for v1; new columns must use ALTER TABLE migration):
+//! Schema (v2 — `session_metadata` added by Phase 2 close part 4):
 //!
 //! ```sql
 //! CREATE TABLE IF NOT EXISTS audit_log (
-//!     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-//!     transaction_id  TEXT NOT NULL,
-//!     timestamp_ms    INTEGER NOT NULL,
-//!     principal       TEXT,
-//!     tool            TEXT NOT NULL,
-//!     args_hash       TEXT NOT NULL,
-//!     apply_status    TEXT NOT NULL,
-//!     state_from      TEXT,
-//!     state_to        TEXT NOT NULL,
-//!     evidence_hash   TEXT,
+//!     id                INTEGER PRIMARY KEY AUTOINCREMENT,
+//!     transaction_id    TEXT NOT NULL,
+//!     timestamp_ms      INTEGER NOT NULL,
+//!     principal         TEXT,
+//!     tool              TEXT NOT NULL,
+//!     args_hash         TEXT NOT NULL,
+//!     apply_status      TEXT NOT NULL,
+//!     state_from        TEXT,
+//!     state_to          TEXT NOT NULL,
+//!     evidence_hash     TEXT,
 //!     rollback_restored INTEGER,
-//!     error_message   TEXT
+//!     error_message     TEXT,
+//!     session_metadata  TEXT      -- JSON: project_scope/surface/client_name/...
 //! );
 //! ```
 //!
-//! `mutation_audit.rs` (jsonl intent log) is the per-call request record;
-//! this sink is the per-transition outcome record. Both coexist until
-//! Phase 2-F decides on consolidation.
+//! Single source of truth for the mutation audit trail since
+//! `mutation_audit.rs` (jsonl) was retired in Phase 2 close part 4 —
+//! the session metadata column absorbs what used to live in the jsonl
+//! intent record so operators no longer have to join two stores.
 
 #![allow(dead_code)]
 
@@ -66,9 +68,16 @@ pub struct AuditRecord {
     /// Set on denial / failure / rollback paths; carries the error
     /// surface the agent can display.
     pub error_message: Option<String>,
+    /// Session metadata captured from the request:
+    /// `{ project_scope, surface, daemon_mode, trusted_client,
+    ///    requested_profile, client_name, client_version }`.
+    /// Replaces the per-call jsonl intent record retired in Phase 2
+    /// close part 4. Stored as JSON text so future fields can be added
+    /// without another migration.
+    pub session_metadata: Option<serde_json::Value>,
 }
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 const CREATE_SQL: &str = "
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -83,11 +92,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
     state_to          TEXT NOT NULL,
     evidence_hash     TEXT,
     rollback_restored INTEGER,
-    error_message     TEXT
+    error_message     TEXT,
+    session_metadata  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audit_log_tx ON audit_log(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(timestamp_ms);
-PRAGMA user_version = 1;
 ";
 
 /// Append-only audit log backed by SQLite.
@@ -108,19 +117,38 @@ impl AuditSink {
             .with_context(|| format!("failed to open audit_log.sqlite at {}", path.display()))?;
         conn.execute_batch(CREATE_SQL)
             .context("failed to initialise audit_log schema")?;
-        let user_version: i32 = conn
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .context("failed to read audit_log user_version")?;
-        if user_version != SCHEMA_VERSION {
-            anyhow::bail!(
-                "audit_log schema version {user_version} does not match expected {SCHEMA_VERSION} \
-                 — manual migration required"
-            );
-        }
+        migrate_schema(&conn).context("failed to migrate audit_log schema")?;
         Ok(Self {
             conn: Mutex::new(conn),
             path,
         })
+    }
+
+    /// Delete rows older than the cutoff timestamp and reclaim the
+    /// disk space. Called from `AppState` startup once
+    /// `CODELENS_AUDIT_RETENTION_DAYS` resolves to a positive value.
+    /// Returns the number of rows pruned. VACUUM runs in the same
+    /// transaction so the file shrinks on disk after a heavy
+    /// retention sweep.
+    pub fn prune_older_than(&self, cutoff_ms: i64) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("audit_log mutex poisoned: {e}"))?;
+        let removed = conn
+            .execute(
+                "DELETE FROM audit_log WHERE timestamp_ms < ?1",
+                params![cutoff_ms],
+            )
+            .context("audit_log retention DELETE failed")?;
+        if removed > 0 {
+            // VACUUM cannot run in a transaction; SQLite handles that
+            // implicitly when the connection is in autocommit (which
+            // it is once the DELETE completes).
+            conn.execute_batch("VACUUM")
+                .context("audit_log retention VACUUM failed")?;
+        }
+        Ok(removed)
     }
 
     /// Append one row. Caller must hold a stable `transaction_id` across
@@ -130,12 +158,16 @@ impl AuditSink {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("audit_log mutex poisoned: {e}"))?;
+        let session_metadata_text = record
+            .session_metadata
+            .as_ref()
+            .map(|v| serde_json::to_string(v).unwrap_or_default());
         conn.execute(
             "INSERT INTO audit_log (
                 transaction_id, timestamp_ms, principal, tool, args_hash,
                 apply_status, state_from, state_to, evidence_hash,
-                rollback_restored, error_message
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                rollback_restored, error_message, session_metadata
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 record.transaction_id,
                 record.timestamp_ms,
@@ -148,6 +180,7 @@ impl AuditSink {
                 record.evidence_hash,
                 record.rollback_restored.map(i32::from),
                 record.error_message,
+                session_metadata_text,
             ],
         )
         .with_context(|| {
@@ -175,7 +208,7 @@ impl AuditSink {
         let mut sql = String::from(
             "SELECT transaction_id, timestamp_ms, principal, tool, args_hash, \
              apply_status, state_from, state_to, evidence_hash, rollback_restored, \
-             error_message FROM audit_log WHERE 1=1",
+             error_message, session_metadata FROM audit_log WHERE 1=1",
         );
         let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(tx) = transaction_id {
@@ -193,6 +226,9 @@ impl AuditSink {
         let mut stmt = conn.prepare(&sql).context("prepare audit query")?;
         let rows = stmt
             .query_map(param_refs.as_slice(), |row| {
+                let session_metadata_text: Option<String> = row.get(11)?;
+                let session_metadata = session_metadata_text
+                    .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
                 Ok(AuditRecord {
                     transaction_id: row.get(0)?,
                     timestamp_ms: row.get(1)?,
@@ -205,6 +241,7 @@ impl AuditSink {
                     evidence_hash: row.get(8)?,
                     rollback_restored: row.get::<_, Option<i32>>(9)?.map(|n| n != 0),
                     error_message: row.get(10)?,
+                    session_metadata,
                 })
             })
             .context("execute audit query")?
@@ -219,6 +256,50 @@ impl AuditSink {
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
+}
+
+/// Apply schema migrations from the on-disk `user_version` to the
+/// current [`SCHEMA_VERSION`]. Idempotent: when the file is already
+/// at-or-above the target version this is a no-op.
+fn migrate_schema(conn: &Connection) -> Result<()> {
+    let mut current: i32 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .context("failed to read audit_log user_version")?;
+    while current < SCHEMA_VERSION {
+        match current {
+            0 | 1 => {
+                // v1 → v2: add session_metadata column. CREATE TABLE
+                // already includes the column for fresh files; this
+                // path covers in-place upgrades of existing audit logs.
+                let column_exists = conn
+                    .prepare("PRAGMA table_info(audit_log)")
+                    .and_then(|mut stmt| {
+                        let mut rows = stmt.query([])?;
+                        let mut found = false;
+                        while let Some(row) = rows.next()? {
+                            let name: String = row.get(1)?;
+                            if name == "session_metadata" {
+                                found = true;
+                                break;
+                            }
+                        }
+                        Ok(found)
+                    })
+                    .context("failed to inspect audit_log columns")?;
+                if !column_exists {
+                    conn.execute_batch("ALTER TABLE audit_log ADD COLUMN session_metadata TEXT")
+                        .context("failed to add session_metadata column")?;
+                }
+            }
+            other => anyhow::bail!(
+                "audit_log schema at unexpected version {other}; current code targets {SCHEMA_VERSION}"
+            ),
+        }
+        current += 1;
+    }
+    conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
+        .context("failed to set audit_log user_version")?;
+    Ok(())
 }
 
 /// Compute the canonical sha256-hex hash of a JSON value. Stable
@@ -288,6 +369,7 @@ mod tests {
             evidence_hash: Some("cafef00d".to_owned()),
             rollback_restored: None,
             error_message: None,
+            session_metadata: None,
         }
     }
 
@@ -406,6 +488,63 @@ mod tests {
         let a = json!({ "outer": { "inner_b": 2, "inner_a": 1 } });
         let b = json!({ "outer": { "inner_a": 1, "inner_b": 2 } });
         assert_eq!(canonical_sha256_hex(&a), canonical_sha256_hex(&b));
+    }
+
+    #[test]
+    fn prune_older_than_removes_only_old_rows() {
+        // Phase 2 close part 4: retention sweep keeps recent rows
+        // and deletes anything older than the cutoff.
+        let dir = temp_audit_dir("retention");
+        let sink = AuditSink::open(&dir).expect("open ok");
+        let mut old = sample("tx-old", "replace_lines", "Audited");
+        old.timestamp_ms = 1_000;
+        let mut recent = sample("tx-recent", "replace_lines", "Audited");
+        recent.timestamp_ms = 9_000;
+        sink.write(&old).unwrap();
+        sink.write(&recent).unwrap();
+        let removed = sink.prune_older_than(5_000).expect("prune ok");
+        assert_eq!(removed, 1, "only the row before cutoff should be deleted");
+        let rows = sink.query(None, None, 100).expect("query ok");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].transaction_id, "tx-recent");
+    }
+
+    #[test]
+    fn prune_older_than_skips_vacuum_when_nothing_pruned() {
+        // No rows older than cutoff → no DELETE → no VACUUM. Smoke test
+        // for the autocommit branch.
+        let dir = temp_audit_dir("retention-noop");
+        let sink = AuditSink::open(&dir).expect("open ok");
+        let mut recent = sample("tx-recent", "replace_lines", "Audited");
+        recent.timestamp_ms = 9_000;
+        sink.write(&recent).unwrap();
+        let removed = sink.prune_older_than(1_000).expect("prune ok");
+        assert_eq!(removed, 0);
+        let rows = sink.query(None, None, 100).expect("query ok");
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn session_metadata_roundtrips_through_sql() {
+        let dir = temp_audit_dir("session-metadata");
+        let sink = AuditSink::open(&dir).expect("open ok");
+        let mut r = sample("tx-meta", "create_text_file", "Audited");
+        r.session_metadata = Some(json!({
+            "project_scope": "demo",
+            "surface": "claude",
+            "trusted_client": true,
+            "client_name": "HarnessQA",
+        }));
+        sink.write(&r).expect("write ok");
+        let rows = sink.query(Some("tx-meta"), None, 10).expect("query ok");
+        assert_eq!(rows.len(), 1);
+        let metadata = rows[0]
+            .session_metadata
+            .as_ref()
+            .expect("session_metadata roundtrips");
+        assert_eq!(metadata["project_scope"], "demo");
+        assert_eq!(metadata["trusted_client"], true);
+        assert_eq!(metadata["client_name"], "HarnessQA");
     }
 
     #[test]
