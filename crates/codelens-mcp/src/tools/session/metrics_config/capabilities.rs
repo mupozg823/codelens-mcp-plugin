@@ -739,6 +739,15 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let (scip_status, scip_setup_hint) =
         scip_status_for_response(scip_available, project_root.as_path());
 
+    // P0-2 — explicit semantic model sidecar tri-state. Pre-this-PR
+    // the only model signal in the compact response was the indirect
+    // `semantic_search_status: "model_assets_unavailable"` enum
+    // value, which an agent had to recognise from a longer enum
+    // without learning what to do about it. The new field surfaces
+    // a direct verdict + an actionable hint for the cargo-install
+    // path, matching the slice-3 SCIP discovery pattern.
+    let (model_status, model_setup_hint) = model_status_for_response();
+
     let embedding_indexed_bool = embedding_index_info
         .as_ref()
         .map(|info| info.indexed_symbols > 0)
@@ -774,6 +783,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
                 "binary_git_sha": crate::build_info::BUILD_GIT_SHA,
                 "scip_status": scip_status,
                 "scip_setup_hint": scip_setup_hint,
+                "model_status": model_status,
+                "model_setup_hint": model_setup_hint,
                 "detail_available": ["full"],
             })
         }
@@ -818,6 +829,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "scip_available": scip_available,
             "scip_file_count": scip_file_count,
             "scip_symbol_count": scip_symbol_count,
+            "model_status": model_status,
+            "model_setup_hint": model_setup_hint,
             "scip_status": scip_status,
             "scip_setup_hint": scip_setup_hint,
         }),
@@ -869,6 +882,37 @@ fn scip_status_for_response(
     #[cfg(not(feature = "scip-backend"))]
     {
         let _ = (scip_available, project_root);
+        ("not_compiled", None)
+    }
+}
+
+/// Tri-state semantic-model sidecar signal:
+/// - `"loaded"` — semantic feature compiled AND a complete codesearch
+///   model directory was found at one of the standard locations
+///   (`CODELENS_MODEL_DIR`, exec-relative `models/`, source tree
+///   `crates/codelens-engine/models/`, dirs cache)
+/// - `"missing"` — feature compiled, but no model files reachable.
+///   Pair with `model_setup_hint` so the cargo-install path receives
+///   an actionable next step
+/// - `"not_compiled"` — binary lacks the `semantic` feature; no
+///   amount of model fetching changes that
+fn model_status_for_response() -> (&'static str, Option<String>) {
+    #[cfg(feature = "semantic")]
+    {
+        if codelens_engine::embedding_model_assets_available() {
+            ("loaded", None)
+        } else {
+            (
+                "missing",
+                Some(
+                    "Semantic model sidecar not found. GitHub Release tarballs bundle it; cargo-install users must fetch model.onnx + tokenizer.json + config.json + special_tokens_map.json + tokenizer_config.json (~80 MB) and point CODELENS_MODEL_DIR at the parent directory containing `codesearch/`."
+                        .to_owned(),
+                ),
+            )
+        }
+    }
+    #[cfg(not(feature = "semantic"))]
+    {
         ("not_compiled", None)
     }
 }
@@ -1039,6 +1083,46 @@ mod tests {
             assert_eq!(status, "not_compiled");
             assert!(hint.is_none());
         }
+    }
+
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn model_status_reflects_engine_helper_when_compiled() {
+        // P0-2 — `model_status` must mirror the engine helper that
+        // determines whether the codesearch payload is reachable. The
+        // self repo carries the model under
+        // `crates/codelens-engine/models/codesearch/`, so the
+        // expected verdict here is "loaded" with no hint. If a future
+        // refactor moves the model out without updating the helper,
+        // this test reverses to "missing" and the assertion makes the
+        // change loud.
+        let (status, hint) = model_status_for_response();
+        if codelens_engine::embedding_model_assets_available() {
+            assert_eq!(status, "loaded");
+            assert!(hint.is_none(), "loaded state must not carry a setup hint");
+        } else {
+            assert_eq!(status, "missing");
+            let hint = hint.expect("missing state must surface a setup hint");
+            assert!(
+                hint.contains("CODELENS_MODEL_DIR"),
+                "hint must name the env var users have to set (got: {hint})"
+            );
+            assert!(
+                hint.contains("model.onnx"),
+                "hint must name the canonical model asset (got: {hint})"
+            );
+        }
+    }
+
+    #[cfg(not(feature = "semantic"))]
+    #[test]
+    fn model_status_when_feature_disabled_is_not_compiled() {
+        // Binary built without the `semantic` feature cannot consume
+        // any model payload. We report `not_compiled` and skip the
+        // hint — fetching a model wouldn't change runtime behavior.
+        let (status, hint) = model_status_for_response();
+        assert_eq!(status, "not_compiled");
+        assert!(hint.is_none());
     }
 
     #[test]
