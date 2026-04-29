@@ -19,6 +19,7 @@ fn onboard_project_returns_structure() {
     assert!(payload["data"]["semantic"].get("status").is_some());
 }
 
+#[cfg(feature = "semantic")]
 #[test]
 fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
     if !embedding_model_available_for_test() {
@@ -305,10 +306,12 @@ fn get_capabilities_returns_features() {
         .get("reason_code")
         .is_some());
     assert!(payload["data"].get("embeddings_loaded").is_some());
-    assert_eq!(
-        payload["data"]["embedding_model"],
+    let expected_model = if cfg!(feature = "semantic") {
         json!("MiniLM-L12-CodeSearchNet-INT8")
-    );
+    } else {
+        json!("disabled")
+    };
+    assert_eq!(payload["data"]["embedding_model"], expected_model);
     assert!(payload["data"].get("semantic_search_status").is_some());
     assert!(payload["data"].get("embedding_indexed").is_some());
     assert!(payload["data"].get("embedding_indexed_symbols").is_some());
@@ -329,6 +332,7 @@ fn get_capabilities_returns_features() {
         .is_some());
 }
 
+#[cfg(feature = "semantic")]
 #[test]
 fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
     if !embedding_model_available_for_test() {
@@ -5047,4 +5051,107 @@ fn operator_dashboard_aggregates_across_existing_telemetry() {
     assert!(body.contains("rust-engine"));
     assert!(body.contains("memory_scopes"));
     assert!(body.contains("Operator plane aggregates"));
+}
+
+// ── Workflow tool coverage tests ─────────────────────────────────────────
+
+#[test]
+fn explore_codebase_without_query_delegates_to_onboard() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::write(project.as_path().join("src/main.py"), "def hello(): pass\n").unwrap();
+    let state = make_state(&project);
+    let _payload = call_tool(&state, "explore_codebase", json!({}));
+    let payload = call_tool(&state, "explore_codebase", json!({}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("explore_codebase"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("onboard_project"));
+}
+
+#[test]
+fn explore_codebase_with_query_delegates_to_ranked_context() {
+    let project = project_root();
+    fs::write(project.as_path().join("hello.py"), "def hello(): pass\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(&state, "explore_codebase", json!({"query": "hello"}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("explore_codebase"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("get_ranked_context"));
+}
+
+#[test]
+fn trace_request_path_delegates_to_explain_flow() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("flow.py"),
+        "def alpha(): pass\ndef beta(): alpha()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(&state, "trace_request_path", json!({"function_name": "beta"}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("trace_request_path"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("explain_code_flow"));
+}
+
+#[test]
+fn review_architecture_without_path_delegates_to_onboard() {
+    let project = project_root();
+    let state = make_state(&project);
+    let payload = call_tool(&state, "review_architecture", json!({}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("review_architecture"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("onboard_project"));
+}
+
+#[test]
+fn review_architecture_with_path_uses_boundary_report() {
+    let project = project_root();
+    fs::write(project.as_path().join("mod.py"), "class A: pass\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(&state, "review_architecture", json!({"path": "mod.py"}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("review_architecture"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("module_boundary_report"));
+}
+
+#[test]
+fn review_architecture_with_diagram_uses_mermaid() {
+    let project = project_root();
+    fs::write(project.as_path().join("mod.py"), "class A: pass\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "review_architecture",
+        json!({"path": "mod.py", "include_diagram": true}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("review_architecture"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("mermaid_module_graph"));
+}
+
+#[test]
+fn plan_safe_refactor_without_symbol_uses_safety_report() {
+    let project = project_root();
+    fs::write(project.as_path().join("ref.py"), "def old(): pass\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(&state, "plan_safe_refactor", json!({"task": "rename old"}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("plan_safe_refactor"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("refactor_safety_report"));
+}
+
+#[test]
+fn plan_safe_refactor_with_symbol_uses_rename_report() {
+    let project = project_root();
+    fs::write(project.as_path().join("ref.py"), "def old(): pass\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "plan_safe_refactor",
+        json!({"file_path": "ref.py", "symbol": "old", "new_name": "new_name"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("plan_safe_refactor"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("safe_rename_report"));
 }

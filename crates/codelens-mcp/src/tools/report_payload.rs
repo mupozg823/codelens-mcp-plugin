@@ -1,4 +1,4 @@
-use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
+use crate::resources::{analysis_section_handles, analysis_summary_resource};
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
 use serde_json::{Value, json};
 

@@ -442,6 +442,78 @@ fn bench_ranked_context_cached_stress_identifier(c: &mut Criterion) {
     });
 }
 
+fn bench_ranked_context_cache_hit(c: &mut Criterion) {
+    let (_dir, _project, index) = build_scoring_stress_index();
+    // Warm-up cache
+    let _ = index
+        .get_ranked_context_cached("validate_input", None, 4000, false, 2, None, std::collections::HashMap::new())
+        .unwrap();
+
+    c.bench_function("ranked_context_cached (cache hit, ident)", |b| {
+        b.iter(|| {
+            index
+                .get_ranked_context_cached(
+                    black_box("validate_input"),
+                    None,
+                    4000,
+                    false,
+                    2,
+                    None,
+                    std::collections::HashMap::new(),
+                )
+                .unwrap();
+        })
+    });
+}
+
+fn bench_large_project_indexing(c: &mut Criterion) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    for i in 0..100 {
+        let content = format!(
+            r#"
+pub struct Service{i} {{
+    pub id: u64,
+    pub name: String,
+}}
+
+impl Service{i} {{
+    pub fn new(id: u64, name: &str) -> Self {{
+        Self {{ id, name: name.to_owned() }}
+    }}
+
+    pub fn process(&self) -> u64 {{
+        self.id * 2
+    }}
+
+    pub fn validate(&self) -> bool {{
+        self.id > 0 && !self.name.is_empty()
+    }}
+
+    pub fn transform(&self, input: &str) -> String {{
+        format!("{{}}-{{}}", self.name, input)
+    }}
+}}
+"#,
+            i = i
+        );
+        fs::write(root.join(format!("src/service_{i}.rs")), content).unwrap();
+    }
+    let mods: String = (0..100).map(|i| format!("pub mod service_{i};\n")).collect();
+    fs::write(root.join("src/lib.rs"), mods).unwrap();
+
+    let project = ProjectRoot::new(root).expect("project");
+
+    c.bench_function("refresh_all (100 modules, 500+ symbols)", |b| {
+        b.iter(|| {
+            let index = SymbolIndex::new_memory(black_box(project.clone()));
+            index.refresh_all().unwrap();
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_refresh_all,
@@ -458,5 +530,7 @@ criterion_group!(
     bench_scoring_stress_identifier,
     bench_ranked_context_cached_stress_nl,
     bench_ranked_context_cached_stress_identifier,
+    bench_ranked_context_cache_hit,
+    bench_large_project_indexing,
 );
 criterion_main!(benches);

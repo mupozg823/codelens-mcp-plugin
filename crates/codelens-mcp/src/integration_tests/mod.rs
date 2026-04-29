@@ -14,6 +14,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static TEST_PROJECT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn embedding_model_available_for_test() -> bool {
+    #[cfg(not(feature = "semantic"))]
+    return false;
+    #[cfg(feature = "semantic")]
     if !codelens_engine::embedding_model_assets_available() {
         eprintln!("skipping integration test: CodeSearchNet model assets unavailable");
         return false;

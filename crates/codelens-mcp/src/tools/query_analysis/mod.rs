@@ -21,3 +21,8 @@ use intent::query_prefers_lexical_only;
 
 #[cfg(test)]
 mod tests;
+
+// Shared test lock for env var mutation tests across this module.
+// Env vars are process-global, so tests that set/unset them must serialize.
+#[cfg(all(test, feature = "semantic"))]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

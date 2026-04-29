@@ -87,11 +87,10 @@ impl AppHealth {
     }
 
     pub fn coverage_percent(&self) -> usize {
-        if self.supported_files == 0 {
-            0
-        } else {
-            (self.indexed_files * 100) / self.supported_files
-        }
+        self.indexed_files
+            .checked_mul(100)
+            .and_then(|v| v.checked_div(self.supported_files))
+            .unwrap_or(0)
     }
 }
 

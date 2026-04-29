@@ -69,29 +69,15 @@ pub(crate) fn semantic_status(state: &AppState) -> Value {
 }
 
 #[cfg(not(feature = "semantic"))]
-pub(crate) fn semantic_status(state: &AppState) -> Value {
-    let configured_model = codelens_engine::configured_embedding_model_name();
-    let indexed = codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
-        .ok()
-        .flatten();
-
-    match indexed {
-        Some(info) => json!({
-            "status": "not_compiled",
-            "model": info.model_name,
-            "indexed_symbols": info.indexed_symbols,
-            "loaded": false,
-            "reason": "semantic feature not compiled into this binary",
-        }),
-        None => json!({
-            "status": "not_compiled",
-            "model": configured_model,
-            "loaded": false,
-            "reason": "semantic feature not compiled into this binary",
-        }),
-    }
+pub(crate) fn semantic_status(_state: &AppState) -> Value {
+    json!({
+        "status": "not_compiled",
+        "model": "disabled",
+        "indexed_symbols": 0,
+        "loaded": false,
+        "reason": "semantic feature not compiled into this binary",
+    })
 }
-
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_results_for_query(
     state: &AppState,
@@ -222,7 +208,7 @@ pub(super) fn merge_semantic_ranked_entries(
 
     result
         .symbols
-        .sort_unstable_by(|a, b| b.relevance_score.cmp(&a.relevance_score));
+        .sort_unstable_by_key(|b| std::cmp::Reverse(b.relevance_score));
     result.count = result.symbols.len();
 }
 
@@ -311,7 +297,7 @@ pub(super) fn merge_sparse_ranked_entries(
 
     result
         .symbols
-        .sort_unstable_by(|a, b| b.relevance_score.cmp(&a.relevance_score));
+        .sort_unstable_by_key(|b| std::cmp::Reverse(b.relevance_score));
     result.count = result.symbols.len();
 }
 

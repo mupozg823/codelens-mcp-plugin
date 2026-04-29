@@ -101,15 +101,16 @@ pub mod inline;
 pub mod ir;
 pub mod move_symbol;
 pub mod oxc_analysis;
+pub mod embedding_types;
 #[cfg(feature = "scip-backend")]
 pub mod scip_backend;
 #[cfg(feature = "semantic")]
 pub use embedding::{
-    EmbeddingEngine, EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch,
-    configured_embedding_model_name, configured_embedding_runtime_info,
+    EmbeddingEngine, configured_embedding_model_name, configured_embedding_runtime_info,
     configured_embedding_runtime_preference, configured_embedding_threads,
     embedding_model_assets_available,
 };
+pub use embedding_types::{EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch};
 #[cfg(feature = "scip-backend")]
 pub use scip_backend::ScipBackend;
 pub use scope_analysis::{

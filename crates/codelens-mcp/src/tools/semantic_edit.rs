@@ -16,7 +16,11 @@ use std::collections::BTreeSet;
 pub(crate) enum SemanticEditBackendSelection {
     TreeSitter,
     Lsp,
+    /// JetBrains IDE adapter — experimental, requires local adapter process.
     JetBrains,
+    /// Roslyn (C#) workspace service — experimental. C# rename is
+    /// authoritative only when the sidecar returns a WorkspaceEdit;
+    /// broader refactors remain unsupported. Fails closed without adapter.
     Roslyn,
 }
 

@@ -2,7 +2,7 @@ use super::{
     AppState, ToolResult, default_lsp_command_for_path, optional_bool, optional_string,
     optional_usize, parse_lsp_args, required_string, success_meta,
 };
-use crate::authority::{meta_degraded, meta_for_backend};
+use crate::tool_evidence::{meta_degraded, meta_for_backend};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::{

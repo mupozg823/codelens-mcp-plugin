@@ -200,7 +200,7 @@ impl SymbolIndex {
                 })
                 .collect();
 
-            file_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            file_scores.sort_by_key(|b| std::cmp::Reverse(b.1));
             let top: Vec<String> = file_scores
                 .into_iter()
                 .filter(|(_, score)| *score > 0)
@@ -471,7 +471,7 @@ impl SymbolIndex {
             .flat_map(flatten_symbol_infos)
             .filter_map(|symbol| score_symbol(query, &symbol).map(|score| (symbol, score)))
             .collect::<Vec<_>>();
-        scored.sort_by(|left, right| right.1.cmp(&left.1));
+        scored.sort_by_key(|right| std::cmp::Reverse(right.1));
 
         let (selected, chars_used) =
             prune_to_budget(scored, max_tokens, include_body, self.project.as_path());

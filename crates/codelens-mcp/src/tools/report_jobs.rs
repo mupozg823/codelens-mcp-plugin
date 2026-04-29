@@ -1,6 +1,6 @@
 use super::report_utils::{extract_handle_fields, stable_cache_key, strings_from_array};
 use super::{AppState, ToolResult, required_string, success_meta};
-use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
+use crate::resources::{analysis_section_handles, analysis_summary_resource};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use serde_json::{Value, json};
@@ -954,4 +954,58 @@ pub fn retry_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
         }),
         success_meta(BackendKind::Hybrid, 0.92),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_step_delay_ms_default_zero() {
+        assert_eq!(debug_step_delay_ms(&json!({})), 0);
+    }
+
+    #[test]
+    fn debug_step_delay_ms_extracts_and_caps() {
+        assert_eq!(debug_step_delay_ms(&json!({"debug_step_delay_ms": 100})), 100);
+        assert_eq!(debug_step_delay_ms(&json!({"debug_step_delay_ms": 500})), 250);
+    }
+
+    #[test]
+    fn estimated_sections_for_known_kinds() {
+        assert_eq!(
+            estimated_sections_for_kind("impact_report"),
+            vec!["impact_rows".to_owned()]
+        );
+        assert_eq!(
+            estimated_sections_for_kind("eval_session_audit"),
+            vec!["audit_pass_rate".to_owned(), "session_rows".to_owned()]
+        );
+    }
+
+    #[test]
+    fn estimated_sections_for_unknown_kind_is_empty() {
+        assert!(estimated_sections_for_kind("unknown_kind").is_empty());
+    }
+
+    #[test]
+    fn job_handle_fields_with_analysis_id() {
+        let fields = job_handle_fields(Some("aid123"), &["sec1".to_owned(), "sec2".to_owned()]);
+        assert_eq!(
+            fields["summary_resource"]["uri"],
+            "codelens://analysis/aid123/summary"
+        );
+        let handles = fields["section_handles"].as_array().unwrap();
+        assert_eq!(handles.len(), 2);
+    }
+
+    #[test]
+    fn job_handle_fields_without_analysis_id() {
+        let fields = job_handle_fields(None, &["sec1".to_owned()]);
+        assert!(fields["summary_resource"].is_null());
+        assert_eq!(
+            fields["section_handles"],
+            json!(Vec::<Value>::new())
+        );
+    }
 }

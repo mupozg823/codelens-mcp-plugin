@@ -37,13 +37,6 @@ impl AnalysisJobStore {
         *self.jobs_dir.lock().unwrap_or_else(|p| p.into_inner()) = dir;
     }
 
-    fn now_ms() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
-    }
-
     fn expired(updated_at_ms: u64, now_ms: u64) -> bool {
         now_ms.saturating_sub(updated_at_ms) > TTL_MS
     }
@@ -174,7 +167,7 @@ impl AnalysisJobStore {
         error: Option<String>,
         project_scope: String,
     ) -> Result<AnalysisJob, CodeLensError> {
-        let now_ms = Self::now_ms();
+        let now_ms = crate::util::now_ms();
         let seq = self.seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let id = format!("job-{now_ms}-{seq}");
         let job = AnalysisJob {
@@ -207,7 +200,7 @@ impl AnalysisJobStore {
     /// Get a job by ID. Returns the job without warming the artifact cache —
     /// the caller (AppState) handles that cross-concern.
     pub fn get(&self, job_id: &str, project_scope: Option<&str>) -> Option<AnalysisJob> {
-        self.prune(Self::now_ms(), project_scope);
+        self.prune(crate::util::now_ms(), project_scope);
         self.latest_job(job_id, project_scope)
     }
 
@@ -216,7 +209,7 @@ impl AnalysisJobStore {
         job_id: &str,
         project_scope: Option<&str>,
     ) -> Result<AnalysisJob, CodeLensError> {
-        self.prune(Self::now_ms(), project_scope);
+        self.prune(crate::util::now_ms(), project_scope);
         let mut job = self
             .get(job_id, project_scope)
             .ok_or_else(|| CodeLensError::NotFound(format!("Unknown job `{job_id}`")))?;
@@ -225,7 +218,7 @@ impl AnalysisJobStore {
             job.status = JobLifecycle::Cancelled;
             job.progress = 0;
             job.current_step = Some("cancelled".to_owned());
-            job.updated_at_ms = Self::now_ms();
+            job.updated_at_ms = crate::util::now_ms();
             // Return previous status so caller can record metrics
             let _ = previous;
         }
@@ -244,7 +237,7 @@ impl AnalysisJobStore {
         status_filter: Option<&str>,
         project_scope: Option<&str>,
     ) -> Vec<AnalysisJob> {
-        self.prune(Self::now_ms(), project_scope);
+        self.prune(crate::util::now_ms(), project_scope);
         let order = self
             .order
             .lock()
@@ -298,7 +291,7 @@ impl AnalysisJobStore {
         if let Some(e) = error {
             job.error = e;
         }
-        job.updated_at_ms = Self::now_ms();
+        job.updated_at_ms = crate::util::now_ms();
         self.write_to_disk(&job)?;
         self.jobs
             .lock()
@@ -342,7 +335,7 @@ mod tests {
         let tmp_path = dir.join("job-1.json.tmp");
         fs::write(&tmp_path, br#"{"inflight":true}"#).unwrap();
 
-        store.cleanup_stale_files(AnalysisJobStore::now_ms(), None);
+        store.cleanup_stale_files(crate::util::now_ms(), None);
 
         assert!(
             tmp_path.exists(),
@@ -385,7 +378,7 @@ mod tests {
         disk_job.status = JobLifecycle::Completed;
         disk_job.progress = 100;
         disk_job.current_step = Some("completed".to_owned());
-        disk_job.updated_at_ms = AnalysisJobStore::now_ms();
+        disk_job.updated_at_ms = crate::util::now_ms();
         let tmp_path = path.with_extension("json.tmp");
         fs::write(&tmp_path, serde_json::to_vec_pretty(&disk_job).unwrap()).unwrap();
         fs::rename(&tmp_path, &path).unwrap();

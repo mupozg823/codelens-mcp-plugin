@@ -3,6 +3,7 @@
 
 use crate::state::AppState;
 use crate::tool_defs::{ToolProfile, ToolSurface};
+use crate::util::now_ms;
 
 #[derive(Clone)]
 pub(crate) struct MutationGateAllowance {
@@ -34,16 +35,6 @@ pub(crate) struct MutationGateFailure {
     pub(crate) analysis_id: Option<String>,
     pub(crate) suggested_next_tools: Vec<String>,
     pub(crate) budget_hint: String,
-    pub(crate) stale: bool,
-    pub(crate) rename_without_symbol_preflight: bool,
-    pub(crate) missing_preflight: bool,
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 pub(crate) fn is_verifier_source_tool(name: &str) -> bool {
@@ -87,9 +78,6 @@ fn mutation_gate_failure(
     reason: impl Into<String>,
     kind: MutationFailureKind,
     analysis_id: Option<String>,
-    stale: bool,
-    rename_without_symbol_preflight: bool,
-    missing_preflight: bool,
 ) -> MutationGateFailure {
     let suggested_next_tools = if is_symbol_aware_mutation_tool(name) {
         vec![
@@ -116,9 +104,6 @@ fn mutation_gate_failure(
         analysis_id,
         suggested_next_tools,
         budget_hint,
-        stale,
-        rename_without_symbol_preflight,
-        missing_preflight,
     }
 }
 
@@ -145,9 +130,6 @@ pub(crate) fn evaluate_mutation_gate(
             ),
             MutationFailureKind::MissingPreflight,
             None,
-            false,
-            false,
-            true,
         ));
     };
 
@@ -162,9 +144,6 @@ pub(crate) fn evaluate_mutation_gate(
             ),
             MutationFailureKind::StalePreflight,
             preflight.analysis_id.clone(),
-            true,
-            false,
-            false,
         ));
     }
 
@@ -177,9 +156,6 @@ pub(crate) fn evaluate_mutation_gate(
             ),
             MutationFailureKind::NoTargetPath,
             preflight.analysis_id.clone(),
-            false,
-            is_symbol_aware_mutation_tool(name),
-            false,
         ));
     }
     let path_overlap = mutation_paths
@@ -193,9 +169,6 @@ pub(crate) fn evaluate_mutation_gate(
             ),
             MutationFailureKind::PathMismatch,
             preflight.analysis_id.clone(),
-            false,
-            false,
-            false,
         ));
     }
 
@@ -211,9 +184,6 @@ pub(crate) fn evaluate_mutation_gate(
                 ),
                 MutationFailureKind::SymbolPreflightRequired,
                 preflight.analysis_id.clone(),
-                false,
-                true,
-                false,
             ));
         }
         let Some(mutation_symbol) = crate::state::extract_symbol_hint(arguments) else {
@@ -224,9 +194,6 @@ pub(crate) fn evaluate_mutation_gate(
                 ),
                 MutationFailureKind::SymbolPreflightRequired,
                 preflight.analysis_id.clone(),
-                false,
-                true,
-                false,
             ));
         };
         if preflight
@@ -242,9 +209,6 @@ pub(crate) fn evaluate_mutation_gate(
                 ),
                 MutationFailureKind::SymbolMismatch,
                 preflight.analysis_id.clone(),
-                false,
-                true,
-                false,
             ));
         }
     }
@@ -258,9 +222,6 @@ pub(crate) fn evaluate_mutation_gate(
             ),
             MutationFailureKind::VerifierBlocked,
             preflight.analysis_id.clone(),
-            false,
-            false,
-            false,
         ));
     }
 

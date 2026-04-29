@@ -24,17 +24,21 @@ pub(crate) fn semantic_query_for_embedding_search(
     }
 }
 
-/// Runtime flag — `CODELENS_PROJECT_BRIDGES_OFF=1` skips loading
-/// `.codelens/bridges.json` entirely, so the retrieval pipeline sees
-/// only the hard-coded `GENERIC_BRIDGES`. Pairs with
-/// `CODELENS_GENERIC_BRIDGES_OFF=1` to enable the three-arm ablation
-/// matrix required by Phase 0 of the enterprise roadmap
-/// (bridge-off / generic-on / repo-on). Both flags off is the default.
+/// Runtime flag — project bridges (`.codelens/bridges.json`) are
+/// **disabled by default** because the v1.9.46 three-arm ablation
+/// (104 self-queries) showed **0 MRR contribution** from 659 project
+/// bridge entries. Generic bridges (+0.010 MRR overall, +0.016 on NL
+/// queries) remain active.
+///
+/// To re-enable project bridges for experimentation:
+/// `CODELENS_PROJECT_BRIDGES_ON=1`. Pairs with
+/// `CODELENS_GENERIC_BRIDGES_OFF=1` for three-arm ablation
+/// (bridge-off / generic-on / repo-on).
 #[cfg(feature = "semantic")]
 fn project_bridges_disabled() -> bool {
-    std::env::var("CODELENS_PROJECT_BRIDGES_OFF")
-        .map(|v| v == "1")
-        .unwrap_or(false)
+    std::env::var("CODELENS_PROJECT_BRIDGES_ON")
+        .map(|v| v != "1")
+        .unwrap_or(true)
 }
 
 #[cfg(feature = "semantic")]
@@ -141,13 +145,10 @@ fn bridge_nl_to_code_vocabulary(query: &str, project_bridges: &[(String, String)
 #[cfg(all(test, feature = "semantic"))]
 mod ablation_flag_tests {
     use super::bridge_nl_to_code_vocabulary;
-    use std::sync::Mutex;
-
-    // Env vars are process-global; serialize tests that toggle them.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    use crate::tools::query_analysis::TEST_ENV_LOCK;
 
     fn with_env<F: FnOnce()>(key: &str, value: Option<&str>, f: F) {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
         let prev = std::env::var(key).ok();
         match value {
             Some(v) => unsafe { std::env::set_var(key, v) },
@@ -190,19 +191,18 @@ mod ablation_flag_tests {
     }
 
     #[test]
-    fn project_bridges_disabled_flag_is_observable() {
-        // The gating lives in semantic_query_for_embedding_search, not in
-        // bridge_nl_to_code_vocabulary itself — so this test exercises the
-        // flag's observable side: project_bridges_disabled() returns true
-        // when set, false otherwise.
-        with_env("CODELENS_PROJECT_BRIDGES_OFF", Some("1"), || {
+    fn project_bridges_disabled_by_default() {
+        // Default: project bridges are OFF (no env var set).
+        with_env("CODELENS_PROJECT_BRIDGES_ON", None, || {
             assert!(super::project_bridges_disabled());
         });
-        with_env("CODELENS_PROJECT_BRIDGES_OFF", None, || {
+        // Explicit ON flag: project bridges are enabled.
+        with_env("CODELENS_PROJECT_BRIDGES_ON", Some("1"), || {
             assert!(!super::project_bridges_disabled());
         });
-        with_env("CODELENS_PROJECT_BRIDGES_OFF", Some("0"), || {
-            assert!(!super::project_bridges_disabled());
+        // Any other value: stays disabled.
+        with_env("CODELENS_PROJECT_BRIDGES_ON", Some("0"), || {
+            assert!(super::project_bridges_disabled());
         });
     }
 }

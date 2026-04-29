@@ -130,7 +130,7 @@ pub(crate) fn dir_stats(conn: &Connection) -> Result<Vec<DirStats>> {
             imports_from_others: 0,
         })
         .collect();
-    result.sort_by(|a, b| b.symbols.cmp(&a.symbols));
+    result.sort_by_key(|b| std::cmp::Reverse(b.symbols));
     Ok(result)
 }
 

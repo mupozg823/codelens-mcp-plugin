@@ -1,0 +1,51 @@
+name: Changelog Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  changelog-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check CHANGELOG has Unreleased section
+        run: |
+          # If CHANGELOG.md exists and has content since the last tag,
+          # verify that either:
+          # 1. CHANGELOG.md has an [Unreleased] section, OR
+          # 2. This is a release PR (title matches vX.Y.Z pattern)
+
+          PR_TITLE="${{ github.event.pull_request.title }}"
+
+          # Release PRs are exempt
+          if echo "$PR_TITLE" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Release PR — skipping changelog check"
+            exit 0
+          fi
+
+          # Check if there are commits since last tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No tags yet — no changelog check needed"
+            exit 0
+          fi
+
+          COMMIT_COUNT=$(git rev-list "$LATEST_TAG"..HEAD --count)
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "No new commits since last tag"
+            exit 0
+          fi
+
+          # Check for [Unreleased] or [unreleased] in CHANGELOG.md
+          if [ -f CHANGELOG.md ] && grep -qi '\[unreleased\]' CHANGELOG.md; then
+            echo "CHANGELOG.md has Unreleased section — OK"
+            exit 0
+          fi
+
+          echo "::warning::CHANGELOG.md should have an [Unreleased] section for new commits"
+          echo "Run: python3 scripts/gen-changelog.py >> CHANGELOG.md"
+          exit 1

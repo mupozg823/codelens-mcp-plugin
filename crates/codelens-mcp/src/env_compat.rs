@@ -19,33 +19,38 @@ pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()
 /// prefixes. If `SYMBIOTE_*` is set, it wins (matches the rebrand
 /// direction). Falls back to the canonical `CODELENS_*` name. Returns
 /// `None` when neither is set or both are empty.
-///
-/// `canonical_name` must be the `CODELENS_*` form (e.g.
-/// `"CODELENS_RATE_LIMIT"`). Passing a `SYMBIOTE_*` form is a
-/// programmer error and panics in debug, silently degrades in release.
-///
-/// Wired into the startup env-var reads in `main.rs` so both prefixes
-/// work at runtime; ADR-0007 Phase 3 (v2.0.0) will rename the canonical
-/// form from `CODELENS_*` to `SYMBIOTE_*` and this helper becomes a
-/// single-prefix lookup. Until then, every call site that used to do
-/// `std::env::var("CODELENS_*")` should route through here.
-pub fn dual_prefix_env(canonical_name: &str) -> Option<String> {
+pub fn env_var_string(canonical_name: &str) -> Option<String> {
     debug_assert!(
         canonical_name.starts_with("CODELENS_"),
-        "dual_prefix_env expects a CODELENS_* canonical name, got `{}`",
+        "env_var_string expects a CODELENS_* canonical name, got `{}`",
         canonical_name
     );
     let symbiote_name = canonical_name.replacen("CODELENS_", "SYMBIOTE_", 1);
-    if let Ok(value) = env::var(&symbiote_name)
-        && !value.is_empty()
-    {
-        return Some(value);
+    match env::var(&symbiote_name) {
+        Ok(value) if !value.is_empty() => return Some(value),
+        _ => {}
     }
     match env::var(canonical_name) {
         Ok(value) if !value.is_empty() => Some(value),
         _ => None,
     }
 }
+
+/// Parse an env var as `u64`. Returns `None` if unset, empty, or unparseable.
+pub fn env_var_u64(canonical_name: &str) -> Option<u64> {
+    env_var_string(canonical_name).and_then(|s| s.parse().ok())
+}
+
+/// Parse an env var as `bool`. Accepts `1`, `true`, `yes` (case-insensitive).
+/// Returns `None` if unset or empty; returns `Some(false)` for any other value.
+pub fn env_var_bool(canonical_name: &str) -> Option<bool> {
+    env_var_string(canonical_name).map(|s| {
+        matches!(s.to_ascii_lowercase().as_str(), "1" | "true" | "yes")
+    })
+}
+
+// Backwards-compatible alias for existing call sites.
+pub use env_var_string as dual_prefix_env;
 
 #[cfg(test)]
 mod tests {

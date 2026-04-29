@@ -597,7 +597,11 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let runtime_health = collect_runtime_health_snapshot(state, active_surface);
     let semantic_search_guidance = runtime_health.semantic_status.guidance_payload();
 
+    #[cfg(feature = "semantic")]
     let configured_embedding_model = codelens_engine::configured_embedding_model_name();
+    #[cfg(not(feature = "semantic"))]
+    let configured_embedding_model = "disabled".to_owned();
+
     #[cfg(feature = "semantic")]
     let embedding_runtime = {
         let guard = state.embedding_ref();
@@ -607,7 +611,19 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             .unwrap_or_else(codelens_engine::configured_embedding_runtime_info)
     };
     #[cfg(not(feature = "semantic"))]
-    let embedding_runtime = codelens_engine::configured_embedding_runtime_info();
+    let embedding_runtime = codelens_engine::EmbeddingRuntimeInfo {
+        runtime_preference: "disabled".to_owned(),
+        backend: "none".to_owned(),
+        threads: 0,
+        max_length: 0,
+        coreml_model_format: None,
+        coreml_compute_units: None,
+        coreml_static_input_shapes: None,
+        coreml_profile_compute_plan: None,
+        coreml_specialization_strategy: None,
+        coreml_model_cache_dir: None,
+        fallback_reason: Some("semantic feature not compiled".to_owned()),
+    };
 
     #[cfg(feature = "semantic")]
     let embedding_index_info = {
@@ -622,10 +638,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             })
     };
     #[cfg(not(feature = "semantic"))]
-    let embedding_index_info =
-        codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
-            .ok()
-            .flatten();
+    let embedding_index_info: Option<codelens_engine::EmbeddingIndexInfo> = None;
 
     // Check index freshness
     let index_fresh = runtime_health.index_fresh();

@@ -8,16 +8,11 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::util::now_ms;
+
 const DEFAULT_COORDINATION_TTL_SECS: u64 = 5 * 60;
 const MAX_COORDINATION_TTL_SECS: u64 = 60 * 60;
 const COORDINATION_DB_FILENAME: &str = "coordination.db";
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
 
 fn normalize_ttl_secs(ttl_secs: u64) -> u64 {
     ttl_secs.clamp(1, MAX_COORDINATION_TTL_SECS)
@@ -93,11 +88,7 @@ impl CoordinationLockStats {
     /// Returns 0 when no acquisitions have happened yet, which keeps the
     /// payload predictable for empty sessions.
     pub fn avg_wait_micros(&self) -> u64 {
-        if self.acquire_count == 0 {
-            0
-        } else {
-            self.wait_total_micros / self.acquire_count
-        }
+        self.wait_total_micros.checked_div(self.acquire_count).unwrap_or(0)
     }
 }
 

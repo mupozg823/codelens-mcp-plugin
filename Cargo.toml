@@ -4,6 +4,10 @@ members = [
     "crates/codelens-mcp",
     "crates/codelens-tui",
 ]
+default-members = [
+    "crates/codelens-engine",
+    "crates/codelens-mcp",
+]
 resolver = "2"
 
 [workspace.package]
@@ -20,7 +24,7 @@ categories = ["development-tools", "command-line-utilities"]
 [workspace.dependencies]
 anyhow = "1.0"
 axum = "0.8"
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 globset = "0.4"
 petgraph = "0.7"
@@ -73,8 +77,8 @@ oxc_parser = "0.123"
 oxc_semantic = "0.123"
 oxc_span = "0.123"
 insta = { version = "1", features = ["json", "redactions"] }
-notify = "7.0"
-notify-debouncer-mini = "0.5"
+notify = "8"
+notify-debouncer-mini = "0.7"
 url = "2.5"
 walkdir = "2.5"
 libc = "0.2"

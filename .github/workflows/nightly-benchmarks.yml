@@ -1,0 +1,69 @@
+name: Nightly Benchmarks
+
+on:
+  schedule:
+    # Every day at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-criterion
+        run: cargo install cargo-criterion
+
+      - name: Download baseline
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-baseline
+          path: .bench-baselines
+        continue-on-error: true
+
+      - name: Run benchmarks
+        run: |
+          cargo bench -p codelens-engine --bench search_paths -- --noplot
+          cargo bench -p codelens-engine --bench indexing -- --noplot
+
+      - name: Save new baseline
+        run: python3 scripts/bench-compare.py --save-baseline main
+
+      - name: Upload baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-baseline
+          path: .bench-baselines/main.json
+          retention-days: 30
+
+      - name: Compare against previous baseline
+        if: hashFiles('.bench-baselines/main.json') != ''
+        run: python3 scripts/bench-compare.py --baseline main --threshold 15 --json > bench-report.json
+
+      - name: Comment on regression
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const report = require('./bench-report.json');
+            const body = `
+            ## ⚠️ Benchmark Regression Detected
+            ${report.regressions.map(r => `- **${r.name}**: ${r.base_ms.toFixed(3)}ms → ${r.current_ms.toFixed(3)}ms (+${r.change_pct.toFixed(1f)}%)`).join('\n')}
+            `;
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Benchmark regression on ${new Date().toISOString().split('T')[0]}`,
+              body,
+              labels: ['performance', 'automated']
+            });

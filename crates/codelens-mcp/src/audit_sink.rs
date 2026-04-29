@@ -1,35 +1,5 @@
-//! Durable audit sink for the Mutation Trust Substrate (ADR-0009).
-//!
-//! Append-only SQLite log at `<audit_dir>/audit_log.sqlite`. One row per
-//! mutation lifecycle state transition. Queryable by transaction id or
-//! timestamp window.
-//!
-//! Schema (v2 — `session_metadata` added by Phase 2 close part 4):
-//!
-//! ```sql
-//! CREATE TABLE IF NOT EXISTS audit_log (
-//!     id                INTEGER PRIMARY KEY AUTOINCREMENT,
-//!     transaction_id    TEXT NOT NULL,
-//!     timestamp_ms      INTEGER NOT NULL,
-//!     principal         TEXT,
-//!     tool              TEXT NOT NULL,
-//!     args_hash         TEXT NOT NULL,
-//!     apply_status      TEXT NOT NULL,
-//!     state_from        TEXT,
-//!     state_to          TEXT NOT NULL,
-//!     evidence_hash     TEXT,
-//!     rollback_restored INTEGER,
-//!     error_message     TEXT,
-//!     session_metadata  TEXT      -- JSON: project_scope/surface/client_name/...
-//! );
-//! ```
-//!
-//! Single source of truth for the mutation audit trail since
-//! `mutation_audit.rs` (jsonl) was retired in Phase 2 close part 4 —
-//! the session metadata column absorbs what used to live in the jsonl
-//! intent record so operators no longer have to join two stores.
-
-#![allow(dead_code)]
+//! Durable audit sink for mutation lifecycle transitions.
+//! Append-only SQLite log at `<audit_dir>/audit_log.sqlite`.
 
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
@@ -302,42 +272,6 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Compute the canonical sha256-hex hash of a JSON value. Stable
-/// regardless of object key ordering. Used for `args_hash` and
-/// `evidence_hash` columns so the audit log verifies replay equivalence
-/// without storing user content.
-pub fn canonical_sha256_hex(value: &serde_json::Value) -> String {
-    use sha2::{Digest, Sha256};
-    let canonical = canonicalise(value);
-    let bytes =
-        serde_json::to_vec(&canonical).expect("canonical JSON value is always serialisable");
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    let digest = hasher.finalize();
-    let mut hex = String::with_capacity(64);
-    for byte in digest {
-        use std::fmt::Write as _;
-        let _ = write!(hex, "{byte:02x}");
-    }
-    hex
-}
-
-fn canonicalise(value: &serde_json::Value) -> serde_json::Value {
-    use serde_json::Value;
-    match value {
-        Value::Object(map) => {
-            let mut sorted: Vec<(String, Value)> = map
-                .iter()
-                .map(|(k, v)| (k.clone(), canonicalise(v)))
-                .collect();
-            sorted.sort_by(|a, b| a.0.cmp(&b.0));
-            Value::Object(sorted.into_iter().collect())
-        }
-        Value::Array(items) => Value::Array(items.iter().map(canonicalise).collect()),
-        other => other.clone(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,27 +401,6 @@ mod tests {
         sink.write(&r).unwrap();
         let rows = sink.query(Some("tx-rb"), None, 10).unwrap();
         assert_eq!(rows[0].rollback_restored, Some(false));
-    }
-
-    #[test]
-    fn canonical_sha256_hex_is_key_order_independent() {
-        let a = json!({ "alpha": 1, "beta": 2 });
-        let b = json!({ "beta": 2, "alpha": 1 });
-        assert_eq!(canonical_sha256_hex(&a), canonical_sha256_hex(&b));
-    }
-
-    #[test]
-    fn canonical_sha256_hex_reflects_value_change() {
-        let a = json!({ "alpha": 1 });
-        let b = json!({ "alpha": 2 });
-        assert_ne!(canonical_sha256_hex(&a), canonical_sha256_hex(&b));
-    }
-
-    #[test]
-    fn canonical_sha256_hex_handles_nested_objects() {
-        let a = json!({ "outer": { "inner_b": 2, "inner_a": 1 } });
-        let b = json!({ "outer": { "inner_a": 1, "inner_b": 2 } });
-        assert_eq!(canonical_sha256_hex(&a), canonical_sha256_hex(&b));
     }
 
     #[test]

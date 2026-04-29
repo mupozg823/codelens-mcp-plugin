@@ -505,7 +505,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
         if changed {
             result
                 .symbols
-                .sort_unstable_by(|a, b| b.relevance_score.cmp(&a.relevance_score));
+                .sort_unstable_by_key(|b| std::cmp::Reverse(b.relevance_score));
         }
     }
 

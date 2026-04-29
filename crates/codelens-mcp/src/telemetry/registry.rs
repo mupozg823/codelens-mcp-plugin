@@ -315,7 +315,7 @@ impl ToolMetricsRegistry {
         let mut entries: Vec<(String, ToolMetrics)> =
             map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
-        entries.sort_by(|a, b| b.1.call_count.cmp(&a.1.call_count));
+        entries.sort_by_key(|b| std::cmp::Reverse(b.1.call_count));
         entries
     }
 
@@ -377,7 +377,7 @@ impl ToolMetricsRegistry {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut entries: Vec<(String, SurfaceMetrics)> =
             map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        entries.sort_by(|a, b| b.1.call_count.cmp(&a.1.call_count));
+        entries.sort_by_key(|b| std::cmp::Reverse(b.1.call_count));
         entries
     }
 
@@ -394,7 +394,7 @@ impl ToolMetricsRegistry {
             .iter()
             .map(|(name, metrics)| (name.clone(), metrics.clone()))
             .collect();
-        entries.sort_by(|a, b| b.1.call_count.cmp(&a.1.call_count));
+        entries.sort_by_key(|b| std::cmp::Reverse(b.1.call_count));
         entries
     }
 
@@ -414,7 +414,7 @@ impl ToolMetricsRegistry {
             .iter()
             .map(|(surface, metrics)| (surface.clone(), metrics.clone()))
             .collect();
-        entries.sort_by(|a, b| b.1.call_count.cmp(&a.1.call_count));
+        entries.sort_by_key(|b| std::cmp::Reverse(b.1.call_count));
         entries
     }
 

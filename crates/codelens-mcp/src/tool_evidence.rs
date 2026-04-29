@@ -35,3 +35,27 @@ pub(crate) fn precision_signals(
         "precise_result_count": precise_result_count,
     })
 }
+
+pub(crate) fn meta_for_backend(backend: &str, confidence: f64) -> crate::protocol::ToolResponseMeta {
+    crate::protocol::ToolResponseMeta {
+        backend_used: backend.to_string(),
+        confidence,
+        degraded_reason: None,
+        source: crate::protocol::AnalysisSource::Lsp,
+        partial: false,
+        freshness: crate::protocol::Freshness::Live,
+        staleness_ms: None,
+    }
+}
+
+pub(crate) fn meta_degraded(backend: &str, confidence: f64, reason: &str) -> crate::protocol::ToolResponseMeta {
+    crate::protocol::ToolResponseMeta {
+        backend_used: backend.to_string(),
+        confidence,
+        degraded_reason: Some(reason.to_string()),
+        source: crate::protocol::AnalysisSource::Native,
+        partial: false,
+        freshness: crate::protocol::Freshness::Live,
+        staleness_ms: None,
+    }
+}

@@ -1,0 +1,10 @@
+[advisories]
+ignore = [
+    # RUSTSEC-2024-0436: `paste` is unmaintained
+    # Transitive dependency via fastembed -> tokenizers -> macro_rules_attribute.
+    # `paste` is a proc-macro helper with no known security vulnerability.
+    # Replacing fastembed to remove this warning would require reimplementing
+    # model download, cache management, and ONNX runtime orchestration.
+    # Tracked: revisit when fastembed updates its tokenizers dependency.
+    "RUSTSEC-2024-0436",
+]

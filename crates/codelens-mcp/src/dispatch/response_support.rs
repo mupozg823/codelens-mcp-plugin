@@ -17,11 +17,7 @@ pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> Stri
     ) {
         return "overview complete — drill into specific files or symbols".to_owned();
     }
-    let pct = if budget > 0 {
-        tokens * 100 / budget
-    } else {
-        100
-    };
+    let pct = tokens.checked_mul(100).and_then(|v| v.checked_div(budget)).unwrap_or(100);
     let base = format!("{tokens} tokens ({pct}% of {budget} budget)");
 
     if pct > 95 {
@@ -236,10 +232,7 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
     // so human UIs that only render `content[0].text` see the same payload
     // the agent sees in `structuredContent`.
     if let Some(ref data) = resp.data {
-        let data_value = if std::env::var("CODELENS_VERBOSE_TEXT")
-            .map(|v| matches!(v.as_str(), "1" | "true" | "on" | "yes"))
-            .unwrap_or(false)
-        {
+        let data_value = if crate::env_compat::env_var_bool("CODELENS_VERBOSE_TEXT").unwrap_or(false) {
             data.clone()
         } else {
             summarize_text_data_for_response(data)
@@ -623,11 +616,10 @@ pub(crate) fn bounded_result_payload(
     effective_budget: usize,
     effort_offset: i32,
 ) -> (String, Option<Value>, Option<TruncationInfo>) {
-    let usage_pct = if effective_budget > 0 {
-        payload_estimate * 100 / effective_budget
-    } else {
-        100
-    };
+    let usage_pct = payload_estimate
+        .checked_mul(100)
+        .and_then(|v| v.checked_div(effective_budget))
+        .unwrap_or(100);
     // Apply effort offset to thresholds (High effort delays compression)
     let t1 = (75i32 + effort_offset).clamp(50, 90) as usize;
     let t2 = (85i32 + effort_offset).clamp(60, 95) as usize;

@@ -373,7 +373,9 @@ pub(crate) async fn run_http(state: Arc<AppState>, config: HttpServerConfig) -> 
     };
     if let Some(tls) = config.tls {
         let rustls_config = load_rustls_config(&tls).await?;
-        axum_server::from_tcp_rustls(listener.into_std()?, rustls_config)
+        let bound = listener.local_addr()?;
+        tracing::info!("HTTP server accepting HTTPS connections on {}", bound);
+        axum_server::from_tcp_rustls(listener.into_std()?, rustls_config)?
             .serve(app.into_make_service())
             .await?;
     } else {

@@ -48,7 +48,7 @@ impl SymbolIndex {
                 })
                 .collect();
 
-            file_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            file_scores.sort_by_key(|b| std::cmp::Reverse(b.1));
             let top: Vec<String> = file_scores
                 .iter()
                 .filter(|(_, score)| *score > 0)

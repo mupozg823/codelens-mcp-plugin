@@ -34,7 +34,7 @@ impl AppState {
             .doom_loop_counter
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        let now = Self::now_ms();
+        let now = crate::util::now_ms();
         let entry = counters
             .entry(session_id.to_owned())
             .or_insert_with(|| (String::new(), 0, 0, now));

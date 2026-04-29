@@ -96,6 +96,7 @@ fn embedding_search_query_leaves_identifier_queries_unframed() {
 #[cfg(feature = "semantic")]
 #[test]
 fn embedding_search_query_bridges_nl_terms_to_code_vocabulary() {
+    let _lock = super::TEST_ENV_LOCK.lock().unwrap();
     let analysis = analyze_retrieval_query("categorize a function by its purpose");
     let framed = semantic_query_for_embedding_search(&analysis, None);
     assert!(framed.starts_with("function "));
@@ -106,6 +107,7 @@ fn embedding_search_query_bridges_nl_terms_to_code_vocabulary() {
 #[cfg(feature = "semantic")]
 #[test]
 fn embedding_search_query_bridge_dedup_is_case_insensitive() {
+    let _lock = super::TEST_ENV_LOCK.lock().unwrap();
     let analysis =
         analyze_retrieval_query("search code with SEMANTIC_SEARCH for a natural language query");
     let framed = semantic_query_for_embedding_search(&analysis, None);
@@ -121,6 +123,7 @@ fn embedding_search_query_bridge_dedup_is_case_insensitive() {
 #[cfg(feature = "semantic")]
 #[test]
 fn embedding_search_query_bridges_sparse_and_rerank_terms() {
+    let _lock = super::TEST_ENV_LOCK.lock().unwrap();
     let analysis =
         analyze_retrieval_query("improve natural language retrieval with bm25 and rerank");
     let framed = semantic_query_for_embedding_search(&analysis, None);
@@ -133,6 +136,7 @@ fn embedding_search_query_bridges_sparse_and_rerank_terms() {
 #[cfg(feature = "semantic")]
 #[test]
 fn embedding_search_query_does_not_apply_project_specific_bridge_without_project_root() {
+    let _lock = super::TEST_ENV_LOCK.lock().unwrap();
     let analysis = analyze_retrieval_query("record which files were recently accessed");
     let framed = semantic_query_for_embedding_search(&analysis, None);
     assert!(!framed.contains("record_file_access"));
@@ -141,6 +145,10 @@ fn embedding_search_query_does_not_apply_project_specific_bridge_without_project
 #[cfg(feature = "semantic")]
 #[test]
 fn embedding_search_query_applies_project_specific_bridge_from_project_file() {
+    let _lock = super::TEST_ENV_LOCK.lock().unwrap();
+    // Project bridges are disabled by default; enable via env for this test.
+    unsafe { std::env::set_var("CODELENS_PROJECT_BRIDGES_ON", "1") };
+
     let dir = std::env::temp_dir().join(format!(
         "codelens-query-bridge-{}",
         SystemTime::now()
@@ -160,6 +168,7 @@ fn embedding_search_query_applies_project_specific_bridge_from_project_file() {
     assert!(framed.contains("record_file_access"));
     assert!(framed.contains("recency"));
 
+    unsafe { std::env::remove_var("CODELENS_PROJECT_BRIDGES_ON") };
     let _ = fs::remove_dir_all(dir);
 }
 

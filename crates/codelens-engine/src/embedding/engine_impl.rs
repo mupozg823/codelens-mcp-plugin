@@ -95,7 +95,7 @@ impl EmbeddingEngine {
                 .text_embed_cache
                 .lock()
                 .map_err(|_| anyhow::anyhow!("text embedding cache lock"))?;
-            for (text, embedding) in missing_order.into_iter().zip(embeddings.into_iter()) {
+            for (text, embedding) in missing_order.into_iter().zip(embeddings) {
                 cache.insert(text.clone(), embedding.clone());
                 if let Some(indices) = missing_positions.remove(&text) {
                     for index in indices {
