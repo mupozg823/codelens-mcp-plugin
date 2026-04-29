@@ -211,6 +211,9 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
         .as_ref()
         .expect("session_metadata captured");
     assert_eq!(metadata["trusted_client"], serde_json::json!(true));
-    assert_eq!(metadata["requested_profile"], serde_json::json!("refactor-full"));
+    assert_eq!(
+        metadata["requested_profile"],
+        serde_json::json!("refactor-full")
+    );
     assert_eq!(metadata["client_name"], serde_json::json!("HarnessQA"));
 }

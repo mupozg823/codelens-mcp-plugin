@@ -105,16 +105,17 @@ fn run_audit_retention_sweep(sink: &crate::audit_sink::AuditSink) {
         .map(|d| d as i64)
         .unwrap_or(90);
     if days <= 0 {
-        tracing::debug!(
-            "CODELENS_AUDIT_RETENTION_DAYS={days} — audit retention disabled"
-        );
+        tracing::debug!("CODELENS_AUDIT_RETENTION_DAYS={days} — audit retention disabled");
         return;
     }
     let now_ms = crate::util::now_ms() as i64;
     let cutoff_ms = now_ms.saturating_sub(days.saturating_mul(86_400_000));
     match sink.prune_older_than(cutoff_ms) {
         Ok(0) => {
-            tracing::debug!(retention_days = days, "audit retention sweep — no rows pruned");
+            tracing::debug!(
+                retention_days = days,
+                "audit retention sweep — no rows pruned"
+            );
         }
         Ok(removed) => {
             tracing::info!(

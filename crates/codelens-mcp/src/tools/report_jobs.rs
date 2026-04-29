@@ -1,8 +1,8 @@
 use super::report_utils::{extract_handle_fields, stable_cache_key, strings_from_array};
 use super::{AppState, ToolResult, required_string, success_meta};
-use crate::resources::{analysis_section_handles, analysis_summary_resource};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
+use crate::resources::{analysis_section_handles, analysis_summary_resource};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -967,8 +967,14 @@ mod tests {
 
     #[test]
     fn debug_step_delay_ms_extracts_and_caps() {
-        assert_eq!(debug_step_delay_ms(&json!({"debug_step_delay_ms": 100})), 100);
-        assert_eq!(debug_step_delay_ms(&json!({"debug_step_delay_ms": 500})), 250);
+        assert_eq!(
+            debug_step_delay_ms(&json!({"debug_step_delay_ms": 100})),
+            100
+        );
+        assert_eq!(
+            debug_step_delay_ms(&json!({"debug_step_delay_ms": 500})),
+            250
+        );
     }
 
     #[test]
@@ -1003,9 +1009,6 @@ mod tests {
     fn job_handle_fields_without_analysis_id() {
         let fields = job_handle_fields(None, &["sec1".to_owned()]);
         assert!(fields["summary_resource"].is_null());
-        assert_eq!(
-            fields["section_handles"],
-            json!(Vec::<Value>::new())
-        );
+        assert_eq!(fields["section_handles"], json!(Vec::<Value>::new()));
     }
 }

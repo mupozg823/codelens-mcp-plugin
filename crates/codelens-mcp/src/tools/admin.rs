@@ -4,10 +4,10 @@
 //! `audit_log.sqlite` rows written by every mutation call. Requires
 //! `Admin` role (see `crate::principals::required_role_for`).
 
-use super::{optional_string, optional_usize, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, optional_string, optional_usize, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Query the durable audit log.
 ///

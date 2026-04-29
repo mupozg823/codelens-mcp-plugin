@@ -2,9 +2,9 @@ use super::{
     AppState, ToolResult, default_lsp_command_for_path, optional_bool, optional_string,
     optional_usize, parse_lsp_args, required_string, success_meta,
 };
-use crate::tool_evidence::{meta_degraded, meta_for_backend};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
+use crate::tool_evidence::{meta_degraded, meta_for_backend};
 use codelens_engine::{
     LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspResolveTargetRequest,
     LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, check_lsp_status as core_check_lsp_status,

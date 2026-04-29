@@ -5,16 +5,18 @@ use crate::resource_context::{
     ResourceRequestContext, build_agent_activity_payload, build_http_session_payload,
     build_visible_tool_context, filter_default_listed_tools, filter_listed_tools,
 };
+use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::state::AnalysisArtifact;
 use crate::surface_manifest::{HARNESS_HOST_COMPAT_RESOURCE_URI, HOST_ADAPTER_HOSTS};
-use std::collections::BTreeMap;
-use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    HostContext, SurfaceCompilerInput, TaskOverlay, ToolProfile, ToolSurface, preferred_tier_labels, tool_namespace, tool_preferred_executor_label, tool_tier_label, visible_tools,
+    HostContext, SurfaceCompilerInput, TaskOverlay, ToolProfile, ToolSurface,
+    preferred_tier_labels, tool_namespace, tool_preferred_executor_label, tool_tier_label,
+    visible_tools,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
 use codelens_engine::{detect_frameworks, detect_workspace_packages};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 pub(crate) fn resources(state: &AppState) -> Vec<Value> {
     let project_name = state
@@ -396,7 +398,6 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
     }
 }
 
-
 // === Merged from analysis_handles.rs ===
 
 pub(crate) fn analysis_summary_resource(analysis_id: &str) -> Value {
@@ -416,7 +417,6 @@ pub(crate) fn analysis_section_handles(analysis_id: &str, sections: &[String]) -
             .collect::<Vec<_>>()
     )
 }
-
 
 // === Merged from resource_catalog.rs ===
 
@@ -693,7 +693,6 @@ fn context_request_client_profile(
     request.client_profile.as_str()
 }
 
-
 // === Merged from resource_profiles.rs ===
 
 pub(crate) const PROFILE_GUIDE_PROFILES: [ToolProfile; 7] = [
@@ -792,7 +791,6 @@ pub(crate) fn profile_resource_entries() -> Vec<Value> {
         })
         .collect()
 }
-
 
 // === Merged from resource_analysis.rs ===
 

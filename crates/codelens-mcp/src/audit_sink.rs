@@ -2,7 +2,7 @@
 //! Append-only SQLite log at `<audit_dir>/audit_log.sqlite`.
 
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

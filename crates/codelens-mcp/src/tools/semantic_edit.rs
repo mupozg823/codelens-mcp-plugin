@@ -2,13 +2,13 @@ use super::semantic_edit_args::{
     code_action_kinds, code_action_range, language_for_file, position_source, symbol_position,
 };
 use super::{
-    default_lsp_command_for_path, optional_string, parse_lsp_args, required_string, success_meta,
-    AppState, ToolResult,
+    AppState, ToolResult, default_lsp_command_for_path, optional_string, parse_lsp_args,
+    required_string, success_meta,
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::lsp::{LspCodeActionRequest, LspRenameRequest, LspRequest};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 

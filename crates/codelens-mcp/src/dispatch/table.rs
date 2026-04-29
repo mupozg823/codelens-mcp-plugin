@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 #[cfg(feature = "semantic")]
-use crate::{error::CodeLensError, protocol::BackendKind, tools::ToolResult, AppState};
+use crate::{AppState, error::CodeLensError, protocol::BackendKind, tools::ToolResult};
 #[cfg(feature = "semantic")]
 use serde_json::json;
 

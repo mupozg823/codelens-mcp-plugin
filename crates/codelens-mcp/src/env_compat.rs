@@ -44,9 +44,8 @@ pub fn env_var_u64(canonical_name: &str) -> Option<u64> {
 /// Parse an env var as `bool`. Accepts `1`, `true`, `yes` (case-insensitive).
 /// Returns `None` if unset or empty; returns `Some(false)` for any other value.
 pub fn env_var_bool(canonical_name: &str) -> Option<bool> {
-    env_var_string(canonical_name).map(|s| {
-        matches!(s.to_ascii_lowercase().as_str(), "1" | "true" | "yes")
-    })
+    env_var_string(canonical_name)
+        .map(|s| matches!(s.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
 }
 
 // Backwards-compatible alias for existing call sites.

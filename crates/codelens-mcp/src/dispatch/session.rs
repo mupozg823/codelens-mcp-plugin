@@ -371,7 +371,9 @@ pub(super) fn record_audit_failure(
                 .as_str()
                 .to_owned(),
         ),
-        state_to: crate::runtime_types::LifecycleState::Failed.as_str().to_owned(),
+        state_to: crate::runtime_types::LifecycleState::Failed
+            .as_str()
+            .to_owned(),
         evidence_hash: None,
         rollback_restored: None,
         error_message: Some(error.to_string()),

@@ -88,7 +88,9 @@ impl CoordinationLockStats {
     /// Returns 0 when no acquisitions have happened yet, which keeps the
     /// payload predictable for empty sessions.
     pub fn avg_wait_micros(&self) -> u64 {
-        self.wait_total_micros.checked_div(self.acquire_count).unwrap_or(0)
+        self.wait_total_micros
+            .checked_div(self.acquire_count)
+            .unwrap_or(0)
     }
 }
 

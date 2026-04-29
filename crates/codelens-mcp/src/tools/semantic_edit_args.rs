@@ -211,13 +211,19 @@ mod tests {
     #[test]
     fn code_action_kinds_falls_back_to_array() {
         let args = json!({"code_action_kinds": ["quickfix", "source"]});
-        assert_eq!(code_action_kinds(&args, &["refactor"]), vec!["quickfix", "source"]);
+        assert_eq!(
+            code_action_kinds(&args, &["refactor"]),
+            vec!["quickfix", "source"]
+        );
     }
 
     #[test]
     fn code_action_kinds_falls_back_to_defaults() {
         let args = json!({});
-        assert_eq!(code_action_kinds(&args, &["refactor", "quickfix"]), vec!["refactor", "quickfix"]);
+        assert_eq!(
+            code_action_kinds(&args, &["refactor", "quickfix"]),
+            vec!["refactor", "quickfix"]
+        );
     }
 
     #[test]

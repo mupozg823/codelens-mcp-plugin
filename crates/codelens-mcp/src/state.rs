@@ -118,7 +118,8 @@ pub(crate) struct AppState {
     #[cfg(feature = "scip-backend")]
     scip_backend: OnceLock<Option<Arc<codelens_engine::ScipBackend>>>,
     /// Secondary (read-only) project indexes for cross-project queries.
-    pub(crate) secondary_projects: Mutex<HashMap<String, crate::state::secondary_projects::SecondaryProject>>,
+    pub(crate) secondary_projects:
+        Mutex<HashMap<String, crate::state::secondary_projects::SecondaryProject>>,
     #[cfg(feature = "http")]
     pub(crate) session_store: Option<crate::server::session::SessionStore>,
     #[cfg(feature = "http")]

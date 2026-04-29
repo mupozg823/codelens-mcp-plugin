@@ -1,7 +1,6 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-pub(crate) const TREE_SITTER_RENAME_BLOCKER_REASON: &str =
-    "tree-sitter rename is preview-only; select semantic_edit_backend=lsp (or jetbrains/roslyn) to apply";
+pub(crate) const TREE_SITTER_RENAME_BLOCKER_REASON: &str = "tree-sitter rename is preview-only; select semantic_edit_backend=lsp (or jetbrains/roslyn) to apply";
 
 pub(crate) struct ProductCapabilityRegistry;
 

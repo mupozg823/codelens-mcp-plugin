@@ -231,8 +231,7 @@ fn main() -> Result<()> {
     }
 
     if args.iter().any(|arg| arg == "--print-operation-matrix") {
-        let matrix =
-            crate::backend_operation_matrix::semantic_edit_operation_matrix();
+        let matrix = crate::backend_operation_matrix::semantic_edit_operation_matrix();
         println!("{}", serde_json::to_string_pretty(&matrix)?);
         return Ok(());
     }

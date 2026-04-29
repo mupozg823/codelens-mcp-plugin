@@ -36,7 +36,10 @@ pub(crate) fn precision_signals(
     })
 }
 
-pub(crate) fn meta_for_backend(backend: &str, confidence: f64) -> crate::protocol::ToolResponseMeta {
+pub(crate) fn meta_for_backend(
+    backend: &str,
+    confidence: f64,
+) -> crate::protocol::ToolResponseMeta {
     crate::protocol::ToolResponseMeta {
         backend_used: backend.to_string(),
         confidence,
@@ -48,7 +51,11 @@ pub(crate) fn meta_for_backend(backend: &str, confidence: f64) -> crate::protoco
     }
 }
 
-pub(crate) fn meta_degraded(backend: &str, confidence: f64, reason: &str) -> crate::protocol::ToolResponseMeta {
+pub(crate) fn meta_degraded(
+    backend: &str,
+    confidence: f64,
+    reason: &str,
+) -> crate::protocol::ToolResponseMeta {
     crate::protocol::ToolResponseMeta {
         backend_used: backend.to_string(),
         confidence,

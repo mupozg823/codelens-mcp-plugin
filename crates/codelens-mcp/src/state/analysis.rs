@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::analysis_queue::{analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue};
+use crate::analysis_queue::{AnalysisJobRequest, AnalysisWorkerQueue, analysis_job_cost_units};
 use crate::error::CodeLensError;
 use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisSummary, AnalysisVerifierCheck,

@@ -118,7 +118,7 @@ pub(crate) fn validate_tool_access(
 // ── Role gate (merged from role_gate.rs) ────────────────────────────────────────
 
 use crate::audit_sink::AuditRecord;
-use crate::principals::{required_role_for, resolve_principal_id, Role};
+use crate::principals::{Role, required_role_for, resolve_principal_id};
 use serde_json::Value;
 
 /// Enforce the role gate for a single dispatch call.

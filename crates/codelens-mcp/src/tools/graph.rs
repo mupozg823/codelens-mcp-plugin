@@ -1,6 +1,6 @@
 use super::{
-    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
-    ToolResult,
+    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
+    success_meta,
 };
 use crate::protocol::{BackendKind, ToolResponseMeta};
 use crate::tools::symbols::flatten_symbols;
@@ -9,7 +9,7 @@ use codelens_engine::{
     get_callees, get_callers, get_change_coupling, get_changed_files, get_importance,
     get_importers,
 };
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 const CALL_GRAPH_RESOLUTIONS: [&str; 7] = [
     "scip",

@@ -9,10 +9,10 @@ use crate::client_profile::{ClientProfile, EffortLevel};
 use crate::preflight_store::RecentPreflightStore;
 use crate::recent_buffer::RecentRingBuffer;
 use crate::runtime_types::{RuntimeDaemonMode, RuntimeTransportMode};
+use crate::state::project_runtime::{ProjectContextCache, ProjectRuntimeContext};
+use crate::state::{AppState, now_rfc3339_utc};
 use crate::telemetry::ToolMetricsRegistry;
 use crate::tool_defs::{ToolPreset, ToolSurface};
-use crate::state::{AppState, now_rfc3339_utc};
-use crate::state::project_runtime::{ProjectContextCache, ProjectRuntimeContext};
 
 impl AppState {
     fn now_ms() -> u64 {
@@ -155,7 +155,9 @@ impl AppState {
             #[cfg(feature = "http")]
             session_store: None,
             #[cfg(feature = "http")]
-            http_auth: std::sync::Mutex::new(Arc::new(crate::server::auth::HttpAuthState::default())),
+            http_auth: std::sync::Mutex::new(Arc::new(
+                crate::server::auth::HttpAuthState::default(),
+            )),
             compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
             daemon_started_at: now_rfc3339_utc(),
             audit_sinks: Mutex::new(HashMap::new()),

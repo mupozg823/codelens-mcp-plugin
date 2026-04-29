@@ -102,8 +102,10 @@ impl AppState {
                 let active_scope = self.current_project_scope();
                 let protected = [self.default_project_scope(), active_scope, scope.clone()];
                 let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
-                let _evicted =
-                    cache.evict_until_within_limit(crate::state::PROJECT_CONTEXT_CACHE_LIMIT, &protected_refs);
+                let _evicted = cache.evict_until_within_limit(
+                    crate::state::PROJECT_CONTEXT_CACHE_LIMIT,
+                    &protected_refs,
+                );
                 built
             }
         };

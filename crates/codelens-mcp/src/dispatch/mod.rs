@@ -124,8 +124,7 @@ pub(crate) fn dispatch_tool(
     };
 
     // 3. Auth & access (role gate + surface / namespace / tier / daemon mode).
-    if let Err(role_err) = enforce_role_gate(state, name, arguments, session, &ctx.active_surface)
-    {
+    if let Err(role_err) = enforce_role_gate(state, name, arguments, session, &ctx.active_surface) {
         return build_error_response(
             name,
             role_err,
@@ -166,7 +165,14 @@ pub(crate) fn dispatch_tool(
     if let Ok((payload, _)) = &mut result
         && is_content_mutation_tool(name)
     {
-        apply_post_mutation(state, name, arguments, session, &ctx.active_surface, payload);
+        apply_post_mutation(
+            state,
+            name,
+            arguments,
+            session,
+            &ctx.active_surface,
+            payload,
+        );
     }
 
     let elapsed_ms = start.elapsed().as_millis();

@@ -449,7 +449,10 @@ mod tests {
         let mut s = AuditStats::default();
         s.record("pass");
         s.record("fail");
-        assert_eq!(status_counts_json(&s), json!({"pass": 1, "warn": 0, "fail": 1}));
+        assert_eq!(
+            status_counts_json(&s),
+            json!({"pass": 1, "warn": 0, "fail": 1})
+        );
     }
 
     #[test]
@@ -490,9 +493,18 @@ mod tests {
 
     #[test]
     fn recommended_action_mapping() {
-        assert_eq!(recommended_action_for_check("bootstrap_order"), Some("prepare_harness_session"));
-        assert_eq!(recommended_action_for_check("mutation_gate"), Some("verify_change_readiness"));
-        assert_eq!(recommended_action_for_check("structure_evidence"), Some("get_symbols_overview"));
+        assert_eq!(
+            recommended_action_for_check("bootstrap_order"),
+            Some("prepare_harness_session")
+        );
+        assert_eq!(
+            recommended_action_for_check("mutation_gate"),
+            Some("verify_change_readiness")
+        );
+        assert_eq!(
+            recommended_action_for_check("structure_evidence"),
+            Some("get_symbols_overview")
+        );
         assert_eq!(recommended_action_for_check("unknown"), None);
     }
 
