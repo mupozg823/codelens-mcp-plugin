@@ -10,8 +10,8 @@ fi
 
 echo "🚀 Releasing CodeLens v$VERSION"
 
-# Update all Cargo.toml version fields (handles both "1.9.59" and "=1.9.59")
-sed -i '' -E "s/(version = \"=?)[^\"]+\"/\1$VERSION\"/" Cargo.toml crates/*/Cargo.toml
+# Update workspace version only (crates use version.workspace = true)
+sed -i '' -E "s/^version = \"[^\"]+\"/version = \"$VERSION\"/" Cargo.toml
 
 echo "✅ Version bumped to $VERSION. Review changes, then run:"
 echo "   cargo check --workspace && cargo nextest run --workspace"
