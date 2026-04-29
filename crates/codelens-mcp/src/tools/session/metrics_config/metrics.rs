@@ -33,7 +33,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         .map(|session_id| state.metrics().surface_snapshot_for_session(session_id))
         .unwrap_or_else(|| state.metrics().surface_snapshot());
     let per_tool: Vec<serde_json::Value> = snapshot
-        .into_iter()
+        .iter()
         .map(|(name, m)| {
             json!({
                 "tool": name,
@@ -59,6 +59,21 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         })
         .collect();
     let count = per_tool.len();
+
+    // ── Tool Surface Diet: identify zero-call tools ───────────────────────────
+    let all_registered = crate::tool_defs::visible_tools(
+        crate::tool_defs::ToolSurface::Preset(crate::tool_defs::ToolPreset::Full)
+    );
+    let registered_count = all_registered.len();
+    let mut zero_call_tools: Vec<&str> = all_registered
+        .iter()
+        .filter(|tool| !snapshot.iter().any(|(name, _)| name == tool.name))
+        .map(|tool| tool.name)
+        .collect();
+    zero_call_tools.sort_unstable();
+    let call_coverage = if registered_count > 0 {
+        (registered_count - zero_call_tools.len()) as f64 / registered_count as f64
+    } else { 0.0 };
     let per_surface = surfaces
         .into_iter()
         .map(|(surface, metrics)| {
@@ -112,6 +127,9 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             "tools": per_tool.clone(),
             "per_tool": per_tool,
             "count": count,
+            "registered_count": registered_count,
+            "zero_call_tools": zero_call_tools,
+            "call_coverage": call_coverage,
             "surfaces": per_surface.clone(),
             "per_surface": per_surface,
             "scope": if requested_session_id.is_some() { "session" } else { "global" },
