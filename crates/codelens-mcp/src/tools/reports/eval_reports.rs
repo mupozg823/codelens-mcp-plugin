@@ -409,3 +409,121 @@ pub fn eval_session_audit(state: &AppState, arguments: &Value) -> ToolResult {
 
     Ok((payload, success_meta(BackendKind::Hybrid, confidence)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audit_stats_records_and_counts() {
+        let mut s = AuditStats::default();
+        s.record("pass");
+        s.record("warn");
+        s.record("fail");
+        s.record("unknown");
+        assert_eq!(s.pass, 1);
+        assert_eq!(s.warn, 1);
+        assert_eq!(s.fail, 1);
+        assert_eq!(s.applicable(), 3);
+    }
+
+    #[test]
+    fn pass_rate_zero_denom_returns_null() {
+        let s = AuditStats::default();
+        assert!(pass_rate(&s).is_null());
+        assert_eq!(pass_rate_label(&s), "n/a");
+    }
+
+    #[test]
+    fn pass_rate_computes_correctly() {
+        let mut s = AuditStats::default();
+        s.record("pass");
+        s.record("pass");
+        s.record("warn");
+        assert_eq!(pass_rate(&s), json!(2.0 / 3.0));
+        assert_eq!(pass_rate_label(&s), "0.667");
+    }
+
+    #[test]
+    fn status_counts_json_matches() {
+        let mut s = AuditStats::default();
+        s.record("pass");
+        s.record("fail");
+        assert_eq!(
+            status_counts_json(&s),
+            json!({"pass": 1, "warn": 0, "fail": 1})
+        );
+    }
+
+    #[test]
+    fn finding_codes_extracts_and_skips_missing() {
+        let audit = json!({"findings": [{"code": "A"}, {"other": true}, {"code": "B"}]});
+        assert_eq!(finding_codes(&audit), vec!["A", "B"]);
+    }
+
+    #[test]
+    fn finding_codes_empty_when_no_findings() {
+        let audit = json!({});
+        assert!(finding_codes(&audit).is_empty());
+    }
+
+    #[test]
+    fn collect_failed_aggregates_codes() {
+        let audit = json!({"findings": [{"code": "X"}, {"code": "Y"}, {"code": "X"}]});
+        let mut map = HashMap::new();
+        collect_failed(&audit, &mut map);
+        assert_eq!(map["X"], 2);
+        assert_eq!(map["Y"], 1);
+    }
+
+    #[test]
+    fn audit_row_shape() {
+        let audit = json!({
+            "session_summary": {"session_id": "s1", "current_surface": "builder-minimal", "transport": "http", "recent_tools": ["t1"]},
+            "status": "pass",
+            "score": 95,
+            "recommended_next_tools": ["t2"],
+        });
+        let row = audit_row("builder", &audit);
+        assert_eq!(row["session_id"], "s1");
+        assert_eq!(row["role"], "builder");
+        assert_eq!(row["status"], "pass");
+        assert_eq!(row["finding_codes"], json!([]));
+    }
+
+    #[test]
+    fn recommended_action_mapping() {
+        assert_eq!(
+            recommended_action_for_check("bootstrap_order"),
+            Some("prepare_harness_session")
+        );
+        assert_eq!(
+            recommended_action_for_check("mutation_gate"),
+            Some("verify_change_readiness")
+        );
+        assert_eq!(
+            recommended_action_for_check("structure_evidence"),
+            Some("get_symbols_overview")
+        );
+        assert_eq!(recommended_action_for_check("unknown"), None);
+    }
+
+    #[test]
+    fn surface_classification() {
+        assert!(is_builder_surface("builder-minimal"));
+        assert!(is_builder_surface("refactor-full"));
+        assert!(!is_builder_surface("planner-readonly"));
+        assert!(is_planner_surface("planner-readonly"));
+        assert!(is_planner_surface("reviewer-graph"));
+        assert!(!is_planner_surface("builder-minimal"));
+    }
+
+    #[test]
+    fn coverage_check_builds() {
+        let c = coverage_check("my_check", "ready", "ok");
+        assert_eq!(c.check, "my_check");
+        assert_eq!(c.status, "ready");
+        assert_eq!(c.summary, "ok");
+        assert_eq!(c.evidence_section, Some("audit_pass_rate".to_owned()));
+    }
+}

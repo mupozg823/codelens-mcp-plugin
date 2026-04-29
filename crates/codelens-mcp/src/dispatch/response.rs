@@ -3,14 +3,14 @@ use super::response_support::{
     effective_budget_for_tool, enrich_recovery_hint_for_signals, max_result_size_chars_for_tool,
     routing_hint_for_payload, success_jsonrpc_response, text_payload_for_response,
 };
+use crate::AppState;
 use crate::error::CodeLensError;
-use crate::mutation_gate::{is_verifier_source_tool, MutationGateAllowance, MutationGateFailure};
+use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
 use crate::protocol::{JsonRpcResponse, SuggestedNextCall, ToolCallResponse, ToolResponseMeta};
 use crate::telemetry::CallTelemetryHints;
-use crate::tool_defs::{tool_definition, ToolSurface};
+use crate::tool_defs::{ToolSurface, tool_definition};
 use crate::tools;
-use crate::AppState;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 

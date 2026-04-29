@@ -63,7 +63,9 @@ pub enum CodeLensError {
     /// ADR-0009 §1: principal does not hold the role required by the
     /// tool. Surfaces as JSON-RPC -32008 (note: ADR named -32004 but
     /// that code is already taken by `IndexNotReady`).
-    #[error("Permission denied: principal '{principal}' (role={principal_role}) cannot call tool '{tool}' which requires role={required_role}")]
+    #[error(
+        "Permission denied: principal '{principal}' (role={principal_role}) cannot call tool '{tool}' which requires role={required_role}"
+    )]
     PermissionDenied {
         principal: String,
         principal_role: String,
@@ -149,7 +151,7 @@ impl CodeLensError {
 /// Structured recovery hint — lets agents pick a fallback action without
 /// parsing error strings. Emitted in the error response when the variant
 /// has a clear recovery path.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RecoveryHint {
     /// Call this tool instead; it satisfies the same intent by another route.
@@ -161,4 +163,140 @@ pub enum RecoveryHint {
     RequireField { field: String },
     /// The operation can succeed if retried after a short wait.
     RetryAfterSeconds { seconds: u64 },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jsonrpc_code_mappings() {
+        assert_eq!(
+            CodeLensError::MissingParam("x".into()).jsonrpc_code(),
+            -32602
+        );
+        assert_eq!(
+            CodeLensError::ToolNotFound("y".into()).jsonrpc_code(),
+            -32601
+        );
+        assert_eq!(CodeLensError::NotFound("z".into()).jsonrpc_code(), -32000);
+        assert_eq!(
+            CodeLensError::Validation("bad".into()).jsonrpc_code(),
+            -32003
+        );
+        assert_eq!(
+            CodeLensError::LanguageUnsupported {
+                language: "rs".into(),
+                feature: "rename".into(),
+            }
+            .jsonrpc_code(),
+            -32002
+        );
+        assert_eq!(
+            CodeLensError::LspNotAttached("".into()).jsonrpc_code(),
+            -32001
+        );
+        assert_eq!(
+            CodeLensError::IndexNotReady("".into()).jsonrpc_code(),
+            -32004
+        );
+        assert_eq!(
+            CodeLensError::Timeout {
+                operation: "op".into(),
+                elapsed_ms: 100,
+            }
+            .jsonrpc_code(),
+            -32005
+        );
+        assert_eq!(
+            CodeLensError::StaleSession("".into()).jsonrpc_code(),
+            -32006
+        );
+        assert_eq!(
+            CodeLensError::ResourceExhausted("".into()).jsonrpc_code(),
+            -32007
+        );
+        assert_eq!(
+            CodeLensError::PermissionDenied {
+                principal: "p".into(),
+                principal_role: "r".into(),
+                tool: "t".into(),
+                required_role: "R".into(),
+            }
+            .jsonrpc_code(),
+            -32008
+        );
+        assert_eq!(
+            CodeLensError::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")).jsonrpc_code(),
+            -32603
+        );
+        assert_eq!(
+            CodeLensError::Internal(anyhow::anyhow!("x")).jsonrpc_code(),
+            -32603
+        );
+    }
+
+    #[test]
+    fn is_protocol_error_only_for_protocol_variants() {
+        assert!(CodeLensError::MissingParam("x".into()).is_protocol_error());
+        assert!(CodeLensError::ToolNotFound("y".into()).is_protocol_error());
+        assert!(!CodeLensError::NotFound("z".into()).is_protocol_error());
+        assert!(!CodeLensError::Validation("bad".into()).is_protocol_error());
+    }
+
+    #[test]
+    fn recovery_hint_variants() {
+        assert_eq!(
+            CodeLensError::MissingParam("field_name".into()).recovery_hint(),
+            Some(RecoveryHint::RequireField {
+                field: "field_name".into()
+            })
+        );
+        assert_eq!(
+            CodeLensError::ToolNotFound("x".into()).recovery_hint(),
+            Some(RecoveryHint::FallbackTool {
+                tool: "get_capabilities".into(),
+                reason: "list currently available tools and features".into(),
+            })
+        );
+        assert_eq!(
+            CodeLensError::LspNotAttached("x".into()).recovery_hint(),
+            Some(RecoveryHint::FallbackTool {
+                tool: "find_symbol".into(),
+                reason: "tree-sitter index satisfies most symbol lookups without LSP".into(),
+            })
+        );
+        assert_eq!(
+            CodeLensError::IndexNotReady("x".into()).recovery_hint(),
+            Some(RecoveryHint::RetryAfterSeconds { seconds: 5 })
+        );
+        assert_eq!(
+            CodeLensError::ResourceExhausted("x".into()).recovery_hint(),
+            Some(RecoveryHint::RetryAfterSeconds { seconds: 10 })
+        );
+        assert_eq!(
+            CodeLensError::Timeout {
+                operation: "op".into(),
+                elapsed_ms: 100,
+            }
+            .recovery_hint(),
+            Some(RecoveryHint::FallbackTool {
+                tool: "start_analysis_job".into(),
+                reason: "move heavy work to the durable job queue".into(),
+            })
+        );
+        assert_eq!(CodeLensError::Validation("x".into()).recovery_hint(), None);
+    }
+
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn recovery_hint_semantic_feature() {
+        assert_eq!(
+            CodeLensError::FeatureUnavailable("embed".into()).recovery_hint(),
+            Some(RecoveryHint::RequireFeature {
+                feature: "semantic".into(),
+                install: "rebuild with `--features semantic` and call index_embeddings".into(),
+            })
+        );
+    }
 }

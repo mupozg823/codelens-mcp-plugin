@@ -17,11 +17,10 @@ pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> Stri
     ) {
         return "overview complete — drill into specific files or symbols".to_owned();
     }
-    let pct = if budget > 0 {
-        tokens * 100 / budget
-    } else {
-        100
-    };
+    let pct = tokens
+        .checked_mul(100)
+        .and_then(|v| v.checked_div(budget))
+        .unwrap_or(100);
     let base = format!("{tokens} tokens ({pct}% of {budget} budget)");
 
     if pct > 95 {
@@ -236,14 +235,12 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
     // so human UIs that only render `content[0].text` see the same payload
     // the agent sees in `structuredContent`.
     if let Some(ref data) = resp.data {
-        let data_value = if std::env::var("CODELENS_VERBOSE_TEXT")
-            .map(|v| matches!(v.as_str(), "1" | "true" | "on" | "yes"))
-            .unwrap_or(false)
-        {
-            data.clone()
-        } else {
-            summarize_text_data_for_response(data)
-        };
+        let data_value =
+            if crate::env_compat::env_var_bool("CODELENS_VERBOSE_TEXT").unwrap_or(false) {
+                data.clone()
+            } else {
+                summarize_text_data_for_response(data)
+            };
         out.insert("data".to_owned(), data_value);
     }
 
@@ -623,11 +620,10 @@ pub(crate) fn bounded_result_payload(
     effective_budget: usize,
     effort_offset: i32,
 ) -> (String, Option<Value>, Option<TruncationInfo>) {
-    let usage_pct = if effective_budget > 0 {
-        payload_estimate * 100 / effective_budget
-    } else {
-        100
-    };
+    let usage_pct = payload_estimate
+        .checked_mul(100)
+        .and_then(|v| v.checked_div(effective_budget))
+        .unwrap_or(100);
     // Apply effort offset to thresholds (High effort delays compression)
     let t1 = (75i32 + effort_offset).clamp(50, 90) as usize;
     let t2 = (85i32 + effort_offset).clamp(60, 95) as usize;
@@ -878,8 +874,10 @@ fn summarize_structured_content(value: &Value, depth: usize) -> Value {
                 if let Value::Array(items) = item
                     && items.len() > MAX_ARRAY_ITEMS
                 {
-                    omitted_markers
-                        .push((format!("{key}_omitted_count"), items.len() - MAX_ARRAY_ITEMS));
+                    omitted_markers.push((
+                        format!("{key}_omitted_count"),
+                        items.len() - MAX_ARRAY_ITEMS,
+                    ));
                 }
                 summarized.insert(key.clone(), summarize_structured_content(item, depth + 1));
             }
@@ -967,9 +965,9 @@ mod text_channel_tests {
         let (text, structured, info) = bounded_result_payload(
             r#"{"ok":true}"#.to_owned(),
             Some(json!({"ok": true})),
-            10,    // payload tokens
-            1000,  // budget
-            0,     // medium effort
+            10,   // payload tokens
+            1000, // budget
+            0,    // medium effort
         );
         assert_eq!(text, r#"{"ok":true}"#);
         assert!(info.is_none(), "stage 1 must not surface truncation_info");

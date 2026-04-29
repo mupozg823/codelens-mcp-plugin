@@ -921,9 +921,9 @@ pub(crate) fn rank_symbols(
     if scored.len() > PARTIAL_SORT_K * 2 {
         scored.select_nth_unstable_by(PARTIAL_SORT_K, |a, b| b.1.cmp(&a.1));
         scored.truncate(PARTIAL_SORT_K);
-        scored.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        scored.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
     } else {
-        scored.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        scored.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
     }
     scored
 }

@@ -74,3 +74,5 @@ benchmarks/results/*-release-quality-matrix/
 index.scip
 .scip/
 
+.bench-baselines/
+*.md

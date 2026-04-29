@@ -15,10 +15,7 @@ pub(crate) fn check_rate_limit(
     state: &AppState,
     session: &crate::session_context::SessionRequestContext,
 ) -> Option<CodeLensError> {
-    let limit: u64 = std::env::var("CODELENS_RATE_LIMIT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(300);
+    let limit: u64 = crate::env_compat::env_var_u64("CODELENS_RATE_LIMIT").unwrap_or(300);
 
     let session_calls = state.metrics().session_call_count(&session.session_id);
     if session_calls > limit {

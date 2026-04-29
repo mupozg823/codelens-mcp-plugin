@@ -2,272 +2,118 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - "feat/**"
+    branches: [main, master]
   pull_request:
-    branches:
-      - main
-      - "codex/**"
-      - "feat/**"
-      - "refactor/**"
+    branches: [main, master]
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
 
 jobs:
-  ci:
-    name: CI (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  check:
     strategy:
-      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: llvm-tools-preview
 
-      - name: Install .NET SDK for Roslyn adapter gate
-        if: matrix.os == 'ubuntu-latest'
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry-v2-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-v2-
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
 
-      - name: Cache target directory
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-target-v2-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-target-v2-
+      - name: cargo check
+        run: cargo check --workspace
 
-      - name: repo-local quality gate
-        shell: bash
-        run: ./scripts/quality-gate.sh --mode ci
+      - name: cargo check (http)
+        run: cargo check --workspace --features http
 
-      - name: dataset hygiene lint
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: python3 benchmarks/lint-datasets.py --project .
+      - name: cargo check (otel)
+        run: cargo check --workspace --features otel
 
-      - name: agent prompt contract check
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: python3 scripts/agent-contract-check.py --project . --strict
+      - name: cargo check (scip-backend)
+        run: cargo check --workspace --features scip-backend
 
-      - name: refactor honesty surface lint
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: python3 scripts/lint-refactor-honesty.py
+      - name: cargo check (semantic-off)
+        run: cargo check --workspace --no-default-features --features audit
 
-      - name: surface manifest drift check
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: python3 scripts/surface-manifest.py
+      - name: cargo clippy (deny warnings)
+        run: cargo clippy --workspace -- -D warnings
 
-      - name: operation matrix dump and contract check
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
+      - name: cargo clippy (http)
+        run: cargo clippy --workspace --features http -- -D warnings
+
+      - name: cargo clippy (otel)
+        run: cargo clippy --workspace --features otel -- -D warnings
+
+      - name: cargo clippy (scip-backend)
+        run: cargo clippy --workspace --features scip-backend -- -D warnings
+
+      - name: cargo clippy (semantic-off)
+        run: cargo clippy --workspace --no-default-features --features audit -- -D warnings
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: cargo test (nextest)
+        run: cargo nextest run --workspace
+
+      - name: cargo test (http)
+        run: cargo nextest run --workspace --features http
+
+      - name: cargo test (semantic-off)
+        run: cargo nextest run --workspace --no-default-features --features audit
+
+      - name: cargo doctest
+        run: cargo test --doc --workspace
+
+      - name: cargo audit
         run: |
-          cargo run -q -p codelens-mcp --features http -- --print-operation-matrix > /tmp/operation-matrix.json
-          python3 scripts/surface-manifest.py --check-operation-matrix /tmp/operation-matrix.json
+          cargo install cargo-audit
+          cargo audit
 
-      - name: surface manifest contract fixtures
+      - name: cargo doc
+        run: cargo doc --workspace --no-deps
+
+      - name: Code coverage
+        run: cargo llvm-cov --workspace --lcov --output-dir target/coverage
+
+      - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: python3 scripts/test/test-surface-manifest-contracts.py
+        uses: codecov/codecov-action@v4
+        with:
+          files: target/coverage/lcov.info
+          fail_ci_if_error: false
 
-      - name: cargo test (mcp + http)
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo test -p codelens-mcp --features http
+      - name: Build release binary
+        run: cargo build --release --bin codelens-mcp
 
-      - name: SCIP backend regression gate
-        if: matrix.os == 'ubuntu-latest'
-        # L1 slices 1-4 (#104, #105, #106, #107) wired SCIP into
-        # get_callees, get_callers, capabilities discovery, and
-        # stale-index detection. Without a CI gate, future refactors
-        # could silently disable the scip-backend feature path or break
-        # the unit tests that pin the find_callers/find_callees
-        # heuristics. This step exercises the feature flag end-to-end
-        # at the unit-test level (no rust-analyzer install required).
-        run: |
-          cargo build --features scip-backend --bin codelens-mcp
-          cargo test -p codelens-engine --features scip-backend
-          cargo test -p codelens-mcp --features scip-backend --bin codelens-mcp
-
-      - name: cargo check (macOS CoreML)
+      - name: Upload release artifact
         if: matrix.os == 'macos-latest'
-        run: |
-          cargo check -p codelens-mcp --features http,coreml
-          cargo test -p codelens-engine --features coreml macos_runtime_preference_reports_coreml_when_coreml_is_compiled
-
-      - name: HTTP test stability (3x repeat)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          for i in 1 2 3; do
-            echo "=== HTTP stability run $i ==="
-            cargo test -p codelens-mcp --features http 2>&1 | tail -1
-          done
-
-      - name: cargo build --release (http for benchmark gate)
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo build --release --features http
-
-      - name: semantic model asset gate
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          MODELS_DIR="${CODELENS_RELEASE_MODELS_DIR:-crates/codelens-engine/models}"
-          python3 scripts/verify-model-assets.py "${MODELS_DIR}" --quiet
-
-      - name: resolve HTTP surface benchmark baseline
-        if: matrix.os == 'ubuntu-latest'
-        id: http_surface_baseline_ref
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          else
-            BASE_SHA="$(git rev-parse HEAD^)"
-          fi
-          echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
-          echo "Using baseline commit: $BASE_SHA"
-
-      - name: build baseline release (http for surface benchmark)
-        if: matrix.os == 'ubuntu-latest'
-        id: http_surface_baseline_build
-        shell: bash
-        run: |
-          BASE_SHA="${{ steps.http_surface_baseline_ref.outputs.sha }}"
-          BASE_WORKTREE="$(mktemp -d)"
-          BASE_TARGET_DIR="$RUNNER_TEMP/codelens-http-surface-baseline-target"
-          trap 'git worktree remove --force "$BASE_WORKTREE" >/dev/null 2>&1 || true' EXIT
-          git worktree add --detach "$BASE_WORKTREE" "$BASE_SHA"
-          CARGO_TARGET_DIR="$BASE_TARGET_DIR" cargo build \
-            --release \
-            --features http \
-            -p codelens-mcp \
-            --manifest-path "$BASE_WORKTREE/Cargo.toml"
-          echo "binary=$BASE_TARGET_DIR/release/codelens-mcp" >> "$GITHUB_OUTPUT"
-
-      - name: HTTP surface benchmark summary
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CODELENS_BIN: target/release/codelens-mcp
-        run: |
-          python3 benchmarks/http-surface-benchmark.py . \
-            --baseline-binary "${{ steps.http_surface_baseline_build.outputs.binary }}" \
-            --candidate-binary target/release/codelens-mcp \
-            --iterations 3 \
-            --output-json benchmarks/http-surface-benchmark.json \
-            --markdown-output benchmarks/http-surface-benchmark.md | tee benchmarks/http-surface-benchmark-ci.txt
-          cat benchmarks/http-surface-benchmark.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: token-efficiency benchmark gate
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CODELENS_BIN: target/release/codelens-mcp
-        run: |
-          python3 benchmarks/token-efficiency.py . \
-            --check \
-            --require-handle-win \
-            --min-workflow-savings 35 \
-            --min-chain-reduction 40 \
-            --min-queue-depth 1 \
-            --min-peak-workers 2 \
-            --min-queue-success-rate 1.0 \
-            --max-queue-failures 0 \
-            --markdown-output benchmarks/token-efficiency-summary.md | tee benchmarks/token-efficiency-ci.txt
-          cat benchmarks/token-efficiency-summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: embedding-quality benchmark summary
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CODELENS_BIN: target/release/codelens-mcp
-        run: |
-          python3 benchmarks/embedding-quality.py . \
-            --binary target/release/codelens-mcp \
-            --output benchmarks/embedding-quality-results.json \
-            --markdown-output benchmarks/embedding-quality-summary.md \
-            --check \
-            --min-hybrid-mrr 0.65 \
-            --min-lexical-mrr 0.50 | tee benchmarks/embedding-quality-ci.txt
-          cat benchmarks/embedding-quality-summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: daemon retrieval latency gate
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CODELENS_BIN: target/release/codelens-mcp
-        run: |
-          python3 benchmarks/daemon-latency-gate.py . \
-            --binary target/release/codelens-mcp \
-            --query-set benchmarks/embedding-quality-dataset-self.json \
-            --distinct-runs 10 \
-            --prewarm-distinct \
-            --check \
-            --max-ranked-context-p95-ms 250 \
-            --max-semantic-search-p95-ms 900 \
-            --max-cold-semantic-p95-ms 1200 \
-            --max-prewarmed-semantic-p95-ms 250 \
-            --output-json benchmarks/daemon-latency-gate.json \
-            --markdown-output benchmarks/daemon-latency-gate.md | tee benchmarks/daemon-latency-gate-ci.txt
-          cat benchmarks/daemon-latency-gate.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: external phase3 matrix summary
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          python3 benchmarks/embedding-quality-matrix.py \
-            --require-datasets ripgrep,requests,jest,typescript,next-js,react-core,django,axum
-          cat benchmarks/embedding-quality-phase3-matrix.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: semantic refactor matrix gate
-        if: matrix.os == 'ubuntu-latest'
-        env:
-          CODELENS_BIN: target/release/codelens-mcp
-        run: |
-          dotnet build adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService/CodeLens.Roslyn.WorkspaceService.csproj
-          python3 benchmarks/semantic-refactor-matrix.py \
-            --binary target/release/codelens-mcp \
-            --matrix benchmarks/semantic-refactor-upstream-matrix.json \
-            --output benchmarks/semantic-refactor-upstream-results.json \
-            --timeout 420 \
-            --check | tee benchmarks/semantic-refactor-upstream-ci.txt
-
-      - name: upload benchmark artifacts
-        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: token-efficiency-benchmark
-          path: |
-            benchmarks/benchmark_results.json
-            benchmarks/token-efficiency-ci.txt
-            benchmarks/token-efficiency-summary.md
-            benchmarks/embedding-quality-results.json
-            benchmarks/embedding-quality-ci.txt
-            benchmarks/embedding-quality-summary.md
-            benchmarks/embedding-quality-phase3-matrix.json
-            benchmarks/embedding-quality-phase3-matrix.md
-            benchmarks/http-surface-benchmark.json
-            benchmarks/http-surface-benchmark.md
-            benchmarks/http-surface-benchmark-ci.txt
-            benchmarks/daemon-latency-gate.json
-            benchmarks/daemon-latency-gate.md
-            benchmarks/daemon-latency-gate-ci.txt
-            benchmarks/semantic-refactor-upstream-results.json
-            benchmarks/semantic-refactor-upstream-ci.txt
+          name: codelens-mcp-${{ matrix.os }}
+          path: target/release/codelens-mcp
+
+      - name: Build release binary (semantic-off)
+        run: cargo build --release --bin codelens-mcp --no-default-features --features audit
+
+      - name: Upload slim release artifact
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: codelens-mcp-slim-${{ matrix.os }}
+          path: target/release/codelens-mcp

@@ -6,33 +6,33 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::agent_coordination::AgentCoordinationStore;
-use crate::analysis_queue::{
-    AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT, STDIO_ANALYSIS_WORKER_COUNT,
-};
+use crate::analysis_queue::AnalysisWorkerQueue;
 use crate::artifact_store::AnalysisArtifactStore;
-use crate::error::CodeLensError;
 use crate::preflight_store::RecentPreflightStore;
 use crate::telemetry::ToolMetricsRegistry;
-use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface};
+#[cfg(test)]
+use crate::tool_defs::ToolPreset;
+use crate::tool_defs::ToolSurface;
 use serde_json::Value;
 
 mod analysis;
+mod audit;
+mod constructors;
 mod coordination;
 mod embedding_host;
 mod metrics_host;
 mod preflight;
+mod project_accessors;
 mod project_runtime;
+mod runtime_config;
+mod secondary_projects;
 mod session_host;
 mod session_runtime;
 mod watcher_health;
 
-/// Default preflight TTL: 10 minutes. Override via CODELENS_PREFLIGHT_TTL_SECS.
-/// NLAH (arxiv:2603.25723): overly strict verifiers hurt performance by -0.8~-8.4%.
-/// Making TTL configurable lets agents tune verification overhead vs safety.
+/// Default preflight TTL: 10 minutes. Override via `CODELENS_PREFLIGHT_TTL_SECS`.
 pub(crate) fn preflight_ttl_ms() -> u64 {
-    std::env::var("CODELENS_PREFLIGHT_TTL_SECS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
+    crate::env_compat::env_var_u64("CODELENS_PREFLIGHT_TTL_SECS")
         .map(|secs| secs * 1000)
         .unwrap_or(10 * 60 * 1000) // default 10 min
 }
@@ -41,10 +41,10 @@ pub(crate) use crate::agent_coordination::{
     ActiveAgentEntry, AgentWorkEntry, CoordinationCounts, CoordinationLockStats,
     CoordinationSnapshot, FileClaimEntry,
 };
-pub(crate) use crate::client_profile::{ClientProfile, EffortLevel};
+pub(crate) use crate::client_profile::ClientProfile;
 pub(crate) use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisVerifierCheck, RuntimeDaemonMode,
-    RuntimeTransportMode, WatcherFailureHealth,
+    RuntimeTransportMode,
 };
 
 pub(super) fn push_unique_string(items: &mut Vec<String>, value: String) {
@@ -118,11 +118,12 @@ pub(crate) struct AppState {
     #[cfg(feature = "scip-backend")]
     scip_backend: OnceLock<Option<Arc<codelens_engine::ScipBackend>>>,
     /// Secondary (read-only) project indexes for cross-project queries.
-    pub(crate) secondary_projects: Mutex<HashMap<String, SecondaryProject>>,
+    pub(crate) secondary_projects:
+        Mutex<HashMap<String, crate::state::secondary_projects::SecondaryProject>>,
     #[cfg(feature = "http")]
     pub(crate) session_store: Option<crate::server::session::SessionStore>,
     #[cfg(feature = "http")]
-    http_auth: Arc<crate::server::auth::HttpAuthState>,
+    pub(crate) http_auth: std::sync::Mutex<Arc<crate::server::auth::HttpAuthState>>,
     compat_mode: Mutex<crate::server::compat::ServerCompatMode>,
     /// Phase 4b (§capability-reporting follow-up): wall-clock time
     /// when the daemon started, as an RFC 3339 UTC string. Exposed
@@ -144,12 +145,6 @@ pub(crate) struct AppState {
     /// (project-local override beats user-global default), so the
     /// resolver must isolate per-project. Lazy-init on first access.
     principals_by_audit_dir: Mutex<HashMap<PathBuf, Arc<crate::principals::Principals>>>,
-}
-
-/// A read-only project registered for cross-project queries.
-pub(crate) struct SecondaryProject {
-    pub project: ProjectRoot,
-    pub index: Arc<SymbolIndex>,
 }
 
 /// Phase 4b (§capability-reporting follow-up): format the current
@@ -184,6 +179,7 @@ fn now_rfc3339_utc() -> String {
 }
 
 impl AppState {
+    // ── Daemon metadata ─────────────────────────────────────────
     /// RFC 3339 UTC timestamp when the daemon started — captured
     /// once at `AppState::build` and inherited by worker clones.
     /// Phase 4b (§capability-reporting): exposed in
@@ -193,13 +189,7 @@ impl AppState {
         &self.daemon_started_at
     }
 
-    fn now_ms() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
-    }
-
+    // ── Active project resolution ─────────────────────────────────────────
     fn active_project_context(&self) -> Option<Arc<ProjectRuntimeContext>> {
         project_runtime::active_project_context(self)
     }
@@ -213,570 +203,6 @@ impl AppState {
 
     fn activate_project_context(&self, context: Option<Arc<ProjectRuntimeContext>>) {
         project_runtime::activate_project_context(self, context)
-    }
-
-    // ── Active project accessors (check override, fallback to default) ──
-
-    /// Get the active project root. Clones the ProjectRoot (just a PathBuf).
-    pub(crate) fn project(&self) -> ProjectRoot {
-        self.active_project_context()
-            .map(|context| context.project.clone())
-            .unwrap_or_else(|| self.default_project.clone())
-    }
-
-    /// Get the active symbol index.
-    pub(crate) fn symbol_index(&self) -> Arc<SymbolIndex> {
-        self.active_project_context()
-            .map(|context| Arc::clone(&context.symbol_index))
-            .unwrap_or_else(|| Arc::clone(&self.default_symbol_index))
-    }
-
-    pub(crate) fn watcher_failure_health(&self) -> WatcherFailureHealth {
-        watcher_health::watcher_failure_health(self)
-    }
-
-    pub(crate) fn prune_index_failures(&self) -> Result<WatcherFailureHealth, CodeLensError> {
-        watcher_health::prune_index_failures(self)
-    }
-
-    /// Get the active graph cache.
-    pub(crate) fn graph_cache(&self) -> Arc<GraphCache> {
-        self.active_project_context()
-            .map(|context| Arc::clone(&context.graph_cache))
-            .unwrap_or_else(|| Arc::clone(&self.default_graph_cache))
-    }
-
-    /// Get the active memories directory.
-    pub(crate) fn memories_dir(&self) -> PathBuf {
-        self.active_project_context()
-            .map(|context| context.memories_dir.clone())
-            .unwrap_or_else(|| self.default_memories_dir.clone())
-    }
-
-    /// Get the active analysis cache directory.
-    pub(crate) fn analysis_dir(&self) -> PathBuf {
-        self.active_project_context()
-            .map(|context| context.analysis_dir.clone())
-            .unwrap_or_else(|| self.default_analysis_dir.clone())
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn artifact_store(&self) -> &AnalysisArtifactStore {
-        &self.artifact_store
-    }
-
-    pub(crate) fn audit_dir(&self) -> PathBuf {
-        self.active_project_context()
-            .map(|context| context.audit_dir.clone())
-            .unwrap_or_else(|| self.default_audit_dir.clone())
-    }
-
-    /// ADR-0009 §1: lazy accessor for the resolved principal-to-role
-    /// mapping for the *currently active* project. L6 — multi-project:
-    /// each `audit_dir()` (which traces the active project) maps to
-    /// its own cached `Principals`. Switching projects mid-session
-    /// pulls the right `principals.toml` from the cache or discovers
-    /// it on first access.
-    ///
-    /// Discovery failures fall back to the permissive default (every
-    /// id maps to `Refactor`) so a malformed file does not block the
-    /// dispatch path — the parse error is logged at warn.
-    pub(crate) fn principals(&self) -> Arc<crate::principals::Principals> {
-        let dir = self.audit_dir();
-        {
-            let cache = self
-                .principals_by_audit_dir
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if let Some(existing) = cache.get(&dir) {
-                return Arc::clone(existing);
-            }
-        }
-        let resolved = match crate::principals::Principals::discover(&dir) {
-            Ok(p) => p,
-            Err(error) => {
-                tracing::warn!(
-                    error = %error,
-                    audit_dir = %dir.display(),
-                    "failed to load principals.toml — falling back to permissive default \
-                     (every principal mapped to Refactor)"
-                );
-                crate::principals::Principals::permissive_default()
-            }
-        };
-        if resolved.default_role() == crate::principals::Role::ReadOnly
-            && resolved.explicit_count() == 0
-        {
-            tracing::warn!(
-                audit_dir = %dir.display(),
-                "CODELENS_AUTH_MODE=strict in effect with no principals.toml — \
-                 every principal is ReadOnly and code-mutation tools will be denied"
-            );
-        }
-        let arc = Arc::new(resolved);
-        let mut cache = self
-            .principals_by_audit_dir
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        cache.entry(dir).or_insert_with(|| Arc::clone(&arc));
-        arc
-    }
-
-    /// ADR-0009 §2: lazy accessor for the durable audit sink for the
-    /// *currently active* project. L6 — multi-project: each
-    /// `audit_dir()` is bound to its own SQLite log; activating
-    /// another project switches to that project's sink while keeping
-    /// the original alive in cache for when we come back.
-    /// `prune_older_than` runs once per (state, project) pair —
-    /// re-activating a project does not re-prune.
-    /// Failure to open returns `None` so dispatch never fails on
-    /// audit alone — the failure is logged and the call proceeds.
-    pub(crate) fn audit_sink(&self) -> Option<Arc<crate::audit_sink::AuditSink>> {
-        let dir = self.audit_dir();
-        {
-            let cache = self.audit_sinks.lock().unwrap_or_else(|p| p.into_inner());
-            if let Some(existing) = cache.get(&dir) {
-                return Some(Arc::clone(existing));
-            }
-        }
-        match crate::audit_sink::AuditSink::open(&dir) {
-            Ok(sink) => {
-                run_audit_retention_sweep(&sink);
-                let arc = Arc::new(sink);
-                let mut cache = self.audit_sinks.lock().unwrap_or_else(|p| p.into_inner());
-                let entry = cache.entry(dir).or_insert_with(|| Arc::clone(&arc));
-                Some(Arc::clone(entry))
-            }
-            Err(error) => {
-                tracing::warn!(
-                    error = %error,
-                    audit_dir = %dir.display(),
-                    "failed to open audit_log.sqlite — audit_sink disabled for this state"
-                );
-                None
-            }
-        }
-    }
-
-    pub(crate) fn watcher_stats(&self) -> Option<codelens_engine::WatcherStats> {
-        self.active_project_context()
-            .as_ref()
-            .and_then(|context| context.watcher.as_ref().map(FileWatcher::stats))
-            .or_else(|| self.default_watcher.as_ref().map(FileWatcher::stats))
-    }
-
-    pub(crate) fn watcher_running(&self) -> bool {
-        self.watcher_stats()
-            .map(|stats| stats.running)
-            .unwrap_or(false)
-    }
-
-    /// Switch the active project at runtime. Creates a new index and graph cache.
-    pub(crate) fn switch_project(&self, path: &str) -> anyhow::Result<String> {
-        let project = ProjectRoot::new(path)?;
-        let scope = project.as_path().to_string_lossy().to_string();
-        let name = project
-            .as_path()
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| path.to_string());
-
-        if scope == self.default_project_scope() {
-            self.activate_project_context(None);
-            return Ok(name);
-        }
-
-        if let Some(current) = self.active_project_context()
-            && current.project.as_path() == project.as_path()
-        {
-            return Ok(name);
-        }
-
-        let context = {
-            let mut cache = self
-                .project_context_cache
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if let Some(cached) = cache.get(&scope) {
-                cached
-            } else {
-                let built = Arc::new(Self::build_project_runtime_context(project, true)?);
-                cache.insert(scope.clone(), Arc::clone(&built));
-                let active_scope = self.current_project_scope();
-                let protected = [self.default_project_scope(), active_scope, scope.clone()];
-                let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
-                let _evicted =
-                    cache.evict_until_within_limit(PROJECT_CONTEXT_CACHE_LIMIT, &protected_refs);
-                built
-            }
-        };
-        self.activate_project_context(Some(context));
-        Ok(name)
-    }
-
-    /// Reset to the default project.
-    #[allow(dead_code)]
-    pub(crate) fn reset_project(&self) {
-        self.activate_project_context(None);
-    }
-
-    /// Check if running on the default project.
-    #[allow(dead_code)]
-    pub(crate) fn is_default_project(&self) -> bool {
-        self.active_project_context().is_none()
-    }
-
-    /// Access the LSP session pool. Pool uses internal per-session locking.
-    pub(crate) fn lsp_pool(&self) -> Arc<LspSessionPool> {
-        self.active_project_context()
-            .map(|context| Arc::clone(&context.lsp_pool))
-            .unwrap_or_else(|| Arc::clone(&self.default_lsp_pool))
-    }
-
-    /// Acquire active tool surface with poison recovery.
-    pub(crate) fn surface(&self) -> std::sync::MutexGuard<'_, ToolSurface> {
-        self.surface
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    pub(crate) fn set_surface(&self, surface: ToolSurface) {
-        *self
-            .surface
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = surface;
-    }
-
-    pub(crate) fn configure_daemon_mode(&self, daemon_mode: RuntimeDaemonMode) {
-        *self
-            .daemon_mode
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = daemon_mode;
-    }
-
-    pub(crate) fn configure_transport_mode(&self, transport: &str) {
-        let mode = RuntimeTransportMode::from_str(transport);
-        *self
-            .transport_mode
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = mode;
-        self.metrics.record_analysis_worker_pool(
-            self.analysis_worker_limit(),
-            self.analysis_cost_budget(),
-            mode.as_str(),
-        );
-    }
-
-    pub(crate) fn transport_mode(&self) -> RuntimeTransportMode {
-        *self
-            .transport_mode
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    pub(crate) fn daemon_mode(&self) -> RuntimeDaemonMode {
-        *self
-            .daemon_mode
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    pub(crate) fn configure_compat_mode(&self, mode: crate::server::compat::ServerCompatMode) {
-        *self
-            .compat_mode
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = mode;
-    }
-
-    pub(crate) fn compat_mode(&self) -> crate::server::compat::ServerCompatMode {
-        *self
-            .compat_mode
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    #[cfg(feature = "http")]
-    pub(crate) fn configure_http_auth(&self, config: crate::server::auth::HttpAuthConfig) {
-        self.http_auth.configure(config);
-    }
-
-    #[cfg(feature = "http")]
-    pub(crate) fn http_auth(&self) -> Arc<crate::server::auth::HttpAuthState> {
-        Arc::clone(&self.http_auth)
-    }
-
-    pub(crate) fn client_profile(&self) -> ClientProfile {
-        self.client_profile
-    }
-
-    pub(crate) fn effort_level(&self) -> EffortLevel {
-        match self.effort_level.load(std::sync::atomic::Ordering::Relaxed) {
-            0 => EffortLevel::Low,
-            1 => EffortLevel::Medium,
-            _ => EffortLevel::High,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_effort_level(&self, level: EffortLevel) {
-        let val = match level {
-            EffortLevel::Low => 0u8,
-            EffortLevel::Medium => 1,
-            EffortLevel::High => 2,
-        };
-        self.effort_level
-            .store(val, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    pub(crate) fn mutation_allowed_in_runtime(&self) -> bool {
-        !matches!(self.daemon_mode(), RuntimeDaemonMode::ReadOnly)
-    }
-
-    pub(crate) fn analysis_worker_limit(&self) -> usize {
-        match self.transport_mode() {
-            RuntimeTransportMode::Http | RuntimeTransportMode::Https => HTTP_ANALYSIS_WORKER_COUNT,
-            RuntimeTransportMode::Stdio => STDIO_ANALYSIS_WORKER_COUNT,
-        }
-    }
-
-    pub(crate) fn analysis_cost_budget(&self) -> usize {
-        match self.transport_mode() {
-            RuntimeTransportMode::Http | RuntimeTransportMode::Https => 3,
-            RuntimeTransportMode::Stdio => 2,
-        }
-    }
-
-    pub(crate) fn analysis_parallelism_for_profile(&self, profile_hint: Option<&str>) -> usize {
-        let hinted_profile =
-            profile_hint
-                .and_then(ToolProfile::from_str)
-                .or_else(|| match *self.surface() {
-                    ToolSurface::Profile(profile) => Some(profile),
-                    ToolSurface::Preset(_) => None,
-                });
-        let transport_limit = self.analysis_worker_limit();
-        match hinted_profile {
-            Some(ToolProfile::PlannerReadonly)
-            | Some(ToolProfile::ReviewerGraph)
-            | Some(ToolProfile::CiAudit) => transport_limit.min(HTTP_ANALYSIS_WORKER_COUNT),
-            Some(ToolProfile::BuilderMinimal)
-            | Some(ToolProfile::EvaluatorCompact)
-            | Some(ToolProfile::RefactorFull)
-            | Some(ToolProfile::WorkflowFirst)
-            | None => 1,
-        }
-    }
-
-    pub(crate) fn clone_for_worker(&self) -> Self {
-        let project = self.project();
-        let symbol_index = self.symbol_index();
-        let graph_cache = self.graph_cache();
-        let memories_dir = self.memories_dir();
-        let analysis_dir = self.analysis_dir();
-        let audit_dir = self.audit_dir();
-        let lsp_pool = self.lsp_pool();
-        Self {
-            default_project: project.clone(),
-            default_symbol_index: symbol_index,
-            default_graph_cache: graph_cache,
-            default_lsp_pool: lsp_pool,
-            default_memories_dir: memories_dir,
-            default_analysis_dir: analysis_dir.clone(),
-            default_audit_dir: audit_dir,
-            default_watcher: None,
-            project_override: std::sync::RwLock::new(None),
-            project_context_cache: Mutex::new(ProjectContextCache::default()),
-            transport_mode: Mutex::new(self.transport_mode()),
-            daemon_mode: Mutex::new(self.daemon_mode()),
-            client_profile: self.client_profile,
-            effort_level: std::sync::atomic::AtomicU8::new(
-                self.effort_level.load(std::sync::atomic::Ordering::Relaxed),
-            ),
-            surface: Mutex::new(*self.surface()),
-            token_budget: std::sync::atomic::AtomicUsize::new(self.token_budget()),
-            artifact_store: AnalysisArtifactStore::new(analysis_dir.clone()),
-            job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
-            metrics: Arc::clone(&self.metrics),
-            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
-            recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
-            doom_loop_counter: Mutex::new(HashMap::new()),
-            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
-            preflight_store: RecentPreflightStore::new(),
-            // Coordination registry is shared across worker clones so async
-            // analysis jobs observe the same active-agent set as the request
-            // that spawned them.
-            coord_store: Arc::clone(&self.coord_store),
-            analysis_queue: OnceLock::new(),
-            watcher_maintenance: Mutex::new(HashMap::new()),
-            project_execution_lock: Mutex::new(()),
-            secondary_projects: Mutex::new(HashMap::new()),
-            #[cfg(feature = "semantic")]
-            embedding: std::sync::RwLock::new(None),
-            #[cfg(feature = "scip-backend")]
-            scip_backend: OnceLock::new(),
-            #[cfg(feature = "http")]
-            session_store: None,
-            #[cfg(feature = "http")]
-            http_auth: Arc::clone(&self.http_auth),
-            compat_mode: Mutex::new(self.compat_mode()),
-            // Phase 4b: workers inherit the parent daemon's start
-            // time so `get_capabilities` stays consistent across
-            // clones.
-            daemon_started_at: self.daemon_started_at.clone(),
-            // ADR-0009: each clone re-initialises its own sink lazily.
-            // Multiple processes opening the same SQLite is safe (WAL
-            // serialises writes); the OnceLock just caches per-clone.
-            audit_sinks: Mutex::new(HashMap::new()),
-            principals_by_audit_dir: Mutex::new(HashMap::new()),
-        }
-    }
-
-    pub(crate) fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
-        let context = Self::build_project_runtime_context(project, true)
-            .expect("startup project context should initialize");
-
-        let state = Self::build(context, preset);
-        state.configure_transport_mode("stdio");
-        state.artifact_store.cleanup_stale_dirs(Self::now_ms());
-        let scope = state.current_project_scope();
-        state
-            .job_store
-            .cleanup_stale_files(Self::now_ms(), Some(&scope));
-        state
-    }
-
-    /// Lightweight constructor that skips file watcher and stale-file cleanup.
-    /// Reduces thread/I/O pressure when many instances run in parallel (e.g. tests).
-    #[cfg(test)]
-    pub(crate) fn new_minimal(project: ProjectRoot, preset: ToolPreset) -> Self {
-        let context = Self::build_project_runtime_context(project, false)
-            .expect("test project context should initialize");
-
-        let state = Self::build(context, preset);
-        state.configure_transport_mode("stdio");
-        state
-    }
-
-    fn build(context: ProjectRuntimeContext, preset: ToolPreset) -> Self {
-        let default_project = context.project.clone();
-        let default_symbol_index = Arc::clone(&context.symbol_index);
-        let default_graph_cache = Arc::clone(&context.graph_cache);
-        let default_lsp_pool = Arc::clone(&context.lsp_pool);
-        let default_memories_dir = context.memories_dir.clone();
-        let default_analysis_dir = context.analysis_dir.clone();
-        let default_audit_dir = context.audit_dir.clone();
-        let default_watcher = context.watcher;
-        Self {
-            default_project,
-            default_symbol_index,
-            default_graph_cache,
-            default_lsp_pool,
-            default_memories_dir,
-            default_analysis_dir: default_analysis_dir.clone(),
-            default_audit_dir,
-            default_watcher,
-            project_override: std::sync::RwLock::new(None),
-            project_context_cache: Mutex::new(ProjectContextCache::default()),
-            transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
-            daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
-            client_profile: ClientProfile::detect(None),
-            effort_level: std::sync::atomic::AtomicU8::new(match EffortLevel::detect() {
-                EffortLevel::Low => 0,
-                EffortLevel::Medium => 1,
-                EffortLevel::High => 2,
-            }),
-            surface: Mutex::new(ToolSurface::Preset(preset)),
-            token_budget: std::sync::atomic::AtomicUsize::new(
-                crate::tool_defs::default_budget_for_preset(preset),
-            ),
-            artifact_store: AnalysisArtifactStore::new(default_analysis_dir.clone()),
-            job_store: crate::job_store::AnalysisJobStore::new(default_analysis_dir.join("jobs")),
-            metrics: Arc::new(ToolMetricsRegistry::new()),
-            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
-            recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
-            doom_loop_counter: Mutex::new(HashMap::new()),
-            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
-            preflight_store: RecentPreflightStore::new(),
-            coord_store: Arc::new(AgentCoordinationStore::new()),
-            analysis_queue: OnceLock::new(),
-            watcher_maintenance: Mutex::new(HashMap::new()),
-            project_execution_lock: Mutex::new(()),
-            secondary_projects: Mutex::new(HashMap::new()),
-            #[cfg(feature = "semantic")]
-            embedding: std::sync::RwLock::new(None),
-            #[cfg(feature = "scip-backend")]
-            scip_backend: OnceLock::new(),
-            #[cfg(feature = "http")]
-            session_store: None,
-            #[cfg(feature = "http")]
-            http_auth: Arc::new(crate::server::auth::HttpAuthState::default()),
-            compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
-            daemon_started_at: now_rfc3339_utc(),
-            audit_sinks: Mutex::new(HashMap::new()),
-            principals_by_audit_dir: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Register a secondary project for cross-project queries.
-    pub(crate) fn add_secondary_project(&self, path: &str) -> anyhow::Result<String> {
-        let project = ProjectRoot::new(path)?;
-        let name = project
-            .as_path()
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| path.to_string());
-        let index = Arc::new(SymbolIndex::new(project.clone()));
-        // Ensure it's indexed
-        index.refresh_all()?;
-        let mut map = self
-            .secondary_projects
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        map.insert(name.clone(), SecondaryProject { project, index });
-        Ok(name)
-    }
-
-    /// Remove a secondary project.
-    pub(crate) fn remove_secondary_project(&self, name: &str) -> bool {
-        let mut map = self
-            .secondary_projects
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        map.remove(name).is_some()
-    }
-
-    /// Get a snapshot of secondary project names and paths.
-    pub(crate) fn list_secondary_projects(&self) -> Vec<(String, String)> {
-        let map = self
-            .secondary_projects
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        map.iter()
-            .map(|(name, sp)| {
-                (
-                    name.clone(),
-                    sp.project.as_path().to_string_lossy().to_string(),
-                )
-            })
-            .collect()
-    }
-
-    /// Query symbols in a secondary project by name.
-    pub(crate) fn query_secondary_project(
-        &self,
-        project_name: &str,
-        symbol_name: &str,
-        max_results: usize,
-    ) -> anyhow::Result<Vec<codelens_engine::SymbolInfo>> {
-        let map = self
-            .secondary_projects
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        let sp = map
-            .get(project_name)
-            .ok_or_else(|| anyhow::anyhow!("project '{}' not registered", project_name))?;
-        sp.index
-            .find_symbol(symbol_name, None, false, false, max_results)
     }
 }
 
@@ -804,53 +230,6 @@ pub(crate) fn extract_symbol_hint(arguments: &Value) -> Option<String> {
         }
     }
     None
-}
-
-/// ADR-0009 §2: prune audit rows older than the retention window.
-/// Runs once per `AuditSink::open` (i.e. on the first call to
-/// `audit_sink()` per AppState lifetime). The window is controlled
-/// by `CODELENS_AUDIT_RETENTION_DAYS`:
-/// - unset → 90 days (ADR default)
-/// - `0` or negative → retention disabled, no rows pruned
-/// - any positive integer → rows older than that many days deleted
-///
-/// Failures (parse / SQL) are logged at warn and never propagated;
-/// the audit sink stays usable even if the prune step misfires.
-fn run_audit_retention_sweep(sink: &crate::audit_sink::AuditSink) {
-    let days = std::env::var("CODELENS_AUDIT_RETENTION_DAYS")
-        .ok()
-        .and_then(|s| s.trim().parse::<i64>().ok())
-        .unwrap_or(90);
-    if days <= 0 {
-        tracing::debug!(
-            "CODELENS_AUDIT_RETENTION_DAYS={days} — audit retention disabled"
-        );
-        return;
-    }
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
-    let cutoff_ms = now_ms.saturating_sub(days.saturating_mul(86_400_000));
-    match sink.prune_older_than(cutoff_ms) {
-        Ok(0) => {
-            tracing::debug!(retention_days = days, "audit retention sweep — no rows pruned");
-        }
-        Ok(removed) => {
-            tracing::info!(
-                retention_days = days,
-                pruned_rows = removed,
-                "audit retention sweep removed {removed} rows"
-            );
-        }
-        Err(error) => {
-            tracing::warn!(
-                error = %error,
-                retention_days = days,
-                "audit retention sweep failed — sink remains usable"
-            );
-        }
-    }
 }
 
 #[cfg(test)]

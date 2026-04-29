@@ -60,7 +60,7 @@ pub(super) fn transaction_id_for(
     tool: &str,
     arguments: &serde_json::Value,
 ) -> String {
-    let args_hash = crate::audit_sink::canonical_sha256_hex(arguments);
+    let args_hash = crate::util::canonical_sha256_hex(arguments);
     format!("{}-{}-{}", session.session_id, tool, &args_hash[..16])
 }
 
@@ -242,7 +242,7 @@ fn record_audit_outcome(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    let args_hash = crate::audit_sink::canonical_sha256_hex(arguments);
+    let args_hash = crate::util::canonical_sha256_hex(arguments);
     let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
 
     // ADR-0009 §3: derive terminal state from the Hybrid apply_status.
@@ -258,15 +258,15 @@ fn record_audit_outcome(
         .unwrap_or("applied")
         .to_owned();
     let state_to =
-        crate::lifecycle::LifecycleState::terminal_for_apply_status(&payload_apply_status)
-            .unwrap_or(crate::lifecycle::LifecycleState::Audited);
+        crate::runtime_types::LifecycleState::terminal_for_apply_status(&payload_apply_status)
+            .unwrap_or(crate::runtime_types::LifecycleState::Audited);
 
     // ADR-0009 §3 rollback_restored: when Hybrid returned RolledBack,
     // probe the rollback_report to summarise restore success. This is
     // a single-file aggregate ("did *every* restore succeed?"); the
     // detailed rollback_report stays in the response, not the audit
     // column.
-    let rollback_restored = if state_to == crate::lifecycle::LifecycleState::RolledBack {
+    let rollback_restored = if state_to == crate::runtime_types::LifecycleState::RolledBack {
         payload
             .get("data")
             .and_then(|d| d.get("rollback_report"))
@@ -289,9 +289,9 @@ fn record_audit_outcome(
     // when the response uses the standard envelope; fall back to the
     // whole payload otherwise.
     let evidence_value = payload.get("data").unwrap_or(payload);
-    let evidence_hash = Some(crate::audit_sink::canonical_sha256_hex(evidence_value));
+    let evidence_hash = Some(crate::util::canonical_sha256_hex(evidence_value));
 
-    let error_message = if state_to == crate::lifecycle::LifecycleState::RolledBack {
+    let error_message = if state_to == crate::runtime_types::LifecycleState::RolledBack {
         payload
             .get("data")
             .and_then(|d| d.get("error_message"))
@@ -312,7 +312,7 @@ fn record_audit_outcome(
         args_hash,
         apply_status: payload_apply_status,
         state_from: Some(
-            crate::lifecycle::LifecycleState::Applying
+            crate::runtime_types::LifecycleState::Applying
                 .as_str()
                 .to_owned(),
         ),
@@ -352,7 +352,7 @@ pub(super) fn record_audit_failure(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    let args_hash = crate::audit_sink::canonical_sha256_hex(arguments);
+    let args_hash = crate::util::canonical_sha256_hex(arguments);
     let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
     let session_metadata = Some(session_metadata_for(state, session, active_surface));
     let record = crate::audit_sink::AuditRecord {
@@ -367,11 +367,13 @@ pub(super) fn record_audit_failure(
         // marker for "got past the role gate but the substrate did
         // not commit".
         state_from: Some(
-            crate::lifecycle::LifecycleState::Verifying
+            crate::runtime_types::LifecycleState::Verifying
                 .as_str()
                 .to_owned(),
         ),
-        state_to: crate::lifecycle::LifecycleState::Failed.as_str().to_owned(),
+        state_to: crate::runtime_types::LifecycleState::Failed
+            .as_str()
+            .to_owned(),
         evidence_hash: None,
         rollback_restored: None,
         error_message: Some(error.to_string()),

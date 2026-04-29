@@ -114,3 +114,90 @@ pub(crate) fn validate_tool_access(
 
     Ok(())
 }
+
+// ── Role gate (merged from role_gate.rs) ────────────────────────────────────────
+
+use crate::audit_sink::AuditRecord;
+use crate::principals::{Role, required_role_for, resolve_principal_id};
+use serde_json::Value;
+
+/// Enforce the role gate for a single dispatch call.
+pub(super) fn enforce_role_gate(
+    state: &AppState,
+    name: &str,
+    arguments: &Value,
+    session: &SessionRequestContext,
+    active_surface: &str,
+) -> Result<(), CodeLensError> {
+    let required = required_role_for(name);
+    let principal_id = resolve_principal_id(session);
+    let principal_role = state.principals().resolve(principal_id.as_deref());
+    if principal_role.satisfies(required) {
+        return Ok(());
+    }
+    record_denied_audit_row(
+        state,
+        name,
+        arguments,
+        session,
+        active_surface,
+        principal_id.as_deref(),
+        principal_role,
+        required,
+    );
+    Err(CodeLensError::PermissionDenied {
+        principal: principal_id.unwrap_or_else(|| "<default>".to_owned()),
+        principal_role: principal_role.as_str().to_owned(),
+        tool: name.to_owned(),
+        required_role: required.as_str().to_owned(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_denied_audit_row(
+    state: &AppState,
+    name: &str,
+    arguments: &Value,
+    session: &SessionRequestContext,
+    active_surface: &str,
+    principal_id: Option<&str>,
+    principal_role: Role,
+    required_role: Role,
+) {
+    let Some(sink) = state.audit_sink() else {
+        return;
+    };
+    let now_ms = crate::util::now_ms() as i64;
+    let args_hash = crate::util::canonical_sha256_hex(arguments);
+    let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
+    let session_metadata = Some(super::session::session_metadata_for(
+        state,
+        session,
+        active_surface,
+    ));
+    let record = AuditRecord {
+        transaction_id,
+        timestamp_ms: now_ms,
+        principal: principal_id.map(str::to_owned),
+        tool: name.to_owned(),
+        args_hash,
+        apply_status: "denied".to_owned(),
+        state_from: None,
+        state_to: "Denied".to_owned(),
+        evidence_hash: None,
+        rollback_restored: None,
+        error_message: Some(format!(
+            "principal_role={} does not satisfy required_role={}",
+            principal_role.as_str(),
+            required_role.as_str()
+        )),
+        session_metadata,
+    };
+    if let Err(error) = sink.write(&record) {
+        tracing::warn!(
+            tool = name,
+            error = %error,
+            "failed to write denied-row audit_sink entry"
+        );
+    }
+}

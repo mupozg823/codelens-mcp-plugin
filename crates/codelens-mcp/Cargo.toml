@@ -28,7 +28,7 @@ url.workspace = true
 rusqlite.workspace = true
 toml = "0.8"
 rustls = { workspace = true, optional = true }
-codelens-engine = { path = "../codelens-engine", version = "=1.9.59" }
+codelens-engine = { path = "../codelens-engine", version = "=1.9.59", default-features = false }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -50,10 +50,11 @@ tempfile = "3"
 filetime = "0.2"
 
 [features]
-default = ["semantic"]
+default = ["semantic", "audit"]
 semantic = ["codelens-engine/semantic"]
 coreml = ["semantic", "codelens-engine/coreml"]
 model-bakeoff = ["semantic", "codelens-engine/model-bakeoff"]
 http = ["dep:axum", "dep:axum-server", "dep:tokio", "dep:uuid", "dep:tokio-stream", "dep:jsonwebtoken", "dep:ureq", "dep:rustls"]
 otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry", "dep:tokio"]
 scip-backend = ["codelens-engine/scip-backend"]
+audit = []

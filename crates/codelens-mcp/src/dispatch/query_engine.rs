@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::table::DISPATCH_TABLE;
 use crate::mutation_gate::{
-    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
+    MutationFailureKind, MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
     is_refactor_gated_mutation_tool,
 };
 
@@ -66,14 +66,21 @@ impl<'a> QueryEngine<'a> {
                     (result, allowance, None)
                 }
                 Err(failure) => {
-                    if failure.missing_preflight || failure.stale {
+                    if matches!(
+                        failure.kind,
+                        MutationFailureKind::MissingPreflight | MutationFailureKind::StalePreflight
+                    ) {
                         self.state
                             .metrics()
                             .record_mutation_without_preflight_for_session(Some(
                                 session.session_id.as_str(),
                             ));
                     }
-                    if failure.rename_without_symbol_preflight {
+                    if matches!(
+                        failure.kind,
+                        MutationFailureKind::SymbolPreflightRequired
+                            | MutationFailureKind::SymbolMismatch
+                    ) {
                         self.state
                             .metrics()
                             .record_rename_without_symbol_preflight_for_session(Some(
@@ -83,7 +90,7 @@ impl<'a> QueryEngine<'a> {
                     self.state
                         .metrics()
                         .record_mutation_preflight_gate_denied_for_session(
-                            failure.stale,
+                            matches!(failure.kind, MutationFailureKind::StalePreflight),
                             Some(session.session_id.as_str()),
                         );
                     let message = failure.message.clone();

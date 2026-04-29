@@ -141,9 +141,11 @@ pub(super) fn activate_project_context(
     state.clear_recent_preflights();
     #[cfg(feature = "semantic")]
     state.reset_embedding();
-    state.artifact_store.cleanup_stale_dirs(AppState::now_ms());
+    state
+        .artifact_store
+        .cleanup_stale_dirs(crate::util::now_ms());
     let scope = state.current_project_scope();
     state
         .job_store
-        .cleanup_stale_files(AppState::now_ms(), Some(&scope));
+        .cleanup_stale_files(crate::util::now_ms(), Some(&scope));
 }

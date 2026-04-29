@@ -373,7 +373,9 @@ pub(crate) async fn run_http(state: Arc<AppState>, config: HttpServerConfig) -> 
     };
     if let Some(tls) = config.tls {
         let rustls_config = load_rustls_config(&tls).await?;
-        axum_server::from_tcp_rustls(listener.into_std()?, rustls_config)
+        let bound = listener.local_addr()?;
+        tracing::info!("HTTP server accepting HTTPS connections on {}", bound);
+        axum_server::from_tcp_rustls(listener.into_std()?, rustls_config)?
             .serve(app.into_make_service())
             .await?;
     } else {
@@ -700,9 +702,7 @@ mod principal_injection_tests {
 
     #[test]
     fn does_not_inject_when_method_is_not_tools_call() {
-        let mut request = parse(
-            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#,
-        );
+        let mut request = parse(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#);
         inject_principal_id_into_params(&mut request, "alice@example.com");
         assert!(
             request

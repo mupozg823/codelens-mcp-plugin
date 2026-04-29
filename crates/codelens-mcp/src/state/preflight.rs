@@ -83,7 +83,7 @@ impl AppState {
             key,
             tool_name,
             surface,
-            Self::now_ms(),
+            crate::util::now_ms(),
             self.extract_target_paths(arguments),
             super::extract_symbol_hint(arguments),
             payload,

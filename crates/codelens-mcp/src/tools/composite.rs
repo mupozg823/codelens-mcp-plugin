@@ -1,13 +1,13 @@
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::tool_runtime::degraded_meta;
-use codelens_engine::change_signature::{change_signature, ParamSpec};
+use codelens_engine::change_signature::{ParamSpec, change_signature};
 use codelens_engine::inline::inline_function;
 use codelens_engine::move_symbol::move_symbol;
 use codelens_engine::{
-    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
-    get_symbols_overview, SymbolKind,
+    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
+    get_importers, get_symbols_overview,
 };
 use serde_json::json;
 
@@ -717,27 +717,13 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
         }
     };
     #[cfg(not(feature = "semantic"))]
-    let semantic_status = {
-        let configured_model = codelens_engine::configured_embedding_model_name();
-        match codelens_engine::EmbeddingEngine::inspect_existing_index(&project)
-            .ok()
-            .flatten()
-        {
-            Some(info) if info.model_name == configured_model && info.indexed_symbols > 0 => {
-                json!({
-                    "status": "ready",
-                    "model": info.model_name,
-                    "indexed_symbols": info.indexed_symbols,
-                    "loaded": false
-                })
-            }
-            _ => json!({
-                "status": "not_compiled",
-                "model": configured_model,
-                "loaded": false
-            }),
-        }
-    };
+    let semantic_status = json!({
+        "status": "not_compiled",
+        "model": "disabled",
+        "indexed_symbols": 0,
+        "loaded": false,
+        "reason": "semantic feature not compiled into this binary",
+    });
 
     Ok((
         json!({

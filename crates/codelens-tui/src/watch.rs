@@ -288,11 +288,7 @@ impl WatchState {
                 failures += 1;
             }
         }
-        let avg_ms = if total_events == 0 {
-            0
-        } else {
-            total_ms / total_events
-        };
+        let avg_ms = total_ms.checked_div(total_events).unwrap_or(0);
         let mut lines = vec![
             Line::from(vec![
                 Span::raw("observed : "),
@@ -311,7 +307,7 @@ impl WatchState {
             Line::from("top tools:"),
         ];
         let mut top: Vec<_> = counts.into_iter().collect();
-        top.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+        top.sort_by_key(|b| std::cmp::Reverse(b.1.0));
         for (name, (n, ms, tok)) in top.iter().take(6) {
             lines.push(Line::from(format!(
                 "  {:24} × {:>3}    avg_ms: {:>5}    tok: {:>5}",

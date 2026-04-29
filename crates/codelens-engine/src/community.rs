@@ -159,7 +159,7 @@ pub fn detect_communities(
         })
         .collect();
 
-    communities.sort_by(|a, b| b.size.cmp(&a.size));
+    communities.sort_by_key(|b| std::cmp::Reverse(b.size));
 
     // Re-number community IDs sequentially
     for (i, comm) in communities.iter_mut().enumerate() {

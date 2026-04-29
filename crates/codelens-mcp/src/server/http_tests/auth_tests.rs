@@ -421,14 +421,15 @@ async fn https_transport_accepts_initialize_over_tls() {
     std::fs::write(&cert_path, cert.pem()).unwrap();
     std::fs::write(&key_path, key_pair.serialize_pem()).unwrap();
 
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     crate::server::transport_http::install_default_rustls_provider();
     let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert_path, &key_path)
         .await
         .unwrap();
     let server = tokio::spawn(async move {
-        axum_server::from_tcp_rustls(listener, tls_config)
+        axum_server::from_tcp_rustls(listener.into_std().unwrap(), tls_config)
+            .unwrap()
             .serve(build_router(test_state()).into_make_service())
             .await
             .unwrap();

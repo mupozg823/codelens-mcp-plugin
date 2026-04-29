@@ -1,11 +1,10 @@
 #![recursion_limit = "256"]
 
 mod agent_coordination;
-mod analysis_handles;
 mod analysis_queue;
 mod artifact_store;
+#[cfg(feature = "audit")]
 mod audit_sink;
-mod authority;
 mod backend;
 mod backend_operation_matrix;
 mod build_info;
@@ -15,7 +14,6 @@ mod dispatch;
 mod env_compat;
 mod error;
 mod job_store;
-mod lifecycle;
 mod mutation_gate;
 mod operator;
 mod preflight_store;
@@ -24,10 +22,7 @@ mod prompts;
 mod protocol;
 mod recent_buffer;
 mod registry;
-mod resource_analysis;
-mod resource_catalog;
 mod resource_context;
-mod resource_profiles;
 mod resources;
 mod rule_corpus;
 mod rule_retrieval;
@@ -45,6 +40,7 @@ mod tool_defs;
 mod tool_evidence;
 mod tool_runtime;
 mod tools;
+mod util;
 
 pub(crate) use state::AppState;
 
@@ -235,8 +231,7 @@ fn main() -> Result<()> {
     }
 
     if args.iter().any(|arg| arg == "--print-operation-matrix") {
-        let matrix =
-            crate::backend_operation_matrix::semantic_edit_operation_matrix();
+        let matrix = crate::backend_operation_matrix::semantic_edit_operation_matrix();
         println!("{}", serde_json::to_string_pretty(&matrix)?);
         return Ok(());
     }

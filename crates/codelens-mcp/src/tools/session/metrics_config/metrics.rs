@@ -139,7 +139,7 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
 
     let total_calls = session.total_calls.max(1);
     let mut tools: Vec<_> = snapshot.into_iter().collect();
-    tools.sort_by(|a, b| b.1.call_count.cmp(&a.1.call_count));
+    tools.sort_by_key(|b| std::cmp::Reverse(b.1.call_count));
     let count = tools.len();
 
     let mut md = String::with_capacity(2048);
@@ -152,11 +152,7 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
     md.push_str(&format!("| Total time | {}ms |\n", session.total_ms));
     md.push_str(&format!(
         "| Avg per call | {}ms |\n",
-        if total_calls > 0 {
-            session.total_ms / total_calls
-        } else {
-            0
-        }
+        session.total_ms.checked_div(total_calls).unwrap_or(0)
     ));
     md.push_str(&format!("| Total tokens | {} |\n", session.total_tokens));
     md.push_str(&format!("| Errors | {} |\n", session.error_count));

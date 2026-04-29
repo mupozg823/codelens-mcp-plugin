@@ -56,13 +56,6 @@ impl AnalysisArtifactStore {
             .collect()
     }
 
-    fn now_ms() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
-    }
-
     fn expired(created_at_ms: u64, now_ms: u64) -> bool {
         now_ms.saturating_sub(created_at_ms) > TTL_MS
     }
@@ -219,7 +212,7 @@ impl AnalysisArtifactStore {
         sections: std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Result<AnalysisArtifact, CodeLensError> {
         let available_sections = sections.keys().cloned().collect::<Vec<_>>();
-        let created_at_ms = Self::now_ms();
+        let created_at_ms = crate::util::now_ms();
         let seq = self.seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let id = format!("analysis-{created_at_ms}-{seq}");
         let artifact = AnalysisArtifact {
@@ -253,7 +246,7 @@ impl AnalysisArtifactStore {
     }
 
     pub fn get(&self, analysis_id: &str, project_scope: Option<&str>) -> Option<AnalysisArtifact> {
-        self.prune(Self::now_ms());
+        self.prune(crate::util::now_ms());
         if let Some(artifact) = self
             .artifacts
             .lock()
@@ -283,7 +276,7 @@ impl AnalysisArtifactStore {
         surface_label: &str,
         project_scope: Option<&str>,
     ) -> Option<AnalysisArtifact> {
-        self.prune(Self::now_ms());
+        self.prune(crate::util::now_ms());
         for id in self.list_ids_on_disk() {
             let _ = self.get(&id, project_scope);
         }
@@ -307,7 +300,7 @@ impl AnalysisArtifactStore {
     }
 
     pub fn list_summaries(&self, project_scope: Option<&str>) -> Vec<AnalysisSummary> {
-        self.prune(Self::now_ms());
+        self.prune(crate::util::now_ms());
         for id in self.list_ids_on_disk() {
             let _ = self.get(&id, project_scope);
         }
@@ -338,7 +331,7 @@ impl AnalysisArtifactStore {
         analysis_id: &str,
         section: &str,
     ) -> Result<serde_json::Value, CodeLensError> {
-        self.prune(Self::now_ms());
+        self.prune(crate::util::now_ms());
         let path = self
             .artifact_dir(analysis_id)
             .join(format!("{}.json", Self::sanitize_section_name(section)));

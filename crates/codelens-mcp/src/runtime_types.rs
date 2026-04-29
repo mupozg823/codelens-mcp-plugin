@@ -187,6 +187,41 @@ pub(crate) struct AnalysisJob {
     pub updated_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LifecycleState {
+    Verifying,
+    Applying,
+    Audited,
+    RolledBack,
+    Failed,
+    Denied,
+}
+
+impl LifecycleState {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Verifying => "Verifying",
+            Self::Applying => "Applying",
+            Self::Audited => "Audited",
+            Self::RolledBack => "RolledBack",
+            Self::Failed => "Failed",
+            Self::Denied => "Denied",
+        }
+    }
+
+    pub(crate) fn terminal_for_apply_status(status: &str) -> Option<Self> {
+        match status {
+            "applied" => Some(Self::Audited),
+            "rolled_back" => Some(Self::RolledBack),
+            "failed" => Some(Self::Failed),
+            "denied" => Some(Self::Denied),
+            "no_op" => Some(Self::Audited),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct RecentPreflight {
     pub tool_name: String,
