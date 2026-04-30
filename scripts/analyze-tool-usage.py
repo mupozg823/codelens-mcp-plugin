@@ -57,11 +57,11 @@ def analyze(data: dict) -> None:
 
         # Distribution buckets
         buckets = Counter()
+        # Zero-call tools come from a separate field, not from per_tool list
+        buckets["zero"] = len(zero_call)
         for t in tools:
             c = t.get("calls", 0)
-            if c == 0:
-                buckets["zero"] += 1
-            elif c <= 5:
+            if c <= 5:
                 buckets["1-5"] += 1
             elif c <= 20:
                 buckets["6-20"] += 1
