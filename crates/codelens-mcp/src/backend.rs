@@ -191,7 +191,7 @@ fn scip_runtime_status(state: &AppState) -> BackendRuntimeStatus {
     {
         let index_path = codelens_engine::ScipBackend::detect(state.project().as_path());
         let loaded = index_path.is_some() && state.scip().is_some();
-        return BackendRuntimeStatus {
+        BackendRuntimeStatus {
             compiled: true,
             available: loaded,
             active: loaded,
@@ -205,7 +205,7 @@ fn scip_runtime_status(state: &AppState) -> BackendRuntimeStatus {
             details: json!({
                 "index_path": index_path.map(|path| path.to_string_lossy().to_string()),
             }),
-        };
+        }
     }
     #[cfg(not(feature = "scip-backend"))]
     {

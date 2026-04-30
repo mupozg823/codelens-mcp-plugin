@@ -94,10 +94,7 @@ impl ScipBackend {
         // The symbol string ends with a descriptor suffix like `SymbolName#` or `SymbolName.`
         // Strip trailing punctuation and get the last path component.
         let trimmed = scip_symbol.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_');
-        trimmed
-            .rsplit(|c: char| c == '/' || c == '.' || c == '#')
-            .next()
-            .unwrap_or(trimmed)
+        trimmed.rsplit(['/', '.', '#']).next().unwrap_or(trimmed)
     }
 
     /// Check if an occurrence's symbol_roles includes the Definition role.
@@ -461,10 +458,12 @@ impl PreciseBackend for ScipBackend {
                     return Ok(Some(occ.override_documentation.join("\n")));
                 }
                 // Then check global symbol info.
-                if let Some(info) = self.symbol_info.get(&occ.symbol) {
-                    if !info.documentation.is_empty() {
-                        return Ok(Some(info.documentation.join("\n")));
-                    }
+                if let Some(info) = self
+                    .symbol_info
+                    .get(&occ.symbol)
+                    .filter(|info| !info.documentation.is_empty())
+                {
+                    return Ok(Some(info.documentation.join("\n")));
                 }
                 // Return symbol name as fallback.
                 return Ok(Some(occ.symbol.clone()));

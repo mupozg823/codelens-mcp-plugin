@@ -194,50 +194,50 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             if backend.has_index_for(&file_path) {
                 precise_available = true;
                 precise_source = Some("scip");
-                if let Ok(refs) = backend.find_references(sym_name, &file_path, 0) {
-                    if !refs.is_empty() {
-                        let limited: Vec<_> = refs.into_iter().take(max_results).collect();
-                        let count = limited.len();
-                        let meta = success_meta(BackendKind::Scip, 0.98);
-                        let evidence = crate::tool_evidence::tool_evidence(
-                            "references",
-                            &meta,
-                            "scip_precise",
-                            crate::tool_evidence::precision_signals(
-                                true,
-                                true,
-                                Some("scip"),
-                                None,
-                                count,
-                            ),
-                        );
-                        let refs_json: Vec<serde_json::Value> = limited
-                            .iter()
-                            .map(|r| {
-                                json!({
-                                    "name": r.name,
-                                    "kind": r.kind,
-                                    "file_path": r.file_path,
-                                    "line": r.line,
-                                    "score": r.score,
-                                })
+                if let Ok(refs) = backend.find_references(sym_name, &file_path, 0)
+                    && !refs.is_empty()
+                {
+                    let limited: Vec<_> = refs.into_iter().take(max_results).collect();
+                    let count = limited.len();
+                    let meta = success_meta(BackendKind::Scip, 0.98);
+                    let evidence = crate::tool_evidence::tool_evidence(
+                        "references",
+                        &meta,
+                        "scip_precise",
+                        crate::tool_evidence::precision_signals(
+                            true,
+                            true,
+                            Some("scip"),
+                            None,
+                            count,
+                        ),
+                    );
+                    let refs_json: Vec<serde_json::Value> = limited
+                        .iter()
+                        .map(|r| {
+                            json!({
+                                "name": r.name,
+                                "kind": r.kind,
+                                "file_path": r.file_path,
+                                "line": r.line,
+                                "score": r.score,
                             })
-                            .collect();
-                        let mut payload = json!({
-                            "references": refs_json,
-                            "count": count,
-                            "returned_count": count,
-                            "sampled": false,
-                            "backend": "scip",
-                            "evidence": evidence,
-                        });
-                        if !unknown_args.is_empty()
-                            && let Some(map) = payload.as_object_mut()
-                        {
-                            map.insert("unknown_args".to_owned(), json!(unknown_args));
-                        }
-                        return Ok((payload, meta));
+                        })
+                        .collect();
+                    let mut payload = json!({
+                        "references": refs_json,
+                        "count": count,
+                        "returned_count": count,
+                        "sampled": false,
+                        "backend": "scip",
+                        "evidence": evidence,
+                    });
+                    if !unknown_args.is_empty()
+                        && let Some(map) = payload.as_object_mut()
+                    {
+                        map.insert("unknown_args".to_owned(), json!(unknown_args));
                     }
+                    return Ok((payload, meta));
                 }
             }
         }
@@ -412,29 +412,29 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
     #[cfg(feature = "scip-backend")]
     if let Some(backend) = state.scip() {
         use codelens_engine::PreciseBackend as _;
-        if let Ok(scip_diags) = backend.diagnostics(&file_path) {
-            if !scip_diags.is_empty() {
-                let limited: Vec<_> = scip_diags.into_iter().take(max_results).collect();
-                let count = limited.len();
-                let diags_json: Vec<serde_json::Value> = limited
-                    .iter()
-                    .map(|d| {
-                        json!({
-                            "file_path": d.file_path,
-                            "line": d.line,
-                            "column": d.column,
-                            "severity": format!("{:?}", d.severity),
-                            "message": d.message,
-                            "source": "scip",
-                            "code": d.code,
-                        })
+        if let Ok(scip_diags) = backend.diagnostics(&file_path)
+            && !scip_diags.is_empty()
+        {
+            let limited: Vec<_> = scip_diags.into_iter().take(max_results).collect();
+            let count = limited.len();
+            let diags_json: Vec<serde_json::Value> = limited
+                .iter()
+                .map(|d| {
+                    json!({
+                        "file_path": d.file_path,
+                        "line": d.line,
+                        "column": d.column,
+                        "severity": format!("{:?}", d.severity),
+                        "message": d.message,
+                        "source": "scip",
+                        "code": d.code,
                     })
-                    .collect();
-                return Ok((
-                    json!({ "diagnostics": diags_json, "count": count, "backend": "scip" }),
-                    success_meta(BackendKind::Scip, 0.95),
-                ));
-            }
+                })
+                .collect();
+            return Ok((
+                json!({ "diagnostics": diags_json, "count": count, "backend": "scip" }),
+                success_meta(BackendKind::Scip, 0.95),
+            ));
         }
     }
 
