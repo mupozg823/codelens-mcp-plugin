@@ -1,5 +1,6 @@
 [build]
-rustc-wrapper = "sccache"
+# To enable sccache locally, set: CARGO_BUILD_RUSTC_WRAPPER=sccache
+# rustc-wrapper = "sccache"
 
 [profile.release]
 # Already optimized in workspace Cargo.toml
