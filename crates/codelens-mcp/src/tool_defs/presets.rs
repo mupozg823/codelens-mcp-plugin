@@ -948,7 +948,8 @@ pub(crate) fn is_tool_in_surface(name: &str, surface: ToolSurface) -> bool {
 pub(crate) fn is_tool_callable_in_surface(name: &str, surface: ToolSurface) -> bool {
     is_tool_in_surface(name, surface)
         || deprecated_workflow_alias(name)
-            .is_some_and(|(replacement, _)| is_tool_in_surface(replacement, surface))
+            .map(|(replacement, _)| is_tool_in_surface(replacement, surface))
+            .unwrap_or(false)
 }
 
 /// Check if a tool is included in a given preset.

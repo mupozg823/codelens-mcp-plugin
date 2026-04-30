@@ -129,12 +129,12 @@ impl App {
 
         // Read stats to get indexed file count and operator-facing health data.
         let stats = index.stats().ok();
-        let total_indexed_files = stats.as_ref().map_or(0, |s| s.indexed_files);
+        let total_indexed_files = stats.as_ref().map(|s| s.indexed_files).unwrap_or(0);
         let health = AppHealth::new(
             project_root,
-            stats.as_ref().map_or(0, |s| s.indexed_files),
-            stats.as_ref().map_or(0, |s| s.supported_files),
-            stats.as_ref().map_or(0, |s| s.stale_files),
+            stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
+            stats.as_ref().map(|s| s.supported_files).unwrap_or(0),
+            stats.as_ref().map(|s| s.stale_files).unwrap_or(0),
         );
 
         let mut app = App {
@@ -195,7 +195,8 @@ impl App {
             self.index
                 .db()
                 .get_importers(&file.path)
-                .map_or(0, |v| v.len())
+                .map(|v| v.len())
+                .unwrap_or(0)
         } else {
             0
         }

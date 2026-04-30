@@ -399,7 +399,8 @@ fn collect_type_identifiers(node: Node, source: &[u8], out: &mut Vec<String>) {
             && text
                 .chars()
                 .next()
-                .is_some_and(|c| c.is_uppercase())
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
         {
             out.push(text);
         }

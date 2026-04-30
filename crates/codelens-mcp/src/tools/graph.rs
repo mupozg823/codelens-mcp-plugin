@@ -169,7 +169,8 @@ pub(crate) fn get_impact_analysis(state: &AppState, arguments: &serde_json::Valu
             let sym_count = state
                 .symbol_index()
                 .get_symbols_overview_cached(&b.file, 1)
-                .map_or(0, |s| s.len());
+                .map(|s| s.len())
+                .unwrap_or(0);
             json!({"file": b.file, "depth": b.depth, "symbol_count": sym_count})
         })
         .collect();

@@ -164,10 +164,11 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
     let extracted: Vec<&str> = lines[(start_line - 1)..end_line].to_vec();
     let indent = extracted
         .first()
-        .map_or("", |l| {
+        .map(|l| {
             let trimmed = l.trim_start();
             &l[..l.len() - trimmed.len()]
-        });
+        })
+        .unwrap_or("");
     let body = extracted
         .iter()
         .map(|l| {

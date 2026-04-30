@@ -343,7 +343,9 @@ fn run_impact_report_job(
         vec![path.to_owned()]
     } else {
         let changed =
-            super::graph::get_changed_files_tool(state, &json!({"include_untracked": true})).map_or_else(|_| json!({"files": [], "count": 0}), |out| out.0);
+            super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))
+                .map(|out| out.0)
+                .unwrap_or_else(|_| json!({"files": [], "count": 0}));
         strings_from_array(
             changed.get("files").and_then(|value| value.as_array()),
             "file",
@@ -367,7 +369,11 @@ fn run_impact_report_job(
         let impact = super::graph::get_impact_analysis(
             state,
             &json!({"file_path": path, "max_depth": 2}),
-        ).map_or_else(|_| json!({"file_path": path, "total_affected_files": 0, "direct_importers": []}), |output| output.0);
+        )
+        .map(|output| output.0)
+        .unwrap_or_else(
+            |_| json!({"file_path": path, "total_affected_files": 0, "direct_importers": []}),
+        );
         let affected = impact
             .get("total_affected_files")
             .and_then(|value| value.as_u64())
@@ -470,7 +476,9 @@ fn run_refactor_safety_report_job(
         super::reports::summarize_symbol_impact(
             state,
             &json!({"symbol": symbol, "file_path": arguments.get("file_path").and_then(|v| v.as_str())}),
-        ).map_or_else(|error| json!({"symbol": symbol, "error": error.to_string()}), |output| output.0)
+        )
+        .map(|output| output.0)
+        .unwrap_or_else(|error| json!({"symbol": symbol, "error": error.to_string()}))
     } else {
         json!({"skipped": true, "reason": "no symbol provided"})
     };
@@ -502,7 +510,9 @@ fn run_refactor_safety_report_job(
     )? {
         return Ok(json!({}));
     }
-    let tests = super::filesystem::find_tests(state, &json!({"path": path, "max_results": 10})).map_or_else(|_| json!({"tests": []}), |output| output.0);
+    let tests = super::filesystem::find_tests(state, &json!({"path": path, "max_results": 10}))
+        .map(|output| output.0)
+        .unwrap_or_else(|_| json!({"tests": []}));
 
     let mut top_findings = Vec::new();
     if let Some(symbol) = symbol {
@@ -620,7 +630,7 @@ pub(crate) fn run_analysis_job_from_queue(
                     }
                 }
             }
-            match result.map_or_else(|| Err(last_err.unwrap()), Ok) {
+            match result.map(Ok).unwrap_or_else(|| Err(last_err.unwrap())) {
                 Ok(payload) if payload.is_object() => {
                     let (analysis_id, estimated_sections) = extract_handle_fields(&payload);
                     let current = worker_state.get_analysis_job_for_scope(&scope, &job_id);

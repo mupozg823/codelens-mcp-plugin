@@ -216,7 +216,7 @@ pub(super) fn extract_rust_imports(content: &str) -> Vec<String> {
     }
 
     for cap in RS_USE_RE.captures_iter(content) {
-        let base = cap.get(1).map_or("", |m| m.as_str());
+        let base = cap.get(1).map(|m| m.as_str()).unwrap_or("");
         if let Some(brace) = cap.get(2) {
             for item in brace.as_str().split(',') {
                 let item = item.trim();

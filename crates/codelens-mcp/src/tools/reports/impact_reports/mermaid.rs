@@ -159,7 +159,9 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
     let impact = crate::tools::graph::get_impact_analysis(
         state,
         &json!({"file_path": path, "max_depth": 2}),
-    ).map_or_else(|_| json!({"blast_radius": [], "direct_importers": []}), |out| out.0);
+    )
+    .map(|out| out.0)
+    .unwrap_or_else(|_| json!({"blast_radius": [], "direct_importers": []}));
 
     let importers: Vec<Value> = impact
         .get("direct_importers")

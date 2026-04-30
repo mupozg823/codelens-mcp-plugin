@@ -88,10 +88,10 @@ pub(super) fn mermaid_escape_label(raw: &str) -> String {
 
 /// Returns the parent directory portion of a path, or `"."` for bare filenames.
 pub(super) fn parent_dir(path: &str) -> &str {
-    path.rsplit_once('/').map_or(".", |(dir, _)| dir)
+    path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or(".")
 }
 
 /// Returns only the last path component (filename) of a path.
 pub(super) fn file_name(path: &str) -> &str {
-    path.rsplit_once('/').map_or(path, |(_, name)| name)
+    path.rsplit_once('/').map(|(_, name)| name).unwrap_or(path)
 }

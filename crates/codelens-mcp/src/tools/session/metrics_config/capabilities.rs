@@ -337,7 +337,8 @@ pub(crate) fn determine_semantic_search_status(
             None => codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
                 .ok()
                 .flatten()
-                .map_or(0, |info| info.indexed_symbols),
+                .map(|info| info.indexed_symbols)
+                .unwrap_or(0),
         }
     };
     if indexed_count == 0 {
@@ -359,9 +360,9 @@ pub(crate) fn build_health_summary(
     semantic_status: &SemanticSearchStatus,
     daemon_binary_drift: &serde_json::Value,
 ) -> serde_json::Value {
-    let indexed_files = index_stats.map_or(0, |s| s.indexed_files);
-    let supported_files = index_stats.map_or(0, |s| s.supported_files);
-    let stale_files = index_stats.map_or(0, |s| s.stale_files);
+    let indexed_files = index_stats.map(|s| s.indexed_files).unwrap_or(0);
+    let supported_files = index_stats.map(|s| s.supported_files).unwrap_or(0);
+    let stale_files = index_stats.map(|s| s.stale_files).unwrap_or(0);
     let mut warnings = Vec::new();
 
     let mut push_warning = |code: &str,
@@ -486,25 +487,29 @@ impl RuntimeHealthSnapshot {
     pub(crate) fn index_fresh(&self) -> bool {
         self.index_stats
             .as_ref()
-            .is_some_and(|stats| stats.stale_files == 0 && stats.indexed_files > 0)
+            .map(|stats| stats.stale_files == 0 && stats.indexed_files > 0)
+            .unwrap_or(false)
     }
 
     pub(crate) fn indexed_files(&self) -> usize {
         self.index_stats
             .as_ref()
-            .map_or(0, |stats| stats.indexed_files)
+            .map(|stats| stats.indexed_files)
+            .unwrap_or(0)
     }
 
     pub(crate) fn supported_files(&self) -> usize {
         self.index_stats
             .as_ref()
-            .map_or(0, |stats| stats.supported_files)
+            .map(|stats| stats.supported_files)
+            .unwrap_or(0)
     }
 
     pub(crate) fn stale_files(&self) -> usize {
         self.index_stats
             .as_ref()
-            .map_or(0, |stats| stats.stale_files)
+            .map(|stats| stats.stale_files)
+            .unwrap_or(0)
     }
 }
 
@@ -601,7 +606,9 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let embedding_runtime = {
         let guard = state.embedding_ref();
         guard
-            .as_ref().map_or_else(codelens_engine::configured_embedding_runtime_info, |engine| engine.runtime_info().clone())
+            .as_ref()
+            .map(|engine| engine.runtime_info().clone())
+            .unwrap_or_else(codelens_engine::configured_embedding_runtime_info)
     };
     #[cfg(not(feature = "semantic"))]
     let embedding_runtime = codelens_engine::EmbeddingRuntimeInfo {
@@ -756,10 +763,12 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
 
     let embedding_indexed_bool = embedding_index_info
         .as_ref()
-        .is_some_and(|info| info.indexed_symbols > 0);
+        .map(|info| info.indexed_symbols > 0)
+        .unwrap_or(false);
     let embedding_indexed_symbols = embedding_index_info
         .as_ref()
-        .map_or(0, |info| info.indexed_symbols);
+        .map(|info| info.indexed_symbols)
+        .unwrap_or(0);
 
     let payload = match detail {
         CapabilitiesDetail::Compact => {

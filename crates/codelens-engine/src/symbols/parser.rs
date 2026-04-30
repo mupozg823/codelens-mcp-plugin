@@ -241,7 +241,8 @@ fn build_signature(node: Node<'_>, source_bytes: &[u8], fallback: &str) -> Strin
             .char_indices()
             .take_while(|(i, _)| *i <= 200)
             .last()
-            .map_or(200, |(i, _)| i);
+            .map(|(i, _)| i)
+            .unwrap_or(200);
         format!("{}...", &first_line[..truncate_at])
     } else {
         first_line.to_owned()

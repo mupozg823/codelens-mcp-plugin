@@ -314,7 +314,7 @@ pub fn recommended_embed_threads() -> usize {
         return explicit.max(1);
     }
 
-    let available = available_parallelism().map_or(1, |n| n.get());
+    let available = available_parallelism().map(|n| n.get()).unwrap_or(1);
     if cfg!(target_os = "macos") {
         apple_perf_cores()
             .unwrap_or(available)

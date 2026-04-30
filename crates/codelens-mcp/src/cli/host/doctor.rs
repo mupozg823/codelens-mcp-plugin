@@ -137,7 +137,7 @@ fn doctor_report_json(command: &str, hosts: &[&str], home: &Path, cwd: &Path) ->
 }
 
 pub(crate) fn run_doctor_command(args: &[String]) -> Result<String> {
-    let command = args.get(1).map_or("doctor", String::as_str);
+    let command = args.get(1).map(String::as_str).unwrap_or("doctor");
     let hosts = parse_doctor_hosts(args)?;
     let home = home_dir_from_env()?;
     let cwd = std::env::current_dir().context("failed to resolve current working directory")?;

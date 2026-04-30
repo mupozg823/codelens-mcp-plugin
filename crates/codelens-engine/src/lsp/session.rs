@@ -453,7 +453,8 @@ impl LspSession {
             let matches_id = message
                 .get("id")
                 .and_then(Value::as_u64)
-                .is_some_and(|id| id == expected_id);
+                .map(|id| id == expected_id)
+                .unwrap_or(false);
             if matches_id {
                 if let Some(error) = message.get("error") {
                     let code = error.get("code").and_then(Value::as_i64).unwrap_or(-1);

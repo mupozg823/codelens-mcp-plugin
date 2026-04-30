@@ -15,15 +15,19 @@ pub(crate) fn build_session_metrics_payload(
     logical_session_id: Option<&str>,
     coordination_scope: Option<&str>,
 ) -> SessionMetricsPayload {
-    let session = logical_session_id.map_or_else(|| state.metrics().session_snapshot(), |session_id| state.metrics().session_snapshot_for(session_id));
+    let session = logical_session_id
+        .map(|session_id| state.metrics().session_snapshot_for(session_id))
+        .unwrap_or_else(|| state.metrics().session_snapshot());
     let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
     let watcher_stats = state.watcher_stats();
     let watcher_failure_health = state.watcher_failure_health();
-    let coordination = coordination_scope.map_or_else(|| {
+    let coordination = coordination_scope
+        .map(|scope| state.coordination_counts_for_scope(scope))
+        .unwrap_or_else(|| {
             state.coordination_counts_for_session(
                 &crate::session_context::SessionRequestContext::default(),
             )
-        }, |scope| state.coordination_counts_for_scope(scope));
+        });
     let coordination_lock = state.coordination_lock_stats();
 
     let mut session_json = Map::new();
@@ -377,7 +381,8 @@ pub(crate) fn build_session_metrics_payload(
         json!(
             watcher_stats
                 .as_ref()
-                .is_some_and(|stats| stats.running)
+                .map(|stats| stats.running)
+                .unwrap_or(false)
         ),
     );
     put(
@@ -386,7 +391,8 @@ pub(crate) fn build_session_metrics_payload(
         json!(
             watcher_stats
                 .as_ref()
-                .map_or(0, |stats| stats.events_processed)
+                .map(|stats| stats.events_processed)
+                .unwrap_or(0)
         ),
     );
     put(
@@ -395,7 +401,8 @@ pub(crate) fn build_session_metrics_payload(
         json!(
             watcher_stats
                 .as_ref()
-                .map_or(0, |stats| stats.files_reindexed)
+                .map(|stats| stats.files_reindexed)
+                .unwrap_or(0)
         ),
     );
     put(
@@ -404,7 +411,8 @@ pub(crate) fn build_session_metrics_payload(
         json!(
             watcher_stats
                 .as_ref()
-                .map_or(0, |stats| stats.lock_contention_batches)
+                .map(|stats| stats.lock_contention_batches)
+                .unwrap_or(0)
         ),
     );
     put(
@@ -535,12 +543,14 @@ pub(crate) fn build_session_metrics_payload(
         } else { 0.0 },
         "watcher_lock_contention_rate": if watcher_stats
             .as_ref()
-            .map_or(0, |stats| stats.events_processed)
+            .map(|stats| stats.events_processed)
+            .unwrap_or(0)
             > 0
         {
             watcher_stats
                 .as_ref()
-                .map_or(0.0, |stats| stats.lock_contention_batches as f64 / stats.events_processed as f64)
+                .map(|stats| stats.lock_contention_batches as f64 / stats.events_processed as f64)
+                .unwrap_or(0.0)
         } else { 0.0 },
         "watcher_recent_failure_share": if watcher_failure_health.total_failures > 0 {
             watcher_failure_health.recent_failures as f64

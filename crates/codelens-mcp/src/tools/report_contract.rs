@@ -89,22 +89,26 @@ pub(super) fn make_handle_response(
         state.metrics().record_quality_contract_emitted_for_session(
             data["quality_focus"]
                 .as_array()
-                .map_or(0, |v| v.len()),
+                .map(|v| v.len())
+                .unwrap_or(0),
             data["recommended_checks"]
                 .as_array()
-                .map_or(0, |v| v.len()),
+                .map(|v| v.len())
+                .unwrap_or(0),
             data["performance_watchpoints"]
                 .as_array()
-                .map_or(0, |v| v.len()),
+                .map(|v| v.len())
+                .unwrap_or(0),
             logical_session_id,
         );
         state
             .metrics()
             .record_verifier_contract_emitted_for_session(
-                data["blockers"].as_array().map_or(0, |v| v.len()),
+                data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
                 data["verifier_checks"]
                     .as_array()
-                    .map_or(0, |v| v.len()),
+                    .map(|v| v.len())
+                    .unwrap_or(0),
                 logical_session_id,
             );
         return Ok((data, success_meta(BackendKind::Hybrid, artifact.confidence)));
@@ -143,22 +147,26 @@ pub(super) fn make_handle_response(
     state.metrics().record_quality_contract_emitted_for_session(
         data["quality_focus"]
             .as_array()
-            .map_or(0, |v| v.len()),
+            .map(|v| v.len())
+            .unwrap_or(0),
         data["recommended_checks"]
             .as_array()
-            .map_or(0, |v| v.len()),
+            .map(|v| v.len())
+            .unwrap_or(0),
         data["performance_watchpoints"]
             .as_array()
-            .map_or(0, |v| v.len()),
+            .map(|v| v.len())
+            .unwrap_or(0),
         logical_session_id,
     );
     state
         .metrics()
         .record_verifier_contract_emitted_for_session(
-            data["blockers"].as_array().map_or(0, |v| v.len()),
+            data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
             data["verifier_checks"]
                 .as_array()
-                .map_or(0, |v| v.len()),
+                .map(|v| v.len())
+                .unwrap_or(0),
             logical_session_id,
         );
     // Cross-phase: inject recent analysis IDs so agents can reference prior results.

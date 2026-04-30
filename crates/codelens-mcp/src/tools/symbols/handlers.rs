@@ -405,7 +405,9 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let max_tokens = arguments
         .get("max_tokens")
-        .and_then(|v| v.as_u64()).map_or_else(|| state.execution_token_budget(&session), |v| v as usize);
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or_else(|| state.execution_token_budget(&session));
     let include_body = optional_bool(arguments, "include_body", false);
     let depth = optional_usize(arguments, "depth", 2);
     let disable_semantic = optional_bool(arguments, "disable_semantic", false);

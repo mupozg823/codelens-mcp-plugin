@@ -75,13 +75,17 @@ fn symbiote_alias_entries(entries: &[Value]) -> Vec<Value> {
 
             let alias_name = object
                 .get("name")
-                .and_then(|value| value.as_str()).map_or_else(|| format!("symbiote://{rest}"), |name| format!("{name} (Symbiote Alias)"));
+                .and_then(|value| value.as_str())
+                .map(|name| format!("{name} (Symbiote Alias)"))
+                .unwrap_or_else(|| format!("symbiote://{rest}"));
             object.insert("name".to_owned(), json!(alias_name));
 
             let alias_description = object
                 .get("description")
                 .and_then(|value| value.as_str())
-                .filter(|value| !value.is_empty()).map_or_else(|| format!("Symbiote URI alias for `{uri}`"), |description| format!("{description} [Symbiote URI alias for `{uri}`]"));
+                .filter(|value| !value.is_empty())
+                .map(|description| format!("{description} [Symbiote URI alias for `{uri}`]"))
+                .unwrap_or_else(|| format!("Symbiote URI alias for `{uri}`"));
             object.insert("description".to_owned(), json!(alias_description));
             Some(alias)
         })
@@ -138,8 +142,8 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                     "daemon_mode": state.daemon_mode().as_str(),
                     "frameworks": frameworks,
                     "workspace_packages": workspace_packages,
-                    "indexed_files": stats.as_ref().map_or(0, |s| s.indexed_files),
-                    "stale_files": stats.as_ref().map_or(0, |s| s.stale_files),
+                    "indexed_files": stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
+                    "stale_files": stats.as_ref().map(|s| s.stale_files).unwrap_or(0),
                     "notes": [
                         "Use workflow-first entrypoints such as explore_codebase, review_architecture, and review_changes before low-level expansion.",
                         "Prefer HTTP + role profiles for multi-agent harnesses."
@@ -336,7 +340,9 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                 .trim_start_matches("codelens://profile/")
                 .trim_end_matches("/guide");
             let profile = ToolProfile::from_str(profile_name);
-            let body = profile.map_or_else(|| json!({"error": format!("Unknown profile `{profile_name}`")}), profile_guide_summary);
+            let body = profile
+                .map(profile_guide_summary)
+                .unwrap_or_else(|| json!({"error": format!("Unknown profile `{profile_name}`")}));
             json_resource(uri, body)
         }
         _ if uri.starts_with("codelens://profile/") && uri.ends_with("/guide/full") => {
@@ -344,7 +350,9 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                 .trim_start_matches("codelens://profile/")
                 .trim_end_matches("/guide/full");
             let profile = ToolProfile::from_str(profile_name);
-            let body = profile.map_or_else(|| json!({"error": format!("Unknown profile `{profile_name}`")}), profile_guide);
+            let body = profile
+                .map(profile_guide)
+                .unwrap_or_else(|| json!({"error": format!("Unknown profile `{profile_name}`")}));
             json_resource(uri, body)
         }
         _ if uri.starts_with("codelens://analysis/") => {
@@ -870,11 +878,14 @@ pub(crate) fn recent_analysis_jobs_payload(state: &AppState) -> Value {
         .map(|job| {
             let section_handles = job
                 .analysis_id
-                .as_deref().map_or_else(|| json!([]), |analysis_id| analysis_section_handles(analysis_id, &job.estimated_sections));
+                .as_deref()
+                .map(|analysis_id| analysis_section_handles(analysis_id, &job.estimated_sections))
+                .unwrap_or_else(|| json!([]));
             let summary_resource = job
                 .analysis_id
                 .as_deref()
-                .map_or(Value::Null, analysis_summary_resource);
+                .map(analysis_summary_resource)
+                .unwrap_or(Value::Null);
             json!({
                 "job_id": job.id,
                 "kind": job.kind,
@@ -992,12 +1003,12 @@ pub(crate) fn analysis_summary_payload(artifact: &AnalysisArtifact) -> Value {
             "next_action_count": artifact.next_actions.len(),
             "section_count": artifact.available_sections.len(),
             "blocker_count": artifact.blockers.len(),
-            "verifier_check_count": payload["verifier_checks"].as_array().map_or(0, |v| v.len()),
-            "ready_check_count": payload["verifier_checks"].as_array().map_or(0, |checks| checks.iter().filter(|check| check.get("status").and_then(|value| value.as_str()) == Some("ready")).count()),
-            "blocked_check_count": payload["verifier_checks"].as_array().map_or(0, |checks| checks.iter().filter(|check| check.get("status").and_then(|value| value.as_str()) == Some("blocked")).count()),
-            "quality_focus_count": payload["quality_focus"].as_array().map_or(0, |v| v.len()),
-            "recommended_check_count": payload["recommended_checks"].as_array().map_or(0, |v| v.len()),
-            "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map_or(0, |v| v.len()),
+            "verifier_check_count": payload["verifier_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+            "ready_check_count": payload["verifier_checks"].as_array().map(|checks| checks.iter().filter(|check| check.get("status").and_then(|value| value.as_str()) == Some("ready")).count()).unwrap_or(0),
+            "blocked_check_count": payload["verifier_checks"].as_array().map(|checks| checks.iter().filter(|check| check.get("status").and_then(|value| value.as_str()) == Some("blocked")).count()).unwrap_or(0),
+            "quality_focus_count": payload["quality_focus"].as_array().map(|v| v.len()).unwrap_or(0),
+            "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+            "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
         });
         payload["evidence_handles"] = payload["section_handles"].clone();
     }

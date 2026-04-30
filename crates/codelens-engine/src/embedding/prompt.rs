@@ -22,8 +22,9 @@ pub fn split_identifier(name: &str) -> String {
             && (current
                 .chars()
                 .last()
-                .is_some_and(|c| c.is_lowercase())
-                || chars.get(i + 1).is_some_and(|c| c.is_lowercase()))
+                .map(|c| c.is_lowercase())
+                .unwrap_or(false)
+                || chars.get(i + 1).map(|c| c.is_lowercase()).unwrap_or(false))
         {
             // Split at CamelCase boundary, but not for ALL_CAPS
             words.push(current.clone());
@@ -184,7 +185,7 @@ pub fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str
 
     // Add parent context from name_path (e.g. "UserService/get_user" → "in UserService")
     let parent_ctx = if !sym.name_path.is_empty() && sym.name_path.contains('/') {
-        let parent = sym.name_path.rsplit_once('/').map_or("", |x| x.0);
+        let parent = sym.name_path.rsplit_once('/').map(|x| x.0).unwrap_or("");
         if parent.is_empty() {
             String::new()
         } else {
@@ -229,7 +230,8 @@ pub fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str
     // docstrings by default. Measured: ranked_context +0.020, semantic -0.003 (neutral).
     // Disable via CODELENS_EMBED_DOCSTRINGS=0 if needed.
     let docstrings_disabled = std::env::var("CODELENS_EMBED_DOCSTRINGS")
-        .is_ok_and(|v| v == "0" || v == "false");
+        .map(|v| v == "0" || v == "false")
+        .unwrap_or(false);
 
     if docstrings_disabled {
         return base;
@@ -323,14 +325,16 @@ pub fn hint_char_budget() -> usize {
     std::env::var("CODELENS_EMBED_HINT_CHARS")
         .ok()
         .and_then(|raw| raw.parse::<usize>().ok())
-        .map_or(DEFAULT_HINT_TOTAL_CHAR_BUDGET, |n| n.clamp(60, 512))
+        .map(|n| n.clamp(60, 512))
+        .unwrap_or(DEFAULT_HINT_TOTAL_CHAR_BUDGET)
 }
 
 pub fn hint_line_budget() -> usize {
     std::env::var("CODELENS_EMBED_HINT_LINES")
         .ok()
         .and_then(|raw| raw.parse::<usize>().ok())
-        .map_or(DEFAULT_HINT_LINES, |n| n.clamp(1, 10))
+        .map(|n| n.clamp(1, 10))
+        .unwrap_or(DEFAULT_HINT_LINES)
 }
 
 /// Join collected hint lines, capping at the runtime-configured char
@@ -669,10 +673,11 @@ pub fn is_nl_shaped(s: &str) -> bool {
 /// `CODELENS_EMBED_HINT_STRICT_LITERALS` so both may be stacked.
 pub fn strict_comments_enabled() -> bool {
     std::env::var("CODELENS_EMBED_HINT_STRICT_COMMENTS")
-        .is_ok_and(|raw| {
+        .map(|raw| {
             let lowered = raw.to_ascii_lowercase();
             matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
         })
+        .unwrap_or(false)
 }
 
 /// Heuristic: does `body` (the comment text *after* the `//` / `#` prefix
@@ -738,10 +743,11 @@ pub fn looks_like_meta_annotation(body: &str) -> bool {
 /// measure, then consider flipping the default).
 pub fn strict_literal_filter_enabled() -> bool {
     std::env::var("CODELENS_EMBED_HINT_STRICT_LITERALS")
-        .is_ok_and(|raw| {
+        .map(|raw| {
             let lowered = raw.to_ascii_lowercase();
             matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
         })
+        .unwrap_or(false)
 }
 
 /// Heuristic: does `s` contain a C / Python / Rust format specifier?

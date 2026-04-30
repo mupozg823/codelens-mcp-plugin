@@ -114,7 +114,7 @@ fn split_identifier_terms(query: &str) -> Option<String> {
             continue;
         }
 
-        let next_is_lowercase = iter.peek().is_some_and(|c| c.is_lowercase());
+        let next_is_lowercase = iter.peek().map(|c| c.is_lowercase()).unwrap_or(false);
         if ch.is_uppercase() && in_segment && (last_emitted_is_lowercase || next_is_lowercase) {
             split.push(' ');
         }

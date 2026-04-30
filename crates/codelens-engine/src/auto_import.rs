@@ -245,7 +245,8 @@ fn collect_type_nodes(
             && text
                 .chars()
                 .next()
-                .is_some_and(|c| c.is_uppercase())
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
             && !is_keyword(text)
             && seen.insert(text.to_string())
         {

@@ -30,7 +30,9 @@ pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> To
     let token_budget = state.execution_token_budget(&session);
     let client_profile = session
         .client_name
-        .as_deref().map_or_else(|| state.client_profile(), |name| ClientProfile::detect(Some(name)));
+        .as_deref()
+        .map(|name| ClientProfile::detect(Some(name)))
+        .unwrap_or_else(|| state.client_profile());
     let frameworks = detect_frameworks(state.project().as_path());
     let workspace_packages = detect_workspace_packages(state.project().as_path());
 

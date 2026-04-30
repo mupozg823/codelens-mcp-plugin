@@ -222,7 +222,9 @@ fn index_embeddings_handler(state: &AppState, arguments: &serde_json::Value) -> 
                 Ok(payload) => {
                     let current_step = payload
                         .get("indexed_symbols")
-                        .and_then(|value| value.as_u64()).map_or_else(|| "completed".to_owned(), |count| format!("indexed {count} symbols"));
+                        .and_then(|value| value.as_u64())
+                        .map(|count| format!("indexed {count} symbols"))
+                        .unwrap_or_else(|| "completed".to_owned());
                     let _ = worker_state.update_analysis_job(
                         &scope,
                         &job_id,

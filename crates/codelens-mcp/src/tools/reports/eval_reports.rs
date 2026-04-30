@@ -370,13 +370,16 @@ pub fn eval_session_audit(state: &AppState, arguments: &Value) -> ToolResult {
     state.metrics().record_quality_contract_emitted_for_session(
         payload["quality_focus"]
             .as_array()
-            .map_or(0, |items| items.len()),
+            .map(|items| items.len())
+            .unwrap_or(0),
         payload["recommended_checks"]
             .as_array()
-            .map_or(0, |items| items.len()),
+            .map(|items| items.len())
+            .unwrap_or(0),
         payload["performance_watchpoints"]
             .as_array()
-            .map_or(0, |items| items.len()),
+            .map(|items| items.len())
+            .unwrap_or(0),
         logical_session_id,
     );
     state
@@ -384,10 +387,12 @@ pub fn eval_session_audit(state: &AppState, arguments: &Value) -> ToolResult {
         .record_verifier_contract_emitted_for_session(
             payload["blockers"]
                 .as_array()
-                .map_or(0, |items| items.len()),
+                .map(|items| items.len())
+                .unwrap_or(0),
             payload["verifier_checks"]
                 .as_array()
-                .map_or(0, |items| items.len()),
+                .map(|items| items.len())
+                .unwrap_or(0),
             logical_session_id,
         );
     let prior_ids = state.recent_analysis_ids();

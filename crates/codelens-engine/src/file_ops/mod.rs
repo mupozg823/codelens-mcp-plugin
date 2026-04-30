@@ -230,7 +230,8 @@ pub fn find_referencing_symbols_via_text(
 
         let is_declaration = enclosing
             .as_ref()
-            .is_some_and(|e| e.name == symbol_name && e.start_line == *line);
+            .map(|e| e.name == symbol_name && e.start_line == *line)
+            .unwrap_or(false);
 
         results.push(TextReference {
             file_path: file_path.clone(),
@@ -315,7 +316,7 @@ fn find_shadowing_files_for_refs(
         all_matches.iter().map(|(f, _, _)| f).collect();
 
     for fp in files_with_matches {
-        if declaration_file.is_some_and(|d| d == fp) {
+        if declaration_file.map(|d| d == fp).unwrap_or(false) {
             continue;
         }
         if let Ok(symbols) = get_symbols_overview(project, fp, 3)

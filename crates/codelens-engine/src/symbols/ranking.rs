@@ -982,7 +982,7 @@ pub(crate) fn prune_to_budget(
             + entry.kind.len()
             + entry.file.len()
             + entry.signature.len()
-            + entry.body.as_ref().map_or(0, |b| b.len())
+            + entry.body.as_ref().map(|b| b.len()).unwrap_or(0)
             + 80;
         if remaining < entry_size && !selected.is_empty() {
             break;

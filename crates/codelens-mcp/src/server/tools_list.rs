@@ -92,7 +92,8 @@ pub(crate) fn build_tools_list_response(
         filtered.iter().map(|tool| tool.estimated_tokens).sum()
     } else {
         serde_json::to_string(&response_tools)
-            .map_or(0, |body| body.len() / 4)
+            .map(|body| body.len() / 4)
+            .unwrap_or(0)
     };
     if request_context.deferred_loading_requested
         && (request_context.requested_namespace.is_some()

@@ -199,7 +199,8 @@ pub(crate) fn evaluate_mutation_gate(
         if preflight
             .symbol
             .as_deref()
-            .is_none_or(|symbol| symbol != mutation_symbol)
+            .map(|symbol| symbol != mutation_symbol)
+            .unwrap_or(true)
         {
             return Err(mutation_gate_failure(
                 name,

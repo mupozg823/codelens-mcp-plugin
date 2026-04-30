@@ -92,7 +92,8 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     let mut resp = ToolCallResponse::success(payload, meta);
 
     let payload_estimate = serde_json::to_string(&resp.data)
-        .map_or(0, |s| tools::estimate_tokens(&s));
+        .map(|s| tools::estimate_tokens(&s))
+        .unwrap_or(0);
     let mut hint = budget_hint(name, payload_estimate, effective_budget);
     if missing_preflight {
         hint = format!("{hint} Tip: run verify_change_readiness before mutations for safer edits.");
@@ -352,7 +353,7 @@ fn delegate_hint_telemetry_fields(
                         .is_some()
             })
         })
-        .map_or((None, None, None), |call| {
+        .map(|call| {
             (
                 call.arguments
                     .get("trigger")
@@ -365,6 +366,7 @@ fn delegate_hint_telemetry_fields(
                     .and_then(|value| value.as_str()),
             )
         })
+        .unwrap_or((None, None, None))
 }
 
 /// Build the additive `suggested_next_calls` list for the current response.

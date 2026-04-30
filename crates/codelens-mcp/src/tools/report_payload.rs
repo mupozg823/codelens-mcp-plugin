@@ -111,12 +111,12 @@ pub(crate) fn build_handle_payload(
             "next_action_count": next_actions.len(),
             "section_count": available_sections.len(),
             "blocker_count": blockers.len(),
-            "verifier_check_count": payload["verifier_checks"].as_array().map_or(0, |v| v.len()),
-            "ready_check_count": payload["verifier_checks"].as_array().map_or(0, |checks| checks.iter().filter(|check| check.get("status") == Some(&json!(VERIFIER_READY))).count()),
-            "blocked_check_count": payload["verifier_checks"].as_array().map_or(0, |checks| checks.iter().filter(|check| check.get("status") == Some(&json!(VERIFIER_BLOCKED))).count()),
-            "quality_focus_count": payload["quality_focus"].as_array().map_or(0, |v| v.len()),
-            "recommended_check_count": payload["recommended_checks"].as_array().map_or(0, |v| v.len()),
-            "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map_or(0, |v| v.len()),
+            "verifier_check_count": payload["verifier_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+            "ready_check_count": payload["verifier_checks"].as_array().map(|checks| checks.iter().filter(|check| check.get("status") == Some(&json!(VERIFIER_READY))).count()).unwrap_or(0),
+            "blocked_check_count": payload["verifier_checks"].as_array().map(|checks| checks.iter().filter(|check| check.get("status") == Some(&json!(VERIFIER_BLOCKED))).count()).unwrap_or(0),
+            "quality_focus_count": payload["quality_focus"].as_array().map(|v| v.len()).unwrap_or(0),
+            "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+            "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
         });
         payload["evidence_handles"] = payload["section_handles"].clone();
     }

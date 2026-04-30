@@ -16,7 +16,9 @@ pub(super) fn type_hierarchy_node_from_item(item: &Value) -> Result<LspTypeHiera
         .to_owned();
     let kind = item
         .get("kind")
-        .and_then(Value::as_u64).map_or_else(|| "unknown".to_owned(), symbol_kind_label);
+        .and_then(Value::as_u64)
+        .map(symbol_kind_label)
+        .unwrap_or_else(|| "unknown".to_owned());
     Ok(LspTypeHierarchyNode {
         name: name.to_owned(),
         fully_qualified_name: detail,

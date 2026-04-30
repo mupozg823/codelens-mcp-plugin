@@ -172,7 +172,8 @@ fn prepare_harness_index_recovery(state: &AppState, arguments: &Value) -> Value 
     let threshold = arguments
         .get("auto_refresh_stale_threshold")
         .and_then(|value| value.as_u64())
-        .map_or(DEFAULT_AUTO_REFRESH_STALE_THRESHOLD, |value| value as usize);
+        .map(|value| value as usize)
+        .unwrap_or(DEFAULT_AUTO_REFRESH_STALE_THRESHOLD);
 
     let before = match state.symbol_index().stats() {
         Ok(stats) => stats,
@@ -276,11 +277,14 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let client = session
         .client_name
-        .as_deref().map_or_else(|| state.client_profile(), |name| crate::client_profile::ClientProfile::detect(Some(name)));
+        .as_deref()
+        .map(|name| crate::client_profile::ClientProfile::detect(Some(name)))
+        .unwrap_or_else(|| state.client_profile());
     let file_count = state
         .symbol_index()
         .stats()
-        .map_or(0, |s| s.indexed_files);
+        .map(|s| s.indexed_files)
+        .unwrap_or(0);
     // For Claude Code clients, keep Balanced preset (all tools accessible).
     // Profile auto-selection only applies to Codex/generic clients.
     let (auto_surface, auto_budget, auto_label) =
@@ -730,14 +734,15 @@ pub fn auto_set_embed_hint_lang(project_path: &std::path::Path) {
     // `auto_hint_mode_enabled()` in `crates/codelens-engine/src/embedding/mod.rs`.
     let auto_hint_gate_enabled = std::env::var("CODELENS_EMBED_HINT_AUTO")
         .ok()
-        .is_none_or(|v| {
+        .map(|v| {
             let lowered = v.trim().to_ascii_lowercase();
             match lowered.as_str() {
                 "1" | "true" | "yes" | "on" => true,
                 "0" | "false" | "no" | "off" => false,
                 _ => true, // unknown value → fall through to default-on
             }
-        });
+        })
+        .unwrap_or(true);
     let user_forced_lang = std::env::var("CODELENS_EMBED_HINT_AUTO_LANG").is_ok();
     if !auto_hint_gate_enabled || user_forced_lang {
         return;
