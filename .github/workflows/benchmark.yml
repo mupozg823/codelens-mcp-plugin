@@ -56,12 +56,13 @@ jobs:
         with:
           shared-key: bench
       - name: Download baseline
+        id: download
         uses: actions/download-artifact@v4
         with:
           name: bench-baseline
           path: .bench-baselines
-          # Allow failure on first PR after baseline workflow creation
-          continue-on-error: true
+        # Allow failure on first PR after baseline workflow creation
+        continue-on-error: true
       - name: Run benchmarks
         run: cargo bench -p codelens-engine -- --baseline main
         continue-on-error: true
