@@ -47,7 +47,6 @@ adapters/**/obj/
 .claire/
 .claude/worktrees/
 models/.venv/
-models/codelens-code-search/
 models/benchmark_results.json
 models/benchmark_hard_results.json
 models/benchmark_full_results.json
@@ -56,12 +55,18 @@ scripts/finetune/output/
 # ONNX model files (downloaded at install time)
 *.onnx
 *.onnx.bak
-checkpoints/
+
+# Ignore large model checkpoint files, but keep the directory and eval results tracked
+checkpoints/**/*.onnx
+checkpoints/**/*.pt
+checkpoints/**/*.bin
+checkpoints/**/*.safetensors
+checkpoints/**/*.pth
+checkpoints/**/*.ckpt
 
 # Backup copies of bundled embedding models — kept locally for A/B comparison
 # but never shipped in releases. Only the active model (e.g. codesearch/) is tracked.
 crates/codelens-engine/models/codesearch-v*-backup/
-scripts/finetune/*.jsonl
 scripts/finetune/gate-results/
 scripts/finetune/external/
 scripts/finetune/pipelines/
