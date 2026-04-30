@@ -9,16 +9,12 @@ use crate::state::AppState;
 impl AppState {
     /// Get the active project root. Clones the ProjectRoot (just a PathBuf).
     pub(crate) fn project(&self) -> codelens_engine::ProjectRoot {
-        self.active_project_context()
-            .map(|context| context.project.clone())
-            .unwrap_or_else(|| self.default_project.clone())
+        self.active_project_context().map_or_else(|| self.default_project.clone(), |context| context.project.clone())
     }
 
     /// Get the active symbol index.
     pub(crate) fn symbol_index(&self) -> Arc<SymbolIndex> {
-        self.active_project_context()
-            .map(|context| Arc::clone(&context.symbol_index))
-            .unwrap_or_else(|| Arc::clone(&self.default_symbol_index))
+        self.active_project_context().map_or_else(|| Arc::clone(&self.default_symbol_index), |context| Arc::clone(&context.symbol_index))
     }
 
     pub(crate) fn watcher_failure_health(&self) -> WatcherFailureHealth {
@@ -31,29 +27,21 @@ impl AppState {
 
     /// Get the active graph cache.
     pub(crate) fn graph_cache(&self) -> Arc<GraphCache> {
-        self.active_project_context()
-            .map(|context| Arc::clone(&context.graph_cache))
-            .unwrap_or_else(|| Arc::clone(&self.default_graph_cache))
+        self.active_project_context().map_or_else(|| Arc::clone(&self.default_graph_cache), |context| Arc::clone(&context.graph_cache))
     }
 
     /// Get the active memories directory.
     pub(crate) fn memories_dir(&self) -> std::path::PathBuf {
-        self.active_project_context()
-            .map(|context| context.memories_dir.clone())
-            .unwrap_or_else(|| self.default_memories_dir.clone())
+        self.active_project_context().map_or_else(|| self.default_memories_dir.clone(), |context| context.memories_dir.clone())
     }
 
     /// Get the active analysis cache directory.
     pub(crate) fn analysis_dir(&self) -> std::path::PathBuf {
-        self.active_project_context()
-            .map(|context| context.analysis_dir.clone())
-            .unwrap_or_else(|| self.default_analysis_dir.clone())
+        self.active_project_context().map_or_else(|| self.default_analysis_dir.clone(), |context| context.analysis_dir.clone())
     }
 
     pub(crate) fn audit_dir(&self) -> std::path::PathBuf {
-        self.active_project_context()
-            .map(|context| context.audit_dir.clone())
-            .unwrap_or_else(|| self.default_audit_dir.clone())
+        self.active_project_context().map_or_else(|| self.default_audit_dir.clone(), |context| context.audit_dir.clone())
     }
 
     pub(crate) fn watcher_stats(&self) -> Option<codelens_engine::WatcherStats> {
@@ -65,8 +53,7 @@ impl AppState {
 
     pub(crate) fn watcher_running(&self) -> bool {
         self.watcher_stats()
-            .map(|stats| stats.running)
-            .unwrap_or(false)
+            .is_some_and(|stats| stats.running)
     }
 
     /// Switch the active project at runtime. Creates a new index and graph cache.
@@ -75,9 +62,7 @@ impl AppState {
         let scope = project.as_path().to_string_lossy().to_string();
         let name = project
             .as_path()
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| path.to_string());
+            .file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().to_string());
 
         if scope == self.default_project_scope() {
             self.activate_project_context(None);
@@ -115,8 +100,6 @@ impl AppState {
 
     /// Access the LSP session pool. Pool uses internal per-session locking.
     pub(crate) fn lsp_pool(&self) -> Arc<LspSessionPool> {
-        self.active_project_context()
-            .map(|context| Arc::clone(&context.lsp_pool))
-            .unwrap_or_else(|| Arc::clone(&self.default_lsp_pool))
+        self.active_project_context().map_or_else(|| Arc::clone(&self.default_lsp_pool), |context| Arc::clone(&context.lsp_pool))
     }
 }

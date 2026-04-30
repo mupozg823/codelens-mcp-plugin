@@ -268,17 +268,11 @@ impl AgentCoordinationStore {
             .or_insert_with(|| FileClaimEntry {
                 session_id: session_id.to_owned(),
                 agent_name: registered_agent
-                    .as_ref()
-                    .map(|entry| entry.agent_name.clone())
-                    .unwrap_or_else(|| fallback_agent_name.to_owned()),
+                    .as_ref().map_or_else(|| fallback_agent_name.to_owned(), |entry| entry.agent_name.clone()),
                 branch: registered_agent
-                    .as_ref()
-                    .map(|entry| entry.branch.clone())
-                    .unwrap_or_else(|| fallback_branch.to_owned()),
+                    .as_ref().map_or_else(|| fallback_branch.to_owned(), |entry| entry.branch.clone()),
                 worktree: registered_agent
-                    .as_ref()
-                    .map(|entry| entry.worktree.clone())
-                    .unwrap_or_else(|| fallback_worktree.to_owned()),
+                    .as_ref().map_or_else(|| fallback_worktree.to_owned(), |entry| entry.worktree.clone()),
                 paths: Vec::new(),
                 reason: reason.to_owned(),
                 expires_at,
@@ -482,17 +476,11 @@ impl AgentCoordinationStore {
                 .unwrap_or_else(|| FileClaimEntry {
                     session_id: session_id.to_owned(),
                     agent_name: registered_agent
-                        .as_ref()
-                        .map(|entry| entry.agent_name.clone())
-                        .unwrap_or_else(|| fallback_agent_name.to_owned()),
+                        .as_ref().map_or_else(|| fallback_agent_name.to_owned(), |entry| entry.agent_name.clone()),
                     branch: registered_agent
-                        .as_ref()
-                        .map(|entry| entry.branch.clone())
-                        .unwrap_or_else(|| fallback_branch.to_owned()),
+                        .as_ref().map_or_else(|| fallback_branch.to_owned(), |entry| entry.branch.clone()),
                     worktree: registered_agent
-                        .as_ref()
-                        .map(|entry| entry.worktree.clone())
-                        .unwrap_or_else(|| fallback_worktree.to_owned()),
+                        .as_ref().map_or_else(|| fallback_worktree.to_owned(), |entry| entry.worktree.clone()),
                     paths: Vec::new(),
                     reason: reason.to_owned(),
                     expires_at,

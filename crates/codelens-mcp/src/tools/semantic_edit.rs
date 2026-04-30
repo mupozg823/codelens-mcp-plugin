@@ -98,13 +98,12 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
     };
     let rollback_available_derived = apply_evidence
         .as_ref()
-        .map(|ev| {
+        .is_some_and(|ev| {
             matches!(
                 ev.status,
                 codelens_engine::ApplyStatus::Applied | codelens_engine::ApplyStatus::RolledBack
             )
-        })
-        .unwrap_or(false);
+        });
     let transaction_contract = semantic_transaction_contract(SemanticTransactionContractInput {
         state,
         backend_id: &backend_id,
@@ -243,13 +242,12 @@ pub(crate) fn rename_symbol_with_lsp_backend(
     };
     let rollback_available_derived = apply_evidence
         .as_ref()
-        .map(|ev| {
+        .is_some_and(|ev| {
             matches!(
                 ev.status,
                 codelens_engine::ApplyStatus::Applied | codelens_engine::ApplyStatus::RolledBack
             )
-        })
-        .unwrap_or(false);
+        });
     let transaction_contract = semantic_transaction_contract(SemanticTransactionContractInput {
         state,
         backend_id: &backend_id,
@@ -423,7 +421,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
 
         // Compute 1-based (line, column) from byte offset for RenameEdit.
         let line_for_edit = source[..start_byte].matches('\n').count() + 1;
-        let last_newline = source[..start_byte].rfind('\n').map(|p| p + 1).unwrap_or(0);
+        let last_newline = source[..start_byte].rfind('\n').map_or(0, |p| p + 1);
         let column_for_edit = start_byte - last_newline + 1;
 
         let edits = vec![codelens_engine::RenameEdit {
@@ -460,13 +458,12 @@ pub(crate) fn safe_delete_with_lsp_backend(
 
     let rollback_available = apply_evidence
         .as_ref()
-        .map(|ev| {
+        .is_some_and(|ev| {
             matches!(
                 ev.status,
                 codelens_engine::ApplyStatus::Applied | codelens_engine::ApplyStatus::RolledBack
             )
-        })
-        .unwrap_or(false);
+        });
 
     let message = if safe_to_delete {
         format!(

@@ -190,14 +190,12 @@ pub fn estimate_tokens(text: &str) -> usize {
 pub fn parse_lsp_args(arguments: &serde_json::Value, command: &str) -> Vec<String> {
     arguments
         .get("args")
-        .and_then(|value| value.as_array())
-        .map(|items| {
+        .and_then(|value| value.as_array()).map_or_else(|| default_lsp_args_for_command(command), |items| {
             items
                 .iter()
                 .filter_map(|item| item.as_str().map(ToOwned::to_owned))
                 .collect::<Vec<_>>()
         })
-        .unwrap_or_else(|| default_lsp_args_for_command(command))
 }
 
 pub fn default_lsp_command_for_path(file_path: &str) -> Option<String> {

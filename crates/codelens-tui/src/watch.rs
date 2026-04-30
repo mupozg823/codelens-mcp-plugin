@@ -193,8 +193,7 @@ impl WatchState {
                 let session = event
                     .session_id
                     .as_deref()
-                    .map(|s| &s[..s.len().min(12)])
-                    .unwrap_or("");
+                    .map_or("", |s| &s[..s.len().min(12)]);
                 let spans = vec![
                     Span::styled(format!("{status} "), status_style(event.success)),
                     Span::styled(

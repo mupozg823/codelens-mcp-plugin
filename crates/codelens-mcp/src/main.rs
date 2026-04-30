@@ -86,8 +86,7 @@ fn configured_compat_mode(args: &[String]) -> ServerCompatMode {
     cli_option_value(args, "--compat")
         .or_else(|| dual_prefix_env("CODELENS_COMPAT"))
         .as_deref()
-        .map(ServerCompatMode::from_str)
-        .unwrap_or(ServerCompatMode::Default)
+        .map_or(ServerCompatMode::Default, ServerCompatMode::from_str)
 }
 
 #[cfg(feature = "otel")]
@@ -222,9 +221,7 @@ fn main() -> Result<()> {
         .unwrap_or(RuntimeDaemonMode::Standard);
 
     if args.iter().any(|arg| arg == "--print-surface-manifest") {
-        let surface = profile
-            .map(ToolSurface::Profile)
-            .unwrap_or_else(|| ToolSurface::Preset(preset));
+        let surface = profile.map_or_else(|| ToolSurface::Preset(preset), ToolSurface::Profile);
         let manifest = surface_manifest::build_surface_manifest(surface, daemon_mode);
         println!("{}", serde_json::to_string_pretty(&manifest)?);
         return Ok(());

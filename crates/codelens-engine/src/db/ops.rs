@@ -503,8 +503,7 @@ impl IndexDb {
                 [],
                 |row| row.get::<_, i64>(0),
             )
-            .map(|c| c > 0)
-            .unwrap_or(false);
+            .is_ok_and(|c| c > 0);
 
         if !fts_exists {
             // Fallback: LIKE search with JOIN
@@ -518,8 +517,7 @@ impl IndexDb {
         // expensive COUNT(*) + rebuild on every search call.
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs() as i64);
         let last_rebuild_ts: i64 = self
             .conn
             .query_row(
@@ -541,14 +539,13 @@ impl IndexDb {
                 )
                 .optional()?
                 .and_then(|v| v.parse::<i64>().ok())
-                .map(|cached_count| {
+                .is_some_and(|cached_count| {
                     let current: i64 = self
                         .conn
                         .query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get(0))
                         .unwrap_or(0);
                     cached_count == current
-                })
-                .unwrap_or(false);
+                });
 
             if !fts_fresh {
                 let sym_count: i64 = self

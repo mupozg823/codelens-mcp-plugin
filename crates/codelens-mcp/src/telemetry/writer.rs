@@ -57,11 +57,10 @@ impl TelemetryWriter {
             });
         }
         let enabled = dual_prefix_env("CODELENS_TELEMETRY_ENABLED")
-            .map(|v| {
+            .is_some_and(|v| {
                 let lowered = v.to_ascii_lowercase();
                 matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
-            })
-            .unwrap_or(false);
+            });
         if enabled {
             return Some(Self {
                 path: PathBuf::from(".codelens/telemetry/tool_usage.jsonl"),

@@ -65,7 +65,7 @@ impl SymbolProvenance {
             .and_then(|idx| segments.get(idx))
             .copied()
             .unwrap_or_default();
-        let after_src = src_idx.map(|idx| &segments[idx + 1..]).unwrap_or(&[][..]);
+        let after_src = src_idx.map_or(&[][..], |idx| &segments[idx + 1..]);
         let first_after_src = after_src.first().copied().unwrap_or_default();
         let file_name = segments.last().copied().unwrap_or_default();
 

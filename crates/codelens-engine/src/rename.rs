@@ -480,8 +480,7 @@ fn byte_offset_for_line_column(content: &str, line: usize, column: usize) -> Opt
 
     let line_end = content[line_start..]
         .find('\n')
-        .map(|offset| line_start + offset)
-        .unwrap_or(content.len());
+        .map_or(content.len(), |offset| line_start + offset);
     let offset = line_start.checked_add(column.saturating_sub(1))?;
     if offset > line_end || !content.is_char_boundary(offset) {
         return None;

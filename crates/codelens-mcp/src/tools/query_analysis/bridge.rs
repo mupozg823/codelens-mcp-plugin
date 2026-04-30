@@ -37,8 +37,7 @@ pub(crate) fn semantic_query_for_embedding_search(
 #[cfg(feature = "semantic")]
 fn project_bridges_disabled() -> bool {
     std::env::var("CODELENS_PROJECT_BRIDGES_ON")
-        .map(|v| v != "1")
-        .unwrap_or(true)
+        .map_or(true, |v| v != "1")
 }
 
 #[cfg(feature = "semantic")]
@@ -129,8 +128,7 @@ fn bridge_nl_to_code_vocabulary(query: &str, project_bridges: &[(String, String)
     // bridge-off/generic-on/repo-on ablation runs in the external benchmark
     // matrix (benchmarks/external-3arm.py).
     if !std::env::var("CODELENS_GENERIC_BRIDGES_OFF")
-        .map(|v| v == "1")
-        .unwrap_or(false)
+        .is_ok_and(|v| v == "1")
     {
         for (nl, code) in GENERIC_BRIDGES {
             apply(nl, code);

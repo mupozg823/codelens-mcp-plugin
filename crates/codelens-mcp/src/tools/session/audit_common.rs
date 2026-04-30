@@ -185,9 +185,7 @@ pub(super) fn resolve_audit_session_view(
         } else {
             metrics
                 .timeline
-                .last()
-                .map(|entry| entry.surface.clone())
-                .unwrap_or_else(|| state.surface().as_label().to_owned())
+                .last().map_or_else(|| state.surface().as_label().to_owned(), |entry| entry.surface.clone())
         },
         transport: if is_local_session {
             "local"

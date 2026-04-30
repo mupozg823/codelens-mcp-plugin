@@ -1,0 +1,8 @@
+{"query": "rename a variable or function across the project", "positive": "function rename_symbol in crates/codelens-core/src/rename.rs: rename_symbol", "negative": "", "source": "benchmark_miss_feedback"}
+{"query": "find where a symbol is defined in a file", "positive": "function find_symbol_range in crates/codelens-core/src/symbols/mod.rs: find_symbol_range", "negative": "", "source": "benchmark_miss_feedback"}
+{"query": "change function parameters", "positive": "function change_signature in crates/codelens-core/src/change_signature.rs: change_signature", "negative": "", "source": "benchmark_miss_feedback"}
+{"query": "read input from stdin line by line", "positive": "function run_stdio in crates/codelens-mcp/src/server/transport_stdio.rs: run_stdio", "negative": "", "source": "benchmark_miss_feedback"}
+{"query": "parse source code into an AST", "positive": "function parse_symbols in crates/codelens-core/src/symbols/parser.rs: parse_symbols", "negative": "", "source": "benchmark_miss_feedback"}
+{"query": "build embedding vectors for all symbols", "positive": "function index_from_project in crates/codelens-core/src/embedding.rs: index_from_project", "negative": "", "source": "benchmark_miss_feedback"}
+{"query": "get project structure and key files on first load", "positive": "function onboard_project in crates/codelens-mcp/src/tools/composite.rs: onboard_project", "negative": "", "source": "benchmark_miss_feedback"}
+{"query": "skip comments and string literals during search", "positive": "function build_non_code_ranges in crates/codelens-core/src/rename.rs: build_non_code_ranges", "negative": "", "source": "benchmark_miss_feedback"}

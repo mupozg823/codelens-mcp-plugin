@@ -152,7 +152,7 @@ impl Principals {
             principal: HashMap<String, PrincipalEntry>,
         }
         let parsed: File = toml::from_str(text).context("toml parse error")?;
-        let default_role = parsed.default.map(|d| d.role).unwrap_or(Role::Refactor);
+        let default_role = parsed.default.map_or(Role::Refactor, |d| d.role);
         let by_id = parsed
             .principal
             .into_iter()

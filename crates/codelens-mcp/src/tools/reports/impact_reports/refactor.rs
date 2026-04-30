@@ -21,9 +21,7 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         super::super::summarize_symbol_impact(
             state,
             &json!({"symbol": symbol, "file_path": arguments.get("file_path").and_then(|v| v.as_str())}),
-        )
-        .map(|output| output.0)
-        .unwrap_or_else(|error| json!({"symbol": symbol, "error": error.to_string()}))
+        ).map_or_else(|error| json!({"symbol": symbol, "error": error.to_string()}), |output| output.0)
     } else {
         json!({"skipped": true, "reason": "no symbol provided"})
     };
@@ -35,9 +33,7 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         .transpose()?
         .unwrap_or_else(|| json!({"skipped": true, "reason": "no task provided"}));
     let tests =
-        crate::tools::filesystem::find_tests(state, &json!({"path": path, "max_results": 10}))
-            .map(|output| output.0)
-            .unwrap_or_else(|_| json!({"tests": []}));
+        crate::tools::filesystem::find_tests(state, &json!({"path": path, "max_results": 10})).map_or_else(|_| json!({"tests": []}), |output| output.0);
 
     let mut top_findings = Vec::new();
     if let Some(symbol) = symbol {
@@ -139,8 +135,7 @@ pub fn semantic_code_review(state: &AppState, arguments: &Value) -> ToolResult {
     let semantic_available = sem_status
         .get("status")
         .and_then(|v| v.as_str())
-        .map(|s| s == "ready")
-        .unwrap_or(false);
+        .is_some_and(|s| s == "ready");
 
     let mut review_items = Vec::new();
     let mut top_findings = Vec::new();
@@ -148,9 +143,7 @@ pub fn semantic_code_review(state: &AppState, arguments: &Value) -> ToolResult {
     for path in changed_files.iter().take(5) {
         // 1. Get symbols in the changed file
         let symbols =
-            crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
-                .map(|o| o.0)
-                .unwrap_or_else(|_| json!({"symbols": []}));
+            crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1})).map_or_else(|_| json!({"symbols": []}), |o| o.0);
         let symbol_names: Vec<String> = symbols
             .get("symbols")
             .and_then(|v| v.as_array())
@@ -171,9 +164,7 @@ pub fn semantic_code_review(state: &AppState, arguments: &Value) -> ToolResult {
             let refs = crate::tools::graph::find_scoped_references_tool(
                 state,
                 &json!({"symbol_name": symbol_name, "file_path": path, "max_results": 10}),
-            )
-            .map(|o| o.0)
-            .unwrap_or_else(|_| json!({"count": 0}));
+            ).map_or_else(|_| json!({"count": 0}), |o| o.0);
             let ref_count = refs.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
 
             // Semantic: find related symbols via embedding

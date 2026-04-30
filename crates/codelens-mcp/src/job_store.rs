@@ -251,8 +251,7 @@ impl AnalysisJobStore {
             .filter_map(|id| self.latest_job(id, project_scope))
             .filter(|job| {
                 status_filter
-                    .map(|f| job.status.as_str() == f)
-                    .unwrap_or(true)
+                    .is_none_or(|f| job.status.as_str() == f)
             })
             .collect()
     }

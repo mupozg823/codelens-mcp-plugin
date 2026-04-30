@@ -268,8 +268,7 @@ pub fn sparse_max_bonus() -> f64 {
     std::env::var("CODELENS_RANK_SPARSE_MAX")
         .ok()
         .and_then(|raw| raw.parse::<u32>().ok())
-        .map(|n| n.clamp(5, 50))
-        .unwrap_or(20) as f64
+        .map_or(20, |n| n.clamp(5, 50)) as f64
 }
 
 /// Minimum query-term coverage (as a percentage, 10..=90) a symbol must
@@ -286,8 +285,7 @@ pub fn sparse_threshold() -> f64 {
     std::env::var("CODELENS_RANK_SPARSE_THRESHOLD")
         .ok()
         .and_then(|raw| raw.parse::<u32>().ok())
-        .map(|n| n.clamp(10, 90))
-        .unwrap_or(60) as f64
+        .map_or(60, |n| n.clamp(10, 90)) as f64
         / 100.0
 }
 

@@ -80,8 +80,7 @@ pub fn change_signature(
     let def_line = source[..abs_paren_start + 1].lines().count();
     let def_line_start = source[..abs_paren_start + 1]
         .rfind('\n')
-        .map(|p| p + 1)
-        .unwrap_or(0);
+        .map_or(0, |p| p + 1);
     let def_col = abs_paren_start + 1 - def_line_start + 1;
 
     let old_params_text = old_params_str.to_string();

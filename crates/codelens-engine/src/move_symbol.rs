@@ -247,9 +247,7 @@ fn file_path_to_module(path: &str, ext: &str) -> String {
         "go" => {
             // Go uses directory-based packages
             std::path::Path::new(without_ext)
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| ".".to_string())
+                .parent().map_or_else(|| ".".to_string(), |p| p.to_string_lossy().to_string())
         }
         "java" | "kt" | "scala" => without_ext.replace(['/', '\\'], "."),
         _ => without_ext.replace(['/', '\\'], "."),

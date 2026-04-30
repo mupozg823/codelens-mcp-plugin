@@ -10,8 +10,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);
 
 fn estimate_serialized_tokens(tool: &Tool) -> usize {
     serde_json::to_string(tool)
-        .map(|body| body.len() / 4)
-        .unwrap_or(0)
+        .map_or(0, |body| body.len() / 4)
 }
 
 fn tool_title_override(name: &str) -> Option<&'static str> {
