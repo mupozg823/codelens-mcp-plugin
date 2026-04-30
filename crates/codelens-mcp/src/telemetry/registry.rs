@@ -1,4 +1,5 @@
 //! Thread-safe telemetry registry and session recording logic.
+#![allow(clippy::collapsible_if)]
 
 use super::writer::{PersistedEvent, TelemetryWriter};
 use super::{CallTelemetryHints, SessionMetrics, SurfaceMetrics, ToolInvocation, ToolMetrics};
@@ -457,6 +458,59 @@ impl ToolMetricsRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         session_buckets.clear();
+    }
+
+    /// Return tool names that have zero calls in the telemetry JSONL log
+    /// within the given `window_days`. Requires telemetry persistence to be
+    /// enabled. Falls back to an empty vec if the log is missing or unreadable.
+    pub fn underutilized_tools(&self, all_tool_names: &[String], window_days: u64) -> Vec<String> {
+        let writer = match &self.writer {
+            Some(w) => w,
+            None => return Vec::new(),
+        };
+        let path = writer.path();
+        if !path.exists() {
+            return Vec::new();
+        }
+
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let cutoff_ms = now_ms.saturating_sub(window_days * 24 * 60 * 60 * 1000);
+
+        let file = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(_) => return Vec::new(),
+        };
+        let reader = std::io::BufReader::new(file);
+        let mut called = std::collections::HashSet::new();
+
+        for line in std::io::BufRead::lines(reader) {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => continue,
+            };
+            let value: serde_json::Value = match serde_json::from_str(&line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let ts = value
+                .get("timestamp_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            if ts >= cutoff_ms {
+                if let Some(tool) = value.get("tool").and_then(|v| v.as_str()) {
+                    called.insert(tool.to_owned());
+                }
+            }
+        }
+
+        all_tool_names
+            .iter()
+            .filter(|name| !called.contains(name.as_str()))
+            .cloned()
+            .collect()
     }
 }
 

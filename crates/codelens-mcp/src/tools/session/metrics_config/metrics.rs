@@ -65,6 +65,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         crate::tool_defs::ToolPreset::Full,
     ));
     let registered_count = all_registered.len();
+    let all_tool_names: Vec<String> = all_registered.iter().map(|t| t.name.to_string()).collect();
     let mut zero_call_tools: Vec<&str> = all_registered
         .iter()
         .filter(|tool| !snapshot.iter().any(|(name, _)| name == tool.name))
@@ -76,6 +77,9 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
     } else {
         0.0
     };
+
+    // Telemetry-driven 30-day underutilized tools (JSONL-based)
+    let underutilized_30d = state.metrics().underutilized_tools(&all_tool_names, 30);
     let per_surface = surfaces
         .into_iter()
         .map(|(surface, metrics)| {
@@ -131,6 +135,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             "count": count,
             "registered_count": registered_count,
             "zero_call_tools": zero_call_tools,
+            "underutilized_30d": underutilized_30d,
             "call_coverage": call_coverage,
             "surfaces": per_surface.clone(),
             "per_surface": per_surface,

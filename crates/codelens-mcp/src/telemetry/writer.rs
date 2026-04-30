@@ -1,4 +1,5 @@
 //! Append-only JSONL telemetry persistence.
+#![allow(clippy::collapsible_if)]
 
 use crate::env_compat::dual_prefix_env;
 use serde::Serialize;
@@ -77,10 +78,10 @@ impl TelemetryWriter {
     }
 
     fn try_append(&self, event: &PersistedEvent<'_>) -> std::io::Result<()> {
-        if let Some(parent) = self.path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent)?;
+        if let Some(parent) = self.path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
         }
         let mut line = serde_json::to_string(event)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -97,7 +98,6 @@ impl TelemetryWriter {
         Self { path }
     }
 
-    #[cfg(test)]
     pub(crate) fn path(&self) -> &std::path::Path {
         &self.path
     }

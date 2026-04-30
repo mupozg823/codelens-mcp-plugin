@@ -1,4 +1,5 @@
 //! Low-level call, surface, and session recording helpers.
+#![allow(clippy::collapsible_if)]
 
 use super::{MAX_TIMELINE, has_low_level_chain, is_workflow_tool, push_latency_sample};
 use crate::telemetry::{SessionMetrics, SurfaceMetrics, ToolInvocation, ToolMetrics};
@@ -81,19 +82,19 @@ pub(super) fn record_session_call(
     if !success {
         session.error_count += 1;
     }
-    if let Some(origin_tool) = session.pending_composite_guidance_from.clone()
-        && !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset")
-    {
-        if is_workflow_tool(name) || name == "get_analysis_section" {
-            session.composite_guidance_followed_count += 1;
-        } else {
-            session.composite_guidance_missed_count += 1;
-            *session
-                .composite_guidance_missed_by_origin
-                .entry(origin_tool)
-                .or_insert(0) += 1;
+    if let Some(origin_tool) = session.pending_composite_guidance_from.clone() {
+        if !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset") {
+            if is_workflow_tool(name) || name == "get_analysis_section" {
+                session.composite_guidance_followed_count += 1;
+            } else {
+                session.composite_guidance_missed_count += 1;
+                *session
+                    .composite_guidance_missed_by_origin
+                    .entry(origin_tool)
+                    .or_insert(0) += 1;
+            }
+            session.pending_composite_guidance_from = None;
         }
-        session.pending_composite_guidance_from = None;
     }
     if session.pending_quality_contract
         && (name == "get_analysis_section"
@@ -116,18 +117,17 @@ pub(super) fn record_session_call(
         session.verifier_followthrough_count += 1;
         session.pending_verifier_contract = false;
     }
-    if let Some(prev) = previous
-        && prev.tool == name
-        && !prev.success
-    {
-        session.retry_count += 1;
+    if let Some(prev) = previous {
+        if prev.tool == name && !prev.success {
+            session.retry_count += 1;
+        }
     }
-    if name != "get_tool_metrics"
-        && let Some(prev_tool) = session.pending_truncation_tool.take()
-    {
-        session.truncation_followup_count += 1;
-        if prev_tool == name {
-            session.truncation_same_tool_retry_count += 1;
+    if name != "get_tool_metrics" {
+        if let Some(prev_tool) = session.pending_truncation_tool.take() {
+            session.truncation_followup_count += 1;
+            if prev_tool == name {
+                session.truncation_same_tool_retry_count += 1;
+            }
         }
     }
     push_latency_sample(&mut session.latency_samples, elapsed_ms);
