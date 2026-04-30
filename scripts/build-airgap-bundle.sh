@@ -219,7 +219,6 @@ cat >"$bundle_dir/bundle-manifest.json" <<EOF
   "binary_archive": "$(basename "$archive_path")",
   "sbom_file": "$(basename "$sbom_path")",
   "models_dir": "models/codesearch",
-  "adapters_dir": "adapters",
   "entrypoint": "./codelens-mcp",
   "http_ports": [7837, 7838]
 }
@@ -234,7 +233,6 @@ Contents:
 
 - \`./codelens-mcp\` release binary
 - \`./models/codesearch/\` bundled semantic model assets
-- \`./adapters/roslyn-workspace-service/\` optional Roslyn semantic edit sidecar
 - \`./sbom/$(basename "$sbom_path")\` CycloneDX SBOM for the bundled binary
 - \`./examples/\` example MCP configs and daemon launch scripts
 - \`./checksums-sha256.txt\` checksums for bundle contents

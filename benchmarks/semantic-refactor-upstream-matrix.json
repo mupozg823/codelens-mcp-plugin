@@ -2,39 +2,6 @@
   "schema_version": "codelens-semantic-refactor-matrix-v1",
   "projects": [
     {
-      "name": "csharp-roslyn-rename-fixture",
-      "kind": "csharp",
-      "path": "benchmarks/fixtures/roslyn-rename",
-      "skip_if_missing_command": "dotnet",
-      "operations": [
-        {
-          "tool": "rename_symbol",
-          "env": {
-            "CODELENS_ROSLYN_ADAPTER_CMD": "dotnet",
-            "CODELENS_ROSLYN_ADAPTER_ARGS": "run --quiet --project adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService"
-          },
-          "args": {
-            "file_path": "Widget.cs",
-            "symbol_name": "Widget",
-            "new_name": "RenamedWidget",
-            "semantic_edit_backend": "roslyn",
-            "line": 3,
-            "column": 14,
-            "dry_run": false
-          },
-          "expect": {
-            "success": true,
-            "equals": {
-              "data.semantic_edit_backend": "roslyn",
-              "data.edit_authority.kind": "authoritative_local_adapter",
-              "data.applied": true
-            },
-            "present": ["data.workspace_edit"]
-          }
-        }
-      ]
-    },
-    {
       "name": "serde-json-rename-navigation",
       "kind": "rust",
       "git_url": "https://github.com/serde-rs/json.git",

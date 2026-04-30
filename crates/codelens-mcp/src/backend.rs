@@ -431,17 +431,6 @@ mod tests {
             .expect("missing tree-sitter rename descriptor");
         assert_eq!(tree_sitter_rename["authority"], "syntax");
         assert_eq!(tree_sitter_rename["can_apply"], false);
-        assert!(operations.iter().any(|op| {
-            op["operation"] == "rename"
-                && op["backend"] == "roslyn"
-                && op["support"] == "conditional_authoritative_apply"
-                && op["can_apply"] == false
-        }));
-        assert!(
-            !operations.iter().any(|op| {
-                op["backend"] == "jetbrains" && op["support"] == "authoritative_apply"
-            })
-        );
         assert!(
             operations
                 .iter()

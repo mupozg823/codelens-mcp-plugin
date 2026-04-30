@@ -16,22 +16,6 @@ use std::collections::BTreeSet;
 pub(crate) enum SemanticEditBackendSelection {
     TreeSitter,
     Lsp,
-    /// JetBrains IDE adapter — experimental, requires local adapter process.
-    JetBrains,
-    /// Roslyn (C#) workspace service — experimental. C# rename is
-    /// authoritative only when the sidecar returns a WorkspaceEdit;
-    /// broader refactors remain unsupported. Fails closed without adapter.
-    Roslyn,
-}
-
-impl SemanticEditBackendSelection {
-    pub(crate) fn adapter_name(self) -> Option<&'static str> {
-        match self {
-            Self::JetBrains => Some("jetbrains"),
-            Self::Roslyn => Some("roslyn"),
-            _ => None,
-        }
-    }
 }
 
 pub(crate) fn selected_backend(
@@ -47,26 +31,10 @@ pub(crate) fn selected_backend(
             Ok(SemanticEditBackendSelection::TreeSitter)
         }
         "lsp" => Ok(SemanticEditBackendSelection::Lsp),
-        "jetbrains" => Ok(SemanticEditBackendSelection::JetBrains),
-        "roslyn" => Ok(SemanticEditBackendSelection::Roslyn),
         other => Err(CodeLensError::Validation(format!(
-            "unsupported semantic_edit_backend `{other}`; expected tree-sitter, lsp, jetbrains, or roslyn"
+            "unsupported semantic_edit_backend `{other}`; expected tree-sitter or lsp"
         ))),
     }
-}
-
-pub(crate) fn unsupported_external_adapter(
-    backend: SemanticEditBackendSelection,
-    operation: &str,
-) -> ToolResult {
-    let backend_name = match backend {
-        SemanticEditBackendSelection::JetBrains => "jetbrains",
-        SemanticEditBackendSelection::Roslyn => "roslyn",
-        _ => "unknown",
-    };
-    Err(CodeLensError::Validation(format!(
-        "unsupported_semantic_refactor: semantic_edit_backend={backend_name} for `{operation}` is an opt-in CodeLens IDE adapter boundary, but no inspectable WorkspaceEdit adapter is configured in this release"
-    )))
 }
 
 pub(crate) fn code_action_refactor_with_lsp_backend(

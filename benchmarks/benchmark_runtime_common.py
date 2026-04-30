@@ -216,9 +216,6 @@ def isolated_project_copy(project: str | Path, *, prefix: str = "codelens-bench-
             if name in ISOLATED_COPY_IGNORE_NAMES or name.endswith(ISOLATED_COPY_IGNORE_SUFFIXES):
                 ignored.add(name)
                 continue
-            if "adapters" in path.parts and name in {"bin", "obj"}:
-                ignored.add(name)
-                continue
             if directory.name == "models" and path.is_dir():
                 ignored.add(name)
         return ignored
