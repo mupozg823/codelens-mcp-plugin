@@ -134,8 +134,8 @@ impl SymbolIndex {
 
         let mut files = collect_candidate_files(self.project.as_path())?;
         files.sort_by(|a, b| {
-            let sa = a.metadata().map(|m| m.len()).unwrap_or(0);
-            let sb = b.metadata().map(|m| m.len()).unwrap_or(0);
+            let sa = a.metadata().map_or(0, |m| m.len());
+            let sb = b.metadata().map_or(0, |m| m.len());
             sb.cmp(&sa)
         });
 

@@ -240,8 +240,7 @@ fn record_audit_outcome(
     };
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_millis() as i64);
     let args_hash = crate::util::canonical_sha256_hex(arguments);
     let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
 
@@ -350,8 +349,7 @@ pub(super) fn record_audit_failure(
     };
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_millis() as i64);
     let args_hash = crate::util::canonical_sha256_hex(arguments);
     let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
     let session_metadata = Some(session_metadata_for(state, session, active_surface));

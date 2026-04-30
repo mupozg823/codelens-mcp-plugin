@@ -102,8 +102,7 @@ impl AppState {
 /// the audit sink stays usable even if the prune step misfires.
 fn run_audit_retention_sweep(sink: &crate::audit_sink::AuditSink) {
     let days = crate::env_compat::env_var_u64("CODELENS_AUDIT_RETENTION_DAYS")
-        .map(|d| d as i64)
-        .unwrap_or(90);
+        .map_or(90, |d| d as i64);
     if days <= 0 {
         tracing::debug!("CODELENS_AUDIT_RETENTION_DAYS={days} — audit retention disabled");
         return;

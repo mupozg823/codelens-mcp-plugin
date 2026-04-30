@@ -203,8 +203,7 @@ fn draw_metrics(f: &mut Frame, app: &App, area: Rect) {
     let file_name = app
         .files
         .get(app.file_cursor)
-        .map(|f| f.path.as_str())
-        .unwrap_or("-");
+        .map_or("-", |f| f.path.as_str());
 
     let child_total: usize = app.symbols.iter().map(|s| s.children.len()).sum();
 

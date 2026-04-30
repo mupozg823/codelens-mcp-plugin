@@ -571,8 +571,7 @@ pub(crate) fn build_builder_session_audit(
                 check["code"] == "mutation_gate"
                     && check["evidence"]["missing_symbol_preflight_paths"]
                         .as_array()
-                        .map(|items| !items.is_empty())
-                        .unwrap_or(false)
+                        .is_some_and(|items| !items.is_empty())
             })
         {
             push_unique(&mut recommended_next_tools, "safe_rename_report");

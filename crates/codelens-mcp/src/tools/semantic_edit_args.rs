@@ -21,9 +21,7 @@ pub(crate) fn code_action_range(
             .unwrap_or(1) as usize;
         let end_column = arguments
             .get("end_column")
-            .and_then(|value| value.as_u64())
-            .map(|value| value as usize)
-            .unwrap_or_else(|| default_end_column(state, file_path, end_line));
+            .and_then(|value| value.as_u64()).map_or_else(|| default_end_column(state, file_path, end_line), |value| value as usize);
         return Ok((
             start_line,
             start_column,

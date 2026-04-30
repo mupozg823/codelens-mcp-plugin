@@ -820,8 +820,7 @@ impl EmbeddingEngine {
             .query_row("SELECT COUNT(*) FROM symbols", [], |row| {
                 row.get::<_, i64>(0)
             })
-            .map(|count| count.max(0) as usize)
-            .unwrap_or(0);
+            .map_or(0, |count| count.max(0) as usize);
 
         Ok(model_name.map(|model_name| EmbeddingIndexInfo {
             model_name,

@@ -16,9 +16,7 @@ impl AppState {
         let project = ProjectRoot::new(path)?;
         let name = project
             .as_path()
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| path.to_string());
+            .file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().to_string());
         let index = Arc::new(SymbolIndex::new(project.clone()));
         // Ensure it's indexed
         index.refresh_all()?;

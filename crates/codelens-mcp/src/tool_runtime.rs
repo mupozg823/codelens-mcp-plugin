@@ -62,8 +62,7 @@ pub fn optional_usize(value: &serde_json::Value, key: &str, default: usize) -> u
     value
         .get(key)
         .and_then(|v| v.as_u64())
-        .map(|v| v as usize)
-        .unwrap_or(default)
+        .map_or(default, |v| v as usize)
 }
 
 /// Extract an optional bool argument with a default value.

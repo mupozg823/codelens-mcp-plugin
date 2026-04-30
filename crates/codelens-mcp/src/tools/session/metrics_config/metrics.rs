@@ -26,12 +26,8 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
     let requested_session_id = _arguments
         .get("session_id")
         .and_then(|value| value.as_str());
-    let snapshot = requested_session_id
-        .map(|session_id| state.metrics().snapshot_for_session(session_id))
-        .unwrap_or_else(|| state.metrics().snapshot());
-    let surfaces = requested_session_id
-        .map(|session_id| state.metrics().surface_snapshot_for_session(session_id))
-        .unwrap_or_else(|| state.metrics().surface_snapshot());
+    let snapshot = requested_session_id.map_or_else(|| state.metrics().snapshot(), |session_id| state.metrics().snapshot_for_session(session_id));
+    let surfaces = requested_session_id.map_or_else(|| state.metrics().surface_snapshot(), |session_id| state.metrics().surface_snapshot_for_session(session_id));
     let per_tool: Vec<serde_json::Value> = snapshot
         .iter()
         .map(|(name, m)| {
@@ -155,12 +151,8 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
         .and_then(|v| v.as_str())
         .unwrap_or("session");
     let requested_session_id = arguments.get("session_id").and_then(|value| value.as_str());
-    let snapshot = requested_session_id
-        .map(|session_id| state.metrics().snapshot_for_session(session_id))
-        .unwrap_or_else(|| state.metrics().snapshot());
-    let session = requested_session_id
-        .map(|session_id| state.metrics().session_snapshot_for(session_id))
-        .unwrap_or_else(|| state.metrics().session_snapshot());
+    let snapshot = requested_session_id.map_or_else(|| state.metrics().snapshot(), |session_id| state.metrics().snapshot_for_session(session_id));
+    let session = requested_session_id.map_or_else(|| state.metrics().session_snapshot(), |session_id| state.metrics().session_snapshot_for(session_id));
 
     let total_calls = session.total_calls.max(1);
     let mut tools: Vec<_> = snapshot.into_iter().collect();
@@ -237,9 +229,7 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
         #[cfg(not(feature = "http"))]
         let current_surface = session
             .timeline
-            .last()
-            .map(|entry| entry.surface.clone())
-            .unwrap_or_else(|| state.surface().as_label().to_owned());
+            .last().map_or_else(|| state.surface().as_label().to_owned(), |entry| entry.surface.clone());
 
         let (audit_title, audit) = if is_builder_surface(&current_surface) {
             (

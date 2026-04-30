@@ -46,11 +46,7 @@ pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
         8,
     );
     let changed = if requested_changed_files.is_empty() {
-        crate::tools::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))
-            .map(|out| out.0)
-            .unwrap_or_else(
-                |_| json!({"files": [], "count": 0, "note": "git metadata unavailable"}),
-            )
+        crate::tools::graph::get_changed_files_tool(state, &json!({"include_untracked": true})).map_or_else(|_| json!({"files": [], "count": 0, "note": "git metadata unavailable"}), |out| out.0)
     } else {
         json!({
             "files": requested_changed_files
@@ -201,9 +197,7 @@ pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {
         crate::tools::mutation::rename_symbol(
             state,
             &json!({"file_path": file_path, "symbol_name": symbol, "new_name": new_name, "dry_run": true}),
-        )
-        .map(|out| out.0)
-        .unwrap_or_else(|error| json!({"preview_error": error.to_string()}))
+        ).map_or_else(|error| json!({"preview_error": error.to_string()}), |out| out.0)
     } else {
         json!({"preview_skipped": true, "reason": "Provide new_name to generate a dry-run preview."})
     };

@@ -29,8 +29,7 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
     let budget = arguments
         .get("token_budget")
         .and_then(|v| v.as_u64())
-        .map(|v| v as usize)
-        .unwrap_or(default_budget_for_preset(new_preset));
+        .map_or(default_budget_for_preset(new_preset), |v| v as usize);
     #[cfg(feature = "http")]
     if state.should_route_to_session(&session) {
         state.set_session_surface_and_budget(
@@ -80,8 +79,7 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
     let budget = arguments
         .get("token_budget")
         .and_then(|v| v.as_u64())
-        .map(|v| v as usize)
-        .unwrap_or(default_budget_for_profile(profile));
+        .map_or(default_budget_for_profile(profile), |v| v as usize);
     #[cfg(feature = "http")]
     if state.should_route_to_session(&session) {
         state.set_session_surface_and_budget(

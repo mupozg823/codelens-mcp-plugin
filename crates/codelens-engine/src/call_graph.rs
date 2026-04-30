@@ -299,8 +299,7 @@ fn filter_external_import_edges(edges: &mut Vec<CallEdge>, import_bindings: &JSI
         import_bindings
             .get(&edge.caller_file)
             .and_then(|bindings| bindings.get(&edge.callee_name))
-            .map(|binding| !binding.external)
-            .unwrap_or(true)
+            .is_none_or(|binding| !binding.external)
     });
 }
 
@@ -328,8 +327,7 @@ fn maybe_import_graph(
         }
         let needs_patch = graph
             .get(&relative)
-            .map(|node| node.imports.is_empty())
-            .unwrap_or(true);
+            .is_none_or(|node| node.imports.is_empty());
         if !needs_patch {
             continue;
         }
@@ -456,9 +454,7 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 .iter()
                 .filter(|(fs, fe, _)| *fs <= start && *fe >= end)
                 // pick the innermost (smallest range)
-                .min_by_key(|(fs, fe, _)| fe - fs)
-                .map(|(_, _, name)| name.clone())
-                .unwrap_or_else(|| "<module>".to_owned());
+                .min_by_key(|(fs, fe, _)| fe - fs).map_or_else(|| "<module>".to_owned(), |(_, _, name)| name.clone());
 
             edges.push(CallEdge {
                 caller_file: file_path.clone(),

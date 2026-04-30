@@ -433,9 +433,7 @@ fn quarantine_corrupt_sqlite_files(db_path: &Path) -> Result<Vec<PathBuf>> {
         }
 
         let file_name = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "sqlite-index".to_owned());
+            .file_name().map_or_else(|| "sqlite-index".to_owned(), |name| name.to_string_lossy().into_owned());
         let backup_path = path.with_file_name(format!("{file_name}.{suffix}"));
 
         match fs::rename(&path, &backup_path) {

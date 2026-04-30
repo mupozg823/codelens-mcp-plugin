@@ -85,8 +85,7 @@ fn main() {
     // format is a trivial `%Y-%m-%dT%H:%M:%SZ`.
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let build_time = format_iso8601_utc(now);
     println!("cargo:rustc-env=CODELENS_BUILD_TIME={build_time}");
 
@@ -98,8 +97,7 @@ fn main() {
         .args(["status", "--porcelain"])
         .output()
         .ok()
-        .map(|out| !out.stdout.is_empty())
-        .unwrap_or(false);
+        .is_some_and(|out| !out.stdout.is_empty());
     println!("cargo:rustc-env=CODELENS_BUILD_GIT_DIRTY={}", dirty);
 }
 

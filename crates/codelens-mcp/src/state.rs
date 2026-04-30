@@ -33,8 +33,7 @@ mod watcher_health;
 /// Default preflight TTL: 10 minutes. Override via `CODELENS_PREFLIGHT_TTL_SECS`.
 pub(crate) fn preflight_ttl_ms() -> u64 {
     crate::env_compat::env_var_u64("CODELENS_PREFLIGHT_TTL_SECS")
-        .map(|secs| secs * 1000)
-        .unwrap_or(10 * 60 * 1000) // default 10 min
+        .map_or(10 * 60 * 1000, |secs| secs * 1000) // default 10 min
 }
 
 pub(crate) use crate::agent_coordination::{
@@ -158,8 +157,7 @@ pub(crate) struct AppState {
 fn now_rfc3339_utc() -> String {
     let unix_seconds = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let days = (unix_seconds / 86_400) as i64;
     let secs_in_day = unix_seconds % 86_400;
     let hour = secs_in_day / 3600;

@@ -6,8 +6,7 @@ use serde_json::{Map, Value, json};
 pub(crate) fn effective_budget_for_tool(name: &str, request_budget: usize) -> usize {
     tool_definition(name)
         .and_then(|t| t.max_response_tokens)
-        .map(|cap| request_budget.min(cap))
-        .unwrap_or(request_budget)
+        .map_or(request_budget, |cap| request_budget.min(cap))
 }
 
 pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> String {
@@ -658,8 +657,7 @@ pub(crate) fn bounded_result_payload(
             let byte_idx = text
                 .char_indices()
                 .nth(max_chars)
-                .map(|(i, _)| i)
-                .unwrap_or(text.len());
+                .map_or(text.len(), |(i, _)| i);
             text.truncate(byte_idx);
             text.push_str("...[truncated]");
         }

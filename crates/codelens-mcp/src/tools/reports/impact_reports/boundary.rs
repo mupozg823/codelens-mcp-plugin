@@ -18,17 +18,13 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
     let impact = crate::tools::graph::get_impact_analysis(
         state,
         &json!({"file_path": path, "max_depth": 2}),
-    )
-    .map(|out| out.0)
-    .unwrap_or_else(|_| json!({"blast_radius": [], "direct_importers": []}));
+    ).map_or_else(|_| json!({"blast_radius": [], "direct_importers": []}), |out| out.0);
     let cycles =
         crate::tools::graph::find_circular_dependencies_tool(state, &json!({"max_results": 20}))?.0;
     let coupling =
         crate::tools::graph::get_change_coupling_tool(state, &json!({"max_results": 20}))?.0;
     let symbols =
-        crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
-            .map(|out| out.0)
-            .unwrap_or_else(|_| json!({"symbols": []}));
+        crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1})).map_or_else(|_| json!({"symbols": []}), |out| out.0);
 
     let cycle_hits = cycles
         .get("cycles")

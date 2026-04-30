@@ -69,8 +69,7 @@ impl ResourceRequestContext {
         let client_profile = session
             .client_name
             .as_deref()
-            .map(|name| ClientProfile::detect(Some(name)))
-            .unwrap_or(ClientProfile::Generic);
+            .map_or(ClientProfile::Generic, |name| ClientProfile::detect(Some(name)));
         let deferred_loading_requested = params
             .and_then(|value| value.get("_session_deferred_tool_loading"))
             .and_then(|value| value.as_bool())
@@ -423,9 +422,7 @@ pub(crate) fn build_agent_activity_payload(
                     .map(|entry| entry.worktree.clone())
                     .or_else(|| claim.map(|entry| entry.worktree.clone()))
                     .unwrap_or_default(),
-                "intent": agent
-                    .map(|entry| entry.intent.clone())
-                    .unwrap_or_else(|| "unregistered".to_owned()),
+                "intent": agent.map_or_else(|| "unregistered".to_owned(), |entry| entry.intent.clone()),
                 "registered": agent.is_some(),
                 "expires_at": agent
                     .map(|entry| entry.expires_at)

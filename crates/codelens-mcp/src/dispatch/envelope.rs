@@ -47,17 +47,14 @@ impl ToolCallEnvelope {
         let budget = arguments
             .get("_profile")
             .and_then(|v| v.as_str())
-            .map(|profile| {
-                ToolProfile::from_str(profile)
-                    .map(default_budget_for_profile)
-                    .unwrap_or_else(|| match profile {
+            .map_or(default_budget, |profile| {
+                ToolProfile::from_str(profile).map_or_else(|| match profile {
                         "fast_local" => 2000usize,
                         "deep_semantic" => 16000,
                         "safe_mutation" => 4000,
                         _ => default_budget,
-                    })
-            })
-            .unwrap_or(default_budget);
+                    }, default_budget_for_profile)
+            });
         let compact = arguments
             .get("_compact")
             .and_then(|v| v.as_bool())

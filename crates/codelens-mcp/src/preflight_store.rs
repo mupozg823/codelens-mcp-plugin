@@ -40,15 +40,13 @@ impl RecentPreflightStore {
             .unwrap_or_default();
         let blocker_count = payload
             .get("blocker_count")
-            .and_then(|value| value.as_u64())
-            .map(|value| value as usize)
-            .unwrap_or_else(|| {
+            .and_then(|value| value.as_u64()).map_or_else(|| {
                 payload
                     .get("blockers")
                     .and_then(|value| value.as_array())
                     .map(|value| value.len())
                     .unwrap_or_default()
-            });
+            }, |value| value as usize);
         let preflight = RecentPreflight {
             tool_name: tool_name.to_owned(),
             analysis_id: payload

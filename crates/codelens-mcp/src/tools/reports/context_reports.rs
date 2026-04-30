@@ -20,11 +20,7 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
         8,
     );
     let changed = if requested_changed_files.is_empty() {
-        crate::tools::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))
-            .map(|out| out.0)
-            .unwrap_or_else(
-                |_| json!({"files": [], "count": 0, "note": "git metadata unavailable"}),
-            )
+        crate::tools::graph::get_changed_files_tool(state, &json!({"include_untracked": true})).map_or_else(|_| json!({"files": [], "count": 0, "note": "git metadata unavailable"}), |out| out.0)
     } else {
         json!({
             "files": requested_changed_files
@@ -82,8 +78,7 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
     let has_changed_files = changed
         .get("files")
         .and_then(|v| v.as_array())
-        .map(|entries| !entries.is_empty())
-        .unwrap_or(false);
+        .is_some_and(|entries| !entries.is_empty());
     if has_changed_files {
         next_actions.push("Compare the request against the current diff".to_owned());
     }
@@ -243,15 +238,11 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
     let callers = crate::tools::graph::get_callers_tool(
         state,
         &json!({"function_name": symbol, "max_results": 10}),
-    )
-    .map(|out| out.0)
-    .unwrap_or_else(|_| json!({"callers": []}));
+    ).map_or_else(|_| json!({"callers": []}), |out| out.0);
     let callees = crate::tools::graph::get_callees_tool(
         state,
         &json!({"function_name": symbol, "file_path": file_path, "max_results": 10}),
-    )
-    .map(|out| out.0)
-    .unwrap_or_else(|_| json!({"callees": []}));
+    ).map_or_else(|_| json!({"callees": []}), |out| out.0);
     let scoped_refs = crate::tools::graph::find_scoped_references_tool(
         state,
         &json!({"symbol_name": symbol, "file_path": file_path, "max_results": 20}),

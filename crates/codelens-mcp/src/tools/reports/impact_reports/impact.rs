@@ -54,11 +54,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         let impact = crate::tools::graph::get_impact_analysis(
             state,
             &json!({"file_path": path, "max_depth": 2}),
-        )
-        .map(|output| output.0)
-        .unwrap_or_else(
-            |_| json!({"file_path": path, "total_affected_files": 0, "direct_importers": []}),
-        );
+        ).map_or_else(|_| json!({"file_path": path, "total_affected_files": 0, "direct_importers": []}), |output| output.0);
         let affected = impact
             .get("total_affected_files")
             .and_then(|value| value.as_u64())
@@ -329,9 +325,7 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
     let mut top_findings = Vec::new();
     for path in changed_files.iter().take(5) {
         let symbols =
-            crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
-                .map(|output| output.0)
-                .unwrap_or_else(|_| json!({"symbols": []}));
+            crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1})).map_or_else(|_| json!({"symbols": []}), |output| output.0);
         let symbol_names = symbols
             .get("symbols")
             .and_then(|value| value.as_array())
@@ -351,9 +345,7 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
             let refs = crate::tools::graph::find_scoped_references_tool(
                 state,
                 &json!({"symbol_name": symbol_name, "file_path": path, "max_results": 20}),
-            )
-            .map(|output| output.0)
-            .unwrap_or_else(|_| json!({"references": [], "count": 0}));
+            ).map_or_else(|_| json!({"references": [], "count": 0}), |output| output.0);
             let count = refs
                 .get("count")
                 .and_then(|value| value.as_u64())

@@ -66,9 +66,9 @@ pub fn build_operator_dashboard(state: &AppState) -> OperatorDashboard {
 
     // Index health — derived from the existing symbol index stats.
     let stats = state.symbol_index().stats().ok();
-    let indexed_files = stats.as_ref().map(|s| s.indexed_files).unwrap_or(0);
-    let supported_files = stats.as_ref().map(|s| s.supported_files).unwrap_or(0);
-    let stale_files = stats.as_ref().map(|s| s.stale_files).unwrap_or(0);
+    let indexed_files = stats.as_ref().map_or(0, |s| s.indexed_files);
+    let supported_files = stats.as_ref().map_or(0, |s| s.supported_files);
+    let stale_files = stats.as_ref().map_or(0, |s| s.stale_files);
     let index_fresh = stale_files == 0 && indexed_files > 0;
 
     // Jobs summary by status.

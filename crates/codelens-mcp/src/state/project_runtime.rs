@@ -86,8 +86,7 @@ pub(super) fn build_project_runtime_context(
     let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
     if symbol_index
         .stats()
-        .map(|s| s.indexed_files == 0)
-        .unwrap_or(true)
+        .map_or(true, |s| s.indexed_files == 0)
     {
         let _ = symbol_index.refresh_all();
     }
@@ -131,9 +130,7 @@ pub(super) fn activate_project_context(
         .write()
         .unwrap_or_else(|p| p.into_inner()) = context.clone();
     let analysis_dir = context
-        .as_ref()
-        .map(|override_ctx| override_ctx.analysis_dir.clone())
-        .unwrap_or_else(|| state.default_analysis_dir.clone());
+        .as_ref().map_or_else(|| state.default_analysis_dir.clone(), |override_ctx| override_ctx.analysis_dir.clone());
     state.artifact_store.set_analysis_dir(analysis_dir.clone());
     state.job_store.set_jobs_dir(analysis_dir.join("jobs"));
     state.artifact_store.clear();
