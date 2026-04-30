@@ -4895,7 +4895,12 @@ fn diagnose_issues_returns_structured_content() {
         std::env::set_var("PATH", original_path);
     }
 
-    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["success"],
+        json!(true),
+        "expected success but got error: {}",
+        payload["error"].as_str().unwrap_or("unknown error")
+    );
     assert_eq!(payload["data"]["workflow"], json!("diagnose_issues"));
     assert_eq!(
         payload["data"]["delegated_tool"],
