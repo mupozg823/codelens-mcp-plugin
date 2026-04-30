@@ -13,7 +13,7 @@ use std::path::Path;
 use protobuf::Message;
 use scip::types::{self as scip_types, Index};
 
-use crate::call_graph::{is_noise_callee, CalleeEntry, CallerEntry};
+use crate::call_graph::{CalleeEntry, CallerEntry, is_noise_callee};
 use crate::ir::{
     CodeDiagnostic, DiagnosticSeverity, IntelligenceSource, PreciseBackend, SearchCandidate,
 };

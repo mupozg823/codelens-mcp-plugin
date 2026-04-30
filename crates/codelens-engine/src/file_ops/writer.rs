@@ -13,9 +13,9 @@
 //! principals.toml configuration, the audit log, and downstream
 //! cache invalidation. See the crate-level docs in `lib.rs`.
 
-use crate::edit_transaction::{apply_full_write_with_evidence, ApplyEvidence};
+use crate::edit_transaction::{ApplyEvidence, apply_full_write_with_evidence};
 use crate::project::ProjectRoot;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use regex::Regex;
 use std::fs;
 

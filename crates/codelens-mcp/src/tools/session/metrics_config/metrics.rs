@@ -61,9 +61,9 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
     let count = per_tool.len();
 
     // ── Tool Surface Diet: identify zero-call tools ───────────────────────────
-    let all_registered = crate::tool_defs::visible_tools(
-        crate::tool_defs::ToolSurface::Preset(crate::tool_defs::ToolPreset::Full)
-    );
+    let all_registered = crate::tool_defs::visible_tools(crate::tool_defs::ToolSurface::Preset(
+        crate::tool_defs::ToolPreset::Full,
+    ));
     let registered_count = all_registered.len();
     let mut zero_call_tools: Vec<&str> = all_registered
         .iter()
@@ -73,7 +73,9 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
     zero_call_tools.sort_unstable();
     let call_coverage = if registered_count > 0 {
         (registered_count - zero_call_tools.len()) as f64 / registered_count as f64
-    } else { 0.0 };
+    } else {
+        0.0
+    };
     let per_surface = surfaces
         .into_iter()
         .map(|(surface, metrics)| {

@@ -147,10 +147,7 @@ pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -
 /// internal builders (boundary/impact reports, mermaid graph, report_jobs)
 /// still consume this exact JSON shape, so the implementation lives on as
 /// a `pub(crate)` helper.
-pub(crate) fn get_impact_analysis(
-    state: &AppState,
-    arguments: &serde_json::Value,
-) -> ToolResult {
+pub(crate) fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let max_depth = optional_usize(arguments, "max_depth", 3);
 

@@ -63,8 +63,8 @@ pub use db::{
     DirStats, IndexDb, NewCall, NewImport, NewSymbol, SymbolWithFile, content_hash, index_db_path,
 };
 pub use edit_transaction::{
-    apply_full_write_with_evidence, apply_full_writes_with_evidence, ApplyError, ApplyEvidence,
-    ApplyStatus, FileHash, RollbackEntry, WorkspaceEditTransaction,
+    ApplyError, ApplyEvidence, ApplyStatus, FileHash, RollbackEntry, WorkspaceEditTransaction,
+    apply_full_write_with_evidence, apply_full_writes_with_evidence,
 };
 pub use file_ops::{
     DirectoryEntry, EnclosingSymbol, FileMatch, FileReadResult, PatternMatch, SmartPatternMatch,
@@ -97,11 +97,11 @@ pub use rename::{
     RenameEdit, RenameResult, RenameScope, apply_edits, find_all_word_matches, rename_symbol,
 };
 pub mod change_signature;
+pub mod embedding_types;
 pub mod inline;
 pub mod ir;
 pub mod move_symbol;
 pub mod oxc_analysis;
-pub mod embedding_types;
 #[cfg(feature = "scip-backend")]
 pub mod scip_backend;
 #[cfg(feature = "semantic")]

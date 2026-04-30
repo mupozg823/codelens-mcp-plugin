@@ -1,8 +1,8 @@
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::tool_defs::deprecated_workflow_alias;
 use crate::tool_runtime::{ToolHandler, ToolResult};
-use crate::AppState;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[cfg(feature = "semantic")]
 use crate::protocol::BackendKind;

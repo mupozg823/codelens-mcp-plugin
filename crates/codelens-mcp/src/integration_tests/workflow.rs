@@ -2699,7 +2699,7 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
 /// `deprecated_alias_direct_calls_still_work_*` tests.
 #[test]
 fn removed_v2_aliases_are_absent_from_every_surface() {
-    use crate::tool_defs::{visible_tools, ToolPreset, ToolProfile, ToolSurface};
+    use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, visible_tools};
 
     let removed = [
         "get_impact_analysis",

@@ -896,10 +896,7 @@ mod tests {
         )
         .expect("write");
         let edges = extract_calls(&path);
-        let route_edges = edges
-            .iter()
-            .filter(|e| e.callee_name == "route")
-            .count();
+        let route_edges = edges.iter().filter(|e| e.callee_name == "route").count();
         assert!(
             route_edges >= 2,
             "expected at least 2 caller edges for `route` decorator, got {route_edges}: {edges:?}"
@@ -922,14 +919,8 @@ mod tests {
         )
         .expect("write");
         let edges = extract_calls(&path);
-        let footer_edges = edges
-            .iter()
-            .filter(|e| e.callee_name == "Footer")
-            .count();
-        let button_edges = edges
-            .iter()
-            .filter(|e| e.callee_name == "Button")
-            .count();
+        let footer_edges = edges.iter().filter(|e| e.callee_name == "Footer").count();
+        let button_edges = edges.iter().filter(|e| e.callee_name == "Button").count();
         assert!(
             footer_edges >= 1,
             "expected at least 1 caller edge for `<Footer />`, got {footer_edges}: {edges:?}"
