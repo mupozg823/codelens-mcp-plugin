@@ -193,6 +193,10 @@ fn prepare_harness_session_auto_refreshes_small_stale_index() {
     let state = make_state(&project);
 
     std::thread::sleep(std::time::Duration::from_millis(1_100));
+    let parent = path.parent().unwrap();
+    if !parent.exists() {
+        fs::create_dir_all(parent).unwrap();
+    }
     fs::write(&path, "def alpha():\n    return 2\n").unwrap();
 
     let payload = call_tool(
