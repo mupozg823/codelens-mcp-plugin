@@ -191,7 +191,7 @@ fn scip_runtime_status(state: &AppState) -> BackendRuntimeStatus {
     {
         let index_path = codelens_engine::ScipBackend::detect(state.project().as_path());
         let loaded = index_path.is_some() && state.scip().is_some();
-        return BackendRuntimeStatus {
+        BackendRuntimeStatus {
             compiled: true,
             available: loaded,
             active: loaded,
@@ -205,7 +205,7 @@ fn scip_runtime_status(state: &AppState) -> BackendRuntimeStatus {
             details: json!({
                 "index_path": index_path.map(|path| path.to_string_lossy().to_string()),
             }),
-        };
+        }
     }
     #[cfg(not(feature = "scip-backend"))]
     {
@@ -431,17 +431,6 @@ mod tests {
             .expect("missing tree-sitter rename descriptor");
         assert_eq!(tree_sitter_rename["authority"], "syntax");
         assert_eq!(tree_sitter_rename["can_apply"], false);
-        assert!(operations.iter().any(|op| {
-            op["operation"] == "rename"
-                && op["backend"] == "roslyn"
-                && op["support"] == "conditional_authoritative_apply"
-                && op["can_apply"] == false
-        }));
-        assert!(
-            !operations.iter().any(|op| {
-                op["backend"] == "jetbrains" && op["support"] == "authoritative_apply"
-            })
-        );
         assert!(
             operations
                 .iter()

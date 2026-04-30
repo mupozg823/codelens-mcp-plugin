@@ -1,0 +1,125 @@
+name: Benchmark
+
+# Performance regression detection via Criterion.
+# Runs on every PR and posts results as a comment.
+# Non-blocking (continue-on-error) because GitHub runners are noisy.
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  baseline:
+    name: Save baseline
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench
+      - name: Run benchmarks
+        run: cargo bench -p codelens-engine -- --save-baseline main
+      - name: Save baseline JSON
+        run: python3 scripts/bench-compare.py --save-baseline main
+      - name: Upload baseline artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-baseline
+          path: .bench-baselines/main.json
+
+  compare:
+    name: Compare benchmarks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench
+      - name: Download baseline
+        id: download
+        uses: actions/download-artifact@v4
+        with:
+          name: bench-baseline
+          path: .bench-baselines
+        # Allow failure on first PR after baseline workflow creation
+        continue-on-error: true
+      - name: Run benchmarks
+        run: cargo bench -p codelens-engine -- --baseline main
+        continue-on-error: true
+      - name: Compare against baseline
+        id: compare
+        run: |
+          if [ -f .bench-baselines/main.json ]; then
+            python3 scripts/bench-compare.py --baseline main --threshold 15 --json > bench-report.json
+            echo "has_baseline=true" >> "$GITHUB_OUTPUT"
+          else
+            echo '{"regressions": [], "improvements": [], "missing": [], "ok_count": 0, "regression_detected": false, "note": "No baseline available yet. Run benchmark workflow on main first."}' > bench-report.json
+            echo "has_baseline=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('bench-report.json', 'utf8'));
+            const { regressions, improvements, missing, ok_count, regression_detected, note } = report;
+
+            let body = '## 📊 Benchmark Results\n\n';
+            if (note) {
+              body += `> ${note}\n`;
+            } else if (regression_detected) {
+              body += '⚠️ **Performance regression detected.**\n\n';
+            } else {
+              body += '✅ **No significant performance regression.**\n\n';
+            }
+
+            if (regressions && regressions.length > 0) {
+              body += '### Regressions (threshold: 15%)\n| Benchmark | Baseline | Current | Change |\n|---|---|---|---|\n';
+              for (const r of regressions) {
+                body += `| ${r.name} | ${r.base_ms.toFixed(3)}ms | ${r.current_ms.toFixed(3)}ms | +${r.change_pct.toFixed(1)}% |\n`;
+              }
+              body += '\n';
+            }
+            if (improvements && improvements.length > 0) {
+              body += '### Improvements\n| Benchmark | Baseline | Current | Change |\n|---|---|---|---|\n';
+              for (const r of improvements) {
+                body += `| ${r.name} | ${r.base_ms.toFixed(3)}ms | ${r.current_ms.toFixed(3)}ms | ${r.change_pct.toFixed(1)}% |\n`;
+              }
+              body += '\n';
+            }
+            if (missing && missing.length > 0) {
+              body += `**Missing:** ${missing.join(', ')}\n\n`;
+            }
+            if (ok_count > 0) {
+              body += `${ok_count} benchmark(s) within threshold.\n`;
+            }
+
+            body += '\n*Note: GitHub Actions runners are noisy. Treat ±15% as noise floor.*';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

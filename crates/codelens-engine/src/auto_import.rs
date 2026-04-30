@@ -184,7 +184,10 @@ pub fn add_import(
         &new_content,
     ) {
         Ok(ev) => ev,
-        Err(crate::edit_transaction::ApplyError::ApplyFailed { source: _, evidence }) => evidence,
+        Err(crate::edit_transaction::ApplyError::ApplyFailed {
+            source: _,
+            evidence,
+        }) => evidence,
         Err(other) => return Err(anyhow::Error::msg(other.to_string())),
     };
     Ok((new_content, evidence))

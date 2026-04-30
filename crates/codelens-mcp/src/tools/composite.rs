@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if)]
+
 use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
@@ -11,6 +13,7 @@ use codelens_engine::{
 };
 use serde_json::json;
 
+#[allow(clippy::collapsible_if)]
 pub fn summarize_file(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let project = state.project();
@@ -109,16 +112,6 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
                 arguments,
                 "extract_function",
                 &["refactor.extract"],
-            );
-        }
-        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
-        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_adapter::refactor_with_local_adapter(
-                state,
-                arguments,
-                crate::tools::semantic_edit::selected_backend(arguments)?,
-                "refactor_extract_function",
-                "extract_function",
             );
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
@@ -245,10 +238,10 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
             "no return-value inference — function returns nothing"
         ]
     });
-    if !unknown_args.is_empty()
-        && let Some(map) = payload.as_object_mut()
-    {
-        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    if let Some(map) = payload.as_object_mut() {
+        if !unknown_args.is_empty() {
+            map.insert("unknown_args".to_owned(), json!(unknown_args));
+        }
     }
     Ok((
         payload,
@@ -264,16 +257,6 @@ pub fn refactor_inline_function(state: &AppState, arguments: &serde_json::Value)
                 arguments,
                 "inline_function",
                 &["refactor.inline"],
-            );
-        }
-        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
-        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_adapter::refactor_with_local_adapter(
-                state,
-                arguments,
-                crate::tools::semantic_edit::selected_backend(arguments)?,
-                "refactor_inline_function",
-                "inline_function",
             );
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
@@ -323,10 +306,10 @@ pub fn refactor_inline_function(state: &AppState, arguments: &serde_json::Value)
             "definition removal heuristic; trailing comments may be stranded"
         ]
     });
-    if !unknown_args.is_empty()
-        && let Some(map) = payload.as_object_mut()
-    {
-        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    if let Some(map) = payload.as_object_mut() {
+        if !unknown_args.is_empty() {
+            map.insert("unknown_args".to_owned(), json!(unknown_args));
+        }
     }
     Ok((
         payload,
@@ -342,16 +325,6 @@ pub fn refactor_move_to_file(state: &AppState, arguments: &serde_json::Value) ->
                 arguments,
                 "move_symbol",
                 &["refactor.rewrite", "refactor"],
-            );
-        }
-        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
-        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_adapter::refactor_with_local_adapter(
-                state,
-                arguments,
-                crate::tools::semantic_edit::selected_backend(arguments)?,
-                "refactor_move_to_file",
-                "move_symbol",
             );
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
@@ -411,10 +384,10 @@ pub fn refactor_move_to_file(state: &AppState, arguments: &serde_json::Value) ->
             "name-collision at target file not detected"
         ]
     });
-    if !unknown_args.is_empty()
-        && let Some(map) = payload.as_object_mut()
-    {
-        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    if let Some(map) = payload.as_object_mut() {
+        if !unknown_args.is_empty() {
+            map.insert("unknown_args".to_owned(), json!(unknown_args));
+        }
     }
     Ok((
         payload,
@@ -430,16 +403,6 @@ pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value
                 arguments,
                 "change_signature",
                 &["refactor.rewrite", "refactor"],
-            );
-        }
-        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
-        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_adapter::refactor_with_local_adapter(
-                state,
-                arguments,
-                crate::tools::semantic_edit::selected_backend(arguments)?,
-                "refactor_change_signature",
-                "change_signature",
             );
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
@@ -504,10 +467,10 @@ pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value
             "callers in non-source files (e.g. tests) may need manual updates"
         ]
     });
-    if !unknown_args.is_empty()
-        && let Some(map) = payload.as_object_mut()
-    {
-        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    if let Some(map) = payload.as_object_mut() {
+        if !unknown_args.is_empty() {
+            map.insert("unknown_args".to_owned(), json!(unknown_args));
+        }
     }
     Ok((
         payload,
@@ -524,13 +487,6 @@ pub fn propagate_deletions(state: &AppState, arguments: &serde_json::Value) -> T
     match crate::tools::semantic_edit::selected_backend(arguments)? {
         crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp => {
             return crate::tools::semantic_edit::safe_delete_with_lsp_backend(state, arguments);
-        }
-        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
-        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_edit::unsupported_external_adapter(
-                crate::tools::semantic_edit::selected_backend(arguments)?,
-                "propagate_deletions",
-            );
         }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }

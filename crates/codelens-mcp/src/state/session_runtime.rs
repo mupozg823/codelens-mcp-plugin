@@ -50,11 +50,13 @@ pub(super) fn set_session_surface_and_budget(
     surface: ToolSurface,
     budget: usize,
 ) {
-    if let Some(store) = &state.session_store {
-        if let Some(session) = store.get(session_id) {
-            session.set_surface(surface);
-            session.set_token_budget(budget);
-        }
+    if let Some(session) = state
+        .session_store
+        .as_ref()
+        .and_then(|store| store.get(session_id))
+    {
+        session.set_surface(surface);
+        session.set_token_budget(budget);
     }
 }
 
@@ -129,10 +131,12 @@ pub(super) fn doom_loop_count_for_session(
 
 #[cfg(feature = "http")]
 pub(super) fn bind_project_to_session(state: &AppState, session_id: &str, project_path: &str) {
-    if let Some(store) = &state.session_store {
-        if let Some(session) = store.get(session_id) {
-            session.set_project_path(project_path);
-        }
+    if let Some(session) = state
+        .session_store
+        .as_ref()
+        .and_then(|store| store.get(session_id))
+    {
+        session.set_project_path(project_path);
     }
 }
 

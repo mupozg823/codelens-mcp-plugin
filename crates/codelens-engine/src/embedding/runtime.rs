@@ -8,6 +8,7 @@ use std::thread::available_parallelism;
 use tracing::debug;
 
 use super::EmbeddingRuntimeInfo;
+#[cfg(target_os = "macos")]
 use super::ffi;
 
 pub static ORT_ENV_INIT: Once = Once::new();

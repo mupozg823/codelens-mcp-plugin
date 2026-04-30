@@ -1,8 +1,8 @@
-use crate::edit_transaction::{apply_full_writes_with_evidence, ApplyEvidence};
+use crate::edit_transaction::{ApplyEvidence, apply_full_writes_with_evidence};
 use crate::project::ProjectRoot;
-use crate::rename::{apply_edits, find_all_word_matches, RenameEdit};
+use crate::rename::{RenameEdit, apply_edits, find_all_word_matches};
 use crate::symbols::{find_symbol, find_symbol_range};
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::Serialize;
 use std::fs;
 

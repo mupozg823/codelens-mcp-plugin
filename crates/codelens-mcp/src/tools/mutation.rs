@@ -68,14 +68,6 @@ pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         crate::tools::semantic_edit::SemanticEditBackendSelection::Lsp => {
             return crate::tools::semantic_edit::rename_symbol_with_lsp_backend(state, arguments);
         }
-        crate::tools::semantic_edit::SemanticEditBackendSelection::JetBrains
-        | crate::tools::semantic_edit::SemanticEditBackendSelection::Roslyn => {
-            return crate::tools::semantic_adapter::rename_with_local_adapter(
-                state,
-                arguments,
-                crate::tools::semantic_edit::selected_backend(arguments)?,
-            );
-        }
         crate::tools::semantic_edit::SemanticEditBackendSelection::TreeSitter => {}
     }
 

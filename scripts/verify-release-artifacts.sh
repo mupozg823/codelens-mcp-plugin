@@ -146,8 +146,7 @@ verify_standard_payload_entries() {
 		"models/codesearch/config.json" \
 		"models/codesearch/special_tokens_map.json" \
 		"models/codesearch/tokenizer_config.json" \
-		"models/codesearch/model-manifest.json" \
-		"adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService.dll"; do
+		"models/codesearch/model-manifest.json"; do
 		if ! printf '%s\n' "${entries[@]}" | grep -Fxq "$required"; then
 			echo "standard release archive missing required file $required in $archive" >&2
 			return 1
@@ -177,7 +176,6 @@ verify_airgap_bundle() {
 		"models/codesearch/special_tokens_map.json" \
 		"models/codesearch/tokenizer_config.json" \
 		"models/codesearch/model-manifest.json" \
-		"adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService.dll" \
 		"checksums-sha256.txt" \
 		"AIRGAP-BUNDLE.md" \
 		"bundle-manifest.json" \

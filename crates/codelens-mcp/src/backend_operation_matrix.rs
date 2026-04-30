@@ -1,25 +1,14 @@
 use serde_json::{Value, json};
 
-pub(crate) const TREE_SITTER_RENAME_BLOCKER_REASON: &str = "tree-sitter rename is preview-only; select semantic_edit_backend=lsp (or jetbrains/roslyn) to apply";
-
-pub(crate) struct ProductCapabilityRegistry;
-
-impl ProductCapabilityRegistry {
-    pub(crate) fn operation_matrix(&self) -> Value {
-        json!({
-            "schema": "codelens-semantic-operation-matrix-v1",
-            "tier1_languages": ["rust", "typescript", "javascript", "java"],
-            "operations": semantic_edit_operation_descriptors()
-        })
-    }
-}
-
-pub(crate) fn product_capability_registry() -> ProductCapabilityRegistry {
-    ProductCapabilityRegistry
-}
+pub(crate) const TREE_SITTER_RENAME_BLOCKER_REASON: &str =
+    "tree-sitter rename is preview-only; select semantic_edit_backend=lsp to apply";
 
 pub(crate) fn semantic_edit_operation_matrix() -> Value {
-    product_capability_registry().operation_matrix()
+    json!({
+        "schema": "codelens-semantic-operation-matrix-v1",
+        "tier1_languages": ["rust", "typescript", "javascript", "java"],
+        "operations": semantic_edit_operation_descriptors()
+    })
 }
 
 fn semantic_edit_operation_descriptors() -> Vec<Value> {
@@ -168,21 +157,6 @@ fn semantic_edit_operation_descriptors() -> Vec<Value> {
             verified: false,
             required_methods: json!(["textDocument/codeAction", "codeAction/resolve"]),
             blocker_reason: "fixture-green inspectable WorkspaceEdit coverage is required before advertising authoritative_apply",
-        }),
-        operation_descriptor(OperationDescriptorSpec {
-            operation: "rename",
-            backend: "roslyn",
-            languages: json!(["csharp"]),
-            support: "conditional_authoritative_apply",
-            authority: "workspace_edit",
-            can_preview: true,
-            can_apply: false,
-            verified: false,
-            required_methods: json!([
-                "roslyn_workspace_adapter",
-                "Microsoft.CodeAnalysis.Rename.Renamer"
-            ]),
-            blocker_reason: "Roslyn sidecar rename must pass release-artifact fixture gate before static matrix advertises authoritative_apply",
         }),
         operation_descriptor(OperationDescriptorSpec {
             operation: "references",

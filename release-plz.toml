@@ -1,0 +1,13 @@
+[workspace]
+# Publish to crates.io is disabled; we only want GitHub Releases + CHANGELOG updates.
+publish = false
+# Create a single GitHub Release for the workspace.
+release = true
+# Update CHANGELOG.md using git-cliff format.
+changelog_config = "cliff.toml"
+
+[[package]]
+name = "codelens-mcp"
+# The binary crate that drives the release version.
+changelog_path = "CHANGELOG.md"
+changelog_include = ["codelens-engine", "codelens-tui"]

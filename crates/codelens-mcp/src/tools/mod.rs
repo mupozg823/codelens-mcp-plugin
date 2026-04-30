@@ -14,7 +14,6 @@ mod report_utils;
 mod report_verifier;
 pub mod reports;
 pub mod rules;
-pub(crate) mod semantic_adapter;
 pub(crate) mod semantic_edit;
 pub(crate) mod semantic_edit_args;
 pub mod session;

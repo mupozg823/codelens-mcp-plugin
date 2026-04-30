@@ -3,8 +3,8 @@ use super::position::{byte_column_for_utf16_position, extract_text_for_range};
 use super::types::{LspResourceOp, LspWorkspaceEditTransaction};
 use crate::project::ProjectRoot;
 use crate::rename::RenameEdit;
-use anyhow::{bail, Context, Result};
-use serde_json::{json, Map, Value};
+use anyhow::{Context, Result, bail};
+use serde_json::{Map, Value, json};
 use std::fs;
 use url::Url;
 

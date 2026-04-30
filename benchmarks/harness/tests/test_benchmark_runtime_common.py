@@ -191,8 +191,6 @@ class BenchmarkRuntimeCommonTests(unittest.TestCase):
             (root / "target" / "binary").write_text("runtime")
             (root / "models" / "codesearch").mkdir(parents=True)
             (root / "models" / "codesearch" / "model.onnx").write_text("big")
-            (root / "adapters" / "roslyn" / "bin").mkdir(parents=True)
-            (root / "adapters" / "roslyn" / "bin" / "adapter.dll").write_text("build")
 
             tmp_copy, copied = RUNTIME.isolated_project_copy(root)
             try:
@@ -200,7 +198,6 @@ class BenchmarkRuntimeCommonTests(unittest.TestCase):
                 self.assertFalse((copied / ".codelens").exists())
                 self.assertFalse((copied / "target").exists())
                 self.assertFalse((copied / "models" / "codesearch").exists())
-                self.assertFalse((copied / "adapters" / "roslyn" / "bin").exists())
             finally:
                 tmp_copy.cleanup()
 

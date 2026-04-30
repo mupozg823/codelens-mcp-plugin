@@ -113,56 +113,56 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
     if let Some(backend) = scip_backend {
         use codelens_engine::PreciseBackend as _;
         let scip_file = file_path.unwrap_or("");
-        if let Ok(defs) = backend.find_definitions(name, scip_file, 0) {
-            if !defs.is_empty() {
-                let limited: Vec<_> = defs.into_iter().take(max_matches).collect();
-                let count = limited.len();
-                let meta = success_meta(BackendKind::Scip, 0.98);
-                let evidence = crate::tool_evidence::tool_evidence(
-                    "symbol",
-                    &meta,
-                    "scip_precise",
-                    crate::tool_evidence::precision_signals(true, true, Some("scip"), None, count),
-                );
-                let syms: Vec<serde_json::Value> = limited
-                    .iter()
-                    .map(|d| {
-                        // Enrich with hover documentation from SCIP if available.
-                        let doc = backend
-                            .hover(&d.file_path, d.line, 0)
-                            .ok()
-                            .flatten()
-                            .unwrap_or_default();
-                        let mut sym = json!({
-                            "name": d.name,
-                            "kind": d.kind,
-                            "file_path": d.file_path,
-                            "line": d.line,
-                            "signature": if d.signature.is_empty() { &doc } else { &d.signature },
-                            "name_path": d.name_path,
-                            "score": d.score,
-                        });
-                        if !doc.is_empty() {
-                            sym["documentation"] = serde_json::Value::String(doc);
-                        }
-                        sym
-                    })
-                    .collect();
-                let mut payload = json!({
-                    "symbols": syms,
-                    "count": count,
-                    "body_truncated_count": 0,
-                    "body_preview": false,
-                    "backend": "scip",
-                    "evidence": evidence,
-                });
-                if !unknown_args.is_empty()
-                    && let Some(map) = payload.as_object_mut()
-                {
-                    map.insert("unknown_args".to_owned(), json!(unknown_args));
-                }
-                return Ok((payload, meta));
+        if let Ok(defs) = backend.find_definitions(name, scip_file, 0)
+            && !defs.is_empty()
+        {
+            let limited: Vec<_> = defs.into_iter().take(max_matches).collect();
+            let count = limited.len();
+            let meta = success_meta(BackendKind::Scip, 0.98);
+            let evidence = crate::tool_evidence::tool_evidence(
+                "symbol",
+                &meta,
+                "scip_precise",
+                crate::tool_evidence::precision_signals(true, true, Some("scip"), None, count),
+            );
+            let syms: Vec<serde_json::Value> = limited
+                .iter()
+                .map(|d| {
+                    // Enrich with hover documentation from SCIP if available.
+                    let doc = backend
+                        .hover(&d.file_path, d.line, 0)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                    let mut sym = json!({
+                        "name": d.name,
+                        "kind": d.kind,
+                        "file_path": d.file_path,
+                        "line": d.line,
+                        "signature": if d.signature.is_empty() { &doc } else { &d.signature },
+                        "name_path": d.name_path,
+                        "score": d.score,
+                    });
+                    if !doc.is_empty() {
+                        sym["documentation"] = serde_json::Value::String(doc);
+                    }
+                    sym
+                })
+                .collect();
+            let mut payload = json!({
+                "symbols": syms,
+                "count": count,
+                "body_truncated_count": 0,
+                "body_preview": false,
+                "backend": "scip",
+                "evidence": evidence,
+            });
+            if !unknown_args.is_empty()
+                && let Some(map) = payload.as_object_mut()
+            {
+                map.insert("unknown_args".to_owned(), json!(unknown_args));
             }
+            return Ok((payload, meta));
         }
     }
 

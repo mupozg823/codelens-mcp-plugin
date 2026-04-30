@@ -89,7 +89,9 @@ jobs:
         run: cargo doc --workspace --no-deps
 
       - name: Code coverage
-        run: cargo llvm-cov --workspace --lcov --output-dir target/coverage
+        run: |
+          mkdir -p target/coverage
+          cargo llvm-cov --workspace --lcov --output-path target/coverage/lcov.info
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'

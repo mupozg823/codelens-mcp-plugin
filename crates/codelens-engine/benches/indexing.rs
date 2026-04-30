@@ -446,7 +446,15 @@ fn bench_ranked_context_cache_hit(c: &mut Criterion) {
     let (_dir, _project, index) = build_scoring_stress_index();
     // Warm-up cache
     let _ = index
-        .get_ranked_context_cached("validate_input", None, 4000, false, 2, None, std::collections::HashMap::new())
+        .get_ranked_context_cached(
+            "validate_input",
+            None,
+            4000,
+            false,
+            2,
+            None,
+            std::collections::HashMap::new(),
+        )
         .unwrap();
 
     c.bench_function("ranked_context_cached (cache hit, ident)", |b| {
@@ -501,7 +509,9 @@ impl Service{i} {{
         );
         fs::write(root.join(format!("src/service_{i}.rs")), content).unwrap();
     }
-    let mods: String = (0..100).map(|i| format!("pub mod service_{i};\n")).collect();
+    let mods: String = (0..100)
+        .map(|i| format!("pub mod service_{i};\n"))
+        .collect();
     fs::write(root.join("src/lib.rs"), mods).unwrap();
 
     let project = ProjectRoot::new(root).expect("project");
