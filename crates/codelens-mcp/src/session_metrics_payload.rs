@@ -18,7 +18,8 @@ pub(crate) fn build_session_metrics_payload(
     let session = logical_session_id
         .map(|session_id| state.metrics().session_snapshot_for(session_id))
         .unwrap_or_else(|| state.metrics().session_snapshot());
-    let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
+    let handle_reads =
+        session.context.analysis_summary_reads + session.context.analysis_section_reads;
     let watcher_stats = state.watcher_stats();
     let watcher_failure_health = state.watcher_failure_health();
     let coordination = coordination_scope
@@ -31,33 +32,41 @@ pub(crate) fn build_session_metrics_payload(
     let coordination_lock = state.coordination_lock_stats();
 
     let mut session_json = Map::new();
-    put(&mut session_json, "total_calls", json!(session.total_calls));
+    put(
+        &mut session_json,
+        "total_calls",
+        json!(session.core.total_calls),
+    );
     put(
         &mut session_json,
         "success_count",
-        json!(session.success_count),
+        json!(session.core.success_count),
     );
-    put(&mut session_json, "total_ms", json!(session.total_ms));
+    put(&mut session_json, "total_ms", json!(session.core.total_ms));
     put(
         &mut session_json,
         "total_tokens",
-        json!(session.total_tokens),
+        json!(session.core.total_tokens),
     );
-    put(&mut session_json, "error_count", json!(session.error_count));
+    put(
+        &mut session_json,
+        "error_count",
+        json!(session.core.error_count),
+    );
     put(
         &mut session_json,
         "tools_list_tokens",
-        json!(session.tools_list_tokens),
+        json!(session.token.tools_list_tokens),
     );
     put(
         &mut session_json,
         "analysis_summary_reads",
-        json!(session.analysis_summary_reads),
+        json!(session.context.analysis_summary_reads),
     );
     put(
         &mut session_json,
         "analysis_section_reads",
-        json!(session.analysis_section_reads),
+        json!(session.context.analysis_section_reads),
     );
     put(
         &mut session_json,
@@ -104,271 +113,290 @@ pub(crate) fn build_session_metrics_payload(
         "coordination_lock_avg_wait_micros",
         json!(coordination_lock.avg_wait_micros()),
     );
-    put(&mut session_json, "retry_count", json!(session.retry_count));
+    put(
+        &mut session_json,
+        "retry_count",
+        json!(session.core.retry_count),
+    );
     put(
         &mut session_json,
         "analysis_cache_hit_count",
-        json!(session.analysis_cache_hit_count),
+        json!(session.context.analysis_cache_hit_count),
+    );
+    put(
+        &mut session_json,
+        "analysis_cache_hit_exact_count",
+        json!(session.context.analysis_cache_hit_exact_count),
+    );
+    put(
+        &mut session_json,
+        "analysis_cache_hit_warm_count",
+        json!(session.context.analysis_cache_hit_warm_count),
+    );
+    put(
+        &mut session_json,
+        "analysis_cache_hit_cold_count",
+        json!(session.context.analysis_cache_hit_cold_count),
     );
     put(
         &mut session_json,
         "truncated_response_count",
-        json!(session.truncated_response_count),
+        json!(session.truncation.truncated_response_count),
     );
     put(
         &mut session_json,
         "truncation_followup_count",
-        json!(session.truncation_followup_count),
+        json!(session.truncation.truncation_followup_count),
     );
     put(
         &mut session_json,
         "truncation_same_tool_retry_count",
-        json!(session.truncation_same_tool_retry_count),
+        json!(session.truncation.truncation_same_tool_retry_count),
     );
     put(
         &mut session_json,
         "truncation_handle_followup_count",
-        json!(session.truncation_handle_followup_count),
+        json!(session.truncation.truncation_handle_followup_count),
     );
     put(
         &mut session_json,
         "handle_reuse_count",
-        json!(session.handle_reuse_count),
+        json!(session.truncation.handle_reuse_count),
     );
     put(
         &mut session_json,
         "repeated_low_level_chain_count",
-        json!(session.repeated_low_level_chain_count),
+        json!(session.guidance.repeated_low_level_chain_count),
     );
     put(
         &mut session_json,
         "composite_guidance_emitted_count",
-        json!(session.composite_guidance_emitted_count),
+        json!(session.guidance.composite_guidance_emitted_count),
     );
     put(
         &mut session_json,
         "composite_guidance_followed_count",
-        json!(session.composite_guidance_followed_count),
+        json!(session.guidance.composite_guidance_followed_count),
     );
     put(
         &mut session_json,
         "composite_guidance_missed_count",
-        json!(session.composite_guidance_missed_count),
+        json!(session.guidance.composite_guidance_missed_count),
     );
     put(
         &mut session_json,
         "composite_guidance_missed_by_origin",
-        json!(session.composite_guidance_missed_by_origin),
+        json!(session.guidance.composite_guidance_missed_by_origin),
     );
     put(
         &mut session_json,
         "quality_contract_emitted_count",
-        json!(session.quality_contract_emitted_count),
+        json!(session.guidance.quality_contract_emitted_count),
     );
     put(
         &mut session_json,
         "recommended_checks_emitted_count",
-        json!(session.recommended_checks_emitted_count),
+        json!(session.guidance.recommended_checks_emitted_count),
     );
     put(
         &mut session_json,
         "recommended_check_followthrough_count",
-        json!(session.recommended_check_followthrough_count),
+        json!(session.guidance.recommended_check_followthrough_count),
     );
     put(
         &mut session_json,
         "quality_focus_reuse_count",
-        json!(session.quality_focus_reuse_count),
+        json!(session.guidance.quality_focus_reuse_count),
     );
     put(
         &mut session_json,
         "performance_watchpoint_emit_count",
-        json!(session.performance_watchpoint_emit_count),
+        json!(session.guidance.performance_watchpoint_emit_count),
     );
     put(
         &mut session_json,
         "verifier_contract_emitted_count",
-        json!(session.verifier_contract_emitted_count),
+        json!(session.guidance.verifier_contract_emitted_count),
     );
     put(
         &mut session_json,
         "blocker_emit_count",
-        json!(session.blocker_emit_count),
+        json!(session.guidance.blocker_emit_count),
     );
     put(
         &mut session_json,
         "verifier_followthrough_count",
-        json!(session.verifier_followthrough_count),
+        json!(session.guidance.verifier_followthrough_count),
     );
     put(
         &mut session_json,
         "coordination_registration_count",
-        json!(session.coordination_registration_count),
+        json!(session.coordination.coordination_registration_count),
     );
     put(
         &mut session_json,
         "coordination_claim_count",
-        json!(session.coordination_claim_count),
+        json!(session.coordination.coordination_claim_count),
     );
     put(
         &mut session_json,
         "coordination_release_count",
-        json!(session.coordination_release_count),
+        json!(session.coordination.coordination_release_count),
     );
     put(
         &mut session_json,
         "coordination_overlap_emit_count",
-        json!(session.coordination_overlap_emit_count),
+        json!(session.coordination.coordination_overlap_emit_count),
     );
     put(
         &mut session_json,
         "coordination_caution_emit_count",
-        json!(session.coordination_caution_emit_count),
+        json!(session.coordination.coordination_caution_emit_count),
     );
     put(
         &mut session_json,
         "mutation_preflight_checked_count",
-        json!(session.mutation_preflight_checked_count),
+        json!(session.mutation.mutation_preflight_checked_count),
     );
     put(
         &mut session_json,
         "mutation_without_preflight_count",
-        json!(session.mutation_without_preflight_count),
+        json!(session.mutation.mutation_without_preflight_count),
     );
     put(
         &mut session_json,
         "mutation_preflight_gate_denied_count",
-        json!(session.mutation_preflight_gate_denied_count),
+        json!(session.mutation.mutation_preflight_gate_denied_count),
     );
     put(
         &mut session_json,
         "stale_preflight_reject_count",
-        json!(session.stale_preflight_reject_count),
+        json!(session.mutation.stale_preflight_reject_count),
     );
     put(
         &mut session_json,
         "mutation_with_caution_count",
-        json!(session.mutation_with_caution_count),
+        json!(session.mutation.mutation_with_caution_count),
     );
     put(
         &mut session_json,
         "rename_without_symbol_preflight_count",
-        json!(session.rename_without_symbol_preflight_count),
+        json!(session.mutation.rename_without_symbol_preflight_count),
     );
     put(
         &mut session_json,
         "deferred_namespace_expansion_count",
-        json!(session.deferred_namespace_expansion_count),
+        json!(session.namespace.deferred_namespace_expansion_count),
     );
     put(
         &mut session_json,
         "deferred_hidden_tool_call_denied_count",
-        json!(session.deferred_hidden_tool_call_denied_count),
+        json!(session.namespace.deferred_hidden_tool_call_denied_count),
     );
     put(
         &mut session_json,
         "profile_switch_count",
-        json!(session.profile_switch_count),
+        json!(session.namespace.profile_switch_count),
     );
     put(
         &mut session_json,
         "preset_switch_count",
-        json!(session.preset_switch_count),
+        json!(session.namespace.preset_switch_count),
     );
     put(
         &mut session_json,
         "composite_calls",
-        json!(session.composite_calls),
+        json!(session.call_type.composite_calls),
     );
     put(
         &mut session_json,
         "low_level_calls",
-        json!(session.low_level_calls),
+        json!(session.call_type.low_level_calls),
     );
     put(
         &mut session_json,
         "stdio_session_count",
-        json!(session.stdio_session_count),
+        json!(session.transport.stdio_session_count),
     );
     put(
         &mut session_json,
         "http_session_count",
-        json!(session.http_session_count),
+        json!(session.transport.http_session_count),
     );
     put(
         &mut session_json,
         "analysis_jobs_enqueued",
-        json!(session.analysis_jobs_enqueued),
+        json!(session.jobs.analysis_jobs_enqueued),
     );
     put(
         &mut session_json,
         "analysis_jobs_started",
-        json!(session.analysis_jobs_started),
+        json!(session.jobs.analysis_jobs_started),
     );
     put(
         &mut session_json,
         "analysis_jobs_completed",
-        json!(session.analysis_jobs_completed),
+        json!(session.jobs.analysis_jobs_completed),
     );
     put(
         &mut session_json,
         "analysis_jobs_failed",
-        json!(session.analysis_jobs_failed),
+        json!(session.jobs.analysis_jobs_failed),
     );
     put(
         &mut session_json,
         "analysis_jobs_cancelled",
-        json!(session.analysis_jobs_cancelled),
+        json!(session.jobs.analysis_jobs_cancelled),
     );
     put(
         &mut session_json,
         "analysis_queue_depth",
-        json!(session.analysis_queue_depth),
+        json!(session.jobs.analysis_queue_depth),
     );
     put(
         &mut session_json,
         "analysis_queue_max_depth",
-        json!(session.analysis_queue_max_depth),
+        json!(session.jobs.analysis_queue_max_depth),
     );
     put(
         &mut session_json,
         "analysis_queue_weighted_depth",
-        json!(session.analysis_queue_weighted_depth),
+        json!(session.jobs.analysis_queue_weighted_depth),
     );
     put(
         &mut session_json,
         "analysis_queue_max_weighted_depth",
-        json!(session.analysis_queue_max_weighted_depth),
+        json!(session.jobs.analysis_queue_max_weighted_depth),
     );
     put(
         &mut session_json,
         "analysis_queue_priority_promotions",
-        json!(session.analysis_queue_priority_promotions),
+        json!(session.jobs.analysis_queue_priority_promotions),
     );
     put(
         &mut session_json,
         "active_analysis_workers",
-        json!(session.active_analysis_workers),
+        json!(session.jobs.active_analysis_workers),
     );
     put(
         &mut session_json,
         "peak_active_analysis_workers",
-        json!(session.peak_active_analysis_workers),
+        json!(session.jobs.peak_active_analysis_workers),
     );
     put(
         &mut session_json,
         "analysis_worker_limit",
-        json!(session.analysis_worker_limit),
+        json!(session.jobs.analysis_worker_limit),
     );
     put(
         &mut session_json,
         "analysis_cost_budget",
-        json!(session.analysis_cost_budget),
+        json!(session.jobs.analysis_cost_budget),
     );
     put(
         &mut session_json,
         "analysis_transport_mode",
-        json!(session.analysis_transport_mode.clone()),
+        json!(session.jobs.analysis_transport_mode.clone()),
     );
     put(
         &mut session_json,
@@ -450,16 +478,17 @@ pub(crate) fn build_session_metrics_payload(
         "avg_ms_per_call",
         json!(
             session
+                .core
                 .total_ms
-                .checked_div(session.total_calls)
+                .checked_div(session.core.total_calls)
                 .unwrap_or(0)
         ),
     );
     put(
         &mut session_json,
         "avg_tool_output_tokens",
-        json!(if session.total_calls > 0 {
-            session.total_tokens / session.total_calls as usize
+        json!(if session.core.total_calls > 0 {
+            session.core.total_tokens / session.core.total_calls as usize
         } else {
             0
         }),
@@ -467,7 +496,9 @@ pub(crate) fn build_session_metrics_payload(
     put(
         &mut session_json,
         "p95_tool_latency_ms",
-        json!(crate::telemetry::percentile_95(&session.latency_samples)),
+        json!(crate::telemetry::percentile_95(
+            &session.core.latency_samples
+        )),
     );
     put(
         &mut session_json,
@@ -476,70 +507,70 @@ pub(crate) fn build_session_metrics_payload(
     );
 
     let derived_kpis = json!({
-        "composite_ratio": if session.total_calls > 0 {
-            session.composite_calls as f64 / session.total_calls as f64
+        "composite_ratio": if session.core.total_calls > 0 {
+            session.call_type.composite_calls as f64 / session.core.total_calls as f64
         } else { 0.0 },
-        "surface_token_efficiency": if session.success_count > 0 {
-            session.total_tokens as f64 / session.success_count as f64
+        "surface_token_efficiency": if session.core.success_count > 0 {
+            session.core.total_tokens as f64 / session.core.success_count as f64
         } else { 0.0 },
-        "low_level_chain_reduction": if session.low_level_calls > 0 {
-            1.0 - (session.repeated_low_level_chain_count as f64 / session.low_level_calls as f64)
+        "low_level_chain_reduction": if session.call_type.low_level_calls > 0 {
+            1.0 - (session.guidance.repeated_low_level_chain_count as f64 / session.call_type.low_level_calls as f64)
         } else { 1.0 },
         "handle_reuse_rate": if handle_reads > 0 {
-            session.handle_reuse_count as f64 / handle_reads as f64
+            session.truncation.handle_reuse_count as f64 / handle_reads as f64
         } else { 0.0 },
-        "analysis_cache_hit_rate": if session.composite_calls > 0 {
-            session.analysis_cache_hit_count as f64 / session.composite_calls as f64
+        "analysis_cache_hit_rate": if session.call_type.composite_calls > 0 {
+            session.context.analysis_cache_hit_count as f64 / session.call_type.composite_calls as f64
         } else { 0.0 },
-        "quality_contract_present_rate": if session.composite_calls > 0 {
-            session.quality_contract_emitted_count as f64 / session.composite_calls as f64
+        "quality_contract_present_rate": if session.call_type.composite_calls > 0 {
+            session.guidance.quality_contract_emitted_count as f64 / session.call_type.composite_calls as f64
         } else { 0.0 },
-        "recommended_check_followthrough_rate": if session.quality_contract_emitted_count > 0 {
-            session.recommended_check_followthrough_count as f64 / session.quality_contract_emitted_count as f64
+        "recommended_check_followthrough_rate": if session.guidance.quality_contract_emitted_count > 0 {
+            session.guidance.recommended_check_followthrough_count as f64 / session.guidance.quality_contract_emitted_count as f64
         } else { 0.0 },
-        "quality_focus_reuse_rate": if session.handle_reuse_count > 0 {
-            session.quality_focus_reuse_count as f64 / session.handle_reuse_count as f64
+        "quality_focus_reuse_rate": if session.truncation.handle_reuse_count > 0 {
+            session.guidance.quality_focus_reuse_count as f64 / session.truncation.handle_reuse_count as f64
         } else { 0.0 },
-        "performance_watchpoint_emit_rate": if session.quality_contract_emitted_count > 0 {
-            session.performance_watchpoint_emit_count as f64 / session.quality_contract_emitted_count as f64
+        "performance_watchpoint_emit_rate": if session.guidance.quality_contract_emitted_count > 0 {
+            session.guidance.performance_watchpoint_emit_count as f64 / session.guidance.quality_contract_emitted_count as f64
         } else { 0.0 },
-        "verifier_contract_present_rate": if session.composite_calls > 0 {
-            session.verifier_contract_emitted_count as f64 / session.composite_calls as f64
+        "verifier_contract_present_rate": if session.call_type.composite_calls > 0 {
+            session.guidance.verifier_contract_emitted_count as f64 / session.call_type.composite_calls as f64
         } else { 0.0 },
-        "blocker_emit_rate": if session.verifier_contract_emitted_count > 0 {
-            session.blocker_emit_count as f64 / session.verifier_contract_emitted_count as f64
+        "blocker_emit_rate": if session.guidance.verifier_contract_emitted_count > 0 {
+            session.guidance.blocker_emit_count as f64 / session.guidance.verifier_contract_emitted_count as f64
         } else { 0.0 },
-        "verifier_followthrough_rate": if session.verifier_contract_emitted_count > 0 {
-            session.verifier_followthrough_count as f64 / session.verifier_contract_emitted_count as f64
+        "verifier_followthrough_rate": if session.guidance.verifier_contract_emitted_count > 0 {
+            session.guidance.verifier_followthrough_count as f64 / session.guidance.verifier_contract_emitted_count as f64
         } else { 0.0 },
-        "coordination_overlap_rate": if session.verifier_contract_emitted_count > 0 {
-            session.coordination_overlap_emit_count as f64 / session.verifier_contract_emitted_count as f64
+        "coordination_overlap_rate": if session.guidance.verifier_contract_emitted_count > 0 {
+            session.coordination.coordination_overlap_emit_count as f64 / session.guidance.verifier_contract_emitted_count as f64
         } else { 0.0 },
-        "coordination_caution_rate": if session.verifier_contract_emitted_count > 0 {
-            session.coordination_caution_emit_count as f64 / session.verifier_contract_emitted_count as f64
+        "coordination_caution_rate": if session.guidance.verifier_contract_emitted_count > 0 {
+            session.coordination.coordination_caution_emit_count as f64 / session.guidance.verifier_contract_emitted_count as f64
         } else { 0.0 },
-        "coordination_release_ratio": if session.coordination_claim_count > 0 {
-            session.coordination_release_count as f64 / session.coordination_claim_count as f64
+        "coordination_release_ratio": if session.coordination.coordination_claim_count > 0 {
+            session.coordination.coordination_release_count as f64 / session.coordination.coordination_claim_count as f64
         } else { 0.0 },
-        "mutation_preflight_gate_deny_rate": if session.mutation_preflight_checked_count > 0 {
-            session.mutation_preflight_gate_denied_count as f64
-                / session.mutation_preflight_checked_count as f64
+        "mutation_preflight_gate_deny_rate": if session.mutation.mutation_preflight_checked_count > 0 {
+            session.mutation.mutation_preflight_gate_denied_count as f64
+                / session.mutation.mutation_preflight_checked_count as f64
         } else { 0.0 },
-        "deferred_hidden_tool_call_deny_rate": if session.deferred_namespace_expansion_count > 0 {
-            session.deferred_hidden_tool_call_denied_count as f64
-                / session.deferred_namespace_expansion_count as f64
+        "deferred_hidden_tool_call_deny_rate": if session.namespace.deferred_namespace_expansion_count > 0 {
+            session.namespace.deferred_hidden_tool_call_denied_count as f64
+                / session.namespace.deferred_namespace_expansion_count as f64
         } else { 0.0 },
-        "truncation_followup_rate": if session.truncated_response_count > 0 {
-            session.truncation_followup_count as f64 / session.truncated_response_count as f64
+        "truncation_followup_rate": if session.truncation.truncated_response_count > 0 {
+            session.truncation.truncation_followup_count as f64 / session.truncation.truncated_response_count as f64
         } else { 0.0 },
-        "composite_guidance_followthrough_rate": if session.composite_guidance_emitted_count > 0 {
-            session.composite_guidance_followed_count as f64 / session.composite_guidance_emitted_count as f64
+        "composite_guidance_followthrough_rate": if session.guidance.composite_guidance_emitted_count > 0 {
+            session.guidance.composite_guidance_followed_count as f64 / session.guidance.composite_guidance_emitted_count as f64
         } else { 0.0 },
-        "composite_guidance_miss_rate": if session.composite_guidance_emitted_count > 0 {
-            session.composite_guidance_missed_count as f64 / session.composite_guidance_emitted_count as f64
+        "composite_guidance_miss_rate": if session.guidance.composite_guidance_emitted_count > 0 {
+            session.guidance.composite_guidance_missed_count as f64 / session.guidance.composite_guidance_emitted_count as f64
         } else { 0.0 },
-        "analysis_job_success_rate": if session.analysis_jobs_started > 0 {
-            session.analysis_jobs_completed as f64 / session.analysis_jobs_started as f64
+        "analysis_job_success_rate": if session.jobs.analysis_jobs_started > 0 {
+            session.jobs.analysis_jobs_completed as f64 / session.jobs.analysis_jobs_started as f64
         } else { 0.0 },
         "watcher_lock_contention_rate": if watcher_stats
             .as_ref()

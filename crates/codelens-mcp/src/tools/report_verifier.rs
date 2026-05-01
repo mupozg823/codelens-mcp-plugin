@@ -15,13 +15,6 @@ pub(crate) struct VerifierContract {
     pub(crate) verifier_checks: Vec<AnalysisVerifierCheck>,
 }
 
-fn push_unique(values: &mut Vec<String>, value: impl Into<String>) {
-    let value = value.into();
-    if !values.iter().any(|existing| existing == &value) {
-        values.push(value);
-    }
-}
-
 fn push_verifier_check(
     checks: &mut Vec<AnalysisVerifierCheck>,
     check: &str,
@@ -147,7 +140,7 @@ pub(crate) fn build_verifier_contract(
         None
     };
     let diagnostics_status = if diagnostic_count > 0 {
-        push_unique(
+        crate::util::push_unique_string(
             &mut contract.blockers,
             "Resolve reported diagnostics before mutating the touched files",
         );
@@ -207,7 +200,7 @@ pub(crate) fn build_verifier_contract(
         }
         if symbol_match_count == 0 {
             reference_status = VERIFIER_BLOCKED;
-            push_unique(
+            crate::util::push_unique_string(
                 &mut contract.blockers,
                 "No exact symbol match found; resolve the target before renaming",
             );
@@ -215,7 +208,7 @@ pub(crate) fn build_verifier_contract(
                 "Rename target did not resolve to an exact symbol match.".to_owned();
         } else if symbol_match_count > 1 {
             reference_status = VERIFIER_BLOCKED;
-            push_unique(
+            crate::util::push_unique_string(
                 &mut contract.blockers,
                 "Ambiguous symbol match; narrow the target before renaming",
             );
@@ -223,14 +216,14 @@ pub(crate) fn build_verifier_contract(
                 format!("{symbol_match_count} exact matches found; rename target is ambiguous.");
         } else if preview_error.is_some() {
             reference_status = VERIFIER_BLOCKED;
-            push_unique(
+            crate::util::push_unique_string(
                 &mut contract.blockers,
                 "Rename preview failed; inspect the preview error before mutating references",
             );
             reference_summary = "Rename preview raised an error.".to_owned();
         } else if reference_count == 0 {
             reference_status = if tool_name == "safe_rename_report" {
-                push_unique(
+                crate::util::push_unique_string(
                     &mut contract.blockers,
                     "Reference set is empty; verify call sites manually before renaming",
                 );
@@ -292,7 +285,7 @@ pub(crate) fn build_verifier_contract(
         reference_details["boundary_risk"] = json!(boundary_risk);
         if symbol_error.is_some() {
             reference_status = VERIFIER_BLOCKED;
-            push_unique(
+            crate::util::push_unique_string(
                 &mut contract.blockers,
                 "Symbol impact could not be resolved; fix reference analysis before refactoring",
             );

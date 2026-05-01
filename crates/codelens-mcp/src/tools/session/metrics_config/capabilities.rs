@@ -725,10 +725,14 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let scip_available = project_root.as_path().join("index.scip").exists()
         || project_root.as_path().join(".scip/index.scip").exists()
         || project_root.as_path().join(".codelens/index.scip").exists();
-    #[allow(unused_mut)]
+    #[cfg(feature = "scip-backend")]
     let mut scip_file_count: Option<usize> = None;
-    #[allow(unused_mut)]
+    #[cfg(not(feature = "scip-backend"))]
+    let scip_file_count: Option<usize> = None;
+    #[cfg(feature = "scip-backend")]
     let mut scip_symbol_count: Option<usize> = None;
+    #[cfg(not(feature = "scip-backend"))]
+    let scip_symbol_count: Option<usize> = None;
     // intelligence_sources reports backends the binary can ACTUALLY use.
     // A stray index.scip on disk does not count when the binary lacks
     // the scip-backend feature — claiming "scip" in that case would

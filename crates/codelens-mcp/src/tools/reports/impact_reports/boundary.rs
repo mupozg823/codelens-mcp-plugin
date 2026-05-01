@@ -8,8 +8,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use super::{
-    build_dead_code_semantic_query, build_module_semantic_query, insert_semantic_status,
-    push_unique, semantic_degraded_note,
+    build_dead_code_semantic_query, build_module_semantic_query, insert_semantic_status, semantic_degraded_note,
 };
 
 #[allow(deprecated)]
@@ -110,11 +109,11 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
     insert_semantic_status(&mut sections, final_semantic_status.clone());
     let mut next_actions = vec!["Check cycle hits before moving ownership boundaries".to_owned()];
     if let Some(note) = semantic_degraded_note(&final_semantic_status) {
-        push_unique(
+        crate::util::push_unique_string(
             &mut next_actions,
             "Run index_embeddings before trusting semantic-only coupling hints",
         );
-        push_unique(&mut next_actions, note);
+        crate::util::push_unique_string(&mut next_actions, note);
     }
     make_handle_response(
         state,
@@ -207,11 +206,11 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
     let mut next_actions =
         vec!["Validate runtime entry points before deleting candidates".to_owned()];
     if let Some(note) = semantic_degraded_note(&final_semantic_status) {
-        push_unique(
+        crate::util::push_unique_string(
             &mut next_actions,
             "Run index_embeddings before trusting semantic duplicate or similarity evidence",
         );
-        push_unique(&mut next_actions, note);
+        crate::util::push_unique_string(&mut next_actions, note);
     }
     make_handle_response(
         state,

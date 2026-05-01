@@ -62,11 +62,12 @@ pub(super) fn make_handle_response(
         symbol_hint.as_deref(),
     );
     if let Some(cache_key) = cache_key.as_deref()
-        && let Some(artifact) = state.find_reusable_analysis_for_current_scope(tool_name, cache_key)
+        && let Some((artifact, tier)) =
+            state.find_reusable_analysis_tiered_for_current_scope(tool_name, cache_key)
     {
         state
             .metrics()
-            .record_analysis_cache_hit_for_session(logical_session_id);
+            .record_analysis_cache_hit_tiered_for_session(tier, logical_session_id);
         let mut data = build_handle_payload(
             tool_name,
             &artifact.id,

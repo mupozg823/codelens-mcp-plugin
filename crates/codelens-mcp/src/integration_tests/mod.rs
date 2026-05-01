@@ -30,7 +30,10 @@ mod memory;
 mod mutation;
 mod mutation_envelope;
 mod mutation_evidence;
-mod protocol;
+mod protocol_observability;
+mod protocol_resources;
+mod protocol_security;
+mod protocol_tools_list;
 mod readonly;
 mod registry;
 #[cfg(feature = "semantic")]

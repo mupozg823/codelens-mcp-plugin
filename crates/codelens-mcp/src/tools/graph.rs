@@ -247,6 +247,8 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         "max_results",
         "limit",
         "top_k",
+        "max_depth",
+        "project_root",
     ];
     let function_name = required_string(arguments, "function_name")?;
     let file_path = optional_string(arguments, "file_path");
@@ -327,6 +329,8 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         "max_results",
         "limit",
         "top_k",
+        "max_depth",
+        "project_root",
     ];
     let function_name = required_string(arguments, "function_name")?;
     let file_path = optional_string(arguments, "file_path");

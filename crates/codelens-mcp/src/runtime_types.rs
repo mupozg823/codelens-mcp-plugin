@@ -222,6 +222,13 @@ impl LifecycleState {
     }
 }
 
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub(crate) enum CacheHitTier {
+    Exact,
+    Warm,
+    Cold,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct RecentPreflight {
     pub tool_name: String,

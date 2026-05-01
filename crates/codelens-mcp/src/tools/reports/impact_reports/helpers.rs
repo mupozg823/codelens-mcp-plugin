@@ -9,13 +9,6 @@ fn semantic_status_is_ready(status: &Value) -> bool {
         .is_some_and(|value| value == "ready")
 }
 
-pub(super) fn push_unique(items: &mut Vec<String>, item: impl Into<String>) {
-    let item = item.into();
-    if !items.iter().any(|existing| existing == &item) {
-        items.push(item);
-    }
-}
-
 pub(super) fn semantic_degraded_note(status: &Value) -> Option<String> {
     if semantic_status_is_ready(status) {
         return None;

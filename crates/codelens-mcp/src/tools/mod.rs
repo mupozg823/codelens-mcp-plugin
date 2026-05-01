@@ -30,9 +30,10 @@ pub use crate::tool_runtime::{
 // called from integration tests that go through `#[cfg(test)]`; internal
 // callers use `suggest_next_contextual`, which wraps it.
 use std::collections::HashMap;
-#[allow(unused_imports)]
+#[cfg(test)]
+pub(crate) use suggestions::suggest_next;
 pub(crate) use suggestions::{
-    composite_guidance_for_chain, infer_harness_phase, suggest_next, suggest_next_contextual,
+    composite_guidance_for_chain, infer_harness_phase, suggest_next_contextual,
     suggestion_reasons_for,
 };
 

@@ -35,7 +35,7 @@ impl AppState {
 
         for key in ["file_path", "relative_path", "path", "target_file"] {
             if let Some(path) = arguments.get(key).and_then(|value| value.as_str()) {
-                super::push_unique_string(&mut targets, self.normalize_target_path(path));
+                crate::util::push_unique_string(&mut targets, self.normalize_target_path(path));
             }
         }
 
@@ -45,11 +45,11 @@ impl AppState {
         {
             for value in paths {
                 if let Some(path) = value.as_str() {
-                    super::push_unique_string(&mut targets, self.normalize_target_path(path));
+                    crate::util::push_unique_string(&mut targets, self.normalize_target_path(path));
                 } else if let Some(path) = value.get("path").and_then(|item| item.as_str()) {
-                    super::push_unique_string(&mut targets, self.normalize_target_path(path));
+                    crate::util::push_unique_string(&mut targets, self.normalize_target_path(path));
                 } else if let Some(path) = value.get("file").and_then(|item| item.as_str()) {
-                    super::push_unique_string(&mut targets, self.normalize_target_path(path));
+                    crate::util::push_unique_string(&mut targets, self.normalize_target_path(path));
                 }
             }
         }
@@ -57,9 +57,9 @@ impl AppState {
         if let Some(paths) = arguments.get("paths").and_then(|value| value.as_array()) {
             for value in paths {
                 if let Some(path) = value.as_str() {
-                    super::push_unique_string(&mut targets, self.normalize_target_path(path));
+                    crate::util::push_unique_string(&mut targets, self.normalize_target_path(path));
                 } else if let Some(path) = value.get("path").and_then(|item| item.as_str()) {
-                    super::push_unique_string(&mut targets, self.normalize_target_path(path));
+                    crate::util::push_unique_string(&mut targets, self.normalize_target_path(path));
                 }
             }
         }

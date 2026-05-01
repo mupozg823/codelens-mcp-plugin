@@ -15,13 +15,6 @@ use crate::telemetry::ToolMetricsRegistry;
 use crate::tool_defs::{ToolPreset, ToolSurface};
 
 impl AppState {
-    fn now_ms() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
-    }
-
     pub(crate) fn clone_for_worker(&self) -> Self {
         let project = self.project();
         let symbol_index = self.symbol_index();
@@ -83,11 +76,11 @@ impl AppState {
 
         let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");
-        state.artifact_store.cleanup_stale_dirs(Self::now_ms());
+        state.artifact_store.cleanup_stale_dirs(crate::util::now_ms());
         let scope = state.current_project_scope();
         state
             .job_store
-            .cleanup_stale_files(Self::now_ms(), Some(&scope));
+            .cleanup_stale_files(crate::util::now_ms(), Some(&scope));
         state
     }
 

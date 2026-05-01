@@ -160,8 +160,8 @@ fn registry_persists_record_call_when_writer_enabled() {
 
     // In-memory metrics still work
     let session = registry.session_snapshot();
-    assert_eq!(session.total_calls, 2);
-    assert_eq!(session.error_count, 1);
+    assert_eq!(session.core.total_calls, 2);
+    assert_eq!(session.core.error_count, 1);
 
     // Persisted jsonl has both events
     let contents = std::fs::read_to_string(&path).expect("read jsonl");
@@ -190,8 +190,8 @@ fn registry_without_writer_is_noop_for_persistence() {
     registry.record_call_with_tokens("find_symbol", 10, true, 100, "primitive", false, None);
     // In-memory must still work
     let session = registry.session_snapshot();
-    assert_eq!(session.total_calls, 1);
-    assert_eq!(session.total_tokens, 100);
+    assert_eq!(session.core.total_calls, 1);
+    assert_eq!(session.core.total_tokens, 100);
     // No panic, nothing to verify on disk.
 }
 

@@ -38,6 +38,7 @@ opentelemetry-otlp = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
+rayon.workspace = true
 
 [dev-dependencies]
 tower = { workspace = true }

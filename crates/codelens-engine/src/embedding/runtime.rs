@@ -584,7 +584,6 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
     configure_embedding_runtime();
 
     // Alternative model overrides are only valid when the bakeoff feature is enabled.
-    #[allow(unused_variables)]
     if let Some(model_id) = requested_embedding_model_override()? {
         #[cfg(feature = "model-bakeoff")]
         {

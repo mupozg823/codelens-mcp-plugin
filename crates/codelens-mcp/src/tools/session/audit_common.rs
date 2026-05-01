@@ -29,13 +29,6 @@ pub(super) fn is_planner_surface(surface: &str) -> bool {
     matches!(surface, "planner-readonly" | "reviewer-graph")
 }
 
-pub(super) fn push_unique(items: &mut Vec<String>, value: impl Into<String>) {
-    let value = value.into();
-    if !items.iter().any(|existing| existing == &value) {
-        items.push(value);
-    }
-}
-
 pub(super) fn collect_seen_paths(
     timeline: &[ToolInvocation],
     tool_name: &str,
@@ -49,7 +42,7 @@ pub(super) fn collect_seen_paths(
     {
         if entry.tool == tool_name {
             for path in &entry.target_paths {
-                push_unique(&mut seen, path.clone());
+                crate::util::push_unique_string(&mut seen, path.clone());
             }
         }
     }

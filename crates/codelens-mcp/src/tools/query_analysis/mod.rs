@@ -7,7 +7,6 @@ pub(crate) use intent::analyze_retrieval_query;
 pub(crate) use intent::semantic_query_for_retrieval;
 // RetrievalQueryAnalysis is part of the public API surface (used as param type in
 // semantic_query_for_embedding_search); re-export it so callers can name the type.
-#[allow(unused_imports)]
 pub(crate) use intent::RetrievalQueryAnalysis;
 
 #[cfg(feature = "semantic")]
