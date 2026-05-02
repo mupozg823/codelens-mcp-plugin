@@ -846,6 +846,14 @@ const GO_FUNC_QUERY: &str = r#"
 const GO_CALL_QUERY: &str = r#"
 (call_expression function: (identifier) @callee)
 (call_expression function: (selector_expression field: (field_identifier) @callee))
+;; v1.11.2 (F1 follow-up): function-reference arguments in Go.
+;; Catches `http.HandleFunc("/", handler)`, `time.AfterFunc(d, callback)`,
+;; `runtime.SetFinalizer(p, finalizer)`, and worker-pool dispatch
+;; patterns where a function value is passed by name. Same resolution
+;; cascade gating: variable arguments fall to `unresolved`, named
+;; functions resolve via Stage 5 (`unique_name`) at confidence 0.5.
+(argument_list (identifier) @callee)
+(argument_list (selector_expression field: (field_identifier) @callee))
 "#;
 
 const JAVA_FUNC_QUERY: &str = r#"
@@ -857,6 +865,15 @@ const JAVA_CALL_QUERY: &str = r#"
 (method_invocation name: (identifier) @callee)
 (object_creation_expression type: (type_identifier) @callee)
 (method_reference (identifier) @callee)
+;; v1.11.2 (F1 follow-up): function-reference arguments in Java/Kotlin
+;; that are passed as bare identifiers (callbacks, executor.submit
+;; targets) rather than the explicit `Class::method` reference syntax
+;; already covered above. The same query is shared with Kotlin via
+;; the `KOTLIN_FUNC_QUERY` mapping; tree-sitter-kotlin reuses
+;; `argument_list` node names for the call grammar so the pattern
+;; below applies to Kotlin call sites as well.
+(method_invocation arguments: (argument_list (identifier) @callee))
+(method_invocation arguments: (argument_list (field_access field: (identifier) @callee)))
 "#;
 
 const KOTLIN_FUNC_QUERY: &str = r#"
@@ -1302,6 +1319,73 @@ def setup():
                     .iter()
                     .any(|e| e.caller_name == "setup" && e.callee_name == callee),
                 "expected setup->{callee} function-reference edge, got {edges:?}"
+            );
+        }
+    }
+
+    /// v1.11.2 (F1 follow-up): Go function-reference arguments. Common
+    /// in HTTP server registration (`http.HandleFunc("/", handler)`),
+    /// scheduler dispatch (`time.AfterFunc(d, fn)`), finalizers, and
+    /// worker pools. Pre-v1.11.2, only the call-expression form was
+    /// captured; the function-reference form was silently dropped.
+    #[test]
+    fn extracts_go_function_reference_arguments() {
+        let dir = temp_dir("go-fn-refs");
+        let path = dir.join("server.go");
+        fs::write(
+            &path,
+            r#"package main
+
+func handler(w int, r int) {}
+func teardown() {}
+
+func setup() {
+    Register("/api", handler)
+    Schedule(teardown)
+}
+"#,
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        for callee in ["handler", "teardown"] {
+            assert!(
+                edges
+                    .iter()
+                    .any(|e| e.caller_name == "setup" && e.callee_name == callee),
+                "expected setup->{callee} function-reference edge, got {edges:?}"
+            );
+        }
+    }
+
+    /// v1.11.2 (F1 follow-up): Java function-reference arguments —
+    /// callbacks passed as bare identifiers (executor submit, listener
+    /// registration) rather than via the explicit `Class::method`
+    /// syntax that was already covered.
+    #[test]
+    fn extracts_java_function_reference_arguments() {
+        let dir = temp_dir("java-fn-refs");
+        let path = dir.join("Service.java");
+        fs::write(
+            &path,
+            r#"public class Service {
+    public void onTick() {}
+    public void onError(String e) {}
+
+    public void start(Executor exec, Bus bus) {
+        exec.submit(onTick);
+        bus.register("err", onError);
+    }
+}
+"#,
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        for callee in ["onTick", "onError"] {
+            assert!(
+                edges
+                    .iter()
+                    .any(|e| e.caller_name == "start" && e.callee_name == callee),
+                "expected start->{callee} function-reference edge, got {edges:?}"
             );
         }
     }
