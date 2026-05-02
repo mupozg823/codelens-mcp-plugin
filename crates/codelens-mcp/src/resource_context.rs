@@ -1,13 +1,13 @@
-use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::protocol::{Tool, ToolPhase};
 use crate::tool_defs::{
-    ToolProfile, ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools,
-    preferred_namespaces, preferred_tier_labels, tool_deprecation, tool_namespace,
-    tool_phase_label, tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
+    is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
+    preferred_tier_labels, tool_deprecation, tool_namespace, tool_phase_label, tool_tier_label,
+    visible_namespaces, visible_tiers, visible_tools, ToolProfile, ToolSurface,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 // Default surface for hosts that fetch `tools/list` without a phase filter
@@ -52,18 +52,21 @@ const DEFAULT_LISTED_TOOL_NAMES: &[&str] = &[
     "get_analysis_section",
 ];
 
+/// Resource-level request context. Embeds `SessionRequestContext` for
+/// fields parsed from `_session_*` keys; only fields that are derived
+/// (client_profile) or sourced from the URI/params (requested_namespace,
+/// requested_tier, full_listing, deferred_loading_requested) live here.
+///
+/// Read shared fields via `request.session.*`:
+///   loaded_namespaces, loaded_tiers, full_tool_exposure, client_name.
 #[derive(Clone, Debug)]
 pub(crate) struct ResourceRequestContext {
     pub(crate) session: crate::session_context::SessionRequestContext,
     pub(crate) deferred_loading_requested: bool,
-    pub(crate) loaded_namespaces: Vec<String>,
-    pub(crate) loaded_tiers: Vec<String>,
-    pub(crate) full_tool_exposure: bool,
     pub(crate) requested_namespace: Option<String>,
     pub(crate) requested_tier: Option<String>,
     pub(crate) full_listing: bool,
     pub(crate) client_profile: ClientProfile,
-    pub(crate) client_name: Option<String>,
 }
 
 impl Default for ResourceRequestContext {
@@ -71,14 +74,10 @@ impl Default for ResourceRequestContext {
         Self {
             session: crate::session_context::SessionRequestContext::default(),
             deferred_loading_requested: false,
-            loaded_namespaces: Vec::new(),
-            loaded_tiers: Vec::new(),
-            full_tool_exposure: false,
             requested_namespace: None,
             requested_tier: None,
             full_listing: false,
             client_profile: ClientProfile::Generic,
-            client_name: None,
         }
     }
 }
@@ -88,10 +87,6 @@ impl ResourceRequestContext {
         let session = params
             .map(crate::session_context::SessionRequestContext::from_json)
             .unwrap_or_default();
-        let loaded_namespaces = session.loaded_namespaces.clone();
-        let loaded_tiers = session.loaded_tiers.clone();
-        let full_tool_exposure = session.full_tool_exposure;
-        let client_name = session.client_name.clone();
         let client_profile = session
             .client_name
             .as_deref()
@@ -105,14 +100,10 @@ impl ResourceRequestContext {
         Self {
             session,
             deferred_loading_requested,
-            loaded_namespaces,
-            loaded_tiers,
-            full_tool_exposure,
             requested_namespace: string_param(params, "namespace"),
             requested_tier: string_param(params, "tier"),
             full_listing: uri == "codelens://tools/list/full" || bool_param(params, "full"),
             client_profile,
-            client_name,
         }
     }
 
@@ -121,7 +112,7 @@ impl ResourceRequestContext {
             && self.requested_namespace.is_none()
             && self.requested_tier.is_none()
             && !self.full_listing
-            && !self.full_tool_exposure
+            && !self.session.full_tool_exposure
     }
 
     pub(crate) fn tool_contract_mode(&self) -> &'static str {
@@ -129,12 +120,14 @@ impl ResourceRequestContext {
     }
 
     pub(crate) fn lean_tool_contract(&self) -> bool {
-        self.tool_contract_mode() == "lean" && !self.full_listing && !self.full_tool_exposure
+        self.tool_contract_mode() == "lean"
+            && !self.full_listing
+            && !self.session.full_tool_exposure
     }
 
     pub(crate) fn default_listing_requested(&self) -> bool {
         !self.full_listing
-            && !self.full_tool_exposure
+            && !self.session.full_tool_exposure
             && !self.deferred_loading_active()
             && self.requested_namespace.is_none()
             && self.requested_tier.is_none()
@@ -209,7 +202,7 @@ pub(crate) fn build_visible_tool_context(
     let preferred_bootstrap = preferred_bootstrap_tools(surface);
     let preferred_tiers = preferred_tier_labels(surface);
     let has_loaded_expansions =
-        !request.loaded_namespaces.is_empty() || !request.loaded_tiers.is_empty();
+        !request.session.loaded_namespaces.is_empty() || !request.session.loaded_tiers.is_empty();
     let mut tools = all_tools
         .iter()
         .copied()
@@ -223,8 +216,13 @@ pub(crate) fn build_visible_tool_context(
                 let namespace = tool_namespace(tool.name);
                 let tier = tool_tier_label(tool.name);
                 preferred.contains(&namespace)
-                    || request.loaded_tiers.iter().any(|value| value == tier)
                     || request
+                        .session
+                        .loaded_tiers
+                        .iter()
+                        .any(|value| value == tier)
+                    || request
+                        .session
                         .loaded_namespaces
                         .iter()
                         .any(|value| value == namespace)
@@ -242,10 +240,15 @@ pub(crate) fn build_visible_tool_context(
                 let tier = tool_tier_label(tool.name);
                 preferred_tiers.contains(&tier)
                     || request
+                        .session
                         .loaded_namespaces
                         .iter()
                         .any(|value| value == namespace)
-                    || request.loaded_tiers.iter().any(|value| value == tier)
+                    || request
+                        .session
+                        .loaded_tiers
+                        .iter()
+                        .any(|value| value == tier)
             }
             None => true,
         })
@@ -262,6 +265,7 @@ pub(crate) fn build_visible_tool_context(
             let namespace = tool_namespace(tool.name);
             let tier = tool_tier_label(tool.name);
             let namespace_rank = if request
+                .session
                 .loaded_namespaces
                 .iter()
                 .any(|value| value == namespace)
@@ -270,7 +274,12 @@ pub(crate) fn build_visible_tool_context(
             } else {
                 1
             };
-            let tier_rank = if request.loaded_tiers.iter().any(|value| value == tier) {
+            let tier_rank = if request
+                .session
+                .loaded_tiers
+                .iter()
+                .any(|value| value == tier)
+            {
                 0usize
             } else {
                 1
@@ -288,7 +297,7 @@ pub(crate) fn build_visible_tool_context(
         .iter()
         .map(|value| (*value).to_owned())
         .collect::<Vec<_>>();
-    for namespace in &request.loaded_namespaces {
+    for namespace in &request.session.loaded_namespaces {
         if !effective_namespaces.iter().any(|value| value == namespace) {
             effective_namespaces.push(namespace.clone());
         }
@@ -299,7 +308,7 @@ pub(crate) fn build_visible_tool_context(
         .iter()
         .map(|value| (*value).to_owned())
         .collect::<Vec<_>>();
-    for tier in &request.loaded_tiers {
+    for tier in &request.session.loaded_tiers {
         if !effective_tiers.iter().any(|value| value == tier) {
             effective_tiers.push(tier.clone());
         }
@@ -313,14 +322,14 @@ pub(crate) fn build_visible_tool_context(
         all_tiers: visible_tiers(surface),
         preferred_namespaces: preferred,
         preferred_tiers,
-        loaded_namespaces: request.loaded_namespaces.clone(),
-        loaded_tiers: request.loaded_tiers.clone(),
+        loaded_namespaces: request.session.loaded_namespaces.clone(),
+        loaded_tiers: request.session.loaded_tiers.clone(),
         effective_namespaces,
         effective_tiers,
         selected_namespace: request.requested_namespace.clone(),
         selected_tier: request.requested_tier.clone(),
         deferred_loading_active: request.deferred_loading_active(),
-        full_tool_exposure: request.full_tool_exposure,
+        full_tool_exposure: request.session.full_tool_exposure,
     }
 }
 
@@ -340,7 +349,7 @@ pub(crate) fn build_http_session_payload(
         "resume_supported": state.session_resume_supported(),
         "daemon_mode": state.daemon_mode().as_str(),
         "client_profile": request.client_profile.as_str(),
-        "client_name": request.client_name,
+        "client_name": request.session.client_name,
         "active_surface": surface.as_label(),
         "semantic_search_status": runtime_health.semantic_status.status_key(),
         "indexed_files": runtime_health.indexed_files(),
@@ -351,9 +360,9 @@ pub(crate) fn build_http_session_payload(
         "deferred_loading_supported": true,
         "default_deferred_tool_loading": request.client_profile.default_deferred_tool_loading(),
         "default_tools_list_contract_mode": request.client_profile.default_tool_contract_mode(),
-        "loaded_namespaces": request.loaded_namespaces,
-        "loaded_tiers": request.loaded_tiers,
-        "full_tool_exposure": request.full_tool_exposure,
+        "loaded_namespaces": request.session.loaded_namespaces,
+        "loaded_tiers": request.session.loaded_tiers,
+        "full_tool_exposure": request.session.full_tool_exposure,
         "deferred_namespace_gate": true,
         "deferred_tier_gate": true,
         "preferred_namespaces": preferred_namespaces(surface),
