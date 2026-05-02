@@ -394,6 +394,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
         "include_body",
         "depth",
         "disable_semantic",
+        "expand_query",
         "session_id",
         "logical_session_id",
         "harness_phase",
@@ -403,14 +404,31 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     let query_analysis = analyze_retrieval_query(query);
     let path = optional_string(arguments, "path");
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    // v1.10.1 floor: when the user does not supply `max_tokens`, take the
+    // larger of the surface token budget and 16K. The active surface budget
+    // is intentionally tight (8K on `preset:full`, 4K on
+    // `refactor-full`), but hybrid retrieval (semantic + sparse +
+    // structural evidence) routinely exceeds that, triggering Stage 5
+    // truncation. See `docs/eval/v1.10.0-post-release-eval.md` (F3).
+    const HYBRID_RETRIEVAL_FLOOR: usize = 16384;
     let max_tokens = arguments
         .get("max_tokens")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
-        .unwrap_or_else(|| state.execution_token_budget(&session));
+        .unwrap_or_else(|| {
+            state
+                .execution_token_budget(&session)
+                .max(HYBRID_RETRIEVAL_FLOOR)
+        });
     let include_body = optional_bool(arguments, "include_body", false);
     let depth = optional_usize(arguments, "depth", 2);
     let disable_semantic = optional_bool(arguments, "disable_semantic", false);
+    // v1.10.1: opt-out of n-gram query expansion. The default behaviour
+    // (expand_query=true) preserves prior recall on partial-identifier
+    // queries; setting expand_query=false disables snake_case /
+    // camelCase / cartesian-token expansion for natural-language
+    // queries that don't benefit from it.
+    let expand_query = optional_bool(arguments, "expand_query", true);
     let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
     let exact_identifier_projection = query_analysis.original_query
         != query_analysis.expanded_query
@@ -451,11 +469,22 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
         }
     }
 
+    // v1.10.1: when `expand_query=false`, use the user's literal query
+    // for retrieval. The default keeps the n-gram expansion path so
+    // partial-identifier queries still match across snake_case /
+    // camelCase boundaries. See `docs/eval/v1.10.0-post-release-eval.md`
+    // (F3).
+    let retrieval_query: &str = if expand_query {
+        &query_analysis.expanded_query
+    } else {
+        &query_analysis.original_query
+    };
+
     // query-type-aware weights available via get_ranked_context_cached_with_query_type
     // but current dataset shows default weights are near-optimal (0.680 MRR).
     // Kept as None until per-type weight tuning yields measurable improvement.
     let mut result = state.symbol_index().get_ranked_context_cached(
-        &query_analysis.expanded_query,
+        retrieval_query,
         path,
         max_tokens,
         include_body,

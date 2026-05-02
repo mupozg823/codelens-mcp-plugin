@@ -587,8 +587,8 @@ pub fn symbol_tools(
         ).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "get_ranked_context",
-            "[CodeLens:Symbol] Smart context retrieval — best symbols for a query within token budget.",
-            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean","description":"Disable semantic/hybrid ranking and use structural signals only"}}}),
+            "[CodeLens:Symbol] Smart context retrieval — best symbols for a query within token budget. For natural-language queries, set expand_query=false to skip n-gram expansion; for partial-identifier search use the default.",
+            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer","description":"Token budget for the retrieval payload. Defaults to max(active surface budget, 16384) — raised in v1.10.1 from the surface budget alone to avoid Stage 5 truncation on hybrid retrieval."},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean","description":"Disable semantic/hybrid ranking and use structural signals only"},"expand_query":{"type":"boolean","description":"When true (default), expand the query with snake_case / camelCase / cartesian-token derivatives. Set to false for natural-language queries that don't benefit from expansion."}}}),
         ).with_output_schema(ranked_context_output_schema()).with_annotations(ro_a.clone()).with_max_response_tokens(32768),
         Tool::new(
             "bm25_symbol_search",

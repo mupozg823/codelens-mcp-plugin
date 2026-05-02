@@ -19,7 +19,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
 ## Surface Snapshot
 
-- Workspace version: `1.10.0`
+- Workspace version: `1.10.1`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
 - Registered tool definitions: `106`
 - Tool output schemas: `77 / 106`
@@ -206,6 +206,16 @@ build:
 
 - `dev.codelens.mcp-readonly` -> `reviewer-graph` on `:7839`
 - `dev.codelens.mcp-mutation` -> `refactor-full` on `:7838`
+
+> **Build flag reminder (v1.10.1+)**: the plists point at
+> `target/release/codelens-mcp`, which must be a build that includes
+> the `http` feature (and `semantic` if you want hybrid retrieval).
+> Run `cargo build --release --features http,semantic` before
+> `--load`-ing, otherwise the daemons fail with
+> `Error: HTTP/HTTPS transport requires the http feature` and the
+> ports never bind. See
+> [`docs/release-verification.md`](docs/release-verification.md#feature-flag-matrix-build-time-requirements)
+> for the full feature-flag matrix.
 
 It also updates `.codelens/config.json` with repo-local `host_attach` URL
 overrides so `codelens-mcp attach`, `status`, and `doctor` reuse the same

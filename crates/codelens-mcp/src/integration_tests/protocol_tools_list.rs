@@ -25,12 +25,20 @@ fn lists_tools() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
+    // v1.10.1 (F2): default tools/list now surfaces workflow-first 7 +
+    // core navigation primitives so the slogan matches reality. Symbol
+    // primitives like `get_symbols_overview` are now in the default
+    // list. Use a phase or namespace filter when only a slice is wanted.
     assert!(names.contains(&"get_ranked_context"));
     assert!(names.contains(&"get_callers"));
     assert!(names.contains(&"start_analysis_job"));
     assert!(
-        !names.contains(&"get_symbols_overview"),
-        "default tools/list should stay MVP-focused; use full=true or namespace filters for primitive expansion"
+        names.contains(&"get_symbols_overview"),
+        "default tools/list now includes core navigation primitives (v1.10.1 F2)"
+    );
+    assert!(
+        names.contains(&"review_changes"),
+        "default tools/list now includes the workflow-first 7 (v1.10.1 F2)"
     );
 }
 
@@ -57,24 +65,47 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        default_tools,
-        vec![
-            "activate_project",
-            "prepare_harness_session",
-            "get_current_config",
-            "set_profile",
-            "set_preset",
-            "explore_codebase",
-            "get_ranked_context",
-            "get_callers",
-            "get_callees",
-            "verify_change_readiness",
-            "start_analysis_job",
-            "get_analysis_job",
-            "get_analysis_section",
-        ]
-    );
+    // v1.10.1 (F2): default tools/list expanded from 13 → 25 tools to
+    // surface the workflow-first composite tools and core navigation
+    // primitives that the product is positioned around. The list is
+    // ordered as defined in `DEFAULT_LISTED_TOOL_NAMES`.
+    let mut expected: Vec<&'static str> = vec![
+        // Control plane
+        "activate_project",
+        "prepare_harness_session",
+        "get_current_config",
+        "get_capabilities",
+        "set_profile",
+        "set_preset",
+        // Workflow-first 7
+        "explore_codebase",
+        "trace_request_path",
+        "review_architecture",
+        "plan_safe_refactor",
+        "cleanup_duplicate_logic",
+        "review_changes",
+        "diagnose_issues",
+        // Core navigation primitives
+        "find_symbol",
+        "get_symbols_overview",
+        "find_referencing_symbols",
+        "get_file_diagnostics",
+        "bm25_symbol_search",
+        "semantic_search",
+        // Analysis & async jobs
+        "get_ranked_context",
+        "get_callers",
+        "get_callees",
+        "verify_change_readiness",
+        "start_analysis_job",
+        "get_analysis_job",
+        "get_analysis_section",
+    ];
+    if !cfg!(feature = "semantic") {
+        // semantic_search is gated; only present when the feature is on.
+        expected.retain(|name| *name != "semantic_search");
+    }
+    assert_eq!(default_tools, expected);
 
     let full_resp = handle_request(
         &state,
@@ -419,10 +450,8 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(
-        encoded
-            .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
-    );
+    assert!(encoded
+        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"review_architecture\""));

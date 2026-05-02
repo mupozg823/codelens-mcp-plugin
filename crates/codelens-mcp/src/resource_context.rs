@@ -10,13 +10,39 @@ use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
+// Default surface for hosts that fetch `tools/list` without a phase filter
+// (claude-code is the primary one). v1.10.1 widens this from 13 → 25 to
+// surface the workflow-first composite tools and the core navigation
+// primitives. The slogan ("workflow-first, 112 tools") was contradicted
+// by the prior 13-tool bootstrap surface — in particular, calling
+// `explore_codebase` was possible but `review_changes` /
+// `plan_safe_refactor` / `find_symbol` / `get_symbols_overview` were
+// invisible until ToolSearch keyword fetch. See
+// `docs/eval/v1.10.0-post-release-eval.md` (F2).
 const DEFAULT_LISTED_TOOL_NAMES: &[&str] = &[
+    // ── Control plane ──────────────────────────────────────────────
     "activate_project",
     "prepare_harness_session",
     "get_current_config",
+    "get_capabilities",
     "set_profile",
     "set_preset",
+    // ── Workflow-first 7 (the slogan) ──────────────────────────────
     "explore_codebase",
+    "trace_request_path",
+    "review_architecture",
+    "plan_safe_refactor",
+    "cleanup_duplicate_logic",
+    "review_changes",
+    "diagnose_issues",
+    // ── Core navigation primitives ─────────────────────────────────
+    "find_symbol",
+    "get_symbols_overview",
+    "find_referencing_symbols",
+    "get_file_diagnostics",
+    "bm25_symbol_search",
+    "semantic_search",
+    // ── Analysis & async jobs ──────────────────────────────────────
     "get_ranked_context",
     "get_callers",
     "get_callees",
