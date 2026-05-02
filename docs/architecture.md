@@ -6,11 +6,10 @@
 ## Current Snapshot (2026-04-25)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
-
-- Workspace version: `1.9.60`
-- Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
-- Registered tool definitions in source: `112`
-- Tool output schemas in source: `82 / 112`
+- Workspace version: `1.10.0`
+- Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
+- Registered tool definitions in source: `106`
+- Tool output schemas in source: `77 / 106`
 - Supported language families: `30` across `49` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:END -->
@@ -464,13 +463,11 @@ MINIMAL  (20)   ██████████████                      
 ## 5. Language Support
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_LANGUAGES:BEGIN -->
-
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](generated/surface-manifest.json).
-
 <!-- SURFACE_MANIFEST_ARCHITECTURE_LANGUAGES:END -->
 
 ---
