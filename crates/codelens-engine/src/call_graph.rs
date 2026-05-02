@@ -181,7 +181,7 @@ fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
         "tsx" => ("tsx", JS_FUNC_QUERY, JS_JSX_CALL_QUERY),
         "go" => ("go", GO_FUNC_QUERY, GO_CALL_QUERY),
         "java" => ("java", JAVA_FUNC_QUERY, JAVA_CALL_QUERY),
-        "kt" => ("kt", KOTLIN_FUNC_QUERY, JAVA_CALL_QUERY),
+        "kt" => ("kt", KOTLIN_FUNC_QUERY, KOTLIN_CALL_QUERY),
         "rs" => ("rs", RUST_FUNC_QUERY, RUST_CALL_QUERY),
         _ => return None,
     };
@@ -877,7 +877,26 @@ const JAVA_CALL_QUERY: &str = r#"
 "#;
 
 const KOTLIN_FUNC_QUERY: &str = r#"
-(function_declaration name: (identifier) @func.name) @func.def
+(function_declaration (identifier) @func.name) @func.def
+"#;
+
+const KOTLIN_CALL_QUERY: &str = r#"
+;; Direct call: prepare()
+(call_expression (identifier) @callee)
+
+;; Method/navigation call: exec.submit(...) — last identifier in
+;; navigation_expression is the method name (anchor `.` selects last child).
+(call_expression
+  (navigation_expression
+    (identifier) @callee .))
+
+;; v1.12.3: function-reference arguments — submit(onTick),
+;; register("err", onError). Same noise-filter behavior as Rust:
+;; non-function identifiers (variables) are dropped at resolution time.
+(call_expression
+  (value_arguments
+    (value_argument
+      (identifier) @callee)))
 "#;
 
 const RUST_FUNC_QUERY: &str = r#"

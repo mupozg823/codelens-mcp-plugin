@@ -80,6 +80,16 @@
         { "caller": "Button", "callee": "button" },
         { "caller": "Card", "callee": "div" }
       ]
+    },
+    {
+      "path": "benchmarks/call-graph-accuracy/fixtures/kotlin/Service.kt",
+      "edges": [
+        { "caller": "start", "callee": "prepare" },
+        { "caller": "start", "callee": "submit" },
+        { "caller": "start", "callee": "register" },
+        { "caller": "start", "callee": "onTick" },
+        { "caller": "start", "callee": "onError" }
+      ]
     }
   ]
 }
