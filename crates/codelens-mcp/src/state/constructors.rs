@@ -76,7 +76,9 @@ impl AppState {
 
         let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");
-        state.artifact_store.cleanup_stale_dirs(crate::util::now_ms());
+        state
+            .artifact_store
+            .cleanup_stale_dirs(crate::util::now_ms());
         let scope = state.current_project_scope();
         state
             .job_store

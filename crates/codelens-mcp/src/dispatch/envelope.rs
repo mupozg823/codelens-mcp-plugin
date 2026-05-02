@@ -52,7 +52,8 @@ impl ToolCallEnvelope {
             .and_then(|v| v.as_u64())
             .map(|v| v as usize)
             .or_else(|| {
-                arguments.get("_profile")
+                arguments
+                    .get("_profile")
                     .and_then(|v| v.as_str())
                     .map(|profile| {
                         ToolProfile::from_str(profile)

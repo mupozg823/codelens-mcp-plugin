@@ -369,10 +369,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     // bootstrap call. We snapshot before activation and restore unless the
     // user provided a new profile/preset.
     let prior_surface = *state.surface();
-    let explicit_surface_request = arguments
-        .get("profile")
-        .and_then(|v| v.as_str())
-        .is_some()
+    let explicit_surface_request = arguments.get("profile").and_then(|v| v.as_str()).is_some()
         || arguments.get("preset").and_then(|v| v.as_str()).is_some();
 
     let (activate_payload, _) = activate_project(state, arguments)?;

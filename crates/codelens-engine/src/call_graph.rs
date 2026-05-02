@@ -454,7 +454,9 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 continue;
             };
             let callee_name = callee_name.trim().to_owned();
-            if callee_name.is_empty() || is_noise_callee_for_lang(&callee_name, Some(config.language_key)) {
+            if callee_name.is_empty()
+                || is_noise_callee_for_lang(&callee_name, Some(config.language_key))
+            {
                 continue;
             }
             let line = cap.node.start_position().row + 1;

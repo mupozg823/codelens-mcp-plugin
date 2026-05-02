@@ -433,7 +433,10 @@ fn bm25_symbol_search_returns_symbol_cards() {
     );
     let top = &results[0];
     assert_eq!(top["name"], json!("dispatch_tool"));
-    assert!(!top["kind"].as_str().unwrap_or_default().is_empty(), "kind should not be empty");
+    assert!(
+        !top["kind"].as_str().unwrap_or_default().is_empty(),
+        "kind should not be empty"
+    );
     assert!(
         top["score"].as_f64().unwrap_or_default() > 0.0,
         "top hit should have positive BM25F score"

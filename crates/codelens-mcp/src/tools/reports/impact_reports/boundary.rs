@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use super::{
-    build_dead_code_semantic_query, build_module_semantic_query, insert_semantic_status, semantic_degraded_note,
+    build_dead_code_semantic_query, build_module_semantic_query, insert_semantic_status,
+    semantic_degraded_note,
 };
 
 #[allow(deprecated)]
