@@ -137,13 +137,26 @@ to TOML and verifies that the `tools/list` output is byte-identical to
 the previous build:
 
 ```
-PR-A: scaffolding + File I/O   (this PR)             — 7 tools
-PR-B: Symbol + LSP                                    — 16 tools
-PR-C: Editing + Analysis                              — 15 tools
-PR-D: Composite (excluding workflow-first 7)         — 22 tools
-PR-E: Workflow-first 7 + Session 23                  — 30 tools
-PR-F: Memory + Rule corpus + Semantic + cleanup      — 22 tools  (final, removes legacy hand-rolled blocks)
+PR-A: scaffolding + File I/O                          —  7 tools  ✓ #128
+PR-B: Symbol + LSP                                    — 16 tools  ✓ #129
+PR-C: Editing + Analysis                              — 25 tools  ✓ #130
+PR-D: Composite (excluding workflow-first 7)          — 22 tools  ✓ #131
+PR-E: Workflow-first 7 + Session 23                   — 30 tools  ✓ #132
+PR-F: Memory 5 + Rule corpus 1 + Semantic 6 (final)   — 12 tools  ✓ this PR
 ```
+
+**Status as of PR-F merge:** every tool in the static `TOOLS` registry
+is declared in `tools.toml`. `build.rs` retains only the
+annotation-binding locals (`ro_p`, `ro_a`, `ro_w`, `mut_p`, `mut_w`,
+`mutating`, `destructive`, `dest_a`, `mut_coord`) consumed by the
+generated category functions, plus the post-build pass that attaches
+namespace, title, and `estimated_tokens`. The semantic category is
+emitted under `#[cfg(feature = "semantic")]` via an opt-in
+`feature_gate = "semantic"` field in TOML — codegen detects when every
+tool in a category shares a feature gate and lifts it onto the
+generated function. The original tool counts (15 for Editing+Analysis
+in the plan) under-counted the unified-edit and refactor entries; the
+actual migration was 25 tools in PR-C. All other PR sizes match.
 
 Considered alternative: atomic migration (single PR). Rejected because
 (a) review is impossible, and (b) git bisect on tool-related regressions

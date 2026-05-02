@@ -107,6 +107,25 @@ def render_tool(tool: dict[str, Any]) -> list[str]:
     ]
 
 
+def category_feature_gate(tools: list[dict[str, Any]]) -> str | None:
+    """Return the shared `feature_gate` if every tool agrees, else None.
+
+    The codegen only supports an all-or-nothing feature gate per
+    category — the calling convention in `build.rs` extends one Vec
+    per category, so a mixed category would need per-Tool cfg
+    attributes inside the vec, which the script does not emit. If a
+    future PR needs a mixed category, update this function and the
+    Tool::new emit path together.
+    """
+    gates = {tool.get("feature_gate") for tool in tools}
+    if len(gates) > 1:
+        raise SystemExit(
+            f"tools in the same category disagree on feature_gate: {gates}. "
+            "Split into separate categories."
+        )
+    return next(iter(gates))
+
+
 def render_category(category: str, tools: list[dict[str, Any]]) -> str:
     bindings = bindings_for_category(tools)
     args = ", ".join(f"{ANNOTATION_BINDINGS[b]}: &ToolAnnotations" for b in bindings)
@@ -114,10 +133,12 @@ def render_category(category: str, tools: list[dict[str, Any]]) -> str:
     # narrow `pub(super) use` re-export in `tool_defs/generated/mod.rs`
     # is what actually constrains visibility to `tool_defs`. See
     # ADR-0013 for the visibility model.
-    lines = [
-        f"pub fn {category}_tools({args}) -> Vec<Tool> {{",
-        "    vec![",
-    ]
+    lines: list[str] = []
+    gate = category_feature_gate(tools)
+    if gate is not None:
+        lines.append(f'#[cfg(feature = "{gate}")]')
+    lines.append(f"pub fn {category}_tools({args}) -> Vec<Tool> {{")
+    lines.append("    vec![")
     for t in tools:
         lines.extend(render_tool(t))
     lines.append("    ]")

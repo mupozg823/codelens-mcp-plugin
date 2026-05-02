@@ -1,9 +1,13 @@
 //! Tool registry: static TOOLS vec, lookup functions, and the build_tools constructor.
+//!
+//! After ADR-0013 PR-A..PR-F, the per-tool `Tool::new(...)` rows live
+//! entirely in `tools.toml` and are emitted by `super::generated`.
+//! This file now only owns the annotation-binding locals consumed by
+//! the generated category functions and the post-build pass that
+//! attaches namespace/title/estimated_tokens.
 
-use super::output_schemas::*;
 use super::presets::tool_namespace;
 use crate::protocol::{Tool, ToolAnnotations, ToolTier};
-use serde_json::json;
 use std::sync::LazyLock;
 
 static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);
@@ -125,29 +129,16 @@ fn build_tools() -> Vec<Tool> {
     tools.extend(super::generated::session_tools(
         &mut_coord, &mut_p, &mutating, &ro_a, &ro_p, &ro_w,
     ));
+    tools.extend(super::generated::rule_corpus_tools(&ro_a));
+    tools.extend(super::generated::memory_tools(
+        &destructive,
+        &mut_p,
+        &mutating,
+        &ro_p,
+    ));
 
-    tools.extend(vec![
-        // ── Rule corpus retrieval ───────────────────────────────────────
-        Tool::new("find_relevant_rules", "[CodeLens:Workflow] BM25 search over CLAUDE.md + project memory for policy snippets matching a query. Separate corpus from code retrieval — rule text never pollutes semantic_search results.", json!({"required":["query"],"type":"object","properties":{"query":{"type":"string","description":"Natural-language query; identifier tokens are preserved"},"top_k":{"type":"integer","description":"Top-K results (1-20, default 3)"}}})).with_annotations(ro_a.clone()).with_max_response_tokens(2048),
-
-        // ── Memory ──────────────────────────────────────────────────────
-        Tool::new("list_memories", "[CodeLens:Memory] List project memory files under .codelens/memories.", json!({"type":"object","properties":{"topic":{"type":"string","description":"Optional topic to filter"}}})).with_output_schema(memory_list_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("read_memory", "[CodeLens:Memory] Read a named project memory file.", json!({"required":["memory_name"],"type":"object","properties":{"memory_name":{"type":"string"}}})).with_annotations(ro_p.clone()),
-        Tool::new("write_memory", "[CodeLens:Memory] Create or overwrite a project memory file.", json!({"required":["memory_name","content"],"type":"object","properties":{"memory_name":{"type":"string"},"content":{"type":"string"}}})).with_annotations(mutating.clone()),
-        Tool::new("delete_memory", "[CodeLens:Memory] Delete a project memory file.", json!({"required":["memory_name"],"type":"object","properties":{"memory_name":{"type":"string"}}})).with_annotations(destructive.clone()),
-        Tool::new("rename_memory", "[CodeLens:Memory] Rename a project memory file.", json!({"required":["old_name","new_name"],"type":"object","properties":{"old_name":{"type":"string"},"new_name":{"type":"string"}}})).with_annotations(mut_p.clone()),
-    ]);
-
-    // ── Semantic (feature-gated) ────────────────────────────────────
     #[cfg(feature = "semantic")]
-    {
-        tools.push(Tool::new("semantic_search", "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning.", json!({"required":["query"],"type":"object","properties":{"query":{"type":"string","description":"Natural language search query"},"max_results":{"type":"integer","description":"Max results (default 20)"}}})).with_output_schema(semantic_search_output_schema()).with_annotations(ro_p.clone()));
-        tools.push(Tool::new("index_embeddings", "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic_search.", json!({"type":"object","properties":{"background":{"type":"boolean","description":"Run as a durable background job and poll with get_analysis_job"},"prewarm_queries":{"type":"array","items":{"type":"string"},"description":"Representative semantic_search queries to warm immediately after indexing"},"prewarm_limit":{"type":"integer","description":"Maximum prewarm query count (default 128, max 1024)"}}})).with_annotations(ro.clone()));
-        tools.push(Tool::new("find_similar_code", "[CodeLens:Analysis] Find semantically similar code to a given symbol — clone detection, reuse opportunities.", json!({"required":["file_path","symbol_name"],"type":"object","properties":{"file_path":{"type":"string","description":"File containing the symbol"},"symbol_name":{"type":"string","description":"Symbol to find similar code for"},"max_results":{"type":"integer","description":"Max results (default 10)"}}})).with_output_schema(find_similar_code_output_schema()).with_annotations(ro_a.clone()));
-        tools.push(Tool::new("find_code_duplicates", "[CodeLens:Analysis] Find near-duplicate code pairs across the codebase — DRY violations.", json!({"type":"object","properties":{"threshold":{"type":"number","description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","description":"Max pairs to return (default 20)"}}})).with_output_schema(find_code_duplicates_output_schema()).with_annotations(ro_a.clone()));
-        tools.push(Tool::new("classify_symbol", "[CodeLens:Analysis] Zero-shot classify a symbol into categories — e.g. error handling, auth, database.", json!({"required":["file_path","symbol_name","categories"],"type":"object","properties":{"file_path":{"type":"string"},"symbol_name":{"type":"string"},"categories":{"type":"array","items":{"type":"string"},"description":"Category labels to classify against"}}})).with_output_schema(classify_symbol_output_schema()).with_annotations(ro_a.clone()));
-        tools.push(Tool::new("find_misplaced_code", "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement.", json!({"type":"object","properties":{"max_results":{"type":"integer","description":"Max outliers to return (default 10)"}}})).with_output_schema(find_misplaced_code_output_schema()).with_annotations(ro));
-    }
+    tools.extend(super::generated::semantic_tools(&ro, &ro_a, &ro_p));
 
     for tool in &mut tools {
         let annotations = tool

@@ -23,15 +23,16 @@
 #   ✓ editing          — PR-C
 #   ✓ analysis         — PR-C
 #   ✓ composite        — PR-D
-#   ✓ workflow_first   — PR-E (this PR)
-#   ✓ session          — PR-E (this PR)
-#   ☐ memory           — PR-F
-#   ☐ rule_corpus      — PR-F
-#   ☐ semantic         — PR-F (cfg-gated)
+#   ✓ workflow_first   — PR-E
+#   ✓ session          — PR-E
+#   ✓ rule_corpus      — PR-F (this PR)
+#   ✓ memory           — PR-F (this PR)
+#   ✓ semantic         — PR-F (this PR; cfg-gated via feature_gate)
 #
-# Until all categories are migrated, the legacy hand-rolled rows
-# remain in `src/tool_defs/build.rs`. The dispatcher composes the
-# generated rows with the legacy ones.
+# All categories are now migrated. `build.rs` retains only the
+# annotation-binding locals and per-tool postprocessing (namespace,
+# title, estimated_tokens) — the Tool registry itself is fully
+# declarative.
 
 schema_version = "v1"
 
@@ -1627,3 +1628,174 @@ annotations = "ro_w"
 type = "object"
 required = ["path"]
 properties = { path = { type = "string", description = "File path to summarize" } }
+
+# ── Rule corpus retrieval ────────────────────────────────────────────
+
+[[tool]]
+name = "find_relevant_rules"
+category = "rule_corpus"
+description = "[CodeLens:Workflow] BM25 search over CLAUDE.md + project memory for policy snippets matching a query. Separate corpus from code retrieval — rule text never pollutes semantic_search results."
+annotations = "ro_a"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+required = ["query"]
+properties = { query = { type = "string", description = "Natural-language query; identifier tokens are preserved" }, top_k = { type = "integer", description = "Top-K results (1-20, default 3)" } }
+
+# ── Memory ───────────────────────────────────────────────────────────
+
+[[tool]]
+name = "list_memories"
+category = "memory"
+description = "[CodeLens:Memory] List project memory files under .codelens/memories."
+annotations = "ro_p"
+output_schema = "memory_list_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = { topic = { type = "string", description = "Optional topic to filter" } }
+
+# ─────
+
+[[tool]]
+name = "read_memory"
+category = "memory"
+description = "[CodeLens:Memory] Read a named project memory file."
+annotations = "ro_p"
+
+[tool.input_schema]
+type = "object"
+required = ["memory_name"]
+properties = { memory_name = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "write_memory"
+category = "memory"
+description = "[CodeLens:Memory] Create or overwrite a project memory file."
+annotations = "mutating"
+
+[tool.input_schema]
+type = "object"
+required = ["memory_name", "content"]
+properties = { memory_name = { type = "string" }, content = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "delete_memory"
+category = "memory"
+description = "[CodeLens:Memory] Delete a project memory file."
+annotations = "destructive"
+
+[tool.input_schema]
+type = "object"
+required = ["memory_name"]
+properties = { memory_name = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "rename_memory"
+category = "memory"
+description = "[CodeLens:Memory] Rename a project memory file."
+annotations = "mut_p"
+
+[tool.input_schema]
+type = "object"
+required = ["old_name", "new_name"]
+properties = { old_name = { type = "string" }, new_name = { type = "string" } }
+
+# ── Semantic (cfg-gated by `feature = "semantic"`) ──────────────────
+
+[[tool]]
+name = "semantic_search"
+category = "semantic"
+description = "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning."
+annotations = "ro_p"
+output_schema = "semantic_search_output_schema"
+feature_gate = "semantic"
+
+[tool.input_schema]
+type = "object"
+required = ["query"]
+properties = { query = { type = "string", description = "Natural language search query" }, max_results = { type = "integer", description = "Max results (default 20)" } }
+
+# ─────
+
+[[tool]]
+name = "index_embeddings"
+category = "semantic"
+description = "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic_search."
+annotations = "ro"
+feature_gate = "semantic"
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+background = { type = "boolean", description = "Run as a durable background job and poll with get_analysis_job" }
+prewarm_queries = { type = "array", items = { type = "string" }, description = "Representative semantic_search queries to warm immediately after indexing" }
+prewarm_limit = { type = "integer", description = "Maximum prewarm query count (default 128, max 1024)" }
+
+# ─────
+
+[[tool]]
+name = "find_similar_code"
+category = "semantic"
+description = "[CodeLens:Analysis] Find semantically similar code to a given symbol — clone detection, reuse opportunities."
+annotations = "ro_a"
+output_schema = "find_similar_code_output_schema"
+feature_gate = "semantic"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "symbol_name"]
+[tool.input_schema.properties]
+file_path = { type = "string", description = "File containing the symbol" }
+symbol_name = { type = "string", description = "Symbol to find similar code for" }
+max_results = { type = "integer", description = "Max results (default 10)" }
+
+# ─────
+
+[[tool]]
+name = "find_code_duplicates"
+category = "semantic"
+description = "[CodeLens:Analysis] Find near-duplicate code pairs across the codebase — DRY violations."
+annotations = "ro_a"
+output_schema = "find_code_duplicates_output_schema"
+feature_gate = "semantic"
+
+[tool.input_schema]
+type = "object"
+properties = { threshold = { type = "number", description = "Cosine similarity threshold (default 0.85)" }, max_pairs = { type = "integer", description = "Max pairs to return (default 20)" } }
+
+# ─────
+
+[[tool]]
+name = "classify_symbol"
+category = "semantic"
+description = "[CodeLens:Analysis] Zero-shot classify a symbol into categories — e.g. error handling, auth, database."
+annotations = "ro_a"
+output_schema = "classify_symbol_output_schema"
+feature_gate = "semantic"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "symbol_name", "categories"]
+properties = { file_path = { type = "string" }, symbol_name = { type = "string" }, categories = { type = "array", items = { type = "string" }, description = "Category labels to classify against" } }
+
+# ─────
+
+[[tool]]
+name = "find_misplaced_code"
+category = "semantic"
+description = "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement."
+annotations = "ro"
+output_schema = "find_misplaced_code_output_schema"
+feature_gate = "semantic"
+
+[tool.input_schema]
+type = "object"
+properties = { max_results = { type = "integer", description = "Max outliers to return (default 10)" } }

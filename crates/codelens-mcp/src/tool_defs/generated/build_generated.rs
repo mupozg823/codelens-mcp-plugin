@@ -357,6 +357,91 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
     ]
 }
 
+pub fn memory_tools(
+    destructive: &ToolAnnotations,
+    mut_p: &ToolAnnotations,
+    mutating: &ToolAnnotations,
+    ro_p: &ToolAnnotations,
+) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "list_memories",
+            "[CodeLens:Memory] List project memory files under .codelens/memories.",
+            json!({"type":"object","properties":{"topic":{"type":"string","description":"Optional topic to filter"}}}),
+        ).with_output_schema(memory_list_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "read_memory",
+            "[CodeLens:Memory] Read a named project memory file.",
+            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string"}}}),
+        ).with_annotations(ro_p.clone()),
+        Tool::new(
+            "write_memory",
+            "[CodeLens:Memory] Create or overwrite a project memory file.",
+            json!({"type":"object","required":["memory_name","content"],"properties":{"memory_name":{"type":"string"},"content":{"type":"string"}}}),
+        ).with_annotations(mutating.clone()),
+        Tool::new(
+            "delete_memory",
+            "[CodeLens:Memory] Delete a project memory file.",
+            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string"}}}),
+        ).with_annotations(destructive.clone()),
+        Tool::new(
+            "rename_memory",
+            "[CodeLens:Memory] Rename a project memory file.",
+            json!({"type":"object","required":["old_name","new_name"],"properties":{"old_name":{"type":"string"},"new_name":{"type":"string"}}}),
+        ).with_annotations(mut_p.clone()),
+    ]
+}
+
+pub fn rule_corpus_tools(ro_a: &ToolAnnotations) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "find_relevant_rules",
+            "[CodeLens:Workflow] BM25 search over CLAUDE.md + project memory for policy snippets matching a query. Separate corpus from code retrieval — rule text never pollutes semantic_search results.",
+            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string","description":"Natural-language query; identifier tokens are preserved"},"top_k":{"type":"integer","description":"Top-K results (1-20, default 3)"}}}),
+        ).with_annotations(ro_a.clone()).with_max_response_tokens(2048),
+    ]
+}
+
+#[cfg(feature = "semantic")]
+pub fn semantic_tools(
+    ro: &ToolAnnotations,
+    ro_a: &ToolAnnotations,
+    ro_p: &ToolAnnotations,
+) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "semantic_search",
+            "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning.",
+            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string","description":"Natural language search query"},"max_results":{"type":"integer","description":"Max results (default 20)"}}}),
+        ).with_output_schema(semantic_search_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "index_embeddings",
+            "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic_search.",
+            json!({"type":"object","properties":{"background":{"type":"boolean","description":"Run as a durable background job and poll with get_analysis_job"},"prewarm_queries":{"type":"array","items":{"type":"string"},"description":"Representative semantic_search queries to warm immediately after indexing"},"prewarm_limit":{"type":"integer","description":"Maximum prewarm query count (default 128, max 1024)"}}}),
+        ).with_annotations(ro.clone()),
+        Tool::new(
+            "find_similar_code",
+            "[CodeLens:Analysis] Find semantically similar code to a given symbol — clone detection, reuse opportunities.",
+            json!({"type":"object","required":["file_path","symbol_name"],"properties":{"file_path":{"type":"string","description":"File containing the symbol"},"symbol_name":{"type":"string","description":"Symbol to find similar code for"},"max_results":{"type":"integer","description":"Max results (default 10)"}}}),
+        ).with_output_schema(find_similar_code_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_code_duplicates",
+            "[CodeLens:Analysis] Find near-duplicate code pairs across the codebase — DRY violations.",
+            json!({"type":"object","properties":{"threshold":{"type":"number","description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","description":"Max pairs to return (default 20)"}}}),
+        ).with_output_schema(find_code_duplicates_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "classify_symbol",
+            "[CodeLens:Analysis] Zero-shot classify a symbol into categories — e.g. error handling, auth, database.",
+            json!({"type":"object","required":["file_path","symbol_name","categories"],"properties":{"file_path":{"type":"string"},"symbol_name":{"type":"string"},"categories":{"type":"array","items":{"type":"string"},"description":"Category labels to classify against"}}}),
+        ).with_output_schema(classify_symbol_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_misplaced_code",
+            "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement.",
+            json!({"type":"object","properties":{"max_results":{"type":"integer","description":"Max outliers to return (default 10)"}}}),
+        ).with_output_schema(find_misplaced_code_output_schema()).with_annotations(ro.clone()),
+    ]
+}
+
 pub fn session_tools(
     mut_coord: &ToolAnnotations,
     mut_p: &ToolAnnotations,
