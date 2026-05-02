@@ -9,6 +9,14 @@ readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 homepage.workspace = true
+# Test-only sources live under src/ for `cfg(test)` access to private
+# modules, but they should not bloat the published crates.io tarball.
+exclude = [
+    "src/integration_tests/**",
+    "src/server/http_tests/**",
+    "src/server/http_tests.rs",
+    "src/cli/startup_tests.rs",
+]
 
 [[bin]]
 name = "codelens-mcp"
