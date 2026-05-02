@@ -54,4 +54,7 @@ mod resources;
 mod schema;
 mod session;
 mod symbol;
+// `workflow/workflow.rs` keeps end-to-end fixtures grouped under their
+// parent feature name; renaming would churn external test paths.
+#[allow(clippy::module_inception)]
 mod workflow;

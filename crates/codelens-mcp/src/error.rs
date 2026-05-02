@@ -227,7 +227,7 @@ mod tests {
             -32008
         );
         assert_eq!(
-            CodeLensError::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")).jsonrpc_code(),
+            CodeLensError::Io(std::io::Error::other("x")).jsonrpc_code(),
             -32603
         );
         assert_eq!(

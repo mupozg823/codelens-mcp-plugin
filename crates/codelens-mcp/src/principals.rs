@@ -430,9 +430,8 @@ role = "Admin"
         // Empty string must NOT shadow the env fallback. We assert the
         // function does not return Some("") — env may still produce
         // None depending on test runner state, which is allowed.
-        match resolve_principal_id(&session) {
-            Some(s) => assert!(!s.is_empty(), "empty session id must not surface"),
-            None => {}
+        if let Some(s) = resolve_principal_id(&session) {
+            assert!(!s.is_empty(), "empty session id must not surface");
         }
     }
 

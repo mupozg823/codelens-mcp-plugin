@@ -388,7 +388,11 @@ pub(super) fn record_audit_failure(
     }
 }
 
+// `tests` precedes `record_span_fields` because both reach into the
+// `transaction_id_for` family this file owns; reordering the file would
+// rewrite a long `git blame` history. Silence the lint instead.
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use crate::session_context::SessionRequestContext;

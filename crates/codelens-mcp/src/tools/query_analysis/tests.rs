@@ -308,6 +308,7 @@ fn short_entrypoint_semantic_prior_prefers_rename_function_over_edit_type() {
                 line: 1,
                 signature: "pub struct RenameEdit".to_owned(),
                 name_path: "RenameEdit".to_owned(),
+                #[allow(clippy::approx_constant)]
                 score: 0.318,
             },
             SemanticMatch {
