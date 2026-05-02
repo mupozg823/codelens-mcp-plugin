@@ -11,11 +11,48 @@ pub(super) fn prepend_path(dir: &std::path::Path, original_path: &str) -> std::f
 }
 
 #[allow(dead_code)]
+#[cfg(feature = "http")]
+pub(super) fn make_http_state(project: &codelens_engine::ProjectRoot) -> crate::AppState {
+    crate::AppState::new(project.clone(), crate::tool_defs::ToolPreset::Full).with_session_store()
+}
+
+#[allow(dead_code)]
+#[cfg(not(feature = "http"))]
 pub(super) fn make_http_state(project: &codelens_engine::ProjectRoot) -> crate::AppState {
     crate::AppState::new(project.clone(), crate::tool_defs::ToolPreset::Full)
 }
 
 #[allow(dead_code)]
+#[cfg(feature = "http")]
+pub(super) fn create_http_profile_session(
+    state: &crate::AppState,
+    project: &codelens_engine::ProjectRoot,
+    profile: crate::tool_defs::ToolProfile,
+) -> String {
+    let store = state
+        .session_store
+        .as_ref()
+        .expect("make_http_state must call with_session_store");
+    let session = store.create();
+    session.set_surface(crate::tool_defs::ToolSurface::Profile(profile));
+    session.set_client_metadata(crate::server::session::SessionClientMetadata {
+        client_name: Some("integration-test".to_owned()),
+        requested_profile: Some(profile.as_str().to_owned()),
+        project_path: Some(project.as_path().to_string_lossy().into_owned()),
+        ..Default::default()
+    });
+    let session_id = session.id.clone();
+    let _ = call_tool_with_session(
+        state,
+        "prepare_harness_session",
+        serde_json::json!({"profile": profile.as_str(), "detail": "compact"}),
+        &session_id,
+    );
+    session_id
+}
+
+#[allow(dead_code)]
+#[cfg(not(feature = "http"))]
 pub(super) fn create_http_profile_session(
     state: &crate::AppState,
     _project: &codelens_engine::ProjectRoot,
