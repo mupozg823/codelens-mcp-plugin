@@ -216,8 +216,10 @@ fn call_graph_accuracy_meets_threshold() {
     } else {
         2.0 * total_p * total_r / (total_p + total_r)
     };
-    println!("\nOVERALL  TP={total_tp}  FP={total_fp}  FN={total_fn}  P={total_p:.3}  R={total_r:.3}  F1={total_f1:.3}  threshold={threshold:.3}",
-        threshold = manifest.f1_threshold);
+    println!(
+        "\nOVERALL  TP={total_tp}  FP={total_fp}  FN={total_fn}  P={total_p:.3}  R={total_r:.3}  F1={total_f1:.3}  threshold={threshold:.3}",
+        threshold = manifest.f1_threshold
+    );
 
     assert!(
         total_f1 >= manifest.f1_threshold,
