@@ -2,10 +2,12 @@
 members = [
     "crates/codelens-engine",
     "crates/codelens-mcp",
+    "crates/codelens-tui",
 ]
 default-members = [
     "crates/codelens-engine",
     "crates/codelens-mcp",
+    "crates/codelens-tui",
 ]
 resolver = "2"
 
