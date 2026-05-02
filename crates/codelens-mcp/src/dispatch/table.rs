@@ -10,37 +10,36 @@ use crate::{AppState, error::CodeLensError, protocol::BackendKind, tools::ToolRe
 use serde_json::json;
 
 pub(crate) static DISPATCH_TABLE: LazyLock<
-    HashMap<&'static str, std::sync::Arc<dyn crate::tool_defs::tool::McpTool>>,
+    HashMap<&'static str, crate::tool_defs::tool::ToolHandler>,
 > = LazyLock::new(|| {
     let m = tools::dispatch_table();
     #[cfg(feature = "semantic")]
     let mut m = m;
     #[cfg(feature = "semantic")]
     {
-        use crate::tool_defs::tool::BuiltTool;
         m.insert(
             "semantic_search",
-            std::sync::Arc::new(BuiltTool::new(semantic_search_handler)),
+            std::sync::Arc::new(semantic_search_handler),
         );
         m.insert(
             "index_embeddings",
-            std::sync::Arc::new(BuiltTool::new(index_embeddings_handler)),
+            std::sync::Arc::new(index_embeddings_handler),
         );
         m.insert(
             "find_similar_code",
-            std::sync::Arc::new(BuiltTool::new(find_similar_code_handler)),
+            std::sync::Arc::new(find_similar_code_handler),
         );
         m.insert(
             "find_code_duplicates",
-            std::sync::Arc::new(BuiltTool::new(find_code_duplicates_handler)),
+            std::sync::Arc::new(find_code_duplicates_handler),
         );
         m.insert(
             "classify_symbol",
-            std::sync::Arc::new(BuiltTool::new(classify_symbol_handler)),
+            std::sync::Arc::new(classify_symbol_handler),
         );
         m.insert(
             "find_misplaced_code",
-            std::sync::Arc::new(BuiltTool::new(find_misplaced_code_handler)),
+            std::sync::Arc::new(find_misplaced_code_handler),
         );
     }
     m

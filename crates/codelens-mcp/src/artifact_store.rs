@@ -545,9 +545,11 @@ mod tests {
             crate::util::now_ms(),
         );
         store_artifact(&store, artifact);
-        assert!(store
-            .find_reusable_tiered("impact_report", "key1", "full", Some("/proj"))
-            .is_none());
+        assert!(
+            store
+                .find_reusable_tiered("impact_report", "key1", "full", Some("/proj"))
+                .is_none()
+        );
     }
 
     #[test]
