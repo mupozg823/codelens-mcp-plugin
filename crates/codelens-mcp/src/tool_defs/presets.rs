@@ -947,6 +947,15 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         "assess_change_readiness" => Some(("1.12.0", "verify_change_readiness", "v2.0")),
         "get_impact_analysis" => Some(("1.9.46", "impact_report", "v2.0")),
         "find_dead_code" => Some(("1.9.46", "dead_code_report", "v2.0")),
+        // Phase 2 audit (2026-05-02): three composite tools whose value
+        // overlaps with the seven workflow-first entrypoints. They remain
+        // dispatchable so existing harnesses keep working, but the
+        // `tools/list` annotation will steer agents at the canonical
+        // alternative. Schedule for removal in v2.0 alongside the rest of
+        // the v2.0 alias purge.
+        "explain_code_flow" => Some(("1.9.61", "trace_request_path", "v2.0")),
+        "find_minimal_context_for_change" => Some(("1.9.61", "analyze_change_request", "v2.0")),
+        "summarize_symbol_impact" => Some(("1.9.61", "impact_report", "v2.0")),
         _ => None,
     }
 }
@@ -1283,10 +1292,9 @@ mod overlay_tests {
         let plan = compile_surface_overlay(full_surface(), Some(HostContext::ClaudeCode), None);
         assert!(plan.applied());
         assert_eq!(plan.preferred_executor_bias, Some("claude"));
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
         assert!(!plan.routing_notes.is_empty());
     }
 
@@ -1311,10 +1319,9 @@ mod overlay_tests {
                 "planning overlay should avoid {mutation}"
             );
         }
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
     }
 
     #[test]
@@ -1331,10 +1338,9 @@ mod overlay_tests {
                 "editing overlay should emphasize {mutation}"
             );
         }
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"verify_change_readiness")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"verify_change_readiness"));
         assert!(plan.avoid_tools.is_empty());
     }
 
@@ -1395,11 +1401,9 @@ mod overlay_tests {
             Some(HostContext::ClaudeCode),
             None,
         );
-        assert!(
-            !plan
-                .preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(!plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
     }
 
     #[test]
