@@ -14,4 +14,4 @@ mod build_generated;
 // `pub(super)` (visible to `generated`), and we widen them here to
 // `pub(super)` of *this* module (i.e., visible to `tool_defs`). Keeps
 // the call site in `build.rs` short and stable across migration PRs.
-pub(super) use build_generated::file_io_tools;
+pub(super) use build_generated::{file_io_tools, lsp_tools, symbol_tools};

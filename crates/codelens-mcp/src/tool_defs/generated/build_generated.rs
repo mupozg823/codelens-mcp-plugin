@@ -50,3 +50,97 @@ pub fn file_io_tools(ro_p: &ToolAnnotations) -> Vec<Tool> {
         ).with_output_schema(find_tests_output_schema()).with_annotations(ro_p.clone()),
     ]
 }
+
+pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "find_referencing_symbols",
+            "[CodeLens:Symbol] Find all usages of a symbol. use_lsp=true for type-aware precision.",
+            json!({"type":"object","required":["file_path"],"properties":{"file_path":{"type":"string","description":"File containing or declaring the symbol"},"symbol_name":{"type":"string","description":"Symbol name (default: tree-sitter search)"},"line":{"type":"integer","description":"Line number (triggers LSP path)"},"column":{"type":"integer","description":"Column number (triggers LSP path)"},"use_lsp":{"type":"boolean","description":"Force LSP lookup (slower but type-aware, requires LSP server)"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(references_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "get_file_diagnostics",
+            "[CodeLens:Symbol] Type errors and lint issues via LSP. Use after editing code.",
+            json!({"type":"object","required":["file_path"],"properties":{"file_path":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(diagnostics_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "search_workspace_symbols",
+            "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); the handler returns a structured hint toward `bm25_symbol_search` when omitted.",
+            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+        ).with_annotations(ro_p.clone()),
+        Tool::new(
+            "get_type_hierarchy",
+            "[CodeLens:Symbol] Inheritance hierarchy — supertypes and subtypes of a class/interface.",
+            json!({"type":"object","properties":{"name_path":{"type":"string"},"fully_qualified_name":{"type":"string"},"relative_path":{"type":"string"},"hierarchy_type":{"type":"string","enum":["super","sub","both"]},"depth":{"type":"integer"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}}),
+        ).with_output_schema(get_type_hierarchy_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "resolve_symbol_target",
+            "[CodeLens:Symbol] Resolve declaration/definition/implementation/type target through LSP. Use when edit-grade navigation authority is required.",
+            json!({"type":"object","required":["file_path","line","column"],"properties":{"file_path":{"type":"string"},"line":{"type":"integer","description":"1-based source line"},"column":{"type":"integer","description":"1-based byte column; converted to LSP UTF-16 internally"},"target":{"type":"string","enum":["declaration","definition","implementation","type_definition"],"description":"Target kind (default: definition)"},"semantic_backend":{"type":"string","enum":["lsp"],"description":"Only lsp is authoritative for this tool"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(resolve_symbol_target_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "plan_symbol_rename",
+            "[CodeLens:Symbol] Preview rename refactoring via LSP — check before applying.",
+            json!({"type":"object","required":["file_path","line","column"],"properties":{"file_path":{"type":"string"},"line":{"type":"integer"},"column":{"type":"integer"},"new_name":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "check_lsp_status",
+            "[CodeLens:Session] Check installed LSP servers with install commands.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_p.clone()),
+        Tool::new(
+            "get_lsp_recipe",
+            "[CodeLens:Session] Get LSP server install instructions for a file extension.",
+            json!({"type":"object","required":["extension"],"properties":{"extension":{"type":"string","description":"File extension (e.g. 'py', 'rs')"}}}),
+        ).with_annotations(ro_p.clone()),
+    ]
+}
+
+pub fn symbol_tools(
+    mut_w: &ToolAnnotations,
+    ro_a: &ToolAnnotations,
+    ro_p: &ToolAnnotations,
+) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "get_symbols_overview",
+            "[CodeLens:Symbol] List all symbols in a file — structural map. Use first to understand a file.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"depth":{"type":"integer"}}}),
+        ).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "find_symbol",
+            "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body.",
+            json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean"},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"}}}),
+        ).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "get_ranked_context",
+            "[CodeLens:Symbol] Smart context retrieval — best symbols for a query within token budget.",
+            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean","description":"Disable semantic/hybrid ranking and use structural signals only"}}}),
+        ).with_output_schema(ranked_context_output_schema()).with_annotations(ro_a.clone()).with_max_response_tokens(32768),
+        Tool::new(
+            "bm25_symbol_search",
+            "[CodeLens:Symbol] Sparse BM25-F symbol retrieval — best for identifiers, signatures, path tokens, and short lexical phrases.",
+            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"max_results":{"type":"integer","description":"Maximum number of results to return (default 10)"},"include_tests":{"type":"boolean","description":"Include test symbols in the candidate pool"},"include_generated":{"type":"boolean","description":"Include generated symbols in the candidate pool"}}}),
+        ).with_output_schema(bm25_symbol_search_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "search_symbols_fuzzy",
+            "[CodeLens:Symbol] Fuzzy symbol search — tolerates typos and partial names.",
+            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string","description":"Symbol name to search for"},"max_results":{"type":"integer","description":"Maximum number of results to return (default 30)"},"fuzzy_threshold":{"type":"number","description":"Minimum jaro_winkler similarity 0.0-1.0 for fuzzy matches (default 0.6)"},"disable_semantic":{"type":"boolean","description":"Disable semantic score blending and use lexical search only"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "get_complexity",
+            "[CodeLens:Analysis] Cyclomatic complexity for functions. Use to find code needing refactoring.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"symbol_name":{"type":"string"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "refresh_symbol_index",
+            "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(mut_w.clone()),
+        Tool::new(
+            "get_project_structure",
+            "[CodeLens:Symbol] Directory-level overview — file counts and symbol density per directory.",
+            json!({"type":"object","properties":{}}),
+        ).with_output_schema(get_project_structure_output_schema()).with_annotations(ro_p.clone()),
+    ]
+}
