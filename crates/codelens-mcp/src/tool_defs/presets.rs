@@ -1292,9 +1292,10 @@ mod overlay_tests {
         let plan = compile_surface_overlay(full_surface(), Some(HostContext::ClaudeCode), None);
         assert!(plan.applied());
         assert_eq!(plan.preferred_executor_bias, Some("claude"));
-        assert!(plan
-            .preferred_entrypoints
-            .contains(&"analyze_change_request"));
+        assert!(
+            plan.preferred_entrypoints
+                .contains(&"analyze_change_request")
+        );
         assert!(!plan.routing_notes.is_empty());
     }
 
@@ -1319,9 +1320,10 @@ mod overlay_tests {
                 "planning overlay should avoid {mutation}"
             );
         }
-        assert!(plan
-            .preferred_entrypoints
-            .contains(&"analyze_change_request"));
+        assert!(
+            plan.preferred_entrypoints
+                .contains(&"analyze_change_request")
+        );
     }
 
     #[test]
@@ -1338,9 +1340,10 @@ mod overlay_tests {
                 "editing overlay should emphasize {mutation}"
             );
         }
-        assert!(plan
-            .preferred_entrypoints
-            .contains(&"verify_change_readiness"));
+        assert!(
+            plan.preferred_entrypoints
+                .contains(&"verify_change_readiness")
+        );
         assert!(plan.avoid_tools.is_empty());
     }
 
@@ -1401,9 +1404,11 @@ mod overlay_tests {
             Some(HostContext::ClaudeCode),
             None,
         );
-        assert!(!plan
-            .preferred_entrypoints
-            .contains(&"analyze_change_request"));
+        assert!(
+            !plan
+                .preferred_entrypoints
+                .contains(&"analyze_change_request")
+        );
     }
 
     #[test]
