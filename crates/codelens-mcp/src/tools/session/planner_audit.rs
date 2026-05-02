@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::audit_common::{
     CHECK_FAIL, CHECK_NA, CHECK_PASS, CHECK_WARN, add_check, collect_seen_paths,
-    is_planner_surface, missing_paths, push_unique, resolve_audit_session_view,
+    is_planner_surface, missing_paths, resolve_audit_session_view,
 };
 
 const CHANGE_EVIDENCE_WORKFLOWS: &[&str] = &[
@@ -49,7 +49,7 @@ fn planner_workflow_target_paths(timeline: &[ToolInvocation]) -> Vec<String> {
             || (is_planner_workflow(&entry.tool) && is_planner_surface(&entry.surface))
         {
             for path in &entry.target_paths {
-                push_unique(&mut targets, path.clone());
+                crate::util::push_unique_string(&mut targets, path.clone());
             }
         }
     }
@@ -69,7 +69,7 @@ fn missing_change_evidence_workflows(timeline: &[ToolInvocation]) -> Vec<String>
             && entry.target_paths.is_empty()
             && !has_changed_files_evidence
         {
-            push_unique(&mut missing, entry.tool.clone());
+            crate::util::push_unique_string(&mut missing, entry.tool.clone());
         }
     }
     missing
@@ -135,7 +135,7 @@ pub(crate) fn build_planner_session_audit(
     if !has_read_side_surface
         && read_side_workflow_count == 0
         && mutation_attempt_count == 0
-        && metrics.mutation_preflight_gate_denied_count == 0
+        && metrics.mutation.mutation_preflight_gate_denied_count == 0
     {
         return Ok(json!({
             "status": CHECK_NA,
@@ -181,10 +181,10 @@ pub(crate) fn build_planner_session_audit(
         collect_seen_paths(&metrics.timeline, "find_symbol", 0..metrics.timeline.len());
     let mut evidence_seen = symbols_seen;
     for path in diagnostics_seen {
-        push_unique(&mut evidence_seen, path);
+        crate::util::push_unique_string(&mut evidence_seen, path);
     }
     for path in symbol_search_seen {
-        push_unique(&mut evidence_seen, path);
+        crate::util::push_unique_string(&mut evidence_seen, path);
     }
 
     let missing_change_evidence = missing_change_evidence_workflows(&metrics.timeline);
@@ -230,12 +230,13 @@ pub(crate) fn build_planner_session_audit(
         ),
     }
 
-    let mutation_status =
-        if mutation_attempt_count > 0 || metrics.mutation_preflight_gate_denied_count > 0 {
-            CHECK_FAIL
-        } else {
-            CHECK_PASS
-        };
+    let mutation_status = if mutation_attempt_count > 0
+        || metrics.mutation.mutation_preflight_gate_denied_count > 0
+    {
+        CHECK_FAIL
+    } else {
+        CHECK_PASS
+    };
     add_check(
         &mut checks,
         &mut findings,
@@ -248,8 +249,8 @@ pub(crate) fn build_planner_session_audit(
         },
         json!({
             "mutation_calls": mutation_attempt_count,
-            "mutation_preflight_gate_denied_count": metrics.mutation_preflight_gate_denied_count,
-            "mutation_without_preflight_count": metrics.mutation_without_preflight_count,
+            "mutation_preflight_gate_denied_count": metrics.mutation.mutation_preflight_gate_denied_count,
+            "mutation_without_preflight_count": metrics.mutation.mutation_without_preflight_count,
         }),
     );
 
@@ -275,25 +276,25 @@ pub(crate) fn build_planner_session_audit(
     add_check(
         &mut checks,
         &mut findings,
-        if metrics.repeated_low_level_chain_count == 0
-            && metrics.composite_guidance_missed_count == 0
+        if metrics.guidance.repeated_low_level_chain_count == 0
+            && metrics.guidance.composite_guidance_missed_count == 0
         {
             CHECK_PASS
         } else {
             CHECK_WARN
         },
         "workflow_first",
-        if metrics.repeated_low_level_chain_count == 0
-            && metrics.composite_guidance_missed_count == 0
+        if metrics.guidance.repeated_low_level_chain_count == 0
+            && metrics.guidance.composite_guidance_missed_count == 0
         {
             "Planner/reviewer session stayed on composite workflow entrypoints."
         } else {
             "Planner/reviewer session fell back to low-level chains instead of composite guidance."
         },
         json!({
-            "repeated_low_level_chain_count": metrics.repeated_low_level_chain_count,
-            "composite_guidance_missed_count": metrics.composite_guidance_missed_count,
-            "composite_guidance_missed_by_origin": metrics.composite_guidance_missed_by_origin,
+            "repeated_low_level_chain_count": metrics.guidance.repeated_low_level_chain_count,
+            "composite_guidance_missed_count": metrics.guidance.composite_guidance_missed_count,
+            "composite_guidance_missed_by_origin": metrics.guidance.composite_guidance_missed_by_origin,
         }),
     );
 
@@ -350,26 +351,26 @@ pub(crate) fn build_planner_session_audit(
         .iter()
         .any(|finding| finding["code"] == "bootstrap_order")
     {
-        push_unique(&mut recommended_next_tools, "prepare_harness_session");
+        crate::util::push_unique_string(&mut recommended_next_tools, "prepare_harness_session");
     }
     if findings
         .iter()
         .any(|finding| finding["code"] == "change_evidence")
     {
-        push_unique(&mut recommended_next_tools, "get_changed_files");
+        crate::util::push_unique_string(&mut recommended_next_tools, "get_changed_files");
     }
     if findings
         .iter()
         .any(|finding| finding["code"] == "workflow_first")
     {
-        push_unique(&mut recommended_next_tools, "review_changes");
+        crate::util::push_unique_string(&mut recommended_next_tools, "review_changes");
     }
     if findings
         .iter()
         .any(|finding| finding["code"] == "read_side_evidence")
     {
-        push_unique(&mut recommended_next_tools, "get_symbols_overview");
-        push_unique(&mut recommended_next_tools, "get_file_diagnostics");
+        crate::util::push_unique_string(&mut recommended_next_tools, "get_symbols_overview");
+        crate::util::push_unique_string(&mut recommended_next_tools, "get_file_diagnostics");
     }
 
     let session_summary = role_audit_session_summary(

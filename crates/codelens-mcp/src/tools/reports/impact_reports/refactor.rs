@@ -6,7 +6,7 @@ use crate::tools::symbols::{semantic_results_for_query, semantic_status};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-use super::{insert_semantic_status, module_boundary_report, push_unique, semantic_degraded_note};
+use super::{insert_semantic_status, module_boundary_report, semantic_degraded_note};
 
 pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult {
     let path = arguments
@@ -62,11 +62,11 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
     let mut next_actions =
         vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()];
     if let Some(note) = semantic_degraded_note(&status) {
-        push_unique(
+        crate::util::push_unique_string(
             &mut next_actions,
             "Run index_embeddings before trusting semantic-enriched report sections",
         );
-        push_unique(&mut next_actions, note);
+        crate::util::push_unique_string(&mut next_actions, note);
     }
     make_handle_response(
         state,

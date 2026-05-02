@@ -64,36 +64,35 @@ pub struct SurfaceMetrics {
 
 /// Session-level aggregate metrics across all tool calls.
 #[derive(Debug, Default, Serialize, Clone)]
-pub struct SessionMetrics {
-    // ── Core ─────────────────────────────────────────────────────────────
+pub struct CoreMetrics {
     pub total_calls: u64,
     pub success_count: u64,
     pub total_ms: u64,
     pub total_tokens: usize,
     pub error_count: u64,
     pub retry_count: u64,
+    #[serde(skip_serializing)]
+    pub latency_samples: VecDeque<u64>,
+}
+
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct TruncationMetrics {
     pub truncated_response_count: u64,
     pub truncation_followup_count: u64,
     pub truncation_same_tool_retry_count: u64,
     pub truncation_handle_followup_count: u64,
     pub handle_reuse_count: u64,
+    #[serde(skip_serializing)]
+    pub pending_truncation_tool: Option<String>,
+}
 
-    // ── Token usage ──────────────────────────────────────────────────────
-    pub tools_list_tokens: usize,
-
-    // ── Analysis context reads ───────────────────────────────────────────
-    pub analysis_summary_reads: u64,
-    pub analysis_section_reads: u64,
-    pub analysis_cache_hit_count: u64,
-
-    // ── Workflow guidance ────────────────────────────────────────────────
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct GuidanceMetrics {
     pub repeated_low_level_chain_count: u64,
     pub composite_guidance_emitted_count: u64,
     pub composite_guidance_followed_count: u64,
     pub composite_guidance_missed_count: u64,
     pub composite_guidance_missed_by_origin: BTreeMap<String, u64>,
-
-    // ── Quality contract / verifier ──────────────────────────────────────
     pub quality_contract_emitted_count: u64,
     pub recommended_checks_emitted_count: u64,
     pub recommended_check_followthrough_count: u64,
@@ -102,37 +101,55 @@ pub struct SessionMetrics {
     pub verifier_contract_emitted_count: u64,
     pub blocker_emit_count: u64,
     pub verifier_followthrough_count: u64,
+    #[serde(skip_serializing)]
+    pub pending_composite_guidance_from: Option<String>,
+    #[serde(skip_serializing)]
+    pub pending_quality_contract: bool,
+    #[serde(skip_serializing)]
+    pub pending_verifier_contract: bool,
+}
 
-    // ── Coordination ─────────────────────────────────────────────────────
-    pub coordination_registration_count: u64,
-    pub coordination_claim_count: u64,
-    pub coordination_release_count: u64,
-    pub coordination_overlap_emit_count: u64,
-    pub coordination_caution_emit_count: u64,
-
-    // ── Mutation gate / preflight ────────────────────────────────────────
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct MutationMetrics {
     pub mutation_preflight_checked_count: u64,
     pub mutation_without_preflight_count: u64,
     pub mutation_preflight_gate_denied_count: u64,
     pub stale_preflight_reject_count: u64,
     pub mutation_with_caution_count: u64,
     pub rename_without_symbol_preflight_count: u64,
+}
 
-    // ── Namespace / surface tier ─────────────────────────────────────────
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct CoordinationMetrics {
+    pub coordination_registration_count: u64,
+    pub coordination_claim_count: u64,
+    pub coordination_release_count: u64,
+    pub coordination_overlap_emit_count: u64,
+    pub coordination_caution_emit_count: u64,
+}
+
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct NamespaceMetrics {
     pub deferred_namespace_expansion_count: u64,
     pub deferred_hidden_tool_call_denied_count: u64,
     pub profile_switch_count: u64,
     pub preset_switch_count: u64,
+}
 
-    // ── Call-type classification ─────────────────────────────────────────
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct CallTypeMetrics {
     pub composite_calls: u64,
     pub low_level_calls: u64,
+}
 
-    // ── Transport ────────────────────────────────────────────────────────
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct TransportMetrics {
     pub stdio_session_count: u64,
     pub http_session_count: u64,
+}
 
-    // ── Analysis job system ──────────────────────────────────────────────
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct AnalysisJobMetrics {
     pub analysis_jobs_enqueued: u64,
     pub analysis_jobs_started: u64,
     pub analysis_jobs_completed: u64,
@@ -148,19 +165,51 @@ pub struct SessionMetrics {
     pub analysis_worker_limit: u64,
     pub analysis_cost_budget: u64,
     pub analysis_transport_mode: String,
+}
 
-    // ── Internal state (excluded from serialization) ─────────────────────
-    #[serde(skip_serializing)]
-    pub latency_samples: VecDeque<u64>,
-    #[serde(skip_serializing)]
-    pending_truncation_tool: Option<String>,
-    #[serde(skip_serializing)]
-    pending_composite_guidance_from: Option<String>,
-    #[serde(skip_serializing)]
-    pending_quality_contract: bool,
-    #[serde(skip_serializing)]
-    pending_verifier_contract: bool,
-    /// Ordered tool invocation timeline (capped at 200 entries).
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct ContextMetrics {
+    pub analysis_summary_reads: u64,
+    pub analysis_section_reads: u64,
+    pub analysis_cache_hit_count: u64,
+    pub analysis_cache_hit_exact_count: u64,
+    pub analysis_cache_hit_warm_count: u64,
+    pub analysis_cache_hit_cold_count: u64,
+}
+
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct TokenMetrics {
+    pub tools_list_tokens: usize,
+}
+
+/// Session-level aggregate metrics across all tool calls.
+///
+/// Fields are grouped into domain-specific sub-structs and flattened during
+/// serialization so the external JSON schema remains unchanged.
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct SessionMetrics {
+    #[serde(flatten)]
+    pub core: CoreMetrics,
+    #[serde(flatten)]
+    pub truncation: TruncationMetrics,
+    #[serde(flatten)]
+    pub guidance: GuidanceMetrics,
+    #[serde(flatten)]
+    pub mutation: MutationMetrics,
+    #[serde(flatten)]
+    pub coordination: CoordinationMetrics,
+    #[serde(flatten)]
+    pub namespace: NamespaceMetrics,
+    #[serde(flatten)]
+    pub call_type: CallTypeMetrics,
+    #[serde(flatten)]
+    pub transport: TransportMetrics,
+    #[serde(flatten)]
+    pub jobs: AnalysisJobMetrics,
+    #[serde(flatten)]
+    pub context: ContextMetrics,
+    #[serde(flatten)]
+    pub token: TokenMetrics,
     pub timeline: Vec<ToolInvocation>,
 }
 

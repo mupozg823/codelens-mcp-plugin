@@ -47,12 +47,6 @@ pub(crate) use crate::runtime_types::{
     RuntimeTransportMode,
 };
 
-pub(super) fn push_unique_string(items: &mut Vec<String>, value: String) {
-    if !items.iter().any(|existing| existing == &value) {
-        items.push(value);
-    }
-}
-
 pub(super) fn normalize_path_for_project(project_root: &Path, path: &str) -> String {
     let normalized = if Path::new(path).is_absolute() {
         PathBuf::from(path)

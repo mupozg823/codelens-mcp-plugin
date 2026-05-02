@@ -42,7 +42,10 @@ fn manifest_matches_registry_counts() {
         manifest["runtime"]["visible_tool_count"],
         json!(visible_tools(ToolSurface::Profile(ToolProfile::PlannerReadonly)).len())
     );
-    assert_eq!(manifest["workspace"]["member_count"], json!(3));
+    assert_eq!(
+        manifest["workspace"]["member_count"],
+        json!(super::workspace_members().len())
+    );
     assert_eq!(manifest["summary"]["harness_mode_count"], json!(4));
     assert_eq!(manifest["summary"]["harness_contract_count"], json!(3));
     assert_eq!(

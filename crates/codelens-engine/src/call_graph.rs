@@ -119,7 +119,7 @@ pub(crate) fn is_noise_callee(name: &str) -> bool {
     matches!(
         name,
         // ── cross-language common ──
-        "get" | "set" | "push" | "pop" | "len" | "new" | "from" | "into"
+        "get" | "set" | "push" | "pop" | "len" | "from" | "into"
             | "map" | "filter" | "collect" | "contains" | "insert" | "remove"
             | "format" | "print" | "clone" | "default" | "next" | "read"
             | "write" | "open" | "close" | "keys" | "values" | "sort"
@@ -161,6 +161,14 @@ pub(crate) fn is_noise_callee(name: &str) -> bool {
             | "entrySet" | "keySet" | "charAt" | "substring" | "trim"
             | "length" | "toArray" | "stream" | "asList"
     )
+}
+
+/// Language-aware noise filter. Rust `new` is a constructor, not noise.
+pub(crate) fn is_noise_callee_for_lang(name: &str, lang: Option<&str>) -> bool {
+    if lang == Some("rs") && name == "new" {
+        return false;
+    }
+    is_noise_callee(name)
 }
 
 fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
@@ -446,7 +454,9 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 continue;
             };
             let callee_name = callee_name.trim().to_owned();
-            if callee_name.is_empty() || is_noise_callee(&callee_name) {
+            if callee_name.is_empty()
+                || is_noise_callee_for_lang(&callee_name, Some(config.language_key))
+            {
                 continue;
             }
             let line = cap.node.start_position().row + 1;
@@ -1509,6 +1519,40 @@ fn run() {
         assert!(
             !callees.iter().any(|callee| callee.name == "useState"),
             "external imported binding should not appear in project call graph: {callees:?}"
+        );
+    }
+
+    #[test]
+    fn get_callers_finds_rust_new_constructor() {
+        let dir = temp_dir("rs-callers-new");
+        fs::write(
+            dir.join("lib.rs"),
+            r#"pub struct Foo;
+impl Foo {
+    pub fn new() -> Self { Self }
+}
+
+pub fn make_foo() -> Foo {
+    Foo::new()
+}
+
+pub fn make_another() -> Foo {
+    Self::new()
+}
+"#,
+        )
+        .expect("write lib.rs");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let callers = get_callers(&project, "new", None, 50, None).expect("callers");
+        let names: Vec<&str> = callers.iter().map(|c| c.function.as_str()).collect();
+        assert!(
+            names.contains(&"make_foo"),
+            "expected make_foo as caller of new, got {names:?}"
+        );
+        assert!(
+            names.contains(&"make_another"),
+            "expected make_another as caller of new, got {names:?}"
         );
     }
 }

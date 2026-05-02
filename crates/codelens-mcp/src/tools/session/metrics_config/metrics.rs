@@ -162,7 +162,7 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
         .map(|session_id| state.metrics().session_snapshot_for(session_id))
         .unwrap_or_else(|| state.metrics().session_snapshot());
 
-    let total_calls = session.total_calls.max(1);
+    let total_calls = session.core.total_calls.max(1);
     let mut tools: Vec<_> = snapshot.into_iter().collect();
     tools.sort_by_key(|b| std::cmp::Reverse(b.1.call_count));
     let count = tools.len();
@@ -174,20 +174,23 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
     }
     md.push_str("## Summary\n\n| Metric | Value |\n|---|---|\n");
     md.push_str(&format!("| Total calls | {} |\n", total_calls));
-    md.push_str(&format!("| Total time | {}ms |\n", session.total_ms));
+    md.push_str(&format!("| Total time | {}ms |\n", session.core.total_ms));
     md.push_str(&format!(
         "| Avg per call | {}ms |\n",
-        session.total_ms.checked_div(total_calls).unwrap_or(0)
+        session.core.total_ms.checked_div(total_calls).unwrap_or(0)
     ));
-    md.push_str(&format!("| Total tokens | {} |\n", session.total_tokens));
-    md.push_str(&format!("| Errors | {} |\n", session.error_count));
+    md.push_str(&format!(
+        "| Total tokens | {} |\n",
+        session.core.total_tokens
+    ));
+    md.push_str(&format!("| Errors | {} |\n", session.core.error_count));
     md.push_str(&format!(
         "| Analysis summary reads | {} |\n",
-        session.analysis_summary_reads
+        session.context.analysis_summary_reads
     ));
     md.push_str(&format!(
         "| Analysis section reads | {} |\n",
-        session.analysis_section_reads
+        session.context.analysis_section_reads
     ));
     md.push_str(&format!("| Unique tools | {count} |\n\n"));
 
@@ -217,7 +220,7 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
     md.push_str(&format!(
         "Tokens/call: {}\n",
         if total_calls > 0 {
-            session.total_tokens / total_calls as usize
+            session.core.total_tokens / total_calls as usize
         } else {
             0
         }

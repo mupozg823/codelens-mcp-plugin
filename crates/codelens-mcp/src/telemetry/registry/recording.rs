@@ -65,47 +65,48 @@ pub(super) fn record_session_call(
     target_paths: &[String],
 ) {
     let previous = session.timeline.last().cloned();
-    session.total_calls += 1;
+    session.core.total_calls += 1;
     if success {
-        session.success_count += 1;
+        session.core.success_count += 1;
     }
-    session.total_ms += elapsed_ms;
-    session.total_tokens += tokens;
+    session.core.total_ms += elapsed_ms;
+    session.core.total_tokens += tokens;
     if name == "tools/list" {
-        session.tools_list_tokens += tokens;
+        session.token.tools_list_tokens += tokens;
     }
     if is_workflow_tool(name) {
-        session.composite_calls += 1;
+        session.call_type.composite_calls += 1;
     } else {
-        session.low_level_calls += 1;
+        session.call_type.low_level_calls += 1;
     }
     if !success {
-        session.error_count += 1;
+        session.core.error_count += 1;
     }
-    if let Some(origin_tool) = session.pending_composite_guidance_from.clone() {
+    if let Some(origin_tool) = session.guidance.pending_composite_guidance_from.clone() {
         if !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset") {
             if is_workflow_tool(name) || name == "get_analysis_section" {
-                session.composite_guidance_followed_count += 1;
+                session.guidance.composite_guidance_followed_count += 1;
             } else {
-                session.composite_guidance_missed_count += 1;
+                session.guidance.composite_guidance_missed_count += 1;
                 *session
+                    .guidance
                     .composite_guidance_missed_by_origin
                     .entry(origin_tool)
                     .or_insert(0) += 1;
             }
-            session.pending_composite_guidance_from = None;
+            session.guidance.pending_composite_guidance_from = None;
         }
     }
-    if session.pending_quality_contract
+    if session.guidance.pending_quality_contract
         && (name == "get_analysis_section"
             || name == "get_file_diagnostics"
             || name == "find_tests")
     {
-        session.recommended_check_followthrough_count += 1;
-        session.pending_quality_contract = false;
+        session.guidance.recommended_check_followthrough_count += 1;
+        session.guidance.pending_quality_contract = false;
     }
     if name != "get_tool_metrics"
-        && session.pending_verifier_contract
+        && session.guidance.pending_verifier_contract
         && (name == "get_analysis_section"
             || name == "get_file_diagnostics"
             || name == "find_tests"
@@ -114,23 +115,23 @@ pub(super) fn record_session_call(
             || name == "unresolved_reference_check"
             || crate::tool_defs::is_content_mutation_tool(name))
     {
-        session.verifier_followthrough_count += 1;
-        session.pending_verifier_contract = false;
+        session.guidance.verifier_followthrough_count += 1;
+        session.guidance.pending_verifier_contract = false;
     }
     if let Some(prev) = previous {
         if prev.tool == name && !prev.success {
-            session.retry_count += 1;
+            session.core.retry_count += 1;
         }
     }
     if name != "get_tool_metrics" {
-        if let Some(prev_tool) = session.pending_truncation_tool.take() {
-            session.truncation_followup_count += 1;
+        if let Some(prev_tool) = session.truncation.pending_truncation_tool.take() {
+            session.truncation.truncation_followup_count += 1;
             if prev_tool == name {
-                session.truncation_same_tool_retry_count += 1;
+                session.truncation.truncation_same_tool_retry_count += 1;
             }
         }
     }
-    push_latency_sample(&mut session.latency_samples, elapsed_ms);
+    push_latency_sample(&mut session.core.latency_samples, elapsed_ms);
     let invocation = ToolInvocation {
         tool: name.to_owned(),
         surface: surface.to_owned(),
@@ -148,10 +149,10 @@ pub(super) fn record_session_call(
         session.timeline.push(invocation);
     }
     if truncated {
-        session.truncated_response_count += 1;
-        session.pending_truncation_tool = Some(name.to_owned());
+        session.truncation.truncated_response_count += 1;
+        session.truncation.pending_truncation_tool = Some(name.to_owned());
     }
     if has_low_level_chain(&session.timeline) {
-        session.repeated_low_level_chain_count += 1;
+        session.guidance.repeated_low_level_chain_count += 1;
     }
 }

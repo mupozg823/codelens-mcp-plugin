@@ -1,6 +1,6 @@
 use super::audit_common::{
     CHECK_FAIL, CHECK_NA, CHECK_PASS, CHECK_WARN, add_check, collect_seen_paths,
-    is_builder_surface, missing_paths, push_unique, resolve_audit_session_view,
+    is_builder_surface, missing_paths, resolve_audit_session_view,
 };
 use crate::AppState;
 use crate::error::CodeLensError;
@@ -48,12 +48,12 @@ fn collect_touched_files(
             )
         {
             for path in &entry.target_paths {
-                push_unique(&mut touched, path.clone());
+                crate::util::push_unique_string(&mut touched, path.clone());
             }
         }
     }
     for path in active_claim_paths {
-        push_unique(&mut touched, path.clone());
+        crate::util::push_unique_string(&mut touched, path.clone());
     }
     touched
 }
@@ -67,14 +67,14 @@ fn missing_preflight_paths_for_mutations(timeline: &[ToolInvocation]) -> Vec<Str
             "verify_change_readiness" | "safe_rename_report" | "unresolved_reference_check"
         ) {
             for path in &entry.target_paths {
-                push_unique(&mut verifier_paths, path.clone());
+                crate::util::push_unique_string(&mut verifier_paths, path.clone());
             }
             continue;
         }
         if is_refactor_gated_mutation_tool(&entry.tool) {
             for path in &entry.target_paths {
                 if !verifier_paths.iter().any(|seen| seen == path) {
-                    push_unique(&mut missing, path.clone());
+                    crate::util::push_unique_string(&mut missing, path.clone());
                 }
             }
         }
@@ -91,14 +91,14 @@ fn missing_symbol_preflight_paths_for_renames(timeline: &[ToolInvocation]) -> Ve
             "safe_rename_report" | "unresolved_reference_check"
         ) {
             for path in &entry.target_paths {
-                push_unique(&mut symbol_preflight_paths, path.clone());
+                crate::util::push_unique_string(&mut symbol_preflight_paths, path.clone());
             }
             continue;
         }
         if entry.tool == "rename_symbol" {
             for path in &entry.target_paths {
                 if !symbol_preflight_paths.iter().any(|seen| seen == path) {
-                    push_unique(&mut missing, path.clone());
+                    crate::util::push_unique_string(&mut missing, path.clone());
                 }
             }
         }
@@ -235,14 +235,14 @@ pub(crate) fn build_builder_session_audit(
             for entry in &metrics.timeline {
                 if entry.tool == "get_file_diagnostics" {
                     for path in &entry.target_paths {
-                        push_unique(&mut diagnostics_seen, path.clone());
+                        crate::util::push_unique_string(&mut diagnostics_seen, path.clone());
                     }
                     continue;
                 }
                 if is_refactor_gated_mutation_tool(&entry.tool) {
                     for path in &entry.target_paths {
                         if !diagnostics_seen.iter().any(|seen| seen == path) {
-                            push_unique(&mut missing, path.clone());
+                            crate::util::push_unique_string(&mut missing, path.clone());
                         }
                     }
                 }
@@ -257,14 +257,14 @@ pub(crate) fn build_builder_session_audit(
             for entry in metrics.timeline.iter().rev() {
                 if entry.tool == "get_file_diagnostics" {
                     for path in &entry.target_paths {
-                        push_unique(&mut diagnostics_seen, path.clone());
+                        crate::util::push_unique_string(&mut diagnostics_seen, path.clone());
                     }
                     continue;
                 }
                 if is_refactor_gated_mutation_tool(&entry.tool) {
                     for path in &entry.target_paths {
                         if !diagnostics_seen.iter().any(|seen| seen == path) {
-                            push_unique(&mut missing, path.clone());
+                            crate::util::push_unique_string(&mut missing, path.clone());
                         }
                     }
                 }
@@ -315,9 +315,9 @@ pub(crate) fn build_builder_session_audit(
     }
 
     if has_mutation {
-        let status = if metrics.mutation_without_preflight_count > 0
-            || metrics.rename_without_symbol_preflight_count > 0
-            || metrics.mutation_preflight_gate_denied_count > 0
+        let status = if metrics.mutation.mutation_without_preflight_count > 0
+            || metrics.mutation.rename_without_symbol_preflight_count > 0
+            || metrics.mutation.mutation_preflight_gate_denied_count > 0
             || !preflight_missing_paths.is_empty()
             || !rename_preflight_missing_paths.is_empty()
         {
@@ -337,11 +337,11 @@ pub(crate) fn build_builder_session_audit(
             },
             json!({
                 "mutation_calls": metrics.timeline.iter().filter(|entry| is_refactor_gated_mutation_tool(&entry.tool)).count(),
-                "mutation_preflight_checked_count": metrics.mutation_preflight_checked_count,
-                "mutation_without_preflight_count": metrics.mutation_without_preflight_count,
-                "rename_without_symbol_preflight_count": metrics.rename_without_symbol_preflight_count,
-                "mutation_preflight_gate_denied_count": metrics.mutation_preflight_gate_denied_count,
-                "stale_preflight_reject_count": metrics.stale_preflight_reject_count,
+                "mutation_preflight_checked_count": metrics.mutation.mutation_preflight_checked_count,
+                "mutation_without_preflight_count": metrics.mutation.mutation_without_preflight_count,
+                "rename_without_symbol_preflight_count": metrics.mutation.rename_without_symbol_preflight_count,
+                "mutation_preflight_gate_denied_count": metrics.mutation.mutation_preflight_gate_denied_count,
+                "stale_preflight_reject_count": metrics.mutation.stale_preflight_reject_count,
                 "missing_preflight_paths": preflight_missing_paths,
                 "missing_symbol_preflight_paths": rename_preflight_missing_paths,
             }),
@@ -560,13 +560,13 @@ pub(crate) fn build_builder_session_audit(
         .iter()
         .any(|finding| finding["code"] == "bootstrap_order")
     {
-        push_unique(&mut recommended_next_tools, "prepare_harness_session");
+        crate::util::push_unique_string(&mut recommended_next_tools, "prepare_harness_session");
     }
     if findings
         .iter()
         .any(|finding| finding["code"] == "mutation_gate")
     {
-        if metrics.rename_without_symbol_preflight_count > 0
+        if metrics.mutation.rename_without_symbol_preflight_count > 0
             || checks.iter().any(|check| {
                 check["code"] == "mutation_gate"
                     && check["evidence"]["missing_symbol_preflight_paths"]
@@ -575,40 +575,40 @@ pub(crate) fn build_builder_session_audit(
                         .unwrap_or(false)
             })
         {
-            push_unique(&mut recommended_next_tools, "safe_rename_report");
+            crate::util::push_unique_string(&mut recommended_next_tools, "safe_rename_report");
         } else {
-            push_unique(&mut recommended_next_tools, "verify_change_readiness");
+            crate::util::push_unique_string(&mut recommended_next_tools, "verify_change_readiness");
         }
     }
     if findings
         .iter()
         .any(|finding| finding["code"] == "structure_evidence")
     {
-        push_unique(&mut recommended_next_tools, "get_symbols_overview");
+        crate::util::push_unique_string(&mut recommended_next_tools, "get_symbols_overview");
     }
     if findings.iter().any(|finding| {
         finding["code"] == "diagnostics_before_mutation"
             || finding["code"] == "diagnostics_after_mutation"
     }) {
-        push_unique(&mut recommended_next_tools, "get_file_diagnostics");
+        crate::util::push_unique_string(&mut recommended_next_tools, "get_file_diagnostics");
     }
     if findings
         .iter()
         .any(|finding| finding["code"] == "coordination_registration")
     {
-        push_unique(&mut recommended_next_tools, "register_agent_work");
+        crate::util::push_unique_string(&mut recommended_next_tools, "register_agent_work");
     }
     if findings
         .iter()
         .any(|finding| finding["code"] == "coordination_claim")
     {
-        push_unique(&mut recommended_next_tools, "claim_files");
+        crate::util::push_unique_string(&mut recommended_next_tools, "claim_files");
     }
     if findings
         .iter()
         .any(|finding| finding["code"] == "coordination_release")
     {
-        push_unique(&mut recommended_next_tools, "release_files");
+        crate::util::push_unique_string(&mut recommended_next_tools, "release_files");
     }
 
     let session_summary = json!({

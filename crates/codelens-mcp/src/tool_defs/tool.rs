@@ -1,43 +1,19 @@
 use crate::AppState;
 use crate::tool_runtime::ToolResult;
 use serde_json::Value;
+use std::sync::Arc;
 
-/// Runtime behaviour of a dispatch-table entry. Identification lives on the
-/// registry side (string keys), so the trait carries only the dynamic checks
-/// the dispatcher performs: `is_enabled` (per request) and `execute`.
-pub trait McpTool: Send + Sync {
-    /// Whether this tool is currently callable in the given state. Default:
-    /// always enabled. Override for tools gated by runtime capabilities.
-    fn is_enabled(&self, _state: &AppState) -> bool {
-        true
-    }
-
-    fn execute(&self, state: &AppState, arguments: &Value) -> ToolResult;
-}
-
-/// Boxed executor signature shared by [`BuiltTool`] and any future
-/// function-backed tool adapters.
-type ToolExecutor = Box<dyn Fn(&AppState, &Value) -> ToolResult + Send + Sync>;
-
-/// Function-backed tool. Construct with [`BuiltTool::new`] — the handler is
-/// required at construction, so there is no "half-built" state.
-pub struct BuiltTool {
-    executable: ToolExecutor,
-}
-
-impl BuiltTool {
-    pub fn new<F>(f: F) -> Self
-    where
-        F: Fn(&AppState, &Value) -> ToolResult + Send + Sync + 'static,
-    {
-        Self {
-            executable: Box::new(f),
-        }
-    }
-}
-
-impl McpTool for BuiltTool {
-    fn execute(&self, state: &AppState, arguments: &Value) -> ToolResult {
-        (self.executable)(state, arguments)
-    }
-}
+/// A boxed tool handler.
+///
+/// Every entry in the dispatch table is a function that receives the app
+/// state plus the JSON-RPC arguments and returns a `ToolResult`. The bound
+/// is `Send + Sync` so the table can live in a `LazyLock` shared across
+/// threads, and `Arc` so the same handler can be cloned into multiple
+/// surface views without re-allocating.
+///
+/// Previously this was a single-method `McpTool` trait with a single
+/// implementor (`BuiltTool`). The trait carried an `is_enabled` default
+/// that no tool ever overrode, so the indirection paid no rent. The type
+/// alias keeps the same dispatch ergonomics with one fewer layer of
+/// boxing.
+pub type ToolHandler = Arc<dyn Fn(&AppState, &Value) -> ToolResult + Send + Sync>;

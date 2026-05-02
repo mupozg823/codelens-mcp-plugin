@@ -220,13 +220,14 @@ impl AppState {
         )
     }
 
-    pub(crate) fn find_reusable_analysis(
+    /// Tiered cache lookup — returns artifact + hit tier for metrics.
+    pub(crate) fn find_reusable_analysis_tiered(
         &self,
         scope: &str,
         tool_name: &str,
         cache_key: &str,
-    ) -> Option<AnalysisArtifact> {
-        self.artifact_store.find_reusable(
+    ) -> Option<(AnalysisArtifact, crate::runtime_types::CacheHitTier)> {
+        self.artifact_store.find_reusable_tiered(
             tool_name,
             cache_key,
             self.surface().as_label(),
@@ -234,12 +235,13 @@ impl AppState {
         )
     }
 
-    pub(crate) fn find_reusable_analysis_for_current_scope(
+    /// Tiered cache lookup for current scope.
+    pub(crate) fn find_reusable_analysis_tiered_for_current_scope(
         &self,
         tool_name: &str,
         cache_key: &str,
-    ) -> Option<AnalysisArtifact> {
-        self.find_reusable_analysis(&self.current_project_scope(), tool_name, cache_key)
+    ) -> Option<(AnalysisArtifact, crate::runtime_types::CacheHitTier)> {
+        self.find_reusable_analysis_tiered(&self.current_project_scope(), tool_name, cache_key)
     }
 
     pub(crate) fn get_analysis_for_scope(

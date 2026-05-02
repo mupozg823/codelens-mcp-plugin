@@ -363,7 +363,21 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         ));
     }
 
+    // Preserve existing surface when caller does not explicitly request a
+    // profile/preset change. `activate_project` auto-selects a surface based
+    // on file count, which overwrites a harness-chosen surface on every
+    // bootstrap call. We snapshot before activation and restore unless the
+    // user provided a new profile/preset.
+    let prior_surface = *state.surface();
+    let explicit_surface_request = arguments.get("profile").and_then(|v| v.as_str()).is_some()
+        || arguments.get("preset").and_then(|v| v.as_str()).is_some();
+
     let (activate_payload, _) = activate_project(state, arguments)?;
+
+    // Restore surface if the caller did not explicitly ask for a new one.
+    if !explicit_surface_request {
+        state.set_surface(prior_surface);
+    }
 
     // Apply effort_level if provided (before preset/profile for budget calculation)
     if let Some(effort_str) = arguments.get("effort_level").and_then(|v| v.as_str()) {

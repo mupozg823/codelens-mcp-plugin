@@ -30,9 +30,10 @@ pub use crate::tool_runtime::{
 // called from integration tests that go through `#[cfg(test)]`; internal
 // callers use `suggest_next_contextual`, which wraps it.
 use std::collections::HashMap;
-#[allow(unused_imports)]
+#[cfg(test)]
+pub(crate) use suggestions::suggest_next;
 pub(crate) use suggestions::{
-    composite_guidance_for_chain, infer_harness_phase, suggest_next, suggest_next_contextual,
+    composite_guidance_for_chain, infer_harness_phase, suggest_next_contextual,
     suggestion_reasons_for,
 };
 
@@ -40,14 +41,9 @@ pub(crate) use suggestions::{
 /// Each entry is `"tool_name" => module::handler_fn`.
 macro_rules! tool_registry {
     ($($name:expr => $handler:expr),* $(,)?) => {{
-        let mut m: HashMap<&'static str, std::sync::Arc<dyn crate::tool_defs::tool::McpTool>> = HashMap::new();
+        let mut m: HashMap<&'static str, crate::tool_defs::tool::ToolHandler> = HashMap::new();
         $(
-            m.insert(
-                $name,
-                std::sync::Arc::new(
-                    crate::tool_defs::tool::BuiltTool::new($handler)
-                )
-            );
+            m.insert($name, std::sync::Arc::new($handler));
         )*
         m
     }};
@@ -55,8 +51,7 @@ macro_rules! tool_registry {
 
 /// Build the dispatch table. Add new tools here — one line per tool.
 #[allow(deprecated)]
-pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_defs::tool::McpTool>>
-{
+pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHandler> {
     tool_registry! {
         // ── File I/O ──
         "get_current_config"           => filesystem::get_current_config,

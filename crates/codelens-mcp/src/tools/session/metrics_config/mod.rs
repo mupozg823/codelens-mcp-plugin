@@ -11,10 +11,6 @@ pub use capabilities::get_capabilities;
 // preserved verbatim. Nothing outside this module currently reaches
 // for these, but they were reachable before and must stay reachable
 // — dead-reexport warnings are suppressed to keep pure-relocation.
-#[allow(unused_imports)]
-pub(crate) use capabilities::{
-    DiagnosticsGuidance, DiagnosticsStatus, RuntimeHealthSnapshot, SemanticSearchStatus,
-    build_health_summary, collect_runtime_health_snapshot, determine_semantic_search_status,
-};
+pub(crate) use capabilities::collect_runtime_health_snapshot;
 pub use metrics::{export_session_markdown, get_tool_metrics};
 pub use watch_prune::{get_watch_status, prune_index_failures};

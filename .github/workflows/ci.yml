@@ -32,6 +32,9 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
       - name: cargo check
         run: cargo check --workspace
 
@@ -45,7 +48,7 @@ jobs:
         run: cargo check --workspace --features scip-backend
 
       - name: cargo check (semantic-off)
-        run: cargo check --workspace --no-default-features --features audit
+        run: cargo check --workspace --no-default-features
 
       - name: cargo clippy (deny warnings)
         run: cargo clippy --workspace -- -D warnings
@@ -60,7 +63,7 @@ jobs:
         run: cargo clippy --workspace --features scip-backend -- -D warnings
 
       - name: cargo clippy (semantic-off)
-        run: cargo clippy --workspace --no-default-features --features audit -- -D warnings
+        run: cargo clippy --workspace --no-default-features -- -D warnings
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
@@ -75,7 +78,7 @@ jobs:
         run: cargo nextest run --workspace --features http
 
       - name: cargo test (semantic-off)
-        run: cargo nextest run --workspace --no-default-features --features audit
+        run: cargo nextest run --workspace --no-default-features
 
       - name: cargo doctest
         run: cargo test --doc --workspace
@@ -111,7 +114,7 @@ jobs:
           path: target/release/codelens-mcp
 
       - name: Build release binary (semantic-off)
-        run: cargo build --release --bin codelens-mcp --no-default-features --features audit
+        run: cargo build --release --bin codelens-mcp --no-default-features
 
       - name: Upload slim release artifact
         if: matrix.os == 'macos-latest'

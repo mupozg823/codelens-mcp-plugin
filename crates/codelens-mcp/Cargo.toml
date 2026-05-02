@@ -9,6 +9,14 @@ readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 homepage.workspace = true
+# Test-only sources live under src/ for `cfg(test)` access to private
+# modules, but they should not bloat the published crates.io tarball.
+exclude = [
+    "src/integration_tests/**",
+    "src/server/http_tests/**",
+    "src/server/http_tests.rs",
+    "src/cli/startup_tests.rs",
+]
 
 [[bin]]
 name = "codelens-mcp"
@@ -38,6 +46,7 @@ opentelemetry-otlp = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
+rayon.workspace = true
 
 [dev-dependencies]
 tower = { workspace = true }
@@ -50,11 +59,10 @@ tempfile = "3"
 filetime = "0.2"
 
 [features]
-default = ["semantic", "audit"]
+default = ["semantic"]
 semantic = ["codelens-engine/semantic"]
 coreml = ["semantic", "codelens-engine/coreml"]
 model-bakeoff = ["semantic", "codelens-engine/model-bakeoff"]
 http = ["dep:axum", "dep:axum-server", "dep:tokio", "dep:uuid", "dep:tokio-stream", "dep:jsonwebtoken", "dep:ureq", "dep:rustls"]
 otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry", "dep:tokio"]
 scip-backend = ["codelens-engine/scip-backend"]
-audit = []

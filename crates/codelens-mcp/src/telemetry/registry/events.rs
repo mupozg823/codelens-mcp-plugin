@@ -14,27 +14,32 @@ impl ToolMetricsRegistry {
         logical_session_id: Option<&str>,
     ) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.handle_reuse_count += 1;
-            session.quality_focus_reuse_count += 1;
-            if session.pending_composite_guidance_from.take().is_some() {
-                session.composite_guidance_followed_count += 1;
+            session.truncation.handle_reuse_count += 1;
+            session.guidance.quality_focus_reuse_count += 1;
+            if session
+                .guidance
+                .pending_composite_guidance_from
+                .take()
+                .is_some()
+            {
+                session.guidance.composite_guidance_followed_count += 1;
             }
-            if session.pending_truncation_tool.take().is_some() {
-                session.truncation_followup_count += 1;
-                session.truncation_handle_followup_count += 1;
+            if session.truncation.pending_truncation_tool.take().is_some() {
+                session.truncation.truncation_followup_count += 1;
+                session.truncation.truncation_handle_followup_count += 1;
             }
-            if session.pending_quality_contract {
-                session.recommended_check_followthrough_count += 1;
-                session.pending_quality_contract = false;
+            if session.guidance.pending_quality_contract {
+                session.guidance.recommended_check_followthrough_count += 1;
+                session.guidance.pending_quality_contract = false;
             }
-            if session.pending_verifier_contract {
-                session.verifier_followthrough_count += 1;
-                session.pending_verifier_contract = false;
+            if session.guidance.pending_verifier_contract {
+                session.guidance.verifier_followthrough_count += 1;
+                session.guidance.pending_verifier_contract = false;
             }
             if is_section {
-                session.analysis_section_reads += 1;
+                session.context.analysis_section_reads += 1;
             } else {
-                session.analysis_summary_reads += 1;
+                session.context.analysis_summary_reads += 1;
             }
         });
     }
@@ -46,9 +51,32 @@ impl ToolMetricsRegistry {
 
     pub fn record_analysis_cache_hit_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.analysis_cache_hit_count += 1;
-            session.handle_reuse_count += 1;
-            session.quality_focus_reuse_count += 1;
+            session.context.analysis_cache_hit_count += 1;
+            session.truncation.handle_reuse_count += 1;
+            session.guidance.quality_focus_reuse_count += 1;
+        });
+    }
+
+    pub fn record_analysis_cache_hit_tiered_for_session(
+        &self,
+        tier: crate::runtime_types::CacheHitTier,
+        logical_session_id: Option<&str>,
+    ) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.context.analysis_cache_hit_count += 1;
+            match tier {
+                crate::runtime_types::CacheHitTier::Exact => {
+                    session.context.analysis_cache_hit_exact_count += 1;
+                }
+                crate::runtime_types::CacheHitTier::Warm => {
+                    session.context.analysis_cache_hit_warm_count += 1;
+                }
+                crate::runtime_types::CacheHitTier::Cold => {
+                    session.context.analysis_cache_hit_cold_count += 1;
+                }
+            }
+            session.truncation.handle_reuse_count += 1;
+            session.guidance.quality_focus_reuse_count += 1;
         });
     }
 
@@ -75,12 +103,13 @@ impl ToolMetricsRegistry {
         logical_session_id: Option<&str>,
     ) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.quality_contract_emitted_count += 1;
-            session.recommended_checks_emitted_count += recommended_checks_count as u64;
-            session.performance_watchpoint_emit_count += performance_watchpoint_count as u64;
-            session.pending_quality_contract = recommended_checks_count > 0;
+            session.guidance.quality_contract_emitted_count += 1;
+            session.guidance.recommended_checks_emitted_count += recommended_checks_count as u64;
+            session.guidance.performance_watchpoint_emit_count +=
+                performance_watchpoint_count as u64;
+            session.guidance.pending_quality_contract = recommended_checks_count > 0;
             if quality_focus_count == 0 {
-                session.pending_quality_contract = false;
+                session.guidance.pending_quality_contract = false;
             }
         });
     }
@@ -105,11 +134,11 @@ impl ToolMetricsRegistry {
         logical_session_id: Option<&str>,
     ) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.verifier_contract_emitted_count += 1;
+            session.guidance.verifier_contract_emitted_count += 1;
             if blocker_count > 0 {
-                session.blocker_emit_count += 1;
+                session.guidance.blocker_emit_count += 1;
             }
-            session.pending_verifier_contract = verifier_check_count > 0;
+            session.guidance.pending_verifier_contract = verifier_check_count > 0;
         });
     }
 
@@ -124,9 +153,9 @@ impl ToolMetricsRegistry {
         logical_session_id: Option<&str>,
     ) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.coordination_overlap_emit_count += 1;
+            session.coordination.coordination_overlap_emit_count += 1;
             if caution_only {
-                session.coordination_caution_emit_count += 1;
+                session.coordination.coordination_caution_emit_count += 1;
             }
         });
     }
@@ -138,7 +167,7 @@ impl ToolMetricsRegistry {
 
     pub fn record_coordination_registration_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.coordination_registration_count += 1;
+            session.coordination.coordination_registration_count += 1;
         });
     }
 
@@ -149,7 +178,7 @@ impl ToolMetricsRegistry {
 
     pub fn record_coordination_claim_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.coordination_claim_count += 1;
+            session.coordination.coordination_claim_count += 1;
         });
     }
 
@@ -160,7 +189,7 @@ impl ToolMetricsRegistry {
 
     pub fn record_coordination_release_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.coordination_release_count += 1;
+            session.coordination.coordination_release_count += 1;
         });
     }
 
@@ -171,7 +200,7 @@ impl ToolMetricsRegistry {
 
     pub fn record_mutation_without_preflight_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.mutation_without_preflight_count += 1;
+            session.mutation.mutation_without_preflight_count += 1;
         });
     }
 
@@ -182,7 +211,7 @@ impl ToolMetricsRegistry {
 
     pub fn record_mutation_preflight_checked_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.mutation_preflight_checked_count += 1;
+            session.mutation.mutation_preflight_checked_count += 1;
         });
     }
 
@@ -197,9 +226,9 @@ impl ToolMetricsRegistry {
         logical_session_id: Option<&str>,
     ) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.mutation_preflight_gate_denied_count += 1;
+            session.mutation.mutation_preflight_gate_denied_count += 1;
             if stale {
-                session.stale_preflight_reject_count += 1;
+                session.mutation.stale_preflight_reject_count += 1;
             }
         });
     }
@@ -211,7 +240,7 @@ impl ToolMetricsRegistry {
 
     pub fn record_mutation_with_caution_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.mutation_with_caution_count += 1;
+            session.mutation.mutation_with_caution_count += 1;
         });
     }
 
@@ -225,7 +254,7 @@ impl ToolMetricsRegistry {
         logical_session_id: Option<&str>,
     ) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.rename_without_symbol_preflight_count += 1;
+            session.mutation.rename_without_symbol_preflight_count += 1;
         });
     }
 
@@ -234,7 +263,7 @@ impl ToolMetricsRegistry {
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.deferred_namespace_expansion_count += 1;
+        session.namespace.deferred_namespace_expansion_count += 1;
     }
 
     pub fn record_deferred_hidden_tool_call_denied(&self) {
@@ -242,7 +271,7 @@ impl ToolMetricsRegistry {
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.deferred_hidden_tool_call_denied_count += 1;
+        session.namespace.deferred_hidden_tool_call_denied_count += 1;
     }
 
     #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
@@ -256,8 +285,8 @@ impl ToolMetricsRegistry {
         logical_session_id: Option<&str>,
     ) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.composite_guidance_emitted_count += 1;
-            session.pending_composite_guidance_from = Some(origin_tool.to_owned());
+            session.guidance.composite_guidance_emitted_count += 1;
+            session.guidance.pending_composite_guidance_from = Some(origin_tool.to_owned());
         });
     }
 
@@ -268,7 +297,7 @@ impl ToolMetricsRegistry {
 
     pub fn record_profile_switch_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.profile_switch_count += 1;
+            session.namespace.profile_switch_count += 1;
         });
     }
 
@@ -279,7 +308,7 @@ impl ToolMetricsRegistry {
 
     pub fn record_preset_switch_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
-            session.preset_switch_count += 1;
+            session.namespace.preset_switch_count += 1;
         });
     }
 
@@ -289,8 +318,8 @@ impl ToolMetricsRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match transport {
-            "http" => session.http_session_count += 1,
-            _ => session.stdio_session_count += 1,
+            "http" => session.transport.http_session_count += 1,
+            _ => session.transport.stdio_session_count += 1,
         }
     }
 
@@ -304,9 +333,9 @@ impl ToolMetricsRegistry {
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.analysis_worker_limit = worker_limit as u64;
-        session.analysis_cost_budget = cost_budget as u64;
-        session.analysis_transport_mode = transport.to_owned();
+        session.jobs.analysis_worker_limit = worker_limit as u64;
+        session.jobs.analysis_cost_budget = cost_budget as u64;
+        session.jobs.analysis_transport_mode = transport.to_owned();
     }
 
     pub fn record_analysis_job_enqueued(
@@ -319,15 +348,19 @@ impl ToolMetricsRegistry {
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.analysis_jobs_enqueued += 1;
-        session.analysis_queue_depth = queue_depth as u64;
-        session.analysis_queue_max_depth = session.analysis_queue_max_depth.max(queue_depth as u64);
-        session.analysis_queue_weighted_depth = weighted_depth as u64;
-        session.analysis_queue_max_weighted_depth = session
+        session.jobs.analysis_jobs_enqueued += 1;
+        session.jobs.analysis_queue_depth = queue_depth as u64;
+        session.jobs.analysis_queue_max_depth = session
+            .jobs
+            .analysis_queue_max_depth
+            .max(queue_depth as u64);
+        session.jobs.analysis_queue_weighted_depth = weighted_depth as u64;
+        session.jobs.analysis_queue_max_weighted_depth = session
+            .jobs
             .analysis_queue_max_weighted_depth
             .max(weighted_depth as u64);
         if priority_promoted {
-            session.analysis_queue_priority_promotions += 1;
+            session.jobs.analysis_queue_priority_promotions += 1;
         }
     }
 
@@ -336,16 +369,18 @@ impl ToolMetricsRegistry {
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.analysis_jobs_started += 1;
-        session.analysis_queue_depth = queue_depth as u64;
-        session.analysis_queue_weighted_depth = weighted_depth as u64;
-        session.analysis_queue_max_weighted_depth = session
+        session.jobs.analysis_jobs_started += 1;
+        session.jobs.analysis_queue_depth = queue_depth as u64;
+        session.jobs.analysis_queue_weighted_depth = weighted_depth as u64;
+        session.jobs.analysis_queue_max_weighted_depth = session
+            .jobs
             .analysis_queue_max_weighted_depth
             .max(weighted_depth as u64);
-        session.active_analysis_workers += 1;
-        session.peak_active_analysis_workers = session
+        session.jobs.active_analysis_workers += 1;
+        session.jobs.peak_active_analysis_workers = session
+            .jobs
             .peak_active_analysis_workers
-            .max(session.active_analysis_workers);
+            .max(session.jobs.active_analysis_workers);
     }
 
     pub fn record_analysis_job_finished(
@@ -360,17 +395,22 @@ impl ToolMetricsRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match status {
-            JobLifecycle::Completed => session.analysis_jobs_completed += 1,
-            JobLifecycle::Cancelled => session.analysis_jobs_cancelled += 1,
-            _ => session.analysis_jobs_failed += 1,
+            JobLifecycle::Completed => session.jobs.analysis_jobs_completed += 1,
+            JobLifecycle::Cancelled => session.jobs.analysis_jobs_cancelled += 1,
+            _ => session.jobs.analysis_jobs_failed += 1,
         }
-        session.analysis_queue_depth = queue_depth as u64;
-        session.analysis_queue_max_depth = session.analysis_queue_max_depth.max(queue_depth as u64);
-        session.analysis_queue_weighted_depth = weighted_depth as u64;
-        session.analysis_queue_max_weighted_depth = session
+        session.jobs.analysis_queue_depth = queue_depth as u64;
+        session.jobs.analysis_queue_max_depth = session
+            .jobs
+            .analysis_queue_max_depth
+            .max(queue_depth as u64);
+        session.jobs.analysis_queue_weighted_depth = weighted_depth as u64;
+        session.jobs.analysis_queue_max_weighted_depth = session
+            .jobs
             .analysis_queue_max_weighted_depth
             .max(weighted_depth as u64);
-        session.active_analysis_workers = session.active_analysis_workers.saturating_sub(1);
+        session.jobs.active_analysis_workers =
+            session.jobs.active_analysis_workers.saturating_sub(1);
     }
 
     pub fn record_analysis_job_cancelled(&self, queue_depth: usize, weighted_depth: usize) {
@@ -378,11 +418,15 @@ impl ToolMetricsRegistry {
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.analysis_jobs_cancelled += 1;
-        session.analysis_queue_depth = queue_depth as u64;
-        session.analysis_queue_max_depth = session.analysis_queue_max_depth.max(queue_depth as u64);
-        session.analysis_queue_weighted_depth = weighted_depth as u64;
-        session.analysis_queue_max_weighted_depth = session
+        session.jobs.analysis_jobs_cancelled += 1;
+        session.jobs.analysis_queue_depth = queue_depth as u64;
+        session.jobs.analysis_queue_max_depth = session
+            .jobs
+            .analysis_queue_max_depth
+            .max(queue_depth as u64);
+        session.jobs.analysis_queue_weighted_depth = weighted_depth as u64;
+        session.jobs.analysis_queue_max_weighted_depth = session
+            .jobs
             .analysis_queue_max_weighted_depth
             .max(weighted_depth as u64);
     }

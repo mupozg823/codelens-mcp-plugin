@@ -80,10 +80,10 @@ fn session_metrics_accumulate() {
     reg.record_call_with_tokens("rename_symbol", 8, false, 0, "refactor-full", false, None);
 
     let session = reg.session_snapshot();
-    assert_eq!(session.total_calls, 3);
-    assert_eq!(session.total_ms, 65);
-    assert_eq!(session.total_tokens, 2500);
-    assert_eq!(session.error_count, 1);
+    assert_eq!(session.core.total_calls, 3);
+    assert_eq!(session.core.total_ms, 65);
+    assert_eq!(session.core.total_tokens, 2500);
+    assert_eq!(session.core.error_count, 1);
     assert_eq!(session.timeline.len(), 3);
     assert_eq!(session.timeline[0].tool, "find_symbol");
     assert_eq!(session.timeline[0].surface, "planner-readonly");
@@ -92,7 +92,7 @@ fn session_metrics_accumulate() {
 
     let surfaces = reg.surface_snapshot();
     assert_eq!(surfaces.len(), 2);
-    assert_eq!(session.low_level_calls, 3);
+    assert_eq!(session.call_type.low_level_calls, 3);
 }
 
 #[test]
@@ -103,8 +103,8 @@ fn transport_counts_accumulate() {
     reg.record_transport_session("http");
 
     let session = reg.session_snapshot();
-    assert_eq!(session.stdio_session_count, 1);
-    assert_eq!(session.http_session_count, 2);
+    assert_eq!(session.transport.stdio_session_count, 1);
+    assert_eq!(session.transport.http_session_count, 2);
 }
 
 #[test]
@@ -117,29 +117,29 @@ fn analysis_queue_metrics_accumulate() {
     reg.record_analysis_job_cancelled(0, 0);
 
     let session = reg.session_snapshot();
-    assert_eq!(session.analysis_jobs_enqueued, 1);
-    assert_eq!(session.analysis_jobs_started, 1);
-    assert_eq!(session.analysis_jobs_completed, 1);
-    assert_eq!(session.analysis_jobs_cancelled, 1);
-    assert_eq!(session.analysis_queue_max_depth, 2);
-    assert_eq!(session.analysis_queue_max_weighted_depth, 4);
-    assert_eq!(session.analysis_queue_priority_promotions, 1);
-    assert_eq!(session.analysis_queue_depth, 0);
-    assert_eq!(session.active_analysis_workers, 0);
-    assert_eq!(session.peak_active_analysis_workers, 1);
-    assert_eq!(session.analysis_cost_budget, 3);
+    assert_eq!(session.jobs.analysis_jobs_enqueued, 1);
+    assert_eq!(session.jobs.analysis_jobs_started, 1);
+    assert_eq!(session.jobs.analysis_jobs_completed, 1);
+    assert_eq!(session.jobs.analysis_jobs_cancelled, 1);
+    assert_eq!(session.jobs.analysis_queue_max_depth, 2);
+    assert_eq!(session.jobs.analysis_queue_max_weighted_depth, 4);
+    assert_eq!(session.jobs.analysis_queue_priority_promotions, 1);
+    assert_eq!(session.jobs.analysis_queue_depth, 0);
+    assert_eq!(session.jobs.active_analysis_workers, 0);
+    assert_eq!(session.jobs.peak_active_analysis_workers, 1);
+    assert_eq!(session.jobs.analysis_cost_budget, 3);
 }
 
 #[test]
 fn session_reset_clears() {
     let reg = ToolMetricsRegistry::new();
     reg.record_call_with_tokens("a", 10, true, 100, "planner-readonly", false, None);
-    assert_eq!(reg.session_snapshot().total_calls, 1);
+    assert_eq!(reg.session_snapshot().core.total_calls, 1);
 
     reg.reset();
     let session = reg.session_snapshot();
-    assert_eq!(session.total_calls, 0);
-    assert_eq!(session.total_tokens, 0);
+    assert_eq!(session.core.total_calls, 0);
+    assert_eq!(session.core.total_tokens, 0);
     assert!(session.timeline.is_empty());
 }
 
@@ -225,10 +225,10 @@ fn truncation_metrics_capture_followup() {
     reg.record_analysis_read(true);
 
     let session = reg.session_snapshot();
-    assert_eq!(session.truncated_response_count, 2);
-    assert_eq!(session.truncation_followup_count, 2);
-    assert_eq!(session.truncation_same_tool_retry_count, 1);
-    assert_eq!(session.truncation_handle_followup_count, 1);
+    assert_eq!(session.truncation.truncated_response_count, 2);
+    assert_eq!(session.truncation.truncation_followup_count, 2);
+    assert_eq!(session.truncation.truncation_same_tool_retry_count, 1);
+    assert_eq!(session.truncation.truncation_handle_followup_count, 1);
 }
 
 #[test]
@@ -239,8 +239,8 @@ fn profile_and_preset_switch_counts_accumulate() {
     reg.record_profile_switch();
 
     let session = reg.session_snapshot();
-    assert_eq!(session.preset_switch_count, 2);
-    assert_eq!(session.profile_switch_count, 1);
+    assert_eq!(session.namespace.preset_switch_count, 2);
+    assert_eq!(session.namespace.profile_switch_count, 1);
 }
 
 #[test]

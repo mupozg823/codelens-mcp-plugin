@@ -1,4 +1,17 @@
 /// Shared utility helpers used across the crate.
+/// Push `value` into `items` only if it is not already present.
+/// Works for any `PartialEq` type.
+pub(crate) fn push_unique<T: PartialEq>(items: &mut Vec<T>, value: T) {
+    if !items.contains(&value) {
+        items.push(value);
+    }
+}
+
+/// Convenience wrapper for `Vec<String>` that accepts `impl Into<String>`.
+pub(crate) fn push_unique_string(items: &mut Vec<String>, value: impl Into<String>) {
+    push_unique(items, value.into());
+}
+
 pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -338,12 +338,12 @@ fn get_callees_caps_tool_confidence_on_fallback_and_unresolved_mix() {
         confidence <= 0.35,
         "confidence should cap on unresolved mix: {confidence}"
     );
-    assert_eq!(
+    assert!(
         payload["data"]["resolution_summary"]["unresolved"]
             .as_u64()
             .unwrap_or_default()
             > 0,
-        true
+        "expected at least one unresolved caller"
     );
 }
 
@@ -433,7 +433,10 @@ fn bm25_symbol_search_returns_symbol_cards() {
     );
     let top = &results[0];
     assert_eq!(top["name"], json!("dispatch_tool"));
-    assert_eq!(top["kind"].as_str().unwrap_or_default().is_empty(), false);
+    assert!(
+        !top["kind"].as_str().unwrap_or_default().is_empty(),
+        "kind should not be empty"
+    );
     assert!(
         top["score"].as_f64().unwrap_or_default() > 0.0,
         "top hit should have positive BM25F score"

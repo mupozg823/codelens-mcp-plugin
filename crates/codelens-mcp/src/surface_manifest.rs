@@ -488,7 +488,7 @@ fn preset_label(preset: ToolPreset) -> &'static str {
     }
 }
 
-fn workspace_members() -> Vec<String> {
+pub(crate) fn workspace_members() -> Vec<String> {
     let mut members = Vec::new();
     let mut in_members_block = false;
     for line in WORKSPACE_CARGO_TOML.lines() {

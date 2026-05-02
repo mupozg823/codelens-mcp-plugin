@@ -73,7 +73,9 @@ pub fn explore_codebase(state: &AppState, arguments: &Value) -> ToolResult {
         state,
         "explore_codebase",
         "onboard_project",
-        json!({}),
+        json!({
+            "project_root": arguments.get("project_root").and_then(|value| value.as_str()),
+        }),
         crate::tools::composite::onboard_project,
     )
 }
@@ -132,7 +134,9 @@ pub fn review_architecture(state: &AppState, arguments: &Value) -> ToolResult {
         state,
         "review_architecture",
         "onboard_project",
-        json!({}),
+        json!({
+            "project_root": arguments.get("project_root").and_then(|value| value.as_str()),
+        }),
         crate::tools::composite::onboard_project,
     )
 }

@@ -45,24 +45,13 @@ impl<'a> QueryEngine<'a> {
             }
         };
 
-        if !tool.is_enabled(self.state) {
-            return (
-                Err(CodeLensError::Validation(format!(
-                    "Tool {} is currently disabled",
-                    name
-                ))),
-                None,
-                None,
-            );
-        }
-
         if is_refactor_gated_mutation_tool(name) {
             self.state
                 .metrics()
                 .record_mutation_preflight_checked_for_session(Some(session.session_id.as_str()));
             match evaluate_mutation_gate(self.state, name, session, surface, arguments) {
                 Ok(allowance) => {
-                    let result = tool.execute(self.state, arguments);
+                    let result = tool(self.state, arguments);
                     (result, allowance, None)
                 }
                 Err(failure) => {
@@ -98,7 +87,7 @@ impl<'a> QueryEngine<'a> {
                 }
             }
         } else {
-            let result = tool.execute(self.state, arguments);
+            let result = tool(self.state, arguments);
             (result, None, None)
         }
     }

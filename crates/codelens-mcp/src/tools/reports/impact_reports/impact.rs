@@ -7,7 +7,7 @@ use codelens_engine::search::SEMANTIC_COUPLING_THRESHOLD;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-use super::{insert_semantic_status, push_unique, semantic_degraded_note};
+use super::{insert_semantic_status, semantic_degraded_note};
 
 #[allow(deprecated)]
 pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
@@ -37,49 +37,64 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
 
     // Pre-compute change_kind for all target files to avoid repeated git calls inside the loop.
     let project = state.project();
-    let change_kinds: std::collections::HashMap<&str, String> = target_files
+    let change_kinds: std::collections::HashMap<String, String> = target_files
         .iter()
         .take(5)
         .map(|p| {
             (
-                p.as_str(),
+                p.clone(),
                 codelens_engine::git::classify_change_kind(&project, p),
             )
         })
         .collect();
 
-    let mut impact_rows = Vec::new();
+    use rayon::prelude::*;
+
+    let impact_results: Vec<_> = target_files
+        .iter()
+        .take(5)
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_par_iter()
+        .map(|path| {
+            let impact = crate::tools::graph::get_impact_analysis(
+                state,
+                &json!({"file_path": &path, "max_depth": 2}),
+            )
+            .map(|output| output.0)
+            .unwrap_or_else(
+                |_| json!({"file_path": &path, "total_affected_files": 0, "direct_importers": []}),
+            );
+            let affected = impact
+                .get("total_affected_files")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_default();
+            let change_kind = change_kinds
+                .get(&path)
+                .cloned()
+                .unwrap_or_else(|| "mixed".to_owned());
+            let kind_label = if change_kind == "additive" {
+                " (additive)"
+            } else {
+                ""
+            };
+            let finding = format!("{path}: {affected} affected file(s){kind_label}");
+            let row = json!({
+                "path": path,
+                "affected_files": affected,
+                "change_kind": change_kind,
+                "direct_importers": impact.get("direct_importers").cloned().unwrap_or(json!([])),
+                "blast_radius": impact.get("blast_radius").cloned().unwrap_or(json!([])),
+            });
+            (finding, row)
+        })
+        .collect();
+
     let mut top_findings = Vec::new();
-    for path in target_files.iter().take(5) {
-        let impact = crate::tools::graph::get_impact_analysis(
-            state,
-            &json!({"file_path": path, "max_depth": 2}),
-        )
-        .map(|output| output.0)
-        .unwrap_or_else(
-            |_| json!({"file_path": path, "total_affected_files": 0, "direct_importers": []}),
-        );
-        let affected = impact
-            .get("total_affected_files")
-            .and_then(|value| value.as_u64())
-            .unwrap_or_default();
-        let change_kind = change_kinds
-            .get(path.as_str())
-            .cloned()
-            .unwrap_or_else(|| "mixed".to_owned());
-        let kind_label = if change_kind == "additive" {
-            " (additive)"
-        } else {
-            ""
-        };
-        top_findings.push(format!("{path}: {affected} affected file(s){kind_label}"));
-        impact_rows.push(json!({
-            "path": path,
-            "affected_files": affected,
-            "change_kind": change_kind,
-            "direct_importers": impact.get("direct_importers").cloned().unwrap_or(json!([])),
-            "blast_radius": impact.get("blast_radius").cloned().unwrap_or(json!([])),
-        }));
+    let mut impact_rows = Vec::new();
+    for (finding, row) in impact_results {
+        top_findings.push(finding);
+        impact_rows.push(row);
     }
 
     // Semantic enrichment: find files semantically related to changed files
@@ -167,11 +182,11 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
     let mut next_actions =
         vec!["Expand only the highest-impact file before deeper review".to_owned()];
     if let Some(note) = semantic_degraded_note(&final_semantic_status) {
-        push_unique(
+        crate::util::push_unique_string(
             &mut next_actions,
             "Run index_embeddings before trusting semantic-only related-file hints",
         );
-        push_unique(&mut next_actions, note);
+        crate::util::push_unique_string(&mut next_actions, note);
     }
     make_handle_response(
         state,

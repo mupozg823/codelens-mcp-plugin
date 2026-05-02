@@ -1,6 +1,6 @@
 use super::*;
 
-// ── Protocol-level tests ─────────────────────────────────────────────
+// ── tools/list contract, filtering, and metadata ─────────────────────
 
 #[test]
 fn lists_tools() {
@@ -115,28 +115,6 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
         .collect::<Vec<_>>();
     assert!(namespace_tools.contains(&"get_symbols_overview"));
     assert!(namespace_tools.contains(&"find_symbol"));
-}
-
-#[test]
-fn notifications_return_none() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-    for method in &[
-        "notifications/initialized",
-        "notifications/cancelled",
-        "notifications/progress",
-    ] {
-        let result = handle_request(
-            &state,
-            crate::protocol::JsonRpcRequest {
-                jsonrpc: "2.0".to_owned(),
-                id: None,
-                method: method.to_string(),
-                params: None,
-            },
-        );
-        assert!(result.is_none(), "notification {method} should return None");
-    }
 }
 
 #[test]
@@ -299,7 +277,6 @@ fn tools_list_can_be_filtered_by_phase() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
 
-    // phase=build surfaces mutation tools but not planning reports.
     let build_resp = handle_request(
         &state,
         crate::protocol::JsonRpcRequest {
@@ -324,7 +301,6 @@ fn tools_list_can_be_filtered_by_phase() {
         "build phase should not include impact_report (plan tool)"
     );
 
-    // phase=plan surfaces analysis/retrieval, not mutations.
     let plan_resp = handle_request(
         &state,
         crate::protocol::JsonRpcRequest {
@@ -343,15 +319,12 @@ fn tools_list_can_be_filtered_by_phase() {
         "plan phase should not include mutation tools"
     );
 
-    // Phase-agnostic infrastructure (read_file) should pass through in both.
     assert!(
         build_encoded.contains("\"read_file\""),
         "phase filter should pass through phase-agnostic infrastructure"
     );
     assert!(plan_encoded.contains("\"read_file\""));
 
-    // Unknown phase label falls back to unfiltered — malformed input does
-    // not strip the surface.
     let bogus_resp = handle_request(
         &state,
         crate::protocol::JsonRpcRequest {
@@ -371,9 +344,6 @@ fn tools_list_can_be_filtered_by_phase() {
 fn profile_declares_preferred_phases_as_adoption_signal() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-    // planner-readonly is curated to emit plan + review tools as its
-    // preferred phase surface; the manifest field proves CodeLens
-    // itself consumes the phase alias, not just its hosts.
     let _ = call_tool(
         &state,
         "set_profile",
@@ -396,7 +366,6 @@ fn profile_declares_preferred_phases_as_adoption_signal() {
         "planner-readonly must advertise plan+review as preferred phases"
     );
 
-    // builder-minimal advertises build+review.
     let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
     let list_builder = handle_request(
         &state,
@@ -414,7 +383,6 @@ fn profile_declares_preferred_phases_as_adoption_signal() {
         "builder-minimal must advertise build+review as preferred phases"
     );
 
-    // workflow-first is intentionally phase-agnostic.
     let _ = call_tool(&state, "set_profile", json!({"profile": "workflow-first"}));
     let list_workflow = handle_request(
         &state,
@@ -605,9 +573,7 @@ fn tools_list_exposes_preferred_executor_per_tool() {
             jsonrpc: "2.0".to_owned(),
             id: Some(json!(1)),
             method: "tools/list".to_owned(),
-            params: Some(json!({
-                "full": true,
-            })),
+            params: Some(json!({"full": true})),
         },
     )
     .expect("tools/list should return a response");
@@ -651,9 +617,7 @@ fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
             jsonrpc: "2.0".to_owned(),
             id: Some(json!(1)),
             method: "tools/list".to_owned(),
-            params: Some(json!({
-                "full": true,
-            })),
+            params: Some(json!({"full": true})),
         },
     )
     .expect("tools/list should return a response");
@@ -706,9 +670,7 @@ fn tools_list_exposes_annotation_titles() {
             jsonrpc: "2.0".to_owned(),
             id: Some(json!(1)),
             method: "tools/list".to_owned(),
-            params: Some(json!({
-                "full": true,
-            })),
+            params: Some(json!({"full": true})),
         },
     )
     .expect("tools/list should return a response");
@@ -754,10 +716,7 @@ fn tools_list_exposes_latest_tool_title_without_advertising_unsupported_executio
             jsonrpc: "2.0".to_owned(),
             id: Some(json!(1)),
             method: "tools/list".to_owned(),
-            params: Some(json!({
-                "full": true,
-                "includeAnnotations": false,
-            })),
+            params: Some(json!({"full": true, "includeAnnotations": false})),
         },
     )
     .expect("tools/list should return a response");
@@ -778,36 +737,6 @@ fn tools_list_exposes_latest_tool_title_without_advertising_unsupported_executio
 }
 
 #[test]
-fn tool_call_result_meta_exposes_preferred_executor() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-
-    let response = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(1)),
-            method: "tools/call".to_owned(),
-            params: Some(json!({
-                "name": "create_text_file",
-                "arguments": {
-                    "_session_id": default_session_id(&state),
-                    "relative_path": "new_file.txt",
-                    "content": "hello\n"
-                }
-            })),
-        },
-    )
-    .expect("tools/call should return a response");
-
-    let value = serde_json::to_value(&response).expect("serialize");
-    assert_eq!(
-        value["result"]["_meta"]["codelens/preferredExecutor"],
-        json!("codex-builder")
-    );
-}
-
-#[test]
 fn deferred_tools_list_omits_output_schema_by_default() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -821,9 +750,7 @@ fn deferred_tools_list_omits_output_schema_by_default() {
             jsonrpc: "2.0".to_owned(),
             id: Some(json!(1)),
             method: "tools/list".to_owned(),
-            params: Some(json!({
-                "_session_deferred_tool_loading": true,
-            })),
+            params: Some(json!({"_session_deferred_tool_loading": true})),
         },
     )
     .expect("tools/list should return a response");
@@ -863,220 +790,5 @@ fn deferred_tools_list_can_restore_output_schema_explicitly() {
     assert!(
         encoded.contains("\"outputSchema\""),
         "explicit includeOutputSchema should preserve output schemas"
-    );
-}
-
-#[test]
-fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-    state.set_surface(crate::tool_defs::ToolSurface::Profile(
-        crate::tool_defs::ToolProfile::RefactorFull,
-    ));
-    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::ReadOnly);
-
-    let payload = call_tool(
-        &state,
-        "create_text_file",
-        json!({"relative_path": "blocked.txt", "content": "nope"}),
-    );
-    assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by daemon mode")
-    );
-}
-
-#[test]
-fn hidden_tools_are_blocked_at_call_time() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-    let _ = call_tool(
-        &state,
-        "set_profile",
-        json!({"profile": "planner-readonly"}),
-    );
-
-    let payload = call_tool(
-        &state,
-        "create_text_file",
-        json!({"relative_path": "blocked.txt", "content": "nope"}),
-    );
-    assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("not available in active surface")
-    );
-}
-
-#[test]
-fn read_only_surface_marks_content_mutations_for_blocking() {
-    assert!(crate::tool_defs::is_read_only_surface(
-        crate::tool_defs::ToolSurface::Profile(crate::tool_defs::ToolProfile::PlannerReadonly),
-    ));
-    assert!(crate::tool_defs::is_content_mutation_tool(
-        "create_text_file"
-    ));
-    assert!(!crate::tool_defs::is_content_mutation_tool("set_profile"));
-}
-
-#[test]
-fn watch_status_reports_lock_contention_field() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-    let payload = call_tool(&state, "get_watch_status", json!({}));
-    assert!(payload["data"].get("lock_contention_batches").is_some());
-    assert!(payload["data"].get("index_failures").is_some());
-    assert!(payload["data"].get("index_failures_total").is_some());
-    assert!(payload["data"].get("stale_index_failures").is_some());
-    assert!(payload["data"].get("persistent_index_failures").is_some());
-    assert!(payload["data"].get("pruned_missing_failures").is_some());
-    assert!(
-        payload["data"]
-            .get("recent_failure_window_seconds")
-            .is_some()
-    );
-}
-
-#[test]
-fn watch_status_is_read_only_for_failure_health() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-    {
-        let symbol_index = state.symbol_index();
-        let db = symbol_index.db();
-        db.record_index_failure("missing.py", "index_batch_error", "boom")
-            .unwrap();
-    }
-
-    let payload = call_tool(&state, "get_watch_status", json!({}));
-    assert_eq!(
-        payload["data"]["pruned_missing_failures"]
-            .as_u64()
-            .unwrap_or_default(),
-        0
-    );
-    assert_eq!(
-        payload["data"]["index_failures_total"]
-            .as_u64()
-            .unwrap_or_default(),
-        1
-    );
-    let symbol_index = state.symbol_index();
-    let db = symbol_index.db();
-    assert_eq!(db.index_failure_count().unwrap_or_default(), 1);
-}
-
-#[test]
-fn prune_index_failures_explicitly_cleans_missing_failure_records() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-    {
-        let symbol_index = state.symbol_index();
-        let db = symbol_index.db();
-        db.record_index_failure("missing.py", "index_batch_error", "boom")
-            .unwrap();
-    }
-
-    let payload = call_tool(&state, "prune_index_failures", json!({}));
-    assert_eq!(
-        payload["data"]["pruned_missing_failures"]
-            .as_u64()
-            .unwrap_or_default(),
-        1
-    );
-    assert_eq!(
-        payload["data"]["index_failures_total"]
-            .as_u64()
-            .unwrap_or_default(),
-        0
-    );
-    let watch_status = call_tool(&state, "get_watch_status", json!({}));
-    assert_eq!(
-        watch_status["data"]["pruned_missing_failures"]
-            .as_u64()
-            .unwrap_or_default(),
-        1
-    );
-    let symbol_index = state.symbol_index();
-    let db = symbol_index.db();
-    assert_eq!(db.index_failure_count().unwrap_or_default(), 0);
-}
-
-#[test]
-fn observability_reads_do_not_mutate_index_failures() {
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-    {
-        let symbol_index = state.symbol_index();
-        let db = symbol_index.db();
-        db.record_index_failure("missing.py", "index_batch_error", "boom")
-            .unwrap();
-    }
-
-    let _ = call_tool(&state, "get_tool_metrics", json!({}));
-    let _ = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(2502)),
-            method: "resources/read".to_owned(),
-            params: Some(json!({"uri": "codelens://stats/token-efficiency"})),
-        },
-    )
-    .unwrap();
-
-    let symbol_index = state.symbol_index();
-    let db = symbol_index.db();
-    assert_eq!(db.index_failure_count().unwrap_or_default(), 1);
-}
-
-#[test]
-fn symbiote_uri_alias_matches_codelens_response() {
-    // ADR-0007 Phase 2: clients can address resources under either
-    // `codelens://` (canonical) or `symbiote://` (rebrand alias). Both
-    // must resolve to the same payload without any dispatch difference.
-    let project = project_root();
-    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-
-    let codelens_response = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(1)),
-            method: "resources/read".to_owned(),
-            params: Some(json!({"uri": "codelens://project/overview"})),
-        },
-    )
-    .expect("codelens:// uri must resolve");
-
-    let symbiote_response = handle_request(
-        &state,
-        crate::protocol::JsonRpcRequest {
-            jsonrpc: "2.0".to_owned(),
-            id: Some(json!(2)),
-            method: "resources/read".to_owned(),
-            params: Some(json!({"uri": "symbiote://project/overview"})),
-        },
-    )
-    .expect("symbiote:// alias must resolve");
-
-    let codelens_body = serde_json::to_value(&codelens_response)
-        .unwrap()
-        .get("result")
-        .cloned()
-        .unwrap_or_default();
-    let symbiote_body = serde_json::to_value(&symbiote_response)
-        .unwrap()
-        .get("result")
-        .cloned()
-        .unwrap_or_default();
-    assert_eq!(
-        codelens_body, symbiote_body,
-        "symbiote:// alias must return the same resource payload as codelens://"
     );
 }

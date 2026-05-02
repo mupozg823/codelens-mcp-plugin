@@ -3,7 +3,6 @@
 mod agent_coordination;
 mod analysis_queue;
 mod artifact_store;
-#[cfg(feature = "audit")]
 mod audit_sink;
 mod backend;
 mod backend_operation_matrix;
