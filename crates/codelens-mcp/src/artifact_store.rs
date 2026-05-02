@@ -444,10 +444,16 @@ mod tests {
         }
     }
 
-    fn make_store(tmp: &std::path::Path) -> AnalysisArtifactStore {
-        let dir = tmp.join("artifacts");
-        std::fs::create_dir_all(&dir).unwrap();
-        AnalysisArtifactStore::new(dir)
+    /// Spawn an isolated artifact store under a fresh `TempDir`. Returning
+    /// the `TempDir` keeps the directory alive for the duration of the test
+    /// (it is removed on drop). Avoids the previous per-pid directory race
+    /// where parallel tests sharing the same `codelens-test-<pid>` path
+    /// trampled each other's I/O — see EINVAL flake on macOS APFS.
+    fn make_store() -> (AnalysisArtifactStore, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().expect("tempdir for artifact store test");
+        let dir = tmp.path().join("artifacts");
+        std::fs::create_dir_all(&dir).expect("create artifact dir");
+        (AnalysisArtifactStore::new(dir), tmp)
     }
 
     fn store_artifact(store: &AnalysisArtifactStore, artifact: AnalysisArtifact) {
@@ -472,9 +478,7 @@ mod tests {
 
     #[test]
     fn tiered_exact_hit() {
-        let tmp = std::env::temp_dir().join(format!("codelens-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        let store = make_store(&tmp);
+        let (store, _tmp) = make_store();
         let artifact = make_test_artifact(
             "a1",
             "impact_report",
@@ -489,14 +493,11 @@ mod tests {
             .unwrap();
         assert_eq!(found.tool_name, "impact_report");
         assert_eq!(tier, CacheHitTier::Exact);
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn tiered_warm_hit_same_tool_no_cache_key() {
-        let tmp = std::env::temp_dir().join(format!("codelens-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        let store = make_store(&tmp);
+        let (store, _tmp) = make_store();
         let artifact = make_test_artifact(
             "a1",
             "impact_report",
@@ -511,14 +512,11 @@ mod tests {
             .unwrap();
         assert_eq!(found.tool_name, "impact_report");
         assert_eq!(tier, CacheHitTier::Warm);
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn tiered_cold_hit_different_tool_same_scope_generic() {
-        let tmp = std::env::temp_dir().join(format!("codelens-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        let store = make_store(&tmp);
+        let (store, _tmp) = make_store();
         let artifact = make_test_artifact(
             "a1",
             "impact_report",
@@ -533,14 +531,11 @@ mod tests {
             .unwrap();
         assert_eq!(found.tool_name, "impact_report");
         assert_eq!(tier, CacheHitTier::Cold);
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn tiered_miss_different_scope() {
-        let tmp = std::env::temp_dir().join(format!("codelens-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        let store = make_store(&tmp);
+        let (store, _tmp) = make_store();
         let artifact = make_test_artifact(
             "a1",
             "impact_report",
@@ -550,19 +545,14 @@ mod tests {
             crate::util::now_ms(),
         );
         store_artifact(&store, artifact);
-        assert!(
-            store
-                .find_reusable_tiered("impact_report", "key1", "full", Some("/proj"))
-                .is_none()
-        );
-        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(store
+            .find_reusable_tiered("impact_report", "key1", "full", Some("/proj"))
+            .is_none());
     }
 
     #[test]
     fn tiered_exact_preferred_over_warm() {
-        let tmp = std::env::temp_dir().join(format!("codelens-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        let store = make_store(&tmp);
+        let (store, _tmp) = make_store();
         let warm = make_test_artifact(
             "warm",
             "impact_report",
@@ -586,6 +576,5 @@ mod tests {
             .unwrap();
         assert_eq!(found.cache_key.as_deref(), Some("key1"));
         assert_eq!(tier, CacheHitTier::Exact);
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
