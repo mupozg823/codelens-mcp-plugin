@@ -1,0 +1,135 @@
+# CodeLens MCP — declarative tool registry source-of-truth.
+#
+# This file is read by `scripts/regen-tool-defs.py` to produce the
+# generated Rust modules under `src/tool_defs/generated/`. It is the
+# single hand-edited source for tool registration data; the Rust
+# generated files exist only so reviewers and rust-analyzer can grep
+# the actual Tool::new lines.
+#
+# Add a new tool by appending a `[[tool]]` table and running:
+#
+#     python3 scripts/regen-tool-defs.py --write
+#
+# CI runs the script with `--check`; a drift fails the workflow with
+# a one-line "run --write" hint. See ADR-0013 for the full rationale.
+#
+# ── Migration status (ADR-0013 §Decision §4) ─────────────────────────
+# Each PR migrates one tool category from the hand-rolled `build.rs`
+# block to this file. Categories already in TOML:
+#
+#   ✓ file_io          — PR-A (this scaffolding PR)
+#   ☐ symbol           — PR-B
+#   ☐ lsp              — PR-B
+#   ☐ editing          — PR-C
+#   ☐ analysis         — PR-C
+#   ☐ composite        — PR-D, PR-E
+#   ☐ session          — PR-E
+#   ☐ memory           — PR-F
+#   ☐ rule_corpus      — PR-F
+#   ☐ semantic         — PR-F (cfg-gated)
+#
+# Until all categories are migrated, the legacy hand-rolled rows
+# remain in `src/tool_defs/build.rs`. The dispatcher composes the
+# generated rows with the legacy ones.
+
+schema_version = "v1"
+
+# ── File I/O ─────────────────────────────────────────────────────────
+
+[[tool]]
+name = "get_current_config"
+category = "file_io"
+description = "[CodeLens:Session] Project config and index stats. Use to verify project is active."
+annotations = "ro_p"
+output_schema = "get_current_config_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "read_file"
+category = "file_io"
+description = "[CodeLens:File] Read file contents with optional line range."
+annotations = "ro_p"
+output_schema = "file_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path"]
+properties = { relative_path = { type = "string" }, start_line = { type = "integer" }, end_line = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "list_dir"
+category = "file_io"
+description = "[CodeLens:File] List directory contents, optionally recursive."
+annotations = "ro_p"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path"]
+properties = { relative_path = { type = "string" }, recursive = { type = "boolean" } }
+
+# ─────
+
+[[tool]]
+name = "find_file"
+category = "file_io"
+description = "[CodeLens:File] Find files by wildcard pattern."
+annotations = "ro_p"
+
+[tool.input_schema]
+type = "object"
+required = ["wildcard_pattern"]
+properties = { wildcard_pattern = { type = "string" }, relative_dir = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "search_for_pattern"
+category = "file_io"
+description = "[CodeLens:File] Regex search across files. Use smart=true for enclosing symbol context."
+annotations = "ro_p"
+output_schema = "search_for_pattern_output_schema"
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+pattern = { type = "string" }
+substring_pattern = { type = "string" }
+file_glob = { type = "string" }
+max_results = { type = "integer" }
+smart = { type = "boolean", description = "Include enclosing symbol context for each match" }
+context_lines = { type = "integer", description = "Number of context lines before and after each match (default 0)" }
+context_lines_before = { type = "integer", description = "Context lines before each match (overrides context_lines)" }
+context_lines_after = { type = "integer", description = "Context lines after each match (overrides context_lines)" }
+
+# ─────
+
+[[tool]]
+name = "find_annotations"
+category = "file_io"
+description = "[CodeLens:File] Find TODO/FIXME/HACK comments across the project."
+annotations = "ro_p"
+output_schema = "find_annotations_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = { tags = { type = "string" }, max_results = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "find_tests"
+category = "file_io"
+description = "[CodeLens:File] Find test functions and test modules."
+annotations = "ro_p"
+output_schema = "find_tests_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = { path = { type = "string" }, max_results = { type = "integer" } }

@@ -1,6 +1,7 @@
 //! MCP tool definitions and preset filtering.
 
 mod build;
+mod generated;
 mod output_schemas;
 mod presets;
 pub mod tool;

@@ -99,16 +99,12 @@ fn build_tools() -> Vec<Tool> {
     let mut_p = approved_mutating.clone().with_tier(ToolTier::Primitive);
     let dest_a = approved_destructive.clone().with_tier(ToolTier::Analysis);
     let mut_w = approved_mutating.clone().with_tier(ToolTier::Workflow);
-    let mut tools = vec![
-        // ── File I/O ────────────────────────────────────────────────────
-        Tool::new("get_current_config", "[CodeLens:Session] Project config and index stats. Use to verify project is active.", json!({"type":"object","properties":{}})).with_output_schema(get_current_config_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("read_file", "[CodeLens:File] Read file contents with optional line range.", json!({"required":["relative_path"],"type":"object","properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}}})).with_output_schema(file_content_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("list_dir", "[CodeLens:File] List directory contents, optionally recursive.", json!({"required":["relative_path"],"type":"object","properties":{"relative_path":{"type":"string"},"recursive":{"type":"boolean"}}})).with_annotations(ro_p.clone()),
-        Tool::new("find_file", "[CodeLens:File] Find files by wildcard pattern.", json!({"required":["wildcard_pattern"],"type":"object","properties":{"wildcard_pattern":{"type":"string"},"relative_dir":{"type":"string"}}})).with_annotations(ro_p.clone()),
-        Tool::new("search_for_pattern", "[CodeLens:File] Regex search across files. Use smart=true for enclosing symbol context.", json!({"type":"object","properties":{"pattern":{"type":"string"},"substring_pattern":{"type":"string"},"file_glob":{"type":"string"},"max_results":{"type":"integer"},"smart":{"type":"boolean","description":"Include enclosing symbol context for each match"},"context_lines":{"type":"integer","description":"Number of context lines before and after each match (default 0)"},"context_lines_before":{"type":"integer","description":"Context lines before each match (overrides context_lines)"},"context_lines_after":{"type":"integer","description":"Context lines after each match (overrides context_lines)"}}})).with_output_schema(search_for_pattern_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("find_annotations", "[CodeLens:File] Find TODO/FIXME/HACK comments across the project.", json!({"type":"object","properties":{"tags":{"type":"string"},"max_results":{"type":"integer"}}})).with_output_schema(find_annotations_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("find_tests", "[CodeLens:File] Find test functions and test modules.", json!({"type":"object","properties":{"path":{"type":"string"},"max_results":{"type":"integer"}}})).with_output_schema(find_tests_output_schema()).with_annotations(ro_p.clone()),
+    // ── File I/O ────────────────────────────────────────────────────
+    // Migrated to `tools.toml` (ADR-0013). The generator below emits the
+    // same Tool::new chain shown in the legacy categories that follow.
+    let mut tools = super::generated::file_io_tools(&ro_p);
 
+    tools.extend(vec![
         // ── Symbol Lookup (use these to understand code) ────────────────
         Tool::new("get_symbols_overview", "[CodeLens:Symbol] List all symbols in a file — structural map. Use first to understand a file.", json!({"required":["path"],"type":"object","properties":{"path":{"type":"string"},"depth":{"type":"integer"}}})).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
         Tool::new("find_symbol", "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body.", json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean"},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"}}})).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
@@ -239,7 +235,7 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("export_session_markdown", "[CodeLens:Session] Export session telemetry as markdown report.", json!({"type":"object","properties":{"name":{"type":"string","description":"Session name for the report header"},"session_id":{"type":"string","description":"Optional logical session id. When present, the markdown includes the role-appropriate builder or planner audit summary."}}})).with_output_schema(session_markdown_output_schema()).with_annotations(ro_p.clone()).with_max_response_tokens(4096),
         Tool::new("audit_log_query", "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by transaction_id and/or since_ms; default limit 100 rows. Requires Admin role.", json!({"type":"object","properties":{"transaction_id":{"type":"string","description":"Stable id from a mutation response (payload.data.transaction_id). Returns the rows for that one call."},"since_ms":{"type":"integer","description":"Earliest timestamp_ms (epoch millis) to include."},"limit":{"type":"integer","description":"Max rows (default 100, capped at 1000)."}}})).with_annotations(ro_a.clone()),
         Tool::new("summarize_file", "[CodeLens:Session] Get AI-generated summary of a file's purpose and structure.", json!({"required":["path"],"type":"object","properties":{"path":{"type":"string","description":"File path to summarize"}}})).with_annotations(ro_w.clone()),
-    ];
+    ]);
 
     // ── Semantic (feature-gated) ────────────────────────────────────
     #[cfg(feature = "semantic")]
