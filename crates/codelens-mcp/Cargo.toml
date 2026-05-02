@@ -36,7 +36,7 @@ url.workspace = true
 rusqlite.workspace = true
 toml = "0.8"
 rustls = { workspace = true, optional = true }
-codelens-engine = { path = "../codelens-engine", version = "=1.11.0", default-features = false }
+codelens-engine = { path = "../codelens-engine", version = "=1.11.1", default-features = false }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

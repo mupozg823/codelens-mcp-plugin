@@ -784,6 +784,16 @@ const PYTHON_CALL_QUERY: &str = r#"
 (decorator (call function: (identifier) @callee))
 (decorator (attribute attribute: (identifier) @callee))
 (decorator (call function: (attribute attribute: (identifier) @callee)))
+;; v1.11.1 (F1 follow-up): function-reference arguments. Python
+;; callback patterns include `register("evt", handler)`,
+;; `dispatcher.on(name, callback)`, `signal.connect(slot)`, plus
+;; decorator factories like `@retry(handler)`. The 6-stage
+;; resolution cascade filters identifier-arg captures against the
+;; project symbol DB; variable arguments fall to `unresolved` and
+;; genuine function references resolve via Stage 5 (`unique_name`)
+;; at confidence 0.5.
+(call arguments: (argument_list (identifier) @callee))
+(call arguments: (argument_list (attribute attribute: (identifier) @callee)))
 "#;
 
 const JS_FUNC_QUERY: &str = r#"
@@ -802,6 +812,15 @@ const JS_FUNC_QUERY: &str = r#"
 const JS_CALL_QUERY: &str = r#"
 (call_expression function: (identifier) @callee)
 (call_expression function: (member_expression property: (property_identifier) @callee))
+;; v1.11.1 (F1 follow-up): function-reference arguments. JS/TS frequently
+;; pass functions as callbacks — `setTimeout(handler, 100)`,
+;; `arr.map(parseLine)`, `bus.on("evt", onEvent)`, `.then(success)`.
+;; The 6-stage resolution cascade in `resolve_call_edges` filters these
+;; against the symbol DB, so variable arguments fall to `unresolved`
+;; while genuine function references resolve via Stage 5
+;; (`unique_name`) at confidence 0.5.
+(arguments (identifier) @callee)
+(arguments (member_expression property: (property_identifier) @callee))
 "#;
 
 // JSX/TSX adds React-style component usage (`<Foo />`, `<Foo>`) as caller→callee
@@ -814,6 +833,9 @@ const JS_JSX_CALL_QUERY: &str = r#"
 (jsx_opening_element name: (identifier) @callee)
 (jsx_self_closing_element name: (member_expression property: (property_identifier) @callee))
 (jsx_opening_element name: (member_expression property: (property_identifier) @callee))
+;; v1.11.1: same function-reference patterns as JS_CALL_QUERY.
+(arguments (identifier) @callee)
+(arguments (member_expression property: (property_identifier) @callee))
 "#;
 
 const GO_FUNC_QUERY: &str = r#"
@@ -1209,6 +1231,79 @@ fn run() {
             edges.iter().any(|e| e.callee_name == "parse_line"),
             "expected a function-reference caller for parse_line, got {edges:?}"
         );
+    }
+
+    /// v1.11.1 (F1 follow-up): JS/TS function-reference callbacks. The
+    /// canonical patterns are `setTimeout(handler, 100)`,
+    /// `arr.map(parseLine)`, `bus.on("evt", onEvent)`, `.then(success)`.
+    /// Pre-v1.11.1 these were silently dropped because the JS call
+    /// query only matched `call_expression`-position function nodes.
+    #[test]
+    fn extracts_js_function_reference_arguments() {
+        let dir = temp_dir("js-fn-refs");
+        let path = dir.join("callbacks.js");
+        fs::write(
+            &path,
+            r#"
+function parseLine(line) { return line.trim(); }
+function onEvent(payload) { return payload; }
+function timeoutHandler() { return 1; }
+
+function setup() {
+    const lines = ["a", "b"];
+    const parsed = lines.map(parseLine);
+    bus.on("evt", onEvent);
+    setTimeout(timeoutHandler, 100);
+    return parsed;
+}
+"#,
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        for callee in ["parseLine", "onEvent", "timeoutHandler"] {
+            assert!(
+                edges
+                    .iter()
+                    .any(|e| e.caller_name == "setup" && e.callee_name == callee),
+                "expected setup->{callee} function-reference edge, got {edges:?}"
+            );
+        }
+    }
+
+    /// v1.11.1: Python function-reference arguments — the
+    /// `register("evt", handler)` and `dispatcher.on(name, callback)`
+    /// shapes that callback-heavy Python code uses. Like the JS path,
+    /// this depends on the resolution cascade filtering variable
+    /// arguments against the symbol DB.
+    #[test]
+    fn extracts_python_function_reference_arguments() {
+        let dir = temp_dir("py-fn-refs");
+        let path = dir.join("registry.py");
+        fs::write(
+            &path,
+            r#"
+def parse_line(line):
+    return line.strip()
+
+def on_event(payload):
+    return payload
+
+def setup():
+    register("evt", on_event)
+    pipe = list(map(parse_line, ["a", "b"]))
+    return pipe
+"#,
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        for callee in ["parse_line", "on_event"] {
+            assert!(
+                edges
+                    .iter()
+                    .any(|e| e.caller_name == "setup" && e.callee_name == callee),
+                "expected setup->{callee} function-reference edge, got {edges:?}"
+            );
+        }
     }
 
     /// v1.11.0 (F1): false-positive guard. A bare variable passed as an
