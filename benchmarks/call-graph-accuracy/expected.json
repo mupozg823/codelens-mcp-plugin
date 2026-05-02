@@ -1,0 +1,60 @@
+{
+  "schema_version": "v1",
+  "description": "Ground-truth caller→callee edges for the v1.11+ multi-language call-graph accuracy bench. Each `edges` list is the set the extractor SHOULD produce; `caller` is the enclosing function name from the tree-sitter func query (or '<module>' for top-level), and `callee` is the resolved target name. Edges that the noise filter drops (println, list, len, str, etc.) are intentionally absent.",
+  "f1_threshold": 0.85,
+  "fixtures": [
+    {
+      "path": "benchmarks/call-graph-accuracy/fixtures/rust/registry.rs",
+      "edges": [
+        { "caller": "handler", "callee": "build_tools" },
+        { "caller": "<module>", "callee": "build_tools" },
+        { "caller": "run", "callee": "handler" },
+        { "caller": "run", "callee": "my_log" },
+        { "caller": "run", "callee": "parse_line" }
+      ]
+    },
+    {
+      "path": "benchmarks/call-graph-accuracy/fixtures/js/callbacks.js",
+      "edges": [
+        { "caller": "handleRequest", "callee": "validateUser" },
+        { "caller": "handleRequest", "callee": "run" },
+        { "caller": "handleRequest", "callee": "map" },
+        { "caller": "handleRequest", "callee": "on" },
+        { "caller": "handleRequest", "callee": "parseLine" },
+        { "caller": "handleRequest", "callee": "onEvent" },
+        { "caller": "handleRequest", "callee": "timeoutHandler" }
+      ]
+    },
+    {
+      "path": "benchmarks/call-graph-accuracy/fixtures/python/registry.py",
+      "edges": [
+        { "caller": "setup", "callee": "register" },
+        { "caller": "setup", "callee": "parse_line" },
+        { "caller": "setup", "callee": "on_event" },
+        { "caller": "wrap", "callee": "fn" },
+        { "caller": "<module>", "callee": "log_calls" }
+      ]
+    },
+    {
+      "path": "benchmarks/call-graph-accuracy/fixtures/go/server.go",
+      "edges": [
+        { "caller": "setup", "callee": "Register" },
+        { "caller": "setup", "callee": "Schedule" },
+        { "caller": "setup", "callee": "handler" },
+        { "caller": "setup", "callee": "teardown" },
+        { "caller": "run", "callee": "handler" },
+        { "caller": "run", "callee": "setup" }
+      ]
+    },
+    {
+      "path": "benchmarks/call-graph-accuracy/fixtures/java/Service.java",
+      "edges": [
+        { "caller": "start", "callee": "submit" },
+        { "caller": "start", "callee": "register" },
+        { "caller": "start", "callee": "process" },
+        { "caller": "start", "callee": "onTick" },
+        { "caller": "start", "callee": "onError" }
+      ]
+    }
+  ]
+}

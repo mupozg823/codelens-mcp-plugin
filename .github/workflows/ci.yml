@@ -83,6 +83,17 @@ jobs:
       - name: cargo test (semantic-off)
         run: cargo nextest run --workspace --no-default-features
 
+      # v1.12.0: explicit call-graph accuracy gate. The
+      # `call_graph_accuracy_meets_threshold` integration test is
+      # already exercised by the workspace nextest run above; this step
+      # surfaces it as a named CI gate so an accuracy regression
+      # (precision/recall/F1 dipping below the threshold declared in
+      # benchmarks/call-graph-accuracy/expected.json) shows up as a
+      # discrete failure with the per-fixture diff in stdout. See
+      # crates/codelens-engine/tests/call_graph_accuracy.rs.
+      - name: call-graph accuracy bench
+        run: cargo test -p codelens-engine --test call_graph_accuracy -- --nocapture
+
       - name: cargo doctest
         run: cargo test --doc --workspace
 
