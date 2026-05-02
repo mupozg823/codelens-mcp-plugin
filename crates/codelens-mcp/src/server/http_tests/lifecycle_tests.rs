@@ -243,9 +243,9 @@ async fn initialize_profile_sets_http_session_surface_and_tools_list() {
     assert!(body.contains("\"get_ranked_context\""));
     assert!(body.contains("\"get_callers\""));
     assert!(body.contains("\"start_analysis_job\""));
-    assert!(!body.contains("\"review_architecture\""));
-    assert!(!body.contains("\"review_changes\""));
-    assert!(!body.contains("\"cleanup_duplicate_logic\""));
+    assert!(body.contains("\"review_architecture\""));
+    assert!(body.contains("\"review_changes\""));
+    assert!(body.contains("\"cleanup_duplicate_logic\""));
     assert!(!body.contains("\"analyze_change_impact\""));
     assert!(!body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"assess_change_readiness\""));
