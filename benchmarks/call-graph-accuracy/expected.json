@@ -55,6 +55,30 @@
         { "caller": "start", "callee": "onTick" },
         { "caller": "start", "callee": "onError" }
       ]
+    },
+    {
+      "path": "benchmarks/call-graph-accuracy/fixtures/ts/promises.ts",
+      "edges": [
+        { "caller": "handleRequest", "callee": "fetch" },
+        { "caller": "handleRequest", "callee": "on" },
+        { "caller": "handleRequest", "callee": "success" },
+        { "caller": "handleRequest", "callee": "handleError" },
+        { "caller": "handleRequest", "callee": "parseLine" },
+        { "caller": "handleRequest", "callee": "onEvent" }
+      ]
+    },
+    {
+      "path": "benchmarks/call-graph-accuracy/fixtures/tsx/component.tsx",
+      "edges": [
+        { "caller": "App", "callee": "prepare" },
+        { "caller": "App", "callee": "useEffect" },
+        { "caller": "App", "callee": "loadData" },
+        { "caller": "App", "callee": "Header" },
+        { "caller": "App", "callee": "Card" },
+        { "caller": "App", "callee": "Button" },
+        { "caller": "Button", "callee": "button" },
+        { "caller": "Card", "callee": "div" }
+      ]
     }
   ]
 }
