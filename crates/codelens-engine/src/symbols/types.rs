@@ -269,7 +269,13 @@ pub(crate) enum ReadDb<'a> {
     Writer(std::sync::MutexGuard<'a, IndexDb>),
 }
 
+// `tests` is intentionally placed mid-file: it exercises the
+// `SymbolProvenance` enum that is defined above, while the
+// `AnalyzedFile`/`Deref` items below predate the test module and are
+// unrelated to it. Reordering would force a noisy `git blame` rewrite,
+// so we keep the layout and silence the lint.
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::SymbolProvenance;
 

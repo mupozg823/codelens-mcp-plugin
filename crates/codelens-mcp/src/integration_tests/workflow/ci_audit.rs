@@ -256,7 +256,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(22_1)),
+            id: Some(json!(221)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://analysis/recent"})),
         },
@@ -270,7 +270,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(22_2)),
+            id: Some(json!(222)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://analysis/jobs"})),
         },
@@ -367,7 +367,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(242_1)),
+            id: Some(json!(2421)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://harness/modes"})),
         },
@@ -383,7 +383,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(242_2)),
+            id: Some(json!(2422)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://harness/spec"})),
         },
@@ -400,7 +400,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(242_21)),
+            id: Some(json!(24221)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://harness/host-adapters"})),
         },
@@ -424,7 +424,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(242_215)),
+            id: Some(json!(242215)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://harness/host", "host": "claude-code"})),
         },
@@ -472,7 +472,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(242_211)),
+            id: Some(json!(242211)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://design/agent-experience"})),
         },
@@ -488,7 +488,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(242_22)),
+            id: Some(json!(24222)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://host-adapters/codex"})),
         },
@@ -510,7 +510,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(242_23)),
+            id: Some(json!(24223)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://host-adapters/cursor"})),
         },
@@ -528,7 +528,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(242_24)),
+            id: Some(json!(24224)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://host-adapters/windsurf"})),
         },
@@ -542,7 +542,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(242_3)),
+            id: Some(json!(2423)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://schemas/handoff-artifact/v1"})),
         },
