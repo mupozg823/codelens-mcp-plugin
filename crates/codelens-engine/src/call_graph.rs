@@ -851,6 +851,22 @@ const RUST_CALL_QUERY: &str = r#"
 (call_expression function: (scoped_identifier name: (identifier) @callee))
 (macro_invocation macro: (identifier) @callee)
 (macro_invocation macro: (scoped_identifier name: (identifier) @callee))
+;; v1.11.0 (F1): function-reference patterns. A function passed as an
+;; argument (closure construction, callback registration, builder
+;; accumulators) is a real caller→callee edge that the call_expression
+;; rules above miss. Examples:
+;;   LazyLock::new(build_tools)
+;;   OnceCell::get_or_init(make_state)
+;;   iter.map(parse_line).collect()
+;;   bus.register("evt", on_event)
+;; Many argument identifiers are variables, not functions. The
+;; resolution cascade in `resolve_call_edges` filters those: the name
+;; must exist in the symbol DB or the edge is dropped as `unresolved`
+;; (confidence 0). Genuine function references resolve via Stage 5
+;; (unique_name) at confidence 0.5 — honest, lower than import_map but
+;; higher than nothing.
+(arguments (identifier) @callee)
+(arguments (scoped_identifier name: (identifier) @callee))
 "#;
 
 #[cfg(test)]
@@ -1146,6 +1162,86 @@ fn run() {
                 .iter()
                 .any(|e| e.caller_name == "handler" && e.callee_name == "verify"),
             "expected handler->verify edge, got {edges:?}"
+        );
+    }
+
+    /// v1.11.0 (F1): function-reference callers — a function passed as an
+    /// argument is a real caller→callee edge. Pre-v1.11.0 these were
+    /// silently dropped because the tree-sitter call query only matched
+    /// `call_expression`, not identifiers in argument position. The
+    /// canonical cliff was the registry pattern in
+    /// `codelens-mcp/src/tool_defs/build.rs`:
+    /// `static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);`
+    /// where `get_callers("build_tools")` returned 0 callers.
+    ///
+    /// This test pins the regression by reproducing the same shape: a
+    /// function used as a function-reference argument to `LazyLock::new`,
+    /// and a closure-style `iter.map(parse_line)` reference. Both must
+    /// surface as `<top>` callers (no enclosing fn) for the named
+    /// callee.
+    #[test]
+    fn extracts_rust_function_reference_arguments() {
+        let dir = temp_dir("rs-fn-refs");
+        let path = dir.join("registry.rs");
+        fs::write(
+            &path,
+            r#"
+fn build_tools() -> Vec<u32> { vec![1, 2, 3] }
+fn parse_line(s: &str) -> u32 { s.len() as u32 }
+
+static TOOLS: std::sync::LazyLock<Vec<u32>> =
+    std::sync::LazyLock::new(build_tools);
+
+fn run() {
+    let lines = ["a", "bb"];
+    let parsed: Vec<_> = lines.iter().map(parse_line).collect();
+    let _ = parsed;
+}
+"#,
+        )
+        .expect("write");
+        let edges = extract_calls(&path);
+        assert!(
+            edges.iter().any(|e| e.callee_name == "build_tools"),
+            "expected a function-reference caller for build_tools, got {edges:?}"
+        );
+        assert!(
+            edges.iter().any(|e| e.callee_name == "parse_line"),
+            "expected a function-reference caller for parse_line, got {edges:?}"
+        );
+    }
+
+    /// v1.11.0 (F1): false-positive guard. A bare variable passed as an
+    /// argument (e.g., `f(local_var)`) is also an `(arguments
+    /// (identifier))` shape, but `local_var` is not a function in the
+    /// project symbol DB. The 6-stage resolution cascade should mark it
+    /// `unresolved` (confidence 0). Without DB access we just verify
+    /// the extractor doesn't blow up on this shape — resolution is
+    /// covered by the integration tests in `codelens-mcp` that drive
+    /// the whole pipeline.
+    #[test]
+    fn function_reference_extraction_is_resilient_to_variable_arguments() {
+        let dir = temp_dir("rs-fn-ref-noise");
+        let path = dir.join("noise.rs");
+        fs::write(
+            &path,
+            r#"
+fn outer(local_var: i32) {
+    println!("v={}", local_var);
+    let other = local_var + 1;
+    consume(other);
+}
+fn consume(x: i32) -> i32 { x }
+"#,
+        )
+        .expect("write");
+        // Should not panic and should still find the direct call to consume.
+        let edges = extract_calls(&path);
+        assert!(
+            edges
+                .iter()
+                .any(|e| e.caller_name == "outer" && e.callee_name == "consume"),
+            "direct call edge outer->consume must survive function-reference extraction, got {edges:?}"
         );
     }
 
