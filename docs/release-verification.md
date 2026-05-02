@@ -18,6 +18,35 @@ That keeps public packaging claims grounded in what the repository actually ship
 
 ---
 
+## Feature-flag matrix (build-time requirements)
+
+ADR-0012 made the `semantic` feature opt-in on the cargo-install path. As of v1.10.1, the feature requirements for each runtime mode are:
+
+| Use case                                         | Required cargo features    | Notes                                                                                                                         |
+| ------------------------------------------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `cargo install codelens-mcp` (stdio MCP)         | `default = []` (none)      | BM25 + AST + call-graph only. No HTTP, no embeddings.                                                                         |
+| `cargo install codelens-mcp --features semantic` | `semantic`                 | Adds ONNX hybrid retrieval. Requires `CODELENS_MODEL_DIR` or a release tarball with bundled model.                            |
+| HTTP daemon (any port)                           | `--features http`          | The HTTP transport entrypoint is gated. Daemons fail with `Error: HTTP/HTTPS transport requires the http feature` if missing. |
+| HTTP daemon **with** semantic                    | `--features http,semantic` | Recommended for production daemons that serve hybrid retrieval.                                                               |
+| OpenTelemetry export                             | `--features otel`          | Independent of HTTP/semantic.                                                                                                 |
+| Audit feature flag (deprecated)                  | n/a                        | Removed in ADR-0011.                                                                                                          |
+
+**Operational implication for `launchd` / `systemd` / Docker daemons**: the binary you launch from the unit/service file must have been built with `--features http` (and `semantic` if you want hybrid retrieval). The launchd `.plist` files in this repo (`.codelens/launchd/dev.codelens.mcp-readonly.plist`, `dev.codelens.mcp-mutation.plist`) point at `target/release/codelens-mcp`, so the build command for the daemon stack is:
+
+```bash
+cargo build --release --features http,semantic
+```
+
+If you only want the stdio-mode binary that `cargo install codelens-mcp` produces, no build flags are needed. If you want to run the HTTP daemon stack from a `cargo install`-style binary, the equivalent is:
+
+```bash
+cargo install codelens-mcp --features http,semantic
+```
+
+This was a v1.10.0 release-time discovery (the daemon failed to bind on first reboot until rebuilt with the right features). See [`docs/eval/v1.10.0-post-release-eval.md`](eval/v1.10.0-post-release-eval.md) (F5) for the full RCA.
+
+---
+
 ## Configured release outputs
 
 The tag-driven GitHub release workflow in [`.github/workflows/release.yml`](../.github/workflows/release.yml) currently builds and publishes three release artifacts:

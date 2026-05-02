@@ -1164,6 +1164,10 @@ pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
         "analyze_change_request" => Some("plan a code change safely"),
         "trace_request_path" => Some("trace a request path"),
         "review_changes" => Some("review changed files and risk"),
+        "review_architecture" => Some("review architecture, boundaries, coupling"),
+        "plan_safe_refactor" => Some("plan a safe refactor with preview"),
+        "cleanup_duplicate_logic" => Some("surface duplicate code before cleanup"),
+        "diagnose_issues" => Some("diagnose file diagnostics or unresolved refs"),
         "verify_change_readiness" => Some("verify edit safety before mutation"),
         "safe_rename_report" => Some("preview rename safety and blockers"),
         "refactor_safety_report" => Some("preview refactor safety and impact"),
@@ -1171,17 +1175,44 @@ pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
         "get_analysis_section" => Some("expand one analysis report section"),
         "audit_builder_session" => Some("audit builder session process"),
         "audit_planner_session" => Some("audit planner session process"),
+        // Core navigation primitives (raised to deferred surface in v1.10.1)
+        "find_symbol" => Some("find function class type by exact name"),
+        "get_symbols_overview" => Some("list all symbols in a file"),
+        "find_referencing_symbols" => Some("find all usages of a symbol"),
+        "get_file_diagnostics" => Some("read LSP diagnostics for a file"),
+        "bm25_symbol_search" => Some("BM25 sparse symbol search by token"),
+        "search_symbols_fuzzy" => Some("fuzzy symbol search tolerates typos"),
+        "semantic_search" => Some("natural language code search via embeddings"),
+        "get_callers" => Some("find functions that call this function"),
+        "get_callees" => Some("find functions called by this function"),
+        "get_ranked_context" => Some("smart context retrieval within token budget"),
+        "impact_report" => Some("blast-radius for changed files"),
+        "module_boundary_report" => Some("module dependency and coupling report"),
+        "dead_code_report" => Some("dead-code candidates with evidence"),
+        "diff_aware_references" => Some("compress references for changed files"),
         _ => None,
     }
 }
 
-/// Claude Code MCP tools are deferred by default. Mark only the minimal
-/// turn-1 bootstrap surface as always-load so hosts can start efficiently
-/// without bloating the initial tool prompt.
+/// Claude Code MCP tools are deferred by default. The always-load set
+/// is what gets `meta["anthropic/alwaysLoad"] = true` — schemas
+/// pre-loaded so the model can call them without a `ToolSearch` round
+/// trip. v1.10.1 widens this from 3 → 8 to cover the workflow-first
+/// surface that the product is positioned around. The remaining
+/// `DEFAULT_LISTED_TOOL_NAMES` entries stay deferred-discoverable but
+/// require explicit ToolSearch select before invocation, which keeps
+/// the initial tool prompt bounded.
 pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
     matches!(
         name,
-        "prepare_harness_session" | "explore_codebase" | "analyze_change_request"
+        "prepare_harness_session"
+            | "explore_codebase"
+            | "analyze_change_request"
+            | "review_changes"
+            | "plan_safe_refactor"
+            | "review_architecture"
+            | "verify_change_readiness"
+            | "trace_request_path"
     )
 }
 
