@@ -20,7 +20,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 ## Surface Snapshot
 
 - Workspace version: `1.9.60`
-- Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
+- Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
 - Registered tool definitions: `112`
 - Tool output schemas: `82 / 112`
 - Supported language families: `30` across `49` extensions
@@ -89,6 +89,16 @@ Important:
 - If a feature is mentioned in this repository but not present in your installed binary, compare `codelens-mcp --version` with the latest GitHub release and your install channel before assuming a bug.
 
 ## Setup
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and fill in the values for your environment:
+
+```bash
+cp .env.example .env
+```
+
+Key variables include `CODELENS_MODEL_DIR` for semantic search, `CODELENS_OTEL_ENDPOINT` for telemetry, and `CODELENS_PROJECT_BRIDGES_ON` to opt into project-specific NL→code bridges.
 
 ### Claude Code / Cursor
 
@@ -310,7 +320,7 @@ Instead of starting from the full raw tool registry, begin with the workflow-fir
 
 ### Adaptive Token Compression
 
-5-stage budget-aware compression automatically adjusts response size:
+5-stage budget-aware compression automatically adjusts response size. The per-request `max_tokens` parameter is honoured by the envelope budget logic; earlier versions silently capped at the profile default even when the caller explicitly asked for a larger budget.
 
 - **Stage 1** (<75% budget): Full detail pass-through
 - **Stage 2-3** (75-95%): Structured summarization

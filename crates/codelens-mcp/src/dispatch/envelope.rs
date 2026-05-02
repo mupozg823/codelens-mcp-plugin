@@ -44,17 +44,25 @@ impl ToolCallEnvelope {
         apply_path_alias_normalisation(&mut arguments);
         let session = crate::session_context::SessionRequestContext::from_json(&arguments);
         let default_budget = state.execution_token_budget(&session);
+        // P2-A: honour explicit max_tokens parameter before profile defaults.
+        // Agents pass max_tokens per-request; ignoring it caused hard 4000-cap
+        // errors even when the caller asked for 6000+.
         let budget = arguments
-            .get("_profile")
-            .and_then(|v| v.as_str())
-            .map(|profile| {
-                ToolProfile::from_str(profile)
-                    .map(default_budget_for_profile)
-                    .unwrap_or_else(|| match profile {
-                        "fast_local" => 2000usize,
-                        "deep_semantic" => 16000,
-                        "safe_mutation" => 4000,
-                        _ => default_budget,
+            .get("max_tokens")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .or_else(|| {
+                arguments.get("_profile")
+                    .and_then(|v| v.as_str())
+                    .map(|profile| {
+                        ToolProfile::from_str(profile)
+                            .map(default_budget_for_profile)
+                            .unwrap_or_else(|| match profile {
+                                "fast_local" => 2000usize,
+                                "deep_semantic" => 16000,
+                                "safe_mutation" => 4000,
+                                _ => default_budget,
+                            })
                     })
             })
             .unwrap_or(default_budget);
