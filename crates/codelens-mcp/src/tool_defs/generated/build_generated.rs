@@ -357,6 +357,133 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
     ]
 }
 
+pub fn session_tools(
+    mut_coord: &ToolAnnotations,
+    mut_p: &ToolAnnotations,
+    mutating: &ToolAnnotations,
+    ro_a: &ToolAnnotations,
+    ro_p: &ToolAnnotations,
+    ro_w: &ToolAnnotations,
+) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "activate_project",
+            "[CodeLens:Session] Activate project — auto-detect preset, index, frameworks.",
+            json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"}}}),
+        ).with_output_schema(activate_project_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "prepare_harness_session",
+            "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — activate project, summarize surface, capabilities, visible tools, and optionally auto-recover a small stale index in one call.",
+            json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"},"profile":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"preset":{"type":"string","enum":["minimal","balanced","full"]},"token_budget":{"type":"integer","description":"Optional explicit token budget override after activation"},"file_path":{"type":"string","description":"Optional file path for language-specific capability checks"},"detail":{"type":"string","enum":["compact","full"],"description":"compact returns the harness preflight essentials only; full also includes the heavier config snapshot"},"host_context":{"type":"string","enum":["claude-code","codex","cursor","cline","windsurf","vscode","jetbrains","api-agent"],"description":"Optional host/runtime hint used to compile advisory bootstrap routing without changing the active tool surface"},"task_overlay":{"type":"string","enum":["planning","editing","review","onboarding","batch-analysis","interactive"],"description":"Optional task-mode hint used to compile advisory bootstrap routing without changing the active tool surface"},"preferred_entrypoints":{"type":"array","items":{"type":"string"},"description":"Optional ordered entrypoints so the server can report which are immediately visible"},"auto_refresh_stale":{"type":"boolean","description":"When true (default), bootstrap auto-refreshes a small stale symbol index before reporting capabilities"},"auto_refresh_stale_threshold":{"type":"integer","description":"Maximum stale file count eligible for automatic refresh during bootstrap (default 32)"}}}),
+        ).with_output_schema(prepare_harness_session_output_schema()).with_annotations(mutating.clone()),
+        Tool::new(
+            "register_agent_work",
+            "[CodeLens:Session] Register the current agent intent, branch, and worktree for advisory multi-agent coordination.",
+            json!({"type":"object","required":["agent_name","branch","worktree","intent"],"properties":{"session_id":{"type":"string","description":"Optional logical session id. Defaults to the active _session_id."},"agent_name":{"type":"string"},"branch":{"type":"string"},"worktree":{"type":"string"},"intent":{"type":"string"},"ttl_secs":{"type":"integer","description":"Optional advisory TTL in seconds (default 300, clamped to 30-3600)."}}}),
+        ).with_output_schema(register_agent_work_output_schema()).with_annotations(mut_coord.clone()),
+        Tool::new(
+            "list_active_agents",
+            "[CodeLens:Session] List active agent registrations and their claimed paths for the current project scope.",
+            json!({"type":"object","properties":{}}),
+        ).with_output_schema(list_active_agents_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "claim_files",
+            "[CodeLens:Session] Advisory file claim for the active session. Claims downgrade readiness to caution for overlapping sessions but never hard-block writes.",
+            json!({"type":"object","required":["paths","reason"],"properties":{"session_id":{"type":"string","description":"Optional logical session id. Defaults to the active _session_id."},"paths":{"type":"array","items":{"type":"string"},"description":"Project-relative paths to claim"},"reason":{"type":"string"},"ttl_secs":{"type":"integer","description":"Optional advisory TTL in seconds (default 300, clamped to 30-3600)."}}}),
+        ).with_output_schema(claim_files_output_schema()).with_annotations(mut_coord.clone()),
+        Tool::new(
+            "release_files",
+            "[CodeLens:Session] Release previously claimed files for the active session.",
+            json!({"type":"object","required":["paths"],"properties":{"session_id":{"type":"string","description":"Optional logical session id. Defaults to the active _session_id."},"paths":{"type":"array","items":{"type":"string"},"description":"Project-relative paths to release"}}}),
+        ).with_output_schema(release_files_output_schema()).with_annotations(mut_coord.clone()),
+        Tool::new(
+            "prepare_for_new_conversation",
+            "[CodeLens:Session] Project context summary for a new conversation.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_p.clone()),
+        Tool::new(
+            "summarize_changes",
+            "[CodeLens:Session] Summarize recent git changes with symbol context.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_p.clone()),
+        Tool::new(
+            "get_watch_status",
+            "[CodeLens:Session] File watcher status: running, events, reindexed files.",
+            json!({"type":"object","properties":{}}),
+        ).with_output_schema(watch_status_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "prune_index_failures",
+            "[CodeLens:Session] Remove stale index-failure records for deleted files.",
+            json!({"type":"object","properties":{}}),
+        ).with_output_schema(prune_index_failures_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "add_queryable_project",
+            "[CodeLens:Session] Register external project for cross-project queries.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Absolute path to the project directory"}}}),
+        ).with_annotations(mutating.clone()),
+        Tool::new(
+            "remove_queryable_project",
+            "[CodeLens:Session] Unregister an external project.",
+            json!({"type":"object","required":["name"],"properties":{"name":{"type":"string","description":"Project name to remove"}}}),
+        ).with_annotations(mutating.clone()),
+        Tool::new(
+            "query_project",
+            "[CodeLens:Session] Search symbols in a registered external project.",
+            json!({"type":"object","required":["project_name","symbol_name"],"properties":{"project_name":{"type":"string","description":"Name of the registered project"},"symbol_name":{"type":"string","description":"Symbol name to search for"},"max_results":{"type":"integer","description":"Max results (default 20)"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "list_queryable_projects",
+            "[CodeLens:Session] List all registered projects (active + external).",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_p.clone()),
+        Tool::new(
+            "set_preset",
+            "[CodeLens:Session] Switch tool preset at runtime. Auto-adjusts token budget.",
+            json!({"type":"object","required":["preset"],"properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset"},"token_budget":{"type":"integer","description":"Override token budget (default: auto per preset)"}}}),
+        ).with_annotations(mutating.clone()),
+        Tool::new(
+            "set_profile",
+            "[CodeLens:Session] Switch the active role profile. Preferred for harness-oriented workflows.",
+            json!({"type":"object","required":["profile"],"properties":{"profile":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"token_budget":{"type":"integer","description":"Override token budget for the active profile"}}}),
+        ).with_annotations(mutating.clone()),
+        Tool::new(
+            "get_capabilities",
+            "[CodeLens:Session] Check LSP, embeddings, index freshness. Use before advanced tools.",
+            json!({"type":"object","properties":{"file_path":{"type":"string","description":"Optional file path to check language-specific capabilities"},"detail":{"type":"string","enum":["compact","full"],"description":"compact returns 12 core fields (~1K); full returns all 38 fields including CoreML runtime, SCIP counts, build_info (~5K). Default: full (backward-compatible)."}}}),
+        ).with_output_schema(get_capabilities_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "get_tool_metrics",
+            "[CodeLens:Session] Per-tool call counts, latency, errors. Use for self-diagnosis.",
+            json!({"type":"object","properties":{"session_id":{"type":"string","description":"Optional logical session id. When present, return only that session's metrics."}}}),
+        ).with_output_schema(tool_metrics_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "audit_builder_session",
+            "[CodeLens:Session] Audit a builder/refactor session for preflight, diagnostics, and coordination discipline.",
+            json!({"type":"object","properties":{"session_id":{"type":"string","description":"Optional logical session id. Defaults to the active _session_id."},"detail":{"type":"string","enum":["compact","full"],"description":"compact returns the ordered audit checks only; full also includes session metrics and coordination snapshot."}}}),
+        ).with_output_schema(builder_session_audit_output_schema()).with_annotations(ro_a.clone()).with_max_response_tokens(4096),
+        Tool::new(
+            "audit_planner_session",
+            "[CodeLens:Session] Audit a planner/reviewer session for bootstrap, workflow-first routing, and read-side evidence discipline.",
+            json!({"type":"object","properties":{"session_id":{"type":"string","description":"Optional logical session id. Defaults to the active _session_id."},"detail":{"type":"string","enum":["compact","full"],"description":"compact returns the ordered audit checks only; full also includes session metrics."}}}),
+        ).with_output_schema(planner_session_audit_output_schema()).with_annotations(ro_a.clone()).with_max_response_tokens(4096),
+        Tool::new(
+            "export_session_markdown",
+            "[CodeLens:Session] Export session telemetry as markdown report.",
+            json!({"type":"object","properties":{"name":{"type":"string","description":"Session name for the report header"},"session_id":{"type":"string","description":"Optional logical session id. When present, the markdown includes the role-appropriate builder or planner audit summary."}}}),
+        ).with_output_schema(session_markdown_output_schema()).with_annotations(ro_p.clone()).with_max_response_tokens(4096),
+        Tool::new(
+            "audit_log_query",
+            "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by transaction_id and/or since_ms; default limit 100 rows. Requires Admin role.",
+            json!({"type":"object","properties":{"transaction_id":{"type":"string","description":"Stable id from a mutation response (payload.data.transaction_id). Returns the rows for that one call."},"since_ms":{"type":"integer","description":"Earliest timestamp_ms (epoch millis) to include."},"limit":{"type":"integer","description":"Max rows (default 100, capped at 1000)."}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "summarize_file",
+            "[CodeLens:Session] Get AI-generated summary of a file's purpose and structure.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"File path to summarize"}}}),
+        ).with_annotations(ro_w.clone()),
+    ]
+}
+
 pub fn symbol_tools(
     mut_w: &ToolAnnotations,
     ro_a: &ToolAnnotations,
@@ -403,5 +530,45 @@ pub fn symbol_tools(
             "[CodeLens:Symbol] Directory-level overview — file counts and symbol density per directory.",
             json!({"type":"object","properties":{}}),
         ).with_output_schema(get_project_structure_output_schema()).with_annotations(ro_p.clone()),
+    ]
+}
+
+pub fn workflow_first_tools(ro_w: &ToolAnnotations) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "explore_codebase",
+            "[CodeLens:Workflow] Problem-first entrypoint for codebase exploration. Use query for targeted context, or call without arguments for onboarding.",
+            json!({"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean"}}}),
+        ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(16384),
+        Tool::new(
+            "trace_request_path",
+            "[CodeLens:Workflow] Trace a request or execution path from a function, symbol, or entrypoint.",
+            json!({"type":"object","properties":{"function_name":{"type":"string"},"symbol":{"type":"string"},"entrypoint":{"type":"string"},"max_depth":{"type":"integer"},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new(
+            "review_architecture",
+            "[CodeLens:Workflow] Review project or module architecture, boundaries, coupling, and optionally render a diagram.",
+            json!({"type":"object","properties":{"path":{"type":"string"},"include_diagram":{"type":"boolean"},"max_nodes":{"type":"integer"}}}),
+        ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new(
+            "plan_safe_refactor",
+            "[CodeLens:Workflow] Preview a safe refactor plan. Uses rename safety when file_path+symbol are given; otherwise falls back to broader refactor safety analysis.",
+            json!({"type":"object","properties":{"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"new_name":{"type":"string"}}}),
+        ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new(
+            "cleanup_duplicate_logic",
+            "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence.",
+            json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new(
+            "review_changes",
+            "[CodeLens:Workflow] Pre-merge review: diff-aware references or impact analysis for changed files.",
+            json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"},"description":"File paths that changed"},"task":{"type":"string","description":"Review focus description"},"path":{"type":"string","description":"Scope path"}}}),
+        ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new(
+            "diagnose_issues",
+            "[CodeLens:Workflow] Diagnostics: file-level issues or unresolved reference check.",
+            json!({"type":"object","properties":{"file_path":{"type":"string","description":"File to diagnose"},"path":{"type":"string","description":"Directory scope"},"symbol":{"type":"string","description":"Symbol to check references for"}}}),
+        ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
     ]
 }

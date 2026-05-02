@@ -22,9 +22,9 @@
 #   ✓ lsp              — PR-B
 #   ✓ editing          — PR-C
 #   ✓ analysis         — PR-C
-#   ✓ composite        — PR-D (this PR; workflow-first 7 deferred to PR-E)
-#   ☐ workflow_first   — PR-E
-#   ☐ session          — PR-E
+#   ✓ composite        — PR-D
+#   ✓ workflow_first   — PR-E (this PR)
+#   ✓ session          — PR-E (this PR)
 #   ☐ memory           — PR-F
 #   ☐ rule_corpus      — PR-F
 #   ☐ semantic         — PR-F (cfg-gated)
@@ -1161,3 +1161,469 @@ output_schema = "analysis_section_output_schema"
 type = "object"
 required = ["analysis_id", "section"]
 properties = { analysis_id = { type = "string" }, section = { type = "string" } }
+
+# ── Workflow-first aliases (problem-first entrypoints) ───────────────
+
+[[tool]]
+name = "explore_codebase"
+category = "workflow_first"
+description = "[CodeLens:Workflow] Problem-first entrypoint for codebase exploration. Use query for targeted context, or call without arguments for onboarding."
+annotations = "ro_w"
+output_schema = "workflow_alias_output_schema"
+max_response_tokens = 16384
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+query = { type = "string" }
+path = { type = "string" }
+max_tokens = { type = "integer" }
+include_body = { type = "boolean" }
+depth = { type = "integer" }
+disable_semantic = { type = "boolean" }
+
+# ─────
+
+[[tool]]
+name = "trace_request_path"
+category = "workflow_first"
+description = "[CodeLens:Workflow] Trace a request or execution path from a function, symbol, or entrypoint."
+annotations = "ro_w"
+output_schema = "workflow_alias_output_schema"
+max_response_tokens = 3072
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+function_name = { type = "string" }
+symbol = { type = "string" }
+entrypoint = { type = "string" }
+max_depth = { type = "integer" }
+max_results = { type = "integer" }
+
+# ─────
+
+[[tool]]
+name = "review_architecture"
+category = "workflow_first"
+description = "[CodeLens:Workflow] Review project or module architecture, boundaries, coupling, and optionally render a diagram."
+annotations = "ro_w"
+output_schema = "workflow_alias_output_schema"
+max_response_tokens = 3072
+
+[tool.input_schema]
+type = "object"
+properties = { path = { type = "string" }, include_diagram = { type = "boolean" }, max_nodes = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "plan_safe_refactor"
+category = "workflow_first"
+description = "[CodeLens:Workflow] Preview a safe refactor plan. Uses rename safety when file_path+symbol are given; otherwise falls back to broader refactor safety analysis."
+annotations = "ro_w"
+output_schema = "workflow_alias_output_schema"
+max_response_tokens = 3072
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+task = { type = "string" }
+symbol = { type = "string" }
+path = { type = "string" }
+file_path = { type = "string" }
+new_name = { type = "string" }
+
+# ─────
+
+[[tool]]
+name = "cleanup_duplicate_logic"
+category = "workflow_first"
+description = "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence."
+annotations = "ro_w"
+output_schema = "workflow_alias_output_schema"
+max_response_tokens = 3072
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+threshold = { type = "number" }
+max_pairs = { type = "integer" }
+scope = { type = "string" }
+max_results = { type = "integer" }
+
+# ─────
+
+[[tool]]
+name = "review_changes"
+category = "workflow_first"
+description = "[CodeLens:Workflow] Pre-merge review: diff-aware references or impact analysis for changed files."
+annotations = "ro_w"
+output_schema = "workflow_alias_output_schema"
+max_response_tokens = 3072
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+changed_files = { type = "array", items = { type = "string" }, description = "File paths that changed" }
+task = { type = "string", description = "Review focus description" }
+path = { type = "string", description = "Scope path" }
+
+# ─────
+
+[[tool]]
+name = "diagnose_issues"
+category = "workflow_first"
+description = "[CodeLens:Workflow] Diagnostics: file-level issues or unresolved reference check."
+annotations = "ro_w"
+output_schema = "workflow_alias_output_schema"
+max_response_tokens = 3072
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+file_path = { type = "string", description = "File to diagnose" }
+path = { type = "string", description = "Directory scope" }
+symbol = { type = "string", description = "Symbol to check references for" }
+
+# ── Session ──────────────────────────────────────────────────────────
+
+[[tool]]
+name = "activate_project"
+category = "session"
+description = "[CodeLens:Session] Activate project — auto-detect preset, index, frameworks."
+annotations = "ro_p"
+output_schema = "activate_project_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = { project = { type = "string", description = "Optional project name or path" } }
+
+# ─────
+
+[[tool]]
+name = "prepare_harness_session"
+category = "session"
+description = "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — activate project, summarize surface, capabilities, visible tools, and optionally auto-recover a small stale index in one call."
+annotations = "mutating"
+output_schema = "prepare_harness_session_output_schema"
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+project = { type = "string", description = "Optional project name or path" }
+profile = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+preset = { type = "string", enum = ["minimal", "balanced", "full"] }
+token_budget = { type = "integer", description = "Optional explicit token budget override after activation" }
+file_path = { type = "string", description = "Optional file path for language-specific capability checks" }
+detail = { type = "string", enum = ["compact", "full"], description = "compact returns the harness preflight essentials only; full also includes the heavier config snapshot" }
+host_context = { type = "string", enum = ["claude-code", "codex", "cursor", "cline", "windsurf", "vscode", "jetbrains", "api-agent"], description = "Optional host/runtime hint used to compile advisory bootstrap routing without changing the active tool surface" }
+task_overlay = { type = "string", enum = ["planning", "editing", "review", "onboarding", "batch-analysis", "interactive"], description = "Optional task-mode hint used to compile advisory bootstrap routing without changing the active tool surface" }
+preferred_entrypoints = { type = "array", items = { type = "string" }, description = "Optional ordered entrypoints so the server can report which are immediately visible" }
+auto_refresh_stale = { type = "boolean", description = "When true (default), bootstrap auto-refreshes a small stale symbol index before reporting capabilities" }
+auto_refresh_stale_threshold = { type = "integer", description = "Maximum stale file count eligible for automatic refresh during bootstrap (default 32)" }
+
+# ─────
+
+[[tool]]
+name = "register_agent_work"
+category = "session"
+description = "[CodeLens:Session] Register the current agent intent, branch, and worktree for advisory multi-agent coordination."
+annotations = "mut_coord"
+output_schema = "register_agent_work_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["agent_name", "branch", "worktree", "intent"]
+[tool.input_schema.properties]
+session_id = { type = "string", description = "Optional logical session id. Defaults to the active _session_id." }
+agent_name = { type = "string" }
+branch = { type = "string" }
+worktree = { type = "string" }
+intent = { type = "string" }
+ttl_secs = { type = "integer", description = "Optional advisory TTL in seconds (default 300, clamped to 30-3600)." }
+
+# ─────
+
+[[tool]]
+name = "list_active_agents"
+category = "session"
+description = "[CodeLens:Session] List active agent registrations and their claimed paths for the current project scope."
+annotations = "ro_p"
+output_schema = "list_active_agents_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "claim_files"
+category = "session"
+description = "[CodeLens:Session] Advisory file claim for the active session. Claims downgrade readiness to caution for overlapping sessions but never hard-block writes."
+annotations = "mut_coord"
+output_schema = "claim_files_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["paths", "reason"]
+[tool.input_schema.properties]
+session_id = { type = "string", description = "Optional logical session id. Defaults to the active _session_id." }
+paths = { type = "array", items = { type = "string" }, description = "Project-relative paths to claim" }
+reason = { type = "string" }
+ttl_secs = { type = "integer", description = "Optional advisory TTL in seconds (default 300, clamped to 30-3600)." }
+
+# ─────
+
+[[tool]]
+name = "release_files"
+category = "session"
+description = "[CodeLens:Session] Release previously claimed files for the active session."
+annotations = "mut_coord"
+output_schema = "release_files_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["paths"]
+[tool.input_schema.properties]
+session_id = { type = "string", description = "Optional logical session id. Defaults to the active _session_id." }
+paths = { type = "array", items = { type = "string" }, description = "Project-relative paths to release" }
+
+# ─────
+
+[[tool]]
+name = "prepare_for_new_conversation"
+category = "session"
+description = "[CodeLens:Session] Project context summary for a new conversation."
+annotations = "ro_p"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "summarize_changes"
+category = "session"
+description = "[CodeLens:Session] Summarize recent git changes with symbol context."
+annotations = "ro_p"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "get_watch_status"
+category = "session"
+description = "[CodeLens:Session] File watcher status: running, events, reindexed files."
+annotations = "ro_p"
+output_schema = "watch_status_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "prune_index_failures"
+category = "session"
+description = "[CodeLens:Session] Remove stale index-failure records for deleted files."
+annotations = "mut_p"
+output_schema = "prune_index_failures_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "add_queryable_project"
+category = "session"
+description = "[CodeLens:Session] Register external project for cross-project queries."
+annotations = "mutating"
+
+[tool.input_schema]
+type = "object"
+required = ["path"]
+properties = { path = { type = "string", description = "Absolute path to the project directory" } }
+
+# ─────
+
+[[tool]]
+name = "remove_queryable_project"
+category = "session"
+description = "[CodeLens:Session] Unregister an external project."
+annotations = "mutating"
+
+[tool.input_schema]
+type = "object"
+required = ["name"]
+properties = { name = { type = "string", description = "Project name to remove" } }
+
+# ─────
+
+[[tool]]
+name = "query_project"
+category = "session"
+description = "[CodeLens:Session] Search symbols in a registered external project."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+required = ["project_name", "symbol_name"]
+[tool.input_schema.properties]
+project_name = { type = "string", description = "Name of the registered project" }
+symbol_name = { type = "string", description = "Symbol name to search for" }
+max_results = { type = "integer", description = "Max results (default 20)" }
+
+# ─────
+
+[[tool]]
+name = "list_queryable_projects"
+category = "session"
+description = "[CodeLens:Session] List all registered projects (active + external)."
+annotations = "ro_p"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "set_preset"
+category = "session"
+description = "[CodeLens:Session] Switch tool preset at runtime. Auto-adjusts token budget."
+annotations = "mutating"
+
+[tool.input_schema]
+type = "object"
+required = ["preset"]
+[tool.input_schema.properties]
+preset = { type = "string", enum = ["minimal", "balanced", "full"], description = "Target preset" }
+token_budget = { type = "integer", description = "Override token budget (default: auto per preset)" }
+
+# ─────
+
+[[tool]]
+name = "set_profile"
+category = "session"
+description = "[CodeLens:Session] Switch the active role profile. Preferred for harness-oriented workflows."
+annotations = "mutating"
+
+[tool.input_schema]
+type = "object"
+required = ["profile"]
+[tool.input_schema.properties]
+profile = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+token_budget = { type = "integer", description = "Override token budget for the active profile" }
+
+# ─────
+
+[[tool]]
+name = "get_capabilities"
+category = "session"
+description = "[CodeLens:Session] Check LSP, embeddings, index freshness. Use before advanced tools."
+annotations = "ro_a"
+output_schema = "get_capabilities_output_schema"
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+file_path = { type = "string", description = "Optional file path to check language-specific capabilities" }
+detail = { type = "string", enum = ["compact", "full"], description = "compact returns 12 core fields (~1K); full returns all 38 fields including CoreML runtime, SCIP counts, build_info (~5K). Default: full (backward-compatible)." }
+
+# ─────
+
+[[tool]]
+name = "get_tool_metrics"
+category = "session"
+description = "[CodeLens:Session] Per-tool call counts, latency, errors. Use for self-diagnosis."
+annotations = "ro_p"
+output_schema = "tool_metrics_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = { session_id = { type = "string", description = "Optional logical session id. When present, return only that session's metrics." } }
+
+# ─────
+
+[[tool]]
+name = "audit_builder_session"
+category = "session"
+description = "[CodeLens:Session] Audit a builder/refactor session for preflight, diagnostics, and coordination discipline."
+annotations = "ro_a"
+output_schema = "builder_session_audit_output_schema"
+max_response_tokens = 4096
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+session_id = { type = "string", description = "Optional logical session id. Defaults to the active _session_id." }
+detail = { type = "string", enum = ["compact", "full"], description = "compact returns the ordered audit checks only; full also includes session metrics and coordination snapshot." }
+
+# ─────
+
+[[tool]]
+name = "audit_planner_session"
+category = "session"
+description = "[CodeLens:Session] Audit a planner/reviewer session for bootstrap, workflow-first routing, and read-side evidence discipline."
+annotations = "ro_a"
+output_schema = "planner_session_audit_output_schema"
+max_response_tokens = 4096
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+session_id = { type = "string", description = "Optional logical session id. Defaults to the active _session_id." }
+detail = { type = "string", enum = ["compact", "full"], description = "compact returns the ordered audit checks only; full also includes session metrics." }
+
+# ─────
+
+[[tool]]
+name = "export_session_markdown"
+category = "session"
+description = "[CodeLens:Session] Export session telemetry as markdown report."
+annotations = "ro_p"
+output_schema = "session_markdown_output_schema"
+max_response_tokens = 4096
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+name = { type = "string", description = "Session name for the report header" }
+session_id = { type = "string", description = "Optional logical session id. When present, the markdown includes the role-appropriate builder or planner audit summary." }
+
+# ─────
+
+[[tool]]
+name = "audit_log_query"
+category = "session"
+description = "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by transaction_id and/or since_ms; default limit 100 rows. Requires Admin role."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+transaction_id = { type = "string", description = "Stable id from a mutation response (payload.data.transaction_id). Returns the rows for that one call." }
+since_ms = { type = "integer", description = "Earliest timestamp_ms (epoch millis) to include." }
+limit = { type = "integer", description = "Max rows (default 100, capped at 1000)." }
+
+# ─────
+
+[[tool]]
+name = "summarize_file"
+category = "session"
+description = "[CodeLens:Session] Get AI-generated summary of a file's purpose and structure."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+required = ["path"]
+properties = { path = { type = "string", description = "File path to summarize" } }
