@@ -295,6 +295,7 @@ fn emit_compound_and_parts(compound: &str, out: &mut Vec<String>) {
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn doc(
         name: &str,
         name_path: &str,

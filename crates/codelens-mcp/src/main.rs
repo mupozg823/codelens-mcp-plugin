@@ -167,6 +167,31 @@ fn init_tracing() {
     init_tracing_fmt_only();
 }
 
+/// One-line stderr banner stating whether semantic retrieval is compiled in.
+///
+/// Emitted once on every non-trivial server boot (stdio / HTTP / oneshot)
+/// after `init_tracing` so users running a default `cargo install codelens-mcp`
+/// do not silently hit `FeatureUnavailable` errors on the first
+/// `semantic_search` call. ADR-0012.
+///
+/// stdout stays untouched — JSON-RPC stdio integrity is preserved.
+fn emit_semantic_banner() {
+    #[cfg(feature = "semantic")]
+    {
+        eprintln!("codelens-mcp: hybrid retrieval enabled (semantic feature on).");
+    }
+    #[cfg(not(feature = "semantic"))]
+    {
+        eprintln!(
+            "codelens-mcp: semantic retrieval disabled (BM25 + AST + call-graph only).\n\
+             To enable hybrid retrieval:\n  \
+                 cargo install codelens-mcp --features semantic\n  \
+                 # or download a GitHub Release tarball (model bundled).\n\
+             See ADR-0012 in the repo for the full rationale."
+        );
+    }
+}
+
 fn main() -> Result<()> {
     // Initialize tracing subscriber — output to stderr to avoid interfering with
     // stdio JSON-RPC transport on stdout. Controlled via SYMBIOTE_LOG or
@@ -269,6 +294,10 @@ fn main() -> Result<()> {
             "Refusing to start CodeLens on `/` without an explicit project root. Pass a path or set MCP_PROJECT_DIR/CLAUDE_PROJECT_DIR."
         );
     }
+
+    // Surface the semantic-feature flag once per boot. Stays on stderr so
+    // stdio JSON-RPC stdout is not polluted. ADR-0012.
+    emit_semantic_banner();
 
     // v1.5 Phase 2j MCP follow-up: auto-detect the dominant language so
     // `CODELENS_EMBED_HINT_AUTO=1` alone (without an explicit

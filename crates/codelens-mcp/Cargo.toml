@@ -59,7 +59,12 @@ tempfile = "3"
 filetime = "0.2"
 
 [features]
-default = ["semantic"]
+# Default is empty — `cargo install codelens-mcp` ships a BM25 + AST +
+# call-graph build that boots without an external model directory. Opt
+# into hybrid retrieval with `--features semantic` and supply the model
+# via `CODELENS_MODEL_DIR`, or use the GitHub Release tarball which
+# bundles the model. See ADR-0012.
+default = []
 semantic = ["codelens-engine/semantic"]
 coreml = ["semantic", "codelens-engine/coreml"]
 model-bakeoff = ["semantic", "codelens-engine/model-bakeoff"]

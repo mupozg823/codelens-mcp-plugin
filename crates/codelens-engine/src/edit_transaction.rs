@@ -366,20 +366,21 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
+type FullWriteInjectHook = std::cell::RefCell<Option<Box<dyn FnOnce(&std::path::Path)>>>;
+
+#[cfg(test)]
 thread_local! {
     /// Test-only hook: when set, called once between Phase 1 capture and
     /// Phase 2 verify with the resolved path so a test can mutate the file
     /// to simulate TOCTOU drift. Cleared after one call.
-    pub(crate) static FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY:
-        std::cell::RefCell<Option<Box<dyn FnOnce(&std::path::Path)>>> =
+    pub(crate) static FULL_WRITE_INJECT_BETWEEN_CAPTURE_AND_VERIFY: FullWriteInjectHook =
         std::cell::RefCell::new(None);
 
     /// Test-only hook: when set, called once immediately before the Phase 3
     /// rollback restore write, with the resolved path. Allows a test to
     /// reverse any permission changes that caused the initial write to fail,
     /// so the rollback `fs::write` can succeed. Cleared after one call.
-    pub(crate) static FULL_WRITE_INJECT_BEFORE_ROLLBACK:
-        std::cell::RefCell<Option<Box<dyn FnOnce(&std::path::Path)>>> =
+    pub(crate) static FULL_WRITE_INJECT_BEFORE_ROLLBACK: FullWriteInjectHook =
         std::cell::RefCell::new(None);
 }
 

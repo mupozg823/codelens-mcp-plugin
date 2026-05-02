@@ -1,3 +1,4 @@
+#[cfg(feature = "semantic")]
 use super::*;
 
 #[cfg(feature = "semantic")]

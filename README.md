@@ -17,6 +17,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 </div>
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
+
 ## Surface Snapshot
 
 - Workspace version: `1.9.60`
@@ -40,47 +41,58 @@ Multi-agent coding harnesses fail when every agent sees too many tools, too much
 CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a harness optimization layer. The model asks a precise question and gets a bounded answer with a handle for deeper expansion only when needed.
 
 ```
-Without CodeLens                                    With CodeLens
-─────────────────────────────────────────────────────────────────
+Without CodeLens                                    With CodeLens (with semantic feature on)
+────────────────────────────────────────────────────────────────────────────────────────────
 Read file + grep references   → 4,600 tokens       get_impact_analysis    → 1,500 tokens  (67% saved)
 Read manifest + entry + files → 5,000 tokens       onboard_project        →   660 tokens  (87% saved)
 Read + grep × 3 files         → 3,200 tokens       get_ranked_context     →   800 tokens  (75% saved)
 ```
 
-> Measured with tiktoken (cl100k_base) on real projects. Reproducible via `benchmarks/token-efficiency.py`.
+> Measured with tiktoken (cl100k_base) on real projects with `--features semantic` enabled and the bundled CodeSearchNet model loaded. Reproducible via `benchmarks/token-efficiency.py`. The default crates.io build (BM25 + AST only) still hits the bounded-output and workflow-shape benefits but does not run the hybrid semantic ranker.
 
 ## Quick Install
 
+**Default (BM25 + AST + call-graph, no model sidecar)** — works out of the box, no extra setup:
+
 ```bash
-# From crates.io (recommended for stdio; add `--features http` for shared daemon mode)
 cargo install codelens-mcp
+```
 
-# From crates.io with HTTP transport enabled
-cargo install codelens-mcp --features http
+**Hybrid retrieval (semantic + bundled CodeSearchNet model)** — pick one:
 
-# Homebrew (macOS / Linux)
-brew install mupozg823/tap/codelens-mcp
-
-# GitHub installer (prebuilt release binary)
+```bash
+# Option A: GitHub Release tarball — model is bundled and verified in CI.
 curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
 
-# From source
-cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
+# Option B: cargo install with the semantic feature, then point CODELENS_MODEL_DIR at a model
+#          payload (the model is not on crates.io due to the 10 MB cap).
+cargo install codelens-mcp --features semantic
+export CODELENS_MODEL_DIR=/path/to/codesearch/model
 
-# From source with HTTP transport enabled
-cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
+# Option C: Homebrew tap (macOS / Linux) — release-tarball-equivalent
+brew install mupozg823/tap/codelens-mcp
 ```
+
+**HTTP daemon mode** — add `--features http` to either path above. Source builds:
+
+```bash
+cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
+cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features semantic,http
+```
+
+> The default `cargo install codelens-mcp` build was switched to `default = []` in 1.10.0 (ADR-0012) so a fresh install boots without the ~80 MB ONNX sidecar. Existing users running `cargo install --force` will see the change in the startup banner.
 
 Latest release: [GitHub Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). For local release comparisons, use `git tag --sort=-v:refname | head -1` instead of copying a fixed tag into docs.
 
 ### Install Channel Matrix
 
-| Channel                                      | What you get                                                                              | Good for                                             | Extra install needed?                                                                                                                                                                                                                                                |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cargo install codelens-mcp`                 | crates.io package version, stdio-first default build                                      | Single-agent local MCP sessions                      | Add `--features http` if you want shared HTTP daemons. **Semantic search requires a sidecar model directory** — model files are excluded from `cargo publish` (10 MB cap on crates.io); fetch one from a GitHub Release tarball and point `CODELENS_MODEL_DIR` at it |
-| `cargo install codelens-mcp --features http` | crates.io package version with HTTP transport                                             | Shared daemon mode from crates.io                    | Same model-sidecar requirement as above; plus host client config                                                                                                                                                                                                     |
-| GitHub Releases / installer / Homebrew       | latest tagged release binary, built in CI with `--features http` (`http,coreml` on macOS) | Tagged release users who want HTTP without compiling | Model payload is bundled in the tarball and verified pre-/post-archive in CI; airgap users can rebundle via `scripts/build-airgap-bundle.sh`                                                                                                                         |
-| `cargo install --git ...` or source build    | current repository HEAD                                                                   | Unreleased features on `main` / branch testing       | Models live at `crates/codelens-engine/models/codesearch/` in the source tree; no extra fetch needed                                                                                                                                                                 |
+| Channel                                          | What you get                                                                              | Good for                                             | Extra install needed?                                                                                                                                                                                         |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo install codelens-mcp`                     | crates.io package, **BM25 + AST + call-graph default** (no semantic, no model needed)     | Single-agent local MCP sessions, fast first install  | Add `--features semantic` for hybrid retrieval (model sidecar required, see below). Add `--features http` for shared HTTP daemons.                                                                            |
+| `cargo install codelens-mcp --features semantic` | crates.io package + ONNX/fastembed/sqlite-vec compiled in                                 | Hybrid retrieval users who prefer crates.io          | **Semantic search requires a sidecar model directory** — model files are excluded from `cargo publish` (10 MB cap on crates.io); fetch one from a GitHub Release tarball and point `CODELENS_MODEL_DIR` at it |
+| `cargo install codelens-mcp --features http`     | crates.io package, BM25/AST default + HTTP transport                                      | Shared daemon mode from crates.io without semantic   | Combine with `--features semantic,http` if hybrid retrieval is wanted                                                                                                                                         |
+| GitHub Releases / installer / Homebrew           | latest tagged release binary, built in CI with `--features http` (`http,coreml` on macOS) | Tagged release users who want HTTP without compiling | Model payload is bundled in the tarball and verified pre-/post-archive in CI; airgap users can rebundle via `scripts/build-airgap-bundle.sh`                                                                  |
+| `cargo install --git ...` or source build        | current repository HEAD                                                                   | Unreleased features on `main` / branch testing       | Models live at `crates/codelens-engine/models/codesearch/` in the source tree; no extra fetch needed                                                                                                          |
 
 Important:
 
@@ -346,11 +358,13 @@ verify_change_readiness → "ready" → rename_symbol
 ## Language Support
 
 <!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
+
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json).
+
 <!-- SURFACE_MANIFEST_README_LANGUAGES:END -->
 
 ## Performance

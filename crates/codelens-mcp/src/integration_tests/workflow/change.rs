@@ -122,7 +122,7 @@ fn refactor_safety_report_keeps_preview_payload_lean() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(3102_3)),
+            id: Some(json!(31023)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": format!("codelens://analysis/{analysis_id}/summary")})),
         },

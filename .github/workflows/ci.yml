@@ -35,6 +35,9 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
+      - name: tool-defs codegen drift check
+        run: python3 scripts/regen-tool-defs.py --check
+
       - name: cargo check
         run: cargo check --workspace
 
