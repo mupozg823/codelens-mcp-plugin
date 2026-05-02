@@ -32,6 +32,9 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
       - name: cargo check
         run: cargo check --workspace
 
