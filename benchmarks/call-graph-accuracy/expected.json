@@ -59,6 +59,7 @@
     {
       "path": "benchmarks/call-graph-accuracy/fixtures/ts/promises.ts",
       "edges": [
+        { "caller": "handleRequest", "callee": "normalize" },
         { "caller": "handleRequest", "callee": "fetch" },
         { "caller": "handleRequest", "callee": "on" },
         { "caller": "handleRequest", "callee": "success" },
