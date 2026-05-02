@@ -45,7 +45,7 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Recommended modes: `solo-local`, `planner-builder`, `batch-analysis`
 - Preferred profiles: `builder-minimal`, `refactor-full`, `ci-audit`
 - Default compiled overlay: profile=`builder-minimal`, task_overlay=`editing`
-- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics`
+- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics` -> `rename_symbol` -> `replace_symbol_body` -> `insert_content` -> `replace` -> `add_import`
 - Compiler targets: `AGENTS.md`, `~/.codex/config.toml`, `repo-local skill files`
 
 ### `cursor`
@@ -65,7 +65,7 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Recommended modes: `solo-local`, `planner-builder`
 - Preferred profiles: `builder-minimal`, `reviewer-graph`
 - Default compiled overlay: profile=`builder-minimal`, task_overlay=`editing`
-- Primary bootstrap sequence: `prepare_harness_session` -> `get_file_diagnostics` -> `verify_change_readiness` -> `trace_request_path` -> `plan_safe_refactor`
+- Primary bootstrap sequence: `prepare_harness_session` -> `get_file_diagnostics` -> `verify_change_readiness` -> `trace_request_path` -> `plan_safe_refactor` -> `rename_symbol` -> `replace_symbol_body` -> `insert_content` -> `replace` -> `add_import`
 - Compiler targets: `mcp_servers.json`, `.clinerules`, `repo instructions`
 
 ### `windsurf`
@@ -75,7 +75,7 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Recommended modes: `solo-local`, `reviewer-gate`
 - Preferred profiles: `builder-minimal`, `planner-readonly`
 - Default compiled overlay: profile=`builder-minimal`, task_overlay=`editing`
-- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics`
+- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics` -> `rename_symbol` -> `replace_symbol_body` -> `insert_content` -> `replace` -> `add_import`
 - Compiler targets: `~/.codeium/windsurf/mcp_config.json`
 <!-- SURFACE_MANIFEST_HOST_ADAPTER_SUMMARY:END -->
 

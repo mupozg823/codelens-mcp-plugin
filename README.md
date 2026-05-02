@@ -17,16 +17,15 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 </div>
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
-
 ## Surface Snapshot
 
-- Workspace version: `1.9.60`
-- Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
-- Registered tool definitions: `112`
-- Tool output schemas: `82 / 112`
+- Workspace version: `1.10.0`
+- Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
+- Registered tool definitions: `106`
+- Tool output schemas: `77 / 106`
 - Supported language families: `30` across `49` extensions
-- Profiles: `planner-readonly` (34), `builder-minimal` (38), `reviewer-graph` (36), `evaluator-compact` (14), `refactor-full` (50), `ci-audit` (43), `workflow-first` (19)
-- Presets: `minimal` (27), `balanced` (83), `full` (112)
+- Profiles: `planner-readonly` (32), `builder-minimal` (36), `reviewer-graph` (36), `evaluator-compact` (14), `refactor-full` (50), `ci-audit` (43), `workflow-first` (19)
+- Presets: `minimal` (27), `balanced` (77), `full` (106)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
 
@@ -358,13 +357,11 @@ verify_change_readiness → "ready" → rename_symbol
 ## Language Support
 
 <!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
-
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json).
-
 <!-- SURFACE_MANIFEST_README_LANGUAGES:END -->
 
 ## Performance

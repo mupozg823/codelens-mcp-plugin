@@ -28,7 +28,7 @@ Single-agent local work without cross-agent coordination overhead.
 - Daemon shape: `single-session`
 - Recommended ports: none
 - Roles:
-  - `solo-agent`: `planner-readonly` (34), `builder-minimal` (38); mutate=`false`; one session handles both planning and implementation
+  - `solo-agent`: `planner-readonly` (32), `builder-minimal` (36); mutate=`false`; one session handles both planning and implementation
 - Recommended flow:
   - `prepare_harness_session`
   - `explore_codebase`
@@ -49,8 +49,8 @@ Primary multi-agent pattern: read-only planning/review paired with mutation-enab
 - Daemon shape: `dual-daemon`
 - Recommended ports: `7837`, `7838`
 - Roles:
-  - `planner-reviewer`: `planner-readonly` (34), `reviewer-graph` (36); mutate=`false`; bootstrap, rank context, and verify change readiness before dispatch
-  - `builder-refactor`: `builder-minimal` (38), `refactor-full` (50); mutate=`true`; execute bounded edits after preflight, diagnostics, and claims
+  - `planner-reviewer`: `planner-readonly` (32), `reviewer-graph` (36); mutate=`false`; bootstrap, rank context, and verify change readiness before dispatch
+  - `builder-refactor`: `builder-minimal` (36), `refactor-full` (50); mutate=`true`; execute bounded edits after preflight, diagnostics, and claims
 - Recommended flow:
   - `prepare_harness_session`
   - `get_symbols_overview per target file`

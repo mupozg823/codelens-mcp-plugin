@@ -1,41 +1,42 @@
 {
   "schema_version": "codelens-surface-manifest-v1",
   "workspace": {
-    "version": "1.9.60",
+    "version": "1.10.0",
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
     "members": [
       "crates/codelens-engine",
-      "crates/codelens-mcp"
+      "crates/codelens-mcp",
+      "crates/codelens-tui"
     ],
-    "member_count": 2
+    "member_count": 3
   },
   "tool_registry": {
-    "definition_count": 112,
-    "output_schema_count": 82,
+    "definition_count": 106,
+    "output_schema_count": 77,
     "namespaces": {
       "filesystem": 6,
-      "graph": 12,
+      "graph": 8,
       "lsp": 3,
       "memory": 5,
       "mutation": 16,
       "reports": 25,
       "session": 34,
-      "symbols": 11
+      "symbols": 9
     },
     "tiers": {
-      "analysis": 26,
-      "primitive": 56,
+      "analysis": 23,
+      "primitive": 53,
       "workflow": 30
     },
     "phases": {
       "agnostic": 41,
       "build": 18,
       "eval": 8,
-      "plan": 27,
-      "review": 18
+      "plan": 24,
+      "review": 15
     },
     "preferred_executors": {
-      "any": 86,
+      "any": 80,
       "claude": 9,
       "codex-builder": 17
     },
@@ -473,24 +474,6 @@
         "estimated_tokens": 611
       },
       {
-        "name": "explore_codebase",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "plan",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 204
-      },
-      {
-        "name": "trace_request_path",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "plan",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 186
-      },
-      {
         "name": "explain_code_flow",
         "namespace": "session",
         "tier": "analysis",
@@ -498,51 +481,6 @@
         "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 131
-      },
-      {
-        "name": "review_architecture",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "plan",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 176
-      },
-      {
-        "name": "plan_safe_refactor",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "plan",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 198
-      },
-      {
-        "name": "cleanup_duplicate_logic",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "build",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 196
-      },
-      {
-        "name": "review_changes",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "review",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 200
-      },
-      {
-        "name": "diagnose_issues",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "review",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 191
       },
       {
         "name": "onboard_project",
@@ -734,58 +672,67 @@
         "estimated_tokens": 134
       },
       {
-        "name": "find_relevant_rules",
+        "name": "explore_codebase",
         "namespace": "reports",
-        "tier": "analysis",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 159
-      },
-      {
-        "name": "list_memories",
-        "namespace": "memory",
-        "tier": "primitive",
-        "phase": null,
+        "tier": "workflow",
+        "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 125
+        "estimated_tokens": 204
       },
       {
-        "name": "read_memory",
-        "namespace": "memory",
-        "tier": "primitive",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 86
+        "name": "trace_request_path",
+        "namespace": "reports",
+        "tier": "workflow",
+        "phase": "plan",
+        "preferred_executor": "claude",
+        "has_output_schema": true,
+        "estimated_tokens": 186
       },
       {
-        "name": "write_memory",
-        "namespace": "memory",
-        "tier": "primitive",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 94
+        "name": "review_architecture",
+        "namespace": "reports",
+        "tier": "workflow",
+        "phase": "plan",
+        "preferred_executor": "claude",
+        "has_output_schema": true,
+        "estimated_tokens": 176
       },
       {
-        "name": "delete_memory",
-        "namespace": "memory",
-        "tier": "primitive",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 89
+        "name": "plan_safe_refactor",
+        "namespace": "reports",
+        "tier": "workflow",
+        "phase": "plan",
+        "preferred_executor": "claude",
+        "has_output_schema": true,
+        "estimated_tokens": 198
       },
       {
-        "name": "rename_memory",
-        "namespace": "memory",
-        "tier": "primitive",
-        "phase": null,
+        "name": "cleanup_duplicate_logic",
+        "namespace": "reports",
+        "tier": "workflow",
+        "phase": "build",
+        "preferred_executor": "claude",
+        "has_output_schema": true,
+        "estimated_tokens": 196
+      },
+      {
+        "name": "review_changes",
+        "namespace": "reports",
+        "tier": "workflow",
+        "phase": "review",
+        "preferred_executor": "claude",
+        "has_output_schema": true,
+        "estimated_tokens": 200
+      },
+      {
+        "name": "diagnose_issues",
+        "namespace": "reports",
+        "tier": "workflow",
+        "phase": "review",
         "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 102
+        "has_output_schema": true,
+        "estimated_tokens": 191
       },
       {
         "name": "activate_project",
@@ -995,58 +942,58 @@
         "estimated_tokens": 101
       },
       {
-        "name": "semantic_search",
-        "namespace": "symbols",
-        "tier": "primitive",
-        "phase": "plan",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 304
-      },
-      {
-        "name": "index_embeddings",
-        "namespace": "symbols",
-        "tier": "primitive",
-        "phase": "plan",
+        "name": "find_relevant_rules",
+        "namespace": "reports",
+        "tier": "analysis",
+        "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 179
+        "estimated_tokens": 159
       },
       {
-        "name": "find_similar_code",
-        "namespace": "graph",
-        "tier": "analysis",
-        "phase": "plan",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 276
-      },
-      {
-        "name": "find_code_duplicates",
-        "namespace": "graph",
-        "tier": "analysis",
-        "phase": "review",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 221
-      },
-      {
-        "name": "classify_symbol",
-        "namespace": "graph",
-        "tier": "analysis",
-        "phase": "review",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 212
-      },
-      {
-        "name": "find_misplaced_code",
-        "namespace": "graph",
+        "name": "list_memories",
+        "namespace": "memory",
         "tier": "primitive",
-        "phase": "review",
+        "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 195
+        "estimated_tokens": 125
+      },
+      {
+        "name": "read_memory",
+        "namespace": "memory",
+        "tier": "primitive",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 86
+      },
+      {
+        "name": "write_memory",
+        "namespace": "memory",
+        "tier": "primitive",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 94
+      },
+      {
+        "name": "delete_memory",
+        "namespace": "memory",
+        "tier": "primitive",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 89
+      },
+      {
+        "name": "rename_memory",
+        "namespace": "memory",
+        "tier": "primitive",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 102
       }
     ]
   },
@@ -1054,7 +1001,7 @@
     "profiles": [
       {
         "name": "planner-readonly",
-        "tool_count": 34,
+        "tool_count": 32,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1073,8 +1020,6 @@
           "review_architecture",
           "review_changes",
           "prepare_harness_session",
-          "plan_safe_refactor",
-          "diagnose_issues",
           "onboard_project",
           "analyze_change_request",
           "verify_change_readiness",
@@ -1082,14 +1027,14 @@
           "mermaid_module_graph",
           "impact_report",
           "start_analysis_job",
+          "plan_safe_refactor",
+          "diagnose_issues",
           "get_analysis_job",
           "get_analysis_section",
           "get_symbols_overview",
           "find_symbol",
           "get_ranked_context",
           "find_referencing_symbols",
-          "semantic_search",
-          "index_embeddings",
           "get_changed_files",
           "get_current_config",
           "activate_project",
@@ -1107,7 +1052,7 @@
       },
       {
         "name": "builder-minimal",
-        "tool_count": 38,
+        "tool_count": 36,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1143,8 +1088,6 @@
           "get_symbols_overview",
           "find_symbol",
           "find_referencing_symbols",
-          "semantic_search",
-          "index_embeddings",
           "find_tests",
           "get_current_config",
           "analyze_missing_imports",
@@ -1185,7 +1128,6 @@
           "review_changes",
           "cleanup_duplicate_logic",
           "prepare_harness_session",
-          "diagnose_issues",
           "verify_change_readiness",
           "summarize_symbol_impact",
           "module_boundary_report",
@@ -1194,6 +1136,7 @@
           "refactor_safety_report",
           "diff_aware_references",
           "start_analysis_job",
+          "diagnose_issues",
           "semantic_code_review",
           "get_analysis_job",
           "get_analysis_section",
@@ -1271,9 +1214,6 @@
           "review_changes",
           "trace_request_path",
           "prepare_harness_session",
-          "explore_codebase",
-          "review_architecture",
-          "diagnose_issues",
           "verify_change_readiness",
           "safe_rename_report",
           "unresolved_reference_check",
@@ -1281,6 +1221,9 @@
           "refactor_safety_report",
           "diff_aware_references",
           "start_analysis_job",
+          "explore_codebase",
+          "review_architecture",
+          "diagnose_issues",
           "replace_symbol_body",
           "refactor_extract_function",
           "refactor_inline_function",
@@ -1339,8 +1282,6 @@
           "cleanup_duplicate_logic",
           "review_architecture",
           "prepare_harness_session",
-          "explore_codebase",
-          "diagnose_issues",
           "analyze_change_request",
           "verify_change_readiness",
           "summarize_symbol_impact",
@@ -1351,6 +1292,8 @@
           "refactor_safety_report",
           "diff_aware_references",
           "start_analysis_job",
+          "explore_codebase",
+          "diagnose_issues",
           "get_analysis_job",
           "get_analysis_section",
           "get_changed_files",
@@ -1392,6 +1335,8 @@
         ],
         "preferred_phases": [],
         "tools": [
+          "onboard_project",
+          "analyze_change_request",
           "explore_codebase",
           "trace_request_path",
           "review_architecture",
@@ -1399,8 +1344,6 @@
           "cleanup_duplicate_logic",
           "review_changes",
           "diagnose_issues",
-          "onboard_project",
-          "analyze_change_request",
           "get_current_config",
           "activate_project",
           "register_agent_work",
@@ -1459,7 +1402,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 83,
+        "tool_count": 77,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1476,10 +1419,6 @@
           "review_architecture",
           "review_changes",
           "prepare_harness_session",
-          "trace_request_path",
-          "plan_safe_refactor",
-          "cleanup_duplicate_logic",
-          "diagnose_issues",
           "onboard_project",
           "analyze_change_request",
           "verify_change_readiness",
@@ -1495,6 +1434,10 @@
           "diff_aware_references",
           "start_analysis_job",
           "cancel_analysis_job",
+          "trace_request_path",
+          "plan_safe_refactor",
+          "cleanup_duplicate_logic",
+          "diagnose_issues",
           "refresh_symbol_index",
           "propagate_deletions",
           "semantic_code_review",
@@ -1508,9 +1451,6 @@
           "get_callers",
           "get_callees",
           "find_scoped_references",
-          "find_similar_code",
-          "find_code_duplicates",
-          "classify_symbol",
           "resolve_symbol_target",
           "explain_code_flow",
           "query_project",
@@ -1523,10 +1463,7 @@
           "find_symbol",
           "find_referencing_symbols",
           "search_workspace_symbols",
-          "semantic_search",
-          "index_embeddings",
           "get_changed_files",
-          "find_misplaced_code",
           "find_annotations",
           "find_tests",
           "get_current_config",
@@ -1559,7 +1496,7 @@
       },
       {
         "name": "full",
-        "tool_count": 112,
+        "tool_count": 106,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1583,10 +1520,6 @@
           "replace_symbol_body",
           "refactor_extract_function",
           "refactor_inline_function",
-          "trace_request_path",
-          "cleanup_duplicate_logic",
-          "review_changes",
-          "diagnose_issues",
           "onboard_project",
           "analyze_change_request",
           "verify_change_readiness",
@@ -1602,6 +1535,10 @@
           "diff_aware_references",
           "start_analysis_job",
           "cancel_analysis_job",
+          "trace_request_path",
+          "cleanup_duplicate_logic",
+          "review_changes",
+          "diagnose_issues",
           "refresh_symbol_index",
           "propagate_deletions",
           "semantic_code_review",
@@ -1614,9 +1551,6 @@
           "get_symbol_importance",
           "find_circular_dependencies",
           "get_change_coupling",
-          "find_similar_code",
-          "find_code_duplicates",
-          "classify_symbol",
           "rename_symbol",
           "refactor_move_to_file",
           "refactor_change_signature",
@@ -1640,7 +1574,6 @@
           "find_annotations",
           "find_tests",
           "get_changed_files",
-          "find_misplaced_code",
           "get_file_diagnostics",
           "check_lsp_status",
           "get_lsp_recipe",
@@ -1685,9 +1618,7 @@
           "get_symbols_overview",
           "find_symbol",
           "find_referencing_symbols",
-          "search_workspace_symbols",
-          "semantic_search",
-          "index_embeddings"
+          "search_workspace_symbols"
         ]
       }
     ]
@@ -1721,11 +1652,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 34
+                "tool_count": 32
               },
               {
                 "name": "builder-minimal",
-                "tool_count": 38
+                "tool_count": 36
               }
             ]
           }
@@ -1763,7 +1694,7 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 34
+                "tool_count": 32
               },
               {
                 "name": "reviewer-graph",
@@ -1778,7 +1709,7 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 38
+                "tool_count": 36
               },
               {
                 "name": "refactor-full",
@@ -1928,7 +1859,7 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 34
+                "tool_count": 32
               },
               {
                 "name": "reviewer-graph",
@@ -1943,7 +1874,7 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 38
+                "tool_count": 36
               },
               {
                 "name": "refactor-full",
@@ -2455,7 +2386,12 @@
           "trace_request_path",
           "plan_safe_refactor",
           "verify_change_readiness",
-          "get_file_diagnostics"
+          "get_file_diagnostics",
+          "rename_symbol",
+          "replace_symbol_body",
+          "insert_content",
+          "replace",
+          "add_import"
         ],
         "native_primitives": [
           "AGENTS.md",
@@ -2556,7 +2492,12 @@
           "get_file_diagnostics",
           "verify_change_readiness",
           "trace_request_path",
-          "plan_safe_refactor"
+          "plan_safe_refactor",
+          "rename_symbol",
+          "replace_symbol_body",
+          "insert_content",
+          "replace",
+          "add_import"
         ],
         "native_primitives": [
           "interactive permissioned terminal execution",
@@ -2603,7 +2544,12 @@
           "trace_request_path",
           "plan_safe_refactor",
           "verify_change_readiness",
-          "get_file_diagnostics"
+          "get_file_diagnostics",
+          "rename_symbol",
+          "replace_symbol_body",
+          "insert_content",
+          "replace",
+          "add_import"
         ],
         "native_primitives": [
           "global MCP config",
@@ -3202,16 +3148,16 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.9.59",
+    "version": "1.10.0",
     "transport": [
       "stdio",
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 83,
+    "visible_tool_count": 77,
     "daemon_mode": "standard",
     "supports_http": true,
-    "supports_semantic": true,
+    "supports_semantic": false,
     "supports_scip_backend": false,
     "supports_otel": false,
     "server_card_features": [
@@ -3233,17 +3179,16 @@
       "host-adapter-spec",
       "agent-experience-spec",
       "handoff-artifact-schema",
-      "semantic-search",
       "streamable-http"
     ]
   },
   "summary": {
-    "workspace_version": "1.9.59",
+    "workspace_version": "1.10.0",
     "workspace_member_count": 3,
-    "registered_tool_definitions": 112,
+    "registered_tool_definitions": 106,
     "tool_output_schemas": {
-      "declared": 82,
-      "total": 112
+      "declared": 77,
+      "total": 106
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,
