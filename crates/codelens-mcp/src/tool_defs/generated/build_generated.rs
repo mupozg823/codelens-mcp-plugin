@@ -11,6 +11,147 @@ use crate::protocol::{Tool, ToolAnnotations};
 use crate::tool_defs::output_schemas::*;
 use serde_json::json;
 
+pub fn analysis_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "get_changed_files",
+            "[CodeLens:Analysis] Files changed since a git ref with symbol counts. Use for diff review.",
+            json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}}),
+        ).with_output_schema(changed_files_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "get_callers",
+            "[CodeLens:Analysis] Find functions that call a function. Returns bounded call-graph edges with backend/confidence metadata.",
+            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"file_path":{"type":"string","description":"Optional file scope for caller search"},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(get_callers_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "get_callees",
+            "[CodeLens:Analysis] Find functions called by a function. Use file_path when duplicate function names exist.",
+            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"file_path":{"type":"string"},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(get_callees_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_scoped_references",
+            "[CodeLens:Analysis] Classify each reference as definition/read/write/import.",
+            json!({"type":"object","required":["symbol_name"],"properties":{"symbol_name":{"type":"string","description":"Symbol name to find references for"},"file_path":{"type":"string","description":"Declaration file (for sorting, optional)"},"max_results":{"type":"integer","description":"Max results (default 50)"}}}),
+        ).with_output_schema(references_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "get_symbol_importance",
+            "[CodeLens:Analysis] PageRank file importance — find the most critical files in the project.",
+            json!({"type":"object","properties":{"top_n":{"type":"integer"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_circular_dependencies",
+            "[CodeLens:Analysis] Detect circular imports using Tarjan SCC algorithm.",
+            json!({"type":"object","properties":{"max_results":{"type":"integer"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "get_change_coupling",
+            "[CodeLens:Analysis] Files that frequently change together in git history.",
+            json!({"type":"object","properties":{"months":{"type":"integer"},"min_strength":{"type":"number"},"min_commits":{"type":"integer"},"max_results":{"type":"integer"}}}),
+        ).with_annotations(ro_a.clone()),
+    ]
+}
+
+pub fn editing_tools(
+    dest_a: &ToolAnnotations,
+    destructive: &ToolAnnotations,
+    mut_p: &ToolAnnotations,
+    mut_w: &ToolAnnotations,
+    mutating: &ToolAnnotations,
+) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "rename_symbol",
+            "[CodeLens:Edit] Rename across project — safe multi-file refactoring. Use dry_run=true to preview.",
+            json!({"type":"object","required":["file_path","new_name"],"properties":{"file_path":{"type":"string","description":"File containing the symbol declaration"},"symbol_name":{"type":"string","description":"Current symbol name"},"name":{"type":"string","description":"Alias for symbol_name"},"new_name":{"type":"string","description":"Desired new name"},"name_path":{"type":"string","description":"Qualified name path (e.g. 'Class/method')"},"scope":{"type":"string","enum":["file","project"],"description":"Rename scope (default: project; tree-sitter backend only)"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"Opt-in precise edit backend. lsp uses inspectable WorkspaceEdit APIs; jetbrains/roslyn are fail-closed adapter boundaries until a local adapter is configured."},"line":{"type":"integer","description":"1-based declaration line for semantic_edit_backend=lsp; derived from symbol index when omitted"},"column":{"type":"integer","description":"1-based declaration column for semantic_edit_backend=lsp; derived from symbol index when omitted"},"command":{"type":"string","description":"Optional LSP server command for semantic_edit_backend=lsp"},"args":{"type":"array","items":{"type":"string"},"description":"Optional LSP server args for semantic_edit_backend=lsp"},"dry_run":{"type":"boolean","description":"Preview changes without modifying files"}}}),
+        ).with_output_schema(rename_output_schema()).with_annotations(dest_a.clone()),
+        Tool::new(
+            "replace_symbol_body",
+            "[CodeLens:Edit] Replace function/class body by name — tree-sitter finds boundaries. No line numbers needed.",
+            json!({"type":"object","required":["relative_path","symbol_name","new_body"],"properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"new_body":{"type":"string"}}}),
+        ).with_output_schema(file_content_output_schema()).with_annotations(mut_w.clone()),
+        Tool::new(
+            "replace_content",
+            "[CodeLens:Edit] Find-and-replace text in a file — literal or regex mode.",
+            json!({"type":"object","required":["relative_path","old_text","new_text"],"properties":{"relative_path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"regex_mode":{"type":"boolean"}}}),
+        ).with_output_schema(replace_content_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "replace_lines",
+            "[CodeLens:Edit] Replace a line range (1-indexed). Use when you know exact line numbers.",
+            json!({"type":"object","required":["relative_path","start_line","end_line","new_content"],"properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"new_content":{"type":"string"}}}),
+        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "delete_lines",
+            "[CodeLens:Edit] Delete a line range (1-indexed, end exclusive).",
+            json!({"type":"object","required":["relative_path","start_line","end_line"],"properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}}}),
+        ).with_output_schema(file_content_output_schema()).with_annotations(destructive.clone()),
+        Tool::new(
+            "insert_at_line",
+            "[CodeLens:Edit] Insert content at a line number. Use when you know the exact position.",
+            json!({"type":"object","required":["relative_path","line","content"],"properties":{"relative_path":{"type":"string"},"line":{"type":"integer"},"content":{"type":"string"}}}),
+        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "insert_before_symbol",
+            "[CodeLens:Edit] Insert code before a named symbol — tree-sitter finds position.",
+            json!({"type":"object","required":["relative_path","symbol_name","content"],"properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"content":{"type":"string"}}}),
+        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "insert_after_symbol",
+            "[CodeLens:Edit] Insert code after a named symbol — tree-sitter finds position.",
+            json!({"type":"object","required":["relative_path","symbol_name","content"],"properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"content":{"type":"string"}}}),
+        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "insert_content",
+            "[CodeLens:Edit] Insert code at position='line'|'before_symbol'|'after_symbol'.",
+            json!({"type":"object","required":["relative_path","content"],"properties":{"relative_path":{"type":"string"},"content":{"type":"string"},"position":{"type":"string","enum":["line","before_symbol","after_symbol"],"description":"Insertion position type (default: line)"},"line":{"type":"integer","description":"Line number (for position=line)"},"symbol_name":{"type":"string","description":"Symbol name (for position=before_symbol or after_symbol)"},"name_path":{"type":"string","description":"Qualified name path"}}}),
+        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "replace",
+            "[CodeLens:Edit] Replace text or line range. Set mode='text' (find-replace) or mode='lines' (line range).",
+            json!({"type":"object","required":["relative_path"],"properties":{"relative_path":{"type":"string"},"mode":{"type":"string","enum":["text","lines"],"description":"Replace mode (default: text)"},"old_text":{"type":"string","description":"Text to find (mode=text)"},"new_text":{"type":"string","description":"Replacement text (mode=text)"},"regex_mode":{"type":"boolean","description":"Use regex (mode=text)"},"start_line":{"type":"integer","description":"Start line (mode=lines)"},"end_line":{"type":"integer","description":"End line (mode=lines)"},"new_content":{"type":"string","description":"New content (mode=lines)"}}}),
+        ).with_output_schema(replace_content_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "create_text_file",
+            "[CodeLens:Edit] Create a new file. Fails if exists unless overwrite=true.",
+            json!({"type":"object","required":["relative_path","content"],"properties":{"relative_path":{"type":"string"},"content":{"type":"string"},"overwrite":{"type":"boolean"}}}),
+        ).with_output_schema(create_text_file_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "analyze_missing_imports",
+            "[CodeLens:Edit] Detect unresolved symbols and suggest imports.",
+            json!({"type":"object","required":["file_path"],"properties":{"file_path":{"type":"string","description":"File to analyze"}}}),
+        ).with_annotations(mutating.clone()),
+        Tool::new(
+            "add_import",
+            "[CodeLens:Edit] Insert an import statement at the correct position.",
+            json!({"type":"object","required":["file_path","import_statement"],"properties":{"file_path":{"type":"string"},"import_statement":{"type":"string","description":"Import statement to add"}}}),
+        ).with_output_schema(add_import_output_schema()).with_annotations(mut_p.clone()),
+        Tool::new(
+            "refactor_extract_function",
+            "[CodeLens:Edit] Extract line range into new function with automatic call-site replacement.",
+            json!({"type":"object","required":["file_path","start_line","end_line","new_name"],"properties":{"file_path":{"type":"string"},"start_line":{"type":"integer"},"start_column":{"type":"integer"},"end_line":{"type":"integer"},"end_column":{"type":"integer"},"new_name":{"type":"string","description":"Name for the new function"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists."},"code_action_kind":{"type":"string","description":"Optional LSP code action kind override"},"code_action_kinds":{"type":"array","items":{"type":"string"},"description":"Optional LSP code action kind list override"},"action_id":{"type":"string","description":"Title, kind, or index to select when multiple code actions match"},"command":{"type":"string","description":"Optional LSP server command"},"args":{"type":"array","items":{"type":"string"},"description":"Optional LSP server args"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
+        ).with_output_schema(semantic_refactor_output_schema()).with_annotations(mut_w.clone()),
+        Tool::new(
+            "refactor_inline_function",
+            "[CodeLens:Edit] Inline a function: replace all call sites with body, remove definition.",
+            json!({"type":"object","required":["file_path","function_name"],"properties":{"file_path":{"type":"string","description":"File containing the function definition"},"function_name":{"type":"string","description":"Function to inline"},"name_path":{"type":"string","description":"Qualified name path (e.g. Class/method)"},"line":{"type":"integer","description":"1-based symbol line for semantic_edit_backend=lsp"},"column":{"type":"integer","description":"1-based symbol byte column for semantic_edit_backend=lsp"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists."},"code_action_kind":{"type":"string"},"code_action_kinds":{"type":"array","items":{"type":"string"}},"action_id":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
+        ).with_output_schema(semantic_refactor_output_schema()).with_annotations(mut_w.clone()),
+        Tool::new(
+            "refactor_move_to_file",
+            "[CodeLens:Edit] Move a symbol to another file, updating imports across the project.",
+            json!({"type":"object","required":["file_path","symbol_name","target_file"],"properties":{"file_path":{"type":"string","description":"Source file"},"symbol_name":{"type":"string","description":"Symbol to move"},"target_file":{"type":"string","description":"Destination file"},"name_path":{"type":"string","description":"Qualified name path"},"line":{"type":"integer","description":"1-based symbol line for semantic_edit_backend=lsp"},"column":{"type":"integer","description":"1-based symbol byte column for semantic_edit_backend=lsp"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists."},"code_action_kind":{"type":"string"},"code_action_kinds":{"type":"array","items":{"type":"string"}},"action_id":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
+        ).with_output_schema(semantic_refactor_output_schema()).with_annotations(dest_a.clone()),
+        Tool::new(
+            "refactor_change_signature",
+            "[CodeLens:Edit] Change function parameters and update all call sites.",
+            json!({"type":"object","required":["file_path","function_name","new_parameters"],"properties":{"file_path":{"type":"string","description":"File containing the function"},"function_name":{"type":"string","description":"Function to modify"},"name_path":{"type":"string","description":"Qualified name path"},"new_parameters":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"default":{"type":"string"}}},"description":"New parameter list"},"line":{"type":"integer","description":"1-based symbol line for semantic_edit_backend=lsp"},"column":{"type":"integer","description":"1-based symbol byte column for semantic_edit_backend=lsp"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists."},"code_action_kind":{"type":"string"},"code_action_kinds":{"type":"array","items":{"type":"string"}},"action_id":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
+        ).with_output_schema(semantic_refactor_output_schema()).with_annotations(dest_a.clone()),
+        Tool::new(
+            "propagate_deletions",
+            "[CodeLens:Edit] Analyze what breaks if a symbol is deleted and list affected references/imports for cleanup.",
+            json!({"type":"object","required":["file_path","symbol_name"],"properties":{"file_path":{"type":"string","description":"File containing the symbol"},"symbol_name":{"type":"string","description":"Symbol to analyze for deletion"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"Opt-in precise safe-delete check. lsp uses textDocument/references; jetbrains/roslyn fail closed until a local adapter exists."},"line":{"type":"integer","description":"1-based declaration line for semantic_edit_backend=lsp; derived from symbol index when omitted"},"column":{"type":"integer","description":"1-based declaration column for semantic_edit_backend=lsp; derived from symbol index when omitted"},"command":{"type":"string","description":"Optional LSP server command for semantic_edit_backend=lsp"},"args":{"type":"array","items":{"type":"string"},"description":"Optional LSP server args for semantic_edit_backend=lsp"},"max_results":{"type":"integer","description":"Maximum LSP references to inspect (default 200)"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
+        ).with_output_schema(safe_delete_output_schema()).with_annotations(mut_w.clone()),
+    ]
+}
+
 pub fn file_io_tools(ro_p: &ToolAnnotations) -> Vec<Tool> {
     vec![
         Tool::new(

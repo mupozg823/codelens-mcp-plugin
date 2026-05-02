@@ -18,10 +18,10 @@
 # block to this file. Categories already in TOML:
 #
 #   ✓ file_io          — PR-A
-#   ✓ symbol           — PR-B (this PR)
-#   ✓ lsp              — PR-B (this PR)
-#   ☐ editing          — PR-C
-#   ☐ analysis         — PR-C
+#   ✓ symbol           — PR-B
+#   ✓ lsp              — PR-B
+#   ✓ editing          — PR-C (this PR)
+#   ✓ analysis         — PR-C (this PR)
 #   ☐ composite        — PR-D, PR-E
 #   ☐ session          — PR-E
 #   ☐ memory           — PR-F
@@ -403,3 +403,437 @@ annotations = "ro_p"
 type = "object"
 required = ["extension"]
 properties = { extension = { type = "string", description = "File extension (e.g. 'py', 'rs')" } }
+
+# ── Analysis (architecture & dependencies) ───────────────────────────
+
+[[tool]]
+name = "get_changed_files"
+category = "analysis"
+description = "[CodeLens:Analysis] Files changed since a git ref with symbol counts. Use for diff review."
+annotations = "ro_p"
+output_schema = "changed_files_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = { ref = { type = "string" }, include_untracked = { type = "boolean" } }
+
+# ─────
+
+[[tool]]
+name = "get_callers"
+category = "analysis"
+description = "[CodeLens:Analysis] Find functions that call a function. Returns bounded call-graph edges with backend/confidence metadata."
+annotations = "ro_a"
+output_schema = "get_callers_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["function_name"]
+[tool.input_schema.properties]
+function_name = { type = "string" }
+file_path = { type = "string", description = "Optional file scope for caller search" }
+max_results = { type = "integer" }
+
+# ─────
+
+[[tool]]
+name = "get_callees"
+category = "analysis"
+description = "[CodeLens:Analysis] Find functions called by a function. Use file_path when duplicate function names exist."
+annotations = "ro_a"
+output_schema = "get_callees_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["function_name"]
+properties = { function_name = { type = "string" }, file_path = { type = "string" }, max_results = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "find_scoped_references"
+category = "analysis"
+description = "[CodeLens:Analysis] Classify each reference as definition/read/write/import."
+annotations = "ro_a"
+output_schema = "references_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["symbol_name"]
+[tool.input_schema.properties]
+symbol_name = { type = "string", description = "Symbol name to find references for" }
+file_path = { type = "string", description = "Declaration file (for sorting, optional)" }
+max_results = { type = "integer", description = "Max results (default 50)" }
+
+# ─────
+
+[[tool]]
+name = "get_symbol_importance"
+category = "analysis"
+description = "[CodeLens:Analysis] PageRank file importance — find the most critical files in the project."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+properties = { top_n = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "find_circular_dependencies"
+category = "analysis"
+description = "[CodeLens:Analysis] Detect circular imports using Tarjan SCC algorithm."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+properties = { max_results = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "get_change_coupling"
+category = "analysis"
+description = "[CodeLens:Analysis] Files that frequently change together in git history."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+properties = { months = { type = "integer" }, min_strength = { type = "number" }, min_commits = { type = "integer" }, max_results = { type = "integer" } }
+
+# ── Editing (code mutations) ─────────────────────────────────────────
+
+[[tool]]
+name = "rename_symbol"
+category = "editing"
+description = "[CodeLens:Edit] Rename across project — safe multi-file refactoring. Use dry_run=true to preview."
+annotations = "dest_a"
+output_schema = "rename_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "new_name"]
+[tool.input_schema.properties]
+file_path = { type = "string", description = "File containing the symbol declaration" }
+symbol_name = { type = "string", description = "Current symbol name" }
+name = { type = "string", description = "Alias for symbol_name" }
+new_name = { type = "string", description = "Desired new name" }
+name_path = { type = "string", description = "Qualified name path (e.g. 'Class/method')" }
+scope = { type = "string", enum = ["file", "project"], description = "Rename scope (default: project; tree-sitter backend only)" }
+semantic_edit_backend = { type = "string", enum = ["tree-sitter", "lsp", "jetbrains", "roslyn"], description = "Opt-in precise edit backend. lsp uses inspectable WorkspaceEdit APIs; jetbrains/roslyn are fail-closed adapter boundaries until a local adapter is configured." }
+line = { type = "integer", description = "1-based declaration line for semantic_edit_backend=lsp; derived from symbol index when omitted" }
+column = { type = "integer", description = "1-based declaration column for semantic_edit_backend=lsp; derived from symbol index when omitted" }
+command = { type = "string", description = "Optional LSP server command for semantic_edit_backend=lsp" }
+args = { type = "array", items = { type = "string" }, description = "Optional LSP server args for semantic_edit_backend=lsp" }
+dry_run = { type = "boolean", description = "Preview changes without modifying files" }
+
+# ─────
+
+[[tool]]
+name = "replace_symbol_body"
+category = "editing"
+description = "[CodeLens:Edit] Replace function/class body by name — tree-sitter finds boundaries. No line numbers needed."
+annotations = "mut_w"
+output_schema = "file_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path", "symbol_name", "new_body"]
+properties = { relative_path = { type = "string" }, symbol_name = { type = "string" }, name_path = { type = "string" }, new_body = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "replace_content"
+category = "editing"
+description = "[CodeLens:Edit] Find-and-replace text in a file — literal or regex mode."
+annotations = "mut_p"
+output_schema = "replace_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path", "old_text", "new_text"]
+properties = { relative_path = { type = "string" }, old_text = { type = "string" }, new_text = { type = "string" }, regex_mode = { type = "boolean" } }
+
+# ─────
+
+[[tool]]
+name = "replace_lines"
+category = "editing"
+description = "[CodeLens:Edit] Replace a line range (1-indexed). Use when you know exact line numbers."
+annotations = "mut_p"
+output_schema = "file_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path", "start_line", "end_line", "new_content"]
+properties = { relative_path = { type = "string" }, start_line = { type = "integer" }, end_line = { type = "integer" }, new_content = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "delete_lines"
+category = "editing"
+description = "[CodeLens:Edit] Delete a line range (1-indexed, end exclusive)."
+annotations = "destructive"
+output_schema = "file_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path", "start_line", "end_line"]
+properties = { relative_path = { type = "string" }, start_line = { type = "integer" }, end_line = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "insert_at_line"
+category = "editing"
+description = "[CodeLens:Edit] Insert content at a line number. Use when you know the exact position."
+annotations = "mut_p"
+output_schema = "file_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path", "line", "content"]
+properties = { relative_path = { type = "string" }, line = { type = "integer" }, content = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "insert_before_symbol"
+category = "editing"
+description = "[CodeLens:Edit] Insert code before a named symbol — tree-sitter finds position."
+annotations = "mut_p"
+output_schema = "file_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path", "symbol_name", "content"]
+properties = { relative_path = { type = "string" }, symbol_name = { type = "string" }, name_path = { type = "string" }, content = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "insert_after_symbol"
+category = "editing"
+description = "[CodeLens:Edit] Insert code after a named symbol — tree-sitter finds position."
+annotations = "mut_p"
+output_schema = "file_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path", "symbol_name", "content"]
+properties = { relative_path = { type = "string" }, symbol_name = { type = "string" }, name_path = { type = "string" }, content = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "insert_content"
+category = "editing"
+description = "[CodeLens:Edit] Insert code at position='line'|'before_symbol'|'after_symbol'."
+annotations = "mut_p"
+output_schema = "file_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path", "content"]
+[tool.input_schema.properties]
+relative_path = { type = "string" }
+content = { type = "string" }
+position = { type = "string", enum = ["line", "before_symbol", "after_symbol"], description = "Insertion position type (default: line)" }
+line = { type = "integer", description = "Line number (for position=line)" }
+symbol_name = { type = "string", description = "Symbol name (for position=before_symbol or after_symbol)" }
+name_path = { type = "string", description = "Qualified name path" }
+
+# ─────
+
+[[tool]]
+name = "replace"
+category = "editing"
+description = "[CodeLens:Edit] Replace text or line range. Set mode='text' (find-replace) or mode='lines' (line range)."
+annotations = "mut_p"
+output_schema = "replace_content_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path"]
+[tool.input_schema.properties]
+relative_path = { type = "string" }
+mode = { type = "string", enum = ["text", "lines"], description = "Replace mode (default: text)" }
+old_text = { type = "string", description = "Text to find (mode=text)" }
+new_text = { type = "string", description = "Replacement text (mode=text)" }
+regex_mode = { type = "boolean", description = "Use regex (mode=text)" }
+start_line = { type = "integer", description = "Start line (mode=lines)" }
+end_line = { type = "integer", description = "End line (mode=lines)" }
+new_content = { type = "string", description = "New content (mode=lines)" }
+
+# ─────
+
+[[tool]]
+name = "create_text_file"
+category = "editing"
+description = "[CodeLens:Edit] Create a new file. Fails if exists unless overwrite=true."
+annotations = "mut_p"
+output_schema = "create_text_file_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["relative_path", "content"]
+properties = { relative_path = { type = "string" }, content = { type = "string" }, overwrite = { type = "boolean" } }
+
+# ─────
+
+[[tool]]
+name = "analyze_missing_imports"
+category = "editing"
+description = "[CodeLens:Edit] Detect unresolved symbols and suggest imports."
+annotations = "mutating"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path"]
+properties = { file_path = { type = "string", description = "File to analyze" } }
+
+# ─────
+
+[[tool]]
+name = "add_import"
+category = "editing"
+description = "[CodeLens:Edit] Insert an import statement at the correct position."
+annotations = "mut_p"
+output_schema = "add_import_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "import_statement"]
+properties = { file_path = { type = "string" }, import_statement = { type = "string", description = "Import statement to add" } }
+
+# ─────
+
+[[tool]]
+name = "refactor_extract_function"
+category = "editing"
+description = "[CodeLens:Edit] Extract line range into new function with automatic call-site replacement."
+annotations = "mut_w"
+output_schema = "semantic_refactor_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "start_line", "end_line", "new_name"]
+[tool.input_schema.properties]
+file_path = { type = "string" }
+start_line = { type = "integer" }
+start_column = { type = "integer" }
+end_line = { type = "integer" }
+end_column = { type = "integer" }
+new_name = { type = "string", description = "Name for the new function" }
+semantic_edit_backend = { type = "string", enum = ["tree-sitter", "lsp", "jetbrains", "roslyn"], description = "lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists." }
+code_action_kind = { type = "string", description = "Optional LSP code action kind override" }
+code_action_kinds = { type = "array", items = { type = "string" }, description = "Optional LSP code action kind list override" }
+action_id = { type = "string", description = "Title, kind, or index to select when multiple code actions match" }
+command = { type = "string", description = "Optional LSP server command" }
+args = { type = "array", items = { type = "string" }, description = "Optional LSP server args" }
+dry_run = { type = "boolean", description = "Preview without modifying (default true)" }
+
+# ─────
+
+[[tool]]
+name = "refactor_inline_function"
+category = "editing"
+description = "[CodeLens:Edit] Inline a function: replace all call sites with body, remove definition."
+annotations = "mut_w"
+output_schema = "semantic_refactor_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "function_name"]
+[tool.input_schema.properties]
+file_path = { type = "string", description = "File containing the function definition" }
+function_name = { type = "string", description = "Function to inline" }
+name_path = { type = "string", description = "Qualified name path (e.g. Class/method)" }
+line = { type = "integer", description = "1-based symbol line for semantic_edit_backend=lsp" }
+column = { type = "integer", description = "1-based symbol byte column for semantic_edit_backend=lsp" }
+semantic_edit_backend = { type = "string", enum = ["tree-sitter", "lsp", "jetbrains", "roslyn"], description = "lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists." }
+code_action_kind = { type = "string" }
+code_action_kinds = { type = "array", items = { type = "string" } }
+action_id = { type = "string" }
+command = { type = "string" }
+args = { type = "array", items = { type = "string" } }
+dry_run = { type = "boolean", description = "Preview without modifying (default true)" }
+
+# ─────
+
+[[tool]]
+name = "refactor_move_to_file"
+category = "editing"
+description = "[CodeLens:Edit] Move a symbol to another file, updating imports across the project."
+annotations = "dest_a"
+output_schema = "semantic_refactor_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "symbol_name", "target_file"]
+[tool.input_schema.properties]
+file_path = { type = "string", description = "Source file" }
+symbol_name = { type = "string", description = "Symbol to move" }
+target_file = { type = "string", description = "Destination file" }
+name_path = { type = "string", description = "Qualified name path" }
+line = { type = "integer", description = "1-based symbol line for semantic_edit_backend=lsp" }
+column = { type = "integer", description = "1-based symbol byte column for semantic_edit_backend=lsp" }
+semantic_edit_backend = { type = "string", enum = ["tree-sitter", "lsp", "jetbrains", "roslyn"], description = "lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists." }
+code_action_kind = { type = "string" }
+code_action_kinds = { type = "array", items = { type = "string" } }
+action_id = { type = "string" }
+command = { type = "string" }
+args = { type = "array", items = { type = "string" } }
+dry_run = { type = "boolean", description = "Preview without modifying (default true)" }
+
+# ─────
+
+[[tool]]
+name = "refactor_change_signature"
+category = "editing"
+description = "[CodeLens:Edit] Change function parameters and update all call sites."
+annotations = "dest_a"
+output_schema = "semantic_refactor_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "function_name", "new_parameters"]
+[tool.input_schema.properties]
+file_path = { type = "string", description = "File containing the function" }
+function_name = { type = "string", description = "Function to modify" }
+name_path = { type = "string", description = "Qualified name path" }
+new_parameters = { type = "array", items = { type = "object", properties = { name = { type = "string" }, type = { type = "string" }, default = { type = "string" } } }, description = "New parameter list" }
+line = { type = "integer", description = "1-based symbol line for semantic_edit_backend=lsp" }
+column = { type = "integer", description = "1-based symbol byte column for semantic_edit_backend=lsp" }
+semantic_edit_backend = { type = "string", enum = ["tree-sitter", "lsp", "jetbrains", "roslyn"], description = "lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists." }
+code_action_kind = { type = "string" }
+code_action_kinds = { type = "array", items = { type = "string" } }
+action_id = { type = "string" }
+command = { type = "string" }
+args = { type = "array", items = { type = "string" } }
+dry_run = { type = "boolean", description = "Preview without modifying (default true)" }
+
+# ─────
+
+[[tool]]
+name = "propagate_deletions"
+category = "editing"
+description = "[CodeLens:Edit] Analyze what breaks if a symbol is deleted and list affected references/imports for cleanup."
+annotations = "mut_w"
+output_schema = "safe_delete_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "symbol_name"]
+[tool.input_schema.properties]
+file_path = { type = "string", description = "File containing the symbol" }
+symbol_name = { type = "string", description = "Symbol to analyze for deletion" }
+semantic_edit_backend = { type = "string", enum = ["tree-sitter", "lsp", "jetbrains", "roslyn"], description = "Opt-in precise safe-delete check. lsp uses textDocument/references; jetbrains/roslyn fail closed until a local adapter exists." }
+line = { type = "integer", description = "1-based declaration line for semantic_edit_backend=lsp; derived from symbol index when omitted" }
+column = { type = "integer", description = "1-based declaration column for semantic_edit_backend=lsp; derived from symbol index when omitted" }
+command = { type = "string", description = "Optional LSP server command for semantic_edit_backend=lsp" }
+args = { type = "array", items = { type = "string" }, description = "Optional LSP server args for semantic_edit_backend=lsp" }
+max_results = { type = "integer", description = "Maximum LSP references to inspect (default 200)" }
+dry_run = { type = "boolean", description = "Preview without modifying (default true)" }
