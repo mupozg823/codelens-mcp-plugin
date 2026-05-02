@@ -51,6 +51,126 @@ pub fn analysis_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Too
     ]
 }
 
+pub fn composite_tools(
+    mut_w: &ToolAnnotations,
+    ro_a: &ToolAnnotations,
+    ro_p: &ToolAnnotations,
+    ro_w: &ToolAnnotations,
+) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "explain_code_flow",
+            "[CodeLens:Analysis] Summarize how a function fits in the call graph: callers, callees, and a one-line flow summary. Lighter than trace_request_path.",
+            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"max_depth":{"type":"integer"},"max_results":{"type":"integer"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "onboard_project",
+            "[CodeLens:Session] One-shot onboarding: structure, key files, cycles, stats.",
+            json!({"type":"object","properties":{}}),
+        ).with_output_schema(onboard_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new(
+            "analyze_change_request",
+            "[CodeLens:Workflow] Compress a change request into ranked files, key symbols, risk, and next actions.",
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
+        Tool::new(
+            "verify_change_readiness",
+            "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing.",
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
+        Tool::new(
+            "find_minimal_context_for_change",
+            "[CodeLens:Workflow] Return the smallest useful file and symbol context needed to start a change.",
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
+        Tool::new(
+            "summarize_symbol_impact",
+            "[CodeLens:Workflow] Summarize callers, references, and affected files for one symbol.",
+            json!({"type":"object","required":["symbol"],"properties":{"symbol":{"type":"string"},"file_path":{"type":"string"},"depth":{"type":"integer"}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new(
+            "module_boundary_report",
+            "[CodeLens:Workflow] Summarize dependency boundaries, coupling, and cycle risk for a module or path.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new(
+            "mermaid_module_graph",
+            "[CodeLens:Workflow] Render upstream/downstream module dependencies as a Mermaid flowchart ready to embed in GitHub/GitLab Markdown.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"max_nodes":{"type":"integer","description":"Max nodes rendered per side (default 10)"}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new(
+            "safe_rename_report",
+            "[CodeLens:Workflow] Assess rename safety, blockers, and preview edits before refactoring.",
+            json!({"type":"object","required":["file_path","symbol"],"properties":{"file_path":{"type":"string"},"symbol":{"type":"string"},"new_name":{"type":"string"}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new(
+            "unresolved_reference_check",
+            "[CodeLens:Workflow] Lightweight unresolved or ambiguous reference guard before rename or broad edits.",
+            json!({"type":"object","required":["file_path"],"properties":{"file_path":{"type":"string"},"symbol":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new(
+            "dead_code_report",
+            "[CodeLens:Workflow] Summarize dead-code candidates with bounded evidence and deletion risk.",
+            json!({"type":"object","properties":{"scope":{"type":"string"},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new(
+            "impact_report",
+            "[CodeLens:Workflow] Summarize changed-file impact, references, and blast radius with a bounded report.",
+            json!({"type":"object","properties":{"path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
+        Tool::new(
+            "refactor_safety_report",
+            "[CodeLens:Workflow] Combine boundary, symbol impact, and test cues into a preview-first refactor report.",
+            json!({"type":"object","properties":{"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
+        Tool::new(
+            "diff_aware_references",
+            "[CodeLens:Workflow] Compress references for changed files into a bounded reviewer/CI report.",
+            json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"}}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
+        Tool::new(
+            "semantic_code_review",
+            "[CodeLens:Workflow] Semantic code review — analyze changed symbols via references, embedding similarity, and risk assessment.",
+            json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"}}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
+        Tool::new(
+            "start_analysis_job",
+            "[CodeLens:Workflow] Start a durable analysis job and return a job handle for polling.",
+            json!({"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["impact_report","dead_code_report","refactor_safety_report","semantic_code_review","eval_session_audit"]},"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
+        ).with_output_schema(analysis_job_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new(
+            "get_analysis_job",
+            "[CodeLens:Workflow] Poll a durable analysis job by job_id.",
+            json!({"type":"object","required":["job_id"],"properties":{"job_id":{"type":"string"}}}),
+        ).with_output_schema(analysis_job_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "cancel_analysis_job",
+            "[CodeLens:Workflow] Cancel a queued or running analysis job by job_id.",
+            json!({"type":"object","required":["job_id"],"properties":{"job_id":{"type":"string"}}}),
+        ).with_output_schema(analysis_job_output_schema()).with_annotations(mut_w.clone()),
+        Tool::new(
+            "retry_analysis_job",
+            "[CodeLens:Workflow] Retry a failed or cancelled analysis job by job_id; reuses the original kind and profile_hint.",
+            json!({"type":"object","required":["job_id"],"properties":{"job_id":{"type":"string"}}}),
+        ).with_output_schema(analysis_job_output_schema()).with_annotations(mut_w.clone()),
+        Tool::new(
+            "list_analysis_jobs",
+            "[CodeLens:Workflow] List durable analysis jobs with status counts and any attached analysis handles.",
+            json!({"type":"object","properties":{"status":{"type":"string","enum":["queued","running","completed","cancelled","error"]}}}),
+        ).with_output_schema(analysis_job_list_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "list_analysis_artifacts",
+            "[CodeLens:Workflow] List stored analysis artifacts with summary resource handles for reuse.",
+            json!({"type":"object","properties":{}}),
+        ).with_output_schema(analysis_artifact_list_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "get_analysis_section",
+            "[CodeLens:Workflow] Expand a stored analysis section by analysis_id.",
+            json!({"type":"object","required":["analysis_id","section"],"properties":{"analysis_id":{"type":"string"},"section":{"type":"string"}}}),
+        ).with_output_schema(analysis_section_output_schema()).with_annotations(ro_p.clone()),
+    ]
+}
+
 pub fn editing_tools(
     dest_a: &ToolAnnotations,
     destructive: &ToolAnnotations,

@@ -20,9 +20,10 @@
 #   ✓ file_io          — PR-A
 #   ✓ symbol           — PR-B
 #   ✓ lsp              — PR-B
-#   ✓ editing          — PR-C (this PR)
-#   ✓ analysis         — PR-C (this PR)
-#   ☐ composite        — PR-D, PR-E
+#   ✓ editing          — PR-C
+#   ✓ analysis         — PR-C
+#   ✓ composite        — PR-D (this PR; workflow-first 7 deferred to PR-E)
+#   ☐ workflow_first   — PR-E
 #   ☐ session          — PR-E
 #   ☐ memory           — PR-F
 #   ☐ rule_corpus      — PR-F
@@ -837,3 +838,326 @@ command = { type = "string", description = "Optional LSP server command for sema
 args = { type = "array", items = { type = "string" }, description = "Optional LSP server args for semantic_edit_backend=lsp" }
 max_results = { type = "integer", description = "Maximum LSP references to inspect (default 200)" }
 dry_run = { type = "boolean", description = "Preview without modifying (default true)" }
+
+# ── Composite (multi-step workflows, excl. workflow-first aliases) ───
+# The 7 workflow_alias_output_schema entrypoints (explore_codebase,
+# trace_request_path, review_architecture, plan_safe_refactor,
+# cleanup_duplicate_logic, review_changes, diagnose_issues) stay in
+# the legacy `build.rs` block until PR-E.
+
+[[tool]]
+name = "explain_code_flow"
+category = "composite"
+description = "[CodeLens:Analysis] Summarize how a function fits in the call graph: callers, callees, and a one-line flow summary. Lighter than trace_request_path."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+required = ["function_name"]
+properties = { function_name = { type = "string" }, max_depth = { type = "integer" }, max_results = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "onboard_project"
+category = "composite"
+description = "[CodeLens:Session] One-shot onboarding: structure, key files, cycles, stats."
+annotations = "ro_w"
+output_schema = "onboard_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "analyze_change_request"
+category = "composite"
+description = "[CodeLens:Workflow] Compress a change request into ranked files, key symbols, risk, and next actions."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+required = ["task"]
+[tool.input_schema.properties]
+task = { type = "string" }
+changed_files = { type = "array", items = { type = "string" } }
+profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+
+# ─────
+
+[[tool]]
+name = "verify_change_readiness"
+category = "composite"
+description = "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+required = ["task"]
+[tool.input_schema.properties]
+task = { type = "string" }
+changed_files = { type = "array", items = { type = "string" } }
+profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+
+# ─────
+
+[[tool]]
+name = "find_minimal_context_for_change"
+category = "composite"
+description = "[CodeLens:Workflow] Return the smallest useful file and symbol context needed to start a change."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+required = ["task"]
+properties = { task = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "summarize_symbol_impact"
+category = "composite"
+description = "[CodeLens:Workflow] Summarize callers, references, and affected files for one symbol."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["symbol"]
+properties = { symbol = { type = "string" }, file_path = { type = "string" }, depth = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "module_boundary_report"
+category = "composite"
+description = "[CodeLens:Workflow] Summarize dependency boundaries, coupling, and cycle risk for a module or path."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["path"]
+properties = { path = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "mermaid_module_graph"
+category = "composite"
+description = "[CodeLens:Workflow] Render upstream/downstream module dependencies as a Mermaid flowchart ready to embed in GitHub/GitLab Markdown."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["path"]
+properties = { path = { type = "string" }, max_nodes = { type = "integer", description = "Max nodes rendered per side (default 10)" } }
+
+# ─────
+
+[[tool]]
+name = "safe_rename_report"
+category = "composite"
+description = "[CodeLens:Workflow] Assess rename safety, blockers, and preview edits before refactoring."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path", "symbol"]
+properties = { file_path = { type = "string" }, symbol = { type = "string" }, new_name = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "unresolved_reference_check"
+category = "composite"
+description = "[CodeLens:Workflow] Lightweight unresolved or ambiguous reference guard before rename or broad edits."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["file_path"]
+properties = { file_path = { type = "string" }, symbol = { type = "string" }, changed_files = { type = "array", items = { type = "string" } } }
+
+# ─────
+
+[[tool]]
+name = "dead_code_report"
+category = "composite"
+description = "[CodeLens:Workflow] Summarize dead-code candidates with bounded evidence and deletion risk."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = { scope = { type = "string" }, max_results = { type = "integer" } }
+
+# ─────
+
+[[tool]]
+name = "impact_report"
+category = "composite"
+description = "[CodeLens:Workflow] Summarize changed-file impact, references, and blast radius with a bounded report."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+properties = { path = { type = "string" }, changed_files = { type = "array", items = { type = "string" } } }
+
+# ─────
+
+[[tool]]
+name = "refactor_safety_report"
+category = "composite"
+description = "[CodeLens:Workflow] Combine boundary, symbol impact, and test cues into a preview-first refactor report."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+properties = { task = { type = "string" }, symbol = { type = "string" }, path = { type = "string" }, file_path = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "diff_aware_references"
+category = "composite"
+description = "[CodeLens:Workflow] Compress references for changed files into a bounded reviewer/CI report."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+properties = { changed_files = { type = "array", items = { type = "string" } } }
+
+# ─────
+
+[[tool]]
+name = "semantic_code_review"
+category = "composite"
+description = "[CodeLens:Workflow] Semantic code review — analyze changed symbols via references, embedding similarity, and risk assessment."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+properties = { changed_files = { type = "array", items = { type = "string" } } }
+
+# ─────
+
+[[tool]]
+name = "start_analysis_job"
+category = "composite"
+description = "[CodeLens:Workflow] Start a durable analysis job and return a job handle for polling."
+annotations = "ro_w"
+output_schema = "analysis_job_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["kind"]
+[tool.input_schema.properties]
+kind = { type = "string", enum = ["impact_report", "dead_code_report", "refactor_safety_report", "semantic_code_review", "eval_session_audit"] }
+task = { type = "string" }
+symbol = { type = "string" }
+path = { type = "string" }
+file_path = { type = "string" }
+changed_files = { type = "array", items = { type = "string" } }
+profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+
+# ─────
+
+[[tool]]
+name = "get_analysis_job"
+category = "composite"
+description = "[CodeLens:Workflow] Poll a durable analysis job by job_id."
+annotations = "ro_p"
+output_schema = "analysis_job_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["job_id"]
+properties = { job_id = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "cancel_analysis_job"
+category = "composite"
+description = "[CodeLens:Workflow] Cancel a queued or running analysis job by job_id."
+annotations = "mut_w"
+output_schema = "analysis_job_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["job_id"]
+properties = { job_id = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "retry_analysis_job"
+category = "composite"
+description = "[CodeLens:Workflow] Retry a failed or cancelled analysis job by job_id; reuses the original kind and profile_hint."
+annotations = "mut_w"
+output_schema = "analysis_job_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["job_id"]
+properties = { job_id = { type = "string" } }
+
+# ─────
+
+[[tool]]
+name = "list_analysis_jobs"
+category = "composite"
+description = "[CodeLens:Workflow] List durable analysis jobs with status counts and any attached analysis handles."
+annotations = "ro_p"
+output_schema = "analysis_job_list_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = { status = { type = "string", enum = ["queued", "running", "completed", "cancelled", "error"] } }
+
+# ─────
+
+[[tool]]
+name = "list_analysis_artifacts"
+category = "composite"
+description = "[CodeLens:Workflow] List stored analysis artifacts with summary resource handles for reuse."
+annotations = "ro_p"
+output_schema = "analysis_artifact_list_output_schema"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "get_analysis_section"
+category = "composite"
+description = "[CodeLens:Workflow] Expand a stored analysis section by analysis_id."
+annotations = "ro_p"
+output_schema = "analysis_section_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["analysis_id", "section"]
+properties = { analysis_id = { type = "string" }, section = { type = "string" } }
