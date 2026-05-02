@@ -10,13 +10,15 @@ pub(super) fn prepend_path(dir: &std::path::Path, original_path: &str) -> std::f
     std::env::join_paths(paths).expect("join PATH entries")
 }
 
+#[allow(dead_code)]
 pub(super) fn make_http_state(project: &codelens_engine::ProjectRoot) -> crate::AppState {
     crate::AppState::new(project.clone(), crate::tool_defs::ToolPreset::Full)
 }
 
+#[allow(dead_code)]
 pub(super) fn create_http_profile_session(
     state: &crate::AppState,
-    project: &codelens_engine::ProjectRoot,
+    _project: &codelens_engine::ProjectRoot,
     profile: crate::tool_defs::ToolProfile,
 ) -> String {
     let session_id = format!(

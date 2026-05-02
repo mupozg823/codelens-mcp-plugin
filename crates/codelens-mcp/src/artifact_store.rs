@@ -416,7 +416,6 @@ fn matches_scope(artifact_scope: Option<&str>, current_scope: Option<&str>) -> b
 mod tests {
     use super::*;
     use crate::runtime_types::{AnalysisArtifact, AnalysisReadiness, CacheHitTier};
-    use std::collections::BTreeMap;
 
     fn make_test_artifact(
         id: &str,
