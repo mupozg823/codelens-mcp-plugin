@@ -9,6 +9,7 @@ pub(crate) mod query_analysis;
 mod report_contract;
 pub(crate) mod report_jobs;
 mod report_payload;
+mod report_risk;
 mod report_utils;
 mod report_verifier;
 pub mod reports;

@@ -395,6 +395,20 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
     let mut rows = Vec::new();
     let mut top_findings = Vec::new();
     for path in changed_files.iter().take(5) {
+        if is_github_actions_workflow(path) {
+            top_findings.push(format!(
+                "{path}: workflow config changed; inspect actions, permissions, env/secrets, and run commands"
+            ));
+            rows.push(json!({
+                "path": path,
+                "symbols": [],
+                "reference_hits": [],
+                "review_mode": "workflow_config",
+                "focus": ["actions", "permissions", "env", "secrets", "run"],
+            }));
+            continue;
+        }
+
         let symbols =
             crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
                 .map(|output| output.0)
@@ -412,6 +426,7 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
                     .and_then(|value| value.as_str())
                     .map(ToOwned::to_owned)
             })
+            .filter(|name| !is_low_signal_config_key(path, name))
             .collect::<Vec<_>>();
         let mut reference_hits = Vec::new();
         for symbol_name in &symbol_names {
@@ -455,4 +470,30 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
         None,
         Some(arguments),
     )
+}
+
+fn is_github_actions_workflow(path: &str) -> bool {
+    let path = path.replace('\\', "/");
+    path.starts_with(".github/workflows/") && (path.ends_with(".yml") || path.ends_with(".yaml"))
+}
+
+fn is_low_signal_config_key(path: &str, name: &str) -> bool {
+    let lower_path = path.to_ascii_lowercase();
+    const LOW_SIGNAL_KEYS: &[&str] = &[
+        "name",
+        "on",
+        "jobs",
+        "steps",
+        "permissions",
+        "contents",
+        "runs-on",
+        "run",
+        "uses",
+        "with",
+        "env",
+    ];
+    matches!(
+        lower_path.rsplit('.').next(),
+        Some("yml" | "yaml" | "json" | "toml")
+    ) && LOW_SIGNAL_KEYS.contains(&name)
 }

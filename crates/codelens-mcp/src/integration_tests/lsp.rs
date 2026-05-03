@@ -78,6 +78,49 @@ fn returns_lsp_references_via_tool_call() {
 }
 
 #[test]
+fn find_referencing_symbols_default_includes_ts_cross_file_references() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src/lib")).unwrap();
+    fs::create_dir_all(project.as_path().join("app")).unwrap();
+    fs::write(
+        project.as_path().join("src/lib/credits.ts"),
+        "export function getUserPlan() {\n  return 'free'\n}\n\nexport function localPlan() {\n  return getUserPlan()\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("app/page.ts"),
+        "import { getUserPlan } from '../src/lib/credits'\nexport const plan = getUserPlan()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({
+            "path": "src/lib/credits.ts",
+            "symbol_name": "getUserPlan",
+            "max_results": 20,
+            "full_results": true,
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    let references = payload["data"]["references"]
+        .as_array()
+        .expect("references array");
+    assert!(
+        references
+            .iter()
+            .any(|reference| reference["file_path"] == json!("app/page.ts")),
+        "default references should include cross-file TS usages: {payload}"
+    );
+    assert!(
+        payload["data"]["count"].as_u64().unwrap_or_default() > 2,
+        "default references should not stop at OXC same-file scope: {payload}"
+    );
+}
+
+#[test]
 fn returns_lsp_diagnostics_via_tool_call() {
     let project = project_root();
     let mock_path = write_mock_diagnostics_lsp(&project, "mock_lsp.py");

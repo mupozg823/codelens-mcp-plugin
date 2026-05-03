@@ -176,43 +176,6 @@ fn trim_preview_first_handle_payload(tool_name: &str, ci_audit: bool, payload: &
     }
 }
 
-pub(crate) fn infer_risk_level(
-    summary: &str,
-    top_findings: &[String],
-    next_actions: &[String],
-) -> &'static str {
-    let combined = format!(
-        "{} {} {}",
-        summary,
-        top_findings.join(" "),
-        next_actions.join(" ")
-    )
-    .to_ascii_lowercase();
-    if [
-        "blocker",
-        "circular",
-        "cycle",
-        "destructive",
-        "breaking",
-        "high risk",
-        "error",
-        "failing",
-    ]
-    .iter()
-    .any(|needle| combined.contains(needle))
-    {
-        "high"
-    } else if top_findings.len() >= 3
-        || ["risk", "impact", "coupling", "dead code", "stale"]
-            .iter()
-            .any(|needle| combined.contains(needle))
-    {
-        "medium"
-    } else {
-        "low"
-    }
-}
-
 fn infer_quality_focus(
     tool_name: &str,
     summary: &str,

@@ -1,4 +1,5 @@
-use super::report_payload::{build_handle_payload, infer_risk_level};
+use super::report_payload::build_handle_payload;
+use super::report_risk::infer_risk_level;
 use super::report_verifier::build_verifier_contract;
 use super::{AppState, ToolResult, success_meta};
 use crate::protocol::BackendKind;

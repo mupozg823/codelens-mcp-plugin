@@ -196,6 +196,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         })?;
         let mut precise_available = false;
         let mut precise_source = None;
+        let mut precise_file_scope_count = 0usize;
 
         // JS/TS: use oxc_semantic for precise scope-aware reference resolution
         let resolved = state.project().resolve(&file_path)?;
@@ -208,36 +209,12 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 )
                 && !refs.is_empty()
             {
-                let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();
-                let count = refs_limited.len();
-                let meta = success_meta(BackendKind::Hybrid, 0.95);
-                let evidence = crate::tool_evidence::tool_evidence(
-                    "references",
-                    &meta,
-                    "oxc_semantic_precise",
-                    crate::tool_evidence::precision_signals(
-                        true,
-                        true,
-                        Some("oxc_semantic"),
-                        None,
-                        count,
-                    ),
-                );
-                let mut payload = json!({
-                    "references": refs_limited,
-                    "count": count,
-                    "returned_count": count,
-                    "sampled": false,
-                    "backend": "oxc_semantic",
-                    "evidence": evidence,
-                });
-                if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
-                    insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
-                }
-                return Ok((payload, meta));
+                precise_file_scope_count = refs.len();
             }
         }
-        // oxc failed or empty — try SCIP if available, then fall through to tree-sitter
+        // OXC is file-scoped. Keep it as evidence, but do not short-circuit
+        // project-wide reference discovery for JS/TS symbols.
+        // Try SCIP if available, then fall through to tree-sitter text search.
 
         #[cfg(feature = "scip-backend")]
         if let Some(backend) = state.scip() {
@@ -308,13 +285,17 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             let evidence = crate::tool_evidence::tool_evidence(
                 "references",
                 &meta,
-                "tree_sitter_text_references",
+                if precise_file_scope_count > 0 {
+                    "tree_sitter_text_references_with_oxc_file_scope"
+                } else {
+                    "tree_sitter_text_references"
+                },
                 crate::tool_evidence::precision_signals(
                     precise_available,
                     false,
                     precise_source,
                     Some("tree_sitter"),
-                    0,
+                    precise_file_scope_count,
                 ),
             );
             let mut payload = json!({
@@ -323,6 +304,8 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 "returned_count": references.len(),
                 "sampled": sampled,
                 "include_context": include_context,
+                "backend": if precise_file_scope_count > 0 { "tree_sitter_text_with_oxc_file_scope" } else { "tree_sitter_text" },
+                "precise_file_scope_count": precise_file_scope_count,
                 "evidence": evidence,
             });
             insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);

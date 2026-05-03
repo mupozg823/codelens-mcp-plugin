@@ -278,6 +278,40 @@ fn review_changes_returns_structured_content() {
 }
 
 #[test]
+fn review_changes_downranks_workflow_yaml_schema_keys() {
+    let project = project_root();
+    let workflow_dir = project.as_path().join(".github/workflows");
+    fs::create_dir_all(&workflow_dir).unwrap();
+    fs::write(
+        workflow_dir.join("ci.yml"),
+        "name: CI\npermissions:\n  contents: read\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: cargo test\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "review_changes",
+        json!({"changed_files": [".github/workflows/ci.yml"]}),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    let findings = payload["data"]["top_findings"]
+        .as_array()
+        .expect("top_findings array");
+    let joined = findings
+        .iter()
+        .filter_map(|finding| finding.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !joined.contains("`name`")
+            && !joined.contains("`permissions`")
+            && !joined.contains("`contents`"),
+        "workflow YAML schema keys should not dominate review findings: {payload}"
+    );
+}
+
+#[test]
 fn review_changes_cache_invalidates_when_changed_file_content_changes() {
     let project = project_root();
     let path = project.as_path().join("review_cache.py");
