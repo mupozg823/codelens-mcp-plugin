@@ -3,11 +3,6 @@
 use super::ToolMetricsRegistry;
 
 impl ToolMetricsRegistry {
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_analysis_read(&self, is_section: bool) {
-        self.record_analysis_read_for_session(is_section, None);
-    }
-
     pub fn record_analysis_read_for_session(
         &self,
         is_section: bool,
@@ -44,19 +39,6 @@ impl ToolMetricsRegistry {
         });
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_analysis_cache_hit(&self) {
-        self.record_analysis_cache_hit_for_session(None);
-    }
-
-    pub fn record_analysis_cache_hit_for_session(&self, logical_session_id: Option<&str>) {
-        self.mutate_session_metrics(logical_session_id, |session| {
-            session.context.analysis_cache_hit_count += 1;
-            session.truncation.handle_reuse_count += 1;
-            session.guidance.quality_focus_reuse_count += 1;
-        });
-    }
-
     pub fn record_analysis_cache_hit_tiered_for_session(
         &self,
         tier: crate::runtime_types::CacheHitTier,
@@ -80,21 +62,6 @@ impl ToolMetricsRegistry {
         });
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_quality_contract_emitted(
-        &self,
-        quality_focus_count: usize,
-        recommended_checks_count: usize,
-        performance_watchpoint_count: usize,
-    ) {
-        self.record_quality_contract_emitted_for_session(
-            quality_focus_count,
-            recommended_checks_count,
-            performance_watchpoint_count,
-            None,
-        );
-    }
-
     pub fn record_quality_contract_emitted_for_session(
         &self,
         quality_focus_count: usize,
@@ -114,19 +81,6 @@ impl ToolMetricsRegistry {
         });
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_verifier_contract_emitted(
-        &self,
-        blocker_count: usize,
-        verifier_check_count: usize,
-    ) {
-        self.record_verifier_contract_emitted_for_session(
-            blocker_count,
-            verifier_check_count,
-            None,
-        );
-    }
-
     pub fn record_verifier_contract_emitted_for_session(
         &self,
         blocker_count: usize,
@@ -142,11 +96,6 @@ impl ToolMetricsRegistry {
         });
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_coordination_overlap_emitted(&self, caution_only: bool) {
-        self.record_coordination_overlap_emitted_for_session(caution_only, None);
-    }
-
     pub fn record_coordination_overlap_emitted_for_session(
         &self,
         caution_only: bool,
@@ -160,20 +109,10 @@ impl ToolMetricsRegistry {
         });
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_coordination_registration(&self) {
-        self.record_coordination_registration_for_session(None);
-    }
-
     pub fn record_coordination_registration_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
             session.coordination.coordination_registration_count += 1;
         });
-    }
-
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_coordination_claim(&self) {
-        self.record_coordination_claim_for_session(None);
     }
 
     pub fn record_coordination_claim_for_session(&self, logical_session_id: Option<&str>) {
@@ -182,20 +121,10 @@ impl ToolMetricsRegistry {
         });
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_coordination_release(&self) {
-        self.record_coordination_release_for_session(None);
-    }
-
     pub fn record_coordination_release_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
             session.coordination.coordination_release_count += 1;
         });
-    }
-
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_mutation_without_preflight(&self) {
-        self.record_mutation_without_preflight_for_session(None);
     }
 
     pub fn record_mutation_without_preflight_for_session(&self, logical_session_id: Option<&str>) {
@@ -204,20 +133,10 @@ impl ToolMetricsRegistry {
         });
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_mutation_preflight_checked(&self) {
-        self.record_mutation_preflight_checked_for_session(None);
-    }
-
     pub fn record_mutation_preflight_checked_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
             session.mutation.mutation_preflight_checked_count += 1;
         });
-    }
-
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_mutation_preflight_gate_denied(&self, stale: bool) {
-        self.record_mutation_preflight_gate_denied_for_session(stale, None);
     }
 
     pub fn record_mutation_preflight_gate_denied_for_session(
@@ -233,20 +152,10 @@ impl ToolMetricsRegistry {
         });
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_mutation_with_caution(&self) {
-        self.record_mutation_with_caution_for_session(None);
-    }
-
     pub fn record_mutation_with_caution_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
             session.mutation.mutation_with_caution_count += 1;
         });
-    }
-
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_rename_without_symbol_preflight(&self) {
-        self.record_rename_without_symbol_preflight_for_session(None);
     }
 
     pub fn record_rename_without_symbol_preflight_for_session(
@@ -274,11 +183,6 @@ impl ToolMetricsRegistry {
         session.namespace.deferred_hidden_tool_call_denied_count += 1;
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_composite_guidance_emitted(&self, origin_tool: &str) {
-        self.record_composite_guidance_emitted_for_session(origin_tool, None);
-    }
-
     pub fn record_composite_guidance_emitted_for_session(
         &self,
         origin_tool: &str,
@@ -290,20 +194,10 @@ impl ToolMetricsRegistry {
         });
     }
 
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_profile_switch(&self) {
-        self.record_profile_switch_for_session(None);
-    }
-
     pub fn record_profile_switch_for_session(&self, logical_session_id: Option<&str>) {
         self.mutate_session_metrics(logical_session_id, |session| {
             session.namespace.profile_switch_count += 1;
         });
-    }
-
-    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
-    pub fn record_preset_switch(&self) {
-        self.record_preset_switch_for_session(None);
     }
 
     pub fn record_preset_switch_for_session(&self, logical_session_id: Option<&str>) {

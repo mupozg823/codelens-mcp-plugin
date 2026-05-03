@@ -222,7 +222,7 @@ fn truncation_metrics_capture_followup() {
         Some("review"),
     );
     reg.record_call_with_tokens("impact_report", 10, true, 500, "reviewer-graph", true, None);
-    reg.record_analysis_read(true);
+    reg.record_analysis_read_for_session(true, None);
 
     let session = reg.session_snapshot();
     assert_eq!(session.truncation.truncated_response_count, 2);
@@ -234,9 +234,9 @@ fn truncation_metrics_capture_followup() {
 #[test]
 fn profile_and_preset_switch_counts_accumulate() {
     let reg = ToolMetricsRegistry::new();
-    reg.record_preset_switch();
-    reg.record_preset_switch();
-    reg.record_profile_switch();
+    reg.record_preset_switch_for_session(None);
+    reg.record_preset_switch_for_session(None);
+    reg.record_profile_switch_for_session(None);
 
     let session = reg.session_snapshot();
     assert_eq!(session.namespace.preset_switch_count, 2);
