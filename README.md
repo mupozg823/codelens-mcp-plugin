@@ -17,6 +17,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 </div>
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
+
 ## Surface Snapshot
 
 - Workspace version: `1.12.0`
@@ -364,14 +365,33 @@ verify_change_readiness → "ready" → rename_symbol
                         → "blocked" → fix blockers first
 ```
 
+## What CodeLens Does Well (vs native grep/ls)
+
+A complement to the existing routing matrix in `CLAUDE.md`. The cases below
+have shown up repeatedly across self-dogfood and external project sessions
+(see `benchmarks/cl-positive-findings-2026-05-03.md` for measurement notes).
+
+| Task                       | CodeLens                                                      | Native fallback               | Why CL wins                                                                                                |
+| -------------------------- | ------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Project bootstrap          | `prepare_harness_session(profile=…, detail=compact)` — 1 call | `ls + cargo build + python …` | activation + index recovery + capability + tool surface together                                           |
+| Pre-merge change review    | `review_changes(changed_files=[…])`                           | manual diff inspection        | quantified 4-axis verifier (diagnostics / refs / tests / mutation), `readiness_score` 0–1, `blocker_count` |
+| Function definition lookup | `find_symbol(name=…)`                                         | `grep -rn "def X"`            | exact symbol kind + signature + nearby tests in one response                                               |
+
+For the full _when not_ matrix (where `Grep` / `Read` win), keep the
+`CLAUDE.md` "Tool Routing — honest scenario matrix" as the single source
+of truth. This section only fixes the recurring "I can use CodeLens for
+this?" gap.
+
 ## Language Support
 
 <!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
+
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json).
+
 <!-- SURFACE_MANIFEST_README_LANGUAGES:END -->
 
 ## Performance
