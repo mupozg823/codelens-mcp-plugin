@@ -1,4 +1,102 @@
-# CodeLens MCP
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+This repo **is** the CodeLens MCP server. The routing/workflow blocks below are also consumed by `.cursor/rules/codelens-routing.mdc` (`alwaysApply: true`) and by `AGENTS.md` (Codex). The `<!-- CODELENS_HOST_ROUTING:BEGIN/END -->` markers are managed by `scripts/surface-manifest.py` — do not edit by hand.
+
+## Repository Architecture
+
+Cargo workspace, edition 2024, `version = "1.13.22"` shared via `[workspace.package]`:
+
+- **`crates/codelens-engine`** — pure library: tree-sitter extractors, SQLite FTS5 + sqlite-vec store, hybrid retrieval (BM25 + ONNX embeddings), call/import graph, refactor primitives (rename/move/inline/edit-transaction), LSP client, optional SCIP backend. No MCP-specific code.
+- **`crates/codelens-mcp`** — MCP server binary. Owns the dispatch table, tool surfaces (presets/profiles), workflow orchestration, response envelope (token compression, suggested_next_tools, doom-loop detection), HTTP/stdio transports, and integration tests. The bin target is `codelens-mcp`; **lib target does not exist** — `cargo test -p codelens-mcp --lib` fails.
+- **`crates/codelens-tui`** — local TUI inspector. Not on the runtime hot path.
+
+Three concepts that show up across files and require reading several to understand:
+
+1. **Tool definitions are codegen.** `crates/codelens-mcp/tools.toml` is the canonical schema source. `scripts/regen-tool-defs.py --write` regenerates `crates/codelens-mcp/src/tool_defs/generated/build_generated.rs`. CI fails on drift (`tool-defs codegen drift check`). After editing `tools.toml`, always run the regen and commit the generated file verbatim.
+2. **Surfaces gate which tools are visible.** A tool can be registered in `tools.toml` + dispatched in `tools/mod.rs` + implemented in `tools/<area>.rs` and **still not appear in `tools/list`** because no preset/profile exposes it. The preset constants (`PLANNER_READONLY_TOOLS`, `BUILDER_MINIMAL_TOOLS`, `REVIEWER_GRAPH_TOOLS`, `REFACTOR_FULL_TOOLS`, `CI_AUDIT_TOOLS`) live in `crates/codelens-mcp/src/tool_defs/presets.rs`. `set_preset`/`set_profile` switch the active surface at runtime per session.
+3. **Generated documentation blocks must round-trip.** `scripts/surface-manifest.py` rewrites marker pairs (`SURFACE_MANIFEST_*`, `CODELENS_HOST_ROUTING`) in README.md, AGENTS.md, CLAUDE.md, docs/architecture.md, etc. The script's `replace_block` produces `BEGIN + \n\n + content + \n\n + END` to coexist with Prettier (which would otherwise re-insert the blank line and cause permanent drift). Do not hand-edit content inside markers.
+
+## Feature Flag Matrix (build-time)
+
+The default `cargo install codelens-mcp` build is `default = []`. Most operational use needs explicit features:
+
+| Feature        | When required                                                    | Symptom if missing                                                                                        |
+| -------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `http`         | Any HTTP transport / daemon mode                                 | `Error: HTTP transport requires the http feature` at startup, port never binds                            |
+| `semantic`     | `semantic_search`, `index_embeddings`, hybrid ranking            | Tools degrade to BM25-only; status reports `FeatureDisabled`                                              |
+| `scip-backend` | SCIP precise navigation in `find_symbol`, `heuristic_body_slice` | `cargo clippy --no-default-features` flags `dead_code` on `#[cfg(feature = "scip-backend")]`-only callees |
+| `coreml`       | macOS CoreML execution provider for ONNX                         | Falls back to CPU silently                                                                                |
+| `otel`         | OpenTelemetry export                                             | No telemetry emitted                                                                                      |
+
+**Daemon rule:** `~/Library/LaunchAgents/dev.codelens.mcp-{readonly,mutation}.plist` invokes `target/release/codelens-mcp --transport http …`. The release binary **must** be built with `--features http` or both daemons exit immediately. `cargo build --release` alone is insufficient.
+
+## Build & Verify
+
+```bash
+# Default verify (matches local pre-push)
+cargo check
+cargo test -p codelens-engine
+cargo test -p codelens-mcp --bin codelens-mcp        # NOT --lib (no lib target)
+
+# Feature-matrix mirroring CI (.github/workflows/ci.yml)
+cargo check --workspace --features http
+cargo check --workspace --features otel
+cargo check --workspace --features scip-backend
+cargo check --workspace --no-default-features        # "semantic-off" gate
+cargo clippy --workspace -- -D warnings
+cargo clippy --workspace --features scip-backend -- -D warnings
+cargo clippy --workspace --no-default-features -- -D warnings
+cargo nextest run --workspace                        # CI uses nextest
+cargo nextest run --workspace --features http
+cargo nextest run --workspace --no-default-features
+cargo test --doc --workspace
+cargo fmt --all -- --check                           # Prefer running this; matches CI
+
+# Single test
+cargo test -p codelens-mcp --bin codelens-mcp <test_substring>
+cargo test -p codelens-engine --lib <test_substring>
+
+# Codegen drift gates (CI runs these too)
+python3 scripts/regen-tool-defs.py --check           # tools.toml ↔ build_generated.rs
+python3 scripts/surface-manifest.py --check          # generated doc blocks
+python3 benchmarks/lint-datasets.py --project .      # benchmark dataset hygiene
+
+# Release build for the local launchd daemons
+cargo build --release --features http,semantic
+bash scripts/install-http-daemons-launchd.sh . --load
+```
+
+`scripts/quality-gate.sh` and `scripts/mcp-doctor.sh . --strict` are convenience wrappers; CI is the authoritative pre-merge gate.
+
+## HTTP Daemon Operations (this repo)
+
+Two repo-local launchd agents share the on-disk index and use advisory `register_agent_work` / `claim_files` for mutation collisions:
+
+- `dev.codelens.mcp-readonly` → `:7839`, profile `reviewer-graph`, mode `read-only` — for planner/reviewer (Claude) sessions
+- `dev.codelens.mcp-mutation` → `:7838`, profile `refactor-full`, mode `mutation-enabled` — for builder (Codex) sessions
+
+Both clients (`~/.claude.json`, `~/.codex/config.toml`) attach by URL to `:7839` by default. Restart cycle:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/dev.codelens.mcp-readonly"
+launchctl kickstart -k "gui/$(id -u)/dev.codelens.mcp-mutation"
+sleep 4 && pgrep -fl codelens-mcp
+curl -sS http://127.0.0.1:7839/mcp -X POST -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"v","version":"0"}}}'
+```
+
+If `pgrep` shows nothing after restart, the binary is missing `--features http` (see the matrix above) — check `.codelens/reports/launchd/dev.codelens.mcp-readonly.err.log`.
+
+## Common Pitfalls
+
+- **Local rustfmt vs CI rustfmt drift on `use` ordering.** A user-global post-edit hook may reorder imports alphabetically. CI uses `cargo fmt --all -- --check` with the workspace's default rustfmt config (declaration order). Always run `cargo fmt --all` before pushing — `cargo fmt --check` exit code is the truth.
+- **Rebase reverts merged content silently.** When a long-lived branch is rebased onto a moved `main`, commits authored before recent merges can drop the merged content if they happened to touch overlapping regions. After every rebase, `git diff main..HEAD -- <suspect-file>` must show only the intended PR changes.
+- **`cargo install codelens-mcp` is BM25-only.** Default features are empty (ADR-0012, v1.10.0). The `cargo install --force` upgrade path won't auto-add semantic.
+- **Surface manifest version markers.** `Workspace version: \`1.x.y\``strings inside non-marker README/docs sections trigger`canonical*truth_violations()`in`scripts/surface-manifest.py`. Keep version claims inside `SURFACE_MANIFEST*\*` blocks only.
+- **Tools.toml entries without preset membership are invisible.** A new analysis tool added to `tools.toml` must be inserted into one of the preset constants in `tool_defs/presets.rs` to surface in any `tools/list` response, even though it remains directly callable via `tools/call`.
 
 <!-- CODELENS_HOST_ROUTING:BEGIN -->
 
@@ -74,20 +172,6 @@ Pick by question shape, not by reflex.
   `search_symbols_fuzzy`, and `bm25_symbol_search` — follow it.
 
 **After ANY code mutation:** follow `suggested_next_tools` — always includes `get_file_diagnostics`.
-
-## Verify
-
-```bash
-cargo check
-cargo test -p codelens-engine
-cargo test -p codelens-mcp
-# Extended:
-cargo test -p codelens-mcp --features http
-cargo test -p codelens-mcp --no-default-features
-# Dataset hygiene:
-python3 benchmarks/lint-datasets.py --project .
-cargo clippy -- -W clippy::all
-```
 
 ## Problem-First Workflows (v1.7+)
 
