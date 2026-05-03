@@ -88,7 +88,9 @@
         { "caller": "start", "callee": "submit" },
         { "caller": "start", "callee": "register" },
         { "caller": "start", "callee": "onTick" },
-        { "caller": "start", "callee": "onError" }
+        { "caller": "start", "callee": "onError" },
+        { "caller": "start", "callee": "handleAll" },
+        { "caller": "start", "callee": "shutdown" }
       ]
     }
   ]

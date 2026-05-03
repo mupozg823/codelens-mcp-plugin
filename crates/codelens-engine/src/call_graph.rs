@@ -897,6 +897,24 @@ const KOTLIN_CALL_QUERY: &str = r#"
   (value_arguments
     (value_argument
       (identifier) @callee)))
+
+;; v1.12.4 (Codex P1): Kotlin callable references.
+;; - bare form `::onTick` parses as
+;;     value_argument > callable_reference > identifier.
+;; - qualified form `this::onTick` parses as
+;;     value_argument > navigation_expression(`::`) > identifier
+;;   (tree-sitter-kotlin-ng folds the `::` token into a
+;;   navigation_expression rather than a dedicated callable_reference
+;;   node). Both shapes are common in Executor / event-bus callbacks.
+(call_expression
+  (value_arguments
+    (value_argument
+      (callable_reference (identifier) @callee))))
+
+(call_expression
+  (value_arguments
+    (value_argument
+      (navigation_expression (identifier) @callee .))))
 "#;
 
 const RUST_FUNC_QUERY: &str = r#"
