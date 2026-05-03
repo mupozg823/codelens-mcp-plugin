@@ -219,6 +219,20 @@ pub(crate) fn find_dead_code_v2_tool(
     )
 }
 
+pub fn find_orphan_handlers_tool(
+    state: &AppState,
+    _arguments: &serde_json::Value,
+) -> ToolResult {
+    let entries = crate::orphan_handlers::find_orphan_handlers(state.project().as_path())?;
+    Ok((
+        json!({
+            "orphan_handlers": entries,
+            "count": entries.len(),
+        }),
+        success_meta(BackendKind::TreeSitter, 0.78),
+    ))
+}
+
 pub fn find_phantom_modules_tool(
     state: &AppState,
     arguments: &serde_json::Value,

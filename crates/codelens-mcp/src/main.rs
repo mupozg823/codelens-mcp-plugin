@@ -15,6 +15,7 @@ mod error;
 mod job_store;
 mod mutation_gate;
 mod operator;
+mod orphan_handlers;
 mod preflight_store;
 mod principals;
 mod prompts;
