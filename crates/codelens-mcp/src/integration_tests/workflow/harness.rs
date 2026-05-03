@@ -81,17 +81,19 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
         payload["data"]["health_summary"],
         payload["data"]["capabilities"]["health_summary"]
     );
-    assert!(payload["data"]["warnings"]
-        .as_array()
-        .map(|warnings| {
-            warnings.iter().any(|warning| {
-                warning["code"] == "stale_daemon_binary"
-                    && warning["restart_recommended"] == json!(true)
-                    && warning["recommended_action"] == json!("restart_mcp_server")
-                    && warning["action_target"] == json!("daemon")
+    assert!(
+        payload["data"]["warnings"]
+            .as_array()
+            .map(|warnings| {
+                warnings.iter().any(|warning| {
+                    warning["code"] == "stale_daemon_binary"
+                        && warning["restart_recommended"] == json!(true)
+                        && warning["recommended_action"] == json!("restart_mcp_server")
+                        && warning["action_target"] == json!("daemon")
+                })
             })
-        })
-        .unwrap_or(false));
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -111,17 +113,19 @@ fn prepare_harness_session_warns_when_diagnostics_recipe_is_missing() {
         payload["data"]["capabilities"]["diagnostics_guidance"]["status"],
         json!("unsupported_extension")
     );
-    assert!(payload["data"]["warnings"]
-        .as_array()
-        .map(|warnings| {
-            warnings.iter().any(|warning| {
-                warning["code"] == "diagnostics_unsupported_extension"
-                    && warning["restart_recommended"] == json!(false)
-                    && warning["recommended_action"] == json!("pass_explicit_lsp_command")
-                    && warning["action_target"] == json!("file_extension")
+    assert!(
+        payload["data"]["warnings"]
+            .as_array()
+            .map(|warnings| {
+                warnings.iter().any(|warning| {
+                    warning["code"] == "diagnostics_unsupported_extension"
+                        && warning["restart_recommended"] == json!(false)
+                        && warning["recommended_action"] == json!("pass_explicit_lsp_command")
+                        && warning["action_target"] == json!("file_extension")
+                })
             })
-        })
-        .unwrap_or(false));
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -219,12 +223,14 @@ fn prepare_harness_session_auto_refreshes_small_stale_index() {
         payload["data"]["index_recovery"]["after"]["stale_files"],
         json!(0)
     );
-    assert!(!payload["data"]["warnings"]
-        .as_array()
-        .map(|warnings| warnings
-            .iter()
-            .any(|warning| warning["code"] == "stale_index"))
-        .unwrap_or(false));
+    assert!(
+        !payload["data"]["warnings"]
+            .as_array()
+            .map(|warnings| warnings
+                .iter()
+                .any(|warning| warning["code"] == "stale_index"))
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -287,10 +293,12 @@ fn prepare_harness_session_defaults_to_surface_bootstrap_entrypoints() {
         payload["data"]["routing"]["recommended_entrypoint"],
         json!("explore_codebase")
     );
-    assert!(payload["data"]["routing"]["preferred_entrypoints"]
-        .as_array()
-        .map(|items| items.iter().any(|value| value == "trace_request_path"))
-        .unwrap_or(false));
+    assert!(
+        payload["data"]["routing"]["preferred_entrypoints"]
+            .as_array()
+            .map(|items| items.iter().any(|value| value == "trace_request_path"))
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -327,17 +335,21 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
         payload["data"]["routing"]["recommended_entrypoint"],
         json!("review_changes")
     );
-    assert!(payload["data"]["overlay"]["avoid_tools"]
-        .as_array()
-        .map(|items| items.iter().any(|value| value == "rename_symbol"))
-        .unwrap_or(false));
-    assert!(payload["data"]["overlay"]["routing_notes"]
-        .as_array()
-        .map(|items| items.iter().any(|value| {
-            value
-                .as_str()
-                .map(|text| text.contains("Review overlay"))
-                .unwrap_or(false)
-        }))
-        .unwrap_or(false));
+    assert!(
+        payload["data"]["overlay"]["avoid_tools"]
+            .as_array()
+            .map(|items| items.iter().any(|value| value == "rename_symbol"))
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["data"]["overlay"]["routing_notes"]
+            .as_array()
+            .map(|items| items.iter().any(|value| {
+                value
+                    .as_str()
+                    .map(|text| text.contains("Review overlay"))
+                    .unwrap_or(false)
+            }))
+            .unwrap_or(false)
+    );
 }
