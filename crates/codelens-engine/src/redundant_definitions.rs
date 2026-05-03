@@ -56,6 +56,10 @@ pub fn find_redundant_definitions(
     let mut results: Vec<RedundantDefinitionEntry> = Vec::new();
     let candidates = collect_files(project.as_path(), is_rust_file)?;
 
+    // Codex P2 (PR #148): scan every file, then sort and truncate. Mid-walk
+    // `break` produced unstable ordering — clusters could be split across
+    // truncation depending on file iteration order, hiding the highest-
+    // leverage targets that the dogfood loop relies on.
     for path in &candidates {
         let source = match std::fs::read_to_string(path) {
             Ok(s) => s,
@@ -72,9 +76,6 @@ pub fn find_redundant_definitions(
         // shift after the first cfg(test) block.
         let cfg_test_ranges = collect_cfg_test_ranges(&source);
         scan_rust_source(&source, &relative, &cfg_test_ranges, &mut results);
-        if max_results > 0 && results.len() >= max_results {
-            break;
-        }
     }
 
     results.sort_by(|a, b| {
@@ -395,8 +396,17 @@ mod tests {
     #[ignore]
     fn dogfood_self_repo() {
         // Run with: cargo test -p codelens-engine dogfood_self_repo -- --ignored --nocapture
-        let repo = std::env::var("CODELENS_REPO_ROOT")
-            .unwrap_or_else(|_| "/Users/bagjaeseog/codelens-mcp-plugin".to_owned());
+        // Codex P2 (PR #149): derive workspace root from CARGO_MANIFEST_DIR
+        // (the engine crate's directory) → parent twice → repo root. Any
+        // contributor's clone path works without hardcoding `/Users/...`.
+        let repo = std::env::var("CODELENS_REPO_ROOT").unwrap_or_else(|_| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .ancestors()
+                .nth(2)
+                .expect("workspace root not found above CARGO_MANIFEST_DIR")
+                .to_string_lossy()
+                .into_owned()
+        });
         let project = crate::project::ProjectRoot::new(repo).expect("project root");
         let results =
             super::find_redundant_definitions(&project, 200).expect("find_redundant_definitions");
