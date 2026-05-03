@@ -18,6 +18,7 @@ use crate::symbol_retrieval::{ScoredSymbol, search_symbols_bm25f, unique_query_t
 use codelens_engine::{SymbolInfo, SymbolKind, read_file, search_symbols_hybrid_with_semantic};
 use serde_json::{Value, json};
 
+#[cfg(feature = "scip-backend")]
 const HEURISTIC_BODY_LINES: usize = 50;
 const PATH_ALIAS_DEPRECATION: &str =
     "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
@@ -66,6 +67,7 @@ fn insert_response_annotations(
     }
 }
 
+#[cfg(feature = "scip-backend")]
 fn heuristic_body_slice(state: &AppState, file_path: &str, line: usize) -> Option<String> {
     read_file(
         &state.project(),
