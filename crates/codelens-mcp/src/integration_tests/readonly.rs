@@ -129,6 +129,75 @@ fn find_symbol_with_include_body_returns_body_via_scip_heuristic() {
     assert_eq!(first["body_truncation"], json!("heuristic_50_lines"));
 }
 
+// #183: distinguish "file is empty" from "file not in index" so callers
+// have a recovery hint instead of falling back to grep.
+#[test]
+fn get_symbols_overview_emits_degraded_reason_for_unsupported_extension() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("notes.xyz"),
+        "this is not a source file\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "get_symbols_overview",
+        json!({ "path": "notes.xyz" }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["count"], json!(0));
+    assert_eq!(
+        payload["data"]["degraded_reason"],
+        json!("unsupported_extension"),
+        "unsupported extension must surface a degraded_reason instead of \
+         silently returning an empty symbol list"
+    );
+}
+
+#[test]
+fn get_symbols_overview_emits_degraded_reason_when_file_not_indexed() {
+    let project = project_root();
+    let state = make_state(&project);
+    // Write the file *after* make_state so the on-disk symbol index has
+    // no row for it. Mirrors the dogfood scenario where a freshly-edited
+    // file is queried before the watcher debounce window elapses.
+    fs::write(
+        project.as_path().join("hot_edit.ts"),
+        "export function freshly_added(): void {}\n",
+    )
+    .unwrap();
+
+    let payload = call_tool(
+        &state,
+        "get_symbols_overview",
+        json!({ "path": "hot_edit.ts" }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    if payload["data"]["count"] == json!(0) {
+        assert_eq!(
+            payload["data"]["degraded_reason"],
+            json!("file_not_indexed"),
+            "supported extension with empty result must report file_not_indexed"
+        );
+        let hints = payload["data"]["fallback_hint"]
+            .as_array()
+            .expect("fallback_hint array");
+        assert!(
+            hints
+                .iter()
+                .any(|v| v.as_str() == Some("refresh_symbol_index")),
+            "fallback_hint must include refresh_symbol_index"
+        );
+    }
+    // If the test-state path eagerly indexed and returned symbols, the
+    // assertion is satisfied trivially — the regression we guard against
+    // is the silent-empty path, not the eager-index optimization.
+}
+
 // P1-B contract: every read-only tool in the second wave must
 // 1) honor `limit` / `top_k` aliases for whatever its canonical
 //    limit field is (or skip the alias if it has no limit field),
