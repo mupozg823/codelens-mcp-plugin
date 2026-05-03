@@ -20,7 +20,7 @@ Three concepts that show up across files and require reading several to understa
 
 ## Feature Flag Matrix (build-time)
 
-The default `cargo install codelens-mcp` build is `default = []`. Most operational use needs explicit features:
+The default `cargo install codelens-mcp` build is `default = ["scip-backend"]` (set in `crates/codelens-mcp/Cargo.toml`; SCIP itself only activates when an `index.scip` exists in the project). Most other operational use needs explicit features:
 
 | Feature        | When required                                                    | Symptom if missing                                                                                        |
 | -------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -94,7 +94,7 @@ If `pgrep` shows nothing after restart, the binary is missing `--features http` 
 
 - **Local rustfmt vs CI rustfmt drift on `use` ordering.** A user-global post-edit hook may reorder imports alphabetically. CI uses `cargo fmt --all -- --check` with the workspace's default rustfmt config (declaration order). Always run `cargo fmt --all` before pushing — `cargo fmt --check` exit code is the truth.
 - **Rebase reverts merged content silently.** When a long-lived branch is rebased onto a moved `main`, commits authored before recent merges can drop the merged content if they happened to touch overlapping regions. After every rebase, `git diff main..HEAD -- <suspect-file>` must show only the intended PR changes.
-- **`cargo install codelens-mcp` is BM25-only.** Default features are empty (ADR-0012, v1.10.0). The `cargo install --force` upgrade path won't auto-add semantic.
+- **`cargo install codelens-mcp` is BM25 + SCIP only, no semantic.** Default features are `["scip-backend"]` (ADR-0012 set them to `[]` in v1.10.0; v1.13.17 added `scip-backend` to the default set when SCIP became on-by-default). The `cargo install --force` upgrade path won't auto-add `semantic` or `http` — both still need explicit `--features`.
 - **Surface manifest version markers.** `Workspace version: \`1.x.y\``strings inside non-marker README/docs sections trigger`canonical*truth_violations()`in`scripts/surface-manifest.py`. Keep version claims inside `SURFACE_MANIFEST*\*` blocks only.
 - **Tools.toml entries without preset membership are invisible.** A new analysis tool added to `tools.toml` must be inserted into one of the preset constants in `tool_defs/presets.rs` to surface in any `tools/list` response, even though it remains directly callable via `tools/call`.
 
