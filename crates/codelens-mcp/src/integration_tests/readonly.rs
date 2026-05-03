@@ -198,6 +198,109 @@ fn get_symbols_overview_emits_degraded_reason_when_file_not_indexed() {
     // is the silent-empty path, not the eager-index optimization.
 }
 
+// #180: extend the path soft-alias contract to read_file, list_dir, and
+// get_type_hierarchy. Each test asserts both the canonical `path` form
+// (no warning) and the legacy `relative_path` form (single
+// deprecation_warnings entry) so a future regression that drops the alias
+// will fail with a precise diff.
+#[test]
+fn read_file_accepts_legacy_relative_path_with_deprecation_warning() {
+    let project = project_root();
+    fs::write(project.as_path().join("legacy_read.txt"), "hello\n").unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "read_file",
+        json!({ "relative_path": "legacy_read.txt" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let warnings = payload["data"]["deprecation_warnings"]
+        .as_array()
+        .expect("deprecation_warnings array on legacy call");
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0]["param"], json!("relative_path"));
+    assert_eq!(warnings[0]["replacement"], json!("path"));
+
+    let payload = call_tool(&state, "read_file", json!({ "path": "legacy_read.txt" }));
+    assert_eq!(payload["success"], json!(true));
+    assert!(
+        payload["data"].get("deprecation_warnings").is_none(),
+        "canonical `path` call must not emit deprecation_warnings"
+    );
+}
+
+#[test]
+fn list_dir_accepts_legacy_relative_path_with_deprecation_warning() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("legacy_dir/nested")).unwrap();
+    fs::write(project.as_path().join("legacy_dir/x.txt"), "x\n").unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(&state, "list_dir", json!({ "relative_path": "legacy_dir" }));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["deprecation_warnings"]
+            .as_array()
+            .expect("deprecation_warnings array")
+            .len(),
+        1
+    );
+    assert_eq!(
+        payload["data"]["deprecation_warnings"][0]["param"],
+        json!("relative_path")
+    );
+
+    let payload = call_tool(&state, "list_dir", json!({ "path": "legacy_dir" }));
+    assert_eq!(payload["success"], json!(true));
+    assert!(payload["data"].get("deprecation_warnings").is_none());
+}
+
+#[test]
+fn get_type_hierarchy_accepts_legacy_relative_path_with_deprecation_warning() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("legacy_hierarchy.py"),
+        "class Base:\n    pass\n\nclass Child(Base):\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "get_type_hierarchy",
+        json!({
+            "name_path": "Base",
+            "relative_path": "legacy_hierarchy.py",
+            "hierarchy_type": "sub",
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["deprecation_warnings"]
+            .as_array()
+            .expect("deprecation_warnings array")
+            .len(),
+        1
+    );
+    assert_eq!(
+        payload["data"]["deprecation_warnings"][0]["param"],
+        json!("relative_path")
+    );
+
+    let payload = call_tool(
+        &state,
+        "get_type_hierarchy",
+        json!({
+            "name_path": "Base",
+            "path": "legacy_hierarchy.py",
+            "hierarchy_type": "sub",
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert!(payload["data"].get("deprecation_warnings").is_none());
+}
+
 // P1-B contract: every read-only tool in the second wave must
 // 1) honor `limit` / `top_k` aliases for whatever its canonical
 //    limit field is (or skip the alias if it has no limit field),
