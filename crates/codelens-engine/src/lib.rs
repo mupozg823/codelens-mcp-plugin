@@ -30,7 +30,6 @@
 pub mod auto_import;
 pub mod call_graph;
 pub mod circular;
-pub mod community;
 pub mod coupling;
 pub mod db;
 pub mod edit_transaction;
