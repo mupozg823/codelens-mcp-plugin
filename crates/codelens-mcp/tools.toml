@@ -507,6 +507,18 @@ properties = { max_results = { type = "integer" } }
 # ─────
 
 [[tool]]
+name = "audit_tool_surface_consistency"
+category = "analysis"
+description = "[CodeLens:Analysis] Cross-check `tools.toml` entries against `dispatch_table()` macro arms and report drift. `missing_in_dispatch` = registered in toml but no handler arm; `missing_in_toml` = dispatched but missing schema entry. Catches deletion-cascade asymmetry that would otherwise surface as runtime `tool not found` or schema validation failures."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
 name = "find_orphan_handlers"
 category = "analysis"
 description = "[CodeLens:Analysis] Find ToolHandler-shaped functions in `crates/codelens-mcp/src/tools/` that are NOT registered in `dispatch_table()`. Production audit for routing surface — overlaps the `dead_code` lint but emits structured (file, line, function) entries that are easier to act on than the warnings buffer. Known limitation: handler-shaped helpers shared between handlers (called from another `*_tool` function rather than dispatched directly) are reported but are not actually orphan; v2 will add workspace-wide path-reference check."
