@@ -119,7 +119,10 @@ def replace_block(text: str, begin: str, end: str, content: str) -> str:
     if start == -1 or finish == -1 or finish < start:
         raise SystemExit(f"missing marker pair: {begin} .. {end}")
     finish += len(end)
-    replacement = f"{begin}\n{content}\n{end}"
+    # Prettier inserts a blank line after HTML comments preceding markdown
+    # headings/content, so canonicalise the marker layout the same way to
+    # avoid permanent drift between this script and the editor formatter.
+    replacement = f"{begin}\n\n{content}\n\n{end}"
     return text[:start] + replacement + text[finish:]
 
 
