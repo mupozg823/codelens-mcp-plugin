@@ -66,6 +66,32 @@ impl ToolProfile {
             Self::WorkflowFirst => "workflow-first",
         }
     }
+
+    /// Profiles slated for removal in v2.0. The enum entries stay so existing
+    /// `from_str` callers and host overlays keep working through the
+    /// deprecation window; surface_manifest exposes the marker so hosts can
+    /// stop advertising them ahead of the cut.
+    ///
+    /// Rationale: the four below are either redundant aliases of the core
+    /// trio (planner/builder/reviewer) or were aspirational profiles that
+    /// never accumulated a distinct toolset. Keeping seven entries means
+    /// the surface routing matrix has more cells to maintain than realised
+    /// behaviour change. v2.0 collapses to the core trio.
+    pub fn is_deprecated(&self) -> bool {
+        matches!(
+            self,
+            Self::EvaluatorCompact | Self::RefactorFull | Self::CiAudit | Self::WorkflowFirst
+        )
+    }
+
+    /// Removal target version for deprecated profiles. None for active ones.
+    pub fn deprecation_target(&self) -> Option<&'static str> {
+        if self.is_deprecated() {
+            Some("v2.0")
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1298,6 +1324,55 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
 }
 
 #[cfg(test)]
+mod deprecation_tests {
+    use super::*;
+
+    #[test]
+    fn core_trio_is_active() {
+        for p in [
+            ToolProfile::PlannerReadonly,
+            ToolProfile::BuilderMinimal,
+            ToolProfile::ReviewerGraph,
+        ] {
+            assert!(!p.is_deprecated(), "{:?} should be active", p);
+            assert_eq!(p.deprecation_target(), None, "{:?}", p);
+        }
+    }
+
+    #[test]
+    fn four_profiles_marked_for_v2_removal() {
+        for p in [
+            ToolProfile::EvaluatorCompact,
+            ToolProfile::RefactorFull,
+            ToolProfile::CiAudit,
+            ToolProfile::WorkflowFirst,
+        ] {
+            assert!(p.is_deprecated(), "{:?} should be deprecated", p);
+            assert_eq!(p.deprecation_target(), Some("v2.0"));
+        }
+    }
+
+    #[test]
+    fn from_str_still_resolves_deprecated_aliases() {
+        // Deprecation does not break parsing — host overlays may still
+        // request these profiles through the v1.13 deprecation window.
+        assert_eq!(
+            ToolProfile::from_str("evaluator-compact"),
+            Some(ToolProfile::EvaluatorCompact)
+        );
+        assert_eq!(
+            ToolProfile::from_str("refactor"),
+            Some(ToolProfile::RefactorFull)
+        );
+        assert_eq!(ToolProfile::from_str("ci"), Some(ToolProfile::CiAudit));
+        assert_eq!(
+            ToolProfile::from_str("workflow"),
+            Some(ToolProfile::WorkflowFirst)
+        );
+    }
+}
+
+#[cfg(test)]
 mod overlay_tests {
     use super::*;
 
@@ -1323,10 +1398,9 @@ mod overlay_tests {
         let plan = compile_surface_overlay(full_surface(), Some(HostContext::ClaudeCode), None);
         assert!(plan.applied());
         assert_eq!(plan.preferred_executor_bias, Some("claude"));
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
         assert!(!plan.routing_notes.is_empty());
     }
 
@@ -1351,10 +1425,9 @@ mod overlay_tests {
                 "planning overlay should avoid {mutation}"
             );
         }
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
     }
 
     #[test]
@@ -1371,10 +1444,9 @@ mod overlay_tests {
                 "editing overlay should emphasize {mutation}"
             );
         }
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"verify_change_readiness")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"verify_change_readiness"));
         assert!(plan.avoid_tools.is_empty());
     }
 
@@ -1435,11 +1507,9 @@ mod overlay_tests {
             Some(HostContext::ClaudeCode),
             None,
         );
-        assert!(
-            !plan
-                .preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(!plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
     }
 
     #[test]

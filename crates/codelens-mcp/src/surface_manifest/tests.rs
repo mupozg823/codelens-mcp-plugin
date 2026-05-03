@@ -87,6 +87,26 @@ fn manifest_matches_registry_counts() {
             entry["tool_count"],
             json!(visible_tools(ToolSurface::Profile(*profile)).len())
         );
+        assert_eq!(
+            entry["deprecated"],
+            json!(profile.is_deprecated()),
+            "deprecated flag mismatch for {:?}",
+            profile
+        );
+        if let Some(target) = profile.deprecation_target() {
+            assert_eq!(
+                entry["deprecation_target"],
+                json!(target),
+                "deprecation_target mismatch for {:?}",
+                profile
+            );
+        } else {
+            assert!(
+                entry.get("deprecation_target").is_none(),
+                "active profile {:?} should not carry deprecation_target",
+                profile
+            );
+        }
     }
 
     let manifest_presets = manifest["surfaces"]["presets"]

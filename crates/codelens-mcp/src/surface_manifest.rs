@@ -94,14 +94,20 @@ pub(crate) fn build_surface_manifest(
         .map(|profile| {
             let surface = ToolSurface::Profile(*profile);
             let visible = visible_tools(surface);
-            json!({
+            let deprecated = profile.is_deprecated();
+            let mut entry = json!({
                 "name": profile.as_str(),
                 "tool_count": visible.len(),
                 "preferred_namespaces": preferred_namespaces(surface),
                 "preferred_tiers": preferred_tier_labels(surface),
                 "preferred_phases": preferred_phase_labels(surface),
                 "tools": visible.iter().map(|tool| tool.name).collect::<Vec<_>>(),
-            })
+                "deprecated": deprecated,
+            });
+            if let Some(target) = profile.deprecation_target() {
+                entry["deprecation_target"] = json!(target);
+            }
+            entry
         })
         .collect::<Vec<_>>();
 
