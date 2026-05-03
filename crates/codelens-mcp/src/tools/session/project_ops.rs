@@ -422,7 +422,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     let detail = arguments
         .get("detail")
         .and_then(|v| v.as_str())
-        .unwrap_or("compact");
+        .unwrap_or("full");
     let request = ResourceRequestContext::from_request("codelens://tools/list", Some(arguments));
     let session = request.session.clone();
     let active_surface = state.execution_surface(&session);
@@ -624,7 +624,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             .or_insert(0usize) += 1;
     }
 
-    Ok((
+    let result = if detail == "full" {
         json!({
             "activated": true,
             "project": activate_payload,
@@ -684,9 +684,51 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 "doom_loop_threshold": 3,
                 "preflight_ttl_seconds": state.preflight_ttl_seconds(),
             }
-        }),
-        success_meta(BackendKind::Session, 1.0),
-    ))
+        })
+    } else {
+        let project_name = activate_payload
+            .get("project_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let indexed_files = activate_payload
+            .get("indexed_files")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let capabilities_available = capabilities_payload
+            .get("available")
+            .cloned()
+            .unwrap_or_else(|| json!([]));
+        let tool_count = visible.tools.len();
+        let first_five_tools: Vec<_> = visible_tool_names.iter().take(5).cloned().collect();
+        let health_status = health_summary
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("ok");
+        json!({
+            "activated": true,
+            "project": {
+                "project_name": project_name,
+                "indexed_files": indexed_files,
+            },
+            "capabilities": {
+                "available": capabilities_available,
+            },
+            "visible_tools": {
+                "tool_count": tool_count,
+                "tool_names": first_five_tools,
+            },
+            "health_summary": {
+                "status": health_status,
+            },
+            "warnings": warnings,
+            "routing": {
+                "recommended_entrypoint": recommended_entrypoint,
+                "preferred_entrypoints_visible": preferred_entrypoints_visible,
+            },
+        })
+    };
+
+    Ok((result, success_meta(BackendKind::Session, 1.0)))
 }
 
 pub fn prepare_for_new_conversation(

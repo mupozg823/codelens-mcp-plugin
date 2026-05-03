@@ -44,6 +44,15 @@ simply lets the append-only telemetry log correlate planner-side
 delegate emission with later builder-side execution, even when those
 steps happen under different logical sessions.
 
+**Note — inline brief mode**: When dispatching Codex via MCP
+(`mcp__codex__codex`), pass the task description inline as the `prompt`
+argument rather than writing a file to `/tmp`. If the host harness
+settings do not include `Write(/tmp/**)` in `allowedTools`, writing the
+brief to disk will be blocked by the permission gate. The inline pattern
+(passing the brief directly as `prompt`) avoids this and has been
+verified to work in Claude Code sessions. If you must write a brief file,
+ensure `Write(/tmp/**)` appears in the session's `allowedTools`.
+
 ## Recommended Role Split
 
 For multi-agent HTTP deployments, keep the surfaces asymmetric:

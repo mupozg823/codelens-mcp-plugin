@@ -342,12 +342,12 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
         Tool::new(
             "find_referencing_symbols",
             "[CodeLens:Symbol] Find all usages of a symbol. use_lsp=true for type-aware precision.",
-            json!({"type":"object","required":["file_path"],"properties":{"file_path":{"type":"string","description":"File containing or declaring the symbol"},"symbol_name":{"type":"string","description":"Symbol name (default: tree-sitter search)"},"line":{"type":"integer","description":"Line number (triggers LSP path)"},"column":{"type":"integer","description":"Column number (triggers LSP path)"},"use_lsp":{"type":"boolean","description":"Force LSP lookup (slower but type-aware, requires LSP server)"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"File containing or declaring the symbol"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"symbol_name":{"type":"string","description":"Symbol name (default: tree-sitter search)"},"line":{"type":"integer","description":"Line number (triggers LSP path)"},"column":{"type":"integer","description":"Column number (triggers LSP path)"},"use_lsp":{"type":"boolean","description":"Force LSP lookup (slower but type-aware, requires LSP server)"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
         ).with_output_schema(references_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "get_file_diagnostics",
             "[CodeLens:Symbol] Type errors and lint issues via LSP. Use after editing code.",
-            json!({"type":"object","required":["file_path"],"properties":{"file_path":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
         ).with_output_schema(diagnostics_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "search_workspace_symbols",
@@ -603,12 +603,12 @@ pub fn symbol_tools(
         Tool::new(
             "get_symbols_overview",
             "[CodeLens:Symbol] List all symbols in a file — structural map. Use first to understand a file.",
-            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"depth":{"type":"integer"}}}),
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"depth":{"type":"integer"}}}),
         ).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "find_symbol",
-            "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body.",
-            json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean"},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"}}}),
+            "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body. Use `name` (canonical). Legacy `name_path` is accepted for one release with deprecation warning. `include_body=true` returns full body via tree-sitter; SCIP backend currently returns signature only (#172).",
+            json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean"},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"},"name_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `name`. Soft alias maintained until v1.14.0."}}}),
         ).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "get_ranked_context",

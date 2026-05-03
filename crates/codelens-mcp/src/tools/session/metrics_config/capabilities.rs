@@ -274,15 +274,37 @@ impl SemanticSearchStatus {
         }
     }
 
+    pub(crate) fn included_in_profiles(&self) -> Option<Vec<&'static str>> {
+        #[cfg(feature = "semantic")]
+        {
+            match self {
+                Self::NotInActiveSurface => Some(vec!["planner-readonly", "builder-minimal"]),
+                _ => None,
+            }
+        }
+        #[cfg(not(feature = "semantic"))]
+        {
+            None
+        }
+    }
+
     pub(crate) fn guidance_payload(&self) -> serde_json::Value {
-        json!({
+        let mut payload = json!({
             "status": self.status_key(),
             "available": self.is_available(),
             "reason": self.reason_str(),
             "reason_code": self.reason_code(),
             "recommended_action": self.recommended_action(),
             "action_target": self.action_target(),
-        })
+        });
+        if let Some(profiles) = self.included_in_profiles() {
+            let recommended_profile = profiles.first().copied();
+            payload["included_in"] = serde_json::json!(profiles);
+            if let Some(first) = recommended_profile {
+                payload["recommended_profile"] = serde_json::json!(first);
+            }
+        }
+        payload
     }
 
     pub(crate) fn is_available(&self) -> bool {

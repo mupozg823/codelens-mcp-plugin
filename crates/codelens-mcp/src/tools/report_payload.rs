@@ -17,6 +17,7 @@ pub(crate) fn build_handle_payload(
     readiness: &AnalysisReadiness,
     verifier_checks: &[AnalysisVerifierCheck],
     available_sections: &[String],
+    touched_files: &[String],
     reused: bool,
     ci_audit: bool,
 ) -> Value {
@@ -58,7 +59,7 @@ pub(crate) fn build_handle_payload(
     } else {
         verifier_checks.to_vec()
     };
-    let quality_focus = infer_quality_focus(tool_name, summary, top_findings);
+    let quality_focus = infer_quality_focus(tool_name, summary, top_findings, touched_files);
     let recommended_checks = infer_recommended_checks(
         tool_name,
         summary,
@@ -212,8 +213,29 @@ pub(crate) fn infer_risk_level(
     }
 }
 
-fn infer_quality_focus(tool_name: &str, summary: &str, top_findings: &[String]) -> Vec<String> {
+fn infer_quality_focus(
+    tool_name: &str,
+    summary: &str,
+    top_findings: &[String],
+    changed_files: &[String],
+) -> Vec<String> {
     let combined = format!("{} {}", summary, top_findings.join(" ")).to_ascii_lowercase();
+    let frontend_path = changed_files.iter().any(|p| {
+        let p = p.to_ascii_lowercase();
+        p.contains("/templates/")
+            || p.contains("/components/")
+            || p.contains("/pages/")
+            || p.contains("/views/")
+            || p.contains("/ui/")
+            || p.ends_with(".tsx")
+            || p.ends_with(".jsx")
+            || p.ends_with(".vue")
+            || p.ends_with(".svelte")
+            || p.ends_with(".html")
+            || p.ends_with(".css")
+            || p.ends_with(".scss")
+            || p.ends_with(".astro")
+    });
     let mut focus = Vec::new();
     let mut push_unique = |value: &str| {
         if !focus.iter().any(|existing| existing == value) {
@@ -233,12 +255,12 @@ fn infer_quality_focus(tool_name: &str, summary: &str, top_findings: &[String]) 
     ) {
         push_unique("regression_safety");
     }
-    if combined.contains("http")
-        || combined.contains("browser")
-        || combined.contains("ui")
-        || combined.contains("render")
-        || combined.contains("frontend")
-        || combined.contains("layout")
+    if frontend_path
+        && (combined.contains("http")
+            || combined.contains("browser")
+            || combined.contains("render")
+            || combined.contains("frontend")
+            || combined.contains("layout"))
     {
         push_unique("user_experience");
     }
@@ -453,5 +475,33 @@ mod preview_first_trim_tests {
                 "{tool} above threshold must keep top_findings"
             );
         }
+    }
+
+    #[test]
+    fn infer_quality_focus_skips_user_experience_on_backend_python() {
+        let changed = vec!["foo.py".to_owned()];
+        let focus =
+            infer_quality_focus("semantic_code_review", "ui handler refactor", &[], &changed);
+        assert!(
+            !focus.contains(&"user_experience".to_owned()),
+            "backend Python file must not trigger user_experience: {:?}",
+            focus
+        );
+    }
+
+    #[test]
+    fn infer_quality_focus_keeps_user_experience_on_frontend_files() {
+        let changed = vec!["src/components/Btn.tsx".to_owned()];
+        let focus = infer_quality_focus(
+            "semantic_code_review",
+            "render bug in layout",
+            &[],
+            &changed,
+        );
+        assert!(
+            focus.contains(&"user_experience".to_owned()),
+            "frontend .tsx file with render/layout summary must trigger user_experience: {:?}",
+            focus
+        );
     }
 }

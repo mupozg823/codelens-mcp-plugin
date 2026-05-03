@@ -364,6 +364,7 @@ pub fn eval_session_audit(state: &AppState, arguments: &Value) -> ToolResult {
         &artifact.readiness,
         &artifact.verifier_checks,
         &artifact.available_sections,
+        &[],
         false,
         ci_audit,
     );

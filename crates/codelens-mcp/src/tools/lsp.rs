@@ -231,14 +231,8 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     "backend": "oxc_semantic",
                     "evidence": evidence,
                 });
-                if !unknown_args.is_empty()
-                    || !deprecation_warnings.is_empty()
-                {
-                    insert_response_annotations(
-                        &mut payload,
-                        &unknown_args,
-                        &deprecation_warnings,
-                    );
+                if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
+                    insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
                 }
                 return Ok((payload, meta));
             }
@@ -289,9 +283,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         "backend": "scip",
                         "evidence": evidence,
                     });
-                    if !unknown_args.is_empty()
-                        || !deprecation_warnings.is_empty()
-                    {
+                    if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
                         insert_response_annotations(
                             &mut payload,
                             &unknown_args,
@@ -396,14 +388,8 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     "sampled": false,
                     "evidence": evidence,
                 });
-                if !unknown_args.is_empty()
-                    || !deprecation_warnings.is_empty()
-                {
-                    insert_response_annotations(
-                        &mut payload,
-                        &unknown_args,
-                        &deprecation_warnings,
-                    );
+                if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
+                    insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
                 }
                 return Ok((payload, meta));
             }
@@ -531,10 +517,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         .map(|value| {
             let mut payload = json!({ "diagnostics": value, "count": value.len() });
             insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
-            (
-                payload,
-                success_meta(BackendKind::Lsp, 0.9),
-            )
+            (payload, success_meta(BackendKind::Lsp, 0.9))
         })
 }
 

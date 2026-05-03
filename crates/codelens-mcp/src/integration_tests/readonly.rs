@@ -97,10 +97,10 @@ fn find_referencing_symbols_accepts_legacy_relative_path_with_deprecation_warnin
 fn find_symbol_with_include_body_returns_body_via_scip_heuristic() {
     let fixture = std::env::var("CODELENS_SCIP_HEURISTIC_FIXTURE")
         .expect("set CODELENS_SCIP_HEURISTIC_FIXTURE to a project with index.scip");
-    let symbol = std::env::var("CODELENS_SCIP_HEURISTIC_SYMBOL")
-        .unwrap_or_else(|_| "MyStruct".to_owned());
-    let file_path = std::env::var("CODELENS_SCIP_HEURISTIC_FILE")
-        .unwrap_or_else(|_| "src/main.rs".to_owned());
+    let symbol =
+        std::env::var("CODELENS_SCIP_HEURISTIC_SYMBOL").unwrap_or_else(|_| "MyStruct".to_owned());
+    let file_path =
+        std::env::var("CODELENS_SCIP_HEURISTIC_FILE").unwrap_or_else(|_| "src/main.rs".to_owned());
     let project = ProjectRoot::new(&fixture).unwrap();
     let state = make_state(&project);
 
