@@ -382,6 +382,25 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
     ))
 }
 
+/// Scale a base token budget to the host's advertised model context window.
+///
+/// Returns the smaller of (base × multiplier) and a per-tier ceiling so a
+/// 1M-context host doesn't end up with a budget larger than reasonably
+/// retrievable evidence, while a 32K host doesn't get pushed over its head.
+///
+/// Tiers are conservative on purpose. The intent is to widen room when there
+/// is room, not to fill the host's window — the host still owns the response
+/// and may apply its own truncation downstream.
+pub(crate) fn adapt_budget_to_context_window(base: usize, context_window: usize) -> usize {
+    let (multiplier, cap) = match context_window {
+        n if n >= 1_000_000 => (4.0_f64, 131_072_usize),
+        n if n >= 200_000 => (2.0_f64, 65_536_usize),
+        n if n >= 32_000 => (1.0_f64, 32_768_usize),
+        _ => (0.5_f64, 16_384_usize),
+    };
+    ((base as f64 * multiplier).round() as usize).min(cap)
+}
+
 pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     // P1-B — surface unknown_args. No `limit`/`top_k` alias here:
     // get_ranked_context's relevant control is `depth` (graph
@@ -391,6 +410,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
         "path",
         "file_path",
         "max_tokens",
+        "context_window",
         "include_body",
         "depth",
         "disable_semantic",
@@ -411,14 +431,26 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     // structural evidence) routinely exceeds that, triggering Stage 5
     // truncation. See `docs/eval/v1.10.0-post-release-eval.md` (F3).
     const HYBRID_RETRIEVAL_FLOOR: usize = 16384;
+    // v1.13.18 adaptive: when the host advertises its model context window
+    // (e.g. 1M for Opus 4.7, 200K for Sonnet 4.6, 32K for older models),
+    // scale the budget so we don't waste headroom on huge contexts and
+    // don't blow up small ones. See `adapt_budget_to_context_window`.
+    let context_window = arguments
+        .get("context_window")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize);
     let max_tokens = arguments
         .get("max_tokens")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
         .unwrap_or_else(|| {
-            state
+            let base = state
                 .execution_token_budget(&session)
-                .max(HYBRID_RETRIEVAL_FLOOR)
+                .max(HYBRID_RETRIEVAL_FLOOR);
+            match context_window {
+                Some(window) => adapt_budget_to_context_window(base, window),
+                None => base,
+            }
         });
     let include_body = optional_bool(arguments, "include_body", false);
     let depth = optional_usize(arguments, "depth", 2);
@@ -819,6 +851,52 @@ fn suggested_follow_up(kind: &str, exported: bool) -> Vec<&'static str> {
         return with_refs;
     }
     base
+}
+
+#[cfg(test)]
+mod adapt_budget_tests {
+    use super::adapt_budget_to_context_window;
+
+    #[test]
+    fn small_window_halves_budget_capped_at_16k() {
+        // 8K context — base 32K halved to 16K, capped at 16K floor
+        assert_eq!(adapt_budget_to_context_window(32_768, 8_000), 16_384);
+        // base 8K halved to 4K — under cap
+        assert_eq!(adapt_budget_to_context_window(8_000, 16_000), 4_000);
+    }
+
+    #[test]
+    fn standard_window_passes_base_capped_at_32k() {
+        // 64K window → ×1, cap 32K
+        assert_eq!(adapt_budget_to_context_window(16_384, 64_000), 16_384);
+        assert_eq!(adapt_budget_to_context_window(40_000, 64_000), 32_768);
+    }
+
+    #[test]
+    fn large_window_doubles_budget_capped_at_64k() {
+        // 200K → ×2 cap 64K
+        assert_eq!(adapt_budget_to_context_window(16_384, 200_000), 32_768);
+        assert_eq!(adapt_budget_to_context_window(50_000, 200_000), 65_536);
+    }
+
+    #[test]
+    fn xl_window_quadruples_budget_capped_at_128k() {
+        // 1M → ×4 cap 128K
+        assert_eq!(adapt_budget_to_context_window(16_384, 1_000_000), 65_536);
+        assert_eq!(adapt_budget_to_context_window(40_000, 1_000_000), 131_072);
+    }
+
+    #[test]
+    fn boundary_at_32k_uses_standard_tier() {
+        // exactly 32K → standard tier (×1, cap 32K), not small tier
+        assert_eq!(adapt_budget_to_context_window(16_384, 32_000), 16_384);
+    }
+
+    #[test]
+    fn boundary_at_200k_uses_large_tier() {
+        // exactly 200K → large tier (×2, cap 64K)
+        assert_eq!(adapt_budget_to_context_window(16_384, 200_000), 32_768);
+    }
 }
 
 #[cfg(test)]
