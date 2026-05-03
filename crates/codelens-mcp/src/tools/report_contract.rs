@@ -80,6 +80,7 @@ pub(super) fn make_handle_response(
             &artifact.readiness,
             &artifact.verifier_checks,
             &artifact.available_sections,
+            &touched_files,
             true,
             ci_audit,
         );
@@ -139,6 +140,7 @@ pub(super) fn make_handle_response(
         &artifact.readiness,
         &artifact.verifier_checks,
         &artifact.available_sections,
+        &touched_files,
         false,
         ci_audit,
     );

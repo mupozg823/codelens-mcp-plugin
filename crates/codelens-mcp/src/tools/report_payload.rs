@@ -1,6 +1,6 @@
 use crate::resources::{analysis_section_handles, analysis_summary_resource};
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::report_verifier::{VERIFIER_BLOCKED, VERIFIER_READY};
 
@@ -17,6 +17,7 @@ pub(crate) fn build_handle_payload(
     readiness: &AnalysisReadiness,
     verifier_checks: &[AnalysisVerifierCheck],
     available_sections: &[String],
+    touched_files: &[String],
     reused: bool,
     ci_audit: bool,
 ) -> Value {
@@ -58,7 +59,7 @@ pub(crate) fn build_handle_payload(
     } else {
         verifier_checks.to_vec()
     };
-    let quality_focus = infer_quality_focus(tool_name, summary, top_findings, &[]);
+    let quality_focus = infer_quality_focus(tool_name, summary, top_findings, touched_files);
     let recommended_checks = infer_recommended_checks(
         tool_name,
         summary,
