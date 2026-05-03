@@ -122,6 +122,39 @@ pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
         "truncated": truncated,
         "auto_summarized": stripped,
     });
+    // #183: distinguish "file legitimately has 0 symbols" from "result is
+    // empty because the on-disk index has not caught up yet". The
+    // _cached path returns Vec::new() silently when the file row is
+    // absent from the symbol DB; without this signal a freshly-modified
+    // file looks indistinguishable from a true empty file and callers
+    // (humans + agents) fall back to grep, defeating CodeLens.
+    if symbols.is_empty() {
+        let resolved = state.project().resolve(path).ok();
+        let on_disk = resolved
+            .as_deref()
+            .map(std::path::Path::is_file)
+            .unwrap_or(false);
+        let extension = resolved
+            .as_deref()
+            .and_then(std::path::Path::extension)
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase());
+        let supported = extension
+            .as_deref()
+            .map(codelens_engine::lang_registry::supports_symbols)
+            .unwrap_or(false);
+        if on_disk && supported {
+            payload["degraded_reason"] = json!("file_not_indexed");
+            payload["fallback_hint"] = json!(["refresh_symbol_index", "find_symbol",]);
+            payload["recovery_message"] = json!(
+                "Result is empty because this file is not in the on-disk index yet \
+                 (watcher lag, .gitignore, or project root mismatch). \
+                 Call `refresh_symbol_index` with this path, or wait ~1-2s after a recent edit."
+            );
+        } else if on_disk {
+            payload["degraded_reason"] = json!("unsupported_extension");
+        }
+    }
     insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
 
     Ok((payload, success_meta(BackendKind::TreeSitter, 0.93)))
