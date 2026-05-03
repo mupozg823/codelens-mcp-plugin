@@ -92,15 +92,21 @@ fn scan_declarations(source: &str, file: &str, out: &mut Vec<PhantomModuleEntry>
             Some(m) => m.as_str().to_owned(),
             None => continue,
         };
+        let mod_start = caps.get(0).map(|m| m.start()).unwrap_or(0);
+        // Codex P2 (PR #151): skip mod declarations that are gated by
+        // `#[cfg(test)]` (or `#[cfg(any(test, ...))]`). Test-only mods are
+        // already excluded from production semantics by the compiler; they
+        // do not need a workspace path-reference to justify their existence,
+        // and reporting them just adds noise.
+        if line_before_is_cfg_test(source, mod_start) {
+            continue;
+        }
         let visibility = if caps.name("vis").is_some() {
             "public"
         } else {
             "private"
         };
-        let line = caps
-            .get(0)
-            .map(|m| source[..m.start()].matches('\n').count() + 1)
-            .unwrap_or(0);
+        let line = source[..mod_start].matches('\n').count() + 1;
         out.push(PhantomModuleEntry {
             parent_file: file.to_owned(),
             module_name: name,
@@ -111,24 +117,63 @@ fn scan_declarations(source: &str, file: &str, out: &mut Vec<PhantomModuleEntry>
     }
 }
 
+/// Returns true when the line immediately above `offset` is a
+/// `#[cfg(test)]`-style attribute. Walks one line back, skipping blank
+/// lines but not other attributes (so `#[derive(...)]` followed by mod
+/// is *not* treated as cfg-gated).
+fn line_before_is_cfg_test(source: &str, offset: usize) -> bool {
+    let line_start = source[..offset]
+        .rfind('\n')
+        .map(|i| i + 1)
+        .unwrap_or(offset);
+    if line_start == 0 {
+        return false;
+    }
+    let mut prev_end = line_start - 1;
+    loop {
+        let prev_start = source[..prev_end].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let prev_line = source[prev_start..prev_end].trim();
+        if !prev_line.is_empty() {
+            return prev_line.starts_with("#[cfg") && prev_line.contains("test");
+        }
+        if prev_start == 0 {
+            return false;
+        }
+        prev_end = prev_start - 1;
+    }
+}
+
 /// Adds every identifier that participates in any `::`-adjacent position
-/// into the referenced set. Two regexes cover both ends of a path:
+/// into the referenced set, plus single-segment `use NAME;` lines (codex
+/// P2 from PR #151). Three regexes:
 ///   - `IDENT::` matches leading and middle segments (`crate::foo::bar`
 ///     → `crate`, `foo`).
 ///   - `::IDENT` matches trailing segments (`crate::foo::bar` → `bar`).
-/// Together they catch every segment of every path-shaped token, including
-/// paths that end in `::{ ... }` import groups (`pub use foo::{X};` → `foo`).
+///   - `use NAME(\s+as\s+ALIAS)?\s*;` matches single-segment imports of a
+///     sibling module (`use ghost;`) so that re-exporting modules don't
+///     show up as phantom.
 fn collect_referenced_names(source: &str, into: &mut HashSet<String>) {
     static LEADING_RE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"([A-Za-z_][A-Za-z0-9_]*)::").unwrap());
     static TRAILING_RE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"::([A-Za-z_][A-Za-z0-9_]*)").unwrap());
+    static SINGLE_USE_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?\s*;",
+        )
+        .unwrap()
+    });
     for caps in LEADING_RE.captures_iter(source) {
         if let Some(m) = caps.get(1) {
             into.insert(m.as_str().to_owned());
         }
     }
     for caps in TRAILING_RE.captures_iter(source) {
+        if let Some(m) = caps.get(1) {
+            into.insert(m.as_str().to_owned());
+        }
+    }
+    for caps in SINGLE_USE_RE.captures_iter(source) {
         if let Some(m) = caps.get(1) {
             into.insert(m.as_str().to_owned());
         }
@@ -197,6 +242,39 @@ mod tests {
     }
 
     #[test]
+    fn skips_cfg_test_gated_mod() {
+        // Codex P2 (PR #151): `#[cfg(test)] mod tests;` and the `any(test, ...)`
+        // form must not be reported as phantom — the compiler already gates
+        // them out of production semantics.
+        let mut decls = Vec::new();
+        scan_declarations(
+            "#[cfg(test)]\nmod tests;\n#[cfg(any(test, feature = \"x\"))]\nmod fixtures;\nmod live;\n",
+            "lib.rs",
+            &mut decls,
+        );
+        assert_eq!(decls.len(), 1, "got: {:?}", decls);
+        assert_eq!(decls[0].module_name, "live");
+    }
+
+    #[test]
+    fn single_segment_use_keeps_module_alive() {
+        // Codex P2 (PR #151): `use foo;` must register `foo` as referenced
+        // so a sibling `mod foo;` is not flagged phantom.
+        let mut set = HashSet::new();
+        collect_referenced_names("use foo;\npub use bar as renamed;\n", &mut set);
+        assert!(
+            set.contains("foo"),
+            "single-segment `use foo;` missed: {:?}",
+            set
+        );
+        assert!(
+            set.contains("bar"),
+            "single-segment `pub use bar as renamed;` missed: {:?}",
+            set
+        );
+    }
+
+    #[test]
     fn referenced_set_picks_up_path_segments() {
         let mut set = HashSet::new();
         collect_referenced_names("use crate::foo::bar;\nlet z = self::baz::x();\n", &mut set);
@@ -223,8 +301,16 @@ mod tests {
     #[ignore]
     fn dogfood_self_repo() {
         // Run with: cargo test -p codelens-engine phantom_modules::tests::dogfood_self_repo -- --ignored --nocapture
-        let repo = std::env::var("CODELENS_REPO_ROOT")
-            .unwrap_or_else(|_| "/Users/bagjaeseog/codelens-mcp-plugin".to_owned());
+        // Derive workspace root from CARGO_MANIFEST_DIR so contributor's
+        // clone path works without hardcoding (codex P2 from PR #149).
+        let repo = std::env::var("CODELENS_REPO_ROOT").unwrap_or_else(|_| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .ancestors()
+                .nth(2)
+                .expect("workspace root not found above CARGO_MANIFEST_DIR")
+                .to_string_lossy()
+                .into_owned()
+        });
         let project = crate::project::ProjectRoot::new(repo).expect("project root");
         let results = super::find_phantom_modules(&project, 200).expect("find_phantom_modules");
         eprintln!("\n=== {} phantom mod declarations ===\n", results.len());
