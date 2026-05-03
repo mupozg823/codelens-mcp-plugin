@@ -16,6 +16,7 @@ mod job_store;
 mod mutation_gate;
 mod operator;
 mod orphan_handlers;
+mod over_visible;
 mod preflight_store;
 mod principals;
 mod prompts;
