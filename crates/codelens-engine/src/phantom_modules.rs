@@ -295,16 +295,16 @@ fn is_impl_extension_or_reexport(project_root: &Path, decl: &PhantomModuleEntry)
     // any unreferenced module that happens to contain a local helper
     // struct + its impl would be filtered out forever.
     let local_types: Vec<&str> = source.lines().filter_map(extract_local_type_name).collect();
-    let has_parent_extending_impl = source.lines().any(|l| {
+    
+    source.lines().any(|l| {
         if !(l.starts_with("impl ") || l.starts_with("impl<")) {
             return false;
         }
         match extract_impl_target_type(l) {
-            Some(target) => !local_types.iter().any(|name| *name == target),
+            Some(target) => !local_types.contains(&target),
             None => false,
         }
-    });
-    has_parent_extending_impl
+    })
 }
 
 /// Extracts the type name on the right-hand side of an `impl` line.
