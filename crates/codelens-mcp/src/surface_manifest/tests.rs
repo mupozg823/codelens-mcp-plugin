@@ -1,3 +1,4 @@
+use super::exports::HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI;
 use super::*;
 use crate::tool_defs::ToolProfile;
 use std::fs;
@@ -31,12 +32,10 @@ fn manifest_matches_registry_counts() {
     );
     assert_eq!(
         manifest["tool_registry"]["output_schema_count"],
-        json!(
-            tools()
-                .iter()
-                .filter(|tool| tool.output_schema.is_some())
-                .count()
-        )
+        json!(tools()
+            .iter()
+            .filter(|tool| tool.output_schema.is_some())
+            .count())
     );
     assert_eq!(
         manifest["runtime"]["visible_tool_count"],
@@ -60,28 +59,21 @@ fn manifest_matches_registry_counts() {
         manifest["harness_spec"]["schema_version"],
         json!(HARNESS_SPEC_SCHEMA_VERSION)
     );
-    assert!(
-        manifest["harness_modes"]["modes"]
-            .as_array()
-            .is_some_and(|modes| modes
-                .iter()
-                .any(|mode| mode["name"] == json!("planner-builder")))
-    );
-    assert!(
-        manifest["harness_spec"]["contracts"]
-            .as_array()
-            .is_some_and(|contracts| contracts
-                .iter()
-                .any(|contract| contract["name"] == json!("planner-builder-handoff")))
-    );
-    assert!(
-        manifest["harness_artifacts"]["schemas"]
-            .as_array()
-            .is_some_and(|schemas| schemas
-                .iter()
-                .any(|schema| schema["runtime_resource"]
-                    == json!(HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI)))
-    );
+    assert!(manifest["harness_modes"]["modes"]
+        .as_array()
+        .is_some_and(|modes| modes
+            .iter()
+            .any(|mode| mode["name"] == json!("planner-builder"))));
+    assert!(manifest["harness_spec"]["contracts"]
+        .as_array()
+        .is_some_and(|contracts| contracts
+            .iter()
+            .any(|contract| contract["name"] == json!("planner-builder-handoff"))));
+    assert!(manifest["harness_artifacts"]["schemas"]
+        .as_array()
+        .is_some_and(|schemas| schemas.iter().any(
+            |schema| schema["runtime_resource"] == json!(HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI)
+        )));
 
     let manifest_profiles = manifest["surfaces"]["profiles"]
         .as_array()
