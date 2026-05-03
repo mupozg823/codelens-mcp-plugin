@@ -11,7 +11,56 @@ use codelens_engine::{
     extract_word_at_position, find_referencing_symbols_via_text,
     get_lsp_recipe as core_get_lsp_recipe, get_type_hierarchy_native,
 };
-use serde_json::json;
+use serde_json::{Value, json};
+
+const PATH_ALIAS_DEPRECATION: &str =
+    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
+
+fn path_alias_warning(alias: &str) -> Value {
+    json!({
+        "param": alias,
+        "replacement": "path",
+        "message": PATH_ALIAS_DEPRECATION,
+    })
+}
+
+fn resolve_path_argument(
+    arguments: &serde_json::Value,
+) -> Result<(&str, Vec<Value>), CodeLensError> {
+    if let Some(path) = optional_string(arguments, "path") {
+        if let Some(alias @ ("file_path" | "relative_path")) =
+            optional_string(arguments, "_path_alias_source")
+        {
+            return Ok((path, vec![path_alias_warning(alias)]));
+        }
+        return Ok((path, Vec::new()));
+    }
+    for alias in ["file_path", "relative_path"] {
+        if let Some(path) = optional_string(arguments, alias) {
+            return Ok((path, vec![path_alias_warning(alias)]));
+        }
+    }
+    Err(CodeLensError::MissingParam("path".to_owned()))
+}
+
+fn insert_response_annotations(
+    payload: &mut Value,
+    unknown_args: &[String],
+    deprecation_warnings: &[Value],
+) {
+    let Some(map) = payload.as_object_mut() else {
+        return;
+    };
+    if !unknown_args.is_empty() {
+        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    }
+    if !deprecation_warnings.is_empty() {
+        map.insert(
+            "deprecation_warnings".to_owned(),
+            json!(deprecation_warnings),
+        );
+    }
+}
 
 fn compact_text_references(
     references: Vec<codelens_engine::TextReference>,
@@ -107,8 +156,9 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
     // P1-B — limit/top_k aliases + unknown_args.
     // See docs/design/arg-validation-policy.md.
     const KNOWN_ARGS: &[&str] = &[
-        "file_path",
         "path",
+        "file_path",
+        "relative_path",
         "symbol_name",
         "max_results",
         "limit",
@@ -119,8 +169,11 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         "sample_limit",
         "line",
         "column",
+        "command",
+        "args",
     ];
-    let file_path = required_string(arguments, "file_path")?.to_owned();
+    let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
+    let file_path = file_path_arg.to_owned();
     let symbol_name_param = optional_string(arguments, "symbol_name");
     let max_results = crate::tool_runtime::optional_usize_with_aliases(
         arguments,
@@ -179,9 +232,13 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     "evidence": evidence,
                 });
                 if !unknown_args.is_empty()
-                    && let Some(map) = payload.as_object_mut()
+                    || !deprecation_warnings.is_empty()
                 {
-                    map.insert("unknown_args".to_owned(), json!(unknown_args));
+                    insert_response_annotations(
+                        &mut payload,
+                        &unknown_args,
+                        &deprecation_warnings,
+                    );
                 }
                 return Ok((payload, meta));
             }
@@ -233,9 +290,13 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         "evidence": evidence,
                     });
                     if !unknown_args.is_empty()
-                        && let Some(map) = payload.as_object_mut()
+                        || !deprecation_warnings.is_empty()
                     {
-                        map.insert("unknown_args".to_owned(), json!(unknown_args));
+                        insert_response_annotations(
+                            &mut payload,
+                            &unknown_args,
+                            &deprecation_warnings,
+                        );
                     }
                     return Ok((payload, meta));
                 }
@@ -272,11 +333,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 "include_context": include_context,
                 "evidence": evidence,
             });
-            if !unknown_args.is_empty()
-                && let Some(map) = payload.as_object_mut()
-            {
-                map.insert("unknown_args".to_owned(), json!(unknown_args));
-            }
+            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
             (payload, meta)
         })?);
     }
@@ -340,9 +397,13 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     "evidence": evidence,
                 });
                 if !unknown_args.is_empty()
-                    && let Some(map) = payload.as_object_mut()
+                    || !deprecation_warnings.is_empty()
                 {
-                    map.insert("unknown_args".to_owned(), json!(unknown_args));
+                    insert_response_annotations(
+                        &mut payload,
+                        &unknown_args,
+                        &deprecation_warnings,
+                    );
                 }
                 return Ok((payload, meta));
             }
@@ -376,17 +437,16 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     0,
                 ),
             );
-            (
-                json!({
-                    "references": references,
-                    "count": total_count,
-                    "returned_count": references.len(),
-                    "sampled": sampled,
-                    "include_context": include_context,
-                    "evidence": evidence,
-                }),
-                meta,
-            )
+            let mut payload = json!({
+                "references": references,
+                "count": total_count,
+                "returned_count": references.len(),
+                "sampled": sampled,
+                "include_context": include_context,
+                "evidence": evidence,
+            });
+            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+            (payload, meta)
         })?,
     )
 }
@@ -405,8 +465,18 @@ fn resolve_symbol_position(
 }
 
 pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let file_path = required_string(arguments, "file_path")?.to_owned();
+    const KNOWN_ARGS: &[&str] = &[
+        "path",
+        "file_path",
+        "relative_path",
+        "command",
+        "args",
+        "max_results",
+    ];
+    let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
+    let file_path = file_path_arg.to_owned();
     let max_results = optional_usize(arguments, "max_results", 200);
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
 
     // Try SCIP diagnostics first (if available).
     #[cfg(feature = "scip-backend")]
@@ -431,10 +501,13 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
                     })
                 })
                 .collect();
-            return Ok((
-                json!({ "diagnostics": diags_json, "count": count, "backend": "scip" }),
-                success_meta(BackendKind::Scip, 0.95),
-            ));
+            let mut payload = json!({
+                "diagnostics": diags_json,
+                "count": count,
+                "backend": "scip",
+            });
+            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+            return Ok((payload, success_meta(BackendKind::Scip, 0.95)));
         }
     }
 
@@ -456,8 +529,10 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         })
         .map_err(|e| enhance_lsp_error(e, &command_ref))
         .map(|value| {
+            let mut payload = json!({ "diagnostics": value, "count": value.len() });
+            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
             (
-                json!({ "diagnostics": value, "count": value.len() }),
+                payload,
                 success_meta(BackendKind::Lsp, 0.9),
             )
         })

@@ -148,7 +148,7 @@ output_schema = "symbol_output_schema"
 [tool.input_schema]
 type = "object"
 required = ["path"]
-properties = { path = { type = "string" }, depth = { type = "integer" } }
+properties = { path = { type = "string" }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, depth = { type = "integer" } }
 
 # ─────
 
@@ -277,9 +277,11 @@ output_schema = "references_output_schema"
 
 [tool.input_schema]
 type = "object"
-required = ["file_path"]
+required = ["path"]
 [tool.input_schema.properties]
-file_path = { type = "string", description = "File containing or declaring the symbol" }
+path = { type = "string", description = "File containing or declaring the symbol" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 symbol_name = { type = "string", description = "Symbol name (default: tree-sitter search)" }
 line = { type = "integer", description = "Line number (triggers LSP path)" }
 column = { type = "integer", description = "Column number (triggers LSP path)" }
@@ -299,9 +301,11 @@ output_schema = "diagnostics_output_schema"
 
 [tool.input_schema]
 type = "object"
-required = ["file_path"]
+required = ["path"]
 [tool.input_schema.properties]
-file_path = { type = "string" }
+path = { type = "string" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 command = { type = "string" }
 args = { type = "array", items = { type = "string" } }
 max_results = { type = "integer" }
