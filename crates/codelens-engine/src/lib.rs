@@ -44,6 +44,7 @@ pub(crate) mod lang_config;
 pub mod lang_registry;
 pub mod lsp;
 pub mod memory;
+pub mod phantom_modules;
 pub mod project;
 pub mod redundant_definitions;
 pub mod rename;
