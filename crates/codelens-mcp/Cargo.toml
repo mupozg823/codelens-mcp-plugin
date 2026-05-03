@@ -37,7 +37,7 @@ regex.workspace = true
 rusqlite.workspace = true
 toml = "0.8"
 rustls = { workspace = true, optional = true }
-codelens-engine = { path = "../codelens-engine", version = "=1.13.16", default-features = false }
+codelens-engine = { path = "../codelens-engine", version = "=1.13.17", default-features = false }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -60,12 +60,17 @@ tempfile = "3"
 filetime = "0.2"
 
 [features]
-# Default is empty — `cargo install codelens-mcp` ships a BM25 + AST +
-# call-graph build that boots without an external model directory. Opt
-# into hybrid retrieval with `--features semantic` and supply the model
-# via `CODELENS_MODEL_DIR`, or use the GitHub Release tarball which
-# bundles the model. See ADR-0012.
-default = []
+# `cargo install codelens-mcp` ships a BM25 + AST + call-graph build
+# with the SCIP precise backend compiled in. SCIP itself activates only
+# when the project has an `index.scip` / `.scip/index.scip` /
+# `.codelens/index.scip` file — without one, runtime falls back to
+# tree-sitter. Cost of compiling SCIP into every default install:
+# ~99 KB binary, ~5 s build time (measured 2026-05-03 on M4 Pro).
+#
+# Hybrid retrieval (semantic embeddings) still requires `--features
+# semantic` plus a model directory via `CODELENS_MODEL_DIR`, or the
+# GitHub Release tarball that bundles the model. See ADR-0012.
+default = ["scip-backend"]
 semantic = ["codelens-engine/semantic"]
 coreml = ["semantic", "codelens-engine/coreml"]
 model-bakeoff = ["semantic", "codelens-engine/model-bakeoff"]
