@@ -507,6 +507,18 @@ properties = { max_results = { type = "integer" } }
 # ─────
 
 [[tool]]
+name = "find_orphan_handlers"
+category = "analysis"
+description = "[CodeLens:Analysis] Find ToolHandler-shaped functions in `crates/codelens-mcp/src/tools/` that are NOT registered in `dispatch_table()`. Production audit for routing surface — overlaps the `dead_code` lint but emits structured (file, line, function) entries that are easier to act on than the warnings buffer. Known limitation: handler-shaped helpers shared between handlers (called from another `*_tool` function rather than dispatched directly) are reported but are not actually orphan; v2 will add workspace-wide path-reference check."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
 name = "find_phantom_modules"
 category = "analysis"
 description = "[CodeLens:Analysis] Find `mod NAME;` declarations whose name is never referenced as a path segment elsewhere in the workspace. Reports both private and public mods; visibility is included so callers can filter. Known limitation: impl-extension pattern (file split where the module only adds `impl X { ... }` to a parent type) is reported but is not actually phantom — manual review required."
