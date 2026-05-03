@@ -122,12 +122,23 @@ pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
         "truncated": truncated,
         "auto_summarized": stripped,
     });
-    // #183: distinguish "file legitimately has 0 symbols" from "result is
-    // empty because the on-disk index has not caught up yet". The
-    // _cached path returns Vec::new() silently when the file row is
-    // absent from the symbol DB; without this signal a freshly-modified
-    // file looks indistinguishable from a true empty file and callers
-    // (humans + agents) fall back to grep, defeating CodeLens.
+    // #183 + #184 follow-up: distinguish three empty-result cases so
+    // callers (humans + agents) can act on the right signal:
+    //
+    //   - "file_not_indexed"        — file is on disk + supported extension
+    //                                 but no row in the symbol DB yet
+    //                                 (watcher lag / .gitignore / project
+    //                                 root mismatch)
+    //   - "indexed_no_symbols"      — file is on disk, supported, AND the
+    //                                 DB has a row for it; the empty list
+    //                                 is the truth (empty file, comments
+    //                                 only, type-alias-only module, …)
+    //                                 Callers should NOT trigger refresh.
+    //   - "unsupported_extension"   — extension is not in lang_registry
+    //
+    // The previous version conflated the first two and pushed clients into
+    // unnecessary `refresh_symbol_index` loops on legitimately empty
+    // files (Codex P2 on PR #184).
     if symbols.is_empty() {
         let resolved = state.project().resolve(path).ok();
         let on_disk = resolved
@@ -144,13 +155,23 @@ pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
             .map(codelens_engine::lang_registry::supports_symbols)
             .unwrap_or(false);
         if on_disk && supported {
-            payload["degraded_reason"] = json!("file_not_indexed");
-            payload["fallback_hint"] = json!(["refresh_symbol_index", "find_symbol",]);
-            payload["recovery_message"] = json!(
-                "Result is empty because this file is not in the on-disk index yet \
-                 (watcher lag, .gitignore, or project root mismatch). \
-                 Call `refresh_symbol_index` with this path, or wait ~1-2s after a recent edit."
-            );
+            let already_indexed = state.symbol_index().file_is_indexed(path).unwrap_or(false);
+            if already_indexed {
+                payload["degraded_reason"] = json!("indexed_no_symbols");
+                payload["recovery_message"] = json!(
+                    "File is indexed but has no top-level symbols (empty file, comments only, \
+                     or no declarations the active backend recognises). This is not an error; \
+                     no recovery action is required."
+                );
+            } else {
+                payload["degraded_reason"] = json!("file_not_indexed");
+                payload["fallback_hint"] = json!(["refresh_symbol_index", "find_symbol"]);
+                payload["recovery_message"] = json!(
+                    "Result is empty because this file is not in the on-disk index yet \
+                     (watcher lag, .gitignore, or project root mismatch). \
+                     Call `refresh_symbol_index` with this path, or wait ~1-2s after a recent edit."
+                );
+            }
         } else if on_disk {
             payload["degraded_reason"] = json!("unsupported_extension");
         }

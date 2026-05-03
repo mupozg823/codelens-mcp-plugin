@@ -157,6 +157,21 @@ impl SymbolIndex {
         Self::rows_to_symbol_infos(&self.project, &db, db_rows, include_body)
     }
 
+    /// Returns `true` when the on-disk symbol DB has a row for `path` (i.e.
+    /// the file has been indexed at least once), even if the file currently
+    /// has zero symbols. Used by `get_symbols_overview` callers to
+    /// distinguish "file is genuinely empty / comments only" from
+    /// "file has not been indexed yet". (#183 / #184 follow-up)
+    pub fn file_is_indexed(&self, path: &str) -> Result<bool> {
+        let db = self.reader()?;
+        let resolved = self.project.resolve(path)?;
+        if resolved.is_dir() {
+            return Ok(false);
+        }
+        let relative = self.project.to_relative(&resolved);
+        Ok(db.get_file(&relative)?.is_some())
+    }
+
     /// Get symbols overview from DB without lazy indexing.
     pub fn get_symbols_overview_cached(
         &self,
