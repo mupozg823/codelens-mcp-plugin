@@ -1,6 +1,6 @@
 use crate::resources::{analysis_section_handles, analysis_summary_resource};
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::report_verifier::{VERIFIER_BLOCKED, VERIFIER_READY};
 
