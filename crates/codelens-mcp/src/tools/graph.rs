@@ -233,6 +233,26 @@ pub fn find_orphan_handlers_tool(
     ))
 }
 
+pub fn find_over_visible_apis_tool(
+    state: &AppState,
+    _arguments: &serde_json::Value,
+) -> ToolResult {
+    let entries = crate::over_visible::find_over_visible_apis(state.project().as_path())?;
+    let by_kind: std::collections::BTreeMap<String, usize> =
+        entries.iter().fold(std::collections::BTreeMap::new(), |mut acc, e| {
+            *acc.entry(e.kind.clone()).or_insert(0) += 1;
+            acc
+        });
+    Ok((
+        json!({
+            "over_visible_apis": entries,
+            "count": entries.len(),
+            "count_by_kind": by_kind,
+        }),
+        success_meta(BackendKind::TreeSitter, 0.75),
+    ))
+}
+
 pub fn audit_tool_surface_consistency_tool(
     state: &AppState,
     _arguments: &serde_json::Value,

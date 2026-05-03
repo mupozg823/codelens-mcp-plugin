@@ -87,6 +87,7 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "find_circular_dependencies"   => graph::find_circular_dependencies_tool,
         "audit_tool_surface_consistency" => graph::audit_tool_surface_consistency_tool,
         "find_orphan_handlers"         => graph::find_orphan_handlers_tool,
+        "find_over_visible_apis"       => graph::find_over_visible_apis_tool,
         "find_phantom_modules"         => graph::find_phantom_modules_tool,
         "find_redundant_definitions"   => graph::find_redundant_definitions_tool,
         "get_change_coupling"          => graph::get_change_coupling_tool,
