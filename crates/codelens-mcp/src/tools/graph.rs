@@ -233,6 +233,21 @@ pub fn find_orphan_handlers_tool(
     ))
 }
 
+pub fn audit_tool_surface_consistency_tool(
+    state: &AppState,
+    _arguments: &serde_json::Value,
+) -> ToolResult {
+    let report = crate::surface_audit::audit_tool_surface_consistency(state.project().as_path())?;
+    let drift_count = report.missing_in_dispatch.len() + report.missing_in_toml.len();
+    Ok((
+        json!({
+            "report": report,
+            "drift_count": drift_count,
+        }),
+        success_meta(BackendKind::TreeSitter, 0.92),
+    ))
+}
+
 pub fn find_phantom_modules_tool(
     state: &AppState,
     arguments: &serde_json::Value,

@@ -31,6 +31,7 @@ mod server;
 mod session_context;
 mod session_metrics_payload;
 mod state;
+mod surface_audit;
 mod surface_manifest;
 mod symbol_corpus;
 mod symbol_retrieval;
