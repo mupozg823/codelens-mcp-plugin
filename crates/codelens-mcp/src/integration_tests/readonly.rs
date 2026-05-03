@@ -28,6 +28,107 @@ fn returns_symbols_via_tool_call() {
     assert_eq!(payload["success"], json!(true));
 }
 
+#[test]
+fn get_symbols_overview_accepts_legacy_file_path_with_deprecation_warning() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("legacy_overview.py"),
+        "def legacy_overview():\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "get_symbols_overview",
+        json!({ "file_path": "legacy_overview.py" }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["deprecation_warnings"]
+            .as_array()
+            .expect("deprecation_warnings array")
+            .len(),
+        1
+    );
+    assert_eq!(
+        payload["data"]["deprecation_warnings"][0]["param"],
+        json!("file_path")
+    );
+}
+
+#[test]
+fn find_referencing_symbols_accepts_legacy_relative_path_with_deprecation_warning() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("legacy_refs.py"),
+        "def legacy_ref():\n    pass\n\nlegacy_ref()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "relative_path": "legacy_refs.py", "symbol_name": "legacy_ref" }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["deprecation_warnings"]
+            .as_array()
+            .expect("deprecation_warnings array")
+            .len(),
+        1
+    );
+    assert_eq!(
+        payload["data"]["deprecation_warnings"][0]["param"],
+        json!("relative_path")
+    );
+}
+
+// Ignored because the repo's default integration-test fixture only creates
+// tree-sitter projects. Run manually with CODELENS_SCIP_HEURISTIC_FIXTURE,
+// CODELENS_SCIP_HEURISTIC_SYMBOL, and CODELENS_SCIP_HEURISTIC_FILE pointing
+// at a project that has a usable index.scip.
+#[test]
+#[ignore = "requires a real SCIP index fixture; default temp projects exercise tree-sitter only"]
+fn find_symbol_with_include_body_returns_body_via_scip_heuristic() {
+    let fixture = std::env::var("CODELENS_SCIP_HEURISTIC_FIXTURE")
+        .expect("set CODELENS_SCIP_HEURISTIC_FIXTURE to a project with index.scip");
+    let symbol = std::env::var("CODELENS_SCIP_HEURISTIC_SYMBOL")
+        .unwrap_or_else(|_| "MyStruct".to_owned());
+    let file_path = std::env::var("CODELENS_SCIP_HEURISTIC_FILE")
+        .unwrap_or_else(|_| "src/main.rs".to_owned());
+    let project = ProjectRoot::new(&fixture).unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "find_symbol",
+        json!({ "name": symbol, "file_path": file_path, "include_body": true }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["backend_used"], json!("scip"));
+    assert_eq!(payload["data"]["backend"], json!("scip"));
+    assert_eq!(payload["data"]["body_preview"], json!(true));
+    let symbols = payload["data"]["symbols"]
+        .as_array()
+        .expect("symbols array");
+    let first = symbols.first().expect("at least one SCIP symbol");
+    assert!(
+        first["body"]
+            .as_str()
+            .map(|body| !body.is_empty())
+            .unwrap_or(false),
+        "SCIP heuristic should populate body content"
+    );
+    assert_eq!(first["body_source"], json!("scip_line_range_slice"));
+    assert_eq!(first["body_truncation"], json!("heuristic_50_lines"));
+}
+
 // P1-B contract: every read-only tool in the second wave must
 // 1) honor `limit` / `top_k` aliases for whatever its canonical
 //    limit field is (or skip the alias if it has no limit field),

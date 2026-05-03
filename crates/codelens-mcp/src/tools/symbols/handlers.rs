@@ -18,8 +18,70 @@ use crate::symbol_retrieval::{ScoredSymbol, search_symbols_bm25f, unique_query_t
 use codelens_engine::{SymbolInfo, SymbolKind, read_file, search_symbols_hybrid_with_semantic};
 use serde_json::{Value, json};
 
+const HEURISTIC_BODY_LINES: usize = 50;
+const PATH_ALIAS_DEPRECATION: &str =
+    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
+
+fn path_alias_warning(alias: &str) -> Value {
+    json!({
+        "param": alias,
+        "replacement": "path",
+        "message": PATH_ALIAS_DEPRECATION,
+    })
+}
+
+fn resolve_path_argument(arguments: &Value) -> Result<(&str, Vec<Value>), CodeLensError> {
+    if let Some(path) = optional_string(arguments, "path") {
+        if let Some(alias @ ("file_path" | "relative_path")) =
+            optional_string(arguments, "_path_alias_source")
+        {
+            return Ok((path, vec![path_alias_warning(alias)]));
+        }
+        return Ok((path, Vec::new()));
+    }
+    for alias in ["file_path", "relative_path"] {
+        if let Some(path) = optional_string(arguments, alias) {
+            return Ok((path, vec![path_alias_warning(alias)]));
+        }
+    }
+    Err(CodeLensError::MissingParam("path".to_owned()))
+}
+
+fn insert_response_annotations(
+    payload: &mut Value,
+    unknown_args: &[String],
+    deprecation_warnings: &[Value],
+) {
+    let Some(map) = payload.as_object_mut() else {
+        return;
+    };
+    if !unknown_args.is_empty() {
+        map.insert("unknown_args".to_owned(), json!(unknown_args));
+    }
+    if !deprecation_warnings.is_empty() {
+        map.insert(
+            "deprecation_warnings".to_owned(),
+            json!(deprecation_warnings),
+        );
+    }
+}
+
+fn heuristic_body_slice(state: &AppState, file_path: &str, line: usize) -> Option<String> {
+    read_file(
+        &state.project(),
+        file_path,
+        Some(line),
+        Some(line.saturating_add(HEURISTIC_BODY_LINES)),
+    )
+    .ok()
+    .map(|file| file.content)
+    .filter(|body| !body.is_empty())
+}
+
 pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
-    let path = required_string(arguments, "path")?;
+    const KNOWN_ARGS: &[&str] = &["path", "file_path", "relative_path", "depth"];
+    let (path, deprecation_warnings) = resolve_path_argument(arguments)?;
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
     let explicit_depth = arguments.get("depth").and_then(|v| v.as_u64());
     let depth = explicit_depth.unwrap_or(1) as usize;
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
@@ -52,15 +114,15 @@ pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
         symbols.truncate(max_symbols);
     }
 
-    Ok((
-        json!({
-            "symbols": symbols,
-            "count": symbols.len(),
-            "truncated": truncated,
-            "auto_summarized": stripped,
-        }),
-        success_meta(BackendKind::TreeSitter, 0.93),
-    ))
+    let mut payload = json!({
+        "symbols": symbols,
+        "count": symbols.len(),
+        "truncated": truncated,
+        "auto_summarized": stripped,
+    });
+    insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+
+    Ok((payload, success_meta(BackendKind::TreeSitter, 0.93)))
 }
 
 pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
@@ -146,6 +208,14 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                     if !doc.is_empty() {
                         sym["documentation"] = serde_json::Value::String(doc);
                     }
+                    if include_body
+                        && let Some(body) = heuristic_body_slice(state, &d.file_path, d.line)
+                    {
+                        sym["body"] = Value::String(body);
+                        sym["body_source"] = Value::String("scip_line_range_slice".to_owned());
+                        sym["body_truncation"] =
+                            Value::String("heuristic_50_lines".to_owned());
+                    }
                     sym
                 })
                 .collect();
@@ -153,7 +223,7 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                 "symbols": syms,
                 "count": count,
                 "body_truncated_count": 0,
-                "body_preview": false,
+                "body_preview": include_body,
                 "backend": "scip",
                 "evidence": evidence,
             });

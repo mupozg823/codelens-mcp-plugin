@@ -2,39 +2,7 @@ use super::*;
 
 // ── LSP tool tests ───────────────────────────────────────────────────
 
-#[test]
-fn returns_lsp_references_via_tool_call() {
-    let project = project_root();
-    fs::write(
-        project.as_path().join("ref_target.py"),
-        "class MyClass:\n    pass\n\nobj = MyClass()\n",
-    )
-    .unwrap();
-    let state = make_state(&project);
-    let payload = call_tool(
-        &state,
-        "find_referencing_symbols",
-        json!({ "file_path": "ref_target.py", "symbol_name": "MyClass" }),
-    );
-    assert_eq!(payload["success"], json!(true));
-    assert_eq!(
-        payload["data"]["evidence"]["schema_version"],
-        json!("codelens-evidence-v1")
-    );
-    assert_eq!(payload["data"]["evidence"]["domain"], json!("references"));
-    assert_eq!(
-        payload["data"]["evidence"]["signals"]["precise_used"],
-        json!(false)
-    );
-    assert_eq!(
-        payload["data"]["evidence"]["signals"]["fallback_source"],
-        json!("tree_sitter")
-    );
-}
-
-#[test]
-fn returns_lsp_diagnostics_via_tool_call() {
-    let project = project_root();
+fn write_mock_diagnostics_lsp(project: &ProjectRoot, name: &str) -> std::path::PathBuf {
     let mock_lsp = concat!(
         "#!/usr/bin/env python3\n",
         "import sys, json\n",
@@ -69,13 +37,50 @@ fn returns_lsp_diagnostics_via_tool_call() {
         "    else:\n",
         "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
     );
-    let mock_path = project.as_path().join("mock_lsp.py");
+    let mock_path = project.as_path().join(name);
     fs::write(&mock_path, mock_lsp).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
     }
+    mock_path
+}
+
+#[test]
+fn returns_lsp_references_via_tool_call() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("ref_target.py"),
+        "class MyClass:\n    pass\n\nobj = MyClass()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "file_path": "ref_target.py", "symbol_name": "MyClass" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["evidence"]["schema_version"],
+        json!("codelens-evidence-v1")
+    );
+    assert_eq!(payload["data"]["evidence"]["domain"], json!("references"));
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(false)
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["fallback_source"],
+        json!("tree_sitter")
+    );
+}
+
+#[test]
+fn returns_lsp_diagnostics_via_tool_call() {
+    let project = project_root();
+    let mock_path = write_mock_diagnostics_lsp(&project, "mock_lsp.py");
     fs::write(project.as_path().join("diag_target.py"), "x = 1\n").unwrap();
     let state = make_state(&project);
     let payload = call_tool(
@@ -84,6 +89,33 @@ fn returns_lsp_diagnostics_via_tool_call() {
         json!({ "file_path": "diag_target.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
     );
     assert_eq!(payload["success"], json!(true));
+}
+
+#[test]
+fn get_file_diagnostics_accepts_legacy_file_path_with_deprecation_warning() {
+    let project = project_root();
+    let mock_path = write_mock_diagnostics_lsp(&project, "mock_legacy_diag_lsp.py");
+    fs::write(project.as_path().join("legacy_diag.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "get_file_diagnostics",
+        json!({ "file_path": "legacy_diag.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["deprecation_warnings"]
+            .as_array()
+            .expect("deprecation_warnings array")
+            .len(),
+        1
+    );
+    assert_eq!(
+        payload["data"]["deprecation_warnings"][0]["param"],
+        json!("file_path")
+    );
 }
 
 #[test]

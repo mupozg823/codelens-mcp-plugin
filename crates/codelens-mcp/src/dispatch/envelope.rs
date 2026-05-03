@@ -37,11 +37,10 @@ impl ToolCallEnvelope {
         // name; the canonical key required by the handler is
         // populated alongside whatever the client sent.
         //
-        // `relative_path` is *not* aliased — mutation primitives use
-        // it as a deliberate "rooted at project, no escape" marker
-        // distinct from arbitrary paths. Preserving the divergence
-        // keeps that contract honest.
-        apply_path_alias_normalisation(&mut arguments);
+        // `relative_path` is only aliased for read-only soft-alias tools.
+        // Mutation primitives keep it as a deliberate "rooted at project,
+        // no escape" marker distinct from arbitrary paths.
+        apply_path_alias_normalisation(name.as_str(), &mut arguments);
         let session = crate::session_context::SessionRequestContext::from_json(&arguments);
         let default_budget = state.execution_token_budget(&session);
         // P2-A: honour explicit max_tokens parameter before profile defaults.
@@ -124,23 +123,37 @@ pub(crate) fn validate_required_params(
 /// caller's choice wins (we do not overwrite either side); if both are
 /// present and equal, this is a no-op.
 ///
-/// `relative_path` is intentionally NOT aliased — see envelope::parse
-/// for the rationale.
-fn apply_path_alias_normalisation(arguments: &mut serde_json::Value) {
+/// `relative_path` is intentionally only aliased for read-only tools that
+/// explicitly maintain it as a soft alias — see envelope::parse for the
+/// mutation-safety rationale.
+fn apply_path_alias_normalisation(tool_name: &str, arguments: &mut serde_json::Value) {
     let Some(obj) = arguments.as_object_mut() else {
         return;
     };
     let has_file_path = obj.contains_key("file_path");
     let has_path = obj.contains_key("path");
+    let has_relative_path = obj.contains_key("relative_path");
+    let supports_relative_path_alias = matches!(
+        tool_name,
+        "get_symbols_overview" | "find_referencing_symbols" | "get_file_diagnostics"
+    );
     match (has_file_path, has_path) {
         (true, false) => {
             if let Some(value) = obj.get("file_path").cloned() {
                 obj.insert("path".to_owned(), value);
+                obj.insert("_path_alias_source".to_owned(), json!("file_path"));
             }
         }
         (false, true) => {
             if let Some(value) = obj.get("path").cloned() {
                 obj.insert("file_path".to_owned(), value);
+            }
+        }
+        (false, false) if supports_relative_path_alias && has_relative_path => {
+            if let Some(value) = obj.get("relative_path").cloned() {
+                obj.insert("path".to_owned(), value.clone());
+                obj.insert("file_path".to_owned(), value);
+                obj.insert("_path_alias_source".to_owned(), json!("relative_path"));
             }
         }
         _ => {}
@@ -154,7 +167,7 @@ mod tests {
 
     fn run_alias(value: serde_json::Value) -> serde_json::Value {
         let mut v = value;
-        apply_path_alias_normalisation(&mut v);
+        apply_path_alias_normalisation("test_tool", &mut v);
         v
     }
 
@@ -163,6 +176,7 @@ mod tests {
         let out = run_alias(json!({ "file_path": "src/foo.rs" }));
         assert_eq!(out["file_path"], "src/foo.rs");
         assert_eq!(out["path"], "src/foo.rs");
+        assert_eq!(out["_path_alias_source"], "file_path");
     }
 
     #[test]
@@ -170,6 +184,7 @@ mod tests {
         let out = run_alias(json!({ "path": "src/bar.rs" }));
         assert_eq!(out["path"], "src/bar.rs");
         assert_eq!(out["file_path"], "src/bar.rs");
+        assert!(out.get("_path_alias_source").is_none());
     }
 
     #[test]
@@ -198,6 +213,16 @@ mod tests {
         assert_eq!(out["relative_path"], "src/foo.rs");
         assert!(out.get("file_path").is_none());
         assert!(out.get("path").is_none());
+    }
+
+    #[test]
+    fn relative_path_alias_is_limited_to_soft_alias_tools() {
+        let mut out = json!({ "relative_path": "src/foo.rs" });
+        apply_path_alias_normalisation("get_symbols_overview", &mut out);
+        assert_eq!(out["relative_path"], "src/foo.rs");
+        assert_eq!(out["file_path"], "src/foo.rs");
+        assert_eq!(out["path"], "src/foo.rs");
+        assert_eq!(out["_path_alias_source"], "relative_path");
     }
 
     #[test]
