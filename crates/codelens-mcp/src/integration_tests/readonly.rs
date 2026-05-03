@@ -198,6 +198,41 @@ fn get_symbols_overview_emits_degraded_reason_when_file_not_indexed() {
     // is the silent-empty path, not the eager-index optimization.
 }
 
+// #184 follow-up (Codex P2): a legitimately empty file that *is* indexed
+// must report `degraded_reason: "indexed_no_symbols"` (not
+// `file_not_indexed`) so callers do not run a useless refresh loop.
+#[test]
+fn get_symbols_overview_emits_indexed_no_symbols_for_genuinely_empty_file() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("blank.py"),
+        "# only a comment, no declarations\n",
+    )
+    .unwrap();
+    // Make state *after* the write so make_state's eager indexer adds the
+    // file row to the DB. The file row exists but has zero symbol rows.
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "get_symbols_overview",
+        json!({ "path": "blank.py" }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["count"], json!(0));
+    assert_eq!(
+        payload["data"]["degraded_reason"],
+        json!("indexed_no_symbols"),
+        "indexed file with zero symbols must NOT report file_not_indexed; \
+         that would push callers into needless refresh_symbol_index loops"
+    );
+    assert!(
+        payload["data"].get("fallback_hint").is_none(),
+        "indexed_no_symbols branch must not advertise a recovery action"
+    );
+}
+
 // #180: extend the path soft-alias contract to read_file, list_dir, and
 // get_type_hierarchy. Each test asserts both the canonical `path` form
 // (no warning) and the legacy `relative_path` form (single
