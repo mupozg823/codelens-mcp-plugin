@@ -72,16 +72,34 @@ fn browser_or_ssr_sensitive(
     top_findings: &[String],
     next_actions: &[String],
 ) -> bool {
+    let has_frontend_file = touched_files.iter().any(|p| {
+        let p = p.to_ascii_lowercase();
+        p.contains("/templates/")
+            || p.contains("/components/")
+            || p.contains("/pages/")
+            || p.contains("/views/")
+            || p.contains("/ui/")
+            || p.ends_with(".tsx")
+            || p.ends_with(".jsx")
+            || p.ends_with(".vue")
+            || p.ends_with(".svelte")
+            || p.ends_with(".html")
+            || p.ends_with(".css")
+            || p.ends_with(".scss")
+            || p.ends_with(".astro")
+    });
+    if !has_frontend_file {
+        return false;
+    }
     let combined = format!(
-        "{} {} {} {}",
-        touched_files.join(" "),
+        "{} {} {}",
         summary,
         top_findings.join(" "),
         next_actions.join(" ")
     )
     .to_ascii_lowercase();
     [
-        "browser", "frontend", "layout", "modal", "render", "route", "ssr", "ui",
+        "browser", "frontend", "layout", "modal", "render", "route", "ssr",
     ]
     .iter()
     .any(|needle| combined.contains(needle))
