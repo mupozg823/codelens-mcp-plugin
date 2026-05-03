@@ -186,6 +186,7 @@ required = ["query"]
 query = { type = "string" }
 path = { type = "string" }
 max_tokens = { type = "integer", description = "Token budget for the retrieval payload. Defaults to max(active surface budget, 16384) — raised in v1.10.1 from the surface budget alone to avoid Stage 5 truncation on hybrid retrieval." }
+context_window = { type = "integer", description = "Host model's context window in tokens (e.g. 1000000 for Opus 4.7, 200000 for Sonnet 4.6). When supplied AND max_tokens is unset, the budget scales adaptively: ≥1M → ×4 cap 128K, ≥200K → ×2 cap 64K, ≥32K → ×1 cap 32K, smaller → ×0.5 cap 16K. v1.13.18+." }
 include_body = { type = "boolean" }
 depth = { type = "integer" }
 disable_semantic = { type = "boolean", description = "Disable semantic/hybrid ranking and use structural signals only" }
