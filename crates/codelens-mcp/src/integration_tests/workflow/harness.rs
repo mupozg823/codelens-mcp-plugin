@@ -8,47 +8,14 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
         "def alpha():\n    return 1\n",
     )
     .unwrap();
-    let state = make_state(&project);
-
-    // `daemon_started_at` is second-granularity RFC3339. The original 1.1s
-    // wait was tight enough that CI runners (especially macos-latest)
-    // intermittently rounded both timestamps into the same second under load
-    // and the staleness comparison flipped — chronic flake on PRs #174,
-    // #177, #184, #185, #187 in the 2026-05-03 dogfood batch. Bumping the
-    // wait to 2.5s keeps the test deterministic without meaningfully slowing
-    // the local test run.
-    std::thread::sleep(std::time::Duration::from_millis(2_500));
-
-    let override_path = std::env::temp_dir().join(format!(
-        "codelens-stale-daemon-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    fs::write(&override_path, "newer-binary-marker").unwrap();
-
-    let previous = std::env::var_os("CODELENS_EXECUTABLE_PATH_OVERRIDE");
-    // SAFETY: this test mutates a process env var for the duration of a
-    // synchronous tool call, then restores the previous value.
-    unsafe {
-        std::env::set_var("CODELENS_EXECUTABLE_PATH_OVERRIDE", &override_path);
-    }
+    let mut state = make_state(&project);
+    state.set_daemon_started_at_for_test("1970-01-01T00:00:00Z");
 
     let payload = call_tool(
         &state,
         "prepare_harness_session",
         json!({"profile": "builder-minimal"}),
     );
-
-    unsafe {
-        match previous {
-            Some(value) => std::env::set_var("CODELENS_EXECUTABLE_PATH_OVERRIDE", value),
-            None => std::env::remove_var("CODELENS_EXECUTABLE_PATH_OVERRIDE"),
-        }
-    }
-    let _ = fs::remove_file(&override_path);
 
     assert_eq!(payload["success"], json!(true));
     assert_eq!(
@@ -197,12 +164,13 @@ fn prepare_harness_session_auto_refreshes_small_stale_index() {
     fs::write(&path, "def alpha():\n    return 1\n").unwrap();
     let state = make_state(&project);
 
-    std::thread::sleep(std::time::Duration::from_millis(1_100));
     let parent = path.parent().unwrap();
     if !parent.exists() {
         fs::create_dir_all(parent).unwrap();
     }
     fs::write(&path, "def alpha():\n    return 2\n").unwrap();
+    let future = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(future)).unwrap();
 
     let payload = call_tool(
         &state,

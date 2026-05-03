@@ -304,6 +304,25 @@ fn get_callers_input_schema_exposes_file_path_hint() {
 }
 
 #[test]
+fn prepare_harness_session_schema_explains_profile_preset_exclusivity() {
+    let tool = crate::tool_defs::tool_definition("prepare_harness_session")
+        .expect("prepare_harness_session tool");
+
+    let properties = tool.input_schema["properties"]
+        .as_object()
+        .expect("input schema properties");
+    let profile_description = properties["profile"]["description"]
+        .as_str()
+        .expect("profile description");
+    let preset_description = properties["preset"]["description"]
+        .as_str()
+        .expect("preset description");
+
+    assert!(profile_description.contains("Mutually exclusive with `preset`"));
+    assert!(preset_description.contains("Mutually exclusive with `profile`"));
+}
+
+#[test]
 fn tools_list_can_be_filtered_by_phase() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);

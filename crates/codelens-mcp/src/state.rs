@@ -183,6 +183,11 @@ impl AppState {
         &self.daemon_started_at
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_daemon_started_at_for_test(&mut self, value: impl Into<String>) {
+        self.daemon_started_at = value.into();
+    }
+
     // ── Active project resolution ─────────────────────────────────────────
     fn active_project_context(&self) -> Option<Arc<ProjectRuntimeContext>> {
         project_runtime::active_project_context(self)

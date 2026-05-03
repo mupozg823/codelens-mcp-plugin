@@ -5,7 +5,9 @@ use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use crate::tools::symbols::{semantic_results_for_query, semantic_status};
 use codelens_engine::search::SEMANTIC_COUPLING_THRESHOLD;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use super::{insert_semantic_status, semantic_degraded_note};
 
@@ -317,6 +319,56 @@ mod tests {
     }
 }
 
+fn changed_file_path(state: &AppState, file: &str) -> PathBuf {
+    let path = Path::new(file);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        state.project().as_path().join(path)
+    }
+}
+
+fn changed_file_fingerprint(state: &AppState, file: &str) -> Value {
+    let path = changed_file_path(state, file);
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            let mut hasher = Sha256::new();
+            hasher.update(&bytes);
+            let digest = hasher.finalize();
+            let mut hex = String::with_capacity(64);
+            for byte in digest {
+                use std::fmt::Write as _;
+                let _ = write!(hex, "{byte:02x}");
+            }
+            json!({
+                "file": file,
+                "sha256": hex,
+                "len": bytes.len(),
+            })
+        }
+        Err(error) => json!({
+            "file": file,
+            "missing": true,
+            "error_kind": format!("{:?}", error.kind()),
+        }),
+    }
+}
+
+fn diff_aware_references_cache_key(state: &AppState, changed_files: &[String]) -> Option<String> {
+    stable_cache_key(
+        "diff_aware_references",
+        &json!({
+            "changed_files": changed_files,
+            "fingerprints": changed_files
+                .iter()
+                .take(8)
+                .map(|file| changed_file_fingerprint(state, file))
+                .collect::<Vec<_>>(),
+        }),
+        &["changed_files", "fingerprints"],
+    )
+}
+
 pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult {
     let changed_files = strings_from_array(
         arguments
@@ -393,7 +445,7 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
     make_handle_response(
         state,
         "diff_aware_references",
-        stable_cache_key("diff_aware_references", arguments, &["changed_files"]),
+        diff_aware_references_cache_key(state, &changed_files),
         "Diff-aware reference compression for reviewer and CI flows.".to_owned(),
         top_findings.into_iter().take(5).collect(),
         0.86,

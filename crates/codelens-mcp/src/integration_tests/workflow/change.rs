@@ -278,6 +278,36 @@ fn review_changes_returns_structured_content() {
 }
 
 #[test]
+fn review_changes_cache_invalidates_when_changed_file_content_changes() {
+    let project = project_root();
+    let path = project.as_path().join("review_cache.py");
+    fs::write(&path, "def alpha():\n    return 1\n").unwrap();
+    let state = make_state(&project);
+
+    let first = call_tool(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["review_cache.py"]}),
+    );
+    assert_eq!(first["success"], json!(true));
+    assert_eq!(first["data"]["reused"], json!(false));
+
+    fs::write(&path, "def beta():\n    return 2\n").unwrap();
+    let second = call_tool(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["review_cache.py"]}),
+    );
+    assert_eq!(second["success"], json!(true));
+    assert_eq!(
+        second["data"]["reused"],
+        json!(false),
+        "changed file content must force fresh analysis: {second}"
+    );
+    assert_ne!(first["data"]["analysis_id"], second["data"]["analysis_id"]);
+}
+
+#[test]
 fn plan_safe_refactor_without_symbol_uses_safety_report() {
     let project = project_root();
     fs::write(project.as_path().join("ref.py"), "def old(): pass\n").unwrap();

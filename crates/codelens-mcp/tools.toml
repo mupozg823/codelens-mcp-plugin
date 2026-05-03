@@ -1381,8 +1381,8 @@ output_schema = "prepare_harness_session_output_schema"
 type = "object"
 [tool.input_schema.properties]
 project = { type = "string", description = "Optional project name or path" }
-profile = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
-preset = { type = "string", enum = ["minimal", "balanced", "full"] }
+profile = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"], description = "Optional role profile to activate. Mutually exclusive with `preset`." }
+preset = { type = "string", enum = ["minimal", "balanced", "full"], description = "Optional broad tool preset to activate. Mutually exclusive with `profile`." }
 token_budget = { type = "integer", description = "Optional explicit token budget override after activation" }
 file_path = { type = "string", description = "Optional file path for language-specific capability checks" }
 detail = { type = "string", enum = ["compact", "full"], description = "compact returns the harness preflight essentials only; full also includes the heavier config snapshot" }

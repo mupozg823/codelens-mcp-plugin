@@ -66,6 +66,57 @@ fn normalized_touched_files(touched_files: &[String]) -> Vec<String> {
     files
 }
 
+fn is_hint_diagnostic(diagnostic: &Value) -> bool {
+    diagnostic
+        .get("severity_label")
+        .and_then(|value| value.as_str())
+        .is_some_and(|label| label.eq_ignore_ascii_case("hint"))
+        || diagnostic
+            .get("severity")
+            .and_then(|value| value.as_u64())
+            .is_some_and(|severity| severity == 4)
+        || diagnostic
+            .get("severity")
+            .and_then(|value| value.as_str())
+            .is_some_and(|severity| severity.eq_ignore_ascii_case("hint"))
+}
+
+fn blocking_diagnostic_count(payload: &Value) -> usize {
+    if let Some(diagnostics) = payload
+        .get("diagnostics")
+        .and_then(|value| value.as_array())
+    {
+        return diagnostics
+            .iter()
+            .filter(|diagnostic| !is_hint_diagnostic(diagnostic))
+            .count();
+    }
+    payload
+        .get("count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or_default() as usize
+}
+
+fn diagnostics_summary(
+    diagnostic_count: usize,
+    checked_file_count: usize,
+    touched_file_count: usize,
+    diagnostics_section_present: bool,
+) -> String {
+    if diagnostic_count > 0 {
+        return format!(
+            "{diagnostic_count} blocking diagnostic(s) reported across {checked_file_count} checked file(s)."
+        );
+    }
+    if touched_file_count > 0 && !diagnostics_section_present {
+        return "Diagnostics unavailable for touched files; treat edits as provisional.".to_owned();
+    }
+    if touched_file_count == 0 {
+        return "No touched files were available for diagnostics checks.".to_owned();
+    }
+    format!("No blocking diagnostics reported for {checked_file_count} checked file(s).")
+}
+
 fn browser_or_ssr_sensitive(
     touched_files: &[String],
     summary: &str,
@@ -132,10 +183,12 @@ pub(crate) fn build_verifier_contract(
                     .get("count")
                     .and_then(|value| value.as_u64())
                     .unwrap_or_default() as usize;
-                diagnostic_count += count;
+                let blocking_count = blocking_diagnostic_count(&payload);
+                diagnostic_count += blocking_count;
                 diagnostic_rows.push(json!({
                     "file_path": file,
                     "count": count,
+                    "blocking_count": blocking_count,
                     "diagnostics": payload.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
                 }));
             }
@@ -169,18 +222,12 @@ pub(crate) fn build_verifier_contract(
         VERIFIER_READY
     };
     contract.readiness.diagnostics_ready = diagnostics_status.to_owned();
-    let diagnostics_summary = if diagnostic_count > 0 {
-        format!("{diagnostic_count} diagnostic(s) reported across touched files.")
-    } else if !touched_files.is_empty() && diagnostics_section.is_none() {
-        "Diagnostics unavailable for touched files; treat edits as provisional.".to_owned()
-    } else if touched_files.is_empty() {
-        "No touched files were available for diagnostics checks.".to_owned()
-    } else {
-        format!(
-            "No diagnostics reported for {} touched file(s).",
-            touched_files.len()
-        )
-    };
+    let diagnostics_summary = diagnostics_summary(
+        diagnostic_count,
+        diagnostic_rows.len() + diagnostic_errors.len(),
+        touched_files.len(),
+        diagnostics_section.is_some(),
+    );
     push_verifier_check(
         &mut contract.verifier_checks,
         "diagnostic_verifier",
@@ -468,6 +515,7 @@ pub(crate) fn build_verifier_contract(
 
 #[cfg(test)]
 mod tests {
+    use super::{blocking_diagnostic_count, diagnostics_summary};
     use serde_json::json;
 
     fn is_high_impact(impacts: &[serde_json::Value]) -> bool {
@@ -522,5 +570,36 @@ mod tests {
             "affected_files": 10,
         })];
         assert!(is_high_impact(&impacts));
+    }
+
+    #[test]
+    fn hint_diagnostics_do_not_block_readiness() {
+        let payload = json!({
+            "count": 2,
+            "diagnostics": [
+                {
+                    "severity": 4,
+                    "severity_label": "hint",
+                    "code": "inactive-code",
+                    "source": "rust-analyzer",
+                    "message": "code is inactive due to #[cfg] directives"
+                },
+                {
+                    "severity": "Hint",
+                    "source": "scip",
+                    "message": "non-blocking type-aware hint"
+                }
+            ]
+        });
+
+        assert_eq!(blocking_diagnostic_count(&payload), 0);
+    }
+
+    #[test]
+    fn diagnostics_summary_uses_checked_file_count_when_diagnostics_are_capped() {
+        assert_eq!(
+            diagnostics_summary(0, 3, 4, true),
+            "No blocking diagnostics reported for 3 checked file(s)."
+        );
     }
 }
