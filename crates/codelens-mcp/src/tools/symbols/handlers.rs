@@ -80,10 +80,22 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
         "body_full",
         "body_line_limit",
         "body_char_limit",
+        "name_path", // legacy alias for `name`; deprecated since v1.13.23
     ];
     let symbol_id = optional_string(arguments, "symbol_id");
+    let name_path_alias = optional_string(arguments, "name_path");
+    let mut deprecation_warnings: Vec<String> = Vec::new();
+    if name_path_alias.is_some()
+        && optional_string(arguments, "name").is_none()
+        && symbol_id.is_none()
+    {
+        deprecation_warnings.push(
+            "`name_path` is deprecated; use `name` (will be removed in v1.14.0)".to_owned(),
+        );
+    }
     let name = symbol_id
         .or_else(|| optional_string(arguments, "name"))
+        .or(name_path_alias)
         .ok_or_else(|| CodeLensError::MissingParam("symbol_id or name".into()))?;
     let file_path = optional_string(arguments, "file_path");
     let include_body = optional_bool(arguments, "include_body", false);
@@ -157,10 +169,14 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                 "backend": "scip",
                 "evidence": evidence,
             });
-            if !unknown_args.is_empty()
-                && let Some(map) = payload.as_object_mut()
-            {
-                map.insert("unknown_args".to_owned(), json!(unknown_args));
+            if let Some(map) = payload.as_object_mut() {
+                map.insert("deprecation_warnings".to_owned(), json!(deprecation_warnings));
+                if !unknown_args.is_empty() {
+                    map.insert(
+                        "warnings".to_owned(),
+                        json!([format!("unknown args ignored: {:?}", unknown_args)]),
+                    );
+                }
             }
             return Ok((payload, meta));
         }
@@ -228,8 +244,12 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         ),
                     ),
                 );
+                map.insert("deprecation_warnings".to_owned(), json!(deprecation_warnings));
                 if !unknown_args.is_empty() {
-                    map.insert("unknown_args".to_owned(), json!(unknown_args));
+                    map.insert(
+                        "warnings".to_owned(),
+                        json!([format!("unknown args ignored: {:?}", unknown_args)]),
+                    );
                 }
             }
             (payload, meta)
@@ -851,6 +871,59 @@ fn suggested_follow_up(kind: &str, exported: bool) -> Vec<&'static str> {
         return with_refs;
     }
     base
+}
+
+#[cfg(test)]
+mod find_symbol_argument_tests {
+    use super::find_symbol;
+    use crate::test_helpers::fixtures::temp_project_root;
+    use crate::tool_defs::ToolPreset;
+    use serde_json::json;
+
+    fn test_state(label: &str) -> crate::AppState {
+        let project = temp_project_root(label);
+        crate::AppState::new_minimal(project, ToolPreset::Full)
+    }
+
+    #[test]
+    fn name_path_alias_resolves_with_deprecation_warning() {
+        let state = test_state("find-symbol-name-path-alias");
+
+        let (payload, _) = find_symbol(&state, &json!({ "name_path": "find_symbol" }))
+            .expect("name_path alias should resolve without MissingParam");
+
+        let warnings = payload["deprecation_warnings"]
+            .as_array()
+            .expect("deprecation_warnings should be an array");
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings
+                .first()
+                .and_then(|warning| warning.as_str())
+                .is_some_and(|warning| warning.contains("name_path"))
+        );
+    }
+
+    #[test]
+    fn unknown_args_surfaced_in_top_level_warnings() {
+        let state = test_state("find-symbol-unknown-args");
+
+        let (payload, _) = find_symbol(
+            &state,
+            &json!({ "name": "find_symbol", "nonexistent_arg": "value" }),
+        )
+        .expect("unknown args should be ignored");
+
+        let warnings = payload["warnings"]
+            .as_array()
+            .expect("warnings should be a top-level array");
+        assert!(!warnings.is_empty());
+        assert!(warnings.iter().any(|warning| {
+            warning
+                .as_str()
+                .is_some_and(|warning| warning.contains("nonexistent_arg"))
+        }));
+    }
 }
 
 #[cfg(test)]
