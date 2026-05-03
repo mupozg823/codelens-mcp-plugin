@@ -68,10 +68,17 @@ pub fn find_phantom_modules(
         collect_referenced_names(&source, &mut referenced);
     }
 
+    // v2: read each candidate's child module file. If the contents are
+    // an `impl X { ... }` extension or a pure `pub use ...;` reexport
+    // (no `pub fn` / `pub struct` / `pub enum` / `pub const` / `pub static`
+    // / `pub trait` / `pub type`), the parent's `mod NAME;` is not
+    // phantom — it's the canonical Rust pattern for splitting one type's
+    // method surface across multiple files (or for re-export hubs).
     let mut phantoms: Vec<PhantomModuleEntry> = declarations
         .into_iter()
         .filter(|d| !referenced.contains(&d.module_name))
         .filter(|d| !is_test_module_name(&d.module_name))
+        .filter(|d| !is_impl_extension_or_reexport(project.as_path(), d))
         .collect();
 
     phantoms.sort_by(|a, b| {
@@ -226,6 +233,81 @@ fn is_excluded_path(relative: &str) -> bool {
 
 fn is_test_module_name(name: &str) -> bool {
     name.ends_with("_tests") || name.ends_with("_test") || name == "tests" || name == "test"
+}
+
+/// v2: determines whether the child module file behind a `mod NAME;`
+/// declaration is just an `impl X { ... }` extension or a pure
+/// `pub use ...;` reexport hub. Both patterns are legitimate Rust
+/// composition mechanisms that look phantom from a path-reference scan
+/// (the parent doesn't `use NAME::*` because it shares scope) and were
+/// the documented v1 limitation.
+///
+/// Resolution: parent `mod NAME;` lives in `<parent_file>`. Candidate
+/// child paths searched:
+///   1. `<parent_dir>/<NAME>.rs`              (sibling .rs)
+///   2. `<parent_dir>/<NAME>/mod.rs`          (sibling mod dir)
+///   3. `<parent_dir>/<parent_stem>/<NAME>.rs` (split-impl from a .rs file)
+///   4. `<parent_dir>/<parent_stem>/<NAME>/mod.rs`
+fn is_impl_extension_or_reexport(project_root: &Path, decl: &PhantomModuleEntry) -> bool {
+    let child = match find_child_module_file(project_root, decl) {
+        Some(p) => p,
+        None => return false,
+    };
+    let source = match std::fs::read_to_string(&child) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    // Only column-0 declarations count as the module's "public surface".
+    // `pub(crate) fn ...` at column 0 = top-level free function. Same name
+    // indented inside `impl AppState { ... }` is just a method on the
+    // parent type, not a separate module surface, so we leave it out.
+    let has_pub_decl = source.lines().any(|l| {
+        l.starts_with("pub fn ")
+            || l.starts_with("pub(crate) fn ")
+            || l.starts_with("pub struct ")
+            || l.starts_with("pub(crate) struct ")
+            || l.starts_with("pub enum ")
+            || l.starts_with("pub(crate) enum ")
+            || l.starts_with("pub const ")
+            || l.starts_with("pub(crate) const ")
+            || l.starts_with("pub static ")
+            || l.starts_with("pub(crate) static ")
+            || l.starts_with("pub trait ")
+            || l.starts_with("pub(crate) trait ")
+            || l.starts_with("pub type ")
+            || l.starts_with("pub(crate) type ")
+    });
+    if has_pub_decl {
+        return false;
+    }
+    let has_impl_or_reexport = source.lines().any(|l| {
+        l.starts_with("impl ")
+            || l.starts_with("impl<")
+            || l.starts_with("pub use ")
+            || l.starts_with("pub(crate) use ")
+    });
+    has_impl_or_reexport
+}
+
+fn find_child_module_file(
+    project_root: &Path,
+    decl: &PhantomModuleEntry,
+) -> Option<std::path::PathBuf> {
+    let parent_path = project_root.join(&decl.parent_file);
+    let parent_dir = parent_path.parent()?;
+    let parent_stem = parent_path.file_stem()?.to_str()?;
+    let candidates = [
+        parent_dir.join(format!("{}.rs", decl.module_name)),
+        parent_dir.join(&decl.module_name).join("mod.rs"),
+        parent_dir
+            .join(parent_stem)
+            .join(format!("{}.rs", decl.module_name)),
+        parent_dir
+            .join(parent_stem)
+            .join(&decl.module_name)
+            .join("mod.rs"),
+    ];
+    candidates.into_iter().find(|p| p.exists())
 }
 
 #[cfg(test)]

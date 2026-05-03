@@ -14,7 +14,7 @@ name = "codelens-tui"
 path = "src/main.rs"
 
 [dependencies]
-codelens-engine = { path = "../codelens-engine", version = "=1.13.11" }
+codelens-engine = { path = "../codelens-engine", version = "=1.13.12" }
 ratatui = "0.30"
 crossterm = "0.28"
 anyhow.workspace = true
