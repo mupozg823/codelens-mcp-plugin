@@ -65,6 +65,10 @@ pub struct GraphCache {
 
 struct GraphCacheInner {
     graph: Option<Arc<HashMap<String, FileNode>>>,
+    /// PageRank scores computed against the same generation as `graph`.
+    /// Computed lazily on first `file_pagerank_scores` call after each
+    /// rebuild; reused across requests until the next invalidation.
+    pagerank: Option<Arc<HashMap<String, f64>>>,
     /// Generation at which this cache entry was built.
     built_generation: u64,
 }
@@ -76,6 +80,7 @@ impl GraphCache {
         Self {
             inner: Mutex::new(GraphCacheInner {
                 graph: None,
+                pagerank: None,
                 built_generation: 0,
             }),
             generation: AtomicU64::new(1), // start at 1 so default 0 is always stale
@@ -95,17 +100,47 @@ impl GraphCache {
         }
         let graph = Arc::new(build_graph(project)?);
         inner.graph = Some(Arc::clone(&graph));
+        // Graph rebuild always invalidates the PageRank cache — the next
+        // call to `file_pagerank_scores` will recompute against the new
+        // graph. Without this drop, a stale PR map could survive a graph
+        // rebuild on the same generation tick and return scores keyed to
+        // a graph that no longer exists.
+        inner.pagerank = None;
         inner.built_generation = current_gen;
         Ok(graph)
     }
 
-    /// Return per-file PageRank scores from the cached graph.
-    pub fn file_pagerank_scores(&self, project: &ProjectRoot) -> HashMap<String, f64> {
+    /// Return per-file PageRank scores keyed to the current graph
+    /// generation. Computed on first call after each rebuild and reused
+    /// across requests until invalidation. The returned `Arc` lets
+    /// callers borrow the map without cloning the inner HashMap.
+    pub fn file_pagerank_scores(&self, project: &ProjectRoot) -> Arc<HashMap<String, f64>> {
+        // Fast path: lock once, check cache. Avoids running compute under
+        // the lock so concurrent searchers don't serialise on PageRank.
+        let current_gen = self.generation.load(Ordering::Acquire);
+        if let Ok(inner) = self.inner.lock()
+            && inner.built_generation == current_gen
+            && let Some(pr) = inner.pagerank.as_ref()
+        {
+            return Arc::clone(pr);
+        }
+        // Slow path: rebuild graph if needed, then compute + memoize.
         let graph = match self.get_or_build(project) {
             Ok(g) => g,
-            Err(_) => return HashMap::new(),
+            Err(_) => return Arc::new(HashMap::new()),
         };
-        compute_pagerank(&graph)
+        let pr = Arc::new(compute_pagerank(&graph));
+        if let Ok(mut inner) = self.inner.lock() {
+            // Re-check generation under lock — another writer may have
+            // bumped it while we were computing. If so, leave their
+            // (newer) cache in place and return our computed result for
+            // this request without poisoning the cache.
+            let still_current = self.generation.load(Ordering::Acquire);
+            if inner.built_generation == still_current {
+                inner.pagerank = Some(Arc::clone(&pr));
+            }
+        }
+        pr
     }
 
     /// Bump the generation counter, causing the next `get_or_build` to rebuild.

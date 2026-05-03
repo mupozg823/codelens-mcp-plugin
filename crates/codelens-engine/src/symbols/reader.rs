@@ -1,9 +1,9 @@
-use super::SymbolIndex;
 use super::parser::{flatten_symbol_infos, slice_source};
-use super::ranking::{self, RankingContext, prune_to_budget, rank_symbols};
+use super::ranking::{self, prune_to_budget, rank_symbols, RankingContext};
 use super::types::{
-    RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance, make_symbol_id, parse_symbol_id,
+    make_symbol_id, parse_symbol_id, RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance,
 };
+use super::SymbolIndex;
 use crate::db::IndexDb;
 use crate::project::ProjectRoot;
 use anyhow::Result;
@@ -302,7 +302,8 @@ impl SymbolIndex {
 
         let ranking_ctx = match graph_cache {
             Some(gc) => {
-                let pagerank = gc.file_pagerank_scores(&self.project);
+                let pagerank_arc = gc.file_pagerank_scores(&self.project);
+                let pagerank = (*pagerank_arc).clone();
                 if semantic_scores.is_empty() {
                     RankingContext::with_pagerank(pagerank)
                 } else {

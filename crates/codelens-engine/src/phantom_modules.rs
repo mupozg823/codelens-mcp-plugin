@@ -280,13 +280,92 @@ fn is_impl_extension_or_reexport(project_root: &Path, decl: &PhantomModuleEntry)
     if has_pub_decl {
         return false;
     }
-    let has_impl_or_reexport = source.lines().any(|l| {
-        l.starts_with("impl ")
-            || l.starts_with("impl<")
-            || l.starts_with("pub use ")
-            || l.starts_with("pub(crate) use ")
+    // `pub use` re-exports are unambiguous split-module markers — they
+    // expose names declared elsewhere through this child file's surface.
+    let has_reexport = source
+        .lines()
+        .any(|l| l.starts_with("pub use ") || l.starts_with("pub(crate) use "));
+    if has_reexport {
+        return true;
+    }
+    // For `impl` blocks we have to be stricter (codex P1 #158): an `impl`
+    // on a type defined inside this same file is a method block on a
+    // private local type, NOT a split-impl on the parent module's type.
+    // Treating those as exemptions makes phantom detection regress —
+    // any unreferenced module that happens to contain a local helper
+    // struct + its impl would be filtered out forever.
+    let local_types: Vec<&str> = source.lines().filter_map(extract_local_type_name).collect();
+    let has_parent_extending_impl = source.lines().any(|l| {
+        if !(l.starts_with("impl ") || l.starts_with("impl<")) {
+            return false;
+        }
+        match extract_impl_target_type(l) {
+            Some(target) => !local_types.iter().any(|name| *name == target),
+            None => false,
+        }
     });
-    has_impl_or_reexport
+    has_parent_extending_impl
+}
+
+/// Extracts the type name on the right-hand side of an `impl` line.
+///
+/// Handles both `impl X { ... }` and `impl<G> Trait<G> for X<G> { ... }`
+/// — when the line contains ` for `, the post-`for ` segment is the
+/// target type; otherwise the first identifier after the optional
+/// generic list is the target. Returns `None` if the line does not
+/// fit the expected shape (continuation lines, where-clause-only
+/// lines, etc.).
+fn extract_impl_target_type(line: &str) -> Option<&str> {
+    let after_impl = line.strip_prefix("impl").unwrap_or(line);
+    // Skip an optional generic parameter list `<...>` immediately after `impl`.
+    let after_generics = if let Some(rest) = after_impl.strip_prefix('<') {
+        let depth_end = rest.find('>')?;
+        &rest[depth_end + 1..]
+    } else {
+        after_impl
+    };
+    let after_generics = after_generics.trim_start();
+    // Trait impl: `Trait[<G>] for Target[<G>] {`
+    let target_segment = if let Some(idx) = after_generics.find(" for ") {
+        &after_generics[idx + 5..]
+    } else {
+        after_generics
+    };
+    extract_leading_type_ident(target_segment)
+}
+
+/// Pulls the first identifier (path component) out of a type expression.
+/// `Foo` → `Foo`, `Foo<Bar>` → `Foo`, `crate::a::Foo<Bar>` → `Foo`.
+fn extract_leading_type_ident(segment: &str) -> Option<&str> {
+    let trimmed = segment.trim();
+    // Use the last `::` segment so qualified paths still resolve to a type name.
+    let last = trimmed.rsplit("::").next().unwrap_or(trimmed);
+    let end = last
+        .find(|c: char| !c.is_alphanumeric() && c != '_')
+        .unwrap_or(last.len());
+    let name = &last[..end];
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// If the line is a top-level type declaration in this file (`struct X`,
+/// `enum X`, `trait X`, with or without `pub` / `pub(crate)`), returns
+/// the declared name. Used to recognise local types whose `impl` blocks
+/// are *not* parent-module extensions.
+fn extract_local_type_name(line: &str) -> Option<&str> {
+    let stripped = line
+        .strip_prefix("pub(crate) ")
+        .or_else(|| line.strip_prefix("pub "))
+        .unwrap_or(line);
+    for kw in ["struct ", "enum ", "trait "] {
+        if let Some(rest) = stripped.strip_prefix(kw) {
+            return extract_leading_type_ident(rest);
+        }
+    }
+    None
 }
 
 fn find_child_module_file(
@@ -444,5 +523,108 @@ mod tests {
         assert!(is_excluded_path(
             "crates/codelens-engine/src/phantom_modules.rs"
         ));
+    }
+
+    #[test]
+    fn impl_target_extraction_handles_common_shapes() {
+        assert_eq!(extract_impl_target_type("impl Foo {"), Some("Foo"));
+        assert_eq!(extract_impl_target_type("impl<T> Foo<T> {"), Some("Foo"));
+        assert_eq!(
+            extract_impl_target_type("impl Display for Bar {"),
+            Some("Bar")
+        );
+        assert_eq!(
+            extract_impl_target_type("impl<G: Clone> Iterator for Baz<G> {"),
+            Some("Baz")
+        );
+        assert_eq!(
+            extract_impl_target_type("impl crate::a::Foo {"),
+            Some("Foo")
+        );
+    }
+
+    #[test]
+    fn local_type_recognition_picks_up_pub_and_private() {
+        assert_eq!(extract_local_type_name("struct Local;"), Some("Local"));
+        assert_eq!(
+            extract_local_type_name("pub struct PubLocal {"),
+            Some("PubLocal")
+        );
+        assert_eq!(
+            extract_local_type_name("pub(crate) enum Mode {"),
+            Some("Mode")
+        );
+        assert_eq!(extract_local_type_name("trait Foo {"), Some("Foo"));
+        assert_eq!(extract_local_type_name("fn helper() {"), None);
+    }
+
+    #[test]
+    fn unreferenced_module_with_only_local_impl_is_reported() {
+        // codex P1 #158 regression guard: a module containing only `impl X`
+        // for a *locally* defined `struct X` is dead code, not a split-impl
+        // pattern, and find_phantom_modules must still report it.
+        let dir = std::env::temp_dir().join(format!(
+            "phantom-impl-local-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let src_dir = dir.join("crates").join("c").join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(src_dir.join("lib.rs"), "mod stale;\n").unwrap();
+        std::fs::write(
+            src_dir.join("stale.rs"),
+            "struct Local;\n\nimpl Local {\n    fn helper(&self) {}\n}\n",
+        )
+        .unwrap();
+
+        let project = crate::project::ProjectRoot::new(dir.to_str().unwrap()).expect("root");
+        let entries = find_phantom_modules(&project, 100).expect("scan ok");
+        let stale_reported = entries
+            .iter()
+            .any(|e| e.module_name == "stale" && e.parent_file.contains("lib.rs"));
+        assert!(
+            stale_reported,
+            "module containing only impl on a local type must be reported as phantom; got {:?}",
+            entries
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn module_with_impl_on_external_type_is_not_phantom() {
+        // Inverse of the regression test: a module whose `impl AppState`
+        // (or any non-local target) plausibly extends a parent type
+        // remains exempt — the original v1.13.12 split-module behaviour.
+        let dir = std::env::temp_dir().join(format!(
+            "phantom-impl-extern-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let src_dir = dir.join("crates").join("c").join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(src_dir.join("lib.rs"), "mod analysis;\n").unwrap();
+        std::fs::write(
+            src_dir.join("analysis.rs"),
+            "use crate::AppState;\n\nimpl AppState {\n    pub(crate) fn enqueue(&self) {}\n}\n",
+        )
+        .unwrap();
+
+        let project = crate::project::ProjectRoot::new(dir.to_str().unwrap()).expect("root");
+        let entries = find_phantom_modules(&project, 100).expect("scan ok");
+        let analysis_reported = entries
+            .iter()
+            .any(|e| e.module_name == "analysis" && e.parent_file.contains("lib.rs"));
+        assert!(
+            !analysis_reported,
+            "split-impl module on an external type must remain exempt; got {:?}",
+            entries
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
