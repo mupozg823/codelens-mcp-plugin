@@ -111,11 +111,7 @@ fn strip_line_comments(source: &str) -> String {
         .lines()
         .map(|line| {
             let trimmed = line.trim_start();
-            if trimmed.starts_with("//") {
-                ""
-            } else {
-                line
-            }
+            if trimmed.starts_with("//") { "" } else { line }
         })
         .collect::<Vec<_>>()
         .join("\n")

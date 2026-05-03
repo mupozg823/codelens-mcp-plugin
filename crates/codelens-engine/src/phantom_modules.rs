@@ -10,7 +10,7 @@
 //! useful, but a private `mod foo;` with no `use` references on the
 //! parent symbol path is almost always cleanup-eligible.
 
-use crate::project::{collect_files, ProjectRoot};
+use crate::project::{ProjectRoot, collect_files};
 use anyhow::Result;
 use regex::Regex;
 use serde::Serialize;
@@ -344,11 +344,7 @@ fn extract_leading_type_ident(segment: &str) -> Option<&str> {
         .find(|c: char| !c.is_alphanumeric() && c != '_')
         .unwrap_or(last.len());
     let name = &last[..end];
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// If the line is a top-level type declaration in this file (`struct X`,

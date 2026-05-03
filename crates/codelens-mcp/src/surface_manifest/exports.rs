@@ -9,7 +9,7 @@
 //! external docs and resource URIs.
 
 use super::HOST_ADAPTER_HOSTS;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) const AGENT_EXPERIENCE_SCHEMA_VERSION: &str = "codelens-agent-experience-v1";
 pub(crate) const AGENT_EXPERIENCE_DOC_PATH: &str = "docs/design/symbiote-ux-flows-v1.md";

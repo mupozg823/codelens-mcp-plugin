@@ -121,10 +121,16 @@ pub(crate) fn find_over_visible_apis(project_root: &Path) -> Result<Vec<OverVisi
         let other_file_count = rs.files.iter().filter(|f| **f != decl.file).count();
         let other_crate_count = rs.crates.iter().filter(|c| **c != decl.crate_name).count();
 
-        let suggestion = match (decl.visibility.as_str(), other_file_count, other_crate_count) {
+        let suggestion = match (
+            decl.visibility.as_str(),
+            other_file_count,
+            other_crate_count,
+        ) {
             ("pub", 0, _) => Some(("private", "no caller in any file")),
             ("pub", _, 0) => Some(("pub(crate)", "no caller outside the declaring crate")),
-            ("pub(crate)", 0, _) => Some(("private", "no caller in any other file inside this crate")),
+            ("pub(crate)", 0, _) => {
+                Some(("private", "no caller in any other file inside this crate"))
+            }
             _ => None,
         };
 
@@ -308,12 +314,12 @@ mod tests {
         ));
         let src = dir.join("crates/sample/src");
         std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("lib.rs"), "pub fn intra_caller() {}\n").unwrap();
         std::fs::write(
-            src.join("lib.rs"),
-            "pub fn intra_caller() {}\n",
+            src.join("other.rs"),
+            "fn use_it() { super::intra_caller(); }\n",
         )
         .unwrap();
-        std::fs::write(src.join("other.rs"), "fn use_it() { super::intra_caller(); }\n").unwrap();
 
         let entries = find_over_visible_apis(&dir).expect("scan ok");
         let hit = entries
@@ -370,15 +376,19 @@ mod tests {
             })
             .into();
         let entries = find_over_visible_apis(&repo).expect("find_over_visible_apis");
-        eprintln!(
-            "\n=== {} over-visible declarations ===\n",
-            entries.len()
-        );
+        eprintln!("\n=== {} over-visible declarations ===\n", entries.len());
         // Print the first 30 to keep output bounded during dogfood runs.
         for e in entries.iter().take(30) {
             eprintln!(
                 "  {} {} {} ({} → {}; {}) at {}:{}",
-                e.current_visibility, e.kind, e.name, e.current_visibility, e.suggested_visibility, e.reason, e.file, e.line
+                e.current_visibility,
+                e.kind,
+                e.name,
+                e.current_visibility,
+                e.suggested_visibility,
+                e.reason,
+                e.file,
+                e.line
             );
         }
     }

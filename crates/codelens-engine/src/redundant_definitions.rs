@@ -8,7 +8,7 @@
 //! be flagged by `find_dead_code_v2` only AFTER the wrappers were removed,
 //! so this complement helps surface the cluster pre-deletion.
 
-use crate::project::{collect_files, ProjectRoot};
+use crate::project::{ProjectRoot, collect_files};
 use anyhow::Result;
 use regex::Regex;
 use serde::Serialize;
