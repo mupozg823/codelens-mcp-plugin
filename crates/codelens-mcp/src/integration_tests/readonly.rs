@@ -31,8 +31,8 @@ fn returns_symbols_via_tool_call() {
 // P1-B contract: every read-only tool in the second wave must
 // 1) honor `limit` / `top_k` aliases for whatever its canonical
 //    limit field is (or skip the alias if it has no limit field),
-// 2) surface unknown top-level keys in `unknown_args: [...]` so
-//    silent drops of agent input become observable.
+// 2) surface unknown top-level keys (`unknown_args` for legacy tools,
+//    `warnings` for find_symbol) so silent drops of agent input become observable.
 //
 // Doc: docs/design/arg-validation-policy.md
 #[test]
@@ -80,10 +80,14 @@ fn p1_b_arg_validation_contract_across_five_tools() {
         json!({"name": "alpha", "limit": 3, "carrot": "c"}),
     );
     assert_eq!(p["success"], json!(true));
-    assert_eq!(
-        p["data"]["unknown_args"],
-        json!(["carrot"]),
-        "find_symbol must surface unknown carrot key"
+    let warnings = p["data"]["warnings"]
+        .as_array()
+        .expect("find_symbol must have top-level warnings array");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().map(|s| s.contains("carrot")).unwrap_or(false)),
+        "find_symbol must surface unknown carrot key in warnings"
     );
 
     // find_referencing_symbols — limit alias on tree-sitter fallback path

@@ -155,7 +155,7 @@ properties = { path = { type = "string" }, depth = { type = "integer" } }
 [[tool]]
 name = "find_symbol"
 category = "symbol"
-description = "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body."
+description = "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body. Use `name` (canonical). Legacy `name_path` is accepted for one release with deprecation warning. `include_body=true` returns full body via tree-sitter; SCIP backend currently returns signature only (#172)."
 annotations = "ro_p"
 output_schema = "symbol_output_schema"
 
@@ -168,6 +168,7 @@ file_path = { type = "string" }
 include_body = { type = "boolean" }
 exact_match = { type = "boolean" }
 max_matches = { type = "integer" }
+name_path = { type = "string", description = "DEPRECATED v1.13.23 — use `name`. Soft alias maintained until v1.14.0." }
 
 # ─────
 
