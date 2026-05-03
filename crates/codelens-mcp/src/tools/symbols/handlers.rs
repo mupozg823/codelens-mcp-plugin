@@ -151,9 +151,8 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
         && optional_string(arguments, "name").is_none()
         && symbol_id.is_none()
     {
-        deprecation_warnings.push(
-            "`name_path` is deprecated; use `name` (will be removed in v1.14.0)".to_owned(),
-        );
+        deprecation_warnings
+            .push("`name_path` is deprecated; use `name` (will be removed in v1.14.0)".to_owned());
     }
     let name = symbol_id
         .or_else(|| optional_string(arguments, "name"))
@@ -225,8 +224,7 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                     {
                         sym["body"] = Value::String(body);
                         sym["body_source"] = Value::String("scip_line_range_slice".to_owned());
-                        sym["body_truncation"] =
-                            Value::String("heuristic_50_lines".to_owned());
+                        sym["body_truncation"] = Value::String("heuristic_50_lines".to_owned());
                     }
                     sym
                 })
@@ -240,7 +238,10 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                 "evidence": evidence,
             });
             if let Some(map) = payload.as_object_mut() {
-                map.insert("deprecation_warnings".to_owned(), json!(deprecation_warnings));
+                map.insert(
+                    "deprecation_warnings".to_owned(),
+                    json!(deprecation_warnings),
+                );
                 if !unknown_args.is_empty() {
                     map.insert(
                         "warnings".to_owned(),
