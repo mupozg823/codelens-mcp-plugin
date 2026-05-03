@@ -10,9 +10,14 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     .unwrap();
     let state = make_state(&project);
 
-    // `daemon_started_at` is second-granularity RFC3339. Sleep just over
-    // one second so the override file's mtime is guaranteed to be newer.
-    std::thread::sleep(std::time::Duration::from_millis(1_100));
+    // `daemon_started_at` is second-granularity RFC3339. The original 1.1s
+    // wait was tight enough that CI runners (especially macos-latest)
+    // intermittently rounded both timestamps into the same second under load
+    // and the staleness comparison flipped — chronic flake on PRs #174,
+    // #177, #184, #185, #187 in the 2026-05-03 dogfood batch. Bumping the
+    // wait to 2.5s keeps the test deterministic without meaningfully slowing
+    // the local test run.
+    std::thread::sleep(std::time::Duration::from_millis(2_500));
 
     let override_path = std::env::temp_dir().join(format!(
         "codelens-stale-daemon-{}-{}",
