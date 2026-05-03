@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 mod exports;
 mod harness;
 mod host_adapters;
-use exports::{build_agent_experience, build_harness_artifacts_summary};
 pub(crate) use exports::handoff_artifact_schema_json;
+use exports::{build_agent_experience, build_harness_artifacts_summary};
 use harness::{build_harness_modes, build_harness_spec};
 use host_adapters::{build_host_adapters, build_host_adapters_for_project};
 pub(crate) use host_adapters::{

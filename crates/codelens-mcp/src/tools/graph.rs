@@ -219,10 +219,7 @@ pub(crate) fn find_dead_code_v2_tool(
     )
 }
 
-pub fn find_orphan_handlers_tool(
-    state: &AppState,
-    _arguments: &serde_json::Value,
-) -> ToolResult {
+pub fn find_orphan_handlers_tool(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let entries = crate::orphan_handlers::find_orphan_handlers(state.project().as_path())?;
     Ok((
         json!({
@@ -233,16 +230,15 @@ pub fn find_orphan_handlers_tool(
     ))
 }
 
-pub fn find_over_visible_apis_tool(
-    state: &AppState,
-    _arguments: &serde_json::Value,
-) -> ToolResult {
+pub fn find_over_visible_apis_tool(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let entries = crate::over_visible::find_over_visible_apis(state.project().as_path())?;
     let by_kind: std::collections::BTreeMap<String, usize> =
-        entries.iter().fold(std::collections::BTreeMap::new(), |mut acc, e| {
-            *acc.entry(e.kind.clone()).or_insert(0) += 1;
-            acc
-        });
+        entries
+            .iter()
+            .fold(std::collections::BTreeMap::new(), |mut acc, e| {
+                *acc.entry(e.kind.clone()).or_insert(0) += 1;
+                acc
+            });
     Ok((
         json!({
             "over_visible_apis": entries,
@@ -268,10 +264,7 @@ pub fn audit_tool_surface_consistency_tool(
     ))
 }
 
-pub fn find_phantom_modules_tool(
-    state: &AppState,
-    arguments: &serde_json::Value,
-) -> ToolResult {
+pub fn find_phantom_modules_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let max_results = optional_usize(arguments, "max_results", 50);
     let entries = phantom_modules::find_phantom_modules(&state.project(), max_results)?;
     Ok((
@@ -288,8 +281,7 @@ pub fn find_redundant_definitions_tool(
     arguments: &serde_json::Value,
 ) -> ToolResult {
     let max_results = optional_usize(arguments, "max_results", 50);
-    let entries =
-        redundant_definitions::find_redundant_definitions(&state.project(), max_results)?;
+    let entries = redundant_definitions::find_redundant_definitions(&state.project(), max_results)?;
     let mut groups: std::collections::BTreeMap<String, Vec<&_>> = std::collections::BTreeMap::new();
     for entry in &entries {
         groups.entry(entry.target.clone()).or_default().push(entry);

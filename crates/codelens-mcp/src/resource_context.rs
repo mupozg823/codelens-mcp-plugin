@@ -1,13 +1,13 @@
+use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::protocol::{Tool, ToolPhase};
 use crate::tool_defs::{
-    is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_tier_labels, tool_deprecation, tool_namespace, tool_phase_label, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools, ToolProfile, ToolSurface,
+    ToolProfile, ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools,
+    preferred_namespaces, preferred_tier_labels, tool_deprecation, tool_namespace,
+    tool_phase_label, tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
-use crate::AppState;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 // Default surface for hosts that fetch `tools/list` without a phase filter

@@ -10,7 +10,7 @@
 //! useful, but a private `mod foo;` with no `use` references on the
 //! parent symbol path is almost always cleanup-eligible.
 
-use crate::project::{collect_files, ProjectRoot};
+use crate::project::{ProjectRoot, collect_files};
 use anyhow::Result;
 use regex::Regex;
 use serde::Serialize;
@@ -295,16 +295,16 @@ fn is_impl_extension_or_reexport(project_root: &Path, decl: &PhantomModuleEntry)
     // any unreferenced module that happens to contain a local helper
     // struct + its impl would be filtered out forever.
     let local_types: Vec<&str> = source.lines().filter_map(extract_local_type_name).collect();
-    let has_parent_extending_impl = source.lines().any(|l| {
+
+    source.lines().any(|l| {
         if !(l.starts_with("impl ") || l.starts_with("impl<")) {
             return false;
         }
         match extract_impl_target_type(l) {
-            Some(target) => !local_types.iter().any(|name| *name == target),
+            Some(target) => !local_types.contains(&target),
             None => false,
         }
-    });
-    has_parent_extending_impl
+    })
 }
 
 /// Extracts the type name on the right-hand side of an `impl` line.
@@ -344,11 +344,7 @@ fn extract_leading_type_ident(segment: &str) -> Option<&str> {
         .find(|c: char| !c.is_alphanumeric() && c != '_')
         .unwrap_or(last.len());
     let name = &last[..end];
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// If the line is a top-level type declaration in this file (`struct X`,

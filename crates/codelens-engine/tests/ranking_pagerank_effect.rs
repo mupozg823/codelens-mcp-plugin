@@ -20,7 +20,7 @@
 //! function still works in isolation — exactly the kind of bug a
 //! signal-level CI gate should catch.
 
-use codelens_engine::{search_symbols_hybrid_with_semantic, ProjectRoot};
+use codelens_engine::{ProjectRoot, search_symbols_hybrid_with_semantic};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,7 +38,7 @@ fn temp_project(prefix: &str) -> (PathBuf, ProjectRoot) {
 }
 
 fn seed_two_file_index(project: &ProjectRoot) {
-    use codelens_engine::db::{index_db_path, IndexDb, NewSymbol};
+    use codelens_engine::db::{IndexDb, NewSymbol, index_db_path};
     let db = IndexDb::open(&index_db_path(project.as_path())).unwrap();
     let popular = db
         .upsert_file("popular.py", 100, "h1", 10, Some("py"))

@@ -217,10 +217,7 @@ fn apply_pagerank_boost(
     pagerank_scores: &std::collections::HashMap<String, f64>,
     max_boost: f64,
 ) {
-    let max_pr = pagerank_scores
-        .values()
-        .copied()
-        .fold(0.0_f64, f64::max);
+    let max_pr = pagerank_scores.values().copied().fold(0.0_f64, f64::max);
     if max_pr <= 0.0 {
         return;
     }
