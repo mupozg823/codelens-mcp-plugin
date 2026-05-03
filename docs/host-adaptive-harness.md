@@ -24,6 +24,7 @@ Concrete per-host bundles:
 - `codelens://host-adapters/windsurf`
 
 <!-- SURFACE_MANIFEST_HOST_ADAPTER_SUMMARY:BEGIN -->
+
 ## Generated Host Runtime Snapshot
 
 Generated from the canonical surface manifest. Runtime resources remain the authoritative source when the doc and live server differ.
@@ -77,6 +78,7 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Default compiled overlay: profile=`builder-minimal`, task_overlay=`editing`
 - Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics` -> `rename_symbol` -> `replace_symbol_body` -> `insert_content` -> `replace` -> `add_import`
 - Compiler targets: `~/.codeium/windsurf/mcp_config.json`
+
 <!-- SURFACE_MANIFEST_HOST_ADAPTER_SUMMARY:END -->
 
 ## Root Cause
@@ -219,6 +221,7 @@ Only keep lanes that create new signal:
 ## Host-by-Host Guidance
 
 <!-- SURFACE_MANIFEST_HOST_ADAPTER_GUIDANCE:BEGIN -->
+
 Generated from the canonical surface manifest. Use this block as the default operator guidance when the prose below is stale.
 
 ### `claude-code`
@@ -270,6 +273,7 @@ Generated from the canonical surface manifest. Use this block as the default ope
 - Use CodeLens for: bounded builder execution under a small visible surface; compressed planning when the task escapes single-file scope
 - Avoid: attaching the full CodeLens surface alongside many other MCP servers; using reviewer-heavy profiles as the default editing surface
 - Routing defaults: `foreground_lookup=native-first`, `multi_file_edit=builder-minimal-after-bootstrap`, `wide_surface=deferred-loading-required`, `tool_cap=keep-profile-bounded`
+
 <!-- SURFACE_MANIFEST_HOST_ADAPTER_GUIDANCE:END -->
 
 ## Dynamic Adaptation: What “Adaptive” Actually Means

@@ -7,6 +7,7 @@ This document is generated from the same canonical manifest that powers the runt
 ## Overview
 
 <!-- SURFACE_MANIFEST_HARNESS_SPEC_OVERVIEW:BEGIN -->
+
 - Schema: `codelens-harness-spec-v1`
 - Audit mode: `audit-only`
 - Adds new runtime hard blocks: `false`
@@ -17,11 +18,13 @@ This document is generated from the same canonical manifest that powers the runt
 - Explicit release preferred: `true`
 - Runtime resource: `codelens://harness/spec`
 - Handoff artifact schema: `codelens://schemas/handoff-artifact/v1` (codelens-handoff-artifact-v1)
+
 <!-- SURFACE_MANIFEST_HARNESS_SPEC_OVERVIEW:END -->
 
 ## Contracts
 
 <!-- SURFACE_MANIFEST_HARNESS_SPEC_CONTRACTS:BEGIN -->
+
 ### `planner-builder-handoff`
 
 - Mode: `planner-builder`
@@ -175,6 +178,7 @@ This document is generated from the same canonical manifest that powers the runt
   ]
 }
 ```
+
 <!-- SURFACE_MANIFEST_HARNESS_SPEC_CONTRACTS:END -->
 
 ## Notes

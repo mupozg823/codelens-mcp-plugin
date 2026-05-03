@@ -3,15 +3,17 @@
 > Pure Rust MCP server and harness optimization tool for code intelligence
 > Harness optimization control plane with generated surface governance and tree-sitter-first retrieval
 
-## Current Snapshot (2026-04-25)
+## Current Snapshot (generated 2026-05-04)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
-- Workspace version: `1.12.0`
+
+- Workspace version: `1.13.22`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions in source: `106`
-- Tool output schemas in source: `77 / 106`
+- Registered tool definitions in source: `111`
+- Tool output schemas in source: `77 / 111`
 - Supported language families: `30` across `49` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
+
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:END -->
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
@@ -137,7 +139,7 @@ Use repo-local contracts alongside this document:
 
 - `EVAL_CONTRACT.md`
 - `docs/platform-setup.md`
-- `docs/REFERENCE-2026-03.md`
+- `docs/archive/REFERENCE-2026-03.md`
 - Project `CLAUDE.md` (harness routing + mutation gates)
 - Project `AGENTS.md`
 
@@ -145,159 +147,55 @@ Use repo-local contracts alongside this document:
 
 ```
 codelens-mcp-plugin/
-├── Cargo.toml                            # Workspace: 2 crates, 25 tree-sitter deps
-├── CLAUDE.md                             # AI agent instructions (harness routing)
-├── AGENTS.md                             # Agent role contracts
-├── EVAL_CONTRACT.md                      # Verification command contracts
-├── README.md                             # Public documentation
-├── install.sh                            # One-line installer
+├── Cargo.toml                            # 3-crate workspace; shared dependency and feature policy
+├── README.md                             # Public install and operating guide
+├── AGENTS.md / CLAUDE.md                 # Repo-local agent contracts
+├── EVAL_CONTRACT.md                      # Local and CI verification contract
+├── install.sh                            # Release/installer entrypoint
 │
 ├── crates/
-│   ├── codelens-engine/                  # Engine crate
-│   │   ├── Cargo.toml                    # deps: tree-sitter x25, rusqlite, rayon, ort
-│   │   ├── benches/                      # Performance benchmarks
-│   │   ├── tests/                        # Integration suites
+│   ├── codelens-engine/                  # Code intelligence engine, no MCP protocol policy
+│   │   ├── benches/ and tests/           # Engine performance and integration gates
 │   │   └── src/
-│   │       ├── lib.rs                    # Public API surface
-│   │       ├── project.rs                # ProjectRoot, framework detection
-│   │       │
-│   │       ├── lang_registry.rs          # 25 languages: ext → canonical → config
-│   │       ├── lang_config.rs            # tree-sitter Language + Query per lang
-│   │       │
-│   │       ├── symbols/                  # Symbol extraction & ranking
-│   │       │   ├── mod.rs                # SymbolIndex — central API
-│   │       │   ├── parser.rs             # tree-sitter query execution
-│   │       │   ├── writer.rs             # Index builder (refresh_all)
-│   │       │   ├── reader.rs             # Symbol queries (find/overview)
-│   │       │   ├── ranking.rs            # 4-signal ranking engine
-│   │       │   └── scoring.rs            # Score computation
-│   │       │
-│   │       ├── db/                       # SQLite + FTS5 + sqlite-vec
-│   │       │   ├── mod.rs                # IndexDb — schema v4, self-heal, migrations
-│   │       │   ├── ops.rs                # CRUD operations (1K+ LOC)
-│   │       │   └── tests.rs              # DB suite (incl. self-heal)
-│   │       │
-│   │       ├── search.rs                 # Hybrid search: FTS5 + jaro_winkler
-│   │       │
-│   │       ├── import_graph/             # Dependency analysis
-│   │       │   ├── mod.rs                # Graph builder (petgraph)
-│   │       │   ├── parsers.rs            # Import statement parsing
-│   │       │   ├── resolvers.rs          # Path resolution per language
-│   │       │   └── dead_code.rs          # Multi-pass dead code detection
-│   │       │
-│   │       ├── lsp/                      # LSP integration (opt-in)
-│   │       │   ├── mod.rs                # LspSessionPool
-│   │       │   ├── session.rs            # Single LSP session lifecycle
-│   │       │   ├── protocol.rs           # JSON-RPC for LSP
-│   │       │   └── registry.rs           # 22 LSP recipes
-│   │       │
-│   │       ├── file_ops/                 # File I/O + mutation writers
-│   │       │   ├── mod.rs
-│   │       │   ├── reader.rs
-│   │       │   └── writer.rs
-│   │       │
-│   │       ├── scope_analysis.rs         # def/read/write/import classification
-│   │       ├── call_graph.rs             # Function call graph
-│   │       ├── circular.rs               # Tarjan SCC cycle detection
-│   │       ├── coupling.rs               # Git temporal coupling
-│   │       ├── type_hierarchy.rs         # Native inheritance analysis
-│   │       ├── rename.rs                 # Multi-file rename engine
-│   │       ├── auto_import.rs            # Missing import detection
-│   │       ├── change_signature.rs       # Refactoring: change signature
-│   │       ├── inline.rs                 # Refactoring: inline function
-│   │       ├── move_symbol.rs            # Refactoring: move to file
-│   │       ├── git.rs                    # Git diff/changed files
-│   │       ├── community.rs              # Community detection for clustering
-│   │       ├── embedding.rs              # bundled MiniLM + optional fastembed (2.9K LOC)
-│   │       ├── embedding_store.rs        # sqlite-vec storage
-│   │       ├── memory.rs                 # Project memory store
-│   │       ├── vfs.rs                    # Virtual filesystem normalization
-│   │       ├── watcher.rs                # File watcher (notify + debounce)
-│   │       └── oxc_analysis.rs           # JS/TS semantic analysis (oxc)
+│   │       ├── lang_registry.rs          # 30 parser families, 49 extensions
+│   │       ├── lang_config.rs            # tree-sitter language/query registry
+│   │       ├── symbols/                  # SymbolIndex extraction, reader/writer, ranking
+│   │       ├── db/                       # SQLite + FTS5 + sqlite-vec schema and operations
+│   │       ├── import_graph/             # Import graph, resolvers, dead-code passes
+│   │       ├── lsp/                      # Optional LSP authority and recipes
+│   │       ├── call_graph.rs             # Multi-language call graph extraction
+│   │       ├── redundant_definitions.rs  # Duplicate/redundancy analysis
+│   │       ├── phantom_modules.rs        # Phantom module detection
+│   │       ├── oxc_analysis.rs           # JS/TS OXC-assisted analysis
+│   │       ├── scip_backend.rs           # Optional SCIP-backed precise navigation
+│   │       ├── embedding_types.rs        # Embedding configuration and runtime types
+│   │       ├── embedding_store.rs        # sqlite-vec storage for semantic lanes
+│   │       └── edit_transaction.rs       # Transactional edit staging primitive
 │   │
-│   └── codelens-mcp/                     # MCP server crate
-│       ├── Cargo.toml                    # deps: axum, tokio, serde_json
-│       └── src/
-│           ├── main.rs                   # Entry: CLI args, transport selection
-│           ├── state.rs                  # AppState assembly + shared runtime helpers
-│           ├── state/                    # Project/session/preflight/watcher services
-│           ├── dispatch/                 # Dispatcher, access, response shaping
-│           ├── protocol.rs               # Tool, ToolAnnotations, OutputSchema
-│           ├── error.rs                  # CodeLensError enum
-│           ├── telemetry.rs              # ToolMetricsRegistry (in-memory session)
-│           ├── mutation_gate.rs          # verify_change_readiness enforcement
-│           ├── mutation_audit.rs         # .codelens/audit/mutation-audit.jsonl
-│           ├── preflight_store.rs        # Preflight TTL cache
-│           ├── analysis_queue.rs         # Durable analysis job queue
-│           ├── artifact_store.rs         # Analysis handle storage
-│           ├── job_store.rs              # Job persistence
-│           ├── session_context.rs        # Per-session state
-│           ├── session_metrics_payload.rs
-│           ├── recent_buffer.rs          # Doom-loop detection
-│           ├── client_profile.rs         # Client identity heuristics
-│           ├── authority.rs              # Backend metadata helpers
-│           ├── resource_catalog.rs       # MCP resource registry
-│           ├── resource_context.rs       # Profile-scoped resource access
-│           ├── resource_profiles.rs
-│           ├── resource_analysis.rs
-│           ├── resources.rs              # MCP resource endpoints
-│           ├── prompts.rs                # MCP prompt templates
-│           ├── runtime_types.rs
-│           ├── tool_runtime.rs
-│           ├── test_helpers.rs           # Shared test utilities
-│           │
-│           ├── tool_defs/                # Tool registration
-│           │   ├── mod.rs
-│           │   ├── build.rs              # registered tool definitions (central registry)
-│           │   ├── output_schemas.rs     # 45 output schemas
-│           │   └── presets.rs            # FULL/BALANCED/MINIMAL + profiles
-│           │
-│           ├── server/                   # Transport layer
-│           │   ├── mod.rs
-│           │   ├── router.rs             # JSON-RPC method routing
-│           │   ├── transport_stdio.rs    # stdio transport
-│           │   ├── transport_http.rs     # Streamable HTTP + SSE + Server Card
-│           │   ├── session.rs            # HTTP session management (UUID, TTL)
-│           │   └── oneshot.rs            # CLI one-shot mode
-│           │
-│           └── tools/                    # Tool handler implementations
-│               ├── mod.rs                # Dispatch table + suggest_next_tools
-│               ├── symbols.rs            # Symbol lookup handlers
-│               ├── workflows.rs          # Workflow-first alias layer for agent entrypoints
-│               ├── lsp.rs                # LSP-backed handlers
-│               ├── graph.rs              # Analysis graph handlers
-│               ├── filesystem.rs         # File I/O handlers
-│               ├── mutation.rs           # Code edit handlers
-│               ├── memory.rs             # Memory handlers
-│               ├── composite.rs          # Composite workflow handlers
-│               ├── report_contract.rs    # Analysis-handle contract
-│               ├── report_jobs.rs        # Job lifecycle handlers
-│               ├── report_payload.rs     # Report shaping
-│               ├── report_utils.rs
-│               ├── report_verifier.rs    # Verifier-first mutation gate
-│               ├── reports/              # Workflow report implementations
-│               │   ├── context_reports.rs
-│               │   ├── impact_reports.rs
-│               │   └── verifier_reports.rs
-│               └── session/              # Session-scoped handlers
-│                   ├── metrics_config.rs
-│                   └── project_ops.rs
+│   ├── codelens-mcp/                     # MCP server, transport, tool surface, policy gates
+│   │   ├── tools.toml                    # Declarative tool surface source
+│   │   ├── build.rs                      # Generated surface/schema inputs
+│   │   └── src/
+│   │       ├── main.rs / cli/            # CLI, host attach/doctor/status, manifest printing
+│   │       ├── server/                   # stdio, Streamable HTTP, routing, auth/session support
+│   │       ├── dispatch/                 # Access checks, rate limit, response envelope, handler table
+│   │       ├── state/ and state.rs       # AppState assembly, project/session/runtime services
+│   │       ├── tool_defs/                # Generated tool constructors, schemas, presets/profiles
+│   │       ├── tools/                    # File, symbol, graph, mutation, report, rule, session handlers
+│   │       ├── surface_manifest/         # Runtime/docs manifest builders and host adapters
+│   │       ├── telemetry/                # In-memory metrics plus JSONL writer support
+│   │       ├── resources.rs              # MCP resources, including generated surface resources
+│   │       ├── surface_audit.rs          # Tool-surface consistency and visibility audits
+│   │       ├── orphan_handlers.rs        # Handler/registry consistency checks
+│   │       └── integration_tests/        # Protocol, mutation, readonly, semantic, workflow suites
+│   │
+│   └── codelens-tui/                     # Lightweight terminal UI crate
 │
-├── docs/
-│   ├── architecture.md                   # this file
-│   ├── platform-setup.md                 # per-platform install/config
-│   └── REFERENCE-2026-03.md              # architecture reference snapshot
-│
-├── benchmarks/
-│   ├── token-efficiency.py               # MCP vs Read/Grep A/B (tiktoken cl100k_base)
-│   ├── embedding-quality.py              # MRR / Acc@k
-│   ├── embedding-runtime.py              # latency/throughput
-│   ├── daemon-latency-gate.py            # daemon hot-path p95 gate
-│   ├── embedding-quality-dataset-self.json  # 89 self-matching queries
-│   └── *.json                            # result snapshots
-│
-├── models/                               # ONNX model assets, INT8
-└── install.sh                            # Homebrew / one-line installer
+├── docs/                                 # Human docs plus generated manifest blocks
+├── benchmarks/                           # Token, retrieval, daemon, call-graph, eval gates
+├── scripts/                              # Release, generated-doc, benchmark, install helpers
+├── models/                               # Source-tree model payloads for semantic/source builds
+└── .github/workflows/                    # CI, benchmark, release, publishing gates
 ```
 
 ---
@@ -353,7 +251,7 @@ codelens-mcp-plugin/
    └────┬────┘         └────┬────┘        └────┬────┘
         │                   │                   │
    ┌────▼───────────────────▼───────────────────▼────┐
-   │              tree-sitter (25 languages)         │
+   │        tree-sitter (30 families / 49 extensions)│
    │         Statically linked, zero-config          │
    │         Error recovery, millisecond parsing     │
    └──────────────────────────────────────────────────┘
@@ -361,113 +259,70 @@ codelens-mcp-plugin/
 
 ---
 
-## 4. Tool Ecosystem (Historical Shape Reference)
+## 4. Tool Ecosystem (Current Generated Surface)
 
-This section is a broad shape reference for the product surface.
-For the latest authoritative counts, use the **Current Snapshot** at the top of this file and the audit report in [docs/architecture-audit-2026-04-24.md](architecture-audit-2026-04-24.md).
+The live tool surface is generated from [`crates/codelens-mcp/tools.toml`](../crates/codelens-mcp/tools.toml), emitted through `tool_defs/generated`, and summarized in [`docs/generated/surface-manifest.json`](generated/surface-manifest.json). Do not hand-edit counts in prose; run `python3 scripts/surface-manifest.py --write` after changing tool definitions, profiles, language support, or host-adapter manifests.
 
 ### Preset Distribution
 
-```
-FULL     (89)   ████████████████████████████████████████████  100%
-BALANCED (55)   ██████████████████████████████                 62%
-MINIMAL  (20)   ██████████████                                 22%
-```
+| Preset     | Tools | Intended use                                      |
+| ---------- | ----: | ------------------------------------------------- |
+| `minimal`  |    27 | Small visible surface for simple local sessions   |
+| `balanced` |    82 | Default bounded surface for most agent workflows  |
+| `full`     |   111 | Debugging, audits, and explicit broad inspection  |
 
-### Tool Categories (counted from tool_defs/build.rs)
+### Namespace Distribution
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         89 Tools                                 │
-├───────────────────┬─────────────────┬───────────────────────────┤
-│ File (7)          │ Symbol (7)      │ LSP (7)                   │
-│  read_file        │  get_symbols_   │  find_referencing_symbols │
-│  list_dir         │   overview      │  get_file_diagnostics     │
-│  find_file        │  find_symbol    │  search_workspace_symbols │
-│  search_for_      │  get_ranked_    │  get_type_hierarchy       │
-│   pattern         │   context       │  plan_symbol_rename       │
-│  find_annotations │  search_symbols_│  check_lsp_status         │
-│  find_tests       │   fuzzy         │  get_lsp_recipe           │
-│  get_current_     │  get_complexity │                           │
-│   config          │  get_project_   │                           │
-│                   │   structure     │                           │
-│                   │  refresh_symbol │                           │
-│                   │   _index        │                           │
-├───────────────────┼─────────────────┼───────────────────────────┤
-│ Analysis (7)      │ Edit (17)       │ Workflow/Composite (17)   │
-│  get_changed_     │  rename_symbol  │  onboard_project          │
-│   files           │  replace_symbol │  analyze_change_request   │
-│  get_impact_      │   _body         │  verify_change_readiness  │
-│   analysis        │  replace_content│  find_minimal_context_    │
-│  find_scoped_     │  replace_lines  │   for_change              │
-│   references      │  delete_lines   │  summarize_symbol_impact  │
-│  get_symbol_      │  insert_at_line │  module_boundary_report   │
-│   importance      │  insert_before_ │  safe_rename_report       │
-│  find_dead_code   │   symbol        │  unresolved_reference_    │
-│  find_circular_   │  insert_after_  │   check                   │
-│   dependencies    │   symbol        │  dead_code_report         │
-│  get_change_      │  insert_content │  impact_report            │
-│   coupling        │  replace        │  refactor_safety_report   │
-│                   │  create_text_   │  diff_aware_references    │
-│                   │   file          │  semantic_code_review     │
-│                   │  analyze_       │  start_analysis_job       │
-│                   │   missing_      │  get_analysis_job         │
-│                   │   imports       │  cancel_analysis_job      │
-│                   │  add_import     │  get_analysis_section     │
-│                   │  refactor_      │                           │
-│                   │   extract/      │                           │
-│                   │   inline/       │                           │
-│                   │   move_to_file/ │                           │
-│                   │   change_       │                           │
-│                   │   signature     │                           │
-├───────────────────┼─────────────────┼───────────────────────────┤
-│ Memory (5)        │ Session (16)    │ Semantic (6, cfg-gated)   │
-│  list_memories    │  activate_      │  semantic_search          │
-│  read_memory      │   project       │  index_embeddings         │
-│  write_memory     │  prepare_       │  find_similar_code        │
-│  delete_memory    │   harness_      │  find_code_duplicates     │
-│  rename_memory    │   session       │  classify_symbol          │
-│                   │  prepare_for_   │  find_misplaced_code      │
-│                   │   new_          │                           │
-│                   │   conversation  │                           │
-│                   │  summarize_     │                           │
-│                   │   changes       │                           │
-│                   │  get_watch_     │                           │
-│                   │   status        │                           │
-│                   │  prune_index_   │                           │
-│                   │   failures      │                           │
-│                   │  add/remove/    │                           │
-│                   │   query/list    │                           │
-│                   │   _queryable_   │                           │
-│                   │   project (4)   │                           │
-│                   │  set_preset     │                           │
-│                   │  set_profile    │                           │
-│                   │  get_           │                           │
-│                   │   capabilities  │                           │
-│                   │  get_tool_      │                           │
-│                   │   metrics       │                           │
-│                   │  export_session │                           │
-│                   │   _markdown     │                           │
-│                   │  summarize_file │                           │
-└───────────────────┴─────────────────┴───────────────────────────┘
-```
+| Namespace    | Tools | Main responsibility                                       |
+| ------------ | ----: | --------------------------------------------------------- |
+| `filesystem` |     6 | bounded file/search/test discovery                        |
+| `symbols`    |     9 | symbol lookup, ranked context, references, type hierarchy |
+| `lsp`        |     3 | diagnostics, recipe, and LSP health                       |
+| `graph`      |     8 | changed files, call graph, coupling, complexity           |
+| `mutation`   |    16 | preflight-gated edit primitives and refactors             |
+| `reports`    |    25 | workflow reports, async analysis jobs, review/readiness   |
+| `session`    |    39 | project activation, coordination, audits, capability state |
+| `memory`     |     5 | project memory CRUD                                       |
+
+### Tier Distribution
+
+| Tier        | Tools | Interpretation                                      |
+| ----------- | ----: | --------------------------------------------------- |
+| `primitive` |    53 | direct local lookup/edit operations                 |
+| `analysis`  |    28 | structured reports, audits, and diagnostic helpers  |
+| `workflow`  |    30 | higher-level harness entrypoints and composed flows |
+
+### Profile Surface
+
+| Profile             | Tools | Status     | Notes                                      |
+| ------------------- | ----: | ---------- | ------------------------------------------ |
+| `planner-readonly`  |    32 | active     | planning and context collection            |
+| `builder-minimal`   |    36 | active     | bounded editing surface                    |
+| `reviewer-graph`   |    36 | active     | read-only review and graph evidence        |
+| `evaluator-compact` |    14 | deprecated | kept during the v1.x compatibility window  |
+| `refactor-full`     |    50 | deprecated | use only for explicit mutation-heavy paths |
+| `ci-audit`          |    43 | deprecated | CI/audit compatibility surface             |
+| `workflow-first`    |    19 | deprecated | migration compatibility surface            |
 
 ### Output Schemas
 
-- Output schema coverage is generated from the surface manifest snapshot above
-- All read handles (`analysis_handle`), mutation results, and primary symbol/reference payloads are schema-typed
-- Response annotations include `_meta["anthropic/maxResultSizeChars"]` per MCP v2.1.91+
+- Current source-declared schema coverage is `77 / 111`.
+- All read handles (`analysis_handle`), mutation results, and primary symbol/reference payloads are schema-typed.
+- Response annotations include `_meta["anthropic/maxResultSizeChars"]` per MCP v2.1.91+.
+- The product direction is profile-first: docs and host adapters should advertise compact workflow profiles before the full 111-tool surface.
 
 ---
 
 ## 5. Language Support
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_LANGUAGES:BEGIN -->
+
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](generated/surface-manifest.json).
+
 <!-- SURFACE_MANIFEST_ARCHITECTURE_LANGUAGES:END -->
 
 ---
@@ -484,7 +339,7 @@ The canonical family/extension inventory is generated from `codelens_engine::lan
 │  │  tree-sitter     │      │  LSP (opt-in)    │             │
 │  │  ✓ 0ms 시작      │      │  ✗ 2-30s 콜드    │             │
 │  │  ✓ 제로 설정     │      │  ✗ 서버 설치     │             │
-│  │  ✓ 25개 내장     │      │  ✗ 설정 필요     │             │
+│  │  ✓ 30개 family   │      │  ✗ 설정 필요     │             │
 │  │  ✓ 에러 복구     │      │  ✗ 빌드 실패시   │             │
 │  │  ✓ 결정적        │      │    무응답        │             │
 │  │  DEFAULT ←───────┤      │  use_lsp=true    │             │
@@ -570,24 +425,23 @@ Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurem
 
 | Metric                            | Value                                                                                  |
 | --------------------------------- | -------------------------------------------------------------------------------------- |
-| Total LOC                         | 46,045 (38,820 prod + 7,225 test)                                                      |
-| Rust source files                 | 115                                                                                    |
-| Tools (FULL / BALANCED / MINIMAL) | 89 / 55 / 20                                                                           |
-| Tool categories (base)            | File 7 · Symbol 7 · LSP 7 · Analysis 7 · Edit 17 · Workflow 17 · Memory 5 · Session 16 |
-| Semantic tools (cfg-gated)        | 6                                                                                      |
-| Output schemas                    | historical snapshot, superseded by current `65 / 101` snapshot above                   |
-| Languages                         | 25 (+ Perl deferred)                                                                   |
+| Total LOC                         | historical: 46,045 (38,820 prod + 7,225 test)                                          |
+| Rust source files                 | historical: 115                                                                        |
+| Tools (FULL / BALANCED / MINIMAL) | current: 111 / 82 / 27; historical 2026-04-11: 89 / 55 / 20                            |
+| Tool categories (base)            | current namespaces: filesystem 6 · symbols 9 · lsp 3 · graph 8 · mutation 16 · reports 25 · session 39 · memory 5 |
+| Semantic tools (cfg-gated)        | feature-gated semantic lanes are included only when the binary is built with `semantic` |
+| Output schemas                    | current: `77 / 111` source-declared schemas                                            |
+| Languages                         | current: 30 parser families across 49 extensions                                       |
 | Tests                             | historical snapshot, superseded by current gate totals                                 |
 | Clippy                            | 0 warnings (default + http feature)                                                    |
 | DB schema version                 | v4 (FTS5 + sqlite-vec + self-heal)                                                     |
-| tree-sitter grammars              | 25 (statically linked)                                                                 |
+| tree-sitter grammars              | current: 30 parser families from `codelens_engine::lang_registry`                      |
 | LSP recipes                       | 22 servers                                                                             |
 | Ranking signals                   | 4 (text + pagerank + recency + semantic)                                               |
 | Import resolvers                  | 11 languages (tsconfig.json, go.mod, src/)                                             |
 | Transport                         | stdio, Streamable HTTP + SSE, CLI oneshot                                              |
 | Preset/Profile budgets            | planner / builder / reviewer / refactor / ci-audit                                     |
-| Binary size (release, default)    | ~76 MB (bundled ONNX embedding model)                                                  |
-| Binary size (release, minimal)    | ~23 MB (`--no-default-features`)                                                       |
+| Binary size / model payload       | channel-dependent; crates.io default excludes the ONNX sidecar, release bundles include it |
 
 ### Performance Snapshot
 

@@ -5,6 +5,7 @@
 CodeLens is the coordination and verification layer, not the orchestrator. These harness modes describe the recommended topologies that sit on top of the same MCP/runtime substrate.
 
 <!-- SURFACE_MANIFEST_HARNESS_OVERVIEW:BEGIN -->
+
 - Schema: `codelens-harness-modes-v1`
 - Default communication pattern: `asymmetric-handoff`
 - Live bidirectional agent chat: `discouraged`
@@ -12,11 +13,13 @@ CodeLens is the coordination and verification layer, not the orchestrator. These
 - Builder -> planner escalation: `explicit-only`
 - Shared substrate: `codelens-http-daemon-and-session-audit`
 - Runtime resource: `codelens://harness/modes`
+
 <!-- SURFACE_MANIFEST_HARNESS_OVERVIEW:END -->
 
 ## Mode Details
 
 <!-- SURFACE_MANIFEST_HARNESS_DETAILS:BEGIN -->
+
 ### `solo-local`
 
 Single-agent local work without cross-agent coordination overhead.
@@ -109,6 +112,7 @@ Asynchronous analysis lane for repo-wide or long-running read-side jobs.
 - Recommended audits:
   - audit_planner_session when the run stayed on planner/reviewer surfaces
   - get_tool_metrics(session_id=...) for job-heavy telemetry
+
 <!-- SURFACE_MANIFEST_HARNESS_DETAILS:END -->
 
 ## Notes

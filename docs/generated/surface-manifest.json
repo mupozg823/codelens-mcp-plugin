@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-surface-manifest-v1",
   "workspace": {
-    "version": "1.12.0",
+    "version": "1.13.22",
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
     "members": [
       "crates/codelens-engine",
@@ -11,7 +11,7 @@
     "member_count": 3
   },
   "tool_registry": {
-    "definition_count": 106,
+    "definition_count": 111,
     "output_schema_count": 77,
     "namespaces": {
       "filesystem": 6,
@@ -20,23 +20,23 @@
       "memory": 5,
       "mutation": 16,
       "reports": 25,
-      "session": 34,
+      "session": 39,
       "symbols": 9
     },
     "tiers": {
-      "analysis": 23,
+      "analysis": 28,
       "primitive": 53,
       "workflow": 30
     },
     "phases": {
-      "agnostic": 41,
+      "agnostic": 46,
       "build": 18,
       "eval": 8,
       "plan": 24,
       "review": 15
     },
     "preferred_executors": {
-      "any": 80,
+      "any": 85,
       "claude": 9,
       "codex-builder": 17
     },
@@ -57,7 +57,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 124
+        "estimated_tokens": 176
       },
       {
         "name": "list_dir",
@@ -66,7 +66,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 97
+        "estimated_tokens": 149
       },
       {
         "name": "find_file",
@@ -111,7 +111,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 370
+        "estimated_tokens": 430
       },
       {
         "name": "find_symbol",
@@ -120,7 +120,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 419
+        "estimated_tokens": 500
       },
       {
         "name": "get_ranked_context",
@@ -129,7 +129,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 791
+        "estimated_tokens": 871
       },
       {
         "name": "bm25_symbol_search",
@@ -183,7 +183,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 455
+        "estimated_tokens": 513
       },
       {
         "name": "get_file_diagnostics",
@@ -192,7 +192,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 186
+        "estimated_tokens": 244
       },
       {
         "name": "search_workspace_symbols",
@@ -210,7 +210,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 214
+        "estimated_tokens": 269
       },
       {
         "name": "resolve_symbol_target",
@@ -301,6 +301,51 @@
         "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 92
+      },
+      {
+        "name": "find_redundant_definitions",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 126
+      },
+      {
+        "name": "audit_tool_surface_consistency",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 156
+      },
+      {
+        "name": "find_orphan_handlers",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 162
+      },
+      {
+        "name": "find_over_visible_apis",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 190
+      },
+      {
+        "name": "find_phantom_modules",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 170
       },
       {
         "name": "get_change_coupling",
@@ -750,7 +795,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 3179
+        "estimated_tokens": 3223
       },
       {
         "name": "register_agent_work",
@@ -1048,7 +1093,8 @@
           "get_tool_metrics",
           "audit_builder_session",
           "audit_planner_session"
-        ]
+        ],
+        "deprecated": false
       },
       {
         "name": "builder-minimal",
@@ -1105,7 +1151,8 @@
           "replace",
           "create_text_file",
           "add_import"
-        ]
+        ],
+        "deprecated": false
       },
       {
         "name": "reviewer-graph",
@@ -1160,7 +1207,8 @@
           "audit_planner_session",
           "export_session_markdown",
           "get_file_diagnostics"
-        ]
+        ],
+        "deprecated": false
       },
       {
         "name": "evaluator-compact",
@@ -1193,7 +1241,9 @@
           "get_changed_files",
           "get_capabilities",
           "verify_change_readiness"
-        ]
+        ],
+        "deprecated": true,
+        "deprecation_target": "v2.0"
       },
       {
         "name": "refactor-full",
@@ -1260,7 +1310,9 @@
           "add_import",
           "refactor_move_to_file",
           "refactor_change_signature"
-        ]
+        ],
+        "deprecated": true,
+        "deprecation_target": "v2.0"
       },
       {
         "name": "ci-audit",
@@ -1321,7 +1373,9 @@
           "get_symbols_overview",
           "find_symbol",
           "get_ranked_context"
-        ]
+        ],
+        "deprecated": true,
+        "deprecation_target": "v2.0"
       },
       {
         "name": "workflow-first",
@@ -1354,7 +1408,9 @@
           "set_profile",
           "audit_planner_session",
           "export_session_markdown"
-        ]
+        ],
+        "deprecated": true,
+        "deprecation_target": "v2.0"
       }
     ],
     "presets": [
@@ -1402,7 +1458,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 77,
+        "tool_count": 82,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1452,6 +1508,11 @@
           "get_callees",
           "find_scoped_references",
           "resolve_symbol_target",
+          "find_redundant_definitions",
+          "audit_tool_surface_consistency",
+          "find_orphan_handlers",
+          "find_over_visible_apis",
+          "find_phantom_modules",
           "explain_code_flow",
           "query_project",
           "get_capabilities",
@@ -1496,7 +1557,7 @@
       },
       {
         "name": "full",
-        "tool_count": 106,
+        "tool_count": 111,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1556,6 +1617,11 @@
           "refactor_change_signature",
           "find_relevant_rules",
           "resolve_symbol_target",
+          "find_redundant_definitions",
+          "audit_tool_surface_consistency",
+          "find_orphan_handlers",
+          "find_over_visible_apis",
+          "find_phantom_modules",
           "explain_code_flow",
           "query_project",
           "get_capabilities",
@@ -3148,17 +3214,17 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.12.0",
+    "version": "1.13.22",
     "transport": [
       "stdio",
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 77,
+    "visible_tool_count": 82,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": false,
-    "supports_scip_backend": false,
+    "supports_scip_backend": true,
     "supports_otel": false,
     "server_card_features": [
       "role-based-tool-surfaces",
@@ -3179,16 +3245,17 @@
       "host-adapter-spec",
       "agent-experience-spec",
       "handoff-artifact-schema",
-      "streamable-http"
+      "streamable-http",
+      "scip-precise-backend"
     ]
   },
   "summary": {
-    "workspace_version": "1.12.0",
+    "workspace_version": "1.13.22",
     "workspace_member_count": 3,
-    "registered_tool_definitions": 106,
+    "registered_tool_definitions": 111,
     "tool_output_schemas": {
       "declared": 77,
-      "total": 106
+      "total": 111
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,
