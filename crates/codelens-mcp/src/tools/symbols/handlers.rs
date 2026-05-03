@@ -794,7 +794,7 @@ pub fn search_symbols_fuzzy(state: &AppState, arguments: &Value) -> ToolResult {
     let pagerank_ref = if pagerank_scores.is_empty() {
         None
     } else {
-        Some(&pagerank_scores)
+        Some(pagerank_scores.as_ref())
     };
 
     Ok(search_symbols_hybrid_with_semantic(
