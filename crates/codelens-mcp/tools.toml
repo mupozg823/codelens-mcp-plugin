@@ -507,6 +507,18 @@ properties = { max_results = { type = "integer" } }
 # ─────
 
 [[tool]]
+name = "find_phantom_modules"
+category = "analysis"
+description = "[CodeLens:Analysis] Find `mod NAME;` declarations whose name is never referenced as a path segment elsewhere in the workspace. Reports both private and public mods; visibility is included so callers can filter. Known limitation: impl-extension pattern (file split where the module only adds `impl X { ... }` to a parent type) is reported but is not actually phantom — manual review required."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+properties = { max_results = { type = "integer" } }
+
+# ─────
+
+[[tool]]
 name = "get_change_coupling"
 category = "analysis"
 description = "[CodeLens:Analysis] Files that frequently change together in git history."
