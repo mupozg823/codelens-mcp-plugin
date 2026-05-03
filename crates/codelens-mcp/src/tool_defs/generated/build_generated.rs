@@ -44,6 +44,31 @@ pub fn analysis_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Too
             json!({"type":"object","properties":{"max_results":{"type":"integer"}}}),
         ).with_annotations(ro_a.clone()),
         Tool::new(
+            "find_redundant_definitions",
+            "[CodeLens:Analysis] Find Rust thin-wrapper functions whose body is a single call to another function with one literal default. Output groups by target so multi-wrapper substrates surface as cleanup clusters.",
+            json!({"type":"object","properties":{"max_results":{"type":"integer"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "audit_tool_surface_consistency",
+            "[CodeLens:Analysis] Cross-check `tools.toml` entries against `dispatch_table()` macro arms and report drift. `missing_in_dispatch` = registered in toml but no handler arm; `missing_in_toml` = dispatched but missing schema entry. Catches deletion-cascade asymmetry that would otherwise surface as runtime `tool not found` or schema validation failures.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_orphan_handlers",
+            "[CodeLens:Analysis] Find ToolHandler-shaped functions in `crates/codelens-mcp/src/tools/` that are neither registered in dispatch tables (`tools/mod.rs` macro arms or `dispatch/table.rs` Arc::new inserts) nor referenced from any other workspace .rs file. v2 added the cross-file reference check so handler-shaped helpers (a `*_tool` calling another via path) no longer surface as false orphans.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_over_visible_apis",
+            "[CodeLens:Analysis] Find `pub` / `pub(crate)` declarations whose references all stay inside a narrower scope than they advertise. `pub` with no cross-crate caller → suggest `pub(crate)`. `pub(crate)` with no other-file caller → suggest dropping visibility. Complements find_phantom_modules / find_redundant_definitions: those find dead surface, this one finds too-wide surface that compiler warnings cannot catch because the items are still in use, just not by anyone outside the declaring boundary.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_phantom_modules",
+            "[CodeLens:Analysis] Find `mod NAME;` declarations whose name is never referenced as a path segment elsewhere in the workspace. Reports both private and public mods; visibility is included so callers can filter. Known limitation: impl-extension pattern (file split where the module only adds `impl X { ... }` to a parent type) is reported but is not actually phantom — manual review required.",
+            json!({"type":"object","properties":{"max_results":{"type":"integer"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
             "get_change_coupling",
             "[CodeLens:Analysis] Files that frequently change together in git history.",
             json!({"type":"object","properties":{"months":{"type":"integer"},"min_strength":{"type":"number"},"min_commits":{"type":"integer"},"max_results":{"type":"integer"}}}),
