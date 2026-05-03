@@ -55,7 +55,11 @@ pub fn find_redundant_definitions(
             Err(_) => continue,
         };
         let relative = project.to_relative(path);
-        scan_rust_source(&source, &relative, &mut results);
+        if is_test_file(&relative) {
+            continue;
+        }
+        let production_source = strip_cfg_test_modules(&source);
+        scan_rust_source(&production_source, &relative, &mut results);
         if max_results > 0 && results.len() >= max_results {
             break;
         }
@@ -107,6 +111,98 @@ fn is_rust_file(path: &Path) -> bool {
     path.extension().and_then(|s| s.to_str()) == Some("rs")
 }
 
+/// Skip canonical test/example/bench harness files. Heuristic: any path
+/// segment named `tests`, `bench`, `benches`, `examples`, or any file
+/// ending in `_tests.rs`/`_test.rs`. Self-detector module is also
+/// skipped to avoid flagging its own fixture strings.
+fn is_test_file(relative: &str) -> bool {
+    if relative == "crates/codelens-engine/src/redundant_definitions.rs" {
+        return true;
+    }
+    let lower = relative.to_ascii_lowercase();
+    if lower.ends_with("_tests.rs") || lower.ends_with("_test.rs") {
+        return true;
+    }
+    lower.split('/').any(|seg| {
+        matches!(
+            seg,
+            "tests" | "test" | "bench" | "benches" | "examples" | "fixtures"
+        )
+    })
+}
+
+/// Removes `#[cfg(test)] mod ... { ... }` blocks (matched by regex with
+/// nested braces handled by depth counting). This filters out test-only
+/// helper functions that share the wrapper shape but are not production
+/// code paths.
+fn strip_cfg_test_modules(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut chars = source.char_indices().peekable();
+    while let Some(&(idx, ch)) = chars.peek() {
+        if ch == '#' {
+            // try to match #[cfg(test)] mod NAME {
+            let rest = &source[idx..];
+            if let Some(open_brace_offset) = match_cfg_test_mod_header(rest) {
+                let body_start = idx + open_brace_offset;
+                let body_end = match find_matching_brace(source, body_start) {
+                    Some(e) => e,
+                    None => {
+                        out.push(ch);
+                        chars.next();
+                        continue;
+                    }
+                };
+                // skip over the entire `#[cfg(test)] mod NAME { ... }`
+                while let Some(&(j, _)) = chars.peek() {
+                    if j > body_end {
+                        break;
+                    }
+                    chars.next();
+                }
+                continue;
+            }
+        }
+        out.push(ch);
+        chars.next();
+    }
+    out
+}
+
+/// If `rest` starts with `#[cfg(test)] mod NAME {`, return the byte
+/// offset of the `{`. Otherwise None. Tolerant of attribute whitespace
+/// variants but not of comments inside the attribute.
+fn match_cfg_test_mod_header(rest: &str) -> Option<usize> {
+    static HEADER_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{")
+            .unwrap()
+    });
+    HEADER_RE.find(rest).map(|m| m.end() - 1)
+}
+
+/// Returns the byte index of the matching `}` for the `{` at `open_idx`.
+fn find_matching_brace(source: &str, open_idx: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    if bytes.get(open_idx) != Some(&b'{') {
+        return None;
+    }
+    let mut depth = 1usize;
+    let mut i = open_idx + 1;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +246,72 @@ pub fn loop_me(&self) { self.loop_me(0) }
         scan_rust_source(source, "x.rs", &mut out);
         // wrapper == target → not flagged (would be infinite recursion, not delegation)
         assert!(out.is_empty(), "got: {:?}", out);
+    }
+
+    #[test]
+    fn strip_cfg_test_modules_removes_test_block() {
+        let source = r#"
+pub fn real_thing(&self) { self.real_thing_inner(None) }
+
+#[cfg(test)]
+mod tests {
+    fn helper() { foo(true) }
+}
+"#;
+        let stripped = super::strip_cfg_test_modules(source);
+        assert!(stripped.contains("real_thing"));
+        assert!(
+            !stripped.contains("foo(true)"),
+            "test mod should be gone: {}",
+            stripped
+        );
+    }
+
+    #[test]
+    fn is_test_file_recognizes_canonical_paths() {
+        assert!(super::is_test_file("crates/foo/tests/something.rs"));
+        assert!(super::is_test_file("crates/foo/src/internals_tests.rs"));
+        assert!(super::is_test_file("benchmarks/bench/runner.rs"));
+        assert!(!super::is_test_file("crates/foo/src/main.rs"));
+        assert!(super::is_test_file(
+            "crates/codelens-engine/src/redundant_definitions.rs"
+        ));
+    }
+
+    #[test]
+    #[ignore]
+    fn dogfood_self_repo() {
+        // Run with: cargo test -p codelens-engine dogfood_self_repo -- --ignored --nocapture
+        let repo = std::env::var("CODELENS_REPO_ROOT")
+            .unwrap_or_else(|_| "/Users/bagjaeseog/codelens-mcp-plugin".to_owned());
+        let project = crate::project::ProjectRoot::new(repo).expect("project root");
+        let results =
+            super::find_redundant_definitions(&project, 200).expect("find_redundant_definitions");
+        eprintln!(
+            "\n=== {} redundant definitions in self (post v2 filtering) ===\n",
+            results.len()
+        );
+        let mut groups: std::collections::BTreeMap<&str, Vec<&RedundantDefinitionEntry>> =
+            std::collections::BTreeMap::new();
+        for r in &results {
+            groups.entry(r.target.as_str()).or_default().push(r);
+        }
+        let mut multi: Vec<_> = groups.iter().filter(|(_, v)| v.len() >= 2).collect();
+        multi.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+        eprintln!("Multi-wrapper clusters: {}\n", multi.len());
+        for (target, members) in &multi {
+            eprintln!("  {} ← {}", target, members.len());
+            for m in members.iter().take(3) {
+                eprintln!("      {} at {}:{}", m.wrapper, m.file, m.line);
+            }
+            if members.len() > 3 {
+                eprintln!("      ... +{} more", members.len() - 3);
+            }
+        }
+        eprintln!("\nFirst 30 hits:\n");
+        for r in results.iter().take(30) {
+            eprintln!("  {} -> {}  ({}:{})", r.wrapper, r.target, r.file, r.line);
+        }
     }
 
     #[test]
