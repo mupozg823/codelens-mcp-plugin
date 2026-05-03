@@ -94,6 +94,16 @@ jobs:
       - name: call-graph accuracy bench
         run: cargo test -p codelens-engine --test call_graph_accuracy -- --nocapture
 
+      # v1.13.22: ranking signal regression gate. The PageRank →
+      # search_symbols_hybrid integration shipped in v1.13.16 (Phase
+      # 3-A) is wired through several hops; isolated unit tests in
+      # search.rs::tests cannot catch a hop being silently disconnected
+      # (e.g. handler.rs forgetting to forward the Option, or signature
+      # contract drifting). Running this on its own line surfaces such
+      # regressions as a discrete CI failure.
+      - name: ranking signal regression gate
+        run: cargo test -p codelens-engine --test ranking_pagerank_effect -- --nocapture
+
       - name: cargo doctest
         run: cargo test --doc --workspace
 
