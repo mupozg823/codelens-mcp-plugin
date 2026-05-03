@@ -117,10 +117,14 @@ fn scan_declarations(source: &str, file: &str, out: &mut Vec<PhantomModuleEntry>
     }
 }
 
-/// Returns true when the line immediately above `offset` is a
-/// `#[cfg(test)]`-style attribute. Walks one line back, skipping blank
-/// lines but not other attributes (so `#[derive(...)]` followed by mod
-/// is *not* treated as cfg-gated).
+/// Returns true when the line immediately above `offset` is a positive
+/// `#[cfg(test)]`-style attribute (i.e. test-only). Walks one line back,
+/// skipping blank lines but not other attributes.
+///
+/// Codex P2 (PR #154): the previous predicate matched any cfg attribute
+/// containing the substring `test`, which incorrectly skipped
+/// `#[cfg(not(test))] mod live;` (production-only). Now: explicit
+/// rejection of `not(test)` patterns.
 fn line_before_is_cfg_test(source: &str, offset: usize) -> bool {
     let line_start = source[..offset]
         .rfind('\n')
@@ -134,13 +138,26 @@ fn line_before_is_cfg_test(source: &str, offset: usize) -> bool {
         let prev_start = source[..prev_end].rfind('\n').map(|i| i + 1).unwrap_or(0);
         let prev_line = source[prev_start..prev_end].trim();
         if !prev_line.is_empty() {
-            return prev_line.starts_with("#[cfg") && prev_line.contains("test");
+            return is_positive_cfg_test_attribute(prev_line);
         }
         if prev_start == 0 {
             return false;
         }
         prev_end = prev_start - 1;
     }
+}
+
+fn is_positive_cfg_test_attribute(line: &str) -> bool {
+    if !line.starts_with("#[cfg") {
+        return false;
+    }
+    // Reject negation forms: `#[cfg(not(test))]`, `#[cfg(all(not(test), ...))]`,
+    // and `#[cfg(any(not(test), ...))]`. These gate code INTO production,
+    // not out of it.
+    if line.contains("not(test)") {
+        return false;
+    }
+    line.contains("test")
 }
 
 /// Adds every identifier that participates in any `::`-adjacent position
@@ -239,6 +256,21 @@ mod tests {
         scan_declarations("mod inline { fn x() {} }\n", "lib.rs", &mut decls);
         // inline `mod NAME { ... }` should NOT match (no trailing `;`)
         assert!(decls.is_empty(), "got: {:?}", decls);
+    }
+
+    #[test]
+    fn cfg_not_test_is_not_treated_as_cfg_test() {
+        // Codex P2 (PR #154): #[cfg(not(test))] is production-only — must NOT
+        // be skipped by the cfg-test filter.
+        let mut decls = Vec::new();
+        scan_declarations(
+            "#[cfg(not(test))]\nmod live;\n#[cfg(any(not(test), feature = \"x\"))]\nmod live2;\n",
+            "lib.rs",
+            &mut decls,
+        );
+        assert_eq!(decls.len(), 2, "got: {:?}", decls);
+        assert_eq!(decls[0].module_name, "live");
+        assert_eq!(decls[1].module_name, "live2");
     }
 
     #[test]
