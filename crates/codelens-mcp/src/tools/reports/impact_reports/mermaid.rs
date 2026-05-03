@@ -5,7 +5,10 @@ use crate::tools::report_utils::stable_cache_key;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-use super::{file_name, impact_entry_file, mermaid_escape_label, parent_dir};
+use super::{
+    ScopeBoundarySummary, collect_scope_boundary_summary, file_name, impact_entry_file,
+    mermaid_escape_label, parent_dir,
+};
 
 /// Render a Mermaid `flowchart LR` diagram summarising direct importers
 /// (upstream) and blast-radius dependencies (downstream) of a target file.
@@ -155,6 +158,9 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
         .get("max_nodes")
         .and_then(Value::as_u64)
         .unwrap_or(10) as usize;
+    if let Some(scope) = collect_scope_boundary_summary(state, path)? {
+        return mermaid_scope_graph(state, arguments, path, scope, max_nodes);
+    }
 
     let impact = crate::tools::graph::get_impact_analysis(
         state,
@@ -220,4 +226,141 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
         None,
         Some(arguments),
     )
+}
+
+fn mermaid_scope_graph(
+    state: &AppState,
+    arguments: &Value,
+    path: &str,
+    scope: ScopeBoundarySummary,
+    max_nodes: usize,
+) -> ToolResult {
+    let mermaid = render_scope_mermaid(&scope, max_nodes);
+    let top_findings = vec![format!(
+        "{} files, {} internal edges, {} external importers, {} external dependencies",
+        scope.file_count,
+        scope.internal_edge_count,
+        scope.inbound_external_count,
+        scope.outbound_external_count
+    )];
+
+    let mut sections = BTreeMap::new();
+    sections.insert(
+        "diagram".to_owned(),
+        json!({
+            "format": "mermaid",
+            "syntax": "flowchart",
+            "content": mermaid,
+            "hint": "Embed the `content` field in a fenced ```mermaid block to render in GitHub / GitLab / VS Code Markdown.",
+        }),
+    );
+    sections.insert(
+        "stats".to_owned(),
+        json!({
+            "target": path,
+            "scope": scope.scope,
+            "files_total": scope.file_count,
+            "internal_edges_total": scope.internal_edge_count,
+            "internal_edges_rendered": scope.internal_edges.len(),
+            "external_importers_total": scope.inbound_external_count,
+            "external_importers_rendered": scope.inbound_external.len(),
+            "external_dependencies_total": scope.outbound_external_count,
+            "external_dependencies_rendered": scope.outbound_external.len(),
+            "external_affected_total": scope.affected_external_count,
+            "external_affected_rendered": scope.affected_external.len(),
+            "max_nodes_rendered": max_nodes,
+            "truncated": scope.truncated,
+        }),
+    );
+    sections.insert("top_files".to_owned(), json!(scope.top_files));
+    sections.insert(
+        "internal_edges".to_owned(),
+        json!(
+            scope
+                .internal_edges
+                .iter()
+                .map(|(source, target)| json!({"source": source, "target": target}))
+                .collect::<Vec<_>>()
+        ),
+    );
+
+    make_handle_response(
+        state,
+        "mermaid_module_graph",
+        stable_cache_key(
+            "mermaid_module_graph",
+            &json!({"path": path, "max_nodes": max_nodes, "scope_kind": "directory"}),
+            &["path", "max_nodes", "scope_kind"],
+        ),
+        format!("Mermaid flowchart of directory dependency boundaries for `{path}`."),
+        top_findings,
+        0.88,
+        vec![
+            "Use module_boundary_report for the tabular scope evidence".to_owned(),
+            "Inspect top_files before changing ownership boundaries".to_owned(),
+        ],
+        sections,
+        vec![path.to_owned()],
+        None,
+        Some(arguments),
+    )
+}
+
+fn render_scope_mermaid(scope: &ScopeBoundarySummary, max_nodes: usize) -> String {
+    let mut out = String::from("flowchart LR\n");
+    out.push_str("    classDef scope fill:#e8f4ff,stroke:#2563eb,stroke-width:2px\n");
+    out.push_str("    classDef file fill:#eefbf3,stroke:#15803d\n");
+    out.push_str("    classDef external fill:#fff7ed,stroke:#c2410c\n");
+    out.push_str("    scope0[\"");
+    out.push_str(&mermaid_escape_label(&scope.scope));
+    out.push_str("\"]:::scope\n");
+
+    if !scope.inbound_external.is_empty() {
+        out.push_str(&format!(
+            "    external_in[\"{} external importer(s)\"]:::external\n",
+            scope.inbound_external.len()
+        ));
+        out.push_str("    external_in --> scope0\n");
+    }
+    if !scope.outbound_external.is_empty() {
+        out.push_str(&format!(
+            "    external_out[\"{} external dependency file(s)\"]:::external\n",
+            scope.outbound_external.len()
+        ));
+        out.push_str("    scope0 --> external_out\n");
+    }
+    if !scope.affected_external.is_empty() {
+        out.push_str(&format!(
+            "    external_affected[\"{} externally affected file(s)\"]:::external\n",
+            scope.affected_external.len()
+        ));
+        out.push_str("    scope0 --> external_affected\n");
+    }
+
+    let files: Vec<&str> = scope
+        .top_files
+        .iter()
+        .filter_map(|entry| entry.get("file").and_then(Value::as_str))
+        .take(max_nodes)
+        .collect();
+    for (idx, file) in files.iter().enumerate() {
+        out.push_str(&format!(
+            "    f{}[\"{}\"]:::file\n",
+            idx,
+            mermaid_escape_label(file_name(file))
+        ));
+        out.push_str(&format!("    scope0 --- f{idx}\n"));
+    }
+
+    for (source, target) in scope.internal_edges.iter().take(max_nodes) {
+        let Some(source_idx) = files.iter().position(|file| *file == source) else {
+            continue;
+        };
+        let Some(target_idx) = files.iter().position(|file| *file == target) else {
+            continue;
+        };
+        out.push_str(&format!("    f{source_idx} --> f{target_idx}\n"));
+    }
+
+    out
 }

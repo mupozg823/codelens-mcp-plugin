@@ -36,7 +36,9 @@ jobs:
         with:
           shared-key: bench
       - name: Run benchmarks
-        run: cargo bench -p codelens-engine -- --save-baseline main
+        run: |
+          cargo bench -p codelens-engine --bench search_paths -- --save-baseline main
+          cargo bench -p codelens-engine --bench indexing -- --save-baseline main
       - name: Save baseline JSON
         run: python3 scripts/bench-compare.py --save-baseline main
       - name: Upload baseline artifact
@@ -64,7 +66,9 @@ jobs:
         # Allow failure on first PR after baseline workflow creation
         continue-on-error: true
       - name: Run benchmarks
-        run: cargo bench -p codelens-engine -- --baseline main
+        run: |
+          cargo bench -p codelens-engine --bench search_paths -- --baseline main
+          cargo bench -p codelens-engine --bench indexing -- --baseline main
         continue-on-error: true
       - name: Compare against baseline
         id: compare

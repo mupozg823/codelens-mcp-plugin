@@ -8,13 +8,17 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use super::{
-    build_dead_code_semantic_query, build_module_semantic_query, insert_semantic_status,
-    semantic_degraded_note,
+    ScopeBoundarySummary, build_dead_code_semantic_query, build_module_semantic_query,
+    collect_scope_boundary_summary, insert_semantic_status, semantic_degraded_note,
 };
 
 #[allow(deprecated)]
 pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
+    if let Some(scope) = collect_scope_boundary_summary(state, path)? {
+        return module_scope_boundary_report(state, arguments, scope);
+    }
+
     let impact = crate::tools::graph::get_impact_analysis(
         state,
         &json!({"file_path": path, "max_depth": 2}),
@@ -123,6 +127,98 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         format!("Module boundary report for `{path}` with inbound/outbound and structural risk."),
         top_findings,
         0.87,
+        next_actions,
+        sections,
+        vec![path.to_owned()],
+        None,
+        Some(arguments),
+    )
+}
+
+fn module_scope_boundary_report(
+    state: &AppState,
+    arguments: &Value,
+    scope: ScopeBoundarySummary,
+) -> ToolResult {
+    let top_findings = vec![
+        format!(
+            "{} import-capable file(s), {} internal edge(s), {} external importer(s)",
+            scope.file_count, scope.internal_edge_count, scope.inbound_external_count
+        ),
+        format!(
+            "{} external dependency edge(s), {} externally affected file(s)",
+            scope.outbound_external_count, scope.affected_external_count
+        ),
+    ];
+
+    let mut sections = BTreeMap::new();
+    sections.insert(
+        "scope_summary".to_owned(),
+        json!({
+            "scope": scope.scope,
+            "resolved_path": scope.resolved_path,
+            "file_count": scope.file_count,
+            "truncated": scope.truncated,
+            "internal_edge_count": scope.internal_edge_count,
+            "internal_edges_returned": scope.internal_edges.len(),
+            "external_importer_count": scope.inbound_external_count,
+            "external_importers_returned": scope.inbound_external.len(),
+            "external_dependency_count": scope.outbound_external_count,
+            "external_dependencies_returned": scope.outbound_external.len(),
+            "external_affected_count": scope.affected_external_count,
+            "external_affected_returned": scope.affected_external.len(),
+        }),
+    );
+    sections.insert("top_files".to_owned(), json!(scope.top_files));
+    sections.insert(
+        "internal_edges".to_owned(),
+        json!(
+            scope
+                .internal_edges
+                .iter()
+                .map(|(source, target)| json!({"source": source, "target": target}))
+                .collect::<Vec<_>>()
+        ),
+    );
+    sections.insert(
+        "external_importers".to_owned(),
+        json!(scope.inbound_external),
+    );
+    sections.insert(
+        "external_dependencies".to_owned(),
+        json!(scope.outbound_external),
+    );
+    sections.insert(
+        "external_affected".to_owned(),
+        json!(scope.affected_external),
+    );
+
+    let final_semantic_status = semantic_status(state);
+    insert_semantic_status(&mut sections, final_semantic_status.clone());
+    let mut next_actions = vec![
+        "Inspect high-score files before changing module ownership".to_owned(),
+        "Check external importers before moving or deleting public module files".to_owned(),
+    ];
+    if let Some(note) = semantic_degraded_note(&final_semantic_status) {
+        crate::util::push_unique_string(
+            &mut next_actions,
+            "Run index_embeddings before trusting semantic-only coupling hints",
+        );
+        crate::util::push_unique_string(&mut next_actions, note);
+    }
+
+    let path = required_string(arguments, "path")?;
+    make_handle_response(
+        state,
+        "module_boundary_report",
+        stable_cache_key(
+            "module_boundary_report",
+            &json!({"path": path, "scope_kind": "directory"}),
+            &["path", "scope_kind"],
+        ),
+        format!("Directory boundary report for `{path}` with subtree import evidence."),
+        top_findings,
+        0.86,
         next_actions,
         sections,
         vec![path.to_owned()],

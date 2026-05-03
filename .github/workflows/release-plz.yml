@@ -23,7 +23,21 @@ jobs:
       - name: Run release-plz
         id: release-plz
         uses: MarcoIeni/release-plz-action@v0.5
+        continue-on-error: true
         with:
           command: release-pr
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Explain skipped or blocked release PR
+        if: steps.release-plz.outcome == 'failure'
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Release Plz did not open a PR
+
+          The release-pr lane is non-blocking because this repository may disallow
+          GitHub Actions from creating pull requests with the default GITHUB_TOKEN.
+          Enable the repository setting "Allow GitHub Actions to create and approve
+          pull requests" or provide a RELEASE_PLZ_TOKEN secret with pull request
+          creation permission.
+          EOF

@@ -457,3 +457,48 @@ fn review_architecture_with_diagram_uses_mermaid() {
         json!("mermaid_module_graph")
     );
 }
+
+#[test]
+fn review_architecture_directory_diagram_reports_scope_evidence() {
+    let project = project_root();
+    let src = project.as_path().join("src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("a.ts"),
+        "import { b } from './b'\nexport const a = b\n",
+    )
+    .unwrap();
+    fs::write(src.join("b.ts"), "export const b = 1\n").unwrap();
+    fs::write(
+        project.as_path().join("outside.ts"),
+        "import { a } from './src/a'\nconsole.log(a)\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "review_architecture",
+        json!({
+            "path": src.to_string_lossy(),
+            "include_diagram": true,
+            "max_nodes": 10,
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("review_architecture"));
+    assert_eq!(
+        payload["data"]["delegated_tool"],
+        json!("mermaid_module_graph")
+    );
+    let finding = payload["data"]["top_findings"][0]
+        .as_str()
+        .expect("top finding");
+    assert!(
+        finding.contains("2 files"),
+        "directory report should summarize scoped files: {finding}"
+    );
+    assert!(
+        finding.contains("external importers"),
+        "directory report should include boundary evidence: {finding}"
+    );
+}
