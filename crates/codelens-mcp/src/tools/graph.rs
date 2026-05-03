@@ -7,7 +7,7 @@ use crate::tools::symbols::flatten_symbols;
 use codelens_engine::{
     find_circular_dependencies, find_dead_code_v2, find_scoped_references, get_blast_radius,
     get_callees, get_callers, get_change_coupling, get_changed_files, get_importance,
-    get_importers,
+    get_importers, redundant_definitions,
 };
 use serde_json::{Map, Value, json};
 
@@ -217,6 +217,37 @@ pub(crate) fn find_dead_code_v2_tool(
             )
         })?,
     )
+}
+
+pub fn find_redundant_definitions_tool(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> ToolResult {
+    let max_results = optional_usize(arguments, "max_results", 50);
+    let entries =
+        redundant_definitions::find_redundant_definitions(&state.project(), max_results)?;
+    let mut groups: std::collections::BTreeMap<String, Vec<&_>> = std::collections::BTreeMap::new();
+    for entry in &entries {
+        groups.entry(entry.target.clone()).or_default().push(entry);
+    }
+    let grouped = groups
+        .iter()
+        .map(|(target, members)| {
+            json!({
+                "target": target,
+                "wrapper_count": members.len(),
+                "wrappers": members,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok((
+        json!({
+            "redundant_definitions": entries,
+            "count": entries.len(),
+            "grouped_by_target": grouped,
+        }),
+        success_meta(BackendKind::TreeSitter, 0.85),
+    ))
 }
 
 pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
