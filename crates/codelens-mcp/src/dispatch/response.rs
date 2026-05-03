@@ -115,7 +115,6 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     resp.budget_hint = Some(hint);
     resp.elapsed_ms = Some(elapsed_ms as u64);
     resp.routing_hint = Some(routing_hint_for_payload(&resp));
-    resp.reasoning_scaffold = tools::reasoning_scaffold::reasoning_scaffold_for(name);
 
     let emitted_composite_guidance =
         apply_contextual_guidance(&mut resp, name, &recent_tools, harness_phase, surface);

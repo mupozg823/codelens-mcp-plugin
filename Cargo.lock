@@ -451,7 +451,7 @@ dependencies = [
 
 [[package]]
 name = "codelens-engine"
-version = "1.12.3"
+version = "1.13.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "codelens-mcp"
-version = "1.12.3"
+version = "1.13.0"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
@@ -553,7 +553,7 @@ dependencies = [
 
 [[package]]
 name = "codelens-tui"
-version = "1.12.3"
+version = "1.13.0"
 dependencies = [
  "anyhow",
  "codelens-engine",

@@ -6,7 +6,6 @@ pub mod lsp;
 pub mod memory;
 pub mod mutation;
 pub(crate) mod query_analysis;
-pub(crate) mod reasoning_scaffold;
 mod report_contract;
 pub(crate) mod report_jobs;
 mod report_payload;
