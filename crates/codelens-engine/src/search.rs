@@ -23,6 +23,11 @@ pub struct SearchResult {
     pub match_type: String, // "exact", "substring", "fuzzy"
 }
 
+/// Maximum PageRank boost added to a result when its file ranks at the top
+/// of the import graph. Sized to be smaller than fuzzy/FTS spread so it tilts
+/// near-ties toward globally important files without overpowering text relevance.
+pub const PAGERANK_MAX_BOOST: f64 = 5.0;
+
 /// Hybrid symbol search: exact → FTS5 → fuzzy → semantic.
 ///
 /// `fuzzy_threshold` — minimum jaro_winkler similarity (0.0–1.0).
@@ -37,16 +42,22 @@ pub fn search_symbols_hybrid(
     max_results: usize,
     fuzzy_threshold: f64,
 ) -> Result<Vec<SearchResult>> {
-    search_symbols_hybrid_with_semantic(project, query, max_results, fuzzy_threshold, None)
+    search_symbols_hybrid_with_semantic(project, query, max_results, fuzzy_threshold, None, None)
 }
 
-/// Full hybrid search with optional semantic scores.
+/// Full hybrid search with optional semantic scores and PageRank file importance.
+///
+/// `pagerank_scores` — optional per-file PageRank values from `GraphCache::file_pagerank_scores`.
+/// When supplied, the top-ranked file in the import graph gains `PAGERANK_MAX_BOOST`
+/// points; lower-ranked files scale linearly. The boost is applied before the
+/// final sort so it can break near-ties between text-relevance matches.
 pub fn search_symbols_hybrid_with_semantic(
     project: &ProjectRoot,
     query: &str,
     max_results: usize,
     fuzzy_threshold: f64,
     semantic_scores: Option<&std::collections::HashMap<String, f64>>,
+    pagerank_scores: Option<&std::collections::HashMap<String, f64>>,
 ) -> Result<Vec<SearchResult>> {
     let db_path = index_db_path(project.as_path());
     let db = IndexDb::open(&db_path)?;
@@ -162,6 +173,10 @@ pub fn search_symbols_hybrid_with_semantic(
         }
     }
 
+    if let Some(pr) = pagerank_scores {
+        apply_pagerank_boost(&mut results, pr, PAGERANK_MAX_BOOST);
+    }
+
     results.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
@@ -191,6 +206,29 @@ pub fn search_symbols_hybrid_with_semantic(
 
     results.truncate(max_results);
     Ok(results)
+}
+
+/// Adds a PageRank-derived boost (0 .. `max_boost`) to each result based on
+/// where its file ranks in the import graph. Uses max-normalization so the
+/// boost magnitude is independent of graph size or absolute PageRank values.
+/// Applied in-place before the final sort.
+fn apply_pagerank_boost(
+    results: &mut [SearchResult],
+    pagerank_scores: &std::collections::HashMap<String, f64>,
+    max_boost: f64,
+) {
+    let max_pr = pagerank_scores
+        .values()
+        .copied()
+        .fold(0.0_f64, f64::max);
+    if max_pr <= 0.0 {
+        return;
+    }
+    for result in results.iter_mut() {
+        if let Some(&pr) = pagerank_scores.get(&result.file) {
+            result.score += (pr / max_pr) * max_boost;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -328,6 +366,7 @@ mod tests {
             10,
             0.99, // high fuzzy threshold to disable fuzzy path
             Some(&scores),
+            None,
         )
         .unwrap();
 
@@ -354,9 +393,15 @@ mod tests {
         let mut scores = std::collections::HashMap::new();
         scores.insert("main.py:ServiceManager".to_owned(), 0.9);
 
-        let boosted =
-            search_symbols_hybrid_with_semantic(&project, "ServiceManager", 10, 0.5, Some(&scores))
-                .unwrap();
+        let boosted = search_symbols_hybrid_with_semantic(
+            &project,
+            "ServiceManager",
+            10,
+            0.5,
+            Some(&scores),
+            None,
+        )
+        .unwrap();
 
         assert!(
             boosted[0].score > baseline_score,
@@ -379,6 +424,7 @@ mod tests {
             10,
             0.99,
             Some(&scores),
+            None,
         )
         .unwrap();
 
@@ -399,14 +445,88 @@ mod tests {
         scores.insert("main.py:ServiceManager".to_owned(), 0.9);
         scores.insert("main.py:helper".to_owned(), 0.7);
 
-        let results =
-            search_symbols_hybrid_with_semantic(&project, "ServiceManager", 20, 0.5, Some(&scores))
-                .unwrap();
+        let results = search_symbols_hybrid_with_semantic(
+            &project,
+            "ServiceManager",
+            20,
+            0.5,
+            Some(&scores),
+            None,
+        )
+        .unwrap();
 
         let mut keys = std::collections::HashSet::new();
         for r in &results {
             let key = (r.name.clone(), r.file.clone(), r.line);
             assert!(keys.insert(key.clone()), "duplicate entry found: {:?}", key);
         }
+    }
+
+    #[test]
+    fn pagerank_boost_max_normalized_by_top_file() {
+        let mut results = vec![
+            SearchResult {
+                name: "a".into(),
+                kind: "function".into(),
+                file: "popular.py".into(),
+                line: 1,
+                signature: "".into(),
+                name_path: "a".into(),
+                score: 50.0,
+                match_type: "fts".into(),
+            },
+            SearchResult {
+                name: "b".into(),
+                kind: "function".into(),
+                file: "obscure.py".into(),
+                line: 2,
+                signature: "".into(),
+                name_path: "b".into(),
+                score: 50.0,
+                match_type: "fts".into(),
+            },
+        ];
+        let mut pr = std::collections::HashMap::new();
+        pr.insert("popular.py".into(), 0.4);
+        pr.insert("obscure.py".into(), 0.05);
+        apply_pagerank_boost(&mut results, &pr, 5.0);
+        // popular.py is the max → +5.0; obscure.py is at 0.05/0.4 → +0.625
+        assert!((results[0].score - 55.0).abs() < 1e-6);
+        assert!((results[1].score - 50.625).abs() < 1e-6);
+    }
+
+    #[test]
+    fn pagerank_boost_skips_unranked_files() {
+        let mut results = vec![SearchResult {
+            name: "a".into(),
+            kind: "function".into(),
+            file: "unmapped.py".into(),
+            line: 1,
+            signature: "".into(),
+            name_path: "a".into(),
+            score: 50.0,
+            match_type: "fts".into(),
+        }];
+        let mut pr = std::collections::HashMap::new();
+        pr.insert("other.py".into(), 0.3);
+        apply_pagerank_boost(&mut results, &pr, 5.0);
+        assert_eq!(results[0].score, 50.0);
+    }
+
+    #[test]
+    fn pagerank_boost_zero_max_is_noop() {
+        let mut results = vec![SearchResult {
+            name: "a".into(),
+            kind: "function".into(),
+            file: "x.py".into(),
+            line: 1,
+            signature: "".into(),
+            name_path: "a".into(),
+            score: 50.0,
+            match_type: "fts".into(),
+        }];
+        let pr = std::collections::HashMap::new();
+        apply_pagerank_boost(&mut results, &pr, 5.0);
+        assert_eq!(results[0].score, 50.0);
     }
 }

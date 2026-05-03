@@ -758,12 +758,20 @@ pub fn search_symbols_fuzzy(state: &AppState, arguments: &Value) -> ToolResult {
         BackendKind::Sqlite
     };
 
+    let pagerank_scores = state.graph_cache().file_pagerank_scores(&state.project());
+    let pagerank_ref = if pagerank_scores.is_empty() {
+        None
+    } else {
+        Some(&pagerank_scores)
+    };
+
     Ok(search_symbols_hybrid_with_semantic(
         &state.project(),
         query,
         max_results,
         fuzzy_threshold,
         sem_ref,
+        pagerank_ref,
     )
     .map(|value| {
         (
