@@ -1,5 +1,5 @@
+use super::types::{make_symbol_id, ParsedSymbol, SymbolInfo, SymbolKind, SymbolProvenance};
 use super::LanguageConfig;
-use super::types::{ParsedSymbol, SymbolInfo, SymbolKind, SymbolProvenance, make_symbol_id};
 use anyhow::{Context, Result};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -115,19 +115,11 @@ pub(crate) fn flatten_symbol_infos(mut symbol: SymbolInfo) -> Vec<SymbolInfo> {
 }
 
 pub(crate) fn to_symbol_info(symbol: ParsedSymbol, depth: usize) -> SymbolInfo {
-    to_symbol_info_with_source(symbol, depth, None)
-}
-
-pub(crate) fn to_symbol_info_with_source(
-    symbol: ParsedSymbol,
-    depth: usize,
-    source: Option<&str>,
-) -> SymbolInfo {
     let children = if depth == 0 || depth > 1 {
         symbol
             .children
             .into_iter()
-            .map(|child| to_symbol_info_with_source(child, depth.saturating_sub(1), source))
+            .map(|child| to_symbol_info(child, depth.saturating_sub(1)))
             .collect()
     } else {
         Vec::new()
@@ -145,9 +137,7 @@ pub(crate) fn to_symbol_info_with_source(
         name_path: symbol.name_path,
         id,
         provenance,
-        body: source
-            .map(|source| slice_source(source, symbol.start_byte, symbol.end_byte))
-            .or(symbol.body),
+        body: symbol.body,
         children,
         start_byte: symbol.start_byte,
         end_byte: symbol.end_byte,
