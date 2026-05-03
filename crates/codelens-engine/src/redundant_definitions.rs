@@ -21,9 +21,13 @@ use std::sync::LazyLock;
 /// where LITERAL is one of: `None`, `Default::default()`, `false`, `true`,
 /// a bare integer literal, or a quoted string literal.
 static RUST_ONE_LINE_WRAPPER_RE: LazyLock<Regex> = LazyLock::new(|| {
-    // (?m): multiline (^/$ are line anchors)
+    // (?m): multiline (^/$ are line anchors).
+    // Inner args use [^){};|] to reject:
+    //   - `;` (statement boundary — would mean multi-statement body)
+    //   - `{` `}` (block — closure body, struct literal)
+    //   - `|` (closure pipe — `|x| ...` indicates non-trivial logic, not a literal default)
     Regex::new(
-        r#"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(?P<wrapper>[A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*(?:->\s*[^{]+?)?\s*\{\s*(?:self\.|Self::)?(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*?(?P<default>None|Default::default\(\)|true|false|-?\d+|"[^"]*")?\s*\)\s*;?\s*\}\s*$"#
+        r#"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(?P<wrapper>[A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*(?:->\s*[^{]+?)?\s*\{\s*(?:self\.|Self::)?(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*\([^){};|]*?(?P<default>None|Default::default\(\)|true|false|-?\d+|"[^"]*")?\s*\)\s*;?\s*\}\s*$"#
     ).unwrap()
 });
 
@@ -235,6 +239,23 @@ pub fn helper(x: u32) -> bool { inner(x, false) }
         assert_eq!(out[0].wrapper, "helper");
         assert_eq!(out[0].target, "inner");
         assert_eq!(out[0].default_arg.as_deref(), Some("false"));
+    }
+
+    #[test]
+    fn skips_call_with_closure_arg() {
+        // Detector v3: a body that passes a closure to its delegate is NOT a thin
+        // wrapper — the closure carries logic. This was the false-positive shape
+        // that flagged `mutate_session_metrics` 13× during v1.13.3 dogfooding.
+        let source = r#"
+pub fn record_x(&self) {
+    self.mutate_session_metrics(None, |session| {
+        session.foo += 1;
+    });
+}
+        "#;
+        let mut out = Vec::new();
+        scan_rust_source(source, "events.rs", &mut out);
+        assert!(out.is_empty(), "closure-arg call must not match: {:?}", out);
     }
 
     #[test]
