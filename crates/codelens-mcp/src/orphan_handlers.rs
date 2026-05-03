@@ -45,7 +45,12 @@ pub(crate) struct OrphanHandlerEntry {
 }
 
 /// Scans `crates/codelens-mcp/src/tools/` for handler-shaped functions and
-/// reports the ones that no `dispatch_table` arm names.
+/// reports the ones that are neither registered in `dispatch_table` nor
+/// referenced from any other Rust file in the workspace.
+///
+/// v2 (codex P2 from PR #153) adds the cross-file reference check so
+/// handler-shaped helpers (a `*_tool`-shaped fn that another `*_tool`
+/// calls via path) no longer surface as false orphans.
 pub(crate) fn find_orphan_handlers(project_root: &Path) -> Result<Vec<OrphanHandlerEntry>> {
     let tools_dir = project_root.join("crates/codelens-mcp/src/tools");
     let mut handler_decls: Vec<OrphanHandlerEntry> = Vec::new();
@@ -73,20 +78,106 @@ pub(crate) fn find_orphan_handlers(project_root: &Path) -> Result<Vec<OrphanHand
     })?;
 
     let mod_rs = project_root.join("crates/codelens-mcp/src/tools/mod.rs");
-    let dispatched: HashSet<String> = match std::fs::read_to_string(&mod_rs) {
-        Ok(source) => DISPATCH_ARM_RE
-            .captures_iter(&source)
-            .filter_map(|c| c.name("handler").map(|m| m.as_str().to_owned()))
-            .collect(),
-        Err(_) => HashSet::new(),
-    };
+    let dispatch_table = project_root.join("crates/codelens-mcp/src/dispatch/table.rs");
+    let dispatched: HashSet<String> = collect_dispatched_handlers(&[&mod_rs, &dispatch_table]);
+
+    // For each handler name, see if it appears (as a word boundary) in any
+    // .rs file OTHER than the one declaring it. A reference from anywhere
+    // outside the declaration file means a `*_tool` is calling it via path
+    // and the function is a shared helper, not an orphan.
+    let handler_name_set: HashSet<&str> = handler_decls
+        .iter()
+        .map(|h| h.function_name.as_str())
+        .collect();
+    let referenced_externally =
+        collect_externally_referenced_names(project_root, &handler_decls, &handler_name_set)?;
 
     let mut orphans: Vec<OrphanHandlerEntry> = handler_decls
         .into_iter()
-        .filter(|h| !dispatched.contains(&h.function_name))
+        .filter(|h| {
+            !dispatched.contains(&h.function_name)
+                && !referenced_externally.contains(&h.function_name)
+        })
         .collect();
     orphans.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
     Ok(orphans)
+}
+
+/// Pulls handler names from any number of dispatch-shaped sources. Picks
+/// up macro-arm `module::handler` references AND `m.insert("name",
+/// Arc::new(handler))` style registrations used by feature-gated
+/// dispatch/table.rs.
+fn collect_dispatched_handlers(paths: &[&Path]) -> HashSet<String> {
+    static INSERT_HANDLER_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?:Arc|std::sync::Arc)::new\s*\(\s*(?P<handler>[A-Za-z_][A-Za-z0-9_]*)\s*\)")
+            .unwrap()
+    });
+    let mut out: HashSet<String> = HashSet::new();
+    for path in paths {
+        let source = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        for caps in DISPATCH_ARM_RE.captures_iter(&source) {
+            if let Some(h) = caps.name("handler") {
+                out.insert(h.as_str().to_owned());
+            }
+        }
+        for caps in INSERT_HANDLER_RE.captures_iter(&source) {
+            if let Some(h) = caps.name("handler") {
+                out.insert(h.as_str().to_owned());
+            }
+        }
+    }
+    out
+}
+
+/// For each handler decl, scans every other .rs file for word-boundary
+/// references to its name and returns the set of names that show up
+/// outside their declaration file.
+fn collect_externally_referenced_names(
+    project_root: &Path,
+    handlers: &[OrphanHandlerEntry],
+    handler_names: &HashSet<&str>,
+) -> Result<HashSet<String>> {
+    let mut referenced: HashSet<String> = HashSet::new();
+    let workspace = project_root.join("crates");
+    walk_rust_files(&workspace, &mut |path: &Path| {
+        let source = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let relative = relative_to(project_root, path);
+        for name in handler_names.iter() {
+            if referenced.contains(*name) {
+                continue;
+            }
+            // skip files where this handler is declared — only references
+            // from a different file count.
+            let declared_here = handlers
+                .iter()
+                .any(|h| h.function_name == *name && h.file == relative);
+            if declared_here {
+                continue;
+            }
+            if word_boundary_match(&source, name) {
+                referenced.insert((*name).to_owned());
+            }
+        }
+    })?;
+    Ok(referenced)
+}
+
+fn word_boundary_match(source: &str, name: &str) -> bool {
+    // Cheap word-boundary scan: split on non-word chars and look for an
+    // exact equality. Avoids the regex-per-name overhead of re-compiling
+    // dozens of `\bNAME\b` patterns each call.
+    for token in source.split(|c: char| !c.is_alphanumeric() && c != '_') {
+        if token == name {
+            return true;
+        }
+    }
+    false
 }
 
 fn walk_rust_files(root: &Path, visit: &mut dyn FnMut(&Path)) -> Result<()> {
@@ -153,8 +244,17 @@ mod tests {
     #[ignore]
     fn dogfood_self_repo() {
         // Run with: cargo test -p codelens-mcp orphan_handlers::tests::dogfood_self_repo -- --ignored --nocapture
+        // Workspace root derived from CARGO_MANIFEST_DIR so any clone path
+        // works without an env var override.
         let repo: PathBuf = std::env::var("CODELENS_REPO_ROOT")
-            .unwrap_or_else(|_| "/Users/bagjaeseog/codelens-mcp-plugin".to_owned())
+            .unwrap_or_else(|_| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .ancestors()
+                    .nth(2)
+                    .expect("workspace root")
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .into();
         let orphans = find_orphan_handlers(&repo).expect("find_orphan_handlers");
         eprintln!("\n=== {} orphan handlers ===\n", orphans.len());
