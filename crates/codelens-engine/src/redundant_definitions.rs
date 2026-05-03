@@ -26,8 +26,11 @@ static RUST_ONE_LINE_WRAPPER_RE: LazyLock<Regex> = LazyLock::new(|| {
     //   - `;` (statement boundary — would mean multi-statement body)
     //   - `{` `}` (block — closure body, struct literal)
     //   - `|` (closure pipe — `|x| ...` indicates non-trivial logic, not a literal default)
+    // Default group is REQUIRED (no trailing `?`): a wrapper without a literal
+    // default is just an alias / passthrough, not the cleanup-target shape this
+    // detector exists for. Codex review on PR #148 (P1).
     Regex::new(
-        r#"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(?P<wrapper>[A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*(?:->\s*[^{]+?)?\s*\{\s*(?:self\.|Self::)?(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*\([^){};|]*?(?P<default>None|Default::default\(\)|true|false|-?\d+|"[^"]*")?\s*\)\s*;?\s*\}\s*$"#
+        r#"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?fn\s+(?P<wrapper>[A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*(?:->\s*[^{]+?)?\s*\{\s*(?:self\.|Self::)?(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s*\([^){};|]*?(?P<default>None|Default::default\(\)|true|false|-?\d+|"[^"]*")\s*\)\s*;?\s*\}\s*$"#
     ).unwrap()
 });
 
@@ -62,8 +65,13 @@ pub fn find_redundant_definitions(
         if is_test_file(&relative) {
             continue;
         }
-        let production_source = strip_cfg_test_modules(&source);
-        scan_rust_source(&production_source, &relative, &mut results);
+        // Codex P1 (PR #149): scan the original source so reported line
+        // numbers match the file the user actually opens. Skip matches that
+        // fall inside `#[cfg(test)] mod ...` ranges instead of stripping
+        // them — stripping rewrites line offsets and made every location
+        // shift after the first cfg(test) block.
+        let cfg_test_ranges = collect_cfg_test_ranges(&source);
+        scan_rust_source(&source, &relative, &cfg_test_ranges, &mut results);
         if max_results > 0 && results.len() >= max_results {
             break;
         }
@@ -81,8 +89,17 @@ pub fn find_redundant_definitions(
     Ok(results)
 }
 
-fn scan_rust_source(source: &str, file: &str, out: &mut Vec<RedundantDefinitionEntry>) {
+fn scan_rust_source(
+    source: &str,
+    file: &str,
+    skip_ranges: &[(usize, usize)],
+    out: &mut Vec<RedundantDefinitionEntry>,
+) {
     for m in RUST_ONE_LINE_WRAPPER_RE.captures_iter(source) {
+        let match_start = m.get(0).map(|m| m.start()).unwrap_or(0);
+        if range_contains(skip_ranges, match_start) {
+            continue;
+        }
         let wrapper = m
             .name("wrapper")
             .map(|m| m.as_str().to_owned())
@@ -95,7 +112,11 @@ fn scan_rust_source(source: &str, file: &str, out: &mut Vec<RedundantDefinitionE
             continue;
         }
         let default_arg = m.name("default").map(|m| m.as_str().to_owned());
-        let line = byte_offset_to_line(source, m.get(0).map(|m| m.start()).unwrap_or(0));
+        // Use the wrapper-name capture, not the whole match, so leading
+        // whitespace (including blank lines that `^\s*` swallows) does not
+        // shift the reported line backward.
+        let wrapper_start = m.name("wrapper").map(|m| m.start()).unwrap_or(match_start);
+        let line = byte_offset_to_line(source, wrapper_start);
         out.push(RedundantDefinitionEntry {
             file: file.to_owned(),
             wrapper,
@@ -105,6 +126,12 @@ fn scan_rust_source(source: &str, file: &str, out: &mut Vec<RedundantDefinitionE
             kind: "rust_one_line_wrapper",
         });
     }
+}
+
+fn range_contains(ranges: &[(usize, usize)], offset: usize) -> bool {
+    ranges
+        .iter()
+        .any(|(start, end)| offset >= *start && offset < *end)
 }
 
 fn byte_offset_to_line(source: &str, offset: usize) -> usize {
@@ -135,10 +162,38 @@ fn is_test_file(relative: &str) -> bool {
     })
 }
 
+/// Returns byte ranges (start, end) for every `#[cfg(test)] mod NAME { ... }`
+/// block in `source`. Ranges are half-open: `[start, end)` covers the
+/// header through the closing `}` inclusive. Used by the scanner to skip
+/// matches that land inside test-only modules WITHOUT rewriting offsets,
+/// so reported line numbers stay accurate (Codex review on PR #149, P1).
+fn collect_cfg_test_ranges(source: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut idx = 0;
+    let bytes = source.as_bytes();
+    while idx < bytes.len() {
+        if bytes[idx] == b'#' {
+            let rest = &source[idx..];
+            if let Some(open_brace_offset) = match_cfg_test_mod_header(rest) {
+                let body_start = idx + open_brace_offset;
+                if let Some(body_end) = find_matching_brace(source, body_start) {
+                    let block_end = body_end + 1;
+                    ranges.push((idx, block_end));
+                    idx = block_end;
+                    continue;
+                }
+            }
+        }
+        idx += 1;
+    }
+    ranges
+}
+
 /// Removes `#[cfg(test)] mod ... { ... }` blocks (matched by regex with
-/// nested braces handled by depth counting). This filters out test-only
-/// helper functions that share the wrapper shape but are not production
-/// code paths.
+/// nested braces handled by depth counting). Retained for the unit test
+/// that still exercises the stripping behavior; the production scanner
+/// now uses `collect_cfg_test_ranges` to preserve line numbers.
+#[cfg_attr(not(test), allow(dead_code))]
 fn strip_cfg_test_modules(source: &str) -> String {
     let mut out = String::with_capacity(source.len());
     let mut chars = source.char_indices().peekable();
@@ -220,7 +275,7 @@ impl Foo {
 }
         "#;
         let mut out = Vec::new();
-        scan_rust_source(source, "telemetry.rs", &mut out);
+        scan_rust_source(source, "telemetry.rs", &[], &mut out);
         assert_eq!(out.len(), 2, "got: {:?}", out);
         assert_eq!(out[0].wrapper, "record_x");
         assert_eq!(out[0].target, "record_x_for_session");
@@ -234,11 +289,48 @@ impl Foo {
 pub fn helper(x: u32) -> bool { inner(x, false) }
         "#;
         let mut out = Vec::new();
-        scan_rust_source(source, "lib.rs", &mut out);
+        scan_rust_source(source, "lib.rs", &[], &mut out);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].wrapper, "helper");
         assert_eq!(out[0].target, "inner");
         assert_eq!(out[0].default_arg.as_deref(), Some("false"));
+    }
+
+    #[test]
+    fn skips_zero_arg_passthrough_without_literal_default() {
+        // Codex P1 (PR #148): a wrapper with no literal default is just an
+        // alias, not the cleanup-target shape this detector exists for.
+        let source = r#"
+pub fn alias(x: u32) { inner(x) }
+pub fn passthrough(a: u32, b: u32) -> u32 { other(a, b) }
+        "#;
+        let mut out = Vec::new();
+        scan_rust_source(source, "x.rs", &[], &mut out);
+        assert!(
+            out.is_empty(),
+            "no-default forwards must not match: {:?}",
+            out
+        );
+    }
+
+    #[test]
+    fn line_numbers_reflect_original_source_after_cfg_test_skip() {
+        // Codex P1 (PR #149): when a `#[cfg(test)] mod` block precedes the
+        // production wrapper, the reported line must still match the
+        // original file — stripping the test block previously rewrote
+        // offsets and shifted every subsequent line.
+        // Fixture is 7 lines: cfg(test)+mod open at L1, body L2-L4, mod
+        // close at L5, blank L6, the production wrapper at L7.
+        let source = "#[cfg(test)]\nmod tests {\n    fn helper() {\n        foo(true, false);\n    }\n}\n\npub fn record_x(&self) { self.record_x_for_session(None) }\n";
+        let ranges = collect_cfg_test_ranges(source);
+        let mut out = Vec::new();
+        scan_rust_source(source, "events.rs", &ranges, &mut out);
+        assert_eq!(out.len(), 1, "got: {:?}", out);
+        assert_eq!(out[0].wrapper, "record_x");
+        assert_eq!(
+            out[0].line, 8,
+            "expected the wrapper to be reported at the original source line"
+        );
     }
 
     #[test]
@@ -254,7 +346,7 @@ pub fn record_x(&self) {
 }
         "#;
         let mut out = Vec::new();
-        scan_rust_source(source, "events.rs", &mut out);
+        scan_rust_source(source, "events.rs", &[], &mut out);
         assert!(out.is_empty(), "closure-arg call must not match: {:?}", out);
     }
 
@@ -264,7 +356,7 @@ pub fn record_x(&self) {
 pub fn loop_me(&self) { self.loop_me(0) }
         "#;
         let mut out = Vec::new();
-        scan_rust_source(source, "x.rs", &mut out);
+        scan_rust_source(source, "x.rs", &[], &mut out);
         // wrapper == target → not flagged (would be infinite recursion, not delegation)
         assert!(out.is_empty(), "got: {:?}", out);
     }
@@ -344,7 +436,7 @@ pub fn complex(&self) {
 }
         "#;
         let mut out = Vec::new();
-        scan_rust_source(source, "x.rs", &mut out);
+        scan_rust_source(source, "x.rs", &[], &mut out);
         assert!(
             out.is_empty(),
             "multi-statement should not match: {:?}",
