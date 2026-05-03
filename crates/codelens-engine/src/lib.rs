@@ -45,6 +45,7 @@ pub mod lang_registry;
 pub mod lsp;
 pub mod memory;
 pub mod project;
+pub mod redundant_definitions;
 pub mod rename;
 pub mod scope_analysis;
 pub mod search;
