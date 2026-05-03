@@ -54,27 +54,27 @@ properties = {}
 [[tool]]
 name = "read_file"
 category = "file_io"
-description = "[CodeLens:File] Read file contents with optional line range."
+description = "[CodeLens:File] Read file contents with optional line range. Use `path` (canonical). Legacy `relative_path` is accepted for one release with a deprecation warning."
 annotations = "ro_p"
 output_schema = "file_content_output_schema"
 
 [tool.input_schema]
 type = "object"
-required = ["relative_path"]
-properties = { relative_path = { type = "string" }, start_line = { type = "integer" }, end_line = { type = "integer" } }
+required = ["path"]
+properties = { path = { type = "string" }, relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, start_line = { type = "integer" }, end_line = { type = "integer" } }
 
 # ─────
 
 [[tool]]
 name = "list_dir"
 category = "file_io"
-description = "[CodeLens:File] List directory contents, optionally recursive."
+description = "[CodeLens:File] List directory contents, optionally recursive. Use `path` (canonical). Legacy `relative_path` is accepted for one release with a deprecation warning."
 annotations = "ro_p"
 
 [tool.input_schema]
 type = "object"
-required = ["relative_path"]
-properties = { relative_path = { type = "string" }, recursive = { type = "boolean" } }
+required = ["path"]
+properties = { path = { type = "string" }, relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, recursive = { type = "boolean" } }
 
 # ─────
 
@@ -332,7 +332,7 @@ max_results = { type = "integer" }
 [[tool]]
 name = "get_type_hierarchy"
 category = "lsp"
-description = "[CodeLens:Symbol] Inheritance hierarchy — supertypes and subtypes of a class/interface."
+description = "[CodeLens:Symbol] Inheritance hierarchy — supertypes and subtypes of a class/interface. Use `path` (canonical). Legacy `relative_path` is accepted for one release with a deprecation warning."
 annotations = "ro_a"
 output_schema = "get_type_hierarchy_output_schema"
 
@@ -341,7 +341,8 @@ type = "object"
 [tool.input_schema.properties]
 name_path = { type = "string" }
 fully_qualified_name = { type = "string" }
-relative_path = { type = "string" }
+path = { type = "string" }
+relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 hierarchy_type = { type = "string", enum = ["super", "sub", "both"] }
 depth = { type = "integer" }
 command = { type = "string" }

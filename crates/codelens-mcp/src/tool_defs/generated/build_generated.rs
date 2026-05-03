@@ -306,13 +306,13 @@ pub fn file_io_tools(ro_p: &ToolAnnotations) -> Vec<Tool> {
         ).with_output_schema(get_current_config_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "read_file",
-            "[CodeLens:File] Read file contents with optional line range.",
-            json!({"type":"object","required":["relative_path"],"properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}}}),
+            "[CodeLens:File] Read file contents with optional line range. Use `path` (canonical). Legacy `relative_path` is accepted for one release with a deprecation warning.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"start_line":{"type":"integer"},"end_line":{"type":"integer"}}}),
         ).with_output_schema(file_content_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "list_dir",
-            "[CodeLens:File] List directory contents, optionally recursive.",
-            json!({"type":"object","required":["relative_path"],"properties":{"relative_path":{"type":"string"},"recursive":{"type":"boolean"}}}),
+            "[CodeLens:File] List directory contents, optionally recursive. Use `path` (canonical). Legacy `relative_path` is accepted for one release with a deprecation warning.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"recursive":{"type":"boolean"}}}),
         ).with_annotations(ro_p.clone()),
         Tool::new(
             "find_file",
@@ -356,8 +356,8 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
         ).with_annotations(ro_p.clone()),
         Tool::new(
             "get_type_hierarchy",
-            "[CodeLens:Symbol] Inheritance hierarchy — supertypes and subtypes of a class/interface.",
-            json!({"type":"object","properties":{"name_path":{"type":"string"},"fully_qualified_name":{"type":"string"},"relative_path":{"type":"string"},"hierarchy_type":{"type":"string","enum":["super","sub","both"]},"depth":{"type":"integer"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}}),
+            "[CodeLens:Symbol] Inheritance hierarchy — supertypes and subtypes of a class/interface. Use `path` (canonical). Legacy `relative_path` is accepted for one release with a deprecation warning.",
+            json!({"type":"object","properties":{"name_path":{"type":"string"},"fully_qualified_name":{"type":"string"},"path":{"type":"string"},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"hierarchy_type":{"type":"string","enum":["super","sub","both"]},"depth":{"type":"integer"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}}),
         ).with_output_schema(get_type_hierarchy_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "resolve_symbol_target",

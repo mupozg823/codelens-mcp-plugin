@@ -135,7 +135,12 @@ fn apply_path_alias_normalisation(tool_name: &str, arguments: &mut serde_json::V
     let has_relative_path = obj.contains_key("relative_path");
     let supports_relative_path_alias = matches!(
         tool_name,
-        "get_symbols_overview" | "find_referencing_symbols" | "get_file_diagnostics"
+        "get_symbols_overview"
+            | "find_referencing_symbols"
+            | "get_file_diagnostics"
+            | "read_file"
+            | "list_dir"
+            | "get_type_hierarchy"
     );
     match (has_file_path, has_path) {
         (true, false) => {

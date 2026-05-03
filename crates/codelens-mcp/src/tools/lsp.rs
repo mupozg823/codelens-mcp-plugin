@@ -562,7 +562,20 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_str())
         .ok_or_else(|| CodeLensError::MissingParam("name_path or fully_qualified_name".into()))?
         .to_owned();
-    let relative_path = optional_string(arguments, "relative_path").map(ToOwned::to_owned);
+    // #180: prefer canonical `path`; envelope normalises `relative_path → path`
+    // for this tool, so reading `path` first picks up either input shape.
+    let relative_path = optional_string(arguments, "path")
+        .or_else(|| optional_string(arguments, "relative_path"))
+        .map(ToOwned::to_owned);
+    let alias_used = optional_string(arguments, "_path_alias_source")
+        .filter(|s| *s == "relative_path")
+        .map(|_| {
+            json!({
+                "param": "relative_path",
+                "replacement": "path",
+                "message": "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.",
+            })
+        });
     let hierarchy_type = optional_string(arguments, "hierarchy_type")
         .unwrap_or("both")
         .to_owned();
@@ -589,7 +602,10 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
             });
 
         match lsp_result {
-            Ok(value) => Ok((json!(value), meta_for_backend("lsp_pooled", 0.82))),
+            Ok(value) => Ok((
+                attach_alias_warning(json!(value), alias_used.clone()),
+                meta_for_backend("lsp_pooled", 0.82),
+            )),
             Err(_) => Ok(get_type_hierarchy_native(
                 &state.project(),
                 &query,
@@ -599,7 +615,7 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
             )
             .map(|value| {
                 (
-                    json!(value),
+                    attach_alias_warning(json!(value), alias_used.clone()),
                     meta_degraded(
                         "tree-sitter-native",
                         0.80,
@@ -618,11 +634,26 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
         )
         .map(|value| {
             (
-                json!(value),
+                attach_alias_warning(json!(value), alias_used),
                 meta_degraded("tree-sitter-native", 0.80, "no LSP command available"),
             )
         })?)
     }
+}
+
+/// #180: append a single deprecation_warnings entry to a payload when the
+/// caller used a legacy path alias. Mirrors the per-file helper in
+/// filesystem.rs so all path-aliased tools emit the same shape.
+fn attach_alias_warning(mut payload: Value, warning: Option<Value>) -> Value {
+    if let Some(warning) = warning
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert(
+            "deprecation_warnings".to_owned(),
+            Value::Array(vec![warning]),
+        );
+    }
+    payload
 }
 
 pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> ToolResult {

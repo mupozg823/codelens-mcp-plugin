@@ -59,8 +59,34 @@ pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> To
     ))
 }
 
+/// #180: emit a deprecation_warnings entry if the caller passed `relative_path`
+/// instead of the canonical `path`. The dispatch envelope normalises
+/// `relative_path → path` for the read_file/list_dir/get_type_hierarchy
+/// allow-listed tools, so handler code only needs to read `path` and check
+/// the `_path_alias_source` marker injected by the envelope.
+fn relative_path_deprecation(arguments: &serde_json::Value) -> Vec<Value> {
+    if optional_string(arguments, "_path_alias_source") == Some("relative_path") {
+        vec![json!({
+            "param": "relative_path",
+            "replacement": "path",
+            "message": "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.",
+        })]
+    } else {
+        Vec::new()
+    }
+}
+
+fn attach_deprecation_warnings(value: &mut Value, warnings: Vec<Value>) {
+    if warnings.is_empty() {
+        return;
+    }
+    if let Some(map) = value.as_object_mut() {
+        map.insert("deprecation_warnings".to_owned(), Value::Array(warnings));
+    }
+}
+
 pub fn read_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let path = required_string(arguments, "relative_path")?;
+    let path = required_string(arguments, "path")?;
     let start_line = arguments
         .get("start_line")
         .and_then(|v| v.as_u64())
@@ -69,18 +95,24 @@ pub fn read_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRe
         .get("end_line")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
-    Ok(read_file(&state.project(), path, start_line, end_line)
-        .map(|value| (json!(value), success_meta(BackendKind::Filesystem, 1.0)))?)
+    let warnings = relative_path_deprecation(arguments);
+    Ok(
+        read_file(&state.project(), path, start_line, end_line).map(|value| {
+            let mut payload = json!(value);
+            attach_deprecation_warnings(&mut payload, warnings);
+            (payload, success_meta(BackendKind::Filesystem, 1.0))
+        })?,
+    )
 }
 
 pub fn list_dir_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let path = required_string(arguments, "relative_path")?;
+    let path = required_string(arguments, "path")?;
     let recursive = optional_bool(arguments, "recursive", false);
+    let warnings = relative_path_deprecation(arguments);
     Ok(list_dir(&state.project(), path, recursive).map(|value| {
-        (
-            json!({ "entries": value, "count": value.len() }),
-            success_meta(BackendKind::Filesystem, 1.0),
-        )
+        let mut payload = json!({ "entries": value, "count": value.len() });
+        attach_deprecation_warnings(&mut payload, warnings);
+        (payload, success_meta(BackendKind::Filesystem, 1.0))
     })?)
 }
 
