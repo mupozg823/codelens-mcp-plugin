@@ -125,6 +125,46 @@ fn set_profile_changes_tools_list() {
 }
 
 #[test]
+fn surface_mutation_responses_emit_host_action_hint() {
+    // #199-B-4: Some MCP hosts cache the visible tool surface and need an
+    // explicit reload signal after set_preset / set_profile, otherwise the
+    // newly-available tools never appear in the host's deferred pool. The
+    // nested `host_action` shape keeps both the programmatic
+    // `required` field and the human-readable `hint` under a single key
+    // so the response stays under the text-channel field cap.
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let preset_resp = call_tool(&state, "set_preset", json!({"preset": "balanced"}));
+    assert_eq!(
+        preset_resp["data"]["host_action"]["required"],
+        json!("reload_tools_list"),
+        "set_preset must emit host_action.required so cached-surface hosts know to refresh"
+    );
+    let preset_hint = preset_resp["data"]["host_action"]["hint"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        preset_hint.contains("tools/list"),
+        "set_preset host_action.hint should mention tools/list refresh: {preset_hint}"
+    );
+
+    let profile_resp = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+    assert_eq!(
+        profile_resp["data"]["host_action"]["required"],
+        json!("reload_tools_list"),
+        "set_profile must emit host_action.required so cached-surface hosts know to refresh"
+    );
+    let profile_hint = profile_resp["data"]["host_action"]["hint"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        profile_hint.contains("tools/list"),
+        "set_profile host_action.hint should mention tools/list refresh: {profile_hint}"
+    );
+}
+
+#[test]
 fn refactor_profile_limits_surface_to_approved_mutations() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
