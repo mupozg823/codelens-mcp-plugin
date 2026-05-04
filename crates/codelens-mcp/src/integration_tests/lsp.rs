@@ -665,3 +665,83 @@ fn lsp_refactor_without_concrete_workspace_edit_fails_closed() {
         "{payload}"
     );
 }
+
+/// Issue #214 regression: when `find_referencing_symbols` runs on a
+/// JS/TS file via the oxc_semantic backend, the response must surface
+/// the cross-file limitation so callers do not mistake "no callers in
+/// this file" for "no callers exist anywhere". The hint must point at
+/// `get_callers` (import_graph backend) for the cross-file case.
+#[test]
+fn find_referencing_symbols_oxc_response_carries_cross_file_hint() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("ref_target.ts"),
+        "export function refreshEpisodeDonationCaches(seasonId: string) {\n    return seasonId;\n}\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({
+            "file_path": "ref_target.ts",
+            "symbol_name": "refreshEpisodeDonationCaches",
+        }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(payload["data"]["backend"], json!("oxc_semantic"));
+
+    // The hint block must be present on every oxc_semantic response —
+    // not just when count == 1 — so callers always know cross-file
+    // callers require a separate tool.
+    assert!(
+        payload["data"]["precision_note"]
+            .as_str()
+            .unwrap_or("")
+            .contains("oxc_semantic"),
+        "precision_note must explain the oxc_semantic scope: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["cross_file_callers_hint"]["tool"],
+        json!("get_callers"),
+        "{payload}"
+    );
+}
+
+/// Issue #214 regression: when oxc_semantic returns only the symbol's
+/// own definition row (the prime symptom of the cross-file gap for an
+/// exported function), the response must additionally carry a
+/// `self_only_warning` so the caller is unambiguously told to follow
+/// up with `get_callers`.
+#[test]
+fn find_referencing_symbols_oxc_definition_only_emits_self_only_warning() {
+    let project = project_root();
+    // Exported, never called within the file → oxc returns just the
+    // definition row.
+    fs::write(
+        project.as_path().join("isolated_export.ts"),
+        "export function refreshEpisodeDonationCaches(seasonId: string) {\n    return seasonId;\n}\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({
+            "file_path": "isolated_export.ts",
+            "symbol_name": "refreshEpisodeDonationCaches",
+        }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(payload["data"]["count"], json!(1), "{payload}");
+    assert_eq!(
+        payload["data"]["self_only_warning"]["code"],
+        json!("definition_only"),
+        "self_only_warning must be emitted when count == 1 and the row is the definition: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["self_only_warning"]["recommended_action"],
+        json!("call_get_callers"),
+        "{payload}"
+    );
+}
