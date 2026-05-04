@@ -223,6 +223,14 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         count,
                     ),
                 );
+                // Issue #214: oxc_semantic resolves references within the
+                // file it was given — it does not cross file boundaries to
+                // chase `import { foo } from '...'` callers in sibling
+                // modules. Surface that limitation in every response so a
+                // caller that sees only a self-definition row knows there
+                // may be cross-file callers reachable via `get_callers`
+                // (import_graph backend) or `find_scoped_references` /
+                // `use_lsp=true`.
                 let mut payload = json!({
                     "references": refs_limited,
                     "count": count,
@@ -230,7 +238,38 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     "sampled": false,
                     "backend": "oxc_semantic",
                     "evidence": evidence,
+                    "precision_note": "oxc_semantic resolves references within the requested file; import-statement-based callers across files are not in scope.",
+                    "cross_file_callers_hint": {
+                        "tool": "get_callers",
+                        "rationale": "import_graph backend follows `import { name } from '...'` to upstream callers across files",
+                    },
                 });
+                // The "self-only" case (only the definition row itself)
+                // is the prime symptom of the cross-file gap — flag it
+                // explicitly so the caller does not mistake it for "no
+                // callers exist".
+                if count == 1
+                    && refs_limited
+                        .first()
+                        .and_then(|r| serde_json::to_value(r).ok())
+                        .and_then(|v| {
+                            v.get("kind")
+                                .and_then(|k| k.as_str())
+                                .map(|k| k.eq_ignore_ascii_case("definition"))
+                        })
+                        .unwrap_or(false)
+                    && let Some(map) = payload.as_object_mut()
+                {
+                    map.insert(
+                        "self_only_warning".to_owned(),
+                        json!({
+                            "code": "definition_only",
+                            "message": "Only the symbol's own definition row was returned. For exported symbols this almost always means cross-file callers exist but are not visible to oxc_semantic.",
+                            "recommended_action": "call_get_callers",
+                            "action_target": "cross_file_callers",
+                        }),
+                    );
+                }
                 if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
                     insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
                 }
