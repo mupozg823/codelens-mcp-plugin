@@ -901,3 +901,49 @@ fn returns_changed_files_via_tool_call() {
     let payload = call_tool(&state, "get_changed_files", json!({}));
     assert_eq!(payload["success"], json!(true));
 }
+
+// Issue #203 (3): historically `find_symbol({ name, file_path: "<dir>" })`
+// silently returned `{ symbols: [], count: 0 }` with a fuzzy-search
+// fallback hint, masking the wrong-input-shape as "no such symbol".
+// The handler now rejects directory `file_path` values up front with an
+// actionable Validation error so the caller can switch to either
+// `get_symbols_overview` (single-file scan) or `bm25_symbol_search`
+// (project-wide query).
+#[test]
+fn find_symbol_rejects_directory_file_path_with_actionable_error() {
+    let project = project_root();
+    let dir_name = "find_symbol_dir_fixture";
+    fs::create_dir_all(project.as_path().join(dir_name))
+        .expect("mkdir directory fixture for find_symbol test");
+    fs::write(
+        project.as_path().join(dir_name).join("a.py"),
+        "def reset():\n    return 1\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join(dir_name).join("b.py"),
+        "def reset():\n    return 2\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "find_symbol",
+        json!({ "name": "reset", "file_path": dir_name }),
+    );
+    assert_eq!(
+        payload["success"],
+        json!(false),
+        "directory file_path must be rejected, payload: {payload}"
+    );
+    let err = payload["error"].as_str().unwrap_or_default();
+    assert!(
+        err.contains("directory"),
+        "error message should mention 'directory' explicitly: {err}"
+    );
+    assert!(
+        err.contains("get_symbols_overview") || err.contains("bm25_symbol_search"),
+        "error message should suggest a directory-aware alternative tool: {err}"
+    );
+}
