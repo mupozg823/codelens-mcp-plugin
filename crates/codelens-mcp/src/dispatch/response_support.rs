@@ -573,10 +573,16 @@ fn summarize_text_object(source: &Map<String, Value>, depth: usize) -> Value {
 
     let mut summarized = Map::new();
     let mut array_shrunk = false;
+    // #211: previously the loop broke on the first cap hit and only
+    // marked `truncated: true`, leaving callers with no way to know
+    // which keys had been dropped. Collect every dropped key so the
+    // response carries a `_omitted_keys` list and downstream agents
+    // can request the missing fields explicitly.
+    let mut omitted_keys: Vec<String> = Vec::new();
     for (index, (key, value)) in source.iter().enumerate() {
         if index >= MAX_OBJECT_ITEMS {
-            summarized.insert("truncated".to_owned(), Value::Bool(true));
-            break;
+            omitted_keys.push(key.clone());
+            continue;
         }
         if let Value::Array(items) = value
             && items.len() > TEXT_CHANNEL_MAX_ARRAY_ITEMS
@@ -584,6 +590,10 @@ fn summarize_text_object(source: &Map<String, Value>, depth: usize) -> Value {
             array_shrunk = true;
         }
         summarized.insert(key.clone(), summarize_text_value(value, depth + 1));
+    }
+    if !omitted_keys.is_empty() {
+        summarized.insert("truncated".to_owned(), Value::Bool(true));
+        summarized.insert("_omitted_keys".to_owned(), json!(omitted_keys));
     }
     if source.contains_key("truncated") || array_shrunk {
         summarized.insert("truncated".to_owned(), Value::Bool(true));
@@ -898,6 +908,61 @@ fn summarize_structured_content(value: &Value, depth: usize) -> Value {
 mod text_channel_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn summarize_text_object_records_omitted_keys_when_capped() {
+        // #211: a 12-key payload with the cap at 8 used to silently lose
+        // the trailing 4 keys with only `truncated: true` as a signal.
+        // The new contract surfaces each dropped key by name so the
+        // caller can either widen the request (detail=full) or request
+        // the missing fields directly.
+        let mut map = Map::new();
+        for i in 0..12u32 {
+            map.insert(format!("key{i:02}"), json!(i));
+        }
+        let result = summarize_text_object(&map, 0);
+        let obj = result.as_object().expect("object");
+        assert_eq!(
+            obj.get("truncated").and_then(Value::as_bool),
+            Some(true),
+            "cap-driven drop must mark truncated=true"
+        );
+        let omitted = obj
+            .get("_omitted_keys")
+            .and_then(Value::as_array)
+            .expect("_omitted_keys array present after cap drop");
+        assert_eq!(
+            omitted.len(),
+            4,
+            "12 keys - 8 cap = 4 dropped, got {omitted:?}"
+        );
+        let omitted_names: Vec<&str> = omitted.iter().filter_map(Value::as_str).collect();
+        assert_eq!(
+            omitted_names,
+            vec!["key08", "key09", "key10", "key11"],
+            "omitted_keys must list the trailing keys in iteration order"
+        );
+    }
+
+    #[test]
+    fn summarize_text_object_no_omitted_keys_when_under_cap() {
+        // Stage 1 / under-cap behavior must stay clean — no `truncated`
+        // flag and no `_omitted_keys` entry when nothing was dropped.
+        let mut map = Map::new();
+        for i in 0..5u32 {
+            map.insert(format!("key{i}"), json!(i));
+        }
+        let result = summarize_text_object(&map, 0);
+        let obj = result.as_object().expect("object");
+        assert!(
+            obj.get("_omitted_keys").is_none(),
+            "no _omitted_keys when under cap, got {obj:?}"
+        );
+        assert!(
+            obj.get("truncated").is_none(),
+            "no truncated when under cap"
+        );
+    }
 
     #[test]
     fn shrinking_array_child_flags_parent_truncated() {
