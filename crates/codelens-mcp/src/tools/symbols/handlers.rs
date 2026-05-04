@@ -80,6 +80,52 @@ fn heuristic_body_slice(state: &AppState, file_path: &str, line: usize) -> Optio
     .filter(|body| !body.is_empty())
 }
 
+#[cfg(feature = "scip-backend")]
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ScipStaleness {
+    pub(super) index_path: String,
+    pub(super) stale_files: Vec<(String, u64)>,
+}
+
+/// Issue #235: detect when SCIP-backed answers are reading from an
+/// `index.scip` that pre-dates one or more of the resolved source files.
+/// Returns `Some(_)` only if at least one file in `candidate_files` has a
+/// modified time strictly newer than the index's modified time, in which
+/// case the SCIP-reported line/body for that file is suspect even though
+/// the precise-tier confidence (0.98) would otherwise read as high trust.
+///
+/// Best-effort: any I/O failure (missing index, unreadable mtime) skips
+/// the file silently rather than fabricating a stale-evidence claim.
+#[cfg(feature = "scip-backend")]
+pub(super) fn detect_scip_staleness(
+    project_root: &std::path::Path,
+    candidate_files: &[String],
+) -> Option<ScipStaleness> {
+    let index_path = codelens_engine::ScipBackend::detect(project_root)?;
+    let index_mtime = std::fs::metadata(&index_path).ok()?.modified().ok()?;
+    let mut stale = Vec::new();
+    for rel in candidate_files {
+        let abs = project_root.join(rel);
+        let Ok(meta) = std::fs::metadata(&abs) else {
+            continue;
+        };
+        let Ok(file_mtime) = meta.modified() else {
+            continue;
+        };
+        if file_mtime > index_mtime {
+            let age_secs = file_mtime
+                .duration_since(index_mtime)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            stale.push((rel.clone(), age_secs));
+        }
+    }
+    (!stale.is_empty()).then(|| ScipStaleness {
+        index_path: index_path.display().to_string(),
+        stale_files: stale,
+    })
+}
+
 pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
     const KNOWN_ARGS: &[&str] = &["path", "file_path", "relative_path", "depth"];
     let (path, deprecation_warnings) = resolve_path_argument(arguments)?;
@@ -260,11 +306,29 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
         {
             let limited: Vec<_> = defs.into_iter().take(max_matches).collect();
             let count = limited.len();
-            let meta = success_meta(BackendKind::Scip, 0.98);
+            // Issue #235: SCIP-backed answers carry the precise-tier 0.98
+            // confidence label even when the on-disk index pre-dates one or
+            // more of the resolved source files — the exact silent-miss
+            // shape that makes reviewers act on stale line numbers /
+            // bodies. Detect per-file staleness now, and degrade meta +
+            // surface a structured warning if any resolved file is newer
+            // than the index.
+            let scip_candidate_files: Vec<String> =
+                limited.iter().map(|d| d.file_path.clone()).collect();
+            let scip_staleness =
+                detect_scip_staleness(state.project().as_path(), &scip_candidate_files);
+            let (meta, confidence_basis) = if scip_staleness.is_some() {
+                (
+                    crate::tool_evidence::meta_degraded("scip", 0.55, "scip_index_stale_vs_source"),
+                    "scip_precise_stale_index",
+                )
+            } else {
+                (success_meta(BackendKind::Scip, 0.98), "scip_precise")
+            };
             let evidence = crate::tool_evidence::tool_evidence(
                 "symbol",
                 &meta,
-                "scip_precise",
+                confidence_basis,
                 crate::tool_evidence::precision_signals(true, true, Some("scip"), None, count),
             );
             let syms: Vec<serde_json::Value> = limited
@@ -311,6 +375,26 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                     "deprecation_warnings".to_owned(),
                     json!(deprecation_warnings),
                 );
+                if let Some(stale) = scip_staleness.as_ref() {
+                    let stale_files_payload: Vec<serde_json::Value> = stale
+                        .stale_files
+                        .iter()
+                        .map(|(file, age)| {
+                            json!({"file_path": file, "newer_than_index_by_seconds": age})
+                        })
+                        .collect();
+                    map.insert(
+                        "scip_index_stale_warning".to_owned(),
+                        json!({
+                            "code": "scip_index_stale",
+                            "message": "SCIP index pre-dates one or more resolved source files; reported line / body / signature may not match current source. Regenerate the index before trusting precise-tier results.",
+                            "recommended_action": "regenerate_scip_index",
+                            "action_target": "scip_backend",
+                            "index_path": stale.index_path,
+                            "stale_files": stale_files_payload,
+                        }),
+                    );
+                }
                 if !unknown_args.is_empty() {
                     map.insert(
                         "warnings".to_owned(),
@@ -1243,5 +1327,94 @@ mod confidence_tier_tests {
             confidence_tier(&matched, 0, "dispatch_tool", "dispatch::dispatch_tool"),
             "low"
         );
+    }
+}
+
+#[cfg(all(test, feature = "scip-backend"))]
+mod scip_staleness_tests {
+    use super::detect_scip_staleness;
+    use std::time::{Duration, SystemTime};
+
+    /// Build a temp project root with an `index.scip` placeholder file
+    /// dated `index_age_secs` ago, plus the named source files dated
+    /// `source_age_secs` ago. Returns the project root path.
+    fn build_fixture(
+        index_age_secs: u64,
+        source_age_secs: u64,
+        sources: &[&str],
+    ) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let now = SystemTime::now();
+        let index_mtime = now - Duration::from_secs(index_age_secs);
+        let source_mtime = now - Duration::from_secs(source_age_secs);
+        let index_path = root.join("index.scip");
+        std::fs::write(&index_path, b"stub").expect("write index");
+        filetime::set_file_mtime(
+            &index_path,
+            filetime::FileTime::from_system_time(index_mtime),
+        )
+        .expect("backdate index");
+        for rel in sources {
+            let abs = root.join(rel);
+            if let Some(parent) = abs.parent() {
+                std::fs::create_dir_all(parent).expect("mkdirs");
+            }
+            std::fs::write(&abs, b"// placeholder\n").expect("write source");
+            filetime::set_file_mtime(&abs, filetime::FileTime::from_system_time(source_mtime))
+                .expect("backdate source");
+        }
+        dir
+    }
+
+    #[test]
+    fn staleness_detected_when_source_is_newer_than_index() {
+        let dir = build_fixture(
+            /* index_age */ 600,
+            /* source_age */ 60,
+            &["src/lib.rs"],
+        );
+        let staleness = detect_scip_staleness(dir.path(), &["src/lib.rs".to_owned()])
+            .expect("source newer than index → staleness Some");
+        assert_eq!(staleness.stale_files.len(), 1);
+        assert_eq!(staleness.stale_files[0].0, "src/lib.rs");
+        // Allow a generous window — the test only asserts the delta is
+        // strictly positive and within the same order of magnitude as the
+        // configured backdate gap (≥ 5 minutes).
+        assert!(
+            staleness.stale_files[0].1 >= 300,
+            "stale-by-seconds delta must reflect the backdate, got {}",
+            staleness.stale_files[0].1
+        );
+        assert!(staleness.index_path.ends_with("index.scip"));
+    }
+
+    #[test]
+    fn no_staleness_when_index_is_newer_than_source() {
+        let dir = build_fixture(
+            /* index_age */ 60,
+            /* source_age */ 600,
+            &["src/lib.rs"],
+        );
+        let staleness = detect_scip_staleness(dir.path(), &["src/lib.rs".to_owned()]);
+        assert!(staleness.is_none(), "got {staleness:?}");
+    }
+
+    #[test]
+    fn missing_index_returns_none_silently() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("src.rs"), b"x").expect("source");
+        let staleness = detect_scip_staleness(dir.path(), &["src.rs".to_owned()]);
+        assert!(
+            staleness.is_none(),
+            "no index.scip → must be None, not a fabricated staleness claim: {staleness:?}"
+        );
+    }
+
+    #[test]
+    fn missing_source_file_is_skipped_not_failed() {
+        let dir = build_fixture(/* index_age */ 600, 60, &[]);
+        let staleness = detect_scip_staleness(dir.path(), &["src/does_not_exist.rs".to_owned()]);
+        assert!(staleness.is_none());
     }
 }
