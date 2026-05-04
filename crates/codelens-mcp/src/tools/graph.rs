@@ -322,6 +322,34 @@ pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Val
     )
 }
 
+/// Count callers grouped by `(file, function)` so a SCIP entry that
+/// attributes a call to the caller-function start line and a tree-sitter
+/// entry that attributes the same logical caller to the call-expression
+/// line collapse into a single distinct caller.
+///
+/// The raw `count` field still reports `value.len()` for backwards
+/// compatibility; callers that need a deduped tally read
+/// `unique_caller_count` from the response.
+fn count_distinct_callers(callers: &[codelens_engine::CallerEntry]) -> usize {
+    let mut seen: std::collections::HashSet<(&str, &str)> = std::collections::HashSet::new();
+    for entry in callers {
+        seen.insert((entry.file.as_str(), entry.function.as_str()));
+    }
+    seen.len()
+}
+
+/// Count callees grouped by `(name, resolved_file)` so a SCIP entry and a
+/// tree-sitter entry referring to the same callee collapse into one
+/// distinct callee even when the per-call-site `line` numbers differ.
+fn count_distinct_callees(callees: &[codelens_engine::CalleeEntry]) -> usize {
+    let mut seen: std::collections::HashSet<(&str, Option<&str>)> =
+        std::collections::HashSet::new();
+    for entry in callees {
+        seen.insert((entry.name.as_str(), entry.resolved_file.as_deref()));
+    }
+    seen.len()
+}
+
 pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     // P1-B — accept `limit`/`top_k` aliases for `max_results` and surface
     // unknown top-level keys so an agent that passes (e.g.) `threshold:
@@ -391,10 +419,12 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
             confidence_basis,
             call_graph_evidence_signals(&resolution_summary),
         );
+        let unique_caller_count = count_distinct_callers(&value);
         let mut payload = json!({
             "function": function_name,
             "callers": value,
             "count": value.len(),
+            "unique_caller_count": unique_caller_count,
             "confidence_basis": confidence_basis,
             "resolution_summary": resolution_summary,
             "evidence": evidence,
@@ -476,10 +506,12 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
             confidence_basis,
             call_graph_evidence_signals(&resolution_summary),
         );
+        let unique_callee_count = count_distinct_callees(&value);
         let mut payload = json!({
             "function": function_name,
             "callees": value,
             "count": value.len(),
+            "unique_callee_count": unique_callee_count,
             "confidence_basis": confidence_basis,
             "resolution_summary": resolution_summary,
             "evidence": evidence,
@@ -531,4 +563,84 @@ pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value)
             success_meta(BackendKind::Git, 0.85),
         )
     })?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{count_distinct_callees, count_distinct_callers};
+    use codelens_engine::{CalleeEntry, CallerEntry};
+
+    fn caller(file: &str, function: &str, line: usize, resolution: &'static str) -> CallerEntry {
+        CallerEntry {
+            file: file.to_string(),
+            function: function.to_string(),
+            line,
+            confidence: 0.9,
+            resolution: Some(resolution),
+        }
+    }
+
+    fn callee(
+        name: &str,
+        line: usize,
+        resolved_file: Option<&str>,
+        resolution: &'static str,
+    ) -> CalleeEntry {
+        CalleeEntry {
+            name: name.to_string(),
+            line,
+            resolved_file: resolved_file.map(str::to_owned),
+            confidence: 0.9,
+            resolution: Some(resolution),
+        }
+    }
+
+    #[test]
+    fn count_distinct_callers_collapses_scip_and_tree_sitter_for_same_caller_function() {
+        // Mirrors the #207-C-1 dogfood observation: the same caller appears
+        // once with line attributed by SCIP (caller-fn start) and again with
+        // line attributed by tree-sitter (call-expression site), differing
+        // by +/-1. The existing (file, function, line) dedup misses these
+        // pairs; (file, function) collapses them into a single distinct
+        // caller.
+        let callers = vec![
+            caller("filesystem.rs", "get_current_config", 36, "scip"),
+            caller("filesystem.rs", "get_current_config", 37, "unique_name"),
+            caller("resources.rs", "read_resource", 137, "scip"),
+            caller("resources.rs", "read_resource", 136, "unique_name"),
+        ];
+        assert_eq!(count_distinct_callers(&callers), 2);
+    }
+
+    #[test]
+    fn count_distinct_callers_keeps_separate_caller_functions() {
+        let callers = vec![
+            caller("a.rs", "foo", 1, "scip"),
+            caller("a.rs", "bar", 1, "scip"),
+            caller("b.rs", "foo", 1, "scip"),
+        ];
+        assert_eq!(count_distinct_callers(&callers), 3);
+    }
+
+    #[test]
+    fn count_distinct_callees_collapses_same_name_resolved_file_pairs() {
+        let callees = vec![
+            callee("bar", 5, Some("b.rs"), "scip"),
+            callee("bar", 6, Some("b.rs"), "scip"),
+            callee("bar", 7, Some("b.rs"), "unique_name"),
+        ];
+        assert_eq!(count_distinct_callees(&callees), 1);
+    }
+
+    #[test]
+    fn count_distinct_callees_separates_unresolved_and_resolved_callees_with_same_name() {
+        let callees = vec![
+            callee("bar", 5, Some("b.rs"), "scip"),
+            callee("bar", 5, None, "unique_name"),
+        ];
+        // (bar, Some("b.rs")) and (bar, None) are distinct buckets so a
+        // resolved callee and an unresolved callee with the same identifier
+        // remain countable separately.
+        assert_eq!(count_distinct_callees(&callees), 2);
+    }
 }
