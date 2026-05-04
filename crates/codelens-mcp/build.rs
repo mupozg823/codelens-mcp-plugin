@@ -65,9 +65,15 @@ fn main() {
     );
     println!("cargo:rerun-if-changed={}", schema_src.display());
 
-    // 1. Git SHA (short, 7-char)
+    // 1. Git SHA (short, 7-char). Pin `--short=7` so the build-time
+    // value matches what `current_head_git_sha` reads at runtime
+    // (`git rev-parse --short=7 HEAD`); without the explicit width,
+    // git widens to 8+ chars whenever the current SHA collides with
+    // any other object prefix, which would silently flip
+    // `daemon_binary_drift` into a false-positive `head_git_sha_mismatch`
+    // even when the binary was just built from HEAD. See issue #221.
     let git_sha = Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short=7", "HEAD"])
         .output()
         .ok()
         .and_then(|out| {
