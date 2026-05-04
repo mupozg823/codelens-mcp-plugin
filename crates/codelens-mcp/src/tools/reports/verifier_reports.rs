@@ -9,9 +9,16 @@ fn verify_change_readiness_cache_key(
     arguments: &Value,
     task: &str,
     overlapping_claims: &[crate::state::FileClaimEntry],
+    active_project_root: &str,
 ) -> String {
     let mut fields = Map::new();
     fields.insert("task".to_owned(), json!(task));
+    // Issue #213: scope the cache key by active project root so
+    // artifacts produced for project A never satisfy a verify call
+    // from project B running against the same daemon. Without this,
+    // top_findings / prior_analyses leak across projects whenever the
+    // task string and changed_files happen to coincide.
+    fields.insert("active_project_root".to_owned(), json!(active_project_root));
     if let Some(profile_hint) = arguments.get("profile_hint").cloned() {
         fields.insert("profile_hint".to_owned(), profile_hint);
     }
@@ -121,6 +128,32 @@ pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
             }),
         );
     }
+    // Issue #213: surface the project root the response is scoped to,
+    // and warn when the caller has not explicitly activated a project.
+    // In HTTP/launchd setups the daemon's startup default rarely
+    // matches the caller's actual cwd, and prior-session findings
+    // leak through the ranked-context layer when the active project
+    // has not been pinned.
+    let active_project_root = state.current_project_scope();
+    let active_project_explicit = state.has_explicit_active_project();
+    let active_project_section = json!({
+        "path": active_project_root,
+        "source": if active_project_explicit { "explicit_activation" } else { "daemon_default_fallback" },
+        "explicit": active_project_explicit,
+    });
+    sections.insert("active_project".to_owned(), active_project_section);
+    if !active_project_explicit {
+        sections.insert(
+            "active_project_warning".to_owned(),
+            json!({
+                "code": "no_explicit_active_project",
+                "message": "verify_change_readiness was called without an explicit active project; response uses the daemon's startup default and may surface findings from a prior session",
+                "recommended_action": "activate_project",
+                "action_target": "active_project",
+                "default_project_root": state.default_project_scope(),
+            }),
+        );
+    }
     let mut result = make_handle_response(
         state,
         "verify_change_readiness",
@@ -128,6 +161,7 @@ pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
             arguments,
             task,
             &overlapping_claims,
+            &active_project_root,
         )),
         format!("Verifier-first readiness report for `{task}` with blockers and preflight cues."),
         top_findings,
@@ -352,4 +386,46 @@ pub fn unresolved_reference_check(state: &AppState, arguments: &Value) -> ToolRe
         symbol.map(ToOwned::to_owned),
         Some(arguments),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #213 regression: the cache key must include the active
+    /// project root so verify-change-readiness artifacts produced for
+    /// project A never satisfy a verify call from project B against
+    /// the same daemon.
+    #[test]
+    fn cache_key_changes_with_active_project_root() {
+        let arguments = json!({"task": "audit auth"});
+        let task = "audit auth";
+        let claims = Vec::new();
+
+        let key_a = verify_change_readiness_cache_key(&arguments, task, &claims, "/repos/proj-a");
+        let key_b = verify_change_readiness_cache_key(&arguments, task, &claims, "/repos/proj-b");
+
+        assert_ne!(
+            key_a, key_b,
+            "different project roots must produce distinct cache keys"
+        );
+        assert!(
+            key_a.contains("/repos/proj-a"),
+            "active_project_root must be embedded in the cache key (got: {key_a})"
+        );
+    }
+
+    /// Backward-compat: same arguments + same project root must
+    /// produce the same key (cache hit semantics preserved).
+    #[test]
+    fn cache_key_stable_when_inputs_repeat() {
+        let arguments = json!({"task": "audit auth", "profile_hint": "reviewer-graph"});
+        let task = "audit auth";
+        let claims = Vec::new();
+
+        let key_a = verify_change_readiness_cache_key(&arguments, task, &claims, "/repos/proj-a");
+        let key_b = verify_change_readiness_cache_key(&arguments, task, &claims, "/repos/proj-a");
+
+        assert_eq!(key_a, key_b);
+    }
 }

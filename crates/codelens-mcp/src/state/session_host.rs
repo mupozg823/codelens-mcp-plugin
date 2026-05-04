@@ -30,7 +30,7 @@ impl AppState {
         self.project_scope_for_session(&session)
     }
 
-    pub(super) fn default_project_scope(&self) -> String {
+    pub(crate) fn default_project_scope(&self) -> String {
         self.default_project.as_path().to_string_lossy().to_string()
     }
 
