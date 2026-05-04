@@ -15,6 +15,26 @@ use std::collections::HashSet;
 
 const DEFAULT_AUTO_REFRESH_STALE_THRESHOLD: usize = 32;
 
+/// Issue #186: heuristic for spotting Claude/Codex internal workspace
+/// directories whose basename is itself an anonymized agent hash
+/// (e.g. `agent-a110134bd9c6e7440`). When `prepare_harness_session`
+/// resolves the active project to one of these instead of the
+/// daemon's CLI startup root, downstream tools see a near-empty
+/// index and emit false-positive `no_supported_files` warnings.
+///
+/// We treat any name that begins with `agent-` and whose suffix is
+/// strictly hex (≥ 12 chars of `[0-9a-fA-F]`) as anonymized — the
+/// shape that the harness itself produces. Limiting to hex avoids
+/// false-positives on real project directories like `agent-server/`
+/// or `agent-orchestrator/` where alphabetic chars like `r`/`s`/`t`
+/// rule out a hash interpretation.
+fn is_anonymized_agent_project_name(name: &str) -> bool {
+    let Some(suffix) = name.strip_prefix("agent-") else {
+        return false;
+    };
+    suffix.len() >= 12 && suffix.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 fn push_prepare_harness_warning(
     warnings: &mut Vec<Value>,
     warning_codes: &mut HashSet<String>,
@@ -629,6 +649,43 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 "bootstrap_routing",
             );
         }
+        // Issue #186: detect when the active project resolved to an
+        // anonymized agent identifier (e.g. `agent-a110134bd9c6e7440`)
+        // instead of the daemon's CLI startup root. This happens when
+        // a session-bound switch lands on an internal Claude/Codex
+        // workspace path where the directory basename is itself a
+        // hash. The active project is then "shared on-disk index"
+        // material from a sibling daemon's view but the answer key is
+        // a different tree, surfacing as `indexed_files: 0` +
+        // false-positive `no_supported_files`. Surface the mismatch
+        // so the caller can re-issue with `project=<real path>`.
+        let active_project_name_for_check = activate_payload
+            .get("project_name")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        if is_anonymized_agent_project_name(active_project_name_for_check) {
+            let daemon_default = state.default_project_scope();
+            push_prepare_harness_warning_with_extras(
+                &mut warnings,
+                &mut warning_codes,
+                "anonymized_project_name_detected",
+                &format!(
+                    "active project resolved to anonymized agent identifier `{active_project_name_for_check}`; this usually means a session-bound switch landed on an internal harness workspace and the on-disk index for the daemon's CLI default project is not loaded. Re-issue prepare_harness_session with `project=<absolute repo path>` to pin the intended project.",
+                ),
+                false,
+                "activate_explicit_project",
+                "active_project",
+                json!({
+                    "anonymized_project_name": active_project_name_for_check,
+                    "daemon_default_project_root": daemon_default,
+                    "remediation": {
+                        "method": "tool_call",
+                        "tool": "prepare_harness_session",
+                        "args": { "project": daemon_default },
+                    },
+                }),
+            );
+        }
         // Issue #224: when caller supplied both `profile` and `preset`,
         // surface a non-blocking warning naming the dropped value so the
         // next call can drop the redundant arg explicitly. Profile wins
@@ -1036,5 +1093,42 @@ mod tests {
         // No spurious key inserted from the string extras.
         assert!(warning.get("remediation").is_none());
         assert!(warning.get("auto_refresh_threshold").is_none());
+    }
+
+    /// Issue #186 detector: a `agent-<hash>` directory basename is the
+    /// telltale sign that the active project is an internal Claude/
+    /// Codex workspace, not the daemon's CLI startup root.
+    #[test]
+    fn anonymized_agent_project_name_detected_for_hash_pattern() {
+        // Real-world cases from the dogfood report.
+        assert!(is_anonymized_agent_project_name("agent-a110134bd9c6e7440"));
+        assert!(is_anonymized_agent_project_name(
+            "agent-0123456789abcdefABCDEF"
+        ));
+        // Minimum-length boundary (12 chars after prefix).
+        assert!(is_anonymized_agent_project_name("agent-aaaaaaaaaaaa"));
+    }
+
+    /// Real project directories that happen to start with `agent`
+    /// must not trip the detector. Only hash-shaped suffixes count.
+    #[test]
+    fn anonymized_agent_project_name_rejects_real_project_names() {
+        assert!(!is_anonymized_agent_project_name("agent-server")); // dash inside not hex
+        assert!(!is_anonymized_agent_project_name("agent-cli")); // too short
+        assert!(!is_anonymized_agent_project_name("codelens-mcp-plugin"));
+        assert!(!is_anonymized_agent_project_name("rg-family"));
+        assert!(!is_anonymized_agent_project_name("agent-orchestrator")); // dash inside
+        // A sub-12 hash-ish suffix is also rejected (too short to be the
+        // anonymizer the harness uses).
+        assert!(!is_anonymized_agent_project_name("agent-abc123"));
+    }
+
+    /// Edge cases: empty string, missing prefix, only the prefix.
+    #[test]
+    fn anonymized_agent_project_name_handles_edge_cases() {
+        assert!(!is_anonymized_agent_project_name(""));
+        assert!(!is_anonymized_agent_project_name("agent-"));
+        assert!(!is_anonymized_agent_project_name("foo-agent-aaaaaaaaaaaa"));
+        assert!(!is_anonymized_agent_project_name("AGENT-aaaaaaaaaaaa")); // case sensitive
     }
 }
