@@ -1,7 +1,9 @@
 use crate::AppState;
 use crate::tool_runtime::ToolResult;
 use crate::tools::report_contract::make_handle_response;
-use crate::tools::report_utils::{stable_cache_key, strings_from_array};
+use crate::tools::report_utils::{
+    collect_file_mtime_digests, stable_cache_key, stable_cache_key_with_extras, strings_from_array,
+};
 use crate::tools::symbols::{semantic_results_for_query, semantic_status};
 use codelens_engine::search::SEMANTIC_COUPLING_THRESHOLD;
 use serde_json::{Value, json};
@@ -390,10 +392,29 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
         "diff_references".to_owned(),
         json!({"changed_files": changed_files, "rows": rows}),
     );
+    // Issue #225: include per-file mtime/length digest in the cache
+    // key. Without this, two calls with the same `changed_files` set
+    // and same `task` reuse the prior analysis even after the file
+    // content materially changed on disk — a reviewer trusting the
+    // green readiness signal is then looking at a pre-fix snapshot.
+    let mut extras = BTreeMap::new();
+    extras.insert(
+        "file_digests".to_owned(),
+        json!(collect_file_mtime_digests(
+            state.project().as_path(),
+            &changed_files,
+        )),
+    );
+    let cache_key = stable_cache_key_with_extras(
+        "diff_aware_references",
+        arguments,
+        &["changed_files"],
+        &extras,
+    );
     make_handle_response(
         state,
         "diff_aware_references",
-        stable_cache_key("diff_aware_references", arguments, &["changed_files"]),
+        cache_key,
         "Diff-aware reference compression for reviewer and CI flows.".to_owned(),
         top_findings.into_iter().take(5).collect(),
         0.86,
