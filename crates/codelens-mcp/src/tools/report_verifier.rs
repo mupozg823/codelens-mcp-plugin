@@ -105,6 +105,41 @@ fn browser_or_ssr_sensitive(
     .any(|needle| combined.contains(needle))
 }
 
+/// Issue #226: classify a single LSP diagnostic for the
+/// readiness-blocking decision. `hint` and `information` severities
+/// — and rust-analyzer's `inactive-code` in particular — are
+/// expected, advisory metadata for cfg-gated branches and similar
+/// situations; treating them as blockers trains agents to distrust
+/// the readiness signal.
+///
+/// Returns `true` only when the diagnostic represents an actual
+/// problem the caller should resolve before mutating: i.e. severity
+/// is `error` or `warning`, or the severity label is missing
+/// (defensive default for unknown LSP servers).
+fn is_blocking_diagnostic(diag: &Value) -> bool {
+    // rust-analyzer emits cfg-gated branches as `inactive-code` hints —
+    // explicit downgrade so the verdict is not driven by feature gate
+    // bookkeeping.
+    if diag
+        .get("code")
+        .and_then(|v| v.as_str())
+        .is_some_and(|c| c.eq_ignore_ascii_case("inactive-code"))
+    {
+        return false;
+    }
+    let label = diag
+        .get("severity_label")
+        .and_then(|v| v.as_str())
+        .map(str::to_ascii_lowercase);
+    match label.as_deref() {
+        Some("hint") | Some("information") | Some("info") => false,
+        Some("warning") | Some("warn") | Some("error") | Some("err") => true,
+        // No severity label at all → treat as blocking (defensive
+        // default; unknown LSP servers should not silently be ignored).
+        Some(_) | None => true,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_verifier_contract(
     state: &AppState,
@@ -122,6 +157,8 @@ pub(crate) fn build_verifier_contract(
     let mut diagnostic_rows = Vec::new();
     let mut diagnostic_errors = Vec::new();
     let mut diagnostic_count = 0usize;
+    let mut blocking_diagnostic_count = 0usize;
+    let mut informational_diagnostic_count = 0usize;
     for file in touched_files.iter().take(3) {
         match super::lsp::get_file_diagnostics(
             state,
@@ -133,10 +170,34 @@ pub(crate) fn build_verifier_contract(
                     .and_then(|value| value.as_u64())
                     .unwrap_or_default() as usize;
                 diagnostic_count += count;
+                let diagnostics_array = payload
+                    .get("diagnostics")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+                // Issue #226: rust-analyzer emits `inactive-code` etc.
+                // as `severity_label: "hint"` for cfg-gated branches,
+                // which is informational metadata, not a blocker.
+                // Partition diagnostics so the readiness verdict is
+                // driven by warning/error severities only.
+                let mut file_blocking = 0usize;
+                let mut file_informational = 0usize;
+                if let Some(items) = diagnostics_array.as_array() {
+                    for diag in items {
+                        if is_blocking_diagnostic(diag) {
+                            file_blocking += 1;
+                        } else {
+                            file_informational += 1;
+                        }
+                    }
+                }
+                blocking_diagnostic_count += file_blocking;
+                informational_diagnostic_count += file_informational;
                 diagnostic_rows.push(json!({
                     "file_path": file,
                     "count": count,
-                    "diagnostics": payload.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
+                    "blocking_count": file_blocking,
+                    "informational_count": file_informational,
+                    "diagnostics": diagnostics_array,
                 }));
             }
             Err(error) => diagnostic_errors.push(json!({
@@ -151,13 +212,15 @@ pub(crate) fn build_verifier_contract(
             json!({
                 "files": diagnostic_rows,
                 "errors": diagnostic_errors,
+                "blocking_count": blocking_diagnostic_count,
+                "informational_count": informational_diagnostic_count,
             }),
         );
         Some("verifier_diagnostics")
     } else {
         None
     };
-    let diagnostics_status = if diagnostic_count > 0 {
+    let diagnostics_status = if blocking_diagnostic_count > 0 {
         crate::util::push_unique_string(
             &mut contract.blockers,
             "Resolve reported diagnostics before mutating the touched files",
@@ -169,8 +232,14 @@ pub(crate) fn build_verifier_contract(
         VERIFIER_READY
     };
     contract.readiness.diagnostics_ready = diagnostics_status.to_owned();
-    let diagnostics_summary = if diagnostic_count > 0 {
-        format!("{diagnostic_count} diagnostic(s) reported across touched files.")
+    let diagnostics_summary = if blocking_diagnostic_count > 0 {
+        format!(
+            "{blocking_diagnostic_count} blocking diagnostic(s) reported across touched files (plus {informational_diagnostic_count} informational hint(s)).",
+        )
+    } else if informational_diagnostic_count > 0 {
+        format!(
+            "No blocking diagnostics; {informational_diagnostic_count} informational hint(s) (cfg-gated inactive-code, deprecation notes, etc.) surfaced for context only.",
+        )
     } else if !touched_files.is_empty() && diagnostics_section.is_none() {
         "Diagnostics unavailable for touched files; treat edits as provisional.".to_owned()
     } else if touched_files.is_empty() {
@@ -181,6 +250,7 @@ pub(crate) fn build_verifier_contract(
             touched_files.len()
         )
     };
+    let _ = diagnostic_count; // currently retained only for the rows summary
     push_verifier_check(
         &mut contract.verifier_checks,
         "diagnostic_verifier",
@@ -522,5 +592,72 @@ mod tests {
             "affected_files": 10,
         })];
         assert!(is_high_impact(&impacts));
+    }
+
+    /// Issue #226 regression: rust-analyzer `inactive-code` hints
+    /// (cfg-gated branches under default test/check builds) must not
+    /// be classified as blockers, otherwise `review_changes` flips
+    /// to `mutation_ready: blocked` on a perfectly clean diff.
+    #[test]
+    fn inactive_code_hint_is_not_blocking() {
+        let diag = json!({
+            "severity_label": "hint",
+            "code": "inactive-code",
+            "source": "rust-analyzer",
+            "message": "code is inactive due to #[cfg] directives: feature = \"http\" is disabled",
+        });
+        assert!(
+            !super::is_blocking_diagnostic(&diag),
+            "rust-analyzer inactive-code hint must not be a readiness blocker"
+        );
+    }
+
+    /// `severity_label: \"hint\"` from any source is informational —
+    /// even when the code is something other than `inactive-code`.
+    #[test]
+    fn generic_hint_severity_is_not_blocking() {
+        for label in ["hint", "Hint", "HINT", "information", "info"] {
+            let diag = json!({
+                "severity_label": label,
+                "code": "deprecated_signature",
+                "source": "tsserver",
+                "message": "deprecated overload",
+            });
+            assert!(
+                !super::is_blocking_diagnostic(&diag),
+                "severity_label `{label}` must downgrade to informational"
+            );
+        }
+    }
+
+    /// Real warnings and errors must still drive readiness to blocked
+    /// — the relaxation for hints must not silence genuine problems.
+    #[test]
+    fn warning_and_error_severities_remain_blocking() {
+        for label in ["warning", "warn", "error", "err"] {
+            let diag = json!({
+                "severity_label": label,
+                "code": "E0061",
+                "source": "rustc",
+                "message": "type mismatch",
+            });
+            assert!(
+                super::is_blocking_diagnostic(&diag),
+                "severity_label `{label}` must remain a blocker"
+            );
+        }
+    }
+
+    /// Defensive default: an LSP that omits `severity_label` is
+    /// treated as a blocker — silent acceptance would let unknown
+    /// servers slip past the readiness verdict.
+    #[test]
+    fn missing_severity_label_treated_as_blocking() {
+        let diag = json!({
+            "code": "U0001",
+            "source": "unknown-lsp",
+            "message": "unknown problem",
+        });
+        assert!(super::is_blocking_diagnostic(&diag));
     }
 }
