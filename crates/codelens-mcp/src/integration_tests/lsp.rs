@@ -745,3 +745,61 @@ fn find_referencing_symbols_oxc_definition_only_emits_self_only_warning() {
         "{payload}"
     );
 }
+
+/// Issue #201 regression: when `find_referencing_symbols` returns only
+/// the definition row, the response previously kept its precise-backend
+/// confidence at 0.95 — making the silent miss look like a high-trust
+/// "this symbol is unused" answer. Reviewers acting on that signal would
+/// drop refactors. Degrade `evidence.confidence` (and the top-level
+/// confidence mirror) when self-only is detected, and surface a
+/// `degraded_reason` so an evidence-first reader gets the same warning
+/// signal as the `self_only_warning` block carries.
+#[test]
+fn find_referencing_symbols_oxc_self_only_degrades_confidence_and_evidence() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("isolated_export_for_201.ts"),
+        "export function refreshEpisodeDonationCachesV2(seasonId: string) {\n    return seasonId;\n}\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({
+            "file_path": "isolated_export_for_201.ts",
+            "symbol_name": "refreshEpisodeDonationCachesV2",
+        }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(payload["data"]["count"], json!(1), "{payload}");
+
+    let evidence_conf = payload["data"]["evidence"]["confidence"]
+        .as_f64()
+        .expect("evidence.confidence numeric");
+    assert!(
+        evidence_conf < 0.9,
+        "self-only result must degrade evidence.confidence below the precise-path 0.95, got {evidence_conf}: {payload}"
+    );
+    let top_conf = payload["confidence"]
+        .as_f64()
+        .expect("top-level confidence numeric");
+    assert!(
+        (top_conf - evidence_conf).abs() < 1e-6,
+        "top-level confidence must mirror evidence.confidence (top {top_conf} vs evidence {evidence_conf}): {payload}"
+    );
+    let degraded = payload["data"]["evidence"]["degraded_reason"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(
+        degraded.contains("single_definition") || degraded.contains("self_only"),
+        "evidence.degraded_reason must mark the self-only path, got `{degraded}`: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["confidence_basis"]
+            .as_str()
+            .unwrap_or_default(),
+        "oxc_semantic_self_only",
+        "confidence_basis must shift to the self-only label so reviewers can branch on it: {payload}"
+    );
+}

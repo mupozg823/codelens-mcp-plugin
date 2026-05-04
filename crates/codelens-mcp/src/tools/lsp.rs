@@ -210,11 +210,43 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             {
                 let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();
                 let count = refs_limited.len();
-                let meta = success_meta(BackendKind::Hybrid, 0.95);
+                // Issue #201: a self-only result (only the definition row
+                // itself) is the prime symptom of the oxc_semantic
+                // single-file scope gap. Historically the response kept the
+                // precise-path 0.95 confidence, which reads as a
+                // high-trust "this symbol is unused" answer — exactly the
+                // shape of result reviewers wrongly act on. Detect
+                // self-only up front so we can build a degraded meta and
+                // a `oxc_semantic_self_only` evidence basis instead.
+                let is_self_only = count == 1
+                    && refs_limited
+                        .first()
+                        .and_then(|r| serde_json::to_value(r).ok())
+                        .and_then(|v| {
+                            v.get("kind")
+                                .and_then(|k| k.as_str())
+                                .map(|k| k.eq_ignore_ascii_case("definition"))
+                        })
+                        .unwrap_or(false);
+                let (meta, confidence_basis) = if is_self_only {
+                    (
+                        crate::tool_evidence::meta_degraded(
+                            "hybrid",
+                            0.6,
+                            "single_definition_no_cross_file_visible",
+                        ),
+                        "oxc_semantic_self_only",
+                    )
+                } else {
+                    (
+                        success_meta(BackendKind::Hybrid, 0.95),
+                        "oxc_semantic_precise",
+                    )
+                };
                 let evidence = crate::tool_evidence::tool_evidence(
                     "references",
                     &meta,
-                    "oxc_semantic_precise",
+                    confidence_basis,
                     crate::tool_evidence::precision_signals(
                         true,
                         true,
@@ -248,18 +280,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 // is the prime symptom of the cross-file gap — flag it
                 // explicitly so the caller does not mistake it for "no
                 // callers exist".
-                if count == 1
-                    && refs_limited
-                        .first()
-                        .and_then(|r| serde_json::to_value(r).ok())
-                        .and_then(|v| {
-                            v.get("kind")
-                                .and_then(|k| k.as_str())
-                                .map(|k| k.eq_ignore_ascii_case("definition"))
-                        })
-                        .unwrap_or(false)
-                    && let Some(map) = payload.as_object_mut()
-                {
+                if is_self_only && let Some(map) = payload.as_object_mut() {
                     map.insert(
                         "self_only_warning".to_owned(),
                         json!({
