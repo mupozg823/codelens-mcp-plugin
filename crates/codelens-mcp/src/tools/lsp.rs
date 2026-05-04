@@ -310,11 +310,33 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 {
                     let limited: Vec<_> = refs.into_iter().take(max_results).collect();
                     let count = limited.len();
-                    let meta = success_meta(BackendKind::Scip, 0.98);
+                    // Issue #240: same SCIP staleness probe as
+                    // `find_symbol` — if the index pre-dates any
+                    // resolved file, swap to a degraded meta + emit
+                    // `scip_index_stale_warning` so reviewers can't
+                    // mistake stale call sites for current ones.
+                    let scip_candidate_files: Vec<String> =
+                        limited.iter().map(|r| r.file_path.clone()).collect();
+                    let scip_staleness = crate::tools::scip_health::detect_scip_staleness(
+                        state.project().as_path(),
+                        &scip_candidate_files,
+                    );
+                    let (meta, confidence_basis) = if scip_staleness.is_some() {
+                        (
+                            crate::tool_evidence::meta_degraded(
+                                "scip",
+                                0.55,
+                                "scip_index_stale_vs_source",
+                            ),
+                            "scip_precise_stale_index",
+                        )
+                    } else {
+                        (success_meta(BackendKind::Scip, 0.98), "scip_precise")
+                    };
                     let evidence = crate::tool_evidence::tool_evidence(
                         "references",
                         &meta,
-                        "scip_precise",
+                        confidence_basis,
                         crate::tool_evidence::precision_signals(
                             true,
                             true,
@@ -343,6 +365,14 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         "backend": "scip",
                         "evidence": evidence,
                     });
+                    if let Some(stale) = scip_staleness.as_ref()
+                        && let Some(map) = payload.as_object_mut()
+                    {
+                        map.insert(
+                            "scip_index_stale_warning".to_owned(),
+                            crate::tools::scip_health::scip_stale_warning_payload(stale),
+                        );
+                    }
                     if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
                         insert_response_annotations(
                             &mut payload,
