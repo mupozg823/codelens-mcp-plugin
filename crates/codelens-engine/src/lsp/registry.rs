@@ -283,7 +283,46 @@ fn fallback_search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// Maximum number of parent directories to traverse when looking for a
+/// `node_modules/.bin/<command>` shim. The Next.js / pnpm monorepo layout
+/// rarely nests workspaces deeper than a few levels, so 8 is a generous
+/// upper bound that still avoids walking out of the project tree.
+const NODE_MODULES_TRAVERSE_DEPTH: usize = 8;
+
+/// Walk `start` and up to `depth` parents, returning the path of the first
+/// `node_modules/.bin/<command>` shim that exists. Used by the LSP resolver
+/// so a Next.js / TS project that installs `typescript-language-server`
+/// only as a devDependency does not have to globally install it.
+fn find_in_node_modules_bin(start: &Path, command: &str, depth: usize) -> Option<PathBuf> {
+    let mut current = Some(start);
+    let mut steps = 0;
+    while let Some(dir) = current {
+        if steps > depth {
+            break;
+        }
+        if let Some(path) = resolve_in_dir(&dir.join("node_modules").join(".bin"), command) {
+            return Some(path);
+        }
+        current = dir.parent();
+        steps += 1;
+    }
+    None
+}
+
 pub(crate) fn resolve_lsp_binary(command: &str) -> Option<PathBuf> {
+    resolve_lsp_binary_with_hint(command, None)
+}
+
+/// Resolve an LSP binary with an optional `hint_dir`. When `hint_dir` is
+/// `Some`, the resolver also walks up from that directory looking for a
+/// `node_modules/.bin/<command>` shim before reporting the binary as
+/// missing. This unblocks Node / TS projects that install LSP servers
+/// as devDependencies (the Next.js standard pattern), where the global
+/// PATH does not see the binary but the per-project shim does.
+pub(crate) fn resolve_lsp_binary_with_hint(
+    command: &str,
+    hint_dir: Option<&Path>,
+) -> Option<PathBuf> {
     let command_path = Path::new(command);
     if command_path.components().count() > 1 {
         return if command_path.is_file() {
@@ -317,6 +356,12 @@ pub(crate) fn resolve_lsp_binary(command: &str) -> Option<PathBuf> {
         }
     }
 
+    if let Some(start) = hint_dir
+        && let Some(path) = find_in_node_modules_bin(start, command, NODE_MODULES_TRAVERSE_DEPTH)
+    {
+        return Some(path);
+    }
+
     None
 }
 
@@ -326,6 +371,15 @@ pub(crate) fn resolve_lsp_binary(command: &str) -> Option<PathBuf> {
 /// aligned even when the daemon inherits a minimal launchd/systemd PATH.
 pub fn lsp_binary_exists(command: &str) -> bool {
     resolve_lsp_binary(command).is_some()
+}
+
+/// Like [`lsp_binary_exists`] but also walks up from `hint_dir` looking
+/// for `node_modules/.bin/<command>` shims. Callers that have a concrete
+/// project root or file path should prefer this — it lets capability
+/// reporting return `installed = true` for Node / TS projects that ship
+/// the LSP only as a devDependency.
+pub fn lsp_binary_exists_with_hint(command: &str, hint_dir: Option<&Path>) -> bool {
+    resolve_lsp_binary_with_hint(command, hint_dir).is_some()
 }
 
 /// Check which LSP servers are installed and which are missing.
@@ -373,4 +427,91 @@ pub fn default_lsp_args_for_command(command: &str) -> Option<&'static [&'static 
         .iter()
         .find(|recipe| recipe.binary_name == command)
         .map(|recipe| recipe.args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #215: a Next.js / TS project that installs
+    /// `typescript-language-server` only as a devDependency must still
+    /// be reachable via `node_modules/.bin/<command>`. The hint
+    /// directory points the resolver at the project root so the shim
+    /// is found even when the daemon's PATH does not include it.
+    #[test]
+    fn resolves_lsp_via_node_modules_bin_when_hint_dir_provided() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let bin_dir = tempdir.path().join("node_modules").join(".bin");
+        std::fs::create_dir_all(&bin_dir).expect("mkdir node_modules/.bin");
+        let unique = format!(
+            "phantom-lsp-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let shim = bin_dir.join(&unique);
+        std::fs::write(&shim, b"#!/bin/sh\nexit 0\n").expect("write shim");
+
+        // Without the hint, resolution fails — the binary is not on PATH.
+        assert!(
+            resolve_lsp_binary(&unique).is_none(),
+            "binary must be invisible without the hint dir"
+        );
+
+        // With the hint, the project-local shim is discovered.
+        let resolved = resolve_lsp_binary_with_hint(&unique, Some(tempdir.path()))
+            .expect("hint dir resolves the project-local shim");
+        assert_eq!(resolved, shim);
+        assert!(lsp_binary_exists_with_hint(&unique, Some(tempdir.path())));
+    }
+
+    /// The resolver walks up to `NODE_MODULES_TRAVERSE_DEPTH` parents,
+    /// so a hint pointing at `<repo>/apps/web/src/lib/...` still finds
+    /// `<repo>/node_modules/.bin/<command>` (npm/pnpm hoisting layout).
+    #[test]
+    fn resolves_lsp_via_node_modules_bin_in_parent_directory() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let nested = tempdir.path().join("apps/web/src/lib");
+        std::fs::create_dir_all(&nested).expect("mkdir nested");
+        let bin_dir = tempdir.path().join("node_modules").join(".bin");
+        std::fs::create_dir_all(&bin_dir).expect("mkdir node_modules/.bin");
+        let unique = format!(
+            "phantom-lsp-parent-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let shim = bin_dir.join(&unique);
+        std::fs::write(&shim, b"#!/bin/sh\nexit 0\n").expect("write shim");
+
+        let resolved = resolve_lsp_binary_with_hint(&unique, Some(&nested))
+            .expect("parent traversal must surface hoisted shim");
+        assert_eq!(resolved, shim);
+    }
+
+    /// `resolve_lsp_binary_with_hint(_, None)` must behave exactly like
+    /// `resolve_lsp_binary` — passing `None` does not enable any new
+    /// fallback path (and so does not regress callers that have no
+    /// project context).
+    #[test]
+    fn hint_none_does_not_enable_node_modules_fallback() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let bin_dir = tempdir.path().join("node_modules").join(".bin");
+        std::fs::create_dir_all(&bin_dir).expect("mkdir node_modules/.bin");
+        let unique = format!(
+            "phantom-lsp-no-hint-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        std::fs::write(bin_dir.join(&unique), b"#!/bin/sh\nexit 0\n").expect("write shim");
+
+        // No hint → resolver only consults PATH + standard fallback dirs.
+        // Since `tempdir` is not on PATH and is not a fallback dir, the
+        // binary remains undiscovered.
+        assert!(resolve_lsp_binary_with_hint(&unique, None).is_none());
+    }
 }

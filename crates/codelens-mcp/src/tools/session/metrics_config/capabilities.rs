@@ -54,10 +54,25 @@ impl DiagnosticsGuidance {
             .as_deref()
             .and_then(codelens_engine::get_lsp_recipe);
 
+        // For LSP binary lookup, hint with the directory holding the
+        // requested file so per-project shims (e.g. Next.js installs
+        // `typescript-language-server` only as a devDependency, where
+        // `node_modules/.bin` is the only valid resolution path) are
+        // visible to capability reporting.
+        let hint_dir = file_path
+            .map(std::path::Path::new)
+            .and_then(|path| path.parent())
+            .map(|parent| parent.to_path_buf());
+
         let status = match (file_path, recipe) {
             (None, _) => DiagnosticsStatus::FilePathRequired,
             (Some(_), None) => DiagnosticsStatus::UnsupportedExtension,
-            (Some(_), Some(recipe)) if !codelens_engine::lsp_binary_exists(recipe.binary_name) => {
+            (Some(_), Some(recipe))
+                if !codelens_engine::lsp_binary_exists_with_hint(
+                    recipe.binary_name,
+                    hint_dir.as_deref(),
+                ) =>
+            {
                 DiagnosticsStatus::LspBinaryMissing
             }
             (Some(_), Some(_)) => DiagnosticsStatus::Available,
