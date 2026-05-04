@@ -172,6 +172,21 @@ fn current_head_git_sha(project_root: &std::path::Path) -> Option<String> {
 /// `mtime_stale` takes precedence in `reason_code` so existing
 /// consumers keep their semantics. The `"unknown"` sentinel emitted
 /// by `build.rs` for non-git builds is treated as "no signal".
+/// Issue #221: even when both sides come from `git rev-parse --short`
+/// they can disagree in width (git widens to 8+ chars on prefix
+/// collisions), so the strict `==` comparison previously used here
+/// raised a false-positive `head_git_sha_mismatch` for the same
+/// commit. Compare by common prefix instead — two SHAs match when
+/// one is a prefix of the other (subject to a 4-char minimum so we
+/// don't treat trivially-short strings as a wildcard).
+fn shas_share_prefix(a: &str, b: &str) -> bool {
+    const MIN_PREFIX_LEN: usize = 4;
+    if a.len() < MIN_PREFIX_LEN || b.len() < MIN_PREFIX_LEN {
+        return false;
+    }
+    a.starts_with(b) || b.starts_with(a)
+}
+
 fn classify_drift(
     mtime_stale: bool,
     head_git_sha: Option<&str>,
@@ -183,7 +198,7 @@ fn classify_drift(
             if !head.is_empty()
                 && head != "unknown"
                 && binary_git_sha != "unknown"
-                && head != binary_git_sha
+                && !shas_share_prefix(head, binary_git_sha)
     );
     let stale = mtime_stale || head_mismatch;
     let reason_code = match (mtime_stale, head_mismatch) {
@@ -366,5 +381,45 @@ mod tests {
         let (stale, code, _) = classify_drift(false, Some(""), "f7885f9b");
         assert!(!stale);
         assert_eq!(code, None);
+    }
+
+    /// Issue #221 regression: same commit but with two different git
+    /// `--short` widths (build script captured 8 chars; runtime
+    /// `current_head_git_sha` returns 7) must not trigger a
+    /// false-positive `head_git_sha_mismatch`. Common-prefix match
+    /// is the new contract.
+    #[test]
+    fn classify_drift_treats_unequal_length_shas_with_common_prefix_as_match() {
+        // 7 chars (HEAD via --short=7) vs 8 chars (build via --short
+        // widened by git collision-avoidance). Same commit.
+        let (stale, code, reason) = classify_drift(false, Some("f28620a"), "f28620a5");
+        assert!(
+            !stale,
+            "common-prefix shas must not trigger head_git_sha_mismatch"
+        );
+        assert_eq!(code, None);
+        assert_eq!(reason, None);
+
+        // Symmetric: 8 chars (HEAD) vs 7 chars (binary).
+        let (stale, code, _) = classify_drift(false, Some("f28620a5"), "f28620a");
+        assert!(!stale);
+        assert_eq!(code, None);
+    }
+
+    /// Real mismatch (different commit) must still be detected — the
+    /// prefix relaxation must not silence genuine drift.
+    #[test]
+    fn classify_drift_still_detects_real_mismatch_with_different_prefix() {
+        // Different commits, different first chars.
+        let (stale, code, _) = classify_drift(false, Some("f28620a"), "abcd1234");
+        assert!(stale, "different prefixes must still trigger mismatch");
+        assert_eq!(code, Some("head_git_sha_mismatch"));
+
+        // Same first 3 chars but diverging by char 4 — below the 4-char
+        // minimum we still treat as mismatch (the rule requires at least
+        // 4 matching chars to be considered a prefix relationship).
+        let (stale, code, _) = classify_drift(false, Some("f28000a"), "f28620a5");
+        assert!(stale);
+        assert_eq!(code, Some("head_git_sha_mismatch"));
     }
 }
