@@ -541,8 +541,10 @@ pub(crate) fn collect_runtime_health_snapshot(
 ) -> RuntimeHealthSnapshot {
     let index_stats = state.symbol_index().stats().ok();
     let semantic_status = determine_semantic_search_status(state, surface);
-    let daemon_binary_drift =
-        crate::build_info::daemon_binary_drift_payload(state.daemon_started_at());
+    let daemon_binary_drift = crate::build_info::daemon_binary_drift_payload(
+        state.daemon_started_at(),
+        Some(state.project().as_path()),
+    );
     let health_summary =
         build_health_summary(index_stats.as_ref(), &semantic_status, &daemon_binary_drift);
     RuntimeHealthSnapshot {

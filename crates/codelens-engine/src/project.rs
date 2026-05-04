@@ -521,6 +521,19 @@ pub fn detect_workspace_packages(project: &Path) -> Vec<WorkspacePackage> {
         }
     }
 
+    // Cargo.toml is parsed line-by-line for `crates/*` mentions, which
+    // double-counts paths listed in both `[workspace] members` and
+    // `[workspace] default-members`. Sort + dedup on the (path, name,
+    // package_type) tuple so callers receive each workspace package
+    // once regardless of how many sections reference it.
+    packages.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.package_type.cmp(&b.package_type))
+    });
+    packages
+        .dedup_by(|a, b| a.path == b.path && a.name == b.name && a.package_type == b.package_type);
     packages
 }
 
@@ -546,6 +559,39 @@ mod tests {
         path::Path,
         sync::{Mutex, OnceLock},
     };
+
+    #[test]
+    fn workspace_packages_dedup_when_members_and_default_members_share_paths() {
+        use super::detect_workspace_packages;
+        let temp = tempfile_dir();
+        let crate_dir = temp.join("crates/foo");
+        fs::create_dir_all(&crate_dir).expect("mkdir crate");
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            "[package]\nname = \"foo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .expect("write crate cargo");
+        // Multi-line TOML array form mirrors how Cargo formats workspace
+        // members in real repos and is what the line-grep heuristic in
+        // `detect_workspace_packages` recognizes today. Same path appears
+        // in both `members` and `default-members` so dedup is the only
+        // thing under test.
+        fs::write(
+            temp.join("Cargo.toml"),
+            "[workspace]\nmembers = [\n    \"crates/foo\",\n]\ndefault-members = [\n    \"crates/foo\",\n]\n",
+        )
+        .expect("write root cargo");
+
+        let pkgs = detect_workspace_packages(&temp);
+        assert_eq!(
+            pkgs.len(),
+            1,
+            "members + default-members listing the same path should dedup, got {pkgs:?}"
+        );
+        assert_eq!(pkgs[0].name, "foo");
+        assert_eq!(pkgs[0].path, "crates/foo");
+        assert_eq!(pkgs[0].package_type, "cargo");
+    }
 
     #[test]
     fn excludes_agent_worktree_directories() {

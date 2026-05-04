@@ -131,14 +131,94 @@ fn current_executable_path() -> Result<std::path::PathBuf, String> {
     std::env::current_exe().map_err(|err| format!("current_exe unavailable: {err}"))
 }
 
-/// Runtime check for the Phase 4a failure mode: the daemon is still
-/// serving requests from an older in-memory binary while the
-/// executable on disk has been replaced with a newer build.
+/// Run `git -C <root> rev-parse --short=7 HEAD` to read the project's
+/// current short SHA. Returns `None` when git is unavailable, the
+/// project is not a git checkout, or the override env var is set to
+/// an empty string. Tests can short-circuit the subprocess call by
+/// setting `CODELENS_HEAD_GIT_SHA_OVERRIDE`.
+fn current_head_git_sha(project_root: &std::path::Path) -> Option<String> {
+    if let Some(override_value) = std::env::var_os("CODELENS_HEAD_GIT_SHA_OVERRIDE") {
+        let value = override_value.into_string().ok()?;
+        return if value.is_empty() { None } else { Some(value) };
+    }
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .arg("rev-parse")
+        .arg("--short=7")
+        .arg("HEAD")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let trimmed = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+/// Combine mtime-staleness and HEAD git_sha mismatch into a single
+/// drift verdict. Two independent signals trigger `stale = true`:
 ///
-/// `stale_daemon = true` means the executable path currently visible on
-/// disk has an mtime newer than `daemon_started_at`, so restarting the
-/// daemon is recommended before trusting version-sensitive behavior.
-pub(crate) fn daemon_binary_drift_payload(daemon_started_at: &str) -> serde_json::Value {
+/// - `mtime_stale`: on-disk executable mtime is newer than daemon
+///   start time (Phase 4a — daemon outlived its own binary)
+/// - HEAD git_sha mismatch: daemon's compile-time `BUILD_GIT_SHA`
+///   differs from the project's current HEAD short SHA, so a fix
+///   merged after the binary was built is silently absent
+///
+/// `mtime_stale` takes precedence in `reason_code` so existing
+/// consumers keep their semantics. The `"unknown"` sentinel emitted
+/// by `build.rs` for non-git builds is treated as "no signal".
+fn classify_drift(
+    mtime_stale: bool,
+    head_git_sha: Option<&str>,
+    binary_git_sha: &str,
+) -> (bool, Option<&'static str>, Option<&'static str>) {
+    let head_mismatch = matches!(
+        head_git_sha,
+        Some(head)
+            if !head.is_empty()
+                && head != "unknown"
+                && binary_git_sha != "unknown"
+                && head != binary_git_sha
+    );
+    let stale = mtime_stale || head_mismatch;
+    let reason_code = match (mtime_stale, head_mismatch) {
+        (true, _) => Some("stale_daemon_binary"),
+        (false, true) => Some("head_git_sha_mismatch"),
+        _ => None,
+    };
+    let reason = match (mtime_stale, head_mismatch) {
+        (true, _) => Some(
+            "disk executable is newer than the running daemon; restart the MCP server to pick up the latest build",
+        ),
+        (false, true) => Some(
+            "daemon binary git_sha does not match project HEAD; rebuild and restart to pick up newer commits",
+        ),
+        _ => None,
+    };
+    (stale, reason_code, reason)
+}
+
+/// Runtime check for two independent daemon-staleness failure modes:
+///
+/// 1. Phase 4a: the on-disk executable mtime is newer than the daemon
+///    start time (binary was rebuilt while the long-running daemon
+///    kept serving the older in-memory copy).
+/// 2. HEAD git_sha mismatch: the project's current HEAD differs from
+///    `BUILD_GIT_SHA`, so a fix merged after the binary was compiled
+///    is silently absent. Detected when `project_root` is supplied
+///    and `git rev-parse --short=7 HEAD` succeeds.
+///
+/// Either signal sets `stale_daemon = true`; the mtime signal takes
+/// precedence in `reason_code` so existing consumers keep semantics.
+pub(crate) fn daemon_binary_drift_payload(
+    daemon_started_at: &str,
+    project_root: Option<&std::path::Path>,
+) -> serde_json::Value {
     let daemon_started_seconds = match parse_rfc3339_utc_seconds(daemon_started_at) {
         Some(value) => value,
         None => {
@@ -191,13 +271,11 @@ pub(crate) fn daemon_binary_drift_payload(daemon_started_at: &str) -> serde_json
             });
         }
     };
-    let stale_daemon = modified_seconds > daemon_started_seconds;
+    let mtime_stale = modified_seconds > daemon_started_seconds;
+    let head_git_sha = project_root.and_then(current_head_git_sha);
+    let (stale_daemon, reason_code, reason) =
+        classify_drift(mtime_stale, head_git_sha.as_deref(), BUILD_GIT_SHA);
     let status = if stale_daemon { "stale" } else { "ok" };
-    let reason_code = if stale_daemon {
-        Some("stale_daemon_binary")
-    } else {
-        None
-    };
     let recommended_action = if stale_daemon {
         Some("restart_mcp_server")
     } else {
@@ -215,17 +293,14 @@ pub(crate) fn daemon_binary_drift_payload(daemon_started_at: &str) -> serde_json
         "daemon_started_at": daemon_started_at,
         "binary_build_time": BUILD_TIME,
         "binary_git_sha": BUILD_GIT_SHA,
-        "reason": if stale_daemon {
-            Some("disk executable is newer than the running daemon; restart the MCP server to pick up the latest build")
-        } else {
-            None
-        },
+        "head_git_sha": head_git_sha,
+        "reason": reason,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{format_rfc3339_utc, parse_rfc3339_utc_seconds};
+    use super::{classify_drift, format_rfc3339_utc, parse_rfc3339_utc_seconds};
 
     #[test]
     fn rfc3339_utc_round_trips_known_epoch_values() {
@@ -238,5 +313,58 @@ mod tests {
             assert_eq!(format_rfc3339_utc(unix_seconds), expected);
             assert_eq!(parse_rfc3339_utc_seconds(expected), Some(unix_seconds));
         }
+    }
+
+    #[test]
+    fn classify_drift_reports_head_mismatch_when_binary_sha_lags_head() {
+        let (stale, code, reason) = classify_drift(false, Some("237e4465"), "f7885f9b");
+        assert!(stale, "head mismatch must trigger stale=true");
+        assert_eq!(code, Some("head_git_sha_mismatch"));
+        assert!(reason.unwrap().contains("does not match project HEAD"));
+    }
+
+    #[test]
+    fn classify_drift_clears_when_head_matches_binary() {
+        let (stale, code, reason) = classify_drift(false, Some("237e4465"), "237e4465");
+        assert!(!stale);
+        assert_eq!(code, None);
+        assert_eq!(reason, None);
+    }
+
+    #[test]
+    fn classify_drift_prefers_mtime_stale_signal_over_head_mismatch() {
+        let (stale, code, reason) = classify_drift(true, Some("237e4465"), "f7885f9b");
+        assert!(stale);
+        assert_eq!(
+            code,
+            Some("stale_daemon_binary"),
+            "mtime stale must take precedence in reason_code"
+        );
+        assert!(reason.unwrap().contains("disk executable is newer"));
+    }
+
+    #[test]
+    fn classify_drift_treats_unknown_sentinel_as_no_signal() {
+        let (stale, code, _) = classify_drift(false, Some("unknown"), "f7885f9b");
+        assert!(!stale, "unknown HEAD must not trigger mismatch");
+        assert_eq!(code, None);
+
+        let (stale, code, _) = classify_drift(false, Some("237e4465"), "unknown");
+        assert!(!stale, "unknown binary SHA must not trigger mismatch");
+        assert_eq!(code, None);
+    }
+
+    #[test]
+    fn classify_drift_skips_when_head_unavailable() {
+        let (stale, code, _) = classify_drift(false, None, "f7885f9b");
+        assert!(!stale);
+        assert_eq!(code, None);
+    }
+
+    #[test]
+    fn classify_drift_skips_when_head_string_is_empty() {
+        let (stale, code, _) = classify_drift(false, Some(""), "f7885f9b");
+        assert!(!stale);
+        assert_eq!(code, None);
     }
 }
