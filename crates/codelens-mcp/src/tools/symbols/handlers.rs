@@ -80,6 +80,40 @@ fn heuristic_body_slice(state: &AppState, file_path: &str, line: usize) -> Optio
     .filter(|body| !body.is_empty())
 }
 
+/// Issue #235 (sub-fix B): when SCIP returns a definition occurrence with
+/// neither `d.signature` nor a usable hover string, fall back to reading
+/// the single source line at the SCIP-reported position. Empty trimmed
+/// lines (blank lines, attribute-only lines) yield `None` so the caller
+/// can surface `"signature_source": "unavailable"` instead of a misleading
+/// blank string.
+///
+/// Skip this fallback when the file is known to be SCIP-stale — the
+/// SCIP-reported `line` would point at unrelated source after the index
+/// drifted, making the read worse than an empty signature.
+#[cfg(feature = "scip-backend")]
+pub(super) fn read_signature_line(
+    state: &AppState,
+    file_path: &str,
+    line: usize,
+) -> Option<String> {
+    // Matches `heuristic_body_slice`: `line` is treated as the 0-indexed
+    // first row in the file (same convention as the SCIP `parse_range`
+    // return value). `read_file` slices `lines[start..end]`, so reading
+    // exactly one row needs an end of `line + 1`.
+    let file = read_file(
+        &state.project(),
+        file_path,
+        Some(line),
+        Some(line.saturating_add(1)),
+    )
+    .ok()?;
+    let trimmed = file.content.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
 #[cfg(feature = "scip-backend")]
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct ScipStaleness {
@@ -331,6 +365,14 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                 confidence_basis,
                 crate::tool_evidence::precision_signals(true, true, Some("scip"), None, count),
             );
+            // Issue #235 (sub-fix B): build a fast lookup of files whose
+            // SCIP-reported line is suspect, so the per-symbol enrichment
+            // below knows when to skip the source-line fallback (reading
+            // the wrong line is worse than returning an empty signature).
+            let stale_file_set: std::collections::HashSet<&str> = scip_staleness
+                .as_ref()
+                .map(|s| s.stale_files.iter().map(|(f, _)| f.as_str()).collect())
+                .unwrap_or_default();
             let syms: Vec<serde_json::Value> = limited
                 .iter()
                 .map(|d| {
@@ -340,12 +382,27 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         .ok()
                         .flatten()
                         .unwrap_or_default();
+                    // Pick the first non-empty signature source, recording
+                    // which path provided it so reviewers can branch on
+                    // signal quality instead of guessing.
+                    let (signature_value, signature_source) = if !d.signature.is_empty() {
+                        (d.signature.clone(), "scip_signature")
+                    } else if !doc.is_empty() {
+                        (doc.clone(), "scip_doc_hover")
+                    } else if !stale_file_set.contains(d.file_path.as_str())
+                        && let Some(line) = read_signature_line(state, &d.file_path, d.line)
+                    {
+                        (line, "source_line_read")
+                    } else {
+                        (String::new(), "unavailable")
+                    };
                     let mut sym = json!({
                         "name": d.name,
                         "kind": d.kind,
                         "file_path": d.file_path,
                         "line": d.line,
-                        "signature": if d.signature.is_empty() { &doc } else { &d.signature },
+                        "signature": signature_value,
+                        "signature_source": signature_source,
                         "name_path": d.name_path,
                         "score": d.score,
                     });
@@ -1416,5 +1473,59 @@ mod scip_staleness_tests {
         let dir = build_fixture(/* index_age */ 600, 60, &[]);
         let staleness = detect_scip_staleness(dir.path(), &["src/does_not_exist.rs".to_owned()]);
         assert!(staleness.is_none());
+    }
+}
+
+#[cfg(all(test, feature = "scip-backend"))]
+mod read_signature_line_tests {
+    use super::read_signature_line;
+    use crate::AppState;
+    use codelens_engine::ProjectRoot;
+
+    fn make_test_state(project_root: &std::path::Path) -> AppState {
+        let project = ProjectRoot::new(project_root.to_str().unwrap()).expect("project");
+        AppState::new_minimal(project, crate::tool_defs::ToolPreset::Full)
+    }
+
+    #[test]
+    fn returns_trimmed_declaration_at_target_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("src.rs"),
+            "use std::io;\n\npub fn alpha(x: i32) -> i32 {\n    x + 1\n}\n",
+        )
+        .unwrap();
+        let state = make_test_state(dir.path());
+        // Lines (0-indexed, matching SCIP `parse_range` convention):
+        //   0: "use std::io;"
+        //   1: ""
+        //   2: "pub fn alpha(x: i32) -> i32 {"
+        //   3: "    x + 1"
+        //   4: "}"
+        let signature = read_signature_line(&state, "src.rs", 2)
+            .expect("non-empty declaration line should yield Some");
+        assert_eq!(signature, "pub fn alpha(x: i32) -> i32 {");
+    }
+
+    #[test]
+    fn returns_none_for_blank_line() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("src.rs"),
+            "fn first() {}\n\nfn second() {}\n",
+        )
+        .unwrap();
+        let state = make_test_state(dir.path());
+        // 0-indexed line 1 is the empty line between the two functions —
+        // must surface as None rather than `""` so the caller can branch
+        // on `signature_source: "unavailable"`.
+        assert!(read_signature_line(&state, "src.rs", 1).is_none());
+    }
+
+    #[test]
+    fn returns_none_for_missing_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = make_test_state(dir.path());
+        assert!(read_signature_line(&state, "does_not_exist.rs", 1).is_none());
     }
 }
