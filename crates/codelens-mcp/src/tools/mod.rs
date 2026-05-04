@@ -13,6 +13,7 @@ mod report_utils;
 mod report_verifier;
 pub mod reports;
 pub mod rules;
+mod scip_health;
 pub(crate) mod semantic_edit;
 pub(crate) mod semantic_edit_args;
 pub mod session;
