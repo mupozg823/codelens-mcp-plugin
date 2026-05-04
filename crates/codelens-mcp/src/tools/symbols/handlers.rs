@@ -120,6 +120,45 @@ pub(super) fn read_signature_line(
 #[cfg(feature = "scip-backend")]
 use crate::tools::scip_health::{detect_scip_staleness, scip_stale_warning_payload};
 
+/// Issue #235 (sub-fix C): humanize raw SCIP descriptors (e.g.
+/// `"rust-analyzer cargo codelens-mcp 1.9.59 tools/session/project_ops/prepare_harness_session()."`)
+/// before exposing them as `name_path`. Strips the
+/// `<emitter> <pkg-mgr> <crate> <version> ` preamble and the trailing
+/// `()` / `#` / `.` SCIP suffixes so callers get a stable tree-sitter-
+/// shaped path. The raw descriptor is preserved separately under
+/// `scip_descriptor` for debug / reverse-lookup. Falls back to the raw
+/// value when the input shape is not recognised, so we never silently
+/// drop information.
+#[cfg(feature = "scip-backend")]
+pub(super) fn humanize_scip_name_path(raw: &str) -> String {
+    // SCIP descriptor format (sourcegraph spec):
+    //   <emitter> <pkg-mgr> <crate> <version> <descriptor>
+    // The four space-separated header fields are followed by a single
+    // descriptor segment. After the 4th space is the path-ish part we
+    // want to surface; before it is toolchain noise.
+    let trimmed = raw.trim();
+    let mut path_part = trimmed;
+    if trimmed.split(' ').take(4).count() == 4
+        && let Some(rest_start) = trimmed.match_indices(' ').nth(3).map(|(idx, _)| idx + 1)
+        && rest_start < trimmed.len()
+    {
+        path_part = &trimmed[rest_start..];
+    }
+    // Strip trailing SCIP suffixes:
+    //   `()`/`().` → function, `#`/`#.` → type, `.` → constant/module.
+    let stripped = path_part
+        .trim_end_matches('.')
+        .trim_end_matches(')')
+        .trim_end_matches('(')
+        .trim_end_matches('#')
+        .trim_end_matches('.');
+    if stripped.is_empty() {
+        raw.to_owned()
+    } else {
+        stripped.to_owned()
+    }
+}
+
 pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
     const KNOWN_ARGS: &[&str] = &["path", "file_path", "relative_path", "depth"];
     let (path, deprecation_warnings) = resolve_path_argument(arguments)?;
@@ -356,6 +395,12 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                     } else {
                         (String::new(), "unavailable")
                     };
+                    // Issue #235 (sub-fix C): humanize the SCIP descriptor
+                    // before exposing it as `name_path`, but keep the raw
+                    // descriptor under `scip_descriptor` so debug /
+                    // reverse-lookup callers don't lose information.
+                    let scip_descriptor_raw = d.name_path.clone().unwrap_or_else(|| d.name.clone());
+                    let humanized_name_path = humanize_scip_name_path(&scip_descriptor_raw);
                     let mut sym = json!({
                         "name": d.name,
                         "kind": d.kind,
@@ -363,7 +408,8 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         "line": d.line,
                         "signature": signature_value,
                         "signature_source": signature_source,
-                        "name_path": d.name_path,
+                        "name_path": humanized_name_path,
+                        "scip_descriptor": scip_descriptor_raw,
                         "score": d.score,
                     });
                     if !doc.is_empty() {
@@ -1330,6 +1376,49 @@ mod confidence_tier_tests {
             confidence_tier(&matched, 0, "dispatch_tool", "dispatch::dispatch_tool"),
             "low"
         );
+    }
+}
+
+#[cfg(all(test, feature = "scip-backend"))]
+mod humanize_scip_name_path_tests {
+    use super::humanize_scip_name_path;
+
+    #[test]
+    fn strips_rust_analyzer_preamble_and_function_suffix() {
+        // Real shape observed in dogfood today (issue #235 reproduction).
+        let raw = "rust-analyzer cargo codelens-mcp 1.9.59 tools/session/project_ops/prepare_harness_session().";
+        assert_eq!(
+            humanize_scip_name_path(raw),
+            "tools/session/project_ops/prepare_harness_session"
+        );
+    }
+
+    #[test]
+    fn strips_type_descriptor_hash_suffix() {
+        let raw = "scip-rust cargo codelens-engine 1.9.59 ir/PreciseBackend#";
+        assert_eq!(humanize_scip_name_path(raw), "ir/PreciseBackend");
+    }
+
+    #[test]
+    fn strips_constant_dot_suffix() {
+        let raw = "scip-rust cargo codelens-mcp 1.9.59 constants/MAX_SIZE.";
+        assert_eq!(humanize_scip_name_path(raw), "constants/MAX_SIZE");
+    }
+
+    #[test]
+    fn falls_back_to_raw_when_format_unrecognised() {
+        // Fewer than four header tokens — return the raw input rather
+        // than fabricate a wrong path.
+        let raw = "no_descriptor_format";
+        assert_eq!(humanize_scip_name_path(raw), "no_descriptor_format");
+    }
+
+    #[test]
+    fn empty_after_strip_falls_back_to_raw() {
+        // Edge case — descriptor is just punctuation; we'd otherwise
+        // emit `""`, which loses the identity. Preserve raw instead.
+        let raw = "scip-rust cargo crate 1.0 .";
+        assert_eq!(humanize_scip_name_path(raw), raw);
     }
 }
 
