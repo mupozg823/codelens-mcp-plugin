@@ -2,7 +2,7 @@ use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::tool_defs::ToolSurface;
 use crate::tool_runtime::{ToolResult, success_meta};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::path::Path;
 
 #[cfg(feature = "semantic")]
@@ -387,23 +387,31 @@ pub(crate) fn build_health_summary(
     let stale_files = index_stats.map(|s| s.stale_files).unwrap_or(0);
     let mut warnings = Vec::new();
 
-    let mut push_warning = |code: &str,
-                            message: String,
-                            recommended_action: Option<&str>,
-                            action_target: Option<&str>| {
-        warnings.push(json!({
-            "code": code,
-            "severity": "warn",
-            "message": message,
-            "recommended_action": recommended_action,
-            "action_target": action_target,
-        }));
-    };
+    let mut push_warning =
+        |code: &str,
+         message: String,
+         recommended_action: Option<&str>,
+         action_target: Option<&str>,
+         extras: Option<serde_json::Map<String, Value>>| {
+            let mut warning = serde_json::Map::new();
+            warning.insert("code".to_owned(), json!(code));
+            warning.insert("severity".to_owned(), json!("warn"));
+            warning.insert("message".to_owned(), json!(message));
+            warning.insert("recommended_action".to_owned(), json!(recommended_action));
+            warning.insert("action_target".to_owned(), json!(action_target));
+            if let Some(extras) = extras {
+                for (key, value) in extras {
+                    warning.insert(key, value);
+                }
+            }
+            warnings.push(Value::Object(warning));
+        };
 
     if supported_files == 0 {
         push_warning(
             "no_supported_files",
             "no supported source files detected".to_string(),
+            None,
             None,
             None,
         );
@@ -414,22 +422,36 @@ pub(crate) fn build_health_summary(
             "symbol index is empty".to_string(),
             Some("refresh_symbol_index"),
             Some("symbol_index"),
+            None,
         );
     }
     if supported_files > 0 && indexed_files < supported_files {
+        let unindexed = supported_files.saturating_sub(indexed_files);
+        let breakdown = json!({
+            "indexed_files": indexed_files,
+            "supported_files": supported_files,
+            "unindexed_files": unindexed,
+        });
         push_warning(
             "partial_index_coverage",
             format!("index coverage incomplete ({indexed_files}/{supported_files})"),
             Some("refresh_symbol_index"),
             Some("symbol_index"),
+            breakdown.as_object().cloned(),
         );
     }
     if stale_files > 0 {
+        let breakdown = json!({
+            "stale_files": stale_files,
+            "indexed_files": indexed_files,
+            "supported_files": supported_files,
+        });
         push_warning(
             "stale_index",
             format!("{stale_files} indexed files are stale"),
             Some("refresh_symbol_index"),
             Some("symbol_index"),
+            breakdown.as_object().cloned(),
         );
     }
 
@@ -446,6 +468,7 @@ pub(crate) fn build_health_summary(
                     .to_string(),
                 semantic_status.recommended_action(),
                 semantic_status.action_target(),
+                None,
             );
         }
         _ => {}
@@ -463,6 +486,7 @@ pub(crate) fn build_health_summary(
                 .to_string(),
             semantic_status.recommended_action(),
             semantic_status.action_target(),
+            None,
         );
     }
 
@@ -487,6 +511,7 @@ pub(crate) fn build_health_summary(
             daemon_binary_drift
                 .get("action_target")
                 .and_then(|v| v.as_str()),
+            None,
         );
     }
 
@@ -1183,5 +1208,71 @@ mod tests {
             CapabilitiesDetail::from_value(&json!({"detail": 42})),
             CapabilitiesDetail::Full
         );
+    }
+
+    /// `partial_index_coverage` previously emitted only a one-line
+    /// message ("index coverage incomplete (12/30)"). Issue #204 asked
+    /// for a structured `breakdown` object so callers can act without
+    /// re-parsing the message string.
+    #[test]
+    fn partial_index_coverage_warning_carries_breakdown() {
+        let stats = codelens_engine::IndexStats {
+            indexed_files: 12,
+            supported_files: 30,
+            stale_files: 0,
+        };
+        // SemanticSearchStatus::Available keeps the focus on
+        // partial_index_coverage by avoiding any semantic warnings.
+        #[cfg(feature = "semantic")]
+        let status = SemanticSearchStatus::Available;
+        #[cfg(not(feature = "semantic"))]
+        let status = SemanticSearchStatus::FeatureDisabled;
+        let summary = build_health_summary(Some(&stats), &status, &json!({}));
+
+        let warnings = summary
+            .get("warnings")
+            .and_then(|v| v.as_array())
+            .expect("warnings array");
+        let warning = warnings
+            .iter()
+            .find(|w| w.get("code") == Some(&json!("partial_index_coverage")))
+            .expect("partial_index_coverage warning emitted");
+        assert_eq!(warning["recommended_action"], json!("refresh_symbol_index"));
+        assert_eq!(warning["action_target"], json!("symbol_index"));
+        assert_eq!(warning["indexed_files"], json!(12));
+        assert_eq!(warning["supported_files"], json!(30));
+        assert_eq!(warning["unindexed_files"], json!(18));
+    }
+
+    /// `stale_index` previously surfaced a count without context. After
+    /// the followup4 fix it carries a `breakdown` of
+    /// stale/indexed/supported so the caller can decide whether to
+    /// trigger a full or stale-only refresh.
+    #[test]
+    fn stale_index_warning_carries_breakdown() {
+        let stats = codelens_engine::IndexStats {
+            indexed_files: 30,
+            supported_files: 30,
+            stale_files: 5,
+        };
+        #[cfg(feature = "semantic")]
+        let status = SemanticSearchStatus::Available;
+        #[cfg(not(feature = "semantic"))]
+        let status = SemanticSearchStatus::FeatureDisabled;
+        let summary = build_health_summary(Some(&stats), &status, &json!({}));
+
+        let warnings = summary
+            .get("warnings")
+            .and_then(|v| v.as_array())
+            .expect("warnings array");
+        let warning = warnings
+            .iter()
+            .find(|w| w.get("code") == Some(&json!("stale_index")))
+            .expect("stale_index warning emitted");
+        assert_eq!(warning["recommended_action"], json!("refresh_symbol_index"));
+        assert_eq!(warning["action_target"], json!("symbol_index"));
+        assert_eq!(warning["stale_files"], json!(5));
+        assert_eq!(warning["indexed_files"], json!(30));
+        assert_eq!(warning["supported_files"], json!(30));
     }
 }
