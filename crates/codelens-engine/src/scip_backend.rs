@@ -337,19 +337,21 @@ impl PreciseBackend for ScipBackend {
                     if &occ.symbol == target && Self::is_definition(occ) {
                         let (line, _, _, _) = Self::parse_range(occ);
                         let short = Self::short_name(&occ.symbol);
-                        let sig = self
-                            .symbol_info
-                            .get(&occ.symbol)
-                            .and_then(|info| info.documentation.first())
-                            .cloned()
-                            .unwrap_or_default();
-
+                        // Issue #245: previously `signature` was filled
+                        // from `SymbolInformation.documentation.first()`,
+                        // which is the rustdoc comment text — not a
+                        // declaration line. The MCP layer then labelled
+                        // doc-comment prose as
+                        // `signature_source: scip_signature` and bypassed
+                        // the source-line-read fallback added in #235-B.
+                        // Documentation is surfaced separately via the
+                        // MCP `documentation` field built from `hover()`.
                         results.push(SearchCandidate {
                             name: short.to_owned(),
                             kind: "symbol".to_owned(),
                             file_path: path.clone(),
                             line,
-                            signature: sig,
+                            signature: String::new(),
                             name_path: Some(occ.symbol.clone()),
                             body: None,
                             score: 1.0,
