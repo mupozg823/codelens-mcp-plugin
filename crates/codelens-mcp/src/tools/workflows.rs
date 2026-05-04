@@ -198,21 +198,28 @@ pub fn review_changes(state: &AppState, arguments: &Value) -> ToolResult {
 }
 
 pub fn diagnose_issues(state: &AppState, arguments: &Value) -> ToolResult {
-    if arguments
+    if let Some(path_str) = arguments
         .get("path")
         .or_else(|| arguments.get("file_path"))
         .and_then(|v| v.as_str())
-        .is_some()
     {
+        // diagnose_issues delegates to get_file_diagnostics, which routes
+        // through the LSP recipe table keyed by file extension. A directory
+        // path bypasses recipe selection and surfaces as the misleading
+        // "no default LSP mapping for file" error (see #207-C-2). Detect a
+        // directory up front and return an actionable Validation error so
+        // callers know to expand the path before retry.
+        let project_relative = state.project().as_path().join(path_str);
+        if project_relative.is_dir() || std::path::Path::new(path_str).is_dir() {
+            return Err(crate::error::CodeLensError::Validation(format!(
+                "diagnose_issues received a directory path `{path_str}`; pass a single file path instead. Directory-scope diagnostics are not yet supported — expand the directory via list_dir or get_changed_files and call diagnose_issues per file."
+            )));
+        }
         return delegate_workflow(
             state,
             "diagnose_issues",
             "get_file_diagnostics",
-            json!({
-                "file_path": arguments.get("file_path")
-                    .or_else(|| arguments.get("path"))
-                    .and_then(|v| v.as_str()),
-            }),
+            json!({ "file_path": path_str }),
             crate::tools::lsp::get_file_diagnostics,
         );
     }
