@@ -882,7 +882,25 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             .cloned()
             .unwrap_or_else(|| json!([]));
         let tool_count = visible.tools.len();
-        let first_five_tools: Vec<_> = visible_tool_names.iter().take(5).cloned().collect();
+        // Issue #199-B-1: compact mode trims `tool_names` to the first 5
+        // and `preferred_entrypoints_visible` to whatever the routing
+        // layer surfaces, but it never tells the caller *how much* was
+        // dropped. The full-detail response carries `*_omitted_count`
+        // markers next to every trimmed array; compact must do the
+        // same so callers can budget their next call instead of
+        // re-issuing `detail=full` just to learn the surface size.
+        const COMPACT_TOOL_NAMES_LIMIT: usize = 5;
+        let first_five_tools: Vec<_> = visible_tool_names
+            .iter()
+            .take(COMPACT_TOOL_NAMES_LIMIT)
+            .cloned()
+            .collect();
+        let tool_names_omitted_count = visible_tool_names
+            .len()
+            .saturating_sub(first_five_tools.len());
+        let preferred_entrypoints_visible_omitted_count = preferred_entrypoints
+            .len()
+            .saturating_sub(preferred_entrypoints_visible.len());
         let health_status = health_summary
             .get("status")
             .and_then(|v| v.as_str())
@@ -899,6 +917,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "visible_tools": {
                 "tool_count": tool_count,
                 "tool_names": first_five_tools,
+                "tool_names_omitted_count": tool_names_omitted_count,
             },
             "health_summary": {
                 "status": health_status,
@@ -907,6 +926,8 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "routing": {
                 "recommended_entrypoint": recommended_entrypoint,
                 "preferred_entrypoints_visible": preferred_entrypoints_visible,
+                "preferred_entrypoints_visible_omitted_count":
+                    preferred_entrypoints_visible_omitted_count,
             },
         })
     };

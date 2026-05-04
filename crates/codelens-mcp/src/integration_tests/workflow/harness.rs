@@ -353,3 +353,100 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
             .unwrap_or(false)
     );
 }
+
+// Issue #199-B-1: compact-mode response trims `tool_names` to the first 5
+// and `preferred_entrypoints_visible` to whatever the routing layer can see,
+// but historically gave the caller no signal of how much was dropped. Both
+// blocks must now expose `*_omitted_count` so callers can budget a follow-up
+// without re-issuing `detail=full` just to learn the surface size.
+#[test]
+fn prepare_harness_session_compact_exposes_visible_tools_omitted_count() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("compact_visible.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "refactor-full", "detail": "compact"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    let visible_tools = &payload["data"]["visible_tools"];
+    let tool_count = visible_tools["tool_count"]
+        .as_u64()
+        .expect("tool_count present in compact response");
+    let trimmed_names = visible_tools["tool_names"]
+        .as_array()
+        .expect("tool_names array present in compact response");
+    assert!(
+        trimmed_names.len() <= 5,
+        "compact response must cap tool_names at 5, got {}",
+        trimmed_names.len()
+    );
+    let omitted = visible_tools["tool_names_omitted_count"]
+        .as_u64()
+        .expect("tool_names_omitted_count present in compact response");
+    assert_eq!(
+        omitted,
+        tool_count.saturating_sub(trimmed_names.len() as u64),
+        "tool_names_omitted_count must match tool_count - len(tool_names)"
+    );
+    // refactor-full surface ships well over five tools, so the omitted
+    // count is necessarily positive — guards against the field collapsing
+    // back to a no-op constant.
+    assert!(
+        omitted > 0,
+        "refactor-full compact response should report a positive omitted count, got {omitted}"
+    );
+}
+
+#[test]
+fn prepare_harness_session_compact_exposes_routing_omitted_count() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("compact_routing.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "builder-minimal",
+            "detail": "compact",
+            "preferred_entrypoints": [
+                "explore_codebase",
+                "this_tool_does_not_exist_xyz",
+                "another_missing_tool_abc",
+            ],
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    let routing = &payload["data"]["routing"];
+    let visible = routing["preferred_entrypoints_visible"]
+        .as_array()
+        .expect("preferred_entrypoints_visible array present in compact response");
+    let omitted = routing["preferred_entrypoints_visible_omitted_count"]
+        .as_u64()
+        .expect("preferred_entrypoints_visible_omitted_count present in compact response");
+    // Two of the three requested entrypoints are intentionally invalid, so
+    // the visible filter must drop them and the omitted count must reflect
+    // the gap between the requested and visible lists.
+    assert_eq!(
+        omitted,
+        (3u64).saturating_sub(visible.len() as u64),
+        "routing omitted count must equal requested - visible"
+    );
+    assert!(
+        omitted >= 2,
+        "two synthetic invalid entrypoints must surface as omitted, got {omitted}"
+    );
+}
