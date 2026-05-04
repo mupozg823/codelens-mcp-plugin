@@ -190,6 +190,16 @@ mkdir -p "$LOG_DIR"
 
 if [[ "$NO_BUILD" == "0" ]]; then
 	echo "==> Building codelens-mcp with http feature from $REPO_ROOT"
+	# Issue #227: cargo caches build script output across incremental
+	# rebuilds, so source-only changes leave CODELENS_BUILD_TIME
+	# pointing at the previous build. Touch the build script before
+	# every release/install build so cargo re-runs it and embeds the
+	# current timestamp — daemon freshness verification then has a
+	# trustworthy `built` value in `--version` and capabilities output.
+	BUILD_RS="$REPO_ROOT/crates/codelens-mcp/build.rs"
+	if [[ -f "$BUILD_RS" ]]; then
+		touch "$BUILD_RS"
+	fi
 	(
 		cd "$REPO_ROOT"
 		cargo build -p codelens-mcp --release --features http
