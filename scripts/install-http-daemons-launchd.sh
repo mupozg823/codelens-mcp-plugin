@@ -216,6 +216,22 @@ elif [[ ! -x "$BIN_PATH" ]]; then
 	exit 1
 fi
 
+# Issue #238: macOS launchd silently kills freshly-rebuilt binaries with
+# `OS_REASON_CODESIGNING` (Hardened Runtime / Gatekeeper enforcement),
+# leaving the daemons in `state = spawn scheduled` with no live process
+# and no signal at the CodeLens MCP layer. Ad-hoc sign here so every
+# redeploy from the dogfood loop comes back up cleanly. Best-effort:
+# `codesign` failure is logged but not fatal so non-Apple-tooled hosts
+# still complete the install.
+if [[ "$(uname)" == "Darwin" ]] && command -v codesign >/dev/null 2>&1; then
+	echo "==> Ad-hoc signing http binary (macOS Hardened Runtime)"
+	codesign -s - --force \
+		--preserve-metadata=identifier,entitlements,flags,runtime \
+		"$BIN_PATH" || {
+		echo "warning: codesign failed; daemons may be killed by Gatekeeper" >&2
+	}
+fi
+
 readonly_label="${LABEL_PREFIX}-readonly"
 mutation_label="${LABEL_PREFIX}-mutation"
 readonly_plist="$LAUNCH_AGENTS_DIR/${readonly_label}.plist"
