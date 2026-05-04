@@ -428,8 +428,30 @@ pub fn detect_workspace_packages(project: &Path) -> Vec<WorkspacePackage> {
     {
         for line in content.lines() {
             let trimmed = line.trim().trim_matches('"').trim_matches(',');
-            if trimmed.contains("crates/") || trimmed.contains("packages/") {
-                let pattern = trimmed.trim_matches('"').trim_matches(',').trim();
+            if !trimmed.contains("crates/") && !trimmed.contains("packages/") {
+                continue;
+            }
+            // Multi-line TOML arrays put one path per line and the existing
+            // contains() guard handles them. Single-line forms like
+            // `members = ["crates/foo", "crates/bar"]` collapse the whole
+            // array into one line, so split on `,` between the brackets and
+            // process each path independently.
+            let mut candidates: Vec<&str> = Vec::new();
+            if let (Some(start), Some(end)) = (trimmed.find('['), trimmed.rfind(']'))
+                && start < end
+            {
+                candidates.extend(trimmed[start + 1..end].split(','));
+            }
+            if candidates.is_empty() {
+                candidates.push(trimmed);
+            }
+            for raw in candidates {
+                let pattern = raw.trim().trim_matches('"').trim_matches(',').trim();
+                if pattern.is_empty()
+                    || (!pattern.contains("crates/") && !pattern.contains("packages/"))
+                {
+                    continue;
+                }
                 if let Some(stripped) = pattern.strip_suffix("/*") {
                     // Glob pattern: "crates/*" → scan directory
                     let dir = project.join(stripped);
@@ -591,6 +613,66 @@ mod tests {
         assert_eq!(pkgs[0].name, "foo");
         assert_eq!(pkgs[0].path, "crates/foo");
         assert_eq!(pkgs[0].package_type, "cargo");
+    }
+
+    #[test]
+    fn workspace_packages_recognizes_single_line_toml_array() {
+        use super::detect_workspace_packages;
+        let temp = tempfile_dir();
+        let crate_dir = temp.join("crates/foo");
+        fs::create_dir_all(&crate_dir).expect("mkdir crate");
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            "[package]\nname = \"foo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .expect("write crate cargo");
+        // Single-line TOML array form (`members = ["crates/foo"]`) — what
+        // single-crate workspaces in small repos tend to use.
+        fs::write(
+            temp.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/foo\"]\n",
+        )
+        .expect("write root cargo");
+
+        let pkgs = detect_workspace_packages(&temp);
+        assert_eq!(
+            pkgs.len(),
+            1,
+            "single-line members array should be recognized, got {pkgs:?}"
+        );
+        assert_eq!(pkgs[0].name, "foo");
+        assert_eq!(pkgs[0].path, "crates/foo");
+        assert_eq!(pkgs[0].package_type, "cargo");
+    }
+
+    #[test]
+    fn workspace_packages_handles_single_line_array_with_multiple_paths() {
+        use super::detect_workspace_packages;
+        let temp = tempfile_dir();
+        for name in &["foo", "bar"] {
+            let crate_dir = temp.join("crates").join(name);
+            fs::create_dir_all(&crate_dir).expect("mkdir crate");
+            fs::write(
+                crate_dir.join("Cargo.toml"),
+                format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+            )
+            .expect("write crate cargo");
+        }
+        fs::write(
+            temp.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/foo\", \"crates/bar\"]\n",
+        )
+        .expect("write root cargo");
+
+        let mut pkgs = detect_workspace_packages(&temp);
+        pkgs.sort_by(|a, b| a.path.cmp(&b.path));
+        assert_eq!(
+            pkgs.len(),
+            2,
+            "single-line array with two paths, got {pkgs:?}"
+        );
+        assert_eq!(pkgs[0].name, "bar");
+        assert_eq!(pkgs[1].name, "foo");
     }
 
     #[test]
