@@ -395,16 +395,27 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         if let Some(backend) = state.scip() {
             let scip_entries = backend.find_callers(function_name);
             if !scip_entries.is_empty() {
+                // Issue #243: SCIP `parse_range` is 0-indexed per spec,
+                // but tree-sitter `value` entries already carry 1-indexed
+                // line numbers. Normalize the SCIP rows up front so the
+                // dedup key + the serialized output share one
+                // convention. Reviewers comparing `get_callers` to
+                // `read_file` / grep stop hitting a -1 fudge.
+                let mut scip_entries: Vec<_> = scip_entries
+                    .into_iter()
+                    .map(|mut c| {
+                        c.line = crate::tools::scip_health::scip_line_to_display(c.line);
+                        c
+                    })
+                    .collect();
                 let existing: std::collections::HashSet<(String, String, usize)> = value
                     .iter()
                     .map(|c| (c.file.clone(), c.function.clone(), c.line))
                     .collect();
-                let mut merged: Vec<_> = scip_entries
-                    .into_iter()
-                    .filter(|c| !existing.contains(&(c.file.clone(), c.function.clone(), c.line)))
-                    .collect();
-                merged.append(&mut value);
-                value = merged;
+                scip_entries
+                    .retain(|c| !existing.contains(&(c.file.clone(), c.function.clone(), c.line)));
+                scip_entries.append(&mut value);
+                value = scip_entries;
                 if value.len() > max_results {
                     value.truncate(max_results);
                 }
