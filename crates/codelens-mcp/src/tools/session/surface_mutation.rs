@@ -61,7 +61,11 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
             "active_surface": ToolSurface::Preset(new_preset).as_label(),
             "token_budget": budget,
             "effort_level": state.effort_level().as_str(),
-            "note": "Preset changed. Next tools/list call will reflect the new tool set."
+            "note": "Preset changed. Next tools/list call will reflect the new tool set.",
+            "host_action": {
+                "required": "reload_tools_list",
+                "hint": "Hosts may cache the tool surface; reissue tools/list or reconnect to see the new tools."
+            }
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
@@ -111,7 +115,11 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
             "current_profile": profile.as_str(),
             "active_surface": ToolSurface::Profile(profile).as_label(),
             "token_budget": budget,
-            "note": "Profile changed. Next tools/list call will reflect the role-specific tool surface."
+            "note": "Profile changed. Next tools/list call will reflect the role-specific tool surface.",
+            "host_action": {
+                "required": "reload_tools_list",
+                "hint": "Hosts may cache the tool surface; reissue tools/list or reconnect to see the new tools."
+            }
         }),
         success_meta(BackendKind::Session, 1.0),
     ))

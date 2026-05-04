@@ -409,6 +409,36 @@ fn diagnose_issues_returns_structured_content() {
 }
 
 #[test]
+fn diagnose_issues_rejects_directory_path_with_actionable_error() {
+    // #207-C-2: passing a directory where get_file_diagnostics expects a
+    // file path used to surface as the misleading "no default LSP mapping
+    // for file" error. The handler now rejects directory inputs up front
+    // and the error message points to list_dir / get_changed_files for
+    // fan-out.
+    let project = project_root();
+    let dir_name = "diag_subdir_test";
+    fs::create_dir_all(project.as_path().join(dir_name))
+        .expect("mkdir directory fixture for diagnose_issues test");
+    let state = make_state(&project);
+
+    let payload = call_tool(&state, "diagnose_issues", json!({"path": dir_name}));
+    assert_eq!(
+        payload["success"],
+        json!(false),
+        "directory path must be rejected, payload: {payload}"
+    );
+    let err = payload["error"].as_str().unwrap_or_default();
+    assert!(
+        err.contains("directory"),
+        "error message should mention 'directory' explicitly: {err}"
+    );
+    assert!(
+        err.contains("list_dir") || err.contains("get_changed_files"),
+        "error message should suggest expand mechanism (list_dir / get_changed_files): {err}"
+    );
+}
+
+#[test]
 fn cleanup_duplicate_logic_returns_structured_content() {
     // cleanup_duplicate_logic without the semantic feature delegates to
     // dead_code_report (no required args).
