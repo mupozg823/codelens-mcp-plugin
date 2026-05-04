@@ -392,13 +392,40 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
 }
 
 pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    if arguments.get("preset").and_then(|v| v.as_str()).is_some()
-        && arguments.get("profile").and_then(|v| v.as_str()).is_some()
-    {
-        return Err(crate::error::CodeLensError::Validation(
-            "prepare_harness_session accepts either `preset` or `profile`, not both".to_owned(),
-        ));
-    }
+    // Issue #224: previously this rejected callers that supplied both
+    // `preset` and `profile`, but the schema documented both as
+    // independent optional fields and routing docs frequently pair
+    // them ("profile=builder-minimal" + "preset=minimal"). The
+    // rejection burned a bootstrap round trip.
+    //
+    // New contract: `profile` wins (it carries the semantic role that
+    // determines tool surface + executor bias), `preset` is dropped
+    // when both are supplied, and the dropped value is surfaced via
+    // `surface_resolution` + a non-blocking warning so the caller
+    // can adjust on the next call.
+    let requested_profile = arguments
+        .get("profile")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let requested_preset = arguments
+        .get("preset")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let preset_dropped_for_profile = requested_profile.is_some() && requested_preset.is_some();
+    // Drop `preset` for the downstream `activate_project` call so
+    // the existing single-knob path runs unchanged. Working on a
+    // clone keeps the caller's original arguments intact for logging
+    // / response echo.
+    let adjusted_arguments_owner: Option<serde_json::Value> =
+        preset_dropped_for_profile.then(|| {
+            let mut cloned = arguments.clone();
+            if let Some(map) = cloned.as_object_mut() {
+                map.remove("preset");
+            }
+            cloned
+        });
+    let effective_arguments: &serde_json::Value =
+        adjusted_arguments_owner.as_ref().unwrap_or(arguments);
 
     // Preserve existing surface when caller does not explicitly request a
     // profile/preset change. `activate_project` auto-selects a surface based
@@ -406,10 +433,9 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     // bootstrap call. We snapshot before activation and restore unless the
     // user provided a new profile/preset.
     let prior_surface = *state.surface();
-    let explicit_surface_request = arguments.get("profile").and_then(|v| v.as_str()).is_some()
-        || arguments.get("preset").and_then(|v| v.as_str()).is_some();
+    let explicit_surface_request = requested_profile.is_some() || requested_preset.is_some();
 
-    let (activate_payload, _) = activate_project(state, arguments)?;
+    let (activate_payload, _) = activate_project(state, effective_arguments)?;
 
     // Restore surface if the caller did not explicitly ask for a new one.
     if !explicit_surface_request {
@@ -601,6 +627,31 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 false,
                 "use_documented_task_overlay",
                 "bootstrap_routing",
+            );
+        }
+        // Issue #224: when caller supplied both `profile` and `preset`,
+        // surface a non-blocking warning naming the dropped value so the
+        // next call can drop the redundant arg explicitly. Profile wins
+        // because it carries the semantic role + executor bias.
+        if preset_dropped_for_profile {
+            let profile_str = requested_profile.as_deref().unwrap_or("?");
+            let preset_str = requested_preset.as_deref().unwrap_or("?");
+            push_prepare_harness_warning_with_extras(
+                &mut warnings,
+                &mut warning_codes,
+                "preset_dropped_for_profile",
+                &format!(
+                    "both `profile` and `preset` supplied; using profile=`{profile_str}` and dropping preset=`{preset_str}` (profile wins)",
+                ),
+                false,
+                "drop_redundant_argument",
+                "preset",
+                json!({
+                    "winner_field": "profile",
+                    "winner_value": requested_profile,
+                    "dropped_field": "preset",
+                    "dropped_value": requested_preset,
+                }),
             );
         }
         warnings
