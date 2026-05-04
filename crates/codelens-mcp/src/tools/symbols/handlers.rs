@@ -122,6 +122,57 @@ use crate::tools::scip_health::{
     detect_scip_staleness, scip_line_to_display, scip_stale_warning_payload,
 };
 
+/// Issue #245: defence against engine-layer drift that re-fills SCIP's
+/// `signature` field with non-signature text. A real declaration line
+/// is single-line and starts with one of the canonical Rust / TS / Python
+/// declaration-introducing tokens. Multi-line strings or prose-shaped
+/// text (a leading capital letter, sentence punctuation) are treated as
+/// documentation and rejected so the picker falls through to the
+/// source-line read fallback (#235-B).
+#[cfg(feature = "scip-backend")]
+pub(super) fn looks_like_signature(candidate: &str) -> bool {
+    let trimmed = candidate.trim();
+    if trimmed.is_empty() || trimmed.contains('\n') {
+        return false;
+    }
+    const DECL_PREFIXES: &[&str] = &[
+        // Rust
+        "pub ",
+        "pub(",
+        "fn ",
+        "async ",
+        "unsafe ",
+        "extern ",
+        "const ",
+        "static ",
+        "struct ",
+        "enum ",
+        "trait ",
+        "impl ",
+        "type ",
+        "mod ",
+        "use ",
+        "macro_rules!",
+        "let ",
+        // Python / TS / others we may see when SCIP indexes mixed repos
+        "def ",
+        "class ",
+        "function ",
+        "export ",
+        "interface ",
+        "namespace ",
+        "var ",
+        "void ",
+        "int ",
+        "double ",
+        "float ",
+        "bool ",
+    ];
+    DECL_PREFIXES
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+}
+
 /// Issue #235 (sub-fix C): humanize raw SCIP descriptors (e.g.
 /// `"rust-analyzer cargo codelens-mcp 1.9.59 tools/session/project_ops/prepare_harness_session()."`)
 /// before exposing them as `name_path`. Strips the
@@ -386,17 +437,27 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                     // Pick the first non-empty signature source, recording
                     // which path provided it so reviewers can branch on
                     // signal quality instead of guessing.
-                    let (signature_value, signature_source) = if !d.signature.is_empty() {
-                        (d.signature.clone(), "scip_signature")
-                    } else if !doc.is_empty() {
-                        (doc.clone(), "scip_doc_hover")
-                    } else if !stale_file_set.contains(d.file_path.as_str())
-                        && let Some(line) = read_signature_line(state, &d.file_path, d.line)
-                    {
-                        (line, "source_line_read")
-                    } else {
-                        (String::new(), "unavailable")
-                    };
+                    //
+                    // Issue #245: SCIP `d.signature` was historically
+                    // populated from `SymbolInformation.documentation`
+                    // (rustdoc prose, not a declaration). Even after the
+                    // engine-side fix in this PR empties that field,
+                    // guard the picker with `looks_like_signature` so a
+                    // future engine regression that leaks doc text into
+                    // `signature` cannot silently re-land. Also drop the
+                    // `scip_doc_hover` branch — the hover string is
+                    // documentation, never a signature, and is already
+                    // surfaced under the separate `documentation` field.
+                    let (signature_value, signature_source) =
+                        if !d.signature.is_empty() && looks_like_signature(&d.signature) {
+                            (d.signature.clone(), "scip_signature")
+                        } else if !stale_file_set.contains(d.file_path.as_str())
+                            && let Some(line) = read_signature_line(state, &d.file_path, d.line)
+                        {
+                            (line, "source_line_read")
+                        } else {
+                            (String::new(), "unavailable")
+                        };
                     // Issue #235 (sub-fix C): humanize the SCIP descriptor
                     // before exposing it as `name_path`, but keep the raw
                     // descriptor under `scip_descriptor` so debug /
@@ -1389,6 +1450,55 @@ mod confidence_tier_tests {
             confidence_tier(&matched, 0, "dispatch_tool", "dispatch::dispatch_tool"),
             "low"
         );
+    }
+}
+
+#[cfg(all(test, feature = "scip-backend"))]
+mod looks_like_signature_tests {
+    use super::looks_like_signature;
+
+    #[test]
+    fn rust_function_declaration_passes() {
+        assert!(looks_like_signature(
+            "pub fn scip_line_to_display(scip_line: usize) -> usize {"
+        ));
+        assert!(looks_like_signature("fn helper(x: i32) -> i32 {"));
+        assert!(looks_like_signature(
+            "pub(crate) fn scip_line_to_display(scip_line: usize) -> usize {"
+        ));
+    }
+
+    #[test]
+    fn type_and_module_declarations_pass() {
+        assert!(looks_like_signature("pub struct ScipStaleness {"));
+        assert!(looks_like_signature("enum BackendKind {"));
+        assert!(looks_like_signature("trait PreciseBackend {"));
+        assert!(looks_like_signature("impl ScipBackend {"));
+    }
+
+    #[test]
+    fn rustdoc_prose_is_rejected() {
+        // Issue #245 reproduction — doc comment text wrapped onto
+        // multiple lines previously slipped through as
+        // `signature_source: scip_signature`.
+        let prose = "Issue #243: convert a 0-indexed SCIP `parse_range` line to the\n1-indexed convention every other CodeLens surface uses.";
+        assert!(!looks_like_signature(prose));
+    }
+
+    #[test]
+    fn single_line_prose_without_decl_keyword_is_rejected() {
+        // Even single-line prose (e.g. a one-line doc comment) must
+        // not pass — only declaration-shaped lines count.
+        assert!(!looks_like_signature(
+            "Build the warning payload that every SCIP-resolved tool surfaces."
+        ));
+    }
+
+    #[test]
+    fn empty_or_whitespace_is_rejected() {
+        assert!(!looks_like_signature(""));
+        assert!(!looks_like_signature("   "));
+        assert!(!looks_like_signature("\n"));
     }
 }
 
