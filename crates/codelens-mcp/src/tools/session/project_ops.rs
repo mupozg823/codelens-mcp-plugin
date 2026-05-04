@@ -35,6 +35,43 @@ fn push_prepare_harness_warning(
     }
 }
 
+/// Variant of `push_prepare_harness_warning` that merges `extras` into
+/// the warning object, used when a warning carries actionable
+/// follow-up data (e.g. `remediation`, `auto_refresh_threshold`,
+/// per-file breakdown). Existing callers can stay on the simpler
+/// helper; only warnings that need to surface concrete next steps
+/// or freshness breakdowns reach for this variant.
+///
+/// `extras` is expected to be a `Value::Object`. Non-object values are
+/// ignored so the warning shape stays consistent.
+#[allow(clippy::too_many_arguments)]
+fn push_prepare_harness_warning_with_extras(
+    warnings: &mut Vec<Value>,
+    warning_codes: &mut HashSet<String>,
+    code: &str,
+    message: &str,
+    restart_recommended: bool,
+    recommended_action: &str,
+    action_target: &str,
+    extras: Value,
+) {
+    if !warning_codes.insert(code.to_owned()) {
+        return;
+    }
+    let mut warning = serde_json::Map::new();
+    warning.insert("code".to_owned(), json!(code));
+    warning.insert("message".to_owned(), json!(message));
+    warning.insert("restart_recommended".to_owned(), json!(restart_recommended));
+    warning.insert("recommended_action".to_owned(), json!(recommended_action));
+    warning.insert("action_target".to_owned(), json!(action_target));
+    if let Value::Object(map) = extras {
+        for (key, value) in map {
+            warning.insert(key, value);
+        }
+    }
+    warnings.push(Value::Object(warning));
+}
+
 fn append_prepare_harness_warning_from_guidance(
     warnings: &mut Vec<Value>,
     warning_codes: &mut HashSet<String>,
@@ -483,27 +520,65 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             .and_then(|value| value.as_str())
             .unwrap_or("unknown")
         {
-            "failed" => push_prepare_harness_warning(
-                &mut warnings,
-                &mut warning_codes,
-                "index_refresh_failed",
-                index_recovery
-                    .get("error")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("failed to refresh stale index during bootstrap"),
-                false,
-                "refresh_symbol_index",
-                "symbol_index",
-            ),
-            "skipped" => push_prepare_harness_warning(
-                &mut warnings,
-                &mut warning_codes,
-                "index_refresh_skipped",
-                "stale index detected but auto-refresh threshold was exceeded",
-                false,
-                "refresh_symbol_index",
-                "symbol_index",
-            ),
+            "failed" => {
+                let stale_files = index_recovery
+                    .get("before")
+                    .and_then(|before| before.get("stale_files"))
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0);
+                push_prepare_harness_warning_with_extras(
+                    &mut warnings,
+                    &mut warning_codes,
+                    "index_refresh_failed",
+                    index_recovery
+                        .get("error")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("failed to refresh stale index during bootstrap"),
+                    false,
+                    "refresh_symbol_index",
+                    "symbol_index",
+                    json!({
+                        "remediation": {
+                            "method": "tool_call",
+                            "tool": "refresh_symbol_index",
+                            "alternative_command": "codelens reindex --force",
+                        },
+                        "stale_files": stale_files,
+                    }),
+                )
+            }
+            "skipped" => {
+                let stale_files = index_recovery
+                    .get("before")
+                    .and_then(|before| before.get("stale_files"))
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0);
+                let threshold = index_recovery
+                    .get("threshold")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(DEFAULT_AUTO_REFRESH_STALE_THRESHOLD as u64);
+                push_prepare_harness_warning_with_extras(
+                    &mut warnings,
+                    &mut warning_codes,
+                    "index_refresh_skipped",
+                    "stale index detected but auto-refresh threshold was exceeded",
+                    false,
+                    "refresh_symbol_index",
+                    "symbol_index",
+                    json!({
+                        "remediation": {
+                            "method": "tool_call",
+                            "tool": "refresh_symbol_index",
+                            "args": { "scope": "stale_only" },
+                            "alternative_command": "codelens reindex --stale-only",
+                        },
+                        "auto_refresh_threshold": {
+                            "max_stale_files": threshold,
+                            "current_stale_files": stale_files,
+                        },
+                    }),
+                )
+            }
             _ => {}
         }
         if requested_host_context.is_some() && host_context.is_none() {
@@ -819,5 +894,96 @@ pub fn auto_set_embed_hint_lang(project_path: &std::path::Path) {
     // threads that read env, so the concurrent-read hazard does not apply.
     unsafe {
         std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", lang);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extras_warning_merges_object_keys_and_dedupes_by_code() {
+        let mut warnings: Vec<Value> = Vec::new();
+        let mut codes: HashSet<String> = HashSet::new();
+
+        push_prepare_harness_warning_with_extras(
+            &mut warnings,
+            &mut codes,
+            "index_refresh_skipped",
+            "stale index detected but auto-refresh threshold was exceeded",
+            false,
+            "refresh_symbol_index",
+            "symbol_index",
+            json!({
+                "remediation": {
+                    "method": "tool_call",
+                    "tool": "refresh_symbol_index",
+                    "args": { "scope": "stale_only" },
+                    "alternative_command": "codelens reindex --stale-only",
+                },
+                "auto_refresh_threshold": {
+                    "max_stale_files": 32,
+                    "current_stale_files": 47,
+                },
+            }),
+        );
+
+        // Same code is dropped on the second call — no duplicate warnings.
+        push_prepare_harness_warning_with_extras(
+            &mut warnings,
+            &mut codes,
+            "index_refresh_skipped",
+            "second emission must be ignored",
+            false,
+            "refresh_symbol_index",
+            "symbol_index",
+            json!({ "remediation": { "tool": "ignored" } }),
+        );
+
+        assert_eq!(warnings.len(), 1, "duplicate code must be deduped");
+        let warning = warnings[0].as_object().expect("warning is object");
+        assert_eq!(warning["code"], json!("index_refresh_skipped"));
+        assert_eq!(warning["recommended_action"], json!("refresh_symbol_index"));
+        assert_eq!(warning["action_target"], json!("symbol_index"));
+        assert_eq!(warning["restart_recommended"], json!(false));
+        let remediation = warning["remediation"].as_object().expect("remediation");
+        assert_eq!(remediation["tool"], json!("refresh_symbol_index"));
+        assert_eq!(remediation["args"]["scope"], json!("stale_only"));
+        assert_eq!(
+            remediation["alternative_command"],
+            json!("codelens reindex --stale-only")
+        );
+        let threshold = warning["auto_refresh_threshold"]
+            .as_object()
+            .expect("threshold");
+        assert_eq!(threshold["max_stale_files"], json!(32));
+        assert_eq!(threshold["current_stale_files"], json!(47));
+    }
+
+    #[test]
+    fn extras_warning_ignores_non_object_extras() {
+        let mut warnings: Vec<Value> = Vec::new();
+        let mut codes: HashSet<String> = HashSet::new();
+
+        push_prepare_harness_warning_with_extras(
+            &mut warnings,
+            &mut codes,
+            "index_refresh_failed",
+            "failed to refresh stale index during bootstrap",
+            false,
+            "refresh_symbol_index",
+            "symbol_index",
+            // Non-object extras must be dropped silently so the warning shape
+            // stays consistent — callers should not have to validate `extras`
+            // construction.
+            json!("not-an-object"),
+        );
+
+        assert_eq!(warnings.len(), 1);
+        let warning = warnings[0].as_object().expect("warning is object");
+        assert_eq!(warning["code"], json!("index_refresh_failed"));
+        // No spurious key inserted from the string extras.
+        assert!(warning.get("remediation").is_none());
+        assert!(warning.get("auto_refresh_threshold").is_none());
     }
 }
