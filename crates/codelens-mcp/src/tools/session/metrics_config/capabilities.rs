@@ -442,31 +442,47 @@ pub(crate) fn build_health_summary(
     }
     if supported_files > 0 && indexed_files < supported_files {
         let unindexed = supported_files.saturating_sub(indexed_files);
-        let breakdown = json!({
+        // Issue #218: callers (Claude Code agents) need to know not just
+        // *that* a refresh is recommended, but exactly which tool to call.
+        // `recommended_action` is a verb; `remediation` is the trigger
+        // recipe — co-located so the agent does not have to guess at the
+        // tool name (refresh_symbol_index vs onboard_project vs
+        // activate_project) or its argument shape.
+        let extras = json!({
             "indexed_files": indexed_files,
             "supported_files": supported_files,
             "unindexed_files": unindexed,
+            "remediation": {
+                "method": "tool_call",
+                "tool": "refresh_symbol_index",
+                "args": {},
+            },
         });
         push_warning(
             "partial_index_coverage",
             format!("index coverage incomplete ({indexed_files}/{supported_files})"),
             Some("refresh_symbol_index"),
             Some("symbol_index"),
-            breakdown.as_object().cloned(),
+            extras.as_object().cloned(),
         );
     }
     if stale_files > 0 {
-        let breakdown = json!({
+        let extras = json!({
             "stale_files": stale_files,
             "indexed_files": indexed_files,
             "supported_files": supported_files,
+            "remediation": {
+                "method": "tool_call",
+                "tool": "refresh_symbol_index",
+                "args": {},
+            },
         });
         push_warning(
             "stale_index",
             format!("{stale_files} indexed files are stale"),
             Some("refresh_symbol_index"),
             Some("symbol_index"),
-            breakdown.as_object().cloned(),
+            extras.as_object().cloned(),
         );
     }
 
@@ -1257,6 +1273,18 @@ mod tests {
         assert_eq!(warning["indexed_files"], json!(12));
         assert_eq!(warning["supported_files"], json!(30));
         assert_eq!(warning["unindexed_files"], json!(18));
+        // Issue #218: callers must not have to guess which tool / args to
+        // call — `remediation` is the executable trigger recipe.
+        assert_eq!(
+            warning["remediation"]["tool"],
+            json!("refresh_symbol_index"),
+            "remediation must name the exact tool to call"
+        );
+        assert_eq!(warning["remediation"]["method"], json!("tool_call"));
+        assert!(
+            warning["remediation"]["args"].is_object(),
+            "remediation.args must be an object (even if empty)"
+        );
     }
 
     /// `stale_index` previously surfaced a count without context. After
@@ -1289,5 +1317,14 @@ mod tests {
         assert_eq!(warning["stale_files"], json!(5));
         assert_eq!(warning["indexed_files"], json!(30));
         assert_eq!(warning["supported_files"], json!(30));
+        // Issue #218: same actionable trigger pattern as
+        // partial_index_coverage — the warning must point at a concrete
+        // tool name plus an argument shape, not just a verb.
+        assert_eq!(
+            warning["remediation"]["tool"],
+            json!("refresh_symbol_index")
+        );
+        assert_eq!(warning["remediation"]["method"], json!("tool_call"));
+        assert!(warning["remediation"]["args"].is_object());
     }
 }
