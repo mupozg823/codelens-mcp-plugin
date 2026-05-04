@@ -14,6 +14,19 @@ impl AppState {
             .unwrap_or_else(|| self.default_project.clone())
     }
 
+    /// `true` if the caller has explicitly activated a project (via
+    /// `activate_project` or session-scoped routing). When `false`,
+    /// `project()` falls back to the daemon's startup default — which
+    /// is rarely the caller's actual cwd in HTTP/launchd setups.
+    ///
+    /// Workflows that surface project-scoped findings (rankings,
+    /// blockers, prior analyses) should warn when this returns `false`,
+    /// otherwise stale state from prior sessions may leak into the
+    /// response. See issue #213.
+    pub(crate) fn has_explicit_active_project(&self) -> bool {
+        self.active_project_context().is_some()
+    }
+
     /// Get the active symbol index.
     pub(crate) fn symbol_index(&self) -> Arc<SymbolIndex> {
         self.active_project_context()
