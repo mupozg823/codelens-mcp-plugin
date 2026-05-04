@@ -11,7 +11,7 @@ use url::Url;
 
 use super::commands::is_allowed_lsp_command;
 use super::protocol::{language_id_for_path, poll_readable, read_message, send_message};
-use super::registry::resolve_lsp_binary;
+use super::registry::resolve_lsp_binary_with_hint;
 use super::types::{
     LspCodeActionRefactorPlan, LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic,
     LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest,
@@ -243,7 +243,8 @@ impl LspSessionPool {
 
 impl LspSession {
     fn start(project: &ProjectRoot, command: &str, args: &[String]) -> Result<Self> {
-        let command_path = resolve_lsp_binary(command).unwrap_or_else(|| command.into());
+        let command_path = resolve_lsp_binary_with_hint(command, Some(project.as_path()))
+            .unwrap_or_else(|| command.into());
         let mut child = Command::new(&command_path)
             .args(args)
             .stdin(Stdio::piped())
