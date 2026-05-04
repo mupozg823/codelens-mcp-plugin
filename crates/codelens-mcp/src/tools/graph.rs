@@ -542,8 +542,43 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
             }
         }
 
-        let (resolution_summary, confidence_basis, meta) =
+        let (resolution_summary, computed_basis, computed_meta) =
             call_graph_analysis(value.iter().map(|entry| entry.resolution));
+        // Issue #247 (sub-fix A): get_callees was the last caller-graph
+        // surface still missing per-call SCIP staleness detection. When
+        // SCIP indexes the source file of `function_name` but the file
+        // (or any resolved callee file) has been edited since the index
+        // was built, the precise-tier confidence (≥ 0.95) lies the same
+        // way `find_symbol` did pre-#236 and `get_callers` did pre-#240.
+        // Probe staleness against the function's own source file plus
+        // every resolved callee file — same pattern as #241 in
+        // `get_callers`.
+        #[cfg(feature = "scip-backend")]
+        let scip_staleness = {
+            let mut candidate_files: Vec<String> = value
+                .iter()
+                .filter_map(|c| c.resolved_file.clone())
+                .collect();
+            if let Some(target) = file_path {
+                candidate_files.push(target.to_owned());
+            }
+            candidate_files.sort();
+            candidate_files.dedup();
+            crate::tools::scip_health::detect_scip_staleness(
+                state.project().as_path(),
+                &candidate_files,
+            )
+        };
+        #[cfg(not(feature = "scip-backend"))]
+        let scip_staleness: Option<()> = None;
+        let (confidence_basis, meta) = if scip_staleness.is_some() {
+            (
+                "scip_precise_stale_index",
+                crate::tool_evidence::meta_degraded("scip", 0.55, "scip_index_stale_vs_source"),
+            )
+        } else {
+            (computed_basis, computed_meta)
+        };
         let evidence = crate::tool_evidence::tool_evidence(
             "call_graph",
             &meta,
@@ -560,6 +595,15 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
             "resolution_summary": resolution_summary,
             "evidence": evidence,
         });
+        #[cfg(feature = "scip-backend")]
+        if let Some(stale) = scip_staleness.as_ref()
+            && let Some(map) = payload.as_object_mut()
+        {
+            map.insert(
+                "scip_index_stale_warning".to_owned(),
+                crate::tools::scip_health::scip_stale_warning_payload(stale),
+            );
+        }
         if !unknown_args.is_empty()
             && let Some(map) = payload.as_object_mut()
         {
