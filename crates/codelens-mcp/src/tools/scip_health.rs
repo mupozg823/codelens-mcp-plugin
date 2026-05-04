@@ -51,6 +51,18 @@ pub(crate) fn detect_scip_staleness(
     })
 }
 
+/// Issue #243: convert a 0-indexed SCIP `parse_range` line to the
+/// 1-indexed convention every other CodeLens surface (tree-sitter,
+/// `read_file`, grep, IDE) uses. Single source of truth so the +1
+/// shift can't drift out of sync between `find_symbol`,
+/// `find_referencing_symbols`, and `get_callers`. Saturating add is
+/// a defence against `usize::MAX` sentinel rows we don't expect to
+/// see but shouldn't panic on either.
+#[cfg(feature = "scip-backend")]
+pub(crate) fn scip_line_to_display(scip_line: usize) -> usize {
+    scip_line.saturating_add(1)
+}
+
 /// Build the `scip_index_stale_warning` payload that every SCIP-resolved
 /// tool surfaces when `detect_scip_staleness` flags one or more files.
 /// Centralised here so the message + recommended action stay identical
@@ -75,7 +87,9 @@ pub(crate) fn scip_stale_warning_payload(stale: &ScipStaleness) -> serde_json::V
 
 #[cfg(all(test, feature = "scip-backend"))]
 mod tests {
-    use super::{ScipStaleness, detect_scip_staleness, scip_stale_warning_payload};
+    use super::{
+        ScipStaleness, detect_scip_staleness, scip_line_to_display, scip_stale_warning_payload,
+    };
     use std::time::{Duration, SystemTime};
 
     fn build_fixture(
@@ -154,5 +168,23 @@ mod tests {
             payload["stale_files"][0]["newer_than_index_by_seconds"],
             1234
         );
+    }
+
+    #[test]
+    fn scip_line_to_display_shifts_zero_indexed_to_one_indexed() {
+        // Issue #243 regression: SCIP `parse_range` returns 0-indexed
+        // line numbers per spec; the rest of the CodeLens surface
+        // (tree-sitter / read_file / grep / IDE) is 1-indexed. The
+        // helper must shift exactly one row.
+        assert_eq!(scip_line_to_display(0), 1);
+        assert_eq!(scip_line_to_display(93), 94);
+        assert_eq!(scip_line_to_display(413), 414);
+    }
+
+    #[test]
+    fn scip_line_to_display_saturates_on_max_sentinel() {
+        // `find_callees` uses `usize::MAX` as a synthetic
+        // next-definition sentinel — adding 1 must not panic.
+        assert_eq!(scip_line_to_display(usize::MAX), usize::MAX);
     }
 }

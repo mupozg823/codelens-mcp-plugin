@@ -348,11 +348,20 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     let refs_json: Vec<serde_json::Value> = limited
                         .iter()
                         .map(|r| {
+                            // Issue #243: SCIP `parse_range` is 0-indexed
+                            // per spec; tree-sitter / file-display /
+                            // grep are 1-indexed. Normalize at the JSON
+                            // serialization boundary so reviewers
+                            // comparing `find_referencing_symbols`
+                            // output to `read_file` / `Edit` line
+                            // numbers stop landing one row early.
+                            let display_line =
+                                crate::tools::scip_health::scip_line_to_display(r.line);
                             json!({
                                 "name": r.name,
                                 "kind": r.kind,
                                 "file_path": r.file_path,
-                                "line": r.line,
+                                "line": display_line,
                                 "score": r.score,
                             })
                         })

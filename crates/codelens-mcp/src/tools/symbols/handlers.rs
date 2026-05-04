@@ -118,7 +118,9 @@ pub(super) fn read_signature_line(
 // so `find_referencing_symbols` and `get_callers` can reuse the same
 // probe + warning shape.
 #[cfg(feature = "scip-backend")]
-use crate::tools::scip_health::{detect_scip_staleness, scip_stale_warning_payload};
+use crate::tools::scip_health::{
+    detect_scip_staleness, scip_line_to_display, scip_stale_warning_payload,
+};
 
 /// Issue #235 (sub-fix C): humanize raw SCIP descriptors (e.g.
 /// `"rust-analyzer cargo codelens-mcp 1.9.59 tools/session/project_ops/prepare_harness_session()."`)
@@ -401,11 +403,22 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                     // reverse-lookup callers don't lose information.
                     let scip_descriptor_raw = d.name_path.clone().unwrap_or_else(|| d.name.clone());
                     let humanized_name_path = humanize_scip_name_path(&scip_descriptor_raw);
+                    // Issue #243: SCIP `parse_range` returns 0-indexed line
+                    // numbers (per spec) but the rest of the CodeLens
+                    // surface (tree-sitter `get_symbols_overview`,
+                    // `read_file`, grep, IDE) is 1-indexed. Normalize at
+                    // the JSON serialization boundary so cross-tool
+                    // comparison stops needing a -1 fudge. The raw
+                    // 0-indexed `d.line` is still passed to
+                    // `read_signature_line` and `heuristic_body_slice`
+                    // since both slice file content using `Vec<&str>`
+                    // indices and need the original convention.
+                    let display_line = scip_line_to_display(d.line);
                     let mut sym = json!({
                         "name": d.name,
                         "kind": d.kind,
                         "file_path": d.file_path,
-                        "line": d.line,
+                        "line": display_line,
                         "signature": signature_value,
                         "signature_source": signature_source,
                         "name_path": humanized_name_path,
