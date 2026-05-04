@@ -215,6 +215,19 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
         .or(name_path_alias)
         .ok_or_else(|| CodeLensError::MissingParam("symbol_id or name".into()))?;
     let file_path = optional_string(arguments, "file_path");
+    // Issue #203 (3): historically a directory `file_path` slipped through and
+    // returned `{ symbols: [], count: 0 }` with the no-exact-match fallback
+    // hint, which reads as "the symbol doesn't exist" rather than "you gave
+    // me the wrong input shape". Reject directory inputs up front and steer
+    // the caller to an alternative whose schema actually accepts a directory.
+    if let Some(path_str) = file_path {
+        let project_relative = state.project().as_path().join(path_str);
+        if project_relative.is_dir() || std::path::Path::new(path_str).is_dir() {
+            return Err(crate::error::CodeLensError::Validation(format!(
+                "find_symbol received a directory `file_path` `{path_str}`; pass a single file path instead. For directory-scope symbol scans use `get_symbols_overview(path: \"{path_str}\")` for an AST tree, or `bm25_symbol_search(query: \"{name}\")` for a project-wide name search."
+            )));
+        }
+    }
     let include_body = optional_bool(arguments, "include_body", false);
     let exact_match = optional_bool(arguments, "exact_match", false);
     let max_matches = crate::tool_runtime::optional_usize_with_aliases(
