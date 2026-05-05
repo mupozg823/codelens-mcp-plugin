@@ -10,6 +10,9 @@ use codelens_engine::{
     get_importers, phantom_modules, redundant_definitions,
 };
 use serde_json::{Map, Value, json};
+use std::collections::{BTreeMap, BTreeSet};
+
+const DIRECTORY_IMPACT_FILE_LIMIT: usize = 512;
 
 const CALL_GRAPH_RESOLUTIONS: [&str; 7] = [
     "scip",
@@ -20,6 +23,39 @@ const CALL_GRAPH_RESOLUTIONS: [&str; 7] = [
     "path_proximity",
     "unresolved",
 ];
+const PATH_ALIAS_DEPRECATION: &str =
+    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
+
+fn path_alias_warning(alias: &str) -> Value {
+    json!({
+        "param": alias,
+        "replacement": "path",
+        "message": PATH_ALIAS_DEPRECATION,
+    })
+}
+
+fn optional_path_scope(arguments: &serde_json::Value) -> (Option<&str>, Vec<Value>) {
+    if let Some(path) = optional_string(arguments, "path") {
+        let warnings = match optional_string(arguments, "_path_alias_source") {
+            Some("file_path") => vec![path_alias_warning("file_path")],
+            _ => Vec::new(),
+        };
+        return (Some(path), warnings);
+    }
+    if let Some(file_path) = optional_string(arguments, "file_path") {
+        return (Some(file_path), vec![path_alias_warning("file_path")]);
+    }
+    (None, Vec::new())
+}
+
+fn insert_deprecation_warnings(payload: &mut Value, warnings: Vec<Value>) {
+    if warnings.is_empty() {
+        return;
+    }
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("deprecation_warnings".to_owned(), json!(warnings));
+    }
+}
 
 fn resolution_score(strategy: &str) -> f64 {
     match strategy {
@@ -151,6 +187,10 @@ pub(crate) fn get_impact_analysis(state: &AppState, arguments: &serde_json::Valu
     let file_path = required_string(arguments, "file_path")?;
     let max_depth = optional_usize(arguments, "max_depth", 3);
 
+    if let Some(directory_impact) = get_directory_impact_analysis(state, file_path, max_depth) {
+        return Ok((directory_impact, success_meta(BackendKind::Hybrid, 0.85)));
+    }
+
     let blast = get_blast_radius(&state.project(), file_path, max_depth, &state.graph_cache())
         .unwrap_or_default();
     let symbols = state
@@ -186,6 +226,114 @@ pub(crate) fn get_impact_analysis(state: &AppState, arguments: &serde_json::Valu
         }),
         success_meta(BackendKind::Hybrid, 0.85),
     ))
+}
+
+fn get_directory_impact_analysis(
+    state: &AppState,
+    file_path: &str,
+    max_depth: usize,
+) -> Option<Value> {
+    let project = state.project();
+    let scope = project.resolve(file_path).ok()?;
+    if !scope.is_dir() {
+        return None;
+    }
+
+    let mut scoped_files = codelens_engine::project::collect_files(&scope, |path| {
+        codelens_engine::supports_import_graph(path.to_string_lossy().as_ref())
+    })
+    .ok()?
+    .into_iter()
+    .map(|path| project.to_relative(path))
+    .collect::<Vec<_>>();
+    scoped_files.sort();
+
+    let scanned_file_count = scoped_files.len();
+    let file_limit_hit = scoped_files.len() > DIRECTORY_IMPACT_FILE_LIMIT;
+    if file_limit_hit {
+        scoped_files.truncate(DIRECTORY_IMPACT_FILE_LIMIT);
+    }
+
+    let graph_cache = state.graph_cache();
+    let symbol_index = state.symbol_index();
+    let mut importer_targets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut affected_sources: BTreeMap<String, (usize, BTreeSet<String>)> = BTreeMap::new();
+    let mut symbol_names = Vec::new();
+    let mut total_symbol_count = 0usize;
+
+    for scoped_file in &scoped_files {
+        let symbols = symbol_index
+            .get_symbols_overview_cached(scoped_file, 1)
+            .unwrap_or_default();
+        total_symbol_count += symbols.len();
+        for symbol in flatten_symbols(&symbols).into_iter().take(5) {
+            if symbol_names.len() >= 25 {
+                break;
+            }
+            symbol_names.push(json!({
+                "name": symbol.name,
+                "kind": symbol.kind.as_label(),
+                "line": symbol.line,
+                "file": scoped_file,
+            }));
+        }
+
+        for importer in get_importers(&project, scoped_file, 20, &graph_cache).unwrap_or_default() {
+            importer_targets
+                .entry(importer.file)
+                .or_default()
+                .insert(scoped_file.clone());
+        }
+
+        for affected in
+            get_blast_radius(&project, scoped_file, max_depth, &graph_cache).unwrap_or_default()
+        {
+            let entry = affected_sources
+                .entry(affected.file)
+                .or_insert_with(|| (affected.depth, BTreeSet::new()));
+            entry.0 = entry.0.min(affected.depth);
+            entry.1.insert(scoped_file.clone());
+        }
+    }
+
+    let direct_importers = importer_targets
+        .into_iter()
+        .map(|(file, targets)| {
+            json!({
+                "file": file,
+                "target_files": targets.into_iter().collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let affected = affected_sources
+        .into_iter()
+        .map(|(file, (depth, sources))| {
+            let sym_count = symbol_index
+                .get_symbols_overview_cached(&file, 1)
+                .map(|symbols| symbols.len())
+                .unwrap_or(0);
+            json!({
+                "file": file,
+                "depth": depth,
+                "symbol_count": sym_count,
+                "source_files": sources.into_iter().collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Some(json!({
+        "file": file_path,
+        "scope_kind": "directory",
+        "in_scope_files": scoped_files,
+        "in_scope_file_count": scanned_file_count,
+        "in_scope_file_limit": DIRECTORY_IMPACT_FILE_LIMIT,
+        "in_scope_file_limit_hit": file_limit_hit,
+        "symbols": symbol_names,
+        "symbol_count": total_symbol_count,
+        "direct_importers": direct_importers,
+        "blast_radius": affected,
+        "total_affected_files": affected.len(),
+    }))
 }
 
 pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -307,16 +455,34 @@ pub fn find_redundant_definitions_tool(
 }
 
 pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    const KNOWN_ARGS: &[&str] = &[
+        "symbol_name",
+        "path",
+        "file_path",
+        "max_results",
+        "limit",
+        "top_k",
+    ];
     let symbol_name = required_string(arguments, "symbol_name")?;
-    let file_path = optional_string(arguments, "file_path");
-    let max_results = optional_usize(arguments, "max_results", 50);
+    let (file_path, deprecation_warnings) = optional_path_scope(arguments);
+    let max_results = crate::tool_runtime::optional_usize_with_aliases(
+        arguments,
+        "max_results",
+        &["limit", "top_k"],
+        50,
+    );
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
     Ok(
         find_scoped_references(&state.project(), symbol_name, file_path, max_results).map(
             |refs| {
-                (
-                    json!({ "references": refs, "count": refs.len() }),
-                    success_meta(BackendKind::TreeSitter, 0.95),
-                )
+                let mut payload = json!({ "references": refs, "count": refs.len() });
+                insert_deprecation_warnings(&mut payload, deprecation_warnings);
+                if !unknown_args.is_empty()
+                    && let Some(map) = payload.as_object_mut()
+                {
+                    map.insert("unknown_args".to_owned(), json!(unknown_args));
+                }
+                (payload, success_meta(BackendKind::TreeSitter, 0.95))
             },
         )?,
     )
@@ -366,7 +532,7 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         "project_root",
     ];
     let function_name = required_string(arguments, "function_name")?;
-    let file_path = optional_string(arguments, "file_path");
+    let (file_path, deprecation_warnings) = optional_path_scope(arguments);
     let max_results = crate::tool_runtime::optional_usize_with_aliases(
         arguments,
         "max_results",
@@ -478,6 +644,7 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         {
             map.insert("unknown_args".to_owned(), json!(unknown_args));
         }
+        insert_deprecation_warnings(&mut payload, deprecation_warnings);
         (payload, meta)
     })?)
 }
@@ -494,7 +661,7 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         "project_root",
     ];
     let function_name = required_string(arguments, "function_name")?;
-    let file_path = optional_string(arguments, "file_path");
+    let (file_path, deprecation_warnings) = optional_path_scope(arguments);
     let max_results = crate::tool_runtime::optional_usize_with_aliases(
         arguments,
         "max_results",
@@ -609,6 +776,7 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         {
             map.insert("unknown_args".to_owned(), json!(unknown_args));
         }
+        insert_deprecation_warnings(&mut payload, deprecation_warnings);
         (payload, meta)
     })?)
 }

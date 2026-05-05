@@ -203,19 +203,16 @@ For this repository, prefer the installer script over hand-editing plist files:
 bash scripts/install-http-daemons-launchd.sh . --load
 ```
 
-That installs two repo-local launchd agents from a current `--features http`
-build:
+That installs two repo-local launchd agents from a current
+`--features http,semantic` build by default:
 
 - `dev.codelens.mcp-readonly` -> `reviewer-graph` on `:7839`
 - `dev.codelens.mcp-mutation` -> `refactor-full` on `:7838`
 
-> **Build flag reminder (v1.10.1+)**: the plists point at
-> `target/release/codelens-mcp`, which must be a build that includes
-> the `http` feature (and `semantic` if you want hybrid retrieval).
-> Run `cargo build --release --features http,semantic` before
-> `--load`-ing, otherwise the daemons fail with
-> `Error: HTTP/HTTPS transport requires the http feature` and the
-> ports never bind. See
+> **Build flag reminder (v1.10.1+)**: the installer builds the daemon
+> with `http,semantic` by default and writes `CODELENS_MODEL_DIR` into
+> the plists when the repo-local model sidecar exists. Use `--no-semantic`
+> only when you intentionally want an HTTP-only daemon. See
 > [`docs/release-verification.md`](docs/release-verification.md#feature-flag-matrix-build-time-requirements)
 > for the full feature-flag matrix.
 

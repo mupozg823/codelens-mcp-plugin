@@ -756,7 +756,18 @@ fn attach_alias_warning(mut payload: Value, warning: Option<Value>) -> Value {
 }
 
 pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let file_path = required_string(arguments, "file_path")?.to_owned();
+    const KNOWN_ARGS: &[&str] = &[
+        "path",
+        "file_path",
+        "line",
+        "column",
+        "new_name",
+        "command",
+        "args",
+    ];
+    let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let file_path = file_path_arg.to_owned();
     let line = arguments
         .get("line")
         .and_then(|v| v.as_u64())
@@ -784,11 +795,28 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
             new_name,
         })
         .map_err(|e| enhance_lsp_error(e, &command_ref))
-        .map(|value| (json!(value), success_meta(BackendKind::Lsp, 0.86)))
+        .map(|value| {
+            let mut payload = json!(value);
+            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+            (payload, success_meta(BackendKind::Lsp, 0.86))
+        })
 }
 
 pub fn resolve_symbol_target(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let file_path = required_string(arguments, "file_path")?.to_owned();
+    const KNOWN_ARGS: &[&str] = &[
+        "path",
+        "file_path",
+        "line",
+        "column",
+        "target",
+        "semantic_backend",
+        "command",
+        "args",
+        "max_results",
+    ];
+    let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let file_path = file_path_arg.to_owned();
     let line = arguments
         .get("line")
         .and_then(|v| v.as_u64())
@@ -842,24 +870,23 @@ pub fn resolve_symbol_target(state: &AppState, arguments: &serde_json::Value) ->
                 "type_definition" => "textDocument/typeDefinition",
                 _ => "unknown",
             };
-            (
-                json!({
-                    "success": true,
-                    "semantic_backend": "lsp",
-                    "edit_authority": {
-                        "kind": "authoritative_lsp",
-                        "backend": "lsp",
-                        "operation": target,
-                        "language": language_name_for_path(&file_path),
-                        "methods": [method],
-                        "embedding_used": false,
-                        "search_used": false
-                    },
-                    "targets": targets,
-                    "count": targets.len(),
-                }),
-                success_meta(BackendKind::Lsp, 0.95),
-            )
+            let mut payload = json!({
+                "success": true,
+                "semantic_backend": "lsp",
+                "edit_authority": {
+                    "kind": "authoritative_lsp",
+                    "backend": "lsp",
+                    "operation": target,
+                    "language": language_name_for_path(&file_path),
+                    "methods": [method],
+                    "embedding_used": false,
+                    "search_used": false
+                },
+                "targets": targets,
+                "count": targets.len(),
+            });
+            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+            (payload, success_meta(BackendKind::Lsp, 0.95))
         })
 }
 

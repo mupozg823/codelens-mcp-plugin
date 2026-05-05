@@ -41,6 +41,12 @@ def parse_args():
     parser.add_argument("--markdown-output", default="")
     parser.add_argument("--max-results", type=int, default=10)
     parser.add_argument(
+        "--ranked-context-max-tokens",
+        type=int,
+        default=50000,
+        help="max_tokens for get_ranked_context benchmark lanes; keep above the hybrid retrieval floor to avoid truncation failures",
+    )
+    parser.add_argument(
         "--embed-model",
         default=os.environ.get("CODELENS_EMBED_MODEL", ""),
         help="Override CODELENS_EMBED_MODEL for this benchmark run",
@@ -397,7 +403,7 @@ def main():
             "get_ranked_context",
             lambda item: {
                 "query": item["query"],
-                "max_tokens": 1200,
+                "max_tokens": ARGS.ranked_context_max_tokens,
                 "include_body": False,
             },
         ),
@@ -407,7 +413,7 @@ def main():
             "get_ranked_context",
             lambda item: {
                 "query": item["query"],
-                "max_tokens": 1200,
+                "max_tokens": ARGS.ranked_context_max_tokens,
                 "include_body": False,
                 "disable_semantic": True,
             },

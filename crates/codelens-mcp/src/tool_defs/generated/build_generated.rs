@@ -21,17 +21,17 @@ pub fn analysis_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Too
         Tool::new(
             "get_callers",
             "[CodeLens:Analysis] Find functions that call a function. Returns bounded call-graph edges with backend/confidence metadata.",
-            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"file_path":{"type":"string","description":"Optional file scope for caller search"},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"path":{"type":"string","description":"Optional file scope for caller search"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"max_results":{"type":"integer"}}}),
         ).with_output_schema(get_callers_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "get_callees",
-            "[CodeLens:Analysis] Find functions called by a function. Use file_path when duplicate function names exist.",
-            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"file_path":{"type":"string"},"max_results":{"type":"integer"}}}),
+            "[CodeLens:Analysis] Find functions called by a function. Use path when duplicate function names exist.",
+            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"max_results":{"type":"integer"}}}),
         ).with_output_schema(get_callees_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "find_scoped_references",
             "[CodeLens:Analysis] Classify each reference as definition/read/write/import.",
-            json!({"type":"object","required":["symbol_name"],"properties":{"symbol_name":{"type":"string","description":"Symbol name to find references for"},"file_path":{"type":"string","description":"Declaration file (for sorting, optional)"},"max_results":{"type":"integer","description":"Max results (default 50)"}}}),
+            json!({"type":"object","required":["symbol_name"],"properties":{"symbol_name":{"type":"string","description":"Symbol name to find references for"},"path":{"type":"string","description":"Declaration file (for sorting, optional)"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"max_results":{"type":"integer","description":"Max results (default 50)"}}}),
         ).with_output_schema(references_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "get_symbol_importance",
@@ -111,7 +111,7 @@ pub fn composite_tools(
         Tool::new(
             "summarize_symbol_impact",
             "[CodeLens:Workflow] Summarize callers, references, and affected files for one symbol.",
-            json!({"type":"object","required":["symbol"],"properties":{"symbol":{"type":"string"},"file_path":{"type":"string"},"depth":{"type":"integer"}}}),
+            json!({"type":"object","required":["symbol"],"properties":{"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"depth":{"type":"integer"}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "module_boundary_report",
@@ -126,12 +126,12 @@ pub fn composite_tools(
         Tool::new(
             "safe_rename_report",
             "[CodeLens:Workflow] Assess rename safety, blockers, and preview edits before refactoring.",
-            json!({"type":"object","required":["file_path","symbol"],"properties":{"file_path":{"type":"string"},"symbol":{"type":"string"},"new_name":{"type":"string"}}}),
+            json!({"type":"object","required":["path","symbol"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"symbol":{"type":"string"},"new_name":{"type":"string"}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "unresolved_reference_check",
             "[CodeLens:Workflow] Lightweight unresolved or ambiguous reference guard before rename or broad edits.",
-            json!({"type":"object","required":["file_path"],"properties":{"file_path":{"type":"string"},"symbol":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}}}}),
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"symbol":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "dead_code_report",
@@ -362,12 +362,12 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
         Tool::new(
             "resolve_symbol_target",
             "[CodeLens:Symbol] Resolve declaration/definition/implementation/type target through LSP. Use when edit-grade navigation authority is required.",
-            json!({"type":"object","required":["file_path","line","column"],"properties":{"file_path":{"type":"string"},"line":{"type":"integer","description":"1-based source line"},"column":{"type":"integer","description":"1-based byte column; converted to LSP UTF-16 internally"},"target":{"type":"string","enum":["declaration","definition","implementation","type_definition"],"description":"Target kind (default: definition)"},"semantic_backend":{"type":"string","enum":["lsp"],"description":"Only lsp is authoritative for this tool"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","required":["path","line","column"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"line":{"type":"integer","description":"1-based source line"},"column":{"type":"integer","description":"1-based byte column; converted to LSP UTF-16 internally"},"target":{"type":"string","enum":["declaration","definition","implementation","type_definition"],"description":"Target kind (default: definition)"},"semantic_backend":{"type":"string","enum":["lsp"],"description":"Only lsp is authoritative for this tool"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
         ).with_output_schema(resolve_symbol_target_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "plan_symbol_rename",
             "[CodeLens:Symbol] Preview rename refactoring via LSP — check before applying.",
-            json!({"type":"object","required":["file_path","line","column"],"properties":{"file_path":{"type":"string"},"line":{"type":"integer"},"column":{"type":"integer"},"new_name":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}}),
+            json!({"type":"object","required":["path","line","column"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"line":{"type":"integer"},"column":{"type":"integer"},"new_name":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}}),
         ).with_annotations(ro_a.clone()),
         Tool::new(
             "check_lsp_status",
@@ -668,7 +668,7 @@ pub fn workflow_first_tools(ro_w: &ToolAnnotations) -> Vec<Tool> {
         Tool::new(
             "cleanup_duplicate_logic",
             "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence.",
-            json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"},"include_config_code_pairs":{"type":"boolean","description":"Include low-signal config-key ↔ code-symbol duplicate pairs; default false suppresses workflow/config structural key noise."}}}),
         ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new(
             "review_changes",

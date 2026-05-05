@@ -359,9 +359,10 @@ output_schema = "resolve_symbol_target_output_schema"
 
 [tool.input_schema]
 type = "object"
-required = ["file_path", "line", "column"]
+required = ["path", "line", "column"]
 [tool.input_schema.properties]
-file_path = { type = "string" }
+path = { type = "string" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 line = { type = "integer", description = "1-based source line" }
 column = { type = "integer", description = "1-based byte column; converted to LSP UTF-16 internally" }
 target = { type = "string", enum = ["declaration", "definition", "implementation", "type_definition"], description = "Target kind (default: definition)" }
@@ -380,9 +381,10 @@ annotations = "ro_a"
 
 [tool.input_schema]
 type = "object"
-required = ["file_path", "line", "column"]
+required = ["path", "line", "column"]
 [tool.input_schema.properties]
-file_path = { type = "string" }
+path = { type = "string" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 line = { type = "integer" }
 column = { type = "integer" }
 new_name = { type = "string" }
@@ -441,7 +443,8 @@ type = "object"
 required = ["function_name"]
 [tool.input_schema.properties]
 function_name = { type = "string" }
-file_path = { type = "string", description = "Optional file scope for caller search" }
+path = { type = "string", description = "Optional file scope for caller search" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 max_results = { type = "integer" }
 
 # ─────
@@ -449,14 +452,14 @@ max_results = { type = "integer" }
 [[tool]]
 name = "get_callees"
 category = "analysis"
-description = "[CodeLens:Analysis] Find functions called by a function. Use file_path when duplicate function names exist."
+description = "[CodeLens:Analysis] Find functions called by a function. Use path when duplicate function names exist."
 annotations = "ro_a"
 output_schema = "get_callees_output_schema"
 
 [tool.input_schema]
 type = "object"
 required = ["function_name"]
-properties = { function_name = { type = "string" }, file_path = { type = "string" }, max_results = { type = "integer" } }
+properties = { function_name = { type = "string" }, path = { type = "string" }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, max_results = { type = "integer" } }
 
 # ─────
 
@@ -472,7 +475,8 @@ type = "object"
 required = ["symbol_name"]
 [tool.input_schema.properties]
 symbol_name = { type = "string", description = "Symbol name to find references for" }
-file_path = { type = "string", description = "Declaration file (for sorting, optional)" }
+path = { type = "string", description = "Declaration file (for sorting, optional)" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 max_results = { type = "integer", description = "Max results (default 50)" }
 
 # ─────
@@ -1001,7 +1005,7 @@ output_schema = "analysis_handle_output_schema"
 [tool.input_schema]
 type = "object"
 required = ["symbol"]
-properties = { symbol = { type = "string" }, file_path = { type = "string" }, depth = { type = "integer" } }
+properties = { symbol = { type = "string" }, path = { type = "string" }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, depth = { type = "integer" } }
 
 # ─────
 
@@ -1042,8 +1046,8 @@ output_schema = "analysis_handle_output_schema"
 
 [tool.input_schema]
 type = "object"
-required = ["file_path", "symbol"]
-properties = { file_path = { type = "string" }, symbol = { type = "string" }, new_name = { type = "string" } }
+required = ["path", "symbol"]
+properties = { path = { type = "string" }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, symbol = { type = "string" }, new_name = { type = "string" } }
 
 # ─────
 
@@ -1056,8 +1060,8 @@ output_schema = "analysis_handle_output_schema"
 
 [tool.input_schema]
 type = "object"
-required = ["file_path"]
-properties = { file_path = { type = "string" }, symbol = { type = "string" }, changed_files = { type = "array", items = { type = "string" } } }
+required = ["path"]
+properties = { path = { type = "string" }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, symbol = { type = "string" }, changed_files = { type = "array", items = { type = "string" } } }
 
 # ─────
 
@@ -1320,6 +1324,7 @@ threshold = { type = "number" }
 max_pairs = { type = "integer" }
 scope = { type = "string" }
 max_results = { type = "integer" }
+include_config_code_pairs = { type = "boolean", description = "Include low-signal config-key ↔ code-symbol duplicate pairs; default false suppresses workflow/config structural key noise." }
 
 # ─────
 

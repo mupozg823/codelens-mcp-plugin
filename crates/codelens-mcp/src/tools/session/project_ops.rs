@@ -117,7 +117,25 @@ fn append_prepare_harness_warning_from_guidance(
         .get("action_target")
         .and_then(|value| value.as_str())
         .unwrap_or(fallback_target);
-    push_prepare_harness_warning(
+    let mut extras = serde_json::Map::new();
+    for key in ["included_in", "recommended_profile"] {
+        if let Some(value) = guidance.get(key) {
+            extras.insert(key.to_owned(), value.clone());
+        }
+    }
+    if extras.is_empty() {
+        push_prepare_harness_warning(
+            warnings,
+            warning_codes,
+            code,
+            message,
+            action_target == "daemon" || code == "stale_daemon_binary",
+            recommended_action,
+            action_target,
+        );
+        return;
+    }
+    push_prepare_harness_warning_with_extras(
         warnings,
         warning_codes,
         code,
@@ -125,6 +143,7 @@ fn append_prepare_harness_warning_from_guidance(
         action_target == "daemon" || code == "stale_daemon_binary",
         recommended_action,
         action_target,
+        Value::Object(extras),
     );
 }
 
@@ -1114,6 +1133,40 @@ mod tests {
         // No spurious key inserted from the string extras.
         assert!(warning.get("remediation").is_none());
         assert!(warning.get("auto_refresh_threshold").is_none());
+    }
+
+    #[test]
+    fn guidance_warning_preserves_semantic_surface_hints() {
+        let mut warnings: Vec<Value> = Vec::new();
+        let mut codes: HashSet<String> = HashSet::new();
+
+        append_prepare_harness_warning_from_guidance(
+            &mut warnings,
+            &mut codes,
+            &json!({
+                "reason_code": "semantic_not_in_active_surface",
+                "reason": "not in active surface",
+                "recommended_action": "switch_tool_surface",
+                "action_target": "tool_surface",
+                "included_in": ["planner-readonly", "builder-minimal"],
+                "recommended_profile": "planner-readonly",
+            }),
+            "semantic_search_unavailable",
+            "semantic_search is unavailable",
+            "inspect_semantic_configuration",
+            "semantic_search",
+        );
+
+        assert_eq!(warnings.len(), 1);
+        let warning = warnings[0].as_object().expect("warning is object");
+        assert_eq!(warning["code"], json!("semantic_not_in_active_surface"));
+        assert_eq!(warning["recommended_action"], json!("switch_tool_surface"));
+        assert_eq!(warning["action_target"], json!("tool_surface"));
+        assert_eq!(warning["recommended_profile"], json!("planner-readonly"));
+        assert_eq!(
+            warning["included_in"],
+            json!(["planner-readonly", "builder-minimal"])
+        );
     }
 
     /// Issue #186 detector: a `agent-<hash>` directory basename is the

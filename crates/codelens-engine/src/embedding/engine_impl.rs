@@ -858,6 +858,52 @@ impl EmbeddingEngine {
     /// Find near-duplicate code pairs across the codebase.
     /// Returns pairs with cosine similarity above the threshold (default 0.85).
     pub fn find_duplicates(&self, threshold: f64, max_pairs: usize) -> Result<Vec<DuplicatePair>> {
+        self.find_duplicates_in_scope(threshold, max_pairs, None)
+    }
+
+    fn normalize_duplicate_scope(scope: Option<&str>) -> Option<String> {
+        let scope = scope?
+            .trim()
+            .trim_start_matches("./")
+            .trim_end_matches('/')
+            .replace('\\', "/");
+        if scope.is_empty() || scope == "." {
+            None
+        } else {
+            Some(scope)
+        }
+    }
+
+    fn file_in_duplicate_scope(scope: &str, file_path: &str) -> bool {
+        let file_path = file_path.trim_start_matches("./");
+        file_path == scope
+            || file_path
+                .strip_prefix(scope)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    }
+
+    fn duplicate_pair_matches_scope(scope: Option<&str>, file_a: &str, file_b: &str) -> bool {
+        let Some(scope) = scope else {
+            return true;
+        };
+        Self::file_in_duplicate_scope(scope, file_a) || Self::file_in_duplicate_scope(scope, file_b)
+    }
+
+    /// Find near-duplicate code pairs, counting only pairs that touch `scope`.
+    ///
+    /// The scan still visits out-of-scope chunks so cross-boundary duplicates
+    /// are visible, but `max_pairs` only applies after the scope predicate.
+    pub fn find_duplicates_in_scope(
+        &self,
+        threshold: f64,
+        max_pairs: usize,
+        scope: Option<&str>,
+    ) -> Result<Vec<DuplicatePair>> {
+        if max_pairs == 0 {
+            return Ok(Vec::new());
+        }
+
+        let scope = Self::normalize_duplicate_scope(scope);
         let mut pairs = Vec::new();
         let mut seen_pairs = HashSet::new();
         let mut embedding_cache: HashMap<StoredChunkKey, Arc<EmbeddingChunk>> = HashMap::new();
@@ -890,6 +936,13 @@ impl EmbeddingEngine {
                                 && chunk.line == candidate.line
                                 && chunk.signature == candidate.signature
                                 && chunk.name_path == candidate.name_path)
+                        })
+                        .filter(|candidate| {
+                            Self::duplicate_pair_matches_scope(
+                                scope.as_deref(),
+                                &chunk.file_path,
+                                &candidate.file_path,
+                            )
                         })
                         .collect();
 

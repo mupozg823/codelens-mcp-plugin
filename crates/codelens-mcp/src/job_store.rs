@@ -318,17 +318,25 @@ fn matches_scope(job_scope: Option<&str>, current_scope: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    #[test]
-    fn cleanup_stale_files_ignores_inflight_tmp_files() {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-job-store-test-{}-{}",
+    static TEST_DIR_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_jobs_dir(test_name: &str) -> PathBuf {
+        let seq = TEST_DIR_SEQ.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "codelens-job-store-test-{test_name}-{}-{}-{seq}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
-        ));
+        ))
+    }
+
+    #[test]
+    fn cleanup_stale_files_ignores_inflight_tmp_files() {
+        let dir = temp_jobs_dir("cleanup-stale-files");
         fs::create_dir_all(&dir).unwrap();
         let store = AnalysisJobStore::new(dir.clone());
 
@@ -347,14 +355,7 @@ mod tests {
 
     #[test]
     fn list_reads_latest_job_state_from_disk() {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-job-store-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir = temp_jobs_dir("list-latest-state");
         fs::create_dir_all(&dir).unwrap();
         let store = AnalysisJobStore::new(dir.clone());
         let scope = "scope-a";
@@ -373,8 +374,22 @@ mod tests {
             .unwrap();
 
         let path = dir.join(format!("{}.json", job.id));
-        let mut disk_job =
-            serde_json::from_slice::<AnalysisJob>(&fs::read(&path).unwrap()).unwrap();
+        assert!(
+            path.exists(),
+            "expected stored job file to exist immediately after store: dir={}, job_id={}, path={}",
+            dir.display(),
+            job.id,
+            path.display()
+        );
+        let bytes = fs::read(&path).unwrap_or_else(|error| {
+            panic!(
+                "failed to read stored job file: dir={}, job_id={}, path={}, error={error}",
+                dir.display(),
+                job.id,
+                path.display()
+            )
+        });
+        let mut disk_job = serde_json::from_slice::<AnalysisJob>(&bytes).unwrap();
         disk_job.status = JobLifecycle::Completed;
         disk_job.progress = 100;
         disk_job.current_step = Some("completed".to_owned());

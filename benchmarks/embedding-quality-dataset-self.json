@@ -222,36 +222,6 @@
     "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
   },
   {
-    "query": "detect communities and clusters in the codebase",
-    "query_type": "natural_language",
-    "expected_symbol": "detect_communities",
-    "expected_file_suffix": "crates/codelens-engine/src/community.rs"
-  },
-  {
-    "query": "calculate modularity score for graph partitioning",
-    "query_type": "natural_language",
-    "expected_symbol": "calculate_modularity",
-    "expected_file_suffix": "crates/codelens-engine/src/community.rs"
-  },
-  {
-    "query": "find common path prefix for files in a community",
-    "query_type": "natural_language",
-    "expected_symbol": "common_path_prefix",
-    "expected_file_suffix": "crates/codelens-engine/src/community.rs"
-  },
-  {
-    "query": "measure density of internal edges in a cluster",
-    "query_type": "natural_language",
-    "expected_symbol": "community_density",
-    "expected_file_suffix": "crates/codelens-engine/src/community.rs"
-  },
-  {
-    "query": "ArchitectureOverview",
-    "query_type": "identifier",
-    "expected_symbol": "ArchitectureOverview",
-    "expected_file_suffix": "crates/codelens-engine/src/community.rs"
-  },
-  {
     "query": "register sqlite vector extension for similarity search",
     "query_type": "natural_language",
     "expected_symbol": "register_sqlite_vec",
@@ -496,12 +466,6 @@
     "query_type": "identifier",
     "expected_symbol": "SecondaryProject",
     "expected_file_suffix": "crates/codelens-mcp/src/state.rs"
-  },
-  {
-    "query": "Community",
-    "query_type": "identifier",
-    "expected_symbol": "Community",
-    "expected_file_suffix": "crates/codelens-engine/src/community.rs"
   },
   {
     "query": "RenameResult",

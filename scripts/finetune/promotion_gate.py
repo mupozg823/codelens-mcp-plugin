@@ -207,7 +207,10 @@ def stage_candidate_model(
     shutil.copytree(onnx_dir, model_root)
     env = os.environ.copy()
     env["CODELENS_MODEL_DIR"] = str(temp_root)
-    env["CODELENS_EMBED_MODEL"] = candidate_label
+    # The staged candidate is selected by CODELENS_MODEL_DIR. Do not also
+    # override CODELENS_EMBED_MODEL: non-model-bakeoff binaries reject unknown
+    # labels, and the model-manifest carries the candidate identity.
+    env.pop("CODELENS_EMBED_MODEL", None)
     return temp_root, env
 
 

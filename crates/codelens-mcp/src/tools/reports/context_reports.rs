@@ -5,6 +5,40 @@ use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+const PATH_ALIAS_DEPRECATION: &str =
+    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
+
+fn path_alias_warning(alias: &str) -> Value {
+    json!({
+        "param": alias,
+        "replacement": "path",
+        "message": PATH_ALIAS_DEPRECATION,
+    })
+}
+
+fn optional_path_scope(arguments: &Value) -> (Option<&str>, Vec<Value>) {
+    if let Some(path) = arguments.get("path").and_then(Value::as_str) {
+        let warnings = match arguments.get("_path_alias_source").and_then(Value::as_str) {
+            Some("file_path") => vec![path_alias_warning("file_path")],
+            _ => Vec::new(),
+        };
+        return (Some(path), warnings);
+    }
+    if let Some(file_path) = arguments.get("file_path").and_then(Value::as_str) {
+        return (Some(file_path), vec![path_alias_warning("file_path")]);
+    }
+    (None, Vec::new())
+}
+
+fn insert_deprecation_warnings(payload: &mut Value, warnings: Vec<Value>) {
+    if warnings.is_empty() {
+        return;
+    }
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("deprecation_warnings".to_owned(), json!(warnings));
+    }
+}
+
 pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult {
     let task = required_string(arguments, "task")?;
     let ranked = crate::tools::symbols::get_ranked_context(
@@ -234,7 +268,7 @@ pub fn find_minimal_context_for_change(state: &AppState, arguments: &Value) -> T
 
 pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResult {
     let symbol = required_string(arguments, "symbol")?;
-    let file_path = arguments.get("file_path").and_then(|v| v.as_str());
+    let (file_path, deprecation_warnings) = optional_path_scope(arguments);
     let symbol_lookup = crate::tools::symbols::find_symbol(
         state,
         &json!({"name": symbol, "file_path": file_path, "include_body": false, "exact_match": true, "max_matches": 5}),
@@ -278,13 +312,13 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
     sections.insert("callers".to_owned(), callers);
     sections.insert("callees".to_owned(), callees);
     sections.insert("references".to_owned(), scoped_refs);
-    make_handle_response(
+    let (mut payload, meta) = make_handle_response(
         state,
         "summarize_symbol_impact",
         stable_cache_key(
             "summarize_symbol_impact",
             arguments,
-            &["symbol", "file_path", "depth"],
+            &["symbol", "path", "file_path", "depth"],
         ),
         format!("Bounded impact summary for symbol `{symbol}`."),
         top_findings,
@@ -296,5 +330,7 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
             .unwrap_or_default(),
         Some(symbol.to_owned()),
         Some(arguments),
-    )
+    )?;
+    insert_deprecation_warnings(&mut payload, deprecation_warnings);
+    Ok((payload, meta))
 }

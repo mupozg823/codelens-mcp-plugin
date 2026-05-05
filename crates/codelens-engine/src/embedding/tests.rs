@@ -1653,6 +1653,77 @@ fn find_duplicates_uses_batched_candidate_embeddings() {
 }
 
 #[test]
+fn find_duplicates_in_scope_continues_past_global_pairs() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    skip_without_embedding_model!();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join(".github/workflows")).unwrap();
+    std::fs::create_dir_all(root.join("crates")).unwrap();
+    write_python_file_with_symbols(
+        root,
+        ".github/workflows/outside_a.py",
+        "def outside_a():\n    return 1\n",
+        "outside-a",
+        &[("outside_a", "def outside_a():", "outside_a")],
+    );
+    write_python_file_with_symbols(
+        root,
+        ".github/workflows/outside_b.py",
+        "def outside_b():\n    return 2\n",
+        "outside-b",
+        &[("outside_b", "def outside_b():", "outside_b")],
+    );
+    write_python_file_with_symbols(
+        root,
+        "crates/scoped_a.py",
+        "def scoped_a():\n    return 3\n",
+        "scoped-a",
+        &[("scoped_a", "def scoped_a():", "scoped_a")],
+    );
+    write_python_file_with_symbols(
+        root,
+        "crates/scoped_b.py",
+        "def scoped_b():\n    return 4\n",
+        "scoped-b",
+        &[("scoped_b", "def scoped_b():", "scoped_b")],
+    );
+    let project = ProjectRoot::new_exact(root).unwrap();
+    let engine = EmbeddingEngine::new(&project).unwrap();
+    engine.index_from_project(&project).unwrap();
+
+    replace_file_embeddings_with_sentinels(
+        &engine,
+        ".github/workflows/outside_a.py",
+        &[("outside_a", 1.0)],
+    );
+    replace_file_embeddings_with_sentinels(
+        &engine,
+        ".github/workflows/outside_b.py",
+        &[("outside_b", 1.0)],
+    );
+    replace_file_embeddings_with_sentinels(&engine, "crates/scoped_a.py", &[("scoped_a", -1.0)]);
+    replace_file_embeddings_with_sentinels(&engine, "crates/scoped_b.py", &[("scoped_b", -1.0)]);
+
+    let global = engine.find_duplicates(0.99, 1).unwrap();
+    assert_eq!(global.len(), 1);
+    assert_eq!(global[0].file_a, ".github/workflows/outside_a.py");
+    assert_eq!(global[0].file_b, ".github/workflows/outside_b.py");
+
+    let scoped = engine
+        .find_duplicates_in_scope(0.99, 1, Some("crates"))
+        .unwrap();
+    assert_eq!(scoped.len(), 1);
+    assert!(
+        scoped
+            .iter()
+            .all(|pair| pair.file_a.starts_with("crates/") || pair.file_b.starts_with("crates/"))
+    );
+    assert_eq!(scoped[0].file_a, "crates/scoped_a.py");
+    assert_eq!(scoped[0].file_b, "crates/scoped_b.py");
+}
+
+#[test]
 fn search_scored_returns_raw_chunks() {
     let _lock = MODEL_LOCK.lock().unwrap();
     skip_without_embedding_model!();

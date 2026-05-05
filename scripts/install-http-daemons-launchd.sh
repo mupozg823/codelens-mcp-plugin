@@ -29,6 +29,10 @@ Options:
   --mutation-log-level LEVEL  CODELENS_LOG for mutation daemon (default: warn)
   --effort-level LEVEL        CODELENS_EFFORT_LEVEL for both daemons (default: high)
   --rerank VALUE              CODELENS_RERANK for both daemons (default: 0)
+  --model-dir DIR             CODELENS_MODEL_DIR for semantic search model assets
+                              (default: <repo>/crates/codelens-engine/models when present)
+  --semantic                  build with http,semantic features (default)
+  --no-semantic               build with http only and omit CODELENS_MODEL_DIR from plists
   --run-at-load               add RunAtLoad=true to generated plists
   --load                      bootstrap generated plists after writing
   --no-build                  reuse an existing http-capable binary at --bin-path
@@ -55,6 +59,8 @@ READONLY_LOG_LEVEL="warn"
 MUTATION_LOG_LEVEL="warn"
 EFFORT_LEVEL="high"
 RERANK_VALUE="0"
+MODEL_DIR=""
+SEMANTIC=1
 RUN_AT_LOAD=1
 LOAD_AFTER_WRITE=0
 NO_BUILD=0
@@ -127,6 +133,18 @@ while [[ $# -gt 0 ]]; do
 		RERANK_VALUE="${2:-}"
 		shift 2
 		;;
+	--model-dir)
+		MODEL_DIR="${2:-}"
+		shift 2
+		;;
+	--semantic)
+		SEMANTIC=1
+		shift
+		;;
+	--no-semantic)
+		SEMANTIC=0
+		shift
+		;;
 	--run-at-load)
 		RUN_AT_LOAD=1
 		shift
@@ -184,12 +202,31 @@ if [[ -z "$BIN_PATH" ]]; then
 	BIN_PATH="$REPO_ROOT/.codelens/bin/codelens-mcp-http"
 fi
 
+if [[ "$SEMANTIC" == "1" && -z "$MODEL_DIR" ]]; then
+	default_model_dir="$REPO_ROOT/crates/codelens-engine/models"
+	if [[ -d "$default_model_dir" ]]; then
+		MODEL_DIR="$default_model_dir"
+	fi
+fi
+
+if [[ -n "$MODEL_DIR" ]]; then
+	if [[ ! -d "$MODEL_DIR" ]]; then
+		echo "--model-dir does not exist or is not a directory: $MODEL_DIR" >&2
+		exit 2
+	fi
+	MODEL_DIR="$(cd -- "$MODEL_DIR" && pwd)"
+fi
+
 mkdir -p "$(dirname "$BIN_PATH")"
 LOG_DIR="$REPO_ROOT/.codelens/reports/launchd"
 mkdir -p "$LOG_DIR"
 
 if [[ "$NO_BUILD" == "0" ]]; then
-	echo "==> Building codelens-mcp with http feature from $REPO_ROOT"
+	BUILD_FEATURES="http"
+	if [[ "$SEMANTIC" == "1" ]]; then
+		BUILD_FEATURES="http,semantic"
+	fi
+	echo "==> Building codelens-mcp with features=$BUILD_FEATURES from $REPO_ROOT"
 	# Issue #227: cargo caches build script output across incremental
 	# rebuilds, so source-only changes leave CODELENS_BUILD_TIME
 	# pointing at the previous build. Touch the build script before
@@ -202,7 +239,7 @@ if [[ "$NO_BUILD" == "0" ]]; then
 	fi
 	(
 		cd "$REPO_ROOT"
-		cargo build -p codelens-mcp --release --features http
+		cargo build -p codelens-mcp --release --features "$BUILD_FEATURES"
 	)
 	SOURCE_BIN="$REPO_ROOT/target/release/codelens-mcp"
 	if [[ ! -x "$SOURCE_BIN" ]]; then
@@ -257,11 +294,15 @@ create_plist() {
 	local repo_xml
 	local stdout_xml
 	local stderr_xml
+	local model_dir_xml=""
 	label_xml="$(xml_escape "$label")"
 	bin_xml="$(xml_escape "$BIN_PATH")"
 	repo_xml="$(xml_escape "$REPO_ROOT")"
 	stdout_xml="$(xml_escape "$stdout_path")"
 	stderr_xml="$(xml_escape "$stderr_path")"
+	if [[ "$SEMANTIC" == "1" && -n "$MODEL_DIR" ]]; then
+		model_dir_xml=$'    <key>CODELENS_MODEL_DIR</key>\n    <string>'"$(xml_escape "$MODEL_DIR")"$'</string>\n'
+	fi
 
 	mkdir -p "$(dirname "$plist_path")"
 	cat >"$plist_path" <<EOF
@@ -294,7 +335,7 @@ create_plist() {
     <string>${EFFORT_LEVEL}</string>
     <key>CODELENS_RERANK</key>
     <string>${RERANK_VALUE}</string>
-  </dict>
+${model_dir_xml}  </dict>
   <key>KeepAlive</key>
   <true/>
 ${run_at_load_xml}  <key>StandardOutPath</key>

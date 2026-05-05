@@ -336,6 +336,86 @@ fn get_type_hierarchy_accepts_legacy_relative_path_with_deprecation_warning() {
     assert!(payload["data"].get("deprecation_warnings").is_none());
 }
 
+#[test]
+fn issue_180_path_alias_covers_remaining_read_workflow_tools() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("path_family.py"),
+        "def alpha():\n    beta()\n\ndef beta():\n    return 1\n\nalpha()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    for (tool, args) in [
+        (
+            "get_callers",
+            json!({"function_name": "beta", "file_path": "path_family.py"}),
+        ),
+        (
+            "get_callees",
+            json!({"function_name": "alpha", "file_path": "path_family.py"}),
+        ),
+        (
+            "find_scoped_references",
+            json!({"symbol_name": "alpha", "file_path": "path_family.py"}),
+        ),
+        (
+            "summarize_symbol_impact",
+            json!({"symbol": "alpha", "file_path": "path_family.py"}),
+        ),
+        (
+            "safe_rename_report",
+            json!({"symbol": "alpha", "file_path": "path_family.py"}),
+        ),
+        (
+            "unresolved_reference_check",
+            json!({"symbol": "alpha", "file_path": "path_family.py"}),
+        ),
+    ] {
+        let payload = call_tool(&state, tool, args);
+        assert_eq!(payload["success"], json!(true), "{tool} failed: {payload}");
+        assert_eq!(
+            payload["data"]["deprecation_warnings"][0]["param"],
+            json!("file_path"),
+            "{tool} must warn on legacy file_path"
+        );
+    }
+
+    for (tool, args) in [
+        (
+            "get_callers",
+            json!({"function_name": "beta", "path": "path_family.py"}),
+        ),
+        (
+            "get_callees",
+            json!({"function_name": "alpha", "path": "path_family.py"}),
+        ),
+        (
+            "find_scoped_references",
+            json!({"symbol_name": "alpha", "path": "path_family.py"}),
+        ),
+        (
+            "summarize_symbol_impact",
+            json!({"symbol": "alpha", "path": "path_family.py"}),
+        ),
+        (
+            "safe_rename_report",
+            json!({"symbol": "alpha", "path": "path_family.py"}),
+        ),
+        (
+            "unresolved_reference_check",
+            json!({"symbol": "alpha", "path": "path_family.py"}),
+        ),
+    ] {
+        let payload = call_tool(&state, tool, args);
+        assert_eq!(payload["success"], json!(true), "{tool} failed: {payload}");
+        assert!(
+            payload["data"].get("deprecation_warnings").is_none(),
+            "{tool} canonical path must not warn: {payload}"
+        );
+    }
+}
+
 // P1-B contract: every read-only tool in the second wave must
 // 1) honor `limit` / `top_k` aliases for whatever its canonical
 //    limit field is (or skip the alias if it has no limit field),
@@ -656,6 +736,54 @@ fn get_callees_caps_tool_confidence_on_fallback_and_unresolved_mix() {
             .unwrap_or_default()
             > 0,
         "expected at least one unresolved caller"
+    );
+}
+
+#[test]
+#[cfg(feature = "scip-backend")]
+fn get_callees_surfaces_scip_staleness_warning_for_stale_source() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    let source_path = project.as_path().join("src/lib.rs");
+    fs::write(
+        &source_path,
+        "pub fn helper() {}\n\npub fn caller() {\n    helper();\n}\n",
+    )
+    .unwrap();
+    let index_path = project.as_path().join("index.scip");
+    fs::write(&index_path, b"stub").unwrap();
+
+    let now = std::time::SystemTime::now();
+    filetime::set_file_mtime(
+        &index_path,
+        filetime::FileTime::from_system_time(now - std::time::Duration::from_secs(120)),
+    )
+    .unwrap();
+    filetime::set_file_mtime(&source_path, filetime::FileTime::from_system_time(now)).unwrap();
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_callees",
+        json!({ "function_name": "caller", "file_path": "src/lib.rs" }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["confidence_basis"],
+        json!("scip_precise_stale_index")
+    );
+    assert_eq!(
+        payload["data"]["scip_index_stale_warning"]["code"],
+        json!("scip_index_stale")
+    );
+    assert!(
+        payload["data"]["scip_index_stale_warning"]["stale_files"]
+            .as_array()
+            .expect("stale_files array")
+            .iter()
+            .any(|entry| entry["file_path"] == json!("src/lib.rs")),
+        "get_callees must flag the queried source file when it is newer than index.scip: {payload:?}"
     );
 }
 

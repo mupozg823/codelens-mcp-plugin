@@ -5,6 +5,42 @@ use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
+const PATH_ALIAS_DEPRECATION: &str =
+    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
+
+fn path_alias_warning(alias: &str) -> Value {
+    json!({
+        "param": alias,
+        "replacement": "path",
+        "message": PATH_ALIAS_DEPRECATION,
+    })
+}
+
+fn required_path_argument(
+    arguments: &Value,
+) -> Result<(&str, Vec<Value>), crate::error::CodeLensError> {
+    if let Some(path) = arguments.get("path").and_then(Value::as_str) {
+        let warnings = match arguments.get("_path_alias_source").and_then(Value::as_str) {
+            Some("file_path") => vec![path_alias_warning("file_path")],
+            _ => Vec::new(),
+        };
+        return Ok((path, warnings));
+    }
+    if let Some(file_path) = arguments.get("file_path").and_then(Value::as_str) {
+        return Ok((file_path, vec![path_alias_warning("file_path")]));
+    }
+    Err(crate::error::CodeLensError::MissingParam("path".to_owned()))
+}
+
+fn insert_deprecation_warnings(payload: &mut Value, warnings: Vec<Value>) {
+    if warnings.is_empty() {
+        return;
+    }
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("deprecation_warnings".to_owned(), json!(warnings));
+    }
+}
+
 fn verify_change_readiness_cache_key(
     arguments: &Value,
     task: &str,
@@ -219,7 +255,7 @@ pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
 }
 
 pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {
-    let file_path = required_string(arguments, "file_path")?;
+    let (file_path, deprecation_warnings) = required_path_argument(arguments)?;
     let symbol = required_string(arguments, "symbol")?;
     let symbol_matches = crate::tools::symbols::find_symbol(
         state,
@@ -265,13 +301,13 @@ pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {
     sections.insert("symbol_matches".to_owned(), symbol_matches);
     sections.insert("references".to_owned(), references);
     sections.insert("rename_preview".to_owned(), preview);
-    make_handle_response(
+    let (mut payload, meta) = make_handle_response(
         state,
         "safe_rename_report",
         stable_cache_key(
             "safe_rename_report",
             arguments,
-            &["file_path", "symbol", "new_name"],
+            &["path", "file_path", "symbol", "new_name"],
         ),
         format!("Rename safety report for `{symbol}` in `{file_path}`."),
         top_findings,
@@ -281,11 +317,13 @@ pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {
         vec![file_path.to_owned()],
         Some(symbol.to_owned()),
         Some(arguments),
-    )
+    )?;
+    insert_deprecation_warnings(&mut payload, deprecation_warnings);
+    Ok((payload, meta))
 }
 
 pub fn unresolved_reference_check(state: &AppState, arguments: &Value) -> ToolResult {
-    let file_path = required_string(arguments, "file_path")?;
+    let (file_path, deprecation_warnings) = required_path_argument(arguments)?;
     let symbol = arguments.get("symbol").and_then(|value| value.as_str());
     let changed_files = strings_from_array(
         arguments
@@ -363,13 +401,13 @@ pub fn unresolved_reference_check(state: &AppState, arguments: &Value) -> ToolRe
             touched_files.push(path);
         }
     }
-    make_handle_response(
+    let (mut payload, meta) = make_handle_response(
         state,
         "unresolved_reference_check",
         stable_cache_key(
             "unresolved_reference_check",
             arguments,
-            &["file_path", "symbol", "changed_files"],
+            &["path", "file_path", "symbol", "changed_files"],
         ),
         if let Some(symbol) = symbol {
             format!("Unresolved-reference check for `{symbol}` in `{file_path}`.")
@@ -385,7 +423,9 @@ pub fn unresolved_reference_check(state: &AppState, arguments: &Value) -> ToolRe
         touched_files,
         symbol.map(ToOwned::to_owned),
         Some(arguments),
-    )
+    )?;
+    insert_deprecation_warnings(&mut payload, deprecation_warnings);
+    Ok((payload, meta))
 }
 
 #[cfg(test)]

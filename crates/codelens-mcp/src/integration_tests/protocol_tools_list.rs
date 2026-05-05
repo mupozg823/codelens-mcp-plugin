@@ -304,6 +304,77 @@ fn get_callers_input_schema_exposes_file_path_hint() {
 }
 
 #[test]
+fn issue_180_remaining_path_family_schemas_use_path_canonical() {
+    let optional_path_tools = [
+        "get_callers",
+        "get_callees",
+        "find_scoped_references",
+        "summarize_symbol_impact",
+    ];
+    let required_path_tools = [
+        "resolve_symbol_target",
+        "plan_symbol_rename",
+        "safe_rename_report",
+        "unresolved_reference_check",
+    ];
+
+    for name in optional_path_tools {
+        let tool = crate::tool_defs::tool_definition(name).expect("tool definition");
+        let properties = &tool.input_schema["properties"];
+        assert!(
+            properties["path"].is_object(),
+            "{name} missing canonical path"
+        );
+        assert!(
+            properties["file_path"]["description"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("DEPRECATED v1.13.23"),
+            "{name} must retain file_path as documented legacy alias"
+        );
+        let required = tool.input_schema["required"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            !required
+                .iter()
+                .any(|value| value.as_str() == Some("file_path")),
+            "{name} must not require legacy file_path"
+        );
+    }
+
+    for name in required_path_tools {
+        let tool = crate::tool_defs::tool_definition(name).expect("tool definition");
+        let properties = &tool.input_schema["properties"];
+        assert!(
+            properties["path"].is_object(),
+            "{name} missing canonical path"
+        );
+        assert!(
+            properties["file_path"]["description"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("DEPRECATED v1.13.23"),
+            "{name} must retain file_path as documented legacy alias"
+        );
+        let required = tool.input_schema["required"]
+            .as_array()
+            .expect("required array");
+        assert!(
+            required.iter().any(|value| value.as_str() == Some("path")),
+            "{name} must require canonical path"
+        );
+        assert!(
+            !required
+                .iter()
+                .any(|value| value.as_str() == Some("file_path")),
+            "{name} must not require legacy file_path"
+        );
+    }
+}
+
+#[test]
 fn tools_list_can_be_filtered_by_phase() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);

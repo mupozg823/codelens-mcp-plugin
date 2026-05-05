@@ -197,6 +197,9 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
         "stats".to_owned(),
         json!({
             "target": path,
+            "scope_kind": impact.get("scope_kind").and_then(Value::as_str).unwrap_or("file"),
+            "in_scope_file_count": impact.get("in_scope_file_count").cloned().unwrap_or(Value::Null),
+            "in_scope_file_limit_hit": impact.get("in_scope_file_limit_hit").cloned().unwrap_or(Value::Null),
             "upstream_total": importer_count,
             "downstream_total": downstream_count,
             "max_nodes_rendered": max_nodes,

@@ -83,7 +83,7 @@ Recommended daemon split:
 - `7837` read-only daemon for planning, review, CI, and remote bootstrap
 - `7838` mutation-enabled daemon only for explicit gated refactor sessions
 
-For this repository's local launchd workflow, use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh). It installs the repo-local dual-daemon shape from a current `--features http` build and defaults to `7839` read-only plus `7838` mutation-enabled to match the local harness contract.
+For this repository's local launchd workflow, use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh). It installs the repo-local dual-daemon shape from a current `--features http,semantic` build by default, writes `CODELENS_MODEL_DIR` into the plists when the repo-local model sidecar exists, and defaults to `7839` read-only plus `7838` mutation-enabled to match the local harness contract.
 
 That installer also writes repo-local `host_attach.per_host_urls` overrides
 into `.codelens/config.json` so `codelens-mcp attach`, `status`, and `doctor`

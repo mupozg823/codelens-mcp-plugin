@@ -457,3 +457,66 @@ fn review_architecture_with_diagram_uses_mermaid() {
         json!("mermaid_module_graph")
     );
 }
+
+#[test]
+fn review_architecture_directory_diagram_aggregates_import_edges() {
+    let project = project_root();
+    let pkg = project.as_path().join("pkg");
+    fs::create_dir_all(&pkg).unwrap();
+    fs::write(pkg.join("__init__.py"), "").unwrap();
+    fs::write(pkg.join("b.py"), "class B:\n    pass\n").unwrap();
+    fs::write(
+        pkg.join("a.py"),
+        "from .b import B\n\nclass A:\n    value = B()\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("consumer.py"),
+        "from pkg.a import A\n\nvalue = A()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "review_architecture",
+        json!({"path": "pkg", "include_diagram": true, "max_nodes": 8}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["delegated_tool"],
+        json!("mermaid_module_graph")
+    );
+    let analysis_id = payload["data"]["analysis_id"]
+        .as_str()
+        .expect("analysis_id should be present");
+
+    let stats = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "stats"}),
+    );
+    assert_eq!(stats["success"], json!(true));
+    assert_eq!(stats["data"]["content"]["scope_kind"], json!("directory"));
+    assert!(
+        stats["data"]["content"]["upstream_total"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1,
+        "directory architecture review should include importers of files inside the directory: {stats:?}"
+    );
+
+    let raw = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "raw_impact"}),
+    );
+    assert_eq!(raw["success"], json!(true));
+    assert!(
+        raw["data"]["content"]["in_scope_file_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 3,
+        "directory impact should report scoped files: {raw:?}"
+    );
+}

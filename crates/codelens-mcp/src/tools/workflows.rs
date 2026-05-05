@@ -8,6 +8,14 @@ use serde_json::{Value, json};
 use crate::protocol::BackendKind;
 #[cfg(feature = "semantic")]
 use crate::tool_runtime::success_meta;
+#[cfg(feature = "semantic")]
+use codelens_engine::{ProjectRoot, embedding::DuplicatePair};
+
+#[cfg(feature = "semantic")]
+struct DuplicateFilterOutcome {
+    pairs: Vec<DuplicatePair>,
+    suppressed_config_code_pairs: usize,
+}
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
     let deprecation = deprecated_workflow_alias(workflow);
@@ -34,6 +42,158 @@ fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value
             map.insert("result".to_owned(), other);
             Value::Object(map)
         }
+    }
+}
+
+#[cfg(feature = "semantic")]
+fn normalize_duplicate_scope(project: &ProjectRoot, scope: Option<&str>) -> Option<String> {
+    let raw = scope?.trim();
+    if raw.is_empty() || raw == "." {
+        return None;
+    }
+    let resolved = project.resolve(raw).ok()?;
+    let relative = project.to_relative(resolved);
+    if relative.is_empty() || relative == "." {
+        None
+    } else {
+        Some(relative.trim_end_matches('/').to_owned())
+    }
+}
+
+#[cfg(feature = "semantic")]
+fn file_in_duplicate_scope(scope: &str, file: &str) -> bool {
+    let file = file.trim_start_matches("./");
+    file == scope || file.starts_with(&format!("{scope}/"))
+}
+
+#[cfg(feature = "semantic")]
+fn duplicate_pair_in_scope(scope: &str, pair: &DuplicatePair) -> bool {
+    file_in_duplicate_scope(scope, &pair.file_a) || file_in_duplicate_scope(scope, &pair.file_b)
+}
+
+#[cfg(feature = "semantic")]
+fn symbol_name_for_duplicate_side<'a>(rendered_symbol: &'a str, file: &str) -> &'a str {
+    rendered_symbol
+        .strip_prefix(&format!("{file}:"))
+        .unwrap_or(rendered_symbol)
+}
+
+#[cfg(feature = "semantic")]
+fn is_config_file(file: &str) -> bool {
+    let lower = file.to_ascii_lowercase();
+    lower.ends_with(".yml")
+        || lower.ends_with(".yaml")
+        || lower.ends_with(".toml")
+        || lower.ends_with(".json")
+        || lower.ends_with(".jsonc")
+}
+
+#[cfg(feature = "semantic")]
+fn is_code_file(file: &str) -> bool {
+    let lower = file.to_ascii_lowercase();
+    [
+        ".rs", ".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".java", ".kt", ".kts", ".swift", ".rb",
+        ".php", ".c", ".h", ".cpp", ".hpp", ".cs", ".scala", ".dart", ".lua", ".ex", ".exs",
+        ".erl", ".hrl", ".zig",
+    ]
+    .iter()
+    .any(|extension| lower.ends_with(extension))
+}
+
+#[cfg(feature = "semantic")]
+fn is_structural_config_symbol(symbol: &str) -> bool {
+    let normalized = symbol
+        .trim()
+        .trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == '`')
+        .to_ascii_lowercase()
+        .replace('-', "_");
+    matches!(
+        normalized.as_str(),
+        "name"
+            | "on"
+            | "env"
+            | "jobs"
+            | "job"
+            | "steps"
+            | "step"
+            | "uses"
+            | "with"
+            | "run"
+            | "needs"
+            | "permissions"
+            | "strategy"
+            | "matrix"
+            | "workflow_dispatch"
+            | "push"
+            | "pull_request"
+            | "schedule"
+            | "branches"
+            | "paths"
+            | "timeout_minutes"
+            | "runs_on"
+    )
+}
+
+#[cfg(feature = "semantic")]
+fn is_config_code_duplicate_noise(pair: &DuplicatePair) -> bool {
+    let left_config = is_config_file(&pair.file_a);
+    let right_config = is_config_file(&pair.file_b);
+    if left_config == right_config {
+        return false;
+    }
+
+    let left_code = is_code_file(&pair.file_a);
+    let right_code = is_code_file(&pair.file_b);
+    if !(left_code || right_code) {
+        return false;
+    }
+
+    if left_config {
+        is_structural_config_symbol(symbol_name_for_duplicate_side(&pair.symbol_a, &pair.file_a))
+    } else {
+        is_structural_config_symbol(symbol_name_for_duplicate_side(&pair.symbol_b, &pair.file_b))
+    }
+}
+
+#[cfg(feature = "semantic")]
+fn duplicate_quality_scan_limit(include_config_code_pairs: bool, max_pairs: usize) -> usize {
+    if include_config_code_pairs {
+        max_pairs
+    } else {
+        max_pairs.saturating_mul(8).clamp(max_pairs, 2048)
+    }
+}
+
+#[cfg(feature = "semantic")]
+fn filter_duplicate_pairs_for_cleanup(
+    project: &ProjectRoot,
+    scope: Option<&str>,
+    pairs: Vec<DuplicatePair>,
+    max_pairs: usize,
+    include_config_code_pairs: bool,
+) -> DuplicateFilterOutcome {
+    let normalized_scope = normalize_duplicate_scope(project, scope);
+    let mut suppressed_config_code_pairs = 0usize;
+    let pairs = pairs
+        .into_iter()
+        .filter(|pair| {
+            normalized_scope
+                .as_deref()
+                .is_none_or(|scope| duplicate_pair_in_scope(scope, pair))
+        })
+        .filter(|pair| {
+            if include_config_code_pairs || !is_config_code_duplicate_noise(pair) {
+                return true;
+            }
+            suppressed_config_code_pairs += 1;
+            false
+        })
+        .take(max_pairs)
+        .collect();
+
+    DuplicateFilterOutcome {
+        pairs,
+        suppressed_config_code_pairs,
     }
 }
 
@@ -248,13 +408,39 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
             .get("max_pairs")
             .and_then(|value| value.as_u64())
             .unwrap_or(20) as usize;
+        let scope = arguments.get("scope").and_then(|value| value.as_str());
+        let include_config_code_pairs = arguments
+            .get("include_config_code_pairs")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         let guard = state.embedding_engine();
         if let Some(engine) = guard.as_ref() {
-            let pairs = engine.find_duplicates(threshold, max_pairs)?;
+            let normalized_scope = normalize_duplicate_scope(&state.project(), scope);
+            let scan_limit = duplicate_quality_scan_limit(include_config_code_pairs, max_pairs);
+            let pairs = engine.find_duplicates_in_scope(
+                threshold,
+                scan_limit,
+                normalized_scope.as_deref(),
+            )?;
+            let filtered = filter_duplicate_pairs_for_cleanup(
+                &state.project(),
+                scope,
+                pairs,
+                max_pairs,
+                include_config_code_pairs,
+            );
+            let count = filtered.pairs.len();
+            let suppressed_config_code_pairs = filtered.suppressed_config_code_pairs;
             let payload = json!({
                 "threshold": threshold,
-                "duplicates": pairs,
-                "count": pairs.len(),
+                "scope": scope,
+                "include_config_code_pairs": include_config_code_pairs,
+                "quality_filters": {
+                    "config_code_pairs": if include_config_code_pairs { "included" } else { "suppressed_by_default" },
+                    "suppressed_config_code_pairs": suppressed_config_code_pairs,
+                },
+                "duplicates": filtered.pairs,
+                "count": count,
             });
             return Ok((
                 attach_workflow_metadata(
@@ -277,4 +463,130 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
         }),
         crate::tools::reports::dead_code_report,
     )
+}
+
+#[cfg(all(test, feature = "semantic"))]
+mod tests {
+    use super::*;
+    use codelens_engine::ProjectRoot;
+    use codelens_engine::embedding::DuplicatePair;
+
+    fn duplicate_pair_with_symbols(
+        file_a: &str,
+        symbol_a: &str,
+        file_b: &str,
+        symbol_b: &str,
+    ) -> DuplicatePair {
+        DuplicatePair {
+            symbol_a: format!("{file_a}:{symbol_a}"),
+            symbol_b: format!("{file_b}:{symbol_b}"),
+            file_a: file_a.to_owned(),
+            file_b: file_b.to_owned(),
+            line_a: 1,
+            line_b: 1,
+            similarity: 0.99,
+        }
+    }
+
+    fn duplicate_pair(file_a: &str, file_b: &str) -> DuplicatePair {
+        duplicate_pair_with_symbols(file_a, "a", file_b, "b")
+    }
+
+    fn temp_project() -> ProjectRoot {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-workflow-scope-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("crates")).unwrap();
+        ProjectRoot::new_exact(&dir).unwrap()
+    }
+
+    #[test]
+    fn duplicate_scope_filter_drops_pairs_fully_outside_scope() {
+        let project = temp_project();
+        let pairs = vec![
+            duplicate_pair(
+                ".github/workflows/benchmark.yml",
+                ".github/workflows/build.yml",
+            ),
+            duplicate_pair(
+                "crates/codelens-mcp/src/tools/workflows.rs",
+                ".github/workflows/build.yml",
+            ),
+        ];
+
+        let filtered = filter_duplicate_pairs_for_cleanup(
+            &project,
+            Some(project.as_path().join("crates").to_str().unwrap()),
+            pairs,
+            20,
+            false,
+        );
+
+        assert_eq!(filtered.pairs.len(), 1);
+        assert_eq!(
+            filtered.pairs[0].file_a,
+            "crates/codelens-mcp/src/tools/workflows.rs"
+        );
+    }
+
+    #[test]
+    fn duplicate_quality_filter_suppresses_workflow_key_code_pairs_by_default() {
+        let project = temp_project();
+        let pairs = vec![
+            duplicate_pair_with_symbols(
+                ".github/workflows/pages.yml",
+                "workflow_dispatch",
+                "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+                "dispatch",
+            ),
+            duplicate_pair_with_symbols(
+                "crates/codelens-mcp/src/tools/workflows.rs",
+                "cleanup_duplicate_logic",
+                "crates/codelens-mcp/src/tools/mod.rs",
+                "cleanup_duplicate_logic",
+            ),
+        ];
+
+        let filtered = filter_duplicate_pairs_for_cleanup(
+            &project,
+            Some(project.as_path().join("crates").to_str().unwrap()),
+            pairs,
+            20,
+            false,
+        );
+
+        assert_eq!(filtered.suppressed_config_code_pairs, 1);
+        assert_eq!(filtered.pairs.len(), 1);
+        assert_eq!(
+            filtered.pairs[0].file_a,
+            "crates/codelens-mcp/src/tools/workflows.rs"
+        );
+    }
+
+    #[test]
+    fn duplicate_quality_filter_can_include_config_code_pairs() {
+        let project = temp_project();
+        let pairs = vec![duplicate_pair_with_symbols(
+            ".github/workflows/pages.yml",
+            "workflow_dispatch",
+            "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+            "dispatch",
+        )];
+
+        let filtered = filter_duplicate_pairs_for_cleanup(
+            &project,
+            Some(project.as_path().join("crates").to_str().unwrap()),
+            pairs,
+            20,
+            true,
+        );
+
+        assert_eq!(filtered.suppressed_config_code_pairs, 0);
+        assert_eq!(filtered.pairs.len(), 1);
+    }
 }

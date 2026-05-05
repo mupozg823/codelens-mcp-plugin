@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Language, Parser, Query, QueryCursor};
+use tree_sitter::{Language, Node, Parser, Query, QueryCursor};
 
 use crate::import_graph::GraphCache;
 
@@ -102,6 +102,13 @@ struct CallLanguageConfig {
     call_query: &'static str,
 }
 
+#[derive(Debug)]
+struct LocalBindingScope {
+    start_byte: usize,
+    end_byte: usize,
+    names: HashSet<String>,
+}
+
 #[derive(Debug, Clone)]
 struct JSImportBinding {
     imported_name: Option<String>,
@@ -191,6 +198,56 @@ fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
         func_query,
         call_query,
     })
+}
+
+fn call_language_key_for_path(path: &str) -> Option<&'static str> {
+    match Path::new(path).extension().and_then(|value| value.to_str()) {
+        Some("py") => Some("py"),
+        Some("js") => Some("js"),
+        Some("jsx") => Some("jsx"),
+        Some("ts") => Some("ts"),
+        Some("tsx") => Some("tsx"),
+        Some("go") => Some("go"),
+        Some("java") => Some("java"),
+        Some("kt") => Some("kt"),
+        Some("rs") => Some("rs"),
+        _ => None,
+    }
+}
+
+fn same_call_language(a: &str, b: &str) -> bool {
+    call_language_key_for_path(a)
+        .is_some_and(|a_lang| Some(a_lang) == call_language_key_for_path(b))
+}
+
+fn shared_parent_component_count(a: &str, b: &str) -> usize {
+    let a_components: Vec<String> = Path::new(a)
+        .parent()
+        .into_iter()
+        .flat_map(|path| path.components())
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let b_components: Vec<String> = Path::new(b)
+        .parent()
+        .into_iter()
+        .flat_map(|path| path.components())
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect();
+
+    a_components
+        .iter()
+        .zip(b_components.iter())
+        .take_while(|(a, b)| a == b)
+        .count()
+}
+
+fn best_path_proximity_candidate<'a>(caller_file: &str, defs: &'a [String]) -> Option<&'a String> {
+    defs.iter()
+        .filter(|def| {
+            same_call_language(caller_file, def)
+                && shared_parent_component_count(caller_file, def) > 0
+        })
+        .max_by_key(|def| shared_parent_component_count(caller_file, def))
 }
 
 fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
@@ -384,6 +441,68 @@ pub fn extract_calls(path: &Path) -> Vec<CallEdge> {
     extract_calls_from_source(path, &source)
 }
 
+fn collect_identifier_names(node: Node<'_>, source_bytes: &[u8], names: &mut HashSet<String>) {
+    if node.kind() == "identifier" {
+        if let Ok(name) = std::str::from_utf8(&source_bytes[node.start_byte()..node.end_byte()]) {
+            let name = name.trim();
+            if !name.is_empty() {
+                names.insert(name.to_owned());
+            }
+        }
+        return;
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_identifier_names(child, source_bytes, names);
+    }
+}
+
+fn collect_rust_closure_binding_scopes(
+    node: Node<'_>,
+    source_bytes: &[u8],
+    scopes: &mut Vec<LocalBindingScope>,
+) {
+    if node.kind() == "closure_expression" {
+        let mut names = HashSet::new();
+        if let Some(parameters) = node.child_by_field_name("parameters") {
+            collect_identifier_names(parameters, source_bytes, &mut names);
+        }
+        if !names.is_empty() {
+            scopes.push(LocalBindingScope {
+                start_byte: node.start_byte(),
+                end_byte: node.end_byte(),
+                names,
+            });
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_rust_closure_binding_scopes(child, source_bytes, scopes);
+    }
+}
+
+fn is_argument_identifier_capture(node: Node<'_>) -> bool {
+    node.parent().is_some_and(|parent| {
+        matches!(
+            parent.kind(),
+            "arguments" | "argument_list" | "value_arguments" | "value_argument"
+        )
+    })
+}
+
+fn shadowed_by_rust_closure_binding(
+    scopes: &[LocalBindingScope],
+    start_byte: usize,
+    end_byte: usize,
+    name: &str,
+) -> bool {
+    scopes.iter().any(|scope| {
+        scope.start_byte <= start_byte && scope.end_byte >= end_byte && scope.names.contains(name)
+    })
+}
+
 /// Extract call edges from already-loaded source content (avoids re-reading disk).
 pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     let Some(config) = call_language_for_path(path) else {
@@ -398,6 +517,13 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
         return Vec::new();
     };
     let source_bytes = source.as_bytes();
+    let rust_closure_binding_scopes = if config.language_key == "rs" {
+        let mut scopes = Vec::new();
+        collect_rust_closure_binding_scopes(tree.root_node(), source_bytes, &mut scopes);
+        scopes
+    } else {
+        Vec::new()
+    };
 
     // Build a map: byte_range_start -> caller_name for each function definition.
     // We'll use this to find which function contains each call site.
@@ -456,6 +582,17 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
             let callee_name = callee_name.trim().to_owned();
             if callee_name.is_empty()
                 || is_noise_callee_for_lang(&callee_name, Some(config.language_key))
+            {
+                continue;
+            }
+            if config.language_key == "rs"
+                && is_argument_identifier_capture(cap.node)
+                && shadowed_by_rust_closure_binding(
+                    &rust_closure_binding_scopes,
+                    start,
+                    end,
+                    &callee_name,
+                )
             {
                 continue;
             }
@@ -591,42 +728,36 @@ fn resolve_call_edges(
             continue;
         }
 
-        // Stage 4: Unique name — only one definition exists project-wide (0.65).
+        // Stage 4: Unique name — only one same-language definition exists (0.65).
         // For JS/TS cross-file calls without import evidence, keep this as a fallback.
-        if let Some(defs) = symbol_index.get(callee)
-            && defs.len() == 1
-        {
-            edge.resolved_file = Some(defs[0].clone());
-            if is_import_sensitive_path(caller_file) && defs[0].as_str() != caller_file.as_str() {
-                edge.confidence = 0.50;
-                edge.resolution_strategy = Some("path_proximity");
-            } else {
-                edge.confidence = 0.65;
-                edge.resolution_strategy = Some("unique_name");
-            }
-            continue;
-        }
-
-        // Stage 5: Multiple candidates — pick closest by path similarity (0.50)
-        if let Some(defs) = symbol_index.get(callee)
-            && !defs.is_empty()
-        {
-            // Pick the one with the most shared path prefix with caller_file
-            let best = defs
+        if let Some(defs) = symbol_index.get(callee) {
+            let same_lang_defs: Vec<&String> = defs
                 .iter()
-                .max_by_key(|f| {
-                    f.chars()
-                        .zip(caller_file.chars())
-                        .take_while(|(a, b)| a == b)
-                        .count()
-                })
-                .cloned();
-            if let Some(f) = best {
-                edge.resolved_file = Some(f);
-                edge.confidence = 0.50;
-                edge.resolution_strategy = Some("path_proximity");
+                .filter(|def| same_call_language(caller_file, def))
+                .collect();
+            if same_lang_defs.len() == 1 {
+                let def = same_lang_defs[0];
+                edge.resolved_file = Some(def.clone());
+                if is_import_sensitive_path(caller_file) && def.as_str() != caller_file.as_str() {
+                    edge.confidence = 0.50;
+                    edge.resolution_strategy = Some("path_proximity");
+                } else {
+                    edge.confidence = 0.65;
+                    edge.resolution_strategy = Some("unique_name");
+                }
                 continue;
             }
+        }
+
+        // Stage 5: Multiple same-language candidates — pick closest by shared path (0.50).
+        if let Some(defs) = symbol_index.get(callee)
+            && !defs.is_empty()
+            && let Some(best) = best_path_proximity_candidate(caller_file, defs)
+        {
+            edge.resolved_file = Some(best.clone());
+            edge.confidence = 0.50;
+            edge.resolution_strategy = Some("path_proximity");
+            continue;
         }
 
         // Stage 6: Unresolved — callee not found in symbol DB (0.25)
@@ -1044,6 +1175,28 @@ mod tests {
                 .iter()
                 .any(|e| e.caller_name == "main" && e.callee_name == "run"),
             "expected main->run edge, got {edges:?}"
+        );
+    }
+
+    #[test]
+    fn rust_closure_parameters_are_not_function_reference_callees() {
+        let dir = temp_dir("rs-closure-param");
+        let path = dir.join("lib.rs");
+        fs::write(
+            &path,
+            r#"pub fn looks_like_signature(candidate: &str) -> bool {
+    const DECL_PREFIXES: &[&str] = &["fn ", "pub "];
+    DECL_PREFIXES
+        .iter()
+        .any(|prefix| candidate.starts_with(prefix))
+}
+"#,
+        )
+        .expect("write lib.rs");
+        let edges = extract_calls(&path);
+        assert!(
+            !edges.iter().any(|edge| edge.callee_name == "prefix"),
+            "closure-local binding leaked as a callee: {edges:?}"
         );
     }
 
@@ -1536,6 +1689,48 @@ fn consume(x: i32) -> i32 { x }
             .expect("helper callee");
 
         assert_eq!(helper.resolved_file.as_deref(), Some("helpers.py"));
+    }
+
+    #[test]
+    fn path_proximity_does_not_resolve_across_languages() {
+        let dir = temp_dir("cross-language-path-proximity");
+        fs::create_dir_all(dir.join("src")).expect("src");
+        fs::write(
+            dir.join("src").join("lib.rs"),
+            "fn caller() {\n    prefix();\n}\n",
+        )
+        .expect("write lib");
+        fs::write(dir.join("other.py"), "def prefix():\n    pass\n").expect("write py");
+        let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+        let py_file = db
+            .upsert_file("other.py", 100, "other", 23, Some("py"))
+            .expect("py file");
+        db.insert_symbols(
+            py_file,
+            &[NewSymbol {
+                name: "prefix",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 23,
+                signature: "def prefix():",
+                name_path: "prefix",
+                parent_id: None,
+            }],
+        )
+        .expect("prefix symbol");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let callees =
+            get_callees(&project, "caller", Some("src/lib.rs"), 50, None).expect("callees");
+        let prefix = callees
+            .iter()
+            .find(|callee| callee.name == "prefix")
+            .expect("prefix callee");
+
+        assert_eq!(prefix.resolved_file.as_deref(), None);
+        assert_eq!(prefix.resolution, Some("unresolved"));
     }
 
     #[test]
