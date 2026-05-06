@@ -1,6 +1,7 @@
 use super::runtime::executable_model_roots;
 use super::*;
 use crate::db::{IndexDb, NewSymbol};
+use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
 use std::sync::Mutex;
 
 /// Serialize tests that load the fastembed ONNX model to avoid file lock contention.
@@ -1619,6 +1620,48 @@ fn store_fetches_embeddings_for_scored_chunks() {
             && chunk.signature == candidate.signature
             && chunk.name_path == candidate.name_path
     })));
+}
+
+#[test]
+fn store_fetches_many_scored_chunks_without_expression_depth_overflow() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = super::vec_store::SqliteVecStore::new(
+        dir.path().join("embeddings.db").as_path(),
+        2,
+        "test",
+    )
+    .unwrap();
+    let chunks: Vec<_> = (0..1_100)
+        .map(|index| EmbeddingChunk {
+            file_path: format!("src/file_{index}.rs"),
+            symbol_name: format!("symbol_{index}"),
+            kind: "function".to_owned(),
+            line: index + 1,
+            signature: format!("fn symbol_{index}()"),
+            name_path: format!("symbol_{index}"),
+            text: format!("fn symbol_{index}() {{}}"),
+            embedding: vec![index as f32, 1.0],
+            doc_embedding: None,
+        })
+        .collect();
+    store.insert(&chunks).unwrap();
+
+    let scored: Vec<_> = chunks
+        .iter()
+        .map(|chunk| ScoredChunk {
+            file_path: chunk.file_path.clone(),
+            symbol_name: chunk.symbol_name.clone(),
+            kind: chunk.kind.clone(),
+            line: chunk.line,
+            signature: chunk.signature.clone(),
+            name_path: chunk.name_path.clone(),
+            score: 1.0,
+        })
+        .collect();
+
+    let resolved = store.embeddings_for_scored_chunks(&scored).unwrap();
+
+    assert_eq!(resolved.len(), scored.len());
 }
 
 #[test]

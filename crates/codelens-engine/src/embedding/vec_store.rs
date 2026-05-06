@@ -10,9 +10,12 @@
 use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
 use anyhow::Result;
 use rusqlite::Connection;
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 use super::{embedding_to_bytes, ffi};
+
+const MAX_SCORED_CHUNK_LOOKUP_BATCH: usize = 128;
 
 pub(super) struct SqliteVecStore {
     db: Mutex<Connection>,
@@ -365,6 +368,29 @@ impl SqliteVecStore {
     ) -> Result<Vec<EmbeddingChunk>> {
         if chunks.is_empty() {
             return Ok(Vec::new());
+        }
+
+        if chunks.len() > MAX_SCORED_CHUNK_LOOKUP_BATCH {
+            let mut seen = HashSet::new();
+            let unique_chunks: Vec<ScoredChunk> = chunks
+                .iter()
+                .filter(|chunk| {
+                    seen.insert((
+                        chunk.file_path.as_str(),
+                        chunk.symbol_name.as_str(),
+                        chunk.line,
+                        chunk.signature.as_str(),
+                        chunk.name_path.as_str(),
+                    ))
+                })
+                .cloned()
+                .collect();
+
+            let mut resolved = Vec::new();
+            for chunk_batch in unique_chunks.chunks(MAX_SCORED_CHUNK_LOOKUP_BATCH) {
+                resolved.extend(self.embeddings_for_scored_chunks(chunk_batch)?);
+            }
+            return Ok(resolved);
         }
 
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
