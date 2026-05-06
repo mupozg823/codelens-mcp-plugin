@@ -1665,6 +1665,73 @@ fn store_fetches_many_scored_chunks_without_expression_depth_overflow() {
 }
 
 #[test]
+fn store_batches_embedding_anchors_by_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = super::vec_store::SqliteVecStore::new(
+        dir.path().join("embeddings.db").as_path(),
+        2,
+        "test",
+    )
+    .unwrap();
+    let chunks = vec![
+        EmbeddingChunk {
+            file_path: ".github/workflows/build.rs".to_owned(),
+            symbol_name: "outside".to_owned(),
+            kind: "function".to_owned(),
+            line: 1,
+            signature: "fn outside()".to_owned(),
+            name_path: "outside".to_owned(),
+            text: "fn outside() {}".to_owned(),
+            embedding: vec![1.0, 0.0],
+            doc_embedding: None,
+        },
+        EmbeddingChunk {
+            file_path: "crates/codelens-mcp/src/tools/session/a.rs".to_owned(),
+            symbol_name: "inside_a".to_owned(),
+            kind: "function".to_owned(),
+            line: 2,
+            signature: "fn inside_a()".to_owned(),
+            name_path: "inside_a".to_owned(),
+            text: "fn inside_a() {}".to_owned(),
+            embedding: vec![0.0, 1.0],
+            doc_embedding: None,
+        },
+        EmbeddingChunk {
+            file_path: "crates/codelens-mcp/src/tools/session/nested/b.rs".to_owned(),
+            symbol_name: "inside_b".to_owned(),
+            kind: "function".to_owned(),
+            line: 3,
+            signature: "fn inside_b()".to_owned(),
+            name_path: "inside_b".to_owned(),
+            text: "fn inside_b() {}".to_owned(),
+            embedding: vec![0.0, 2.0],
+            doc_embedding: None,
+        },
+    ];
+    store.insert(&chunks).unwrap();
+
+    let mut visited = Vec::new();
+    store
+        .for_each_embedding_batch_in_scope(
+            "crates/codelens-mcp/src/tools/session",
+            1,
+            &mut |batch: Vec<EmbeddingChunk>| {
+                visited.extend(batch.into_iter().map(|chunk| chunk.file_path));
+                Ok(())
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        visited,
+        vec![
+            "crates/codelens-mcp/src/tools/session/a.rs",
+            "crates/codelens-mcp/src/tools/session/nested/b.rs",
+        ]
+    );
+}
+
+#[test]
 fn find_misplaced_code_returns_per_file_outliers() {
     let _lock = MODEL_LOCK.lock().unwrap();
     skip_without_embedding_model!();
@@ -1764,6 +1831,43 @@ fn find_duplicates_in_scope_continues_past_global_pairs() {
     );
     assert_eq!(scoped[0].file_a, "crates/scoped_a.py");
     assert_eq!(scoped[0].file_b, "crates/scoped_b.py");
+}
+
+#[test]
+fn find_duplicates_in_scope_keeps_cross_boundary_candidates() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    skip_without_embedding_model!();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("crates")).unwrap();
+    write_python_file_with_symbols(
+        root,
+        "outside.py",
+        "def outside():\n    return 1\n",
+        "outside",
+        &[("outside", "def outside():", "outside")],
+    );
+    write_python_file_with_symbols(
+        root,
+        "crates/scoped.py",
+        "def scoped():\n    return 2\n",
+        "scoped",
+        &[("scoped", "def scoped():", "scoped")],
+    );
+    let project = ProjectRoot::new_exact(root).unwrap();
+    let engine = EmbeddingEngine::new(&project).unwrap();
+    engine.index_from_project(&project).unwrap();
+
+    replace_file_embeddings_with_sentinels(&engine, "outside.py", &[("outside", 3.0)]);
+    replace_file_embeddings_with_sentinels(&engine, "crates/scoped.py", &[("scoped", 3.0)]);
+
+    let scoped = engine
+        .find_duplicates_in_scope(0.99, 1, Some("crates"))
+        .unwrap();
+
+    assert_eq!(scoped.len(), 1);
+    assert!(scoped[0].file_a == "crates/scoped.py" || scoped[0].file_b == "crates/scoped.py");
+    assert!(scoped[0].file_a == "outside.py" || scoped[0].file_b == "outside.py");
 }
 
 #[test]

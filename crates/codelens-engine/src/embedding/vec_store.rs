@@ -137,15 +137,22 @@ impl SqliteVecStore {
     }
 
     fn chunk_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EmbeddingChunk> {
+        Self::chunk_from_row_at(row, 0)
+    }
+
+    fn chunk_from_row_at(
+        row: &rusqlite::Row<'_>,
+        offset: usize,
+    ) -> rusqlite::Result<EmbeddingChunk> {
         Ok(EmbeddingChunk {
-            file_path: row.get(0)?,
-            symbol_name: row.get(1)?,
-            kind: row.get(2)?,
-            line: row.get::<_, i64>(3)? as usize,
-            signature: row.get(4)?,
-            name_path: row.get(5)?,
-            text: row.get(6)?,
-            embedding: Self::decode_embedding_bytes(&row.get::<_, Vec<u8>>(7)?),
+            file_path: row.get(offset)?,
+            symbol_name: row.get(offset + 1)?,
+            kind: row.get(offset + 2)?,
+            line: row.get::<_, i64>(offset + 3)? as usize,
+            signature: row.get(offset + 4)?,
+            name_path: row.get(offset + 5)?,
+            text: row.get(offset + 6)?,
+            embedding: Self::decode_embedding_bytes(&row.get::<_, Vec<u8>>(offset + 7)?),
             doc_embedding: None,
         })
     }
@@ -542,17 +549,64 @@ impl SqliteVecStore {
 
                 while let Some(row) = rows.next()? {
                     last_seen_id = row.get(0)?;
-                    batch.push(EmbeddingChunk {
-                        file_path: row.get(1)?,
-                        symbol_name: row.get(2)?,
-                        kind: row.get(3)?,
-                        line: row.get::<_, i64>(4)? as usize,
-                        signature: row.get(5)?,
-                        name_path: row.get(6)?,
-                        text: row.get(7)?,
-                        embedding: Self::decode_embedding_bytes(&row.get::<_, Vec<u8>>(8)?),
-                        doc_embedding: None,
-                    });
+                    batch.push(Self::chunk_from_row_at(row, 1)?);
+                }
+
+                batch
+            };
+
+            if batch.is_empty() {
+                break;
+            }
+            visitor(batch)?;
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn for_each_embedding_batch_in_scope(
+        &self,
+        scope: &str,
+        batch_size: usize,
+        visitor: &mut dyn FnMut(Vec<EmbeddingChunk>) -> Result<()>,
+    ) -> Result<()> {
+        if batch_size == 0 {
+            return Ok(());
+        }
+
+        let scope = scope.trim().trim_start_matches("./").trim_end_matches('/');
+        if scope.is_empty() || scope == "." {
+            return self.for_each_embedding_batch(batch_size, visitor);
+        }
+
+        let scope_prefix = format!("{scope}/");
+        let scope_prefix_len = scope_prefix.len() as i64;
+        let mut last_seen_id = 0i64;
+
+        loop {
+            let batch = {
+                let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+                let mut stmt = db.prepare(
+                    "SELECT s.id, s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
+                     FROM symbols s
+                     JOIN vec_symbols v ON s.id = v.rowid
+                     WHERE s.id > ?1
+                       AND (s.file_path = ?2 OR substr(s.file_path, 1, ?3) = ?4)
+                     ORDER BY s.id
+                     LIMIT ?5",
+                )?;
+                let mut rows = stmt.query(rusqlite::params![
+                    last_seen_id,
+                    scope,
+                    scope_prefix_len,
+                    scope_prefix,
+                    batch_size as i64
+                ])?;
+                let mut batch = Vec::with_capacity(batch_size);
+
+                while let Some(row) = rows.next()? {
+                    last_seen_id = row.get(0)?;
+                    batch.push(Self::chunk_from_row_at(row, 1)?);
                 }
 
                 batch

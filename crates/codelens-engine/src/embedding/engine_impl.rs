@@ -889,10 +889,10 @@ impl EmbeddingEngine {
         Self::file_in_duplicate_scope(scope, file_a) || Self::file_in_duplicate_scope(scope, file_b)
     }
 
-    /// Find near-duplicate code pairs, counting only pairs that touch `scope`.
+    /// Find near-duplicate code pairs, using scoped anchors when `scope` is provided.
     ///
-    /// The scan still visits out-of-scope chunks so cross-boundary duplicates
-    /// are visible, but `max_pairs` only applies after the scope predicate.
+    /// Candidate search remains global, so cross-boundary duplicates remain
+    /// visible without paying a full-corpus anchor scan for narrow scopes.
     pub fn find_duplicates_in_scope(
         &self,
         threshold: f64,
@@ -910,113 +910,121 @@ impl EmbeddingEngine {
         let candidate_limit = duplicate_candidate_limit(max_pairs);
         let mut done = false;
 
-        self.store
-            .for_each_embedding_batch(DEFAULT_DUPLICATE_SCAN_BATCH_SIZE, &mut |batch| {
-                if done {
-                    return Ok(());
+        let mut visit_batch = |batch: Vec<EmbeddingChunk>| {
+            if done {
+                return Ok(());
+            }
+
+            let mut candidate_lists = Vec::with_capacity(batch.len());
+            let mut missing_candidates = Vec::new();
+            let mut missing_keys = HashSet::new();
+
+            for chunk in &batch {
+                if pairs.len() >= max_pairs {
+                    done = true;
+                    break;
                 }
 
-                let mut candidate_lists = Vec::with_capacity(batch.len());
-                let mut missing_candidates = Vec::new();
-                let mut missing_keys = HashSet::new();
-
-                for chunk in &batch {
-                    if pairs.len() >= max_pairs {
-                        done = true;
-                        break;
-                    }
-
-                    let filtered: Vec<ScoredChunk> = self
-                        .store
-                        .search(&chunk.embedding, candidate_limit)?
-                        .into_iter()
-                        .filter(|candidate| {
-                            !(chunk.file_path == candidate.file_path
-                                && chunk.symbol_name == candidate.symbol_name
-                                && chunk.line == candidate.line
-                                && chunk.signature == candidate.signature
-                                && chunk.name_path == candidate.name_path)
-                        })
-                        .filter(|candidate| {
-                            Self::duplicate_pair_matches_scope(
-                                scope.as_deref(),
-                                &chunk.file_path,
-                                &candidate.file_path,
-                            )
-                        })
-                        .collect();
-
-                    for candidate in &filtered {
-                        let cache_key = stored_chunk_key_for_score(candidate);
-                        if !embedding_cache.contains_key(&cache_key)
-                            && missing_keys.insert(cache_key)
-                        {
-                            missing_candidates.push(candidate.clone());
-                        }
-                    }
-
-                    candidate_lists.push(filtered);
-                }
-
-                if !missing_candidates.is_empty() {
-                    for candidate_chunk in self
-                        .store
-                        .embeddings_for_scored_chunks(&missing_candidates)?
-                    {
-                        embedding_cache
-                            .entry(stored_chunk_key(&candidate_chunk))
-                            .or_insert_with(|| Arc::new(candidate_chunk));
-                    }
-                }
-
-                for (chunk, candidates) in batch.iter().zip(candidate_lists.iter()) {
-                    if pairs.len() >= max_pairs {
-                        done = true;
-                        break;
-                    }
-
-                    for candidate in candidates {
-                        let pair_key = duplicate_pair_key(
+                let filtered: Vec<ScoredChunk> = self
+                    .store
+                    .search(&chunk.embedding, candidate_limit)?
+                    .into_iter()
+                    .filter(|candidate| {
+                        !(chunk.file_path == candidate.file_path
+                            && chunk.symbol_name == candidate.symbol_name
+                            && chunk.line == candidate.line
+                            && chunk.signature == candidate.signature
+                            && chunk.name_path == candidate.name_path)
+                    })
+                    .filter(|candidate| {
+                        Self::duplicate_pair_matches_scope(
+                            scope.as_deref(),
                             &chunk.file_path,
-                            &chunk.symbol_name,
                             &candidate.file_path,
-                            &candidate.symbol_name,
-                        );
-                        if !seen_pairs.insert(pair_key) {
-                            continue;
-                        }
+                        )
+                    })
+                    .collect();
 
-                        let Some(candidate_chunk) =
-                            embedding_cache.get(&stored_chunk_key_for_score(candidate))
-                        else {
-                            continue;
-                        };
-
-                        let sim = cosine_similarity(&chunk.embedding, &candidate_chunk.embedding);
-                        if sim < threshold {
-                            continue;
-                        }
-
-                        pairs.push(DuplicatePair {
-                            symbol_a: format!("{}:{}", chunk.file_path, chunk.symbol_name),
-                            symbol_b: format!(
-                                "{}:{}",
-                                candidate_chunk.file_path, candidate_chunk.symbol_name
-                            ),
-                            file_a: chunk.file_path.clone(),
-                            file_b: candidate_chunk.file_path.clone(),
-                            line_a: chunk.line,
-                            line_b: candidate_chunk.line,
-                            similarity: sim,
-                        });
-                        if pairs.len() >= max_pairs {
-                            done = true;
-                            break;
-                        }
+                for candidate in &filtered {
+                    let cache_key = stored_chunk_key_for_score(candidate);
+                    if !embedding_cache.contains_key(&cache_key) && missing_keys.insert(cache_key) {
+                        missing_candidates.push(candidate.clone());
                     }
                 }
-                Ok(())
-            })?;
+
+                candidate_lists.push(filtered);
+            }
+
+            if !missing_candidates.is_empty() {
+                for candidate_chunk in self
+                    .store
+                    .embeddings_for_scored_chunks(&missing_candidates)?
+                {
+                    embedding_cache
+                        .entry(stored_chunk_key(&candidate_chunk))
+                        .or_insert_with(|| Arc::new(candidate_chunk));
+                }
+            }
+
+            for (chunk, candidates) in batch.iter().zip(candidate_lists.iter()) {
+                if pairs.len() >= max_pairs {
+                    done = true;
+                    break;
+                }
+
+                for candidate in candidates {
+                    let pair_key = duplicate_pair_key(
+                        &chunk.file_path,
+                        &chunk.symbol_name,
+                        &candidate.file_path,
+                        &candidate.symbol_name,
+                    );
+                    if !seen_pairs.insert(pair_key) {
+                        continue;
+                    }
+
+                    let Some(candidate_chunk) =
+                        embedding_cache.get(&stored_chunk_key_for_score(candidate))
+                    else {
+                        continue;
+                    };
+
+                    let sim = cosine_similarity(&chunk.embedding, &candidate_chunk.embedding);
+                    if sim < threshold {
+                        continue;
+                    }
+
+                    pairs.push(DuplicatePair {
+                        symbol_a: format!("{}:{}", chunk.file_path, chunk.symbol_name),
+                        symbol_b: format!(
+                            "{}:{}",
+                            candidate_chunk.file_path, candidate_chunk.symbol_name
+                        ),
+                        file_a: chunk.file_path.clone(),
+                        file_b: candidate_chunk.file_path.clone(),
+                        line_a: chunk.line,
+                        line_b: candidate_chunk.line,
+                        similarity: sim,
+                    });
+                    if pairs.len() >= max_pairs {
+                        done = true;
+                        break;
+                    }
+                }
+            }
+            Ok(())
+        };
+
+        if let Some(scope) = scope.as_deref() {
+            self.store.for_each_embedding_batch_in_scope(
+                scope,
+                DEFAULT_DUPLICATE_SCAN_BATCH_SIZE,
+                &mut visit_batch,
+            )?;
+        } else {
+            self.store
+                .for_each_embedding_batch(DEFAULT_DUPLICATE_SCAN_BATCH_SIZE, &mut visit_batch)?;
+        }
 
         pairs.sort_by(|a, b| {
             b.similarity
