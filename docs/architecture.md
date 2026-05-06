@@ -6,12 +6,14 @@
 ## Current Snapshot (2026-04-25)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
-- Workspace version: `1.12.0`
+
+- Workspace version: `1.13.22`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions in source: `106`
-- Tool output schemas in source: `77 / 106`
+- Registered tool definitions in source: `108`
+- Tool output schemas in source: `75 / 108`
 - Supported language families: `30` across `49` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
+
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:END -->
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
@@ -398,14 +400,14 @@ MINIMAL  (20)   ██████████████                      
 │  get_changed_     │  rename_symbol  │  onboard_project          │
 │   files           │  replace_symbol │  analyze_change_request   │
 │  get_impact_      │   _body         │  verify_change_readiness  │
-│   analysis        │  replace_content│  find_minimal_context_    │
-│  find_scoped_     │  replace_lines  │   for_change              │
-│   references      │  delete_lines   │  summarize_symbol_impact  │
-│  get_symbol_      │  insert_at_line │  module_boundary_report   │
-│   importance      │  insert_before_ │  safe_rename_report       │
-│  find_dead_code   │   symbol        │  unresolved_reference_    │
-│  find_circular_   │  insert_after_  │   check                   │
-│   dependencies    │   symbol        │  dead_code_report         │
+│   analysis        │  replace_content│  trace_request_path       │
+│  find_scoped_     │  replace_lines  │  mermaid_module_graph     │
+│   references      │  delete_lines   │  module_boundary_report   │
+│  get_symbol_      │  insert_at_line │  safe_rename_report       │
+│   importance      │  insert_before_ │  unresolved_reference_    │
+│  find_dead_code   │   symbol        │   check                   │
+│  find_circular_   │  insert_after_  │  dead_code_report         │
+│   dependencies    │   symbol        │  impact_report            │
 │  get_change_      │  insert_content │  impact_report            │
 │   coupling        │  replace        │  refactor_safety_report   │
 │                   │  create_text_   │  diff_aware_references    │
@@ -463,11 +465,13 @@ MINIMAL  (20)   ██████████████                      
 ## 5. Language Support
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_LANGUAGES:BEGIN -->
+
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](generated/surface-manifest.json).
+
 <!-- SURFACE_MANIFEST_ARCHITECTURE_LANGUAGES:END -->
 
 ---

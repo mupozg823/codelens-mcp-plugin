@@ -610,7 +610,7 @@ impl IndexDb {
     }
 
     /// Get all symbols for files under a directory prefix in a single JOIN query.
-    /// Returns (file_path, Vec<SymbolRow>) grouped by file. Eliminates N+1 queries.
+    /// Returns `(file_path, Vec<SymbolRow>)` grouped by file. Eliminates N+1 queries.
     pub fn get_symbols_for_directory(&self, prefix: &str) -> Result<Vec<(String, Vec<SymbolRow>)>> {
         let pattern = if prefix.is_empty() || prefix == "." {
             "%".to_owned()

@@ -48,10 +48,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
-
       - name: Install cargo-cyclonedx
         run: cargo install cargo-cyclonedx --locked
 
@@ -80,39 +76,23 @@ jobs:
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
-          MODELS_DIR="${CODELENS_RELEASE_MODELS_DIR:-crates/codelens-engine/models}"
-          rm -rf package
-          mkdir -p package/models/codesearch
-          cp target/${{ matrix.target }}/release/codelens-mcp package/codelens-mcp
-          dotnet publish adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService/CodeLens.Roslyn.WorkspaceService.csproj \
-            -c Release \
-            -o package/adapters/roslyn-workspace-service
-          cp -L "${MODELS_DIR}"/codesearch/{model.onnx,tokenizer.json,config.json,special_tokens_map.json,tokenizer_config.json} package/models/codesearch/
-          python3 scripts/verify-model-assets.py --root package \
-            --write-manifest package/models/codesearch/model-manifest.json \
-            --check \
-            --quiet
-          tar czf codelens-mcp-${{ matrix.name }}.tar.gz -C package codelens-mcp models adapters
-          python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.tar.gz --check --quiet
+          bash scripts/package-release-artifact.sh \
+            --target ${{ matrix.target }} \
+            --name ${{ matrix.name }} \
+            --binary target/${{ matrix.target }}/release/codelens-mcp \
+            --binary-name codelens-mcp \
+            --archive-ext .tar.gz
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          MODELS_DIR="${CODELENS_RELEASE_MODELS_DIR:-crates/codelens-engine/models}"
-          rm -rf package
-          mkdir -p package/models/codesearch
-          cp target/${{ matrix.target }}/release/codelens-mcp.exe package/codelens-mcp.exe
-          dotnet publish adapters/roslyn-workspace-service/CodeLens.Roslyn.WorkspaceService/CodeLens.Roslyn.WorkspaceService.csproj \
-            -c Release \
-            -o package/adapters/roslyn-workspace-service
-          cp -L "${MODELS_DIR}"/codesearch/{model.onnx,tokenizer.json,config.json,special_tokens_map.json,tokenizer_config.json} package/models/codesearch/
-          python3 scripts/verify-model-assets.py --root package \
-            --write-manifest package/models/codesearch/model-manifest.json \
-            --check \
-            --quiet
-          (cd package && 7z a ../codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe models adapters)
-          python3 scripts/verify-model-assets.py --archive codelens-mcp-${{ matrix.name }}.zip --check --quiet
+          bash scripts/package-release-artifact.sh \
+            --target ${{ matrix.target }} \
+            --name ${{ matrix.name }} \
+            --binary target/${{ matrix.target }}/release/codelens-mcp.exe \
+            --binary-name codelens-mcp.exe \
+            --archive-ext .zip
 
       - name: Attest build provenance
         uses: actions/attest@v4
@@ -138,10 +118,6 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
 
       - uses: actions/download-artifact@v4
         with:

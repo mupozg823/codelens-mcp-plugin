@@ -919,19 +919,6 @@ dry_run = { type = "boolean", description = "Preview without modifying (default 
 # the legacy `build.rs` block until PR-E.
 
 [[tool]]
-name = "explain_code_flow"
-category = "composite"
-description = "[CodeLens:Analysis] Summarize how a function fits in the call graph: callers, callees, and a one-line flow summary. Lighter than trace_request_path."
-annotations = "ro_a"
-
-[tool.input_schema]
-type = "object"
-required = ["function_name"]
-properties = { function_name = { type = "string" }, max_depth = { type = "integer" }, max_results = { type = "integer" } }
-
-# ─────
-
-[[tool]]
 name = "onboard_project"
 category = "composite"
 description = "[CodeLens:Session] One-shot onboarding: structure, key files, cycles, stats."
@@ -977,35 +964,6 @@ required = ["task"]
 task = { type = "string" }
 changed_files = { type = "array", items = { type = "string" } }
 profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
-
-# ─────
-
-[[tool]]
-name = "find_minimal_context_for_change"
-category = "composite"
-description = "[CodeLens:Workflow] Return the smallest useful file and symbol context needed to start a change."
-annotations = "ro_w"
-output_schema = "analysis_handle_output_schema"
-max_response_tokens = 2048
-
-[tool.input_schema]
-type = "object"
-required = ["task"]
-properties = { task = { type = "string" } }
-
-# ─────
-
-[[tool]]
-name = "summarize_symbol_impact"
-category = "composite"
-description = "[CodeLens:Workflow] Summarize callers, references, and affected files for one symbol."
-annotations = "ro_w"
-output_schema = "analysis_handle_output_schema"
-
-[tool.input_schema]
-type = "object"
-required = ["symbol"]
-properties = { symbol = { type = "string" }, path = { type = "string" }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, depth = { type = "integer" } }
 
 # ─────
 

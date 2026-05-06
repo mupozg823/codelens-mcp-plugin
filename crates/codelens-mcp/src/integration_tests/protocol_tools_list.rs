@@ -305,12 +305,7 @@ fn get_callers_input_schema_exposes_file_path_hint() {
 
 #[test]
 fn issue_180_remaining_path_family_schemas_use_path_canonical() {
-    let optional_path_tools = [
-        "get_callers",
-        "get_callees",
-        "find_scoped_references",
-        "summarize_symbol_impact",
-    ];
+    let optional_path_tools = ["get_callers", "get_callees", "find_scoped_references"];
     let required_path_tools = [
         "resolve_symbol_target",
         "plan_symbol_rename",

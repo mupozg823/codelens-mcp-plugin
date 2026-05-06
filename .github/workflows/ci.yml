@@ -38,6 +38,15 @@ jobs:
       - name: tool-defs codegen drift check
         run: python3 scripts/regen-tool-defs.py --check
 
+      - name: surface manifest drift check
+        run: python3 scripts/surface-manifest.py --check
+
+      - name: script contract tests
+        run: |
+          for test in scripts/test/test-*.py; do
+            python3 "$test"
+          done
+
       - name: cargo check
         run: cargo check --workspace
 
@@ -129,6 +138,15 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --bin codelens-mcp
+
+      - name: Release package dry-run
+        run: |
+          bash scripts/package-release-artifact.sh \
+            --name ci-dry-run \
+            --binary target/release/codelens-mcp \
+            --binary-name codelens-mcp \
+            --archive-ext .tar.gz \
+            --output-dir target/release-dry-run
 
       - name: Upload release artifact
         if: matrix.os == 'macos-latest'

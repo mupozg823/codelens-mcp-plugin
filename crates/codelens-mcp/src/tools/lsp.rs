@@ -13,17 +13,6 @@ use codelens_engine::{
 };
 use serde_json::{Value, json};
 
-const PATH_ALIAS_DEPRECATION: &str =
-    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
-
-fn path_alias_warning(alias: &str) -> Value {
-    json!({
-        "param": alias,
-        "replacement": "path",
-        "message": PATH_ALIAS_DEPRECATION,
-    })
-}
-
 fn resolve_path_argument(
     arguments: &serde_json::Value,
 ) -> Result<(&str, Vec<Value>), CodeLensError> {
@@ -31,13 +20,13 @@ fn resolve_path_argument(
         if let Some(alias @ ("file_path" | "relative_path")) =
             optional_string(arguments, "_path_alias_source")
         {
-            return Ok((path, vec![path_alias_warning(alias)]));
+            return Ok((path, vec![crate::tool_runtime::path_alias_warning(alias)]));
         }
         return Ok((path, Vec::new()));
     }
     for alias in ["file_path", "relative_path"] {
         if let Some(path) = optional_string(arguments, alias) {
-            return Ok((path, vec![path_alias_warning(alias)]));
+            return Ok((path, vec![crate::tool_runtime::path_alias_warning(alias)]));
         }
     }
     Err(CodeLensError::MissingParam("path".to_owned()))
@@ -668,13 +657,7 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
         .map(ToOwned::to_owned);
     let alias_used = optional_string(arguments, "_path_alias_source")
         .filter(|s| *s == "relative_path")
-        .map(|_| {
-            json!({
-                "param": "relative_path",
-                "replacement": "path",
-                "message": "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.",
-            })
-        });
+        .map(crate::tool_runtime::path_alias_warning);
     let hierarchy_type = optional_string(arguments, "hierarchy_type")
         .unwrap_or("both")
         .to_owned();

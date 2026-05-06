@@ -5,27 +5,19 @@ use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-const PATH_ALIAS_DEPRECATION: &str =
-    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
-
-fn path_alias_warning(alias: &str) -> Value {
-    json!({
-        "param": alias,
-        "replacement": "path",
-        "message": PATH_ALIAS_DEPRECATION,
-    })
-}
-
 fn optional_path_scope(arguments: &Value) -> (Option<&str>, Vec<Value>) {
     if let Some(path) = arguments.get("path").and_then(Value::as_str) {
         let warnings = match arguments.get("_path_alias_source").and_then(Value::as_str) {
-            Some("file_path") => vec![path_alias_warning("file_path")],
+            Some("file_path") => vec![crate::tool_runtime::path_alias_warning("file_path")],
             _ => Vec::new(),
         };
         return (Some(path), warnings);
     }
     if let Some(file_path) = arguments.get("file_path").and_then(Value::as_str) {
-        return (Some(file_path), vec![path_alias_warning("file_path")]);
+        return (
+            Some(file_path),
+            vec![crate::tool_runtime::path_alias_warning("file_path")],
+        );
     }
     (None, Vec::new())
 }
@@ -193,74 +185,6 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
         next_actions,
         sections,
         touched_files,
-        None,
-        Some(arguments),
-    )
-}
-
-pub fn find_minimal_context_for_change(state: &AppState, arguments: &Value) -> ToolResult {
-    let task = required_string(arguments, "task")?;
-    let ranked = crate::tools::symbols::get_ranked_context(
-        state,
-        &json!({"query": task, "max_tokens": 900, "include_body": false, "depth": 1}),
-    )?
-    .0;
-    let top = ranked
-        .get("symbols")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .take(5)
-        .map(|entry| {
-            json!({
-                "file": entry.get("file").or_else(|| entry.get("file_path")).and_then(|v| v.as_str()).unwrap_or_default(),
-                "symbol": entry.get("name").and_then(|v| v.as_str()).unwrap_or_default(),
-                "reason": format!(
-                    "Matched `{}` with score {}",
-                    entry.get("name").and_then(|v| v.as_str()).unwrap_or("symbol"),
-                    entry.get("relevance_score").and_then(|v| v.as_i64()).unwrap_or_default()
-                )
-            })
-        })
-        .collect::<Vec<_>>();
-    let top_findings = top
-        .iter()
-        .take(3)
-        .filter_map(|entry| {
-            Some(format!(
-                "{} in {}",
-                entry.get("symbol")?.as_str()?,
-                entry.get("file")?.as_str()?
-            ))
-        })
-        .collect::<Vec<_>>();
-    let mut sections = BTreeMap::new();
-    sections.insert(
-        "minimal_context".to_owned(),
-        json!({
-            "task": task,
-            "top_files": top,
-        }),
-    );
-    sections.insert("raw_ranked_context".to_owned(), ranked);
-    make_handle_response(
-        state,
-        "find_minimal_context_for_change",
-        stable_cache_key("find_minimal_context_for_change", arguments, &["task"]),
-        format!("Minimal starting context for `{task}` with the smallest useful file/symbol set."),
-        top_findings,
-        0.89,
-        vec!["Open only the listed files first".to_owned()],
-        sections,
-        top.iter()
-            .filter_map(|entry| {
-                entry
-                    .get("file")
-                    .and_then(|value| value.as_str())
-                    .map(ToOwned::to_owned)
-            })
-            .collect(),
         None,
         Some(arguments),
     )

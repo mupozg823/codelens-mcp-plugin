@@ -14,7 +14,6 @@ pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
     "review_changes",
     "analyze_change_request",
     "verify_change_readiness",
-    "find_minimal_context_for_change",
     "onboard_project",
     "get_ranked_context",
     "get_symbols_overview",
@@ -22,7 +21,6 @@ pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
     "get_impact_analysis",
     "impact_report",
     "module_boundary_report",
-    "summarize_symbol_impact",
     "get_changed_files",
     "find_referencing_symbols",
     "get_type_hierarchy",
@@ -170,7 +168,6 @@ pub(crate) fn infer_harness_phase(recent_tools: &[String]) -> Option<&'static st
     ];
     const PLAN_SIGNAL: &[&str] = &[
         "analyze_change_request",
-        "find_minimal_context_for_change",
         "onboard_project",
         "explore_codebase",
         "analyze_change_impact",
@@ -286,8 +283,6 @@ fn is_workflow_tool_name(name: &str) -> bool {
             | "diagnose_issues"
             | "analyze_change_request"
             | "verify_change_readiness"
-            | "find_minimal_context_for_change"
-            | "summarize_symbol_impact"
             | "module_boundary_report"
             | "safe_rename_report"
             | "unresolved_reference_check"
@@ -520,7 +515,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
 
         // ── Composite ────────────────────────────────────────────────
         "summarize_file" => &["get_symbols_overview", "find_symbol"],
-        "explain_code_flow" => &["get_callers", "get_callees"],
         "refactor_extract_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
@@ -541,8 +535,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "safe_rename_report",
             "unresolved_reference_check",
         ],
-        "find_minimal_context_for_change" => &["get_analysis_section", "analyze_change_request"],
-        "summarize_symbol_impact" => &["get_analysis_section", "safe_rename_report"],
         "module_boundary_report" => &[
             "get_analysis_section",
             "mermaid_module_graph",
@@ -610,7 +602,6 @@ pub fn suggestion_reasons_for(
             "find_referencing_symbols" => "Find all callers/users of this symbol",
             "get_ranked_context" => "Get relevant context ranked by multiple signals",
             "start_analysis_job" => "Run heavy analysis asynchronously",
-            "find_minimal_context_for_change" => "Get smallest context needed for this task",
             "analyze_change_request" => "Compress the change request into ranked files and risks",
             "explore_codebase" => "Get a high-level overview or targeted search",
             "review_changes" => "Review impact of changed files before merge",

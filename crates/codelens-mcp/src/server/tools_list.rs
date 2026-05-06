@@ -71,13 +71,7 @@ pub(crate) fn build_tools_list_response(
             if crate::tool_defs::tool_anthropic_always_load(tool.name) {
                 meta["anthropic/alwaysLoad"] = Value::Bool(true);
             }
-            if let Some((since, replacement, removal)) =
-                crate::tool_defs::tool_deprecation(tool.name)
-            {
-                meta["codelens/deprecatedSince"] = json!(since);
-                meta["codelens/deprecatedReplacement"] = json!(replacement);
-                meta["codelens/deprecatedRemovalTarget"] = json!(removal);
-            }
+            crate::tool_defs::apply_tool_deprecation_meta(&mut meta, tool.name);
             tool.meta = if connector_safe { None } else { Some(meta) };
             if !include_output_schema {
                 tool.output_schema = None;

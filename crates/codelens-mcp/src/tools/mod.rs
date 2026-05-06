@@ -138,7 +138,6 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "export_session_markdown"      => session::export_session_markdown,
         // ── Composite ──
         "summarize_file"               => composite::summarize_file,
-        "explain_code_flow"            => composite::explain_code_flow,
         "refactor_extract_function"    => composite::refactor_extract_function,
         "refactor_inline_function"     => composite::refactor_inline_function,
         "refactor_move_to_file"        => composite::refactor_move_to_file,
@@ -156,8 +155,6 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         // ── Reports / compressed context ──
         "analyze_change_request"       => reports::analyze_change_request,
         "verify_change_readiness"      => reports::verify_change_readiness,
-        "find_minimal_context_for_change" => reports::find_minimal_context_for_change,
-        "summarize_symbol_impact"      => reports::summarize_symbol_impact,
         "module_boundary_report"       => reports::module_boundary_report,
         "mermaid_module_graph"         => reports::mermaid_module_graph,
         "safe_rename_report"           => reports::safe_rename_report,

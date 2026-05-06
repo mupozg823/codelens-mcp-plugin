@@ -318,13 +318,14 @@ pub enum DiagnosticSeverity {
 // Precise backend trait (fast/precise path separation)
 // ---------------------------------------------------------------------------
 
-/// Trait for optional precise code intelligence backends (LSP, SCIP).
+/// Trait for optional precise code intelligence backends.
 ///
 /// The engine's default fast path uses tree-sitter for all operations.
 /// When a precise backend is available, it supplements or replaces
 /// tree-sitter results with type-aware, cross-file intelligence.
 ///
-/// Implementors: `ScipIndex` (planned), `LspClient` (planned).
+/// Current implementor: [`crate::ScipBackend`]. LSP-powered tools live in the
+/// MCP crate and do not implement this engine trait yet.
 ///
 /// # Usage
 ///

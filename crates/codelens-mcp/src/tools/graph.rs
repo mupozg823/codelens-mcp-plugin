@@ -23,27 +23,19 @@ const CALL_GRAPH_RESOLUTIONS: [&str; 7] = [
     "path_proximity",
     "unresolved",
 ];
-const PATH_ALIAS_DEPRECATION: &str =
-    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
-
-fn path_alias_warning(alias: &str) -> Value {
-    json!({
-        "param": alias,
-        "replacement": "path",
-        "message": PATH_ALIAS_DEPRECATION,
-    })
-}
-
 fn optional_path_scope(arguments: &serde_json::Value) -> (Option<&str>, Vec<Value>) {
     if let Some(path) = optional_string(arguments, "path") {
         let warnings = match optional_string(arguments, "_path_alias_source") {
-            Some("file_path") => vec![path_alias_warning("file_path")],
+            Some("file_path") => vec![crate::tool_runtime::path_alias_warning("file_path")],
             _ => Vec::new(),
         };
         return (Some(path), warnings);
     }
     if let Some(file_path) = optional_string(arguments, "file_path") {
-        return (Some(file_path), vec![path_alias_warning("file_path")]);
+        return (
+            Some(file_path),
+            vec![crate::tool_runtime::path_alias_warning("file_path")],
+        );
     }
     (None, Vec::new())
 }

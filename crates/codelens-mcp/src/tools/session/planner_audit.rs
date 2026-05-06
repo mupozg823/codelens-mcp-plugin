@@ -30,13 +30,11 @@ fn is_planner_workflow(name: &str) -> bool {
             | "diagnose_issues"
             | "analyze_change_request"
             | "verify_change_readiness"
-            | "find_minimal_context_for_change"
             | "impact_report"
             | "refactor_safety_report"
             | "diff_aware_references"
             | "semantic_code_review"
             | "module_boundary_report"
-            | "summarize_symbol_impact"
             | "mermaid_module_graph"
             | "onboard_project"
     )

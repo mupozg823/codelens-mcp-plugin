@@ -33,7 +33,6 @@ fn low_level_chain_emits_composite_guidance_and_tracks_followthrough() {
         suggested_names.contains(&"explore_codebase")
             || suggested_names.contains(&"plan_safe_refactor")
             || suggested_names.contains(&"review_architecture")
-            || suggested_names.contains(&"find_minimal_context_for_change")
             || suggested_names.contains(&"analyze_change_request"),
         "expected composite guidance, got {:?}",
         suggested_names
@@ -43,7 +42,7 @@ fn low_level_chain_emits_composite_guidance_and_tracks_followthrough() {
 
     let _ = call_tool(
         &state,
-        "find_minimal_context_for_change",
+        "analyze_change_request",
         json!({"task": "update alpha safely"}),
     );
 
@@ -420,10 +419,7 @@ fn trace_request_path_delegates_to_explain_flow() {
     );
     assert_eq!(payload["success"], json!(true));
     assert_eq!(payload["data"]["workflow"], json!("trace_request_path"));
-    assert_eq!(
-        payload["data"]["delegated_tool"],
-        json!("explain_code_flow")
-    );
+    assert_eq!(payload["data"]["delegated_tool"], json!("call_graph_flow"));
 }
 
 #[test]

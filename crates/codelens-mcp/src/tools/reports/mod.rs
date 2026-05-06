@@ -5,9 +5,7 @@ mod eval_reports;
 mod impact_reports;
 mod verifier_reports;
 
-pub use context_reports::{
-    analyze_change_request, find_minimal_context_for_change, summarize_symbol_impact,
-};
+pub use context_reports::{analyze_change_request, summarize_symbol_impact};
 pub use eval_reports::eval_session_audit;
 pub use impact_reports::{
     dead_code_report, diff_aware_references, impact_report, mermaid_module_graph,

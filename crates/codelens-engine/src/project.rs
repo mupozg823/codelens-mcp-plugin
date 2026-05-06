@@ -242,17 +242,24 @@ pub fn compute_dominant_language(root: &Path) -> Option<String> {
 fn detect_root(start: &Path) -> Option<PathBuf> {
     let home = dirs_fallback();
     let temp = temp_dir_fallback();
+    detect_root_with_bounds(start, home.as_deref(), temp.as_deref())
+}
+
+fn detect_root_with_bounds(
+    start: &Path,
+    home: Option<&Path>,
+    temp: Option<&Path>,
+) -> Option<PathBuf> {
     let mut current = start.to_path_buf();
     loop {
         // `~/.codelens` stores global CodeLens state, so treating the home directory as an
         // inferred project root causes unrelated folders to collapse onto `$HOME`.
         // If the user really wants to operate on `$HOME`, they can pass it explicitly.
-        if current != start && Some(current.as_path()) == home.as_deref() {
+        if current != start && Some(current.as_path()) == home {
             break;
         }
         for marker in ROOT_MARKERS {
-            if marker == &".codelens" && current != start && is_temp_root(&current, temp.as_deref())
-            {
+            if marker == &".codelens" && current != start && is_temp_root(&current, temp) {
                 continue;
             }
             if current.join(marker).exists() {
@@ -260,7 +267,7 @@ fn detect_root(start: &Path) -> Option<PathBuf> {
             }
         }
         // Don't go above home directory
-        if Some(current.as_path()) == home.as_deref() {
+        if Some(current.as_path()) == home {
             break;
         }
         if !current.pop() {
@@ -576,11 +583,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{ProjectRoot, is_excluded};
-    use std::{
-        env, fs,
-        path::Path,
-        sync::{Mutex, OnceLock},
-    };
+    use std::{fs, path::Path};
 
     #[test]
     fn workspace_packages_dedup_when_members_and_default_members_share_paths() {
@@ -697,7 +700,7 @@ mod tests {
     #[test]
     fn rejects_path_escape() {
         let dir = tempfile_dir();
-        let project = ProjectRoot::new(&dir).expect("project root");
+        let project = ProjectRoot::new_exact(&dir).expect("project root");
         let err = project
             .resolve("../outside.txt")
             .expect_err("should reject escape");
@@ -711,60 +714,40 @@ mod tests {
         fs::create_dir_all(nested.parent().expect("parent")).expect("mkdir");
         fs::write(&nested, "fn main() {}\n").expect("write file");
 
-        let project = ProjectRoot::new(&dir).expect("project root");
+        let project = ProjectRoot::new_exact(&dir).expect("project root");
         assert_eq!(project.to_relative(&nested), "src/lib.rs");
     }
 
     #[test]
     fn does_not_promote_home_directory_from_global_codelens_marker() {
-        let _guard = env_lock().lock().expect("lock");
         let home = tempfile_dir();
         let nested = home.join("Downloads/codelens");
         fs::create_dir_all(home.join(".codelens")).expect("mkdir global codelens");
         fs::create_dir_all(&nested).expect("mkdir nested");
 
-        let previous_home = env::var_os("HOME");
-        unsafe {
-            env::set_var("HOME", &home);
-        }
-
-        let project = ProjectRoot::new(&nested).expect("project root");
-
-        match previous_home {
-            Some(value) => unsafe { env::set_var("HOME", value) },
-            None => unsafe { env::remove_var("HOME") },
-        }
-
-        assert_eq!(
-            project.as_path(),
-            nested.canonicalize().expect("canonical nested").as_path()
+        let detected = super::detect_root_with_bounds(
+            &nested.canonicalize().expect("canonical nested"),
+            Some(&home.canonicalize().expect("canonical home")),
+            None,
         );
+
+        assert!(detected.is_none());
     }
 
     #[test]
     fn does_not_promote_temp_directory_from_global_codelens_marker() {
-        let _guard = env_lock().lock().expect("lock");
         let temp_root = tempfile_dir();
         let nested = temp_root.join("projectless-fixture");
         fs::create_dir_all(temp_root.join(".codelens")).expect("mkdir temp codelens");
         fs::create_dir_all(&nested).expect("mkdir nested");
 
-        let previous_tmpdir = env::var_os("TMPDIR");
-        unsafe {
-            env::set_var("TMPDIR", &temp_root);
-        }
-
-        let project = ProjectRoot::new(&nested).expect("project root");
-
-        match previous_tmpdir {
-            Some(value) => unsafe { env::set_var("TMPDIR", value) },
-            None => unsafe { env::remove_var("TMPDIR") },
-        }
-
-        assert_eq!(
-            project.as_path(),
-            nested.canonicalize().expect("canonical nested").as_path()
+        let detected = super::detect_root_with_bounds(
+            &nested.canonicalize().expect("canonical nested"),
+            None,
+            Some(&temp_root.canonicalize().expect("canonical temp")),
         );
+
+        assert!(detected.is_none());
     }
 
     #[test]
@@ -777,7 +760,6 @@ mod tests {
 
     #[test]
     fn still_detects_project_root_before_home_directory() {
-        let _guard = env_lock().lock().expect("lock");
         let home = tempfile_dir();
         let project_root = home.join("workspace/app");
         let nested = project_root.join("src/features");
@@ -789,20 +771,15 @@ mod tests {
         )
         .expect("write cargo");
 
-        let previous_home = env::var_os("HOME");
-        unsafe {
-            env::set_var("HOME", &home);
-        }
-
-        let project = ProjectRoot::new(&nested).expect("project root");
-
-        match previous_home {
-            Some(value) => unsafe { env::set_var("HOME", value) },
-            None => unsafe { env::remove_var("HOME") },
-        }
+        let detected = super::detect_root_with_bounds(
+            &nested.canonicalize().expect("canonical nested"),
+            Some(&home.canonicalize().expect("canonical home")),
+            None,
+        )
+        .expect("project root");
 
         assert_eq!(
-            project.as_path(),
+            detected.as_path(),
             project_root
                 .canonicalize()
                 .expect("canonical project root")
@@ -890,11 +867,6 @@ mod tests {
         // Only the 3 src/*.rs files should be counted — not the 10
         // node_modules JS files and not the 10 target build artefacts.
         assert_eq!(lang, "rs", "expected rs from src only, got {lang}");
-    }
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
     }
 
     fn tempfile_dir() -> std::path::PathBuf {

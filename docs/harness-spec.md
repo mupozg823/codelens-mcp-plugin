@@ -7,6 +7,7 @@ This document is generated from the same canonical manifest that powers the runt
 ## Overview
 
 <!-- SURFACE_MANIFEST_HARNESS_SPEC_OVERVIEW:BEGIN -->
+
 - Schema: `codelens-harness-spec-v1`
 - Audit mode: `audit-only`
 - Adds new runtime hard blocks: `false`
@@ -17,18 +18,20 @@ This document is generated from the same canonical manifest that powers the runt
 - Explicit release preferred: `true`
 - Runtime resource: `codelens://harness/spec`
 - Handoff artifact schema: `codelens://schemas/handoff-artifact/v1` (codelens-handoff-artifact-v1)
+
 <!-- SURFACE_MANIFEST_HARNESS_SPEC_OVERVIEW:END -->
 
 ## Contracts
 
 <!-- SURFACE_MANIFEST_HARNESS_SPEC_CONTRACTS:BEGIN -->
+
 ### `planner-builder-handoff`
 
 - Mode: `planner-builder`
 - Intent: Planner/reviewer session prepares bounded evidence, then a mutation-enabled builder session executes the change under explicit coordination.
 - Roles:
-  - `planner-reviewer`: `planner-readonly` (32), `reviewer-graph` (36); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
-  - `builder-refactor`: `builder-minimal` (36), `refactor-full` (50); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
+  - `planner-reviewer`: `planner-readonly` (31), `reviewer-graph` (35); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
+  - `builder-refactor`: `builder-minimal` (35), `refactor-full` (50); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
 
 **Preflight Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: planner or builder bootstrap | purpose: establish session-local project view, visible surface, and health summary
@@ -97,7 +100,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `reviewer-gate`
 - Intent: Read-only reviewer or CI-facing session validates a builder session and exports a human-readable signoff artifact.
 - Roles:
-  - `reviewer`: `reviewer-graph` (36), `ci-audit` (43); mutate=`false`; perform diff-aware review, signoff, and audit validation without content mutation
+  - `reviewer`: `reviewer-graph` (35), `ci-audit` (42); mutate=`false`; perform diff-aware review, signoff, and audit validation without content mutation
 
 **Read Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: before the first reviewer workflow | purpose: bind the reviewer session to the project and bounded read-side surface
@@ -138,7 +141,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `batch-analysis`
 - Intent: Long-running read-only analyses should move through durable jobs and bounded sections rather than raw full-report expansion.
 - Roles:
-  - `analysis-runner`: `workflow-first` (19), `evaluator-compact` (14), `ci-audit` (43); mutate=`false`; queue durable read-side jobs and consume bounded sections
+  - `analysis-runner`: `workflow-first` (19), `evaluator-compact` (14), `ci-audit` (42); mutate=`false`; queue durable read-side jobs and consume bounded sections
 
 **Analysis Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: before job creation | purpose: establish the analysis surface and runtime health view
@@ -175,6 +178,7 @@ This document is generated from the same canonical manifest that powers the runt
   ]
 }
 ```
+
 <!-- SURFACE_MANIFEST_HARNESS_SPEC_CONTRACTS:END -->
 
 ## Notes

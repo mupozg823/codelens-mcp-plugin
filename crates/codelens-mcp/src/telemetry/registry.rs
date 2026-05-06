@@ -64,8 +64,6 @@ fn is_workflow_tool(name: &str) -> bool {
             | "onboard_project"
             | "analyze_change_request"
             | "verify_change_readiness"
-            | "find_minimal_context_for_change"
-            | "summarize_symbol_impact"
             | "module_boundary_report"
             | "safe_rename_report"
             | "unresolved_reference_check"

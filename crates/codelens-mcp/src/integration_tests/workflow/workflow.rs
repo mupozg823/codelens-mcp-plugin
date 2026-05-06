@@ -60,6 +60,35 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
 /// `deprecated_alias_direct_calls_still_work_*` tests.
 
 #[test]
+fn deprecated_workflow_aliases_are_removed_from_surface_and_dispatch() {
+    let removed = [
+        "explain_code_flow",
+        "find_minimal_context_for_change",
+        "summarize_symbol_impact",
+    ];
+    let dispatch = crate::tools::dispatch_table();
+    let registered = crate::tool_defs::tools()
+        .iter()
+        .map(|tool| tool.name)
+        .collect::<std::collections::HashSet<_>>();
+
+    for name in removed {
+        assert!(
+            !registered.contains(name),
+            "{name} should not be registered as an MCP tool"
+        );
+        assert!(
+            !dispatch.contains_key(name),
+            "{name} should not be directly dispatchable"
+        );
+        assert!(
+            crate::tool_defs::tool_definition(name).is_none(),
+            "{name} should not have a tool definition"
+        );
+    }
+}
+
+#[test]
 fn suggest_next_prefers_canonical_workflows() {
     let explore = crate::tools::suggest_next("explore_codebase").expect("explore suggestions");
     assert!(explore.iter().any(|item| item == "review_changes"));

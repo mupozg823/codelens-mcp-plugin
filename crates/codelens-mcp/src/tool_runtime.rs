@@ -46,6 +46,17 @@ pub type ToolHandler = fn(&AppState, &serde_json::Value) -> ToolResult;
 
 // ── Common argument extractors ────────────────────────────────────────
 
+pub const PATH_ALIAS_DEPRECATION: &str =
+    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
+
+pub fn path_alias_warning(alias: &str) -> serde_json::Value {
+    serde_json::json!({
+        "param": alias,
+        "replacement": "path",
+        "message": PATH_ALIAS_DEPRECATION,
+    })
+}
+
 /// Extract an optional string argument.
 pub fn optional_string<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(|v| v.as_str())

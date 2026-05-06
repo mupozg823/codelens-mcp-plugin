@@ -360,10 +360,6 @@ fn issue_180_path_alias_covers_remaining_read_workflow_tools() {
             json!({"symbol_name": "alpha", "file_path": "path_family.py"}),
         ),
         (
-            "summarize_symbol_impact",
-            json!({"symbol": "alpha", "file_path": "path_family.py"}),
-        ),
-        (
             "safe_rename_report",
             json!({"symbol": "alpha", "file_path": "path_family.py"}),
         ),
@@ -393,10 +389,6 @@ fn issue_180_path_alias_covers_remaining_read_workflow_tools() {
         (
             "find_scoped_references",
             json!({"symbol_name": "alpha", "path": "path_family.py"}),
-        ),
-        (
-            "summarize_symbol_impact",
-            json!({"symbol": "alpha", "path": "path_family.py"}),
         ),
         (
             "safe_rename_report",

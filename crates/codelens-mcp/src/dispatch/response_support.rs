@@ -830,11 +830,7 @@ pub(crate) fn success_jsonrpc_response(
     if let Some(max_chars) = max_result_size_chars {
         result["_meta"]["anthropic/maxResultSizeChars"] = json!(max_chars);
     }
-    if let Some((since, replacement, removal)) = crate::tool_defs::tool_deprecation(tool_name) {
-        result["_meta"]["codelens/deprecatedSince"] = json!(since);
-        result["_meta"]["codelens/deprecatedReplacement"] = json!(replacement);
-        result["_meta"]["codelens/deprecatedRemovalTarget"] = json!(removal);
-    }
+    crate::tool_defs::apply_tool_deprecation_meta(&mut result["_meta"], tool_name);
     JsonRpcResponse::result(id, result)
 }
 

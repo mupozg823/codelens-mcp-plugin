@@ -69,7 +69,7 @@ pub(crate) fn get_prompt(
                     "content": {
                         "type": "text",
                         "text": format!(
-                            "Onboard me to `{project_root}` as a harness designer. Start with `onboard_project` or `find_minimal_context_for_change`, keep the context compressed, and call out the best planner/reviewer profiles for this repo."
+                            "Onboard me to `{project_root}` as a harness designer. Start with `onboard_project` or `analyze_change_request`, keep the context compressed, and call out the best planner/reviewer profiles for this repo."
                         )
                     }
                 }]
@@ -86,7 +86,7 @@ pub(crate) fn get_prompt(
                     "content": {
                         "type": "text",
                         "text": format!(
-                            "Assess the change surface for `{file_path}` in `{project_root}`. Prefer `impact_report` and `summarize_symbol_impact`, then expand individual sections only if the first report is insufficient."
+                            "Assess the change surface for `{file_path}` in `{project_root}`. Prefer `impact_report` and `diff_aware_references`, then expand individual sections only if the first report is insufficient."
                         )
                     }
                 }]

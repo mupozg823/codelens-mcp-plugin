@@ -5,7 +5,7 @@ use crate::resource_context::{
 };
 use crate::tool_defs::{
     HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface, compile_surface_overlay,
-    default_budget_for_profile, preferred_bootstrap_tools,
+    default_budget_for_profile, is_tool_in_surface, preferred_bootstrap_tools,
 };
 use crate::tool_runtime::{ToolResult, success_meta};
 use codelens_engine::memory::list_memory_names;
@@ -90,6 +90,73 @@ fn push_prepare_harness_warning_with_extras(
         }
     }
     warnings.push(Value::Object(warning));
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RefreshSymbolIndexRemediation {
+    Force,
+    StaleOnly,
+}
+
+impl RefreshSymbolIndexRemediation {
+    fn command(self) -> &'static str {
+        match self {
+            Self::Force => "codelens reindex --force",
+            Self::StaleOnly => "codelens reindex --stale-only",
+        }
+    }
+
+    fn args(self) -> Option<Value> {
+        match self {
+            Self::Force => None,
+            Self::StaleOnly => Some(json!({ "scope": "stale_only" })),
+        }
+    }
+}
+
+fn refresh_symbol_index_remediation_for_surface(
+    surface: ToolSurface,
+    mode: RefreshSymbolIndexRemediation,
+) -> Value {
+    let command = mode.command();
+    let args = mode.args();
+    let tool_callable = is_tool_in_surface("refresh_symbol_index", surface);
+
+    if tool_callable {
+        let mut remediation = serde_json::Map::new();
+        remediation.insert("method".to_owned(), json!("tool_call"));
+        remediation.insert("tool".to_owned(), json!("refresh_symbol_index"));
+        if let Some(args) = args {
+            remediation.insert("args".to_owned(), args);
+        }
+        remediation.insert("callable".to_owned(), json!(true));
+        remediation.insert("alternative_command".to_owned(), json!(command));
+        return Value::Object(remediation);
+    }
+
+    let mut tool_call = serde_json::Map::new();
+    tool_call.insert("tool".to_owned(), json!("refresh_symbol_index"));
+    if let Some(args) = args {
+        tool_call.insert("args".to_owned(), args);
+    }
+    tool_call.insert("callable".to_owned(), json!(false));
+    tool_call.insert("reason".to_owned(), json!("not_in_active_surface"));
+    tool_call.insert("surface".to_owned(), json!(surface.as_label()));
+
+    json!({
+        "method": "shell",
+        "command": command,
+        "alternative_command": command,
+        "tool_call": Value::Object(tool_call),
+    })
+}
+
+fn refresh_symbol_index_recommended_action_for_surface(surface: ToolSurface) -> &'static str {
+    if is_tool_in_surface("refresh_symbol_index", surface) {
+        "refresh_symbol_index"
+    } else {
+        "run_reindex_command"
+    }
 }
 
 fn append_prepare_harness_warning_from_guidance(
@@ -600,14 +667,13 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                         .and_then(|value| value.as_str())
                         .unwrap_or("failed to refresh stale index during bootstrap"),
                     false,
-                    "refresh_symbol_index",
+                    refresh_symbol_index_recommended_action_for_surface(active_surface),
                     "symbol_index",
                     json!({
-                        "remediation": {
-                            "method": "tool_call",
-                            "tool": "refresh_symbol_index",
-                            "alternative_command": "codelens reindex --force",
-                        },
+                        "remediation": refresh_symbol_index_remediation_for_surface(
+                            active_surface,
+                            RefreshSymbolIndexRemediation::Force
+                        ),
                         "stale_files": stale_files,
                     }),
                 )
@@ -628,15 +694,13 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                     "index_refresh_skipped",
                     "stale index detected but auto-refresh threshold was exceeded",
                     false,
-                    "refresh_symbol_index",
+                    refresh_symbol_index_recommended_action_for_surface(active_surface),
                     "symbol_index",
                     json!({
-                        "remediation": {
-                            "method": "tool_call",
-                            "tool": "refresh_symbol_index",
-                            "args": { "scope": "stale_only" },
-                            "alternative_command": "codelens reindex --stale-only",
-                        },
+                        "remediation": refresh_symbol_index_remediation_for_surface(
+                            active_surface,
+                            RefreshSymbolIndexRemediation::StaleOnly
+                        ),
                         "auto_refresh_threshold": {
                             "max_stale_files": threshold,
                             "current_stale_files": stale_files,
@@ -1133,6 +1197,71 @@ mod tests {
         // No spurious key inserted from the string extras.
         assert!(warning.get("remediation").is_none());
         assert!(warning.get("auto_refresh_threshold").is_none());
+    }
+
+    #[test]
+    fn refresh_index_remediation_marks_hidden_tool_uncallable() {
+        let remediation = refresh_symbol_index_remediation_for_surface(
+            ToolSurface::Profile(ToolProfile::ReviewerGraph),
+            RefreshSymbolIndexRemediation::StaleOnly,
+        );
+
+        assert_eq!(remediation["method"], json!("shell"));
+        assert_eq!(
+            remediation["command"],
+            json!("codelens reindex --stale-only")
+        );
+        assert_eq!(
+            remediation["alternative_command"],
+            json!("codelens reindex --stale-only")
+        );
+        assert_eq!(
+            remediation["tool_call"]["tool"],
+            json!("refresh_symbol_index")
+        );
+        assert_eq!(
+            remediation["tool_call"]["args"]["scope"],
+            json!("stale_only")
+        );
+        assert_eq!(remediation["tool_call"]["callable"], json!(false));
+        assert_eq!(
+            remediation["tool_call"]["reason"],
+            json!("not_in_active_surface")
+        );
+        assert_eq!(remediation["tool_call"]["surface"], json!("reviewer-graph"));
+    }
+
+    #[test]
+    fn refresh_index_remediation_keeps_visible_tool_call_primary() {
+        let remediation = refresh_symbol_index_remediation_for_surface(
+            ToolSurface::Profile(ToolProfile::BuilderMinimal),
+            RefreshSymbolIndexRemediation::StaleOnly,
+        );
+
+        assert_eq!(remediation["method"], json!("tool_call"));
+        assert_eq!(remediation["tool"], json!("refresh_symbol_index"));
+        assert_eq!(remediation["args"]["scope"], json!("stale_only"));
+        assert_eq!(remediation["callable"], json!(true));
+        assert_eq!(
+            remediation["alternative_command"],
+            json!("codelens reindex --stale-only")
+        );
+    }
+
+    #[test]
+    fn refresh_index_recommended_action_matches_surface_callability() {
+        assert_eq!(
+            refresh_symbol_index_recommended_action_for_surface(ToolSurface::Profile(
+                ToolProfile::BuilderMinimal
+            )),
+            "refresh_symbol_index"
+        );
+        assert_eq!(
+            refresh_symbol_index_recommended_action_for_surface(ToolSurface::Profile(
+                ToolProfile::ReviewerGraph
+            )),
+            "run_reindex_command"
+        );
     }
 
     #[test]

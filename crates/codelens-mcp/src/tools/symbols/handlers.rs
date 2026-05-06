@@ -20,29 +20,19 @@ use serde_json::{Value, json};
 
 #[cfg(feature = "scip-backend")]
 const HEURISTIC_BODY_LINES: usize = 50;
-const PATH_ALIAS_DEPRECATION: &str =
-    "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0.";
-
-fn path_alias_warning(alias: &str) -> Value {
-    json!({
-        "param": alias,
-        "replacement": "path",
-        "message": PATH_ALIAS_DEPRECATION,
-    })
-}
 
 fn resolve_path_argument(arguments: &Value) -> Result<(&str, Vec<Value>), CodeLensError> {
     if let Some(path) = optional_string(arguments, "path") {
         if let Some(alias @ ("file_path" | "relative_path")) =
             optional_string(arguments, "_path_alias_source")
         {
-            return Ok((path, vec![path_alias_warning(alias)]));
+            return Ok((path, vec![crate::tool_runtime::path_alias_warning(alias)]));
         }
         return Ok((path, Vec::new()));
     }
     for alias in ["file_path", "relative_path"] {
         if let Some(path) = optional_string(arguments, alias) {
-            return Ok((path, vec![path_alias_warning(alias)]));
+            return Ok((path, vec![crate::tool_runtime::path_alias_warning(alias)]));
         }
     }
     Err(CodeLensError::MissingParam("path".to_owned()))

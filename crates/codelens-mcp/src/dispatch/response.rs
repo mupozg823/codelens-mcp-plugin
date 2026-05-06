@@ -107,7 +107,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         } else {
             hint = format!(
                 "{hint} Repeated low-level chain detected. Prefer verify_change_readiness, \
-                 find_minimal_context_for_change, analyze_change_request for compressed context."
+                 analyze_change_request, impact_report for compressed context."
             );
         }
     }
@@ -125,14 +125,14 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
             // Rapid burst: suggest async path to break the retry loop
             resp.suggested_next_tools = Some(vec![
                 "start_analysis_job".to_owned(),
-                "find_minimal_context_for_change".to_owned(),
+                "analyze_change_request".to_owned(),
                 "get_ranked_context".to_owned(),
             ]);
         } else {
             resp.suggested_next_tools = Some(vec![
                 "verify_change_readiness".to_owned(),
-                "find_minimal_context_for_change".to_owned(),
                 "analyze_change_request".to_owned(),
+                "impact_report".to_owned(),
             ]);
         }
     }
@@ -329,11 +329,7 @@ pub(crate) fn build_error_response(
             "codelens/preferredExecutor": crate::tool_defs::tool_preferred_executor_label(name)
         }
     });
-    if let Some((since, replacement, removal)) = crate::tool_defs::tool_deprecation(name) {
-        body["_meta"]["codelens/deprecatedSince"] = json!(since);
-        body["_meta"]["codelens/deprecatedReplacement"] = json!(replacement);
-        body["_meta"]["codelens/deprecatedRemovalTarget"] = json!(removal);
-    }
+    crate::tool_defs::apply_tool_deprecation_meta(&mut body["_meta"], name);
     JsonRpcResponse::result(id, body)
 }
 

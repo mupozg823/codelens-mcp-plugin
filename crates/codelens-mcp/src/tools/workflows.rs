@@ -251,7 +251,7 @@ pub fn trace_request_path(state: &AppState, arguments: &Value) -> ToolResult {
     delegate_workflow(
         state,
         "trace_request_path",
-        "explain_code_flow",
+        "call_graph_flow",
         json!({
             "function_name": function_name,
             "max_depth": arguments.get("max_depth").and_then(|value| value.as_u64()),

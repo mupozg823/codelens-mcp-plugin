@@ -139,6 +139,14 @@ verify_standard_payload_entries() {
 	local binary_name="$2"
 	shift 2
 	local -a entries=("$@")
+	for entry in "${entries[@]}"; do
+		case "$entry" in
+			adapters|adapters/*|*/adapters|*/adapters/*|__MACOSX|__MACOSX/*|*/__MACOSX|*/__MACOSX/*|._*|*/._*)
+				echo "standard release archive contains disallowed payload $entry in $archive" >&2
+				return 1
+				;;
+		esac
+	done
 	for required in \
 		"$binary_name" \
 		"models/codesearch/model.onnx" \

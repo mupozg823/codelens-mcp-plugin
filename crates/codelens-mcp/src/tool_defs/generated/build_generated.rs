@@ -78,16 +78,10 @@ pub fn analysis_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Too
 
 pub fn composite_tools(
     mut_w: &ToolAnnotations,
-    ro_a: &ToolAnnotations,
     ro_p: &ToolAnnotations,
     ro_w: &ToolAnnotations,
 ) -> Vec<Tool> {
     vec![
-        Tool::new(
-            "explain_code_flow",
-            "[CodeLens:Analysis] Summarize how a function fits in the call graph: callers, callees, and a one-line flow summary. Lighter than trace_request_path.",
-            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"max_depth":{"type":"integer"},"max_results":{"type":"integer"}}}),
-        ).with_annotations(ro_a.clone()),
         Tool::new(
             "onboard_project",
             "[CodeLens:Session] One-shot onboarding: structure, key files, cycles, stats.",
@@ -103,16 +97,6 @@ pub fn composite_tools(
             "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing.",
             json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
-        Tool::new(
-            "find_minimal_context_for_change",
-            "[CodeLens:Workflow] Return the smallest useful file and symbol context needed to start a change.",
-            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"}}}),
-        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
-        Tool::new(
-            "summarize_symbol_impact",
-            "[CodeLens:Workflow] Summarize callers, references, and affected files for one symbol.",
-            json!({"type":"object","required":["symbol"],"properties":{"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"depth":{"type":"integer"}}}),
-        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "module_boundary_report",
             "[CodeLens:Workflow] Summarize dependency boundaries, coupling, and cycle risk for a module or path.",

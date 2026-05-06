@@ -679,7 +679,6 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     // Workflow composites
     "analyze_change_request",
     "verify_change_readiness",
-    "find_minimal_context_for_change",
     "impact_report",
     "mermaid_module_graph",
     // Async analysis
@@ -731,7 +730,6 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "create_text_file",
     "analyze_missing_imports",
     "add_import",
-    "find_minimal_context_for_change",
     "verify_change_readiness",
 ];
 
@@ -771,7 +769,6 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "impact_report",
     "refactor_safety_report",
     "verify_change_readiness",
-    "summarize_symbol_impact",
     "diff_aware_references",
     "semantic_code_review",
     "module_boundary_report",
@@ -882,7 +879,6 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "get_change_coupling",
     "analyze_change_request",
     "verify_change_readiness",
-    "summarize_symbol_impact",
     "unresolved_reference_check",
     "module_boundary_report",
     "dead_code_report",
@@ -973,16 +969,15 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         "assess_change_readiness" => Some(("1.12.0", "verify_change_readiness", "v2.0")),
         "get_impact_analysis" => Some(("1.9.46", "impact_report", "v2.0")),
         "find_dead_code" => Some(("1.9.46", "dead_code_report", "v2.0")),
-        // Phase 2 audit (2026-05-02): three composite tools whose value
-        // overlaps with the seven workflow-first entrypoints. They remain
-        // dispatchable so existing harnesses keep working, but the
-        // `tools/list` annotation will steer agents at the canonical
-        // alternative. Schedule for removal in v2.0 alongside the rest of
-        // the v2.0 alias purge.
-        "explain_code_flow" => Some(("1.9.61", "trace_request_path", "v2.0")),
-        "find_minimal_context_for_change" => Some(("1.9.61", "analyze_change_request", "v2.0")),
-        "summarize_symbol_impact" => Some(("1.9.61", "impact_report", "v2.0")),
         _ => None,
+    }
+}
+
+pub(crate) fn apply_tool_deprecation_meta(meta: &mut serde_json::Value, name: &str) {
+    if let Some((since, replacement, removal)) = tool_deprecation(name) {
+        meta["codelens/deprecatedSince"] = serde_json::json!(since);
+        meta["codelens/deprecatedReplacement"] = serde_json::json!(replacement);
+        meta["codelens/deprecatedRemovalTarget"] = serde_json::json!(removal);
     }
 }
 
@@ -1041,8 +1036,6 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         | "plan_safe_refactor"
         | "plan_symbol_rename"
         | "analyze_change_impact"
-        | "find_minimal_context_for_change"
-        | "summarize_symbol_impact"
         | "module_boundary_report"
         | "mermaid_module_graph"
         | "impact_report"
@@ -1163,8 +1156,6 @@ pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
         | "trace_request_path"
         | "review_changes"
         | "cleanup_duplicate_logic"
-        | "find_minimal_context_for_change"
-        | "summarize_symbol_impact"
         | "semantic_code_review" => Some("claude"),
 
         // Everything else — retrieval primitives, file ops, audits,
@@ -1299,8 +1290,6 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "assess_change_readiness"
         | "diagnose_issues"
         | "verify_change_readiness"
-        | "find_minimal_context_for_change"
-        | "summarize_symbol_impact"
         | "module_boundary_report"
         | "mermaid_module_graph"
         | "safe_rename_report"

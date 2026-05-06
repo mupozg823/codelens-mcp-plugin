@@ -122,9 +122,7 @@ fn build_tools() -> Vec<Tool> {
         &mut_w,
         &mutating,
     ));
-    tools.extend(super::generated::composite_tools(
-        &mut_w, &ro_a, &ro_p, &ro_w,
-    ));
+    tools.extend(super::generated::composite_tools(&mut_w, &ro_p, &ro_w));
     tools.extend(super::generated::workflow_first_tools(&ro_w));
     tools.extend(super::generated::session_tools(
         &mut_coord, &mut_p, &mutating, &ro_a, &ro_p, &ro_w,
