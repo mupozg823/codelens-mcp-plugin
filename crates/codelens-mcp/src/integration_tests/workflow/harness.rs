@@ -538,6 +538,79 @@ fn prepare_harness_session_omitted_entrypoints_include_executor_and_tier() {
 }
 
 #[test]
+fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("compact_routing_deferred.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "reviewer-graph",
+            "detail": "compact",
+            "_session_client_name": "codex-mcp-client",
+            "_session_deferred_tool_loading": true,
+            "_session_loaded_namespaces": [],
+            "_session_loaded_tiers": [],
+            "_session_full_tool_exposure": false,
+            "preferred_entrypoints": [
+                "review_changes",
+                "diff_aware_references",
+                "refresh_symbol_index",
+            ],
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    let omitted = payload["data"]["routing"]["preferred_entrypoints_omitted"]
+        .as_array()
+        .expect("preferred_entrypoints_omitted array");
+    let deferred = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "diff_aware_references")
+        .expect("known active-surface tool hidden by deferred loading");
+    assert_eq!(
+        deferred["reason"],
+        json!("deferred_tool_not_loaded"),
+        "active-surface tools hidden by deferred loading must not be reported as surface mismatches"
+    );
+    assert_eq!(
+        deferred["recommended_action"],
+        json!("load_deferred_tool_namespace"),
+        "deferred tools must tell hosts to expand the deferred tool surface"
+    );
+    assert_eq!(
+        deferred["tool_namespace"],
+        json!("reports"),
+        "deferred recovery must name the namespace to load"
+    );
+    assert_eq!(deferred["tool_tier"], json!("workflow"));
+    assert!(
+        deferred["included_in"]
+            .as_array()
+            .expect("included_in")
+            .iter()
+            .any(|value| value == "reviewer-graph"),
+        "active profile should still be visible in recovery metadata"
+    );
+
+    let hidden_surface_tool = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "refresh_symbol_index")
+        .expect("tool outside reviewer-graph");
+    assert_eq!(
+        hidden_surface_tool["reason"],
+        json!("not_in_active_surface"),
+        "tools outside the active profile should keep surface-switch guidance"
+    );
+}
+
+#[test]
 fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_fields() {
     let project = project_root();
     fs::write(

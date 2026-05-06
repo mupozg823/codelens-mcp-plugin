@@ -163,6 +163,8 @@ fn refresh_symbol_index_recommended_action_for_surface(surface: ToolSurface) -> 
 fn preferred_entrypoint_omissions(
     preferred_entrypoints: &[String],
     preferred_entrypoints_visible: &[String],
+    active_surface: ToolSurface,
+    deferred_loading_active: bool,
 ) -> Vec<Value> {
     preferred_entrypoints
         .iter()
@@ -174,13 +176,30 @@ fn preferred_entrypoint_omissions(
         .map(|tool| {
             if crate::tool_defs::tool_definition(tool).is_some() {
                 let included_in = surfaces_including_tool(tool);
+                let active_surface_contains = is_tool_in_surface(tool, active_surface);
+                let hidden_by_deferred_loading = deferred_loading_active && active_surface_contains;
                 let mut omission = serde_json::Map::new();
                 omission.insert("tool".to_owned(), json!(tool));
-                omission.insert("reason".to_owned(), json!("not_in_active_surface"));
-                omission.insert(
-                    "recommended_action".to_owned(),
-                    json!("switch_tool_surface"),
-                );
+                if hidden_by_deferred_loading {
+                    omission.insert("reason".to_owned(), json!("deferred_tool_not_loaded"));
+                    omission.insert(
+                        "recommended_action".to_owned(),
+                        json!("load_deferred_tool_namespace"),
+                    );
+                    omission.insert(
+                        "tool_namespace".to_owned(),
+                        json!(crate::tool_defs::tool_namespace(tool)),
+                    );
+                } else {
+                    omission.insert("reason".to_owned(), json!("not_in_active_surface"));
+                    omission.insert(
+                        "recommended_action".to_owned(),
+                        json!("switch_tool_surface"),
+                    );
+                    if let Some(profile) = recommended_profile_for_tool(tool) {
+                        omission.insert("recommended_profile".to_owned(), json!(profile));
+                    }
+                }
                 omission.insert(
                     "preferred_executor".to_owned(),
                     json!(crate::tool_defs::tool_preferred_executor_label(tool)),
@@ -190,9 +209,6 @@ fn preferred_entrypoint_omissions(
                     json!(crate::tool_defs::tool_tier_label(tool)),
                 );
                 omission.insert("included_in".to_owned(), json!(included_in));
-                if let Some(profile) = recommended_profile_for_tool(tool) {
-                    omission.insert("recommended_profile".to_owned(), json!(profile));
-                }
                 Value::Object(omission)
             } else {
                 json!({
@@ -950,8 +966,12 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             })
         })
         .collect::<Vec<_>>();
-    let preferred_entrypoints_omitted =
-        preferred_entrypoint_omissions(&preferred_entrypoints, &preferred_entrypoints_visible);
+    let preferred_entrypoints_omitted = preferred_entrypoint_omissions(
+        &preferred_entrypoints,
+        &preferred_entrypoints_visible,
+        active_surface,
+        visible.deferred_loading_active,
+    );
     let recommended_entrypoint = preferred_entrypoints_visible.first().cloned();
     let recommended_entrypoint_preferred_executor = recommended_entrypoint
         .as_deref()
