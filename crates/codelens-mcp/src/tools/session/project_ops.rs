@@ -181,6 +181,14 @@ fn preferred_entrypoint_omissions(
                     "recommended_action".to_owned(),
                     json!("switch_tool_surface"),
                 );
+                omission.insert(
+                    "preferred_executor".to_owned(),
+                    json!(crate::tool_defs::tool_preferred_executor_label(tool)),
+                );
+                omission.insert(
+                    "tool_tier".to_owned(),
+                    json!(crate::tool_defs::tool_tier_label(tool)),
+                );
                 omission.insert("included_in".to_owned(), json!(included_in));
                 if let Some(profile) = recommended_profile_for_tool(tool) {
                     omission.insert("recommended_profile".to_owned(), json!(profile));

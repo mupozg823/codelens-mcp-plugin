@@ -461,6 +461,8 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
                 "tool": "refresh_symbol_index",
                 "reason": "not_in_active_surface",
                 "recommended_action": "switch_tool_surface",
+                "preferred_executor": "any",
+                "tool_tier": "workflow",
                 "recommended_profile": "builder-minimal",
                 "included_in": [
                     "preset:minimal",
@@ -475,6 +477,63 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
                 "recommended_action": "fix_preferred_entrypoint",
             }),
         ]
+    );
+}
+
+#[test]
+fn prepare_harness_session_omitted_entrypoints_include_executor_and_tier() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("compact_routing_executor.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "reviewer-graph",
+            "detail": "compact",
+            "preferred_entrypoints": [
+                "review_changes",
+                "plan_safe_refactor",
+                "this_tool_does_not_exist_xyz",
+            ],
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    let omitted = payload["data"]["routing"]["preferred_entrypoints_omitted"]
+        .as_array()
+        .expect("preferred_entrypoints_omitted array");
+    let known = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "plan_safe_refactor")
+        .expect("known hidden entrypoint");
+    assert_eq!(
+        known["preferred_executor"],
+        json!("claude"),
+        "known omitted entrypoints must keep executor routing metadata"
+    );
+    assert_eq!(
+        known["tool_tier"],
+        json!("workflow"),
+        "known omitted entrypoints must keep tier routing metadata"
+    );
+
+    let unknown = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "this_tool_does_not_exist_xyz")
+        .expect("unknown hidden entrypoint");
+    assert!(
+        unknown.get("preferred_executor").is_none(),
+        "unknown entrypoints must not invent executor metadata"
+    );
+    assert!(
+        unknown.get("tool_tier").is_none(),
+        "unknown entrypoints must not invent tier metadata"
     );
 }
 
@@ -540,6 +599,8 @@ fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_field
                 "tool": "refresh_symbol_index",
                 "reason": "not_in_active_surface",
                 "recommended_action": "switch_tool_surface",
+                "preferred_executor": "any",
+                "tool_tier": "workflow",
                 "included_in": [
                     "preset:minimal",
                     "preset:balanced",

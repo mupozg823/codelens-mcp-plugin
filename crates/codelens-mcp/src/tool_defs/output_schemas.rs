@@ -1191,6 +1191,8 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                                 "tool": {"type": "string"},
                                 "reason": {"type": "string", "enum": ["not_in_active_surface", "unknown_tool"]},
                                 "recommended_action": {"type": "string", "enum": ["switch_tool_surface", "fix_preferred_entrypoint"]},
+                                "preferred_executor": {"type": "string"},
+                                "tool_tier": {"type": "string", "enum": ["primitive", "analysis", "workflow"]},
                                 "included_in": {"type": "array", "items": {"type": "string"}},
                                 "recommended_profile": {"type": "string"}
                             }
