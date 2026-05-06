@@ -265,6 +265,7 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     let routing = schema["properties"]["routing"]["properties"]
         .as_object()
         .expect("routing properties");
+    assert!(routing.contains_key("preferred_entrypoints_omitted"));
     assert!(routing.contains_key("preferred_entrypoints_with_executors"));
     assert!(routing.contains_key("recommended_entrypoint_preferred_executor"));
 }
@@ -419,12 +420,12 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
         &state,
         "prepare_harness_session",
         json!({
-            "profile": "builder-minimal",
+            "profile": "reviewer-graph",
             "detail": "compact",
             "preferred_entrypoints": [
-                "explore_codebase",
+                "review_changes",
+                "refresh_symbol_index",
                 "this_tool_does_not_exist_xyz",
-                "another_missing_tool_abc",
             ],
         }),
     );
@@ -437,9 +438,12 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
     let omitted = routing["preferred_entrypoints_visible_omitted_count"]
         .as_u64()
         .expect("preferred_entrypoints_visible_omitted_count present in compact response");
-    // Two of the three requested entrypoints are intentionally invalid, so
-    // the visible filter must drop them and the omitted count must reflect
-    // the gap between the requested and visible lists.
+    let omitted_entrypoints = routing["preferred_entrypoints_omitted"]
+        .as_array()
+        .expect("preferred_entrypoints_omitted array present in compact response");
+    // One requested entrypoint is valid but hidden from reviewer-graph, and
+    // one is invalid. The compact response must name both cases so a host can
+    // distinguish "switch surface" from "fix the requested entrypoint".
     assert_eq!(
         omitted,
         (3u64).saturating_sub(visible.len() as u64),
@@ -448,5 +452,28 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
     assert!(
         omitted >= 2,
         "two synthetic invalid entrypoints must surface as omitted, got {omitted}"
+    );
+    assert_eq!(omitted_entrypoints.len() as u64, omitted);
+    assert_eq!(
+        omitted_entrypoints,
+        &vec![
+            json!({
+                "tool": "refresh_symbol_index",
+                "reason": "not_in_active_surface",
+                "recommended_action": "switch_tool_surface",
+                "recommended_profile": "builder-minimal",
+                "included_in": [
+                    "preset:minimal",
+                    "preset:balanced",
+                    "preset:full",
+                    "builder-minimal",
+                ],
+            }),
+            json!({
+                "tool": "this_tool_does_not_exist_xyz",
+                "reason": "unknown_tool",
+                "recommended_action": "fix_preferred_entrypoint",
+            }),
+        ]
     );
 }

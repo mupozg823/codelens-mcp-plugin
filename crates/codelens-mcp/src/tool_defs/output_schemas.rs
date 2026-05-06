@@ -1183,6 +1183,19 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                     "preferred_entrypoints": {"type": "array", "items": {"type": "string"}},
                     "preferred_entrypoints_source": {"type": "string"},
                     "preferred_entrypoints_visible": {"type": "array", "items": {"type": "string"}},
+                    "preferred_entrypoints_omitted": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "tool": {"type": "string"},
+                                "reason": {"type": "string", "enum": ["not_in_active_surface", "unknown_tool"]},
+                                "recommended_action": {"type": "string", "enum": ["switch_tool_surface", "fix_preferred_entrypoint"]},
+                                "included_in": {"type": "array", "items": {"type": "string"}},
+                                "recommended_profile": {"type": "string"}
+                            }
+                        }
+                    },
                     "preferred_entrypoints_with_executors": {
                         "type": "array",
                         "items": {

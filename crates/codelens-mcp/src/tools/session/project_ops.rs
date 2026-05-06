@@ -4,8 +4,9 @@ use crate::resource_context::{
     ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
 };
 use crate::tool_defs::{
-    HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface, compile_surface_overlay,
-    default_budget_for_profile, is_tool_in_surface, preferred_bootstrap_tools,
+    ALL_PRESETS, ALL_PROFILES, HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface,
+    compile_surface_overlay, default_budget_for_profile, is_tool_in_surface,
+    preferred_bootstrap_tools,
 };
 use crate::tool_runtime::{ToolResult, success_meta};
 use codelens_engine::memory::list_memory_names;
@@ -157,6 +158,67 @@ fn refresh_symbol_index_recommended_action_for_surface(surface: ToolSurface) -> 
     } else {
         "run_reindex_command"
     }
+}
+
+fn preferred_entrypoint_omissions(
+    preferred_entrypoints: &[String],
+    preferred_entrypoints_visible: &[String],
+) -> Vec<Value> {
+    preferred_entrypoints
+        .iter()
+        .filter(|tool| {
+            !preferred_entrypoints_visible
+                .iter()
+                .any(|visible| visible == *tool)
+        })
+        .map(|tool| {
+            if crate::tool_defs::tool_definition(tool).is_some() {
+                let included_in = surfaces_including_tool(tool);
+                let mut omission = serde_json::Map::new();
+                omission.insert("tool".to_owned(), json!(tool));
+                omission.insert("reason".to_owned(), json!("not_in_active_surface"));
+                omission.insert(
+                    "recommended_action".to_owned(),
+                    json!("switch_tool_surface"),
+                );
+                omission.insert("included_in".to_owned(), json!(included_in));
+                if let Some(profile) = recommended_profile_for_tool(tool) {
+                    omission.insert("recommended_profile".to_owned(), json!(profile));
+                }
+                Value::Object(omission)
+            } else {
+                json!({
+                    "tool": tool,
+                    "reason": "unknown_tool",
+                    "recommended_action": "fix_preferred_entrypoint",
+                })
+            }
+        })
+        .collect()
+}
+
+fn surfaces_including_tool(tool: &str) -> Vec<&'static str> {
+    ALL_PRESETS
+        .iter()
+        .map(|preset| ToolSurface::Preset(*preset))
+        .chain(
+            ALL_PROFILES
+                .iter()
+                .map(|profile| ToolSurface::Profile(*profile)),
+        )
+        .filter(|surface| is_tool_in_surface(tool, *surface))
+        .map(|surface| surface.as_label())
+        .collect()
+}
+
+fn recommended_profile_for_tool(tool: &str) -> Option<&'static str> {
+    ALL_PROFILES
+        .iter()
+        .copied()
+        .find(|profile| {
+            !profile.is_deprecated() && is_tool_in_surface(tool, ToolSurface::Profile(*profile))
+        })
+        .map(|profile| profile.as_str())
 }
 
 fn append_prepare_harness_warning_from_guidance(
@@ -879,6 +941,8 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             })
         })
         .collect::<Vec<_>>();
+    let preferred_entrypoints_omitted =
+        preferred_entrypoint_omissions(&preferred_entrypoints, &preferred_entrypoints_visible);
     let recommended_entrypoint = preferred_entrypoints_visible.first().cloned();
     let recommended_entrypoint_preferred_executor = recommended_entrypoint
         .as_deref()
@@ -937,6 +1001,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 "preferred_entrypoints": preferred_entrypoints,
                 "preferred_entrypoints_source": preferred_entrypoints_source,
                 "preferred_entrypoints_visible": preferred_entrypoints_visible,
+                "preferred_entrypoints_omitted": preferred_entrypoints_omitted,
                 "preferred_entrypoints_with_executors": preferred_entrypoints_with_executors,
                 "recommended_entrypoint": recommended_entrypoint,
                 "recommended_entrypoint_preferred_executor": recommended_entrypoint_preferred_executor,
@@ -1009,6 +1074,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "routing": {
                 "recommended_entrypoint": recommended_entrypoint,
                 "preferred_entrypoints_visible": preferred_entrypoints_visible,
+                "preferred_entrypoints_omitted": preferred_entrypoints_omitted,
                 "preferred_entrypoints_visible_omitted_count":
                     preferred_entrypoints_visible_omitted_count,
             },
