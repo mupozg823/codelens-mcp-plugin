@@ -41,6 +41,7 @@ mod test_helpers;
 mod tool_defs;
 mod tool_evidence;
 mod tool_runtime;
+mod tool_schema_generation;
 mod tools;
 mod util;
 

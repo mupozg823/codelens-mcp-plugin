@@ -93,6 +93,19 @@ fn push_prepare_harness_warning_with_extras(
     warnings.push(Value::Object(warning));
 }
 
+fn client_tool_schema_fingerprint(arguments: &Value) -> Option<&str> {
+    [
+        "known_tool_schema_fingerprint",
+        "client_tool_schema_fingerprint",
+        "_session_tool_schema_fingerprint",
+        "_tool_schema_fingerprint",
+    ]
+    .iter()
+    .find_map(|key| arguments.get(*key).and_then(Value::as_str))
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RefreshSymbolIndexRemediation {
     Force,
@@ -692,6 +705,13 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     let session = request.session.clone();
     let active_surface = state.execution_surface(&session);
     let token_budget = state.execution_token_budget(&session);
+    let visible = build_visible_tool_context(state, &request);
+    let surface_generation =
+        crate::tool_schema_generation::surface_generation_payload(&visible.tools);
+    let current_tool_schema_fingerprint =
+        crate::tool_schema_generation::tool_schema_fingerprint(&visible.tools);
+    let reported_client_tool_schema_fingerprint =
+        client_tool_schema_fingerprint(arguments).map(str::to_owned);
     let requested_host_context = arguments
         .get("host_context")
         .and_then(|value| value.as_str());
@@ -743,6 +763,29 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                     .map(str::to_owned)
             })
             .collect::<HashSet<_>>();
+        if let Some(client_fingerprint) = reported_client_tool_schema_fingerprint.as_deref()
+            && client_fingerprint != current_tool_schema_fingerprint
+        {
+            push_prepare_harness_warning_with_extras(
+                &mut warnings,
+                &mut warning_codes,
+                "tool_schema_cache_stale",
+                "client-reported tool schema fingerprint does not match the active CodeLens tool surface; refresh tools/list or reconnect before trusting cached tool input schemas",
+                true,
+                crate::tool_schema_generation::TOOL_SCHEMA_REFRESH_ACTION,
+                "tool_schema_cache",
+                json!({
+                    "client_tool_schema_fingerprint": client_fingerprint,
+                    "server_tool_schema_fingerprint": current_tool_schema_fingerprint,
+                    "schema_version": crate::surface_manifest::SURFACE_MANIFEST_SCHEMA_VERSION,
+                    "refresh": {
+                        "method": "tools/list",
+                        "params": { "full": true },
+                        "fallback": "reconnect_mcp_server"
+                    },
+                }),
+            );
+        }
         match index_recovery
             .get("status")
             .and_then(|value| value.as_str())
@@ -893,7 +936,6 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         warnings
     };
 
-    let visible = build_visible_tool_context(state, &request);
     let visible_tool_names = visible
         .tools
         .iter()
@@ -998,6 +1040,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "project": activate_payload,
             "active_surface": active_surface.as_label(),
             "token_budget": token_budget,
+            "surface_generation": surface_generation,
             "config": config_payload,
             "index_recovery": index_recovery,
             "capabilities": capabilities_payload,
@@ -1100,6 +1143,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "capabilities": {
                 "available": capabilities_available,
             },
+            "surface_generation": surface_generation,
             "visible_tools": {
                 "tool_count": tool_count,
                 "tool_names": first_five_tools,

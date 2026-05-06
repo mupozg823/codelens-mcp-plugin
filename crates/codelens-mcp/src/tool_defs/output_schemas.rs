@@ -1019,6 +1019,21 @@ pub(super) fn activate_project_output_schema() -> serde_json::Value {
     })
 }
 
+fn surface_generation_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "schema_version": {"type": "integer"},
+            "binary_version": {"type": "string"},
+            "binary_git_sha": {"type": "string"},
+            "binary_build_time": {"type": "string"},
+            "tool_schema_fingerprint": {"type": "string"},
+            "refresh_action": {"type": "string", "enum": ["reissue_tools_list_or_reconnect"]},
+            "refresh_hint": {"type": "string"}
+        }
+    })
+}
+
 pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -1027,6 +1042,7 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
             "project": activate_project_output_schema(),
             "active_surface": {"type": "string"},
             "token_budget": {"type": "integer"},
+            "surface_generation": surface_generation_output_schema(),
             "config": {
                 "type": "object",
                 "properties": {

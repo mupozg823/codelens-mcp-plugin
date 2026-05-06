@@ -191,6 +191,59 @@ fn prepare_harness_session_surfaces_top_level_health_summary() {
 }
 
 #[test]
+fn prepare_harness_session_warns_when_client_tool_schema_fingerprint_is_stale() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("schema_stale.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "builder-minimal",
+            "detail": "compact",
+            "known_tool_schema_fingerprint": "stale-client-fingerprint",
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    let generation = &payload["data"]["surface_generation"];
+    assert_eq!(
+        generation["refresh_action"],
+        json!("reissue_tools_list_or_reconnect")
+    );
+    let server_fingerprint = generation["tool_schema_fingerprint"]
+        .as_str()
+        .expect("server fingerprint");
+    assert_eq!(server_fingerprint.len(), 64);
+
+    let warning = payload["data"]["warnings"]
+        .as_array()
+        .expect("warnings")
+        .iter()
+        .find(|warning| warning["code"] == "tool_schema_cache_stale")
+        .expect("stale tool schema warning");
+    assert_eq!(warning["restart_recommended"], json!(true));
+    assert_eq!(
+        warning["recommended_action"],
+        json!("reissue_tools_list_or_reconnect")
+    );
+    assert_eq!(warning["action_target"], json!("tool_schema_cache"));
+    assert_eq!(
+        warning["client_tool_schema_fingerprint"],
+        json!("stale-client-fingerprint")
+    );
+    assert_eq!(
+        warning["server_tool_schema_fingerprint"],
+        json!(server_fingerprint)
+    );
+}
+
+#[test]
 fn prepare_harness_session_auto_refreshes_small_stale_index() {
     let project = project_root();
     let path = project.as_path().join("stale_bootstrap.py");
@@ -244,6 +297,7 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     assert!(properties.contains_key("capabilities"));
     assert!(properties.contains_key("health_summary"));
     assert!(properties.contains_key("warnings"));
+    assert!(properties.contains_key("surface_generation"));
     assert!(properties.contains_key("overlay"));
     assert!(properties.contains_key("index_recovery"));
     assert!(properties.contains_key("visible_tools"));
