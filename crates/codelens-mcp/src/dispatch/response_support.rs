@@ -907,6 +907,10 @@ fn summarize_structured_content(value: &Value, depth: usize) -> Value {
                 if index >= max_items {
                     break;
                 }
+                if should_preserve_structured_array(key, item) {
+                    summarized.insert(key.clone(), item.clone());
+                    continue;
+                }
                 if let Value::Array(items) = item
                     && items.len() > MAX_ARRAY_ITEMS
                 {
@@ -928,6 +932,16 @@ fn summarize_structured_content(value: &Value, depth: usize) -> Value {
             Value::Object(summarized)
         }
     }
+}
+
+fn should_preserve_structured_array(key: &str, value: &Value) -> bool {
+    matches!(
+        key,
+        "preferred_entrypoints"
+            | "preferred_entrypoints_visible"
+            | "preferred_entrypoints_omitted"
+            | "preferred_entrypoints_with_executors"
+    ) && value.is_array()
 }
 
 #[cfg(test)]
@@ -1099,6 +1113,121 @@ mod text_channel_tests {
         assert_eq!(info_json["original_payload_estimate"], json!(12_000));
         assert_eq!(info_json["effective_budget"], json!(4_000));
         assert!(info_json["recovery_hint"].is_string());
+    }
+
+    #[test]
+    fn bounded_payload_preserves_bootstrap_routing_recovery_arrays() {
+        let structured = json!({
+            "routing": {
+                "preferred_entrypoints": [
+                    "prepare_harness_session",
+                    "review_changes",
+                    "get_current_config",
+                    "plan_safe_refactor",
+                    "trace_request_path",
+                ],
+                "preferred_entrypoints_omitted": [
+                    {
+                        "tool": "plan_safe_refactor",
+                        "reason": "not_in_active_surface",
+                        "recommended_action": "switch_tool_surface",
+                        "preferred_executor": "claude",
+                        "tool_tier": "workflow",
+                        "included_in": [
+                            "preset:balanced",
+                            "preset:full",
+                            "planner-readonly",
+                            "builder-minimal",
+                        ],
+                        "recommended_profile": "planner-readonly",
+                    },
+                    {
+                        "tool": "trace_request_path",
+                        "reason": "not_in_active_surface",
+                        "recommended_action": "switch_tool_surface",
+                        "preferred_executor": "claude",
+                        "tool_tier": "workflow",
+                        "included_in": ["preset:balanced", "preset:full", "builder-minimal"],
+                        "recommended_profile": "builder-minimal",
+                    },
+                    {
+                        "tool": "refresh_symbol_index",
+                        "reason": "not_in_active_surface",
+                        "recommended_action": "switch_tool_surface",
+                        "preferred_executor": "any",
+                        "tool_tier": "workflow",
+                        "included_in": [
+                            "preset:minimal",
+                            "preset:balanced",
+                            "preset:full",
+                            "builder-minimal",
+                        ],
+                        "recommended_profile": "builder-minimal",
+                    },
+                    {
+                        "tool": "this_tool_does_not_exist_xyz",
+                        "reason": "unknown_tool",
+                        "recommended_action": "fix_preferred_entrypoint",
+                    },
+                ],
+            },
+        });
+
+        let (_text, summarized, info) = bounded_result_payload(
+            "{\"success\":true}".to_owned(),
+            Some(structured),
+            9_100,
+            10_000,
+            0,
+        );
+
+        assert_eq!(info.expect("stage 3 compression").stage, 3);
+        let routing = &summarized.expect("structured content")["routing"];
+        assert_eq!(
+            routing["preferred_entrypoints"]
+                .as_array()
+                .expect("preferred_entrypoints")
+                .len(),
+            5,
+            "routing recovery must retain the full requested entrypoint list"
+        );
+        let omitted = routing["preferred_entrypoints_omitted"]
+            .as_array()
+            .expect("preferred_entrypoints_omitted");
+        assert_eq!(
+            omitted.len(),
+            4,
+            "routing recovery must retain every omitted entrypoint"
+        );
+        assert_eq!(
+            omitted[0]["preferred_executor"],
+            json!("claude"),
+            "known omitted entrypoints must keep executor metadata under compression"
+        );
+        assert_eq!(
+            omitted[0]["tool_tier"],
+            json!("workflow"),
+            "known omitted entrypoints must keep tier metadata under compression"
+        );
+        assert_eq!(
+            omitted[0]["included_in"]
+                .as_array()
+                .expect("included_in")
+                .len(),
+            4,
+            "surface recovery list must not be clipped for routing metadata"
+        );
+        assert_eq!(
+            omitted[3]["recommended_action"],
+            json!("fix_preferred_entrypoint"),
+            "unknown entrypoint recovery must survive compression"
+        );
+        assert!(
+            routing
+                .get("preferred_entrypoints_omitted_omitted_count")
+                .is_none(),
+            "preserved routing recovery arrays must not advertise synthetic omissions"
+        );
     }
 
     #[test]
