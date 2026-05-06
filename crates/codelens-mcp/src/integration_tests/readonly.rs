@@ -574,6 +574,41 @@ fn reports_symbol_index_stats() {
 }
 
 #[test]
+fn get_current_config_exposes_tool_schema_surface_generation() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("surface_identity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(&state, "get_current_config", json!({}));
+
+    assert_eq!(payload["success"], json!(true));
+    let generation = &payload["data"]["surface_generation"];
+    assert_eq!(
+        generation["schema_version"],
+        json!(crate::surface_manifest::SURFACE_MANIFEST_SCHEMA_VERSION)
+    );
+    assert_eq!(
+        generation["binary_git_sha"],
+        json!(crate::build_info::BUILD_GIT_SHA)
+    );
+    assert_eq!(
+        generation["refresh_action"],
+        json!("reissue_tools_list_or_reconnect")
+    );
+    assert_eq!(
+        generation["tool_schema_fingerprint"]
+            .as_str()
+            .expect("fingerprint")
+            .len(),
+        64
+    );
+}
+
+#[test]
 fn returns_ranked_context_via_tool_call() {
     let project = project_root();
     fs::write(

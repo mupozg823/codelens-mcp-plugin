@@ -39,6 +39,9 @@ pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> To
     // Load project-level config policy from .codelens/config.json (if present).
     // This allows enterprise deployments to control feature flags per-project.
     let config_policy = load_project_config_policy(state.project().as_path());
+    let visible_tools = crate::tool_defs::visible_tools(surface);
+    let surface_generation =
+        crate::tool_schema_generation::surface_generation_payload(&visible_tools);
 
     Ok((
         json!({
@@ -49,7 +52,8 @@ pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> To
             "symbol_index": stats,
             "surface": surface.as_label(),
             "token_budget": token_budget,
-            "tool_count": crate::tool_defs::visible_tools(surface).len(),
+            "tool_count": visible_tools.len(),
+            "surface_generation": surface_generation,
             "client_profile": client_profile.as_str(),
             "frameworks": frameworks,
             "workspace_packages": workspace_packages,

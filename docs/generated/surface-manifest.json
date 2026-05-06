@@ -48,7 +48,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 166
+        "estimated_tokens": 262
       },
       {
         "name": "read_file",

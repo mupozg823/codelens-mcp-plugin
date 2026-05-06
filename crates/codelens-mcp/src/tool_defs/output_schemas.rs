@@ -1371,6 +1371,8 @@ pub(super) fn get_current_config_output_schema() -> serde_json::Value {
             "profile": {"type": "string"},
             "surface": {"type": "string"},
             "token_budget": {"type": "integer"},
+            "tool_count": {"type": "integer"},
+            "surface_generation": surface_generation_output_schema(),
             "effort_level": {"type": "string"},
             "daemon_mode": {"type": "boolean"},
             "transport": {"type": "string"}
