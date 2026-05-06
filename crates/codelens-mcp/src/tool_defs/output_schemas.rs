@@ -1200,7 +1200,8 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                                         "params": {
                                             "type": "object",
                                             "properties": {
-                                                "namespace": {"type": "string"}
+                                                "namespace": {"type": "string"},
+                                                "tier": {"type": "string", "enum": ["primitive", "analysis", "workflow"]}
                                             }
                                         }
                                     }

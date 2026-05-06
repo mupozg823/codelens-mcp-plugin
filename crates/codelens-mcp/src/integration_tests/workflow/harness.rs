@@ -595,6 +595,7 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
             "method": "tools/list",
             "params": {
                 "namespace": "reports",
+                "tier": "workflow",
             },
         }),
         "deferred recovery must expose a replayable namespace expansion request"

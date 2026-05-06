@@ -182,6 +182,7 @@ fn preferred_entrypoint_omissions(
                 omission.insert("tool".to_owned(), json!(tool));
                 if hidden_by_deferred_loading {
                     let namespace = crate::tool_defs::tool_namespace(tool);
+                    let tier = crate::tool_defs::tool_tier_label(tool);
                     omission.insert("reason".to_owned(), json!("deferred_tool_not_loaded"));
                     omission.insert(
                         "recommended_action".to_owned(),
@@ -194,6 +195,7 @@ fn preferred_entrypoint_omissions(
                             "method": "tools/list",
                             "params": {
                                 "namespace": namespace,
+                                "tier": tier,
                             },
                         }),
                     );

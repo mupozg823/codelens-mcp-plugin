@@ -53,7 +53,8 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
                                 "detail": "compact",
                                 "preferred_entrypoints": [
                                     "review_changes",
-                                    "diff_aware_references"
+                                    "diff_aware_references",
+                                    "get_analysis_section"
                                 ]
                             }
                         }
@@ -81,10 +82,26 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
         json!({
             "method": "tools/list",
             "params": {
-                "namespace": "reports"
+                "namespace": "reports",
+                "tier": "workflow"
             }
         }),
-        "deferred recovery must expose the exact tools/list request a host can replay"
+        "deferred recovery must expose the least-privilege tools/list request a host can replay"
+    );
+    let section_recovery = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "get_analysis_section")
+        .expect("get_analysis_section should be deferred before tier expansion");
+    assert_eq!(
+        section_recovery["tool_loading_request"],
+        json!({
+            "method": "tools/list",
+            "params": {
+                "namespace": "reports",
+                "tier": "primitive"
+            }
+        }),
+        "primitive recovery must not over-expand the whole reports namespace"
     );
 
     let listing_params = recovery["tool_loading_request"]["params"].clone();
@@ -113,9 +130,11 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
     assert_eq!(expand.status(), StatusCode::OK);
     let expand_body = body_string(expand).await;
     assert!(expand_body.contains("\"selected_namespace\":\"reports\""));
+    assert!(expand_body.contains("\"selected_tier\":\"workflow\""));
     assert!(expand_body.contains("\"diff_aware_references\""));
 
     let allowed = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -149,6 +168,80 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
         "deferred recovery tool call body: {allowed_body}"
     );
     assert!(!allowed_body.contains("hidden by deferred loading"));
+    let analysis_payload = first_tool_payload(&allowed_body);
+    let analysis_id = analysis_payload["data"]["analysis_id"]
+        .as_str()
+        .expect("diff_aware_references analysis_id")
+        .to_owned();
+
+    let section_listing_params = section_recovery["tool_loading_request"]["params"].clone();
+    let section_expand = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": 5,
+                        "method": "tools/list",
+                        "params": section_listing_params,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(section_expand.status(), StatusCode::OK);
+    let section_expand_body = body_string(section_expand).await;
+    assert!(section_expand_body.contains("\"selected_namespace\":\"reports\""));
+    assert!(section_expand_body.contains("\"selected_tier\":\"primitive\""));
+    assert!(section_expand_body.contains("\"get_analysis_section\""));
+    assert!(
+        !section_expand_body.contains("\"impact_report\""),
+        "primitive scoped expansion should not expose workflow reports: {section_expand_body}"
+    );
+
+    let section = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": 6,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "get_analysis_section",
+                            "arguments": {
+                                "analysis_id": analysis_id,
+                                "section": "diff_references"
+                            }
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(section.status(), StatusCode::OK);
+    let section_body = body_string(section).await;
+    assert!(
+        section_body.contains("\\\"success\\\": true")
+            || section_body.contains("\\\"success\\\":true"),
+        "get_analysis_section body: {section_body}"
+    );
+    assert!(!section_body.contains("hidden by deferred loading"));
 }
 
 #[tokio::test]
