@@ -589,6 +589,16 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
         json!("reports"),
         "deferred recovery must name the namespace to load"
     );
+    assert_eq!(
+        deferred["tool_loading_request"],
+        json!({
+            "method": "tools/list",
+            "params": {
+                "namespace": "reports",
+            },
+        }),
+        "deferred recovery must expose a replayable namespace expansion request"
+    );
     assert_eq!(deferred["tool_tier"], json!("workflow"));
     assert!(
         deferred["included_in"]

@@ -181,14 +181,21 @@ fn preferred_entrypoint_omissions(
                 let mut omission = serde_json::Map::new();
                 omission.insert("tool".to_owned(), json!(tool));
                 if hidden_by_deferred_loading {
+                    let namespace = crate::tool_defs::tool_namespace(tool);
                     omission.insert("reason".to_owned(), json!("deferred_tool_not_loaded"));
                     omission.insert(
                         "recommended_action".to_owned(),
                         json!("load_deferred_tool_namespace"),
                     );
+                    omission.insert("tool_namespace".to_owned(), json!(namespace));
                     omission.insert(
-                        "tool_namespace".to_owned(),
-                        json!(crate::tool_defs::tool_namespace(tool)),
+                        "tool_loading_request".to_owned(),
+                        json!({
+                            "method": "tools/list",
+                            "params": {
+                                "namespace": namespace,
+                            },
+                        }),
                     );
                 } else {
                     omission.insert("reason".to_owned(), json!("not_in_active_surface"));

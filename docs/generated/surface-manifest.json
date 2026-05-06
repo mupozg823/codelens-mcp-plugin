@@ -768,7 +768,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 3326
+        "estimated_tokens": 3370
       },
       {
         "name": "register_agent_work",

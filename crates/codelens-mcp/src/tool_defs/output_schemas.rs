@@ -1193,6 +1193,18 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                                 "recommended_action": {"type": "string", "enum": ["switch_tool_surface", "load_deferred_tool_namespace", "fix_preferred_entrypoint"]},
                                 "preferred_executor": {"type": "string"},
                                 "tool_namespace": {"type": "string"},
+                                "tool_loading_request": {
+                                    "type": "object",
+                                    "properties": {
+                                        "method": {"type": "string", "enum": ["tools/list"]},
+                                        "params": {
+                                            "type": "object",
+                                            "properties": {
+                                                "namespace": {"type": "string"}
+                                            }
+                                        }
+                                    }
+                                },
                                 "tool_tier": {"type": "string", "enum": ["primitive", "analysis", "workflow"]},
                                 "included_in": {"type": "array", "items": {"type": "string"}},
                                 "recommended_profile": {"type": "string"}

@@ -1,6 +1,157 @@
 use super::*;
 
 #[tokio::test]
+async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() {
+    let state = test_state();
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+    let app = build_router(state.clone());
+    let file_path = state.project().as_path().join("deferred-recovery.py");
+    std::fs::write(&file_path, "def recovered():\n    return 7\n").unwrap();
+
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA"},"profile":"reviewer-graph","deferredToolLoading":true}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let bootstrap = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "prepare_harness_session",
+                            "arguments": {
+                                "project": state.project().as_path(),
+                                "profile": "reviewer-graph",
+                                "detail": "compact",
+                                "preferred_entrypoints": [
+                                    "review_changes",
+                                    "diff_aware_references"
+                                ]
+                            }
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(bootstrap.status(), StatusCode::OK);
+    let bootstrap_payload = first_tool_payload(&body_string(bootstrap).await);
+    assert_eq!(bootstrap_payload["success"], json!(true));
+    let omitted = bootstrap_payload["data"]["routing"]["preferred_entrypoints_omitted"]
+        .as_array()
+        .expect("preferred_entrypoints_omitted");
+    let recovery = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "diff_aware_references")
+        .expect("diff_aware_references should be deferred before namespace expansion");
+    assert_eq!(recovery["reason"], json!("deferred_tool_not_loaded"));
+    assert_eq!(
+        recovery["tool_loading_request"],
+        json!({
+            "method": "tools/list",
+            "params": {
+                "namespace": "reports"
+            }
+        }),
+        "deferred recovery must expose the exact tools/list request a host can replay"
+    );
+
+    let listing_params = recovery["tool_loading_request"]["params"].clone();
+    let expand = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "tools/list",
+                        "params": listing_params,
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(expand.status(), StatusCode::OK);
+    let expand_body = body_string(expand).await;
+    assert!(expand_body.contains("\"selected_namespace\":\"reports\""));
+    assert!(expand_body.contains("\"diff_aware_references\""));
+
+    let allowed = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": 4,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "diff_aware_references",
+                            "arguments": {
+                                "changed_files": [file_path]
+                            }
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(allowed.status(), StatusCode::OK);
+    let allowed_body = body_string(allowed).await;
+    assert!(
+        allowed_body.contains("\\\"success\\\": true")
+            || allowed_body.contains("\\\"success\\\":true"),
+        "deferred recovery tool call body: {allowed_body}"
+    );
+    assert!(!allowed_body.contains("hidden by deferred loading"));
+}
+
+#[tokio::test]
 async fn deferred_resources_read_tracks_loaded_namespaces_for_session() {
     let state = test_state();
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
