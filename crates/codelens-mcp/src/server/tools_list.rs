@@ -167,6 +167,10 @@ pub(crate) fn build_tools_list_response(
         "tool_count_total".to_owned(),
         json!(visible_context.total_tool_count),
     );
+    payload.insert(
+        "surface_generation".to_owned(),
+        surface_generation_payload(&filtered),
+    );
     let tools = json!(response_tools);
     payload.insert("tools".to_owned(), tools.clone());
 
@@ -199,4 +203,29 @@ pub(crate) fn build_tools_list_response(
     }
 
     Value::Object(payload)
+}
+
+fn tool_schema_fingerprint(tools: &[&crate::protocol::Tool]) -> String {
+    let schemas = tools
+        .iter()
+        .map(|tool| {
+            json!({
+                "name": tool.name,
+                "inputSchema": tool.input_schema,
+            })
+        })
+        .collect::<Vec<_>>();
+    crate::util::canonical_sha256_hex(&Value::Array(schemas))
+}
+
+fn surface_generation_payload(tools: &[&crate::protocol::Tool]) -> Value {
+    json!({
+        "schema_version": crate::surface_manifest::SURFACE_MANIFEST_SCHEMA_VERSION,
+        "binary_version": crate::build_info::BUILD_VERSION,
+        "binary_git_sha": crate::build_info::BUILD_GIT_SHA,
+        "binary_build_time": crate::build_info::BUILD_TIME,
+        "tool_schema_fingerprint": tool_schema_fingerprint(tools),
+        "refresh_action": "reissue_tools_list_or_reconnect",
+        "refresh_hint": "If cached tool metadata disagrees with this fingerprint, reissue tools/list or reconnect before trusting the old schema."
+    })
 }

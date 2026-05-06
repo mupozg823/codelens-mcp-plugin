@@ -704,6 +704,67 @@ fn tools_list_exposes_preferred_executor_per_tool() {
 }
 
 #[test]
+fn tools_list_exposes_schema_refresh_identity_for_dogfood() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"full": true})),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let generation = &value["result"]["surface_generation"];
+    assert_eq!(
+        generation["binary_git_sha"],
+        json!(crate::build_info::BUILD_GIT_SHA)
+    );
+    assert_eq!(
+        generation["binary_build_time"],
+        json!(crate::build_info::BUILD_TIME)
+    );
+    assert_eq!(
+        generation["schema_version"],
+        json!(crate::surface_manifest::SURFACE_MANIFEST_SCHEMA_VERSION)
+    );
+    assert_eq!(
+        generation["refresh_action"],
+        json!("reissue_tools_list_or_reconnect")
+    );
+    assert_eq!(
+        generation["tool_schema_fingerprint"]
+            .as_str()
+            .expect("fingerprint")
+            .len(),
+        64
+    );
+
+    let tools = value["result"]["tools"]
+        .as_array()
+        .expect("tools/list tools array");
+    let cleanup = tools
+        .iter()
+        .find(|tool| tool["name"] == "cleanup_duplicate_logic")
+        .expect("cleanup_duplicate_logic present");
+    let registered =
+        crate::tool_defs::tool_definition("cleanup_duplicate_logic").expect("registered cleanup");
+    assert_eq!(cleanup["inputSchema"], registered.input_schema);
+    assert!(
+        cleanup["inputSchema"]["properties"]["include_local_same_symbol_pairs"].is_object(),
+        "tools/list must expose new cleanup_duplicate_logic controls after a daemon refresh"
+    );
+}
+
+#[test]
 fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
