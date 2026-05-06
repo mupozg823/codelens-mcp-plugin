@@ -488,6 +488,12 @@ fn copy_summarized_field(target: &mut Map<String, Value>, source: &Map<String, V
     }
 }
 
+fn copy_raw_field(target: &mut Map<String, Value>, source: &Map<String, Value>, key: &str) {
+    if let Some(value) = source.get(key) {
+        target.insert(key.to_owned(), value.clone());
+    }
+}
+
 fn summarize_text_data_for_response(value: &Value) -> Value {
     let Some(object) = value.as_object() else {
         return summarize_structured_content(value, 0);
@@ -549,6 +555,11 @@ fn summarize_bootstrap_text_data(source: &Map<String, Value>) -> Value {
         let mut tools_summary = Map::new();
         copy_summarized_field(&mut tools_summary, visible_tools, "tool_count");
         copy_summarized_field(&mut tools_summary, visible_tools, "tool_names");
+        copy_summarized_field(
+            &mut tools_summary,
+            visible_tools,
+            "tool_names_omitted_count",
+        );
         copy_summarized_field(&mut tools_summary, visible_tools, "effective_namespaces");
         copy_summarized_field(&mut tools_summary, visible_tools, "effective_tiers");
         if !tools_summary.is_empty() {
@@ -560,6 +571,25 @@ fn summarize_bootstrap_text_data(source: &Map<String, Value>) -> Value {
         let mut routing_summary = Map::new();
         copy_summarized_field(&mut routing_summary, routing, "recommended_entrypoint");
         copy_summarized_field(&mut routing_summary, routing, "preferred_entrypoints");
+        copy_summarized_field(
+            &mut routing_summary,
+            routing,
+            "preferred_entrypoints_visible",
+        );
+        copy_summarized_field(
+            &mut routing_summary,
+            routing,
+            "preferred_entrypoints_visible_omitted_count",
+        );
+        // Omission records are already compact, machine-readable recovery
+        // hints (`reason`, `recommended_action`, surface/profile). Preserve
+        // them verbatim for text-only MCP clients so the fallback channel
+        // remains operationally equivalent to `structuredContent`.
+        copy_raw_field(
+            &mut routing_summary,
+            routing,
+            "preferred_entrypoints_omitted",
+        );
         if !routing_summary.is_empty() {
             out.insert("routing".to_owned(), Value::Object(routing_summary));
         }

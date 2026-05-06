@@ -477,3 +477,83 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
         ]
     );
 }
+
+#[test]
+fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("compact_text_routing.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = crate::server::router::handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "prepare_harness_session",
+                "arguments": {
+                    "_session_id": default_session_id(&state),
+                    "profile": "reviewer-graph",
+                    "detail": "compact",
+                    "preferred_entrypoints": [
+                        "review_changes",
+                        "refresh_symbol_index",
+                        "this_tool_does_not_exist_xyz",
+                    ],
+                }
+            })),
+        },
+    )
+    .expect("tools/call should return a response");
+    let raw = serde_json::to_value(response).expect("serialize response");
+    let text = raw["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text fallback");
+    let payload = parse_tool_payload(text);
+    let data = &payload["data"];
+
+    assert!(
+        data["visible_tools"]["tool_names_omitted_count"]
+            .as_u64()
+            .is_some_and(|count| count > 0),
+        "text fallback must keep compact visible tool omission metadata"
+    );
+    assert_eq!(
+        data["routing"]["preferred_entrypoints_visible"],
+        json!(["review_changes"]),
+        "text fallback must keep visible routing entrypoints"
+    );
+    assert_eq!(
+        data["routing"]["preferred_entrypoints_visible_omitted_count"],
+        json!(2),
+        "text fallback must keep routing omission count"
+    );
+    assert_eq!(
+        data["routing"]["preferred_entrypoints_omitted"],
+        json!([
+            {
+                "tool": "refresh_symbol_index",
+                "reason": "not_in_active_surface",
+                "recommended_action": "switch_tool_surface",
+                "included_in": [
+                    "preset:minimal",
+                    "preset:balanced",
+                    "preset:full",
+                    "builder-minimal",
+                ],
+                "recommended_profile": "builder-minimal",
+            },
+            {
+                "tool": "this_tool_does_not_exist_xyz",
+                "reason": "unknown_tool",
+                "recommended_action": "fix_preferred_entrypoint",
+            },
+        ]),
+        "text fallback must preserve actionable omitted-entrypoint records"
+    );
+}
