@@ -404,7 +404,7 @@ fn explore_codebase_with_query_delegates_to_ranked_context() {
 }
 
 #[test]
-fn trace_request_path_delegates_to_explain_flow() {
+fn trace_request_path_delegates_to_call_graph_flow() {
     let project = project_root();
     fs::write(
         project.as_path().join("flow.py"),

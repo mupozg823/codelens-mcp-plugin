@@ -56,7 +56,7 @@ pub fn summarize_file(state: &AppState, arguments: &serde_json::Value) -> ToolRe
     ))
 }
 
-pub fn explain_code_flow(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+pub fn call_graph_flow(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let function_name = required_string(arguments, "function_name")?;
     let _max_depth = arguments
         .get("max_depth")

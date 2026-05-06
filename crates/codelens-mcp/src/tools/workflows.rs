@@ -257,7 +257,7 @@ pub fn trace_request_path(state: &AppState, arguments: &Value) -> ToolResult {
             "max_depth": arguments.get("max_depth").and_then(|value| value.as_u64()),
             "max_results": arguments.get("max_results").and_then(|value| value.as_u64()),
         }),
-        crate::tools::composite::explain_code_flow,
+        crate::tools::composite::call_graph_flow,
     )
 }
 

@@ -190,7 +190,7 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
     )
 }
 
-pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResult {
+pub(crate) fn symbol_impact_summary(state: &AppState, arguments: &Value) -> ToolResult {
     let symbol = required_string(arguments, "symbol")?;
     let (file_path, deprecation_warnings) = optional_path_scope(arguments);
     let symbol_lookup = crate::tools::symbols::find_symbol(
@@ -238,9 +238,9 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
     sections.insert("references".to_owned(), scoped_refs);
     let (mut payload, meta) = make_handle_response(
         state,
-        "summarize_symbol_impact",
+        "symbol_impact_summary",
         stable_cache_key(
-            "summarize_symbol_impact",
+            "symbol_impact_summary",
             arguments,
             &["symbol", "path", "file_path", "depth"],
         ),

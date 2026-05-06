@@ -18,7 +18,7 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
 
     let boundary = module_boundary_report(state, &json!({"path": path}))?.0;
     let symbol_impact = if let Some(symbol) = symbol {
-        super::super::summarize_symbol_impact(
+        super::super::symbol_impact_summary(
             state,
             &json!({"symbol": symbol, "file_path": arguments.get("file_path").and_then(|v| v.as_str())}),
         )

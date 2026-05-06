@@ -473,7 +473,7 @@ fn run_refactor_safety_report_job(
         return Ok(json!({}));
     }
     let symbol_impact = if let Some(symbol) = symbol {
-        super::reports::summarize_symbol_impact(
+        super::reports::symbol_impact_summary(
             state,
             &json!({"symbol": symbol, "file_path": arguments.get("file_path").and_then(|v| v.as_str())}),
         )
