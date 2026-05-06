@@ -204,6 +204,7 @@ fn surfaces_including_tool(tool: &str) -> Vec<&'static str> {
         .chain(
             ALL_PROFILES
                 .iter()
+                .filter(|profile| !profile.is_deprecated())
                 .map(|profile| ToolSurface::Profile(*profile)),
         )
         .filter(|surface| is_tool_in_surface(tool, *surface))

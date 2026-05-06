@@ -557,3 +557,50 @@ fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_field
         "text fallback must preserve actionable omitted-entrypoint records"
     );
 }
+
+#[test]
+fn prepare_harness_session_omitted_entrypoint_surfaces_exclude_deprecated_profiles() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("compact_deprecated_surfaces.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "reviewer-graph",
+            "detail": "compact",
+            "preferred_entrypoints": [
+                "review_changes",
+                "plan_safe_refactor",
+                "trace_request_path",
+            ],
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    let omitted = payload["data"]["routing"]["preferred_entrypoints_omitted"]
+        .as_array()
+        .expect("preferred_entrypoints_omitted array");
+    let deprecated_profiles = [
+        "evaluator-compact",
+        "refactor-full",
+        "ci-audit",
+        "workflow-first",
+    ];
+    for entry in omitted {
+        let included_in = entry["included_in"]
+            .as_array()
+            .expect("included_in array for known omitted tool");
+        for profile in deprecated_profiles {
+            assert!(
+                !included_in.iter().any(|value| value == profile),
+                "omitted entrypoint recovery metadata must not recommend deprecated profile {profile}: {entry}"
+            );
+        }
+    }
+}
