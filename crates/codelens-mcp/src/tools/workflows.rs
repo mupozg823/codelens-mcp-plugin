@@ -15,6 +15,7 @@ use codelens_engine::{ProjectRoot, embedding::DuplicatePair};
 struct DuplicateFilterOutcome {
     pairs: Vec<DuplicatePair>,
     suppressed_config_code_pairs: usize,
+    suppressed_same_file_same_symbol_pairs: usize,
 }
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
@@ -156,8 +157,19 @@ fn is_config_code_duplicate_noise(pair: &DuplicatePair) -> bool {
 }
 
 #[cfg(feature = "semantic")]
-fn duplicate_quality_scan_limit(include_config_code_pairs: bool, max_pairs: usize) -> usize {
-    if include_config_code_pairs {
+fn is_same_file_same_symbol_pair(pair: &DuplicatePair) -> bool {
+    pair.file_a == pair.file_b
+        && symbol_name_for_duplicate_side(&pair.symbol_a, &pair.file_a)
+            == symbol_name_for_duplicate_side(&pair.symbol_b, &pair.file_b)
+}
+
+#[cfg(feature = "semantic")]
+fn duplicate_quality_scan_limit(
+    include_config_code_pairs: bool,
+    include_local_same_symbol_pairs: bool,
+    max_pairs: usize,
+) -> usize {
+    if include_config_code_pairs && include_local_same_symbol_pairs {
         max_pairs
     } else {
         max_pairs.saturating_mul(8).clamp(max_pairs, 2048)
@@ -171,9 +183,11 @@ fn filter_duplicate_pairs_for_cleanup(
     pairs: Vec<DuplicatePair>,
     max_pairs: usize,
     include_config_code_pairs: bool,
+    include_local_same_symbol_pairs: bool,
 ) -> DuplicateFilterOutcome {
     let normalized_scope = normalize_duplicate_scope(project, scope);
     let mut suppressed_config_code_pairs = 0usize;
+    let mut suppressed_same_file_same_symbol_pairs = 0usize;
     let pairs = pairs
         .into_iter()
         .filter(|pair| {
@@ -188,12 +202,20 @@ fn filter_duplicate_pairs_for_cleanup(
             suppressed_config_code_pairs += 1;
             false
         })
+        .filter(|pair| {
+            if include_local_same_symbol_pairs || !is_same_file_same_symbol_pair(pair) {
+                return true;
+            }
+            suppressed_same_file_same_symbol_pairs += 1;
+            false
+        })
         .take(max_pairs)
         .collect();
 
     DuplicateFilterOutcome {
         pairs,
         suppressed_config_code_pairs,
+        suppressed_same_file_same_symbol_pairs,
     }
 }
 
@@ -413,10 +435,18 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
             .get("include_config_code_pairs")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
+        let include_local_same_symbol_pairs = arguments
+            .get("include_local_same_symbol_pairs")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         let guard = state.embedding_engine();
         if let Some(engine) = guard.as_ref() {
             let normalized_scope = normalize_duplicate_scope(&state.project(), scope);
-            let scan_limit = duplicate_quality_scan_limit(include_config_code_pairs, max_pairs);
+            let scan_limit = duplicate_quality_scan_limit(
+                include_config_code_pairs,
+                include_local_same_symbol_pairs,
+                max_pairs,
+            );
             let pairs = engine.find_duplicates_in_scope(
                 threshold,
                 scan_limit,
@@ -428,16 +458,22 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
                 pairs,
                 max_pairs,
                 include_config_code_pairs,
+                include_local_same_symbol_pairs,
             );
             let count = filtered.pairs.len();
             let suppressed_config_code_pairs = filtered.suppressed_config_code_pairs;
+            let suppressed_same_file_same_symbol_pairs =
+                filtered.suppressed_same_file_same_symbol_pairs;
             let payload = json!({
                 "threshold": threshold,
                 "scope": scope,
                 "include_config_code_pairs": include_config_code_pairs,
+                "include_local_same_symbol_pairs": include_local_same_symbol_pairs,
                 "quality_filters": {
                     "config_code_pairs": if include_config_code_pairs { "included" } else { "suppressed_by_default" },
                     "suppressed_config_code_pairs": suppressed_config_code_pairs,
+                    "same_file_same_symbol_pairs": if include_local_same_symbol_pairs { "included" } else { "suppressed_by_default" },
+                    "suppressed_same_file_same_symbol_pairs": suppressed_same_file_same_symbol_pairs,
                 },
                 "duplicates": filtered.pairs,
                 "count": count,
@@ -525,6 +561,7 @@ mod tests {
             pairs,
             20,
             false,
+            false,
         );
 
         assert_eq!(filtered.pairs.len(), 1);
@@ -558,6 +595,7 @@ mod tests {
             pairs,
             20,
             false,
+            false,
         );
 
         assert_eq!(filtered.suppressed_config_code_pairs, 1);
@@ -584,9 +622,68 @@ mod tests {
             pairs,
             20,
             true,
+            false,
         );
 
         assert_eq!(filtered.suppressed_config_code_pairs, 0);
+        assert_eq!(filtered.pairs.len(), 1);
+    }
+
+    #[test]
+    fn duplicate_quality_filter_suppresses_same_file_same_symbol_pairs_by_default() {
+        let project = temp_project();
+        let pairs = vec![
+            duplicate_pair_with_symbols(
+                "crates/codelens-mcp/src/tools/session/capabilities.rs",
+                "guidance_payload",
+                "crates/codelens-mcp/src/tools/session/capabilities.rs",
+                "guidance_payload",
+            ),
+            duplicate_pair_with_symbols(
+                "crates/codelens-mcp/src/state/coordination.rs",
+                "list_active_agents",
+                "crates/codelens-mcp/src/tools/session/coordination.rs",
+                "list_active_agents",
+            ),
+        ];
+
+        let filtered = filter_duplicate_pairs_for_cleanup(
+            &project,
+            Some(project.as_path().join("crates").to_str().unwrap()),
+            pairs,
+            20,
+            false,
+            false,
+        );
+
+        assert_eq!(filtered.suppressed_same_file_same_symbol_pairs, 1);
+        assert_eq!(filtered.pairs.len(), 1);
+        assert_eq!(
+            filtered.pairs[0].file_b,
+            "crates/codelens-mcp/src/tools/session/coordination.rs"
+        );
+    }
+
+    #[test]
+    fn duplicate_quality_filter_can_include_same_file_same_symbol_pairs() {
+        let project = temp_project();
+        let pairs = vec![duplicate_pair_with_symbols(
+            "crates/codelens-mcp/src/tools/session/capabilities.rs",
+            "guidance_payload",
+            "crates/codelens-mcp/src/tools/session/capabilities.rs",
+            "guidance_payload",
+        )];
+
+        let filtered = filter_duplicate_pairs_for_cleanup(
+            &project,
+            Some(project.as_path().join("crates").to_str().unwrap()),
+            pairs,
+            20,
+            false,
+            true,
+        );
+
+        assert_eq!(filtered.suppressed_same_file_same_symbol_pairs, 0);
         assert_eq!(filtered.pairs.len(), 1);
     }
 }

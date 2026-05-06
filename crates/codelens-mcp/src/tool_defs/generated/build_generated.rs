@@ -652,7 +652,7 @@ pub fn workflow_first_tools(ro_w: &ToolAnnotations) -> Vec<Tool> {
         Tool::new(
             "cleanup_duplicate_logic",
             "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence.",
-            json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"},"include_config_code_pairs":{"type":"boolean","description":"Include low-signal config-key ↔ code-symbol duplicate pairs; default false suppresses workflow/config structural key noise."}}}),
+            json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"},"include_config_code_pairs":{"type":"boolean","description":"Include low-signal config-key ↔ code-symbol duplicate pairs; default false suppresses workflow/config structural key noise."},"include_local_same_symbol_pairs":{"type":"boolean","description":"Include low-signal same-file/same-symbol helper pairs; default false suppresses local helper duplicate noise."}}}),
         ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new(
             "review_changes",

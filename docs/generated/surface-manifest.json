@@ -732,7 +732,7 @@
         "phase": "build",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 243
+        "estimated_tokens": 288
       },
       {
         "name": "review_changes",
