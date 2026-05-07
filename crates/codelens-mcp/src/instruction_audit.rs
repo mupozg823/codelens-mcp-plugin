@@ -18,6 +18,26 @@ fn count_occurrences(haystack: &str, needle: &str) -> usize {
     haystack.match_indices(needle).count()
 }
 
+fn contains_stale_copy_paste_command(text: &str) -> bool {
+    let mut in_fence = false;
+    for line in text.lines() {
+        let trimmed_start = line.trim_start();
+        if trimmed_start.starts_with("```") || trimmed_start.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if !in_fence {
+            continue;
+        }
+
+        let command = line.trim().trim_start_matches('$').trim_start();
+        if command.starts_with("cargo test -p codelens-mcp --lib") {
+            return true;
+        }
+    }
+    false
+}
+
 fn grade(score: u64) -> &'static str {
     match score {
         90..=100 => "A",
@@ -93,7 +113,7 @@ fn score_currency(text: &str, lower: &str) -> u64 {
     );
     let markers_balanced =
         count_occurrences(text, ":BEGIN -->") == count_occurrences(text, ":END -->");
-    let avoids_known_bad = !lower.contains("cargo test -p codelens-mcp --lib");
+    let avoids_known_bad = !contains_stale_copy_paste_command(text);
     let has_current_year = lower.contains("2026") || lower.contains("1.13.");
     let mut score = 0;
     if has_current_verify {
@@ -197,12 +217,12 @@ fn audit_existing_file(path: PathBuf, host: &str, text: String) -> Value {
             "Run `python3 scripts/surface-manifest.py --write` and avoid hand-editing generated regions.",
         );
     }
-    if lower.contains("cargo test -p codelens-mcp --lib") {
+    if contains_stale_copy_paste_command(&text) {
         push_finding(
             &mut findings,
             "stale_codelens_mcp_lib_command",
             "fail",
-            "Manifest still references `cargo test -p codelens-mcp --lib`, but the package has no lib target.",
+            "Manifest exposes copy-pasteable `cargo test -p codelens-mcp --lib`, but the package has no lib target.",
             "Replace it with `cargo test -p codelens-mcp --bin codelens-mcp` or `cargo test -p codelens-mcp`.",
         );
     }
@@ -414,6 +434,22 @@ mod tests {
                     |finding| finding["code"] == "stale_codelens_mcp_lib_command"
                         && finding["severity"] == "fail"
                 )
+        );
+    }
+
+    #[test]
+    fn stale_codelens_lib_antipattern_note_is_not_blocking() {
+        let report = audit_existing_file(
+            PathBuf::from("CLAUDE.md"),
+            "claude-code",
+            "The bin target is `codelens-mcp`; lib target does not exist - `cargo test -p codelens-mcp --lib` fails.\n".to_owned(),
+        );
+        assert!(
+            !report["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|finding| finding["code"] == "stale_codelens_mcp_lib_command")
         );
     }
 }
