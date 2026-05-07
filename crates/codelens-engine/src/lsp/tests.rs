@@ -148,6 +148,43 @@ fn diagnostics_sync_project_imports_before_request() {
 }
 
 #[test]
+fn diagnostics_retry_once_after_stale_lsp_transport() {
+    let dir = temp_dir("codelens-lsp-diagnostics-stale-transport");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(dir.join("sample.py"), "x = 1\n").expect("write sample");
+    let server_path = dir.join("mock_stale_lsp.py");
+    let count_path = dir.join("count.txt");
+    fs::write(
+        &server_path,
+        stale_transport_diagnostics_mock_server_script(),
+    )
+    .expect("write mock server");
+    chmod_exec(&server_path);
+
+    let diagnostics = get_diagnostics_via_lsp(
+        &project,
+        &LspDiagnosticRequest {
+            command: "python3".to_owned(),
+            args: vec![
+                server_path.display().to_string(),
+                count_path.display().to_string(),
+            ],
+            file_path: "sample.py".to_owned(),
+            max_results: 10,
+        },
+    )
+    .expect("diagnostics recover after stale transport");
+
+    assert_eq!(diagnostics.len(), 1);
+    let starts = fs::read_to_string(&count_path)
+        .expect("read count")
+        .trim()
+        .parse::<usize>()
+        .expect("parse count");
+    assert_eq!(starts, 2);
+}
+
+#[test]
 fn reads_workspace_symbols_from_mock_lsp() {
     let dir = temp_dir("codelens-lsp-workspace-symbols");
     let project = ProjectRoot::new(&dir).expect("project");
@@ -584,6 +621,78 @@ while True:
                 "message":"No parameter named 'ffmpeg_threads'"
             })
         send({"jsonrpc":"2.0","id":message["id"],"result":{"kind":"full","uri":uri,"items":items}})
+    elif method == "shutdown":
+        send({"jsonrpc":"2.0","id":message["id"],"result":None})
+    elif method == "exit":
+        break
+"#
+}
+
+fn stale_transport_diagnostics_mock_server_script() -> &'static str {
+    r#"#!/usr/bin/env python3
+import json
+import sys
+from pathlib import Path
+
+count_file = Path(sys.argv[1])
+starts = int(count_file.read_text()) if count_file.exists() else 0
+starts += 1
+count_file.write_text(str(starts))
+
+def read_message():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        name, value = line.decode("utf-8").split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+    body = sys.stdin.buffer.read(int(headers["content-length"]))
+    return json.loads(body.decode("utf-8"))
+
+def send(payload):
+    body = json.dumps(payload).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8"))
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+
+while True:
+    message = read_message()
+    if message is None:
+        break
+    method = message.get("method")
+    if method == "initialize":
+        send({"jsonrpc":"2.0","id":message["id"],"result":{"capabilities":{"diagnosticProvider":{}}}})
+    elif method == "textDocument/didOpen":
+        continue
+    elif method == "textDocument/didChange":
+        continue
+    elif method == "textDocument/diagnostic":
+        if starts == 1:
+            sys.exit(0)
+        uri = message["params"]["textDocument"]["uri"]
+        send({
+            "jsonrpc":"2.0",
+            "id":message["id"],
+            "result":{
+                "kind":"full",
+                "uri": uri,
+                "items":[
+                    {
+                        "range":{
+                            "start":{"line":0,"character":0},
+                            "end":{"line":0,"character":1}
+                        },
+                        "severity":2,
+                        "code":"W1",
+                        "source":"mock-lsp",
+                        "message":"recovered warning"
+                    }
+                ]
+            }
+        })
     elif method == "shutdown":
         send({"jsonrpc":"2.0","id":message["id"],"result":None})
     elif method == "exit":

@@ -25,6 +25,15 @@ struct SessionKey {
     args: Vec<String>,
 }
 
+impl SessionKey {
+    fn new(command: &str, args: &[String]) -> Self {
+        Self {
+            command: command.to_owned(),
+            args: args.to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct OpenDocumentState {
     version: i32,
@@ -59,10 +68,7 @@ fn ensure_session<'a>(
         );
     }
 
-    let key = SessionKey {
-        command: command.to_owned(),
-        args: args.to_owned(),
-    };
+    let key = SessionKey::new(command, args);
 
     // Check for dead sessions: if the child process has exited, remove the stale entry.
     if let Some(session) = sessions.get_mut(&key) {
@@ -85,6 +91,21 @@ fn ensure_session<'a>(
             Ok(e.insert(session))
         }
     }
+}
+
+fn is_retriable_lsp_transport_error(err: &anyhow::Error) -> bool {
+    let text = err.to_string().to_ascii_lowercase();
+    [
+        "unexpected eof",
+        "broken pipe",
+        "connection reset",
+        "connection aborted",
+        "transport endpoint is not connected",
+        "os error 32",
+        "os error 54",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker))
 }
 
 impl LspSessionPool {
@@ -125,13 +146,33 @@ impl LspSessionPool {
 
     pub fn get_diagnostics(&self, request: &LspDiagnosticRequest) -> Result<Vec<LspDiagnostic>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
-        session.get_diagnostics(request)
+        let result = {
+            let session = ensure_session(
+                &mut sessions,
+                &self.project,
+                &request.command,
+                &request.args,
+            )?;
+            session.get_diagnostics(request)
+        };
+
+        match result {
+            Ok(diagnostics) => Ok(diagnostics),
+            Err(err) if is_retriable_lsp_transport_error(&err) => {
+                let key = SessionKey::new(&request.command, &request.args);
+                sessions.remove(&key);
+                let session = ensure_session(
+                    &mut sessions,
+                    &self.project,
+                    &request.command,
+                    &request.args,
+                )?;
+                session
+                    .get_diagnostics(request)
+                    .with_context(|| "retried diagnostics after stale LSP transport")
+            }
+            Err(err) => Err(err),
+        }
     }
 
     pub fn search_workspace_symbols(
