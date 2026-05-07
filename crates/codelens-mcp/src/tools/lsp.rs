@@ -86,6 +86,125 @@ fn compact_text_references(
     (compact, total_count, sampled)
 }
 
+fn is_js_ts_path(path: &str) -> bool {
+    matches!(
+        std::path::Path::new(path)
+            .extension()
+            .and_then(|value| value.to_str()),
+        Some("js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts")
+    )
+}
+
+fn classify_ts_type_reference(line: &str, symbol_name: &str) -> &'static str {
+    let trimmed = line.trim();
+    if trimmed.contains("z.infer") && trimmed.contains(symbol_name) {
+        "zod_infer_type"
+    } else if trimmed.contains(".safeParse(") || trimmed.contains(" as ") {
+        "schema_or_cast_type"
+    } else if trimmed.starts_with("import type")
+        || trimmed.contains("import { type ")
+        || trimmed.contains("import {")
+    {
+        "type_import"
+    } else if trimmed.contains(" extends ") || trimmed.contains(" implements ") {
+        "type_inheritance"
+    } else if trimmed.contains(':') || trimmed.contains('<') || trimmed.contains('&') {
+        "type_annotation"
+    } else {
+        "text_name_match"
+    }
+}
+
+fn structural_ts_reference_evidence(
+    state: &AppState,
+    file_path: &str,
+    symbol_name: &str,
+    max_results: usize,
+) -> Option<Value> {
+    if !is_js_ts_path(file_path) {
+        return None;
+    }
+
+    let search_limit = max_results.saturating_mul(3).max(24);
+    let refs = find_referencing_symbols_via_text(
+        &state.project(),
+        symbol_name,
+        Some(file_path),
+        search_limit,
+    )
+    .ok()?;
+
+    let mut rows = Vec::new();
+    let mut total_count = 0usize;
+    for reference in refs {
+        if reference.is_declaration {
+            continue;
+        }
+        total_count += 1;
+        if rows.len() >= max_results.min(8) {
+            continue;
+        }
+        rows.push(json!({
+            "file_path": reference.file_path,
+            "line": reference.line,
+            "column": reference.column,
+            "evidence_kind": classify_ts_type_reference(&reference.line_content, symbol_name),
+            "line_content": reference.line_content.trim(),
+        }));
+    }
+
+    if total_count == 0 {
+        return None;
+    }
+
+    Some(json!({
+        "basis": "text_type_or_cast_references",
+        "count": total_count,
+        "returned_count": rows.len(),
+        "references": rows,
+        "orphan_conclusion": "not_safe_to_mark_unused",
+        "message": "TypeScript structural type/cast evidence exists outside the precise backend result; do not interpret a low precise count as unused without this evidence.",
+    }))
+}
+
+fn structural_evidence_count(evidence: &Option<Value>) -> usize {
+    evidence
+        .as_ref()
+        .and_then(|value| value.get("count"))
+        .and_then(|value| value.as_u64())
+        .unwrap_or_default() as usize
+}
+
+fn insert_structural_ts_evidence(
+    payload: &mut Value,
+    evidence: Option<Value>,
+    precise_count: usize,
+) {
+    let Some(evidence) = evidence else {
+        return;
+    };
+    let structural_count = evidence
+        .get("count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or_default() as usize;
+    let Some(map) = payload.as_object_mut() else {
+        return;
+    };
+    map.insert("structural_reference_evidence".to_owned(), evidence);
+    map.insert(
+        "reference_evidence_count".to_owned(),
+        json!(precise_count + structural_count),
+    );
+    map.insert(
+        "structural_usage_warning".to_owned(),
+        json!({
+            "code": "ts_structural_evidence_present",
+            "message": "Precise JS/TS reference backends can miss structural type, cast, and schema-derived usages. Treat low precise counts as inconclusive when structural evidence is present.",
+            "recommended_action": "inspect_structural_reference_evidence",
+        }),
+    );
+}
+
 fn lsp_install_hint(command: &str) -> &'static str {
     match command {
         "pyright" => "  pip install pyright",
@@ -217,15 +336,32 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                                 .map(|k| k.eq_ignore_ascii_case("definition"))
                         })
                         .unwrap_or(false);
+                let structural_evidence = is_self_only
+                    .then(|| {
+                        structural_ts_reference_evidence(state, &file_path, sym_name, max_results)
+                    })
+                    .flatten();
+                let structural_count = structural_evidence_count(&structural_evidence);
                 let (meta, confidence_basis) = if is_self_only {
-                    (
-                        crate::tool_evidence::meta_degraded(
-                            "hybrid",
-                            0.6,
-                            "single_definition_no_cross_file_visible",
-                        ),
-                        "oxc_semantic_self_only",
-                    )
+                    if structural_count > 0 {
+                        (
+                            crate::tool_evidence::meta_degraded(
+                                "hybrid",
+                                0.72,
+                                "single_definition_plus_ts_structural_evidence",
+                            ),
+                            "oxc_self_only_plus_ts_structural_evidence",
+                        )
+                    } else {
+                        (
+                            crate::tool_evidence::meta_degraded(
+                                "hybrid",
+                                0.6,
+                                "single_definition_no_cross_file_visible",
+                            ),
+                            "oxc_semantic_self_only",
+                        )
+                    }
                 } else {
                     (
                         success_meta(BackendKind::Hybrid, 0.95),
@@ -265,6 +401,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         "rationale": "import_graph backend follows `import { name } from '...'` to upstream callers across files",
                     },
                 });
+                insert_structural_ts_evidence(&mut payload, structural_evidence, count);
                 // The "self-only" case (only the definition row itself)
                 // is the prime symptom of the cross-file gap — flag it
                 // explicitly so the caller does not mistake it for "no
@@ -456,26 +593,50 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
 
         match lsp_result {
             Ok(value) => {
-                let meta = meta_for_backend("lsp", 0.95);
+                let precise_count = value.len();
+                let structural_evidence = if precise_count <= 1 {
+                    symbol_name_param.and_then(|symbol_name| {
+                        structural_ts_reference_evidence(
+                            state,
+                            &file_path,
+                            symbol_name,
+                            max_results,
+                        )
+                    })
+                } else {
+                    None
+                };
+                let structural_count = structural_evidence_count(&structural_evidence);
+                let meta = if structural_count > 0 && precise_count <= 1 {
+                    meta_degraded("hybrid", 0.72, "lsp_low_count_plus_ts_structural_evidence")
+                } else {
+                    meta_for_backend("lsp", 0.95)
+                };
+                let confidence_basis = if structural_count > 0 && precise_count <= 1 {
+                    "lsp_low_count_plus_ts_structural_evidence"
+                } else {
+                    "lsp_precise"
+                };
                 let evidence = crate::tool_evidence::tool_evidence(
                     "references",
                     &meta,
-                    "lsp_precise",
+                    confidence_basis,
                     crate::tool_evidence::precision_signals(
                         true,
                         true,
                         Some("lsp"),
                         None,
-                        value.len(),
+                        precise_count,
                     ),
                 );
                 let mut payload = json!({
                     "references": value,
-                    "count": value.len(),
-                    "returned_count": value.len(),
+                    "count": precise_count,
+                    "returned_count": precise_count,
                     "sampled": false,
                     "evidence": evidence,
                 });
+                insert_structural_ts_evidence(&mut payload, structural_evidence, precise_count);
                 if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
                     insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
                 }

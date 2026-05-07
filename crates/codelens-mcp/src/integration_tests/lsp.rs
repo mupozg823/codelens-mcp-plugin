@@ -803,3 +803,162 @@ fn find_referencing_symbols_oxc_self_only_degrades_confidence_and_evidence() {
         "confidence_basis must shift to the self-only label so reviewers can branch on it: {payload}"
     );
 }
+
+/// Issue #268 regression: TypeScript request/interface symbols can be
+/// genuinely used through structural type annotations, `as Request`
+/// casts, and schema parse flows even when the precise single-file
+/// backend sees only the definition row. Surface that evidence in the
+/// same response so agents do not convert a low precise count into an
+/// orphan/dead-code conclusion.
+#[test]
+fn find_referencing_symbols_oxc_self_only_surfaces_ts_structural_evidence() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("signature_types.ts"),
+        "export interface GifPlanRequest {\n  customName: string;\n  customNumber: string;\n  slogan?: string;\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("gif_route.ts"),
+        "import type { GifPlanRequest } from './signature_types';\n\nconst schema = { safeParse(input: unknown) { return { data: input }; } };\nconst parsed = schema.safeParse({});\nconst body = parsed.data as GifPlanRequest;\nexport function handlePlan(input: GifPlanRequest) {\n  return input.customName;\n}\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({
+            "file_path": "signature_types.ts",
+            "symbol_name": "GifPlanRequest",
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(
+        payload["data"]["backend"],
+        json!("oxc_semantic"),
+        "{payload}"
+    );
+    assert_eq!(payload["data"]["count"], json!(1), "{payload}");
+    let structural_count = payload["data"]["structural_reference_evidence"]["count"]
+        .as_u64()
+        .expect("structural count");
+    assert!(
+        structural_count >= 3,
+        "expected import/cast/annotation evidence, got {structural_count}: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["structural_reference_evidence"]["orphan_conclusion"],
+        json!("not_safe_to_mark_unused"),
+        "{payload}"
+    );
+    assert_eq!(
+        payload["data"]["structural_usage_warning"]["code"],
+        json!("ts_structural_evidence_present"),
+        "{payload}"
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["confidence_basis"],
+        json!("oxc_self_only_plus_ts_structural_evidence"),
+        "{payload}"
+    );
+    assert!(
+        payload["data"]["reference_evidence_count"]
+            .as_u64()
+            .unwrap_or(0)
+            > 1,
+        "reference_evidence_count must include structural evidence: {payload}"
+    );
+}
+
+/// Issue #268 regression for the explicit LSP path: when a TS language
+/// server returns zero/one references for a request interface, CodeLens
+/// must still attach structural/cast evidence and downgrade the verdict
+/// instead of returning a high-confidence empty result.
+#[test]
+fn find_referencing_symbols_lsp_low_count_surfaces_ts_structural_evidence() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("request_types.ts"),
+        "export interface GeneratePollRequest {\n  customName: string;\n  customNumber: string;\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("poll_route.ts"),
+        "import type { GeneratePollRequest } from './request_types';\nconst parsed = { data: {} };\nconst body = parsed.data as GeneratePollRequest;\nexport const consume = (input: GeneratePollRequest) => input.customNumber;\n",
+    )
+    .unwrap();
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'referencesProvider':True}}})\n",
+        "    elif m == 'textDocument/references':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':[]})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let mock_path = project.as_path().join("mock_empty_refs_lsp.py");
+    fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({
+            "file_path": "request_types.ts",
+            "symbol_name": "GeneratePollRequest",
+            "use_lsp": true,
+            "command": "python3",
+            "args": [mock_path.to_string_lossy()],
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(payload["data"]["count"], json!(0), "{payload}");
+    assert!(
+        payload["data"]["structural_reference_evidence"]["count"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 3,
+        "LSP low-count response must carry structural evidence: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["confidence_basis"],
+        json!("lsp_low_count_plus_ts_structural_evidence"),
+        "{payload}"
+    );
+    assert!(
+        payload["confidence"].as_f64().unwrap_or(1.0) < 0.9,
+        "LSP low-count + structural evidence must be downgraded from precise confidence: {payload}"
+    );
+}
