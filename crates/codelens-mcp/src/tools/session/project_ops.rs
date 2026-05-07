@@ -4,9 +4,9 @@ use crate::resource_context::{
     ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
 };
 use crate::tool_defs::{
-    ALL_PRESETS, ALL_PROFILES, HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface,
-    compile_surface_overlay, default_budget_for_profile, is_tool_in_surface,
-    preferred_bootstrap_tools,
+    HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface, compile_surface_overlay,
+    default_budget_for_profile, is_tool_in_surface, preferred_bootstrap_tools, tool_name_requests,
+    tool_request_omissions,
 };
 use crate::tool_runtime::{ToolResult, success_meta};
 use codelens_engine::memory::list_memory_names;
@@ -171,142 +171,6 @@ fn refresh_symbol_index_recommended_action_for_surface(surface: ToolSurface) -> 
     } else {
         "run_reindex_command"
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PreferredEntrypointRequest {
-    requested_tool: String,
-    tool: String,
-}
-
-fn normalize_preferred_entrypoint_tool_name(tool: &str) -> String {
-    let trimmed = tool.trim();
-    trimmed
-        .strip_prefix("mcp__codelens__")
-        .unwrap_or(trimmed)
-        .to_owned()
-}
-
-fn preferred_entrypoint_requests(
-    tool_names: impl IntoIterator<Item = String>,
-) -> Vec<PreferredEntrypointRequest> {
-    tool_names
-        .into_iter()
-        .map(|requested_tool| PreferredEntrypointRequest {
-            tool: normalize_preferred_entrypoint_tool_name(&requested_tool),
-            requested_tool,
-        })
-        .collect()
-}
-
-fn maybe_insert_requested_tool(
-    omission: &mut serde_json::Map<String, Value>,
-    request: &PreferredEntrypointRequest,
-) {
-    if request.requested_tool != request.tool {
-        omission.insert("requested_tool".to_owned(), json!(request.requested_tool));
-    }
-}
-
-fn preferred_entrypoint_omissions(
-    preferred_entrypoints: &[PreferredEntrypointRequest],
-    preferred_entrypoints_visible: &[String],
-    active_surface: ToolSurface,
-    deferred_loading_active: bool,
-) -> Vec<Value> {
-    preferred_entrypoints
-        .iter()
-        .filter(|request| {
-            !preferred_entrypoints_visible
-                .iter()
-                .any(|visible| visible == &request.tool)
-        })
-        .map(|request| {
-            let tool = request.tool.as_str();
-            if crate::tool_defs::tool_definition(tool).is_some() {
-                let included_in = surfaces_including_tool(tool);
-                let active_surface_contains = is_tool_in_surface(tool, active_surface);
-                let hidden_by_deferred_loading = deferred_loading_active && active_surface_contains;
-                let mut omission = serde_json::Map::new();
-                omission.insert("tool".to_owned(), json!(tool));
-                maybe_insert_requested_tool(&mut omission, request);
-                if hidden_by_deferred_loading {
-                    let namespace = crate::tool_defs::tool_namespace(tool);
-                    let tier = crate::tool_defs::tool_tier_label(tool);
-                    omission.insert("reason".to_owned(), json!("deferred_tool_not_loaded"));
-                    omission.insert(
-                        "recommended_action".to_owned(),
-                        json!("load_deferred_tool_namespace"),
-                    );
-                    omission.insert("tool_namespace".to_owned(), json!(namespace));
-                    omission.insert(
-                        "tool_loading_request".to_owned(),
-                        json!({
-                            "method": "tools/list",
-                            "params": {
-                                "namespace": namespace,
-                                "tier": tier,
-                            },
-                        }),
-                    );
-                } else {
-                    omission.insert("reason".to_owned(), json!("not_in_active_surface"));
-                    omission.insert(
-                        "recommended_action".to_owned(),
-                        json!("switch_tool_surface"),
-                    );
-                    if let Some(profile) = recommended_profile_for_tool(tool) {
-                        omission.insert("recommended_profile".to_owned(), json!(profile));
-                    }
-                }
-                omission.insert(
-                    "preferred_executor".to_owned(),
-                    json!(crate::tool_defs::tool_preferred_executor_label(tool)),
-                );
-                omission.insert(
-                    "tool_tier".to_owned(),
-                    json!(crate::tool_defs::tool_tier_label(tool)),
-                );
-                omission.insert("included_in".to_owned(), json!(included_in));
-                Value::Object(omission)
-            } else {
-                let mut omission = serde_json::Map::new();
-                omission.insert("tool".to_owned(), json!(tool));
-                maybe_insert_requested_tool(&mut omission, request);
-                omission.insert("reason".to_owned(), json!("unknown_tool"));
-                omission.insert(
-                    "recommended_action".to_owned(),
-                    json!("fix_preferred_entrypoint"),
-                );
-                Value::Object(omission)
-            }
-        })
-        .collect()
-}
-
-fn surfaces_including_tool(tool: &str) -> Vec<&'static str> {
-    ALL_PRESETS
-        .iter()
-        .map(|preset| ToolSurface::Preset(*preset))
-        .chain(
-            ALL_PROFILES
-                .iter()
-                .filter(|profile| !profile.is_deprecated())
-                .map(|profile| ToolSurface::Profile(*profile)),
-        )
-        .filter(|surface| is_tool_in_surface(tool, *surface))
-        .map(|surface| surface.as_label())
-        .collect()
-}
-
-fn recommended_profile_for_tool(tool: &str) -> Option<&'static str> {
-    ALL_PROFILES
-        .iter()
-        .copied()
-        .find(|profile| {
-            !profile.is_deprecated() && is_tool_in_surface(tool, ToolSurface::Profile(*profile))
-        })
-        .map(|profile| profile.as_str())
 }
 
 fn append_prepare_harness_warning_from_guidance(
@@ -1041,11 +905,11 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         "surface_default"
     };
     let preferred_entrypoint_requests = if !requested_entrypoints.is_empty() {
-        preferred_entrypoint_requests(requested_entrypoints)
+        tool_name_requests(requested_entrypoints)
     } else if !overlay_preferred_entrypoints.is_empty() {
-        preferred_entrypoint_requests(overlay_preferred_entrypoints)
+        tool_name_requests(overlay_preferred_entrypoints)
     } else {
-        preferred_entrypoint_requests(
+        tool_name_requests(
             preferred_bootstrap_tools(active_surface)
                 .unwrap_or(&[])
                 .iter()
@@ -1099,7 +963,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             })
         })
         .collect::<Vec<_>>();
-    let preferred_entrypoints_omitted = preferred_entrypoint_omissions(
+    let preferred_entrypoints_omitted = tool_request_omissions(
         &preferred_entrypoint_requests,
         &preferred_entrypoints_visible,
         active_surface,

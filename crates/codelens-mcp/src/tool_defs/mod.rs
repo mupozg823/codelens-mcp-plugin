@@ -5,6 +5,7 @@ mod generated;
 mod output_schemas;
 mod presets;
 pub mod tool;
+mod tool_selection;
 
 // Re-exports from presets
 pub(crate) use presets::{
@@ -18,6 +19,10 @@ pub(crate) use presets::{
 
 // Re-exports from build
 pub(crate) use build::{tool_definition, tools};
+pub(crate) use tool_selection::{
+    parse_tool_selection_requests, tool_name_requests, tool_request_omissions,
+    tool_selection_diagnostics,
+};
 
 use crate::protocol::ToolTier;
 

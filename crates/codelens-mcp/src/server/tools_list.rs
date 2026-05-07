@@ -4,7 +4,10 @@ use crate::resource_context::{
     ResourceRequestContext, build_visible_tool_context, filter_default_listed_tools,
     filter_listed_tools,
 };
-use crate::tool_defs::{preferred_phase_labels, tool_preferred_executor_label};
+use crate::tool_defs::{
+    parse_tool_selection_requests, preferred_phase_labels, tool_preferred_executor_label,
+    tool_selection_diagnostics,
+};
 use serde_json::{Map, Value, json};
 
 fn list_param_bool(request: &JsonRpcRequest, camel: &str, snake: &str) -> Option<bool> {
@@ -22,6 +25,7 @@ pub(crate) fn build_tools_list_response(
 ) -> Value {
     let request_context =
         ResourceRequestContext::from_request("codelens://tools/list", request.params.as_ref());
+    let selection_requests = parse_tool_selection_requests(request.params.as_ref());
     let surface = state.execution_surface(&request_context.session);
     let visible_context = build_visible_tool_context(state, &request_context);
     let requested_phase = request
@@ -173,6 +177,28 @@ pub(crate) fn build_tools_list_response(
     );
     let tools = json!(response_tools);
     payload.insert("tools".to_owned(), tools.clone());
+
+    if !selection_requests.is_empty() {
+        let listed_tool_names = filtered
+            .iter()
+            .map(|tool| tool.name.to_owned())
+            .collect::<Vec<_>>();
+        let visible_tool_names = visible_context
+            .tools
+            .iter()
+            .map(|tool| tool.name.to_owned())
+            .collect::<Vec<_>>();
+        payload.insert(
+            "selection_diagnostics".to_owned(),
+            tool_selection_diagnostics(
+                &selection_requests,
+                &listed_tool_names,
+                &visible_tool_names,
+                surface,
+                visible_context.deferred_loading_active,
+            ),
+        );
+    }
 
     if connector_safe {
         let mut connector_payload = Map::new();

@@ -149,6 +149,62 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
 }
 
 #[test]
+fn tools_list_select_diagnostics_reports_per_requested_tool() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(102)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "query": "select:mcp__codelens__impact_report,mcp__codelens__get_ranked_context,mcp__codelens__does_not_exist_xyz"
+            })),
+        },
+    )
+    .expect("tools/list with select diagnostics");
+    let value = serde_json::to_value(&response).expect("serialize");
+    let diagnostics = &value["result"]["selection_diagnostics"];
+    assert_eq!(diagnostics["requested_count"], json!(3));
+    assert_eq!(diagnostics["found_count"], json!(1));
+    assert_eq!(diagnostics["not_found_count"], json!(2));
+    assert_eq!(diagnostics["found"][0]["tool"], json!("get_ranked_context"));
+    assert_eq!(
+        diagnostics["found"][0]["requested_tool"],
+        json!("mcp__codelens__get_ranked_context")
+    );
+
+    let not_found = diagnostics["not_found"]
+        .as_array()
+        .expect("not_found diagnostics");
+    let hidden_by_default_listing = not_found
+        .iter()
+        .find(|entry| entry["tool"] == "impact_report")
+        .expect("impact_report should be diagnosed");
+    assert_eq!(
+        hidden_by_default_listing["requested_tool"],
+        json!("mcp__codelens__impact_report")
+    );
+    assert_eq!(
+        hidden_by_default_listing["reason"],
+        json!("not_in_current_listing"),
+        "known tools outside the current default listing must not look like unknown tools"
+    );
+    assert_eq!(
+        hidden_by_default_listing["recommended_action"],
+        json!("reissue_tools_list_full_or_adjust_filter")
+    );
+
+    let unknown = not_found
+        .iter()
+        .find(|entry| entry["tool"] == "does_not_exist_xyz")
+        .expect("unknown tool should be diagnosed");
+    assert_eq!(unknown["reason"], json!("unknown_tool"));
+}
+
+#[test]
 fn tools_list_can_be_filtered_by_namespace() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
