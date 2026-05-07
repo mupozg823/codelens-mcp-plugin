@@ -296,6 +296,10 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             });
             json_resource(uri, body)
         }
+        "codelens://host-instructions/audit" => json_resource(
+            uri,
+            crate::instruction_audit::instruction_manifest_audit(state.project().as_path()),
+        ),
         "codelens://design/agent-experience" => json_resource(
             uri,
             crate::surface_manifest::build_surface_manifest_for_state(state)["agent_experience"]
@@ -505,6 +509,12 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "uri": HARNESS_HOST_COMPAT_RESOURCE_URI,
             "name": "Resolved Harness Host",
             "description": "Compatibility summary for hosts that expect one resolved harness-host contract resource",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://host-instructions/audit",
+            "name": "Host Instruction Audit",
+            "description": "CLAUDE.md / AGENTS.md quality, staleness, duplication, and hook-export readiness audit",
             "mimeType": "application/json"
         }),
         json!({

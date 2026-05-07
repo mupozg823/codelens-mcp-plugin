@@ -190,6 +190,110 @@ fn token_efficiency_resource_includes_watcher_metrics() {
 }
 
 #[test]
+fn host_instruction_audit_resource_reports_manifests_and_benchmarks() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("AGENTS.md"),
+        r#"# Agent Rules
+
+## Verify
+
+```bash
+cargo check
+cargo test -p codelens-mcp
+cargo clippy -- -W clippy::all
+python3 scripts/surface-manifest.py --check
+```
+
+## Architecture
+
+The repository owns crates/codelens-mcp for MCP dispatch, crates/codelens-engine for
+symbol indexing, scripts/ for generated surface checks, and docs/ for stable reference
+material. Prefer native lookup for point edits and use CodeLens routing for multi-file
+impact work before mutation gate changes.
+"#,
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("CLAUDE.md"),
+        r#"# Claude Code Notes
+
+## Verify
+
+```bash
+cargo check
+cargo test -p codelens-mcp
+cargo fmt --check
+python3 scripts/regen-tool-defs.py --check
+```
+
+## Architecture
+
+crates/codelens-mcp owns protocol resources, surface manifests, dispatch, and tools.
+crates/codelens-engine owns repository indexing. Do not edit generated blocks by hand;
+run checks after routing or mutation gate changes.
+"#,
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(2502)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://host-instructions/audit"})),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    let text = value["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    let payload: serde_json::Value = serde_json::from_str(text).expect("valid audit JSON");
+
+    assert_eq!(payload["present_manifest_count"], json!(2));
+    assert!(payload["average_score"].is_number());
+    assert!(payload["files"].as_array().expect("files array").len() >= 2);
+    assert!(payload["files"].as_array().unwrap().iter().any(|file| {
+        file["path"].as_str().unwrap_or("").ends_with("AGENTS.md")
+            && file["criteria"]["commands_workflows"]
+                .as_u64()
+                .unwrap_or_default()
+                >= 15
+    }));
+    assert!(
+        payload["benchmark_mapping"]
+            .as_array()
+            .expect("benchmark mapping")
+            .iter()
+            .any(|entry| entry["reference"] == json!("CLAUDE.md Management")
+                && entry["absorbed_as"] == json!("codelens://host-instructions/audit"))
+    );
+    assert!(
+        payload["recommended_hook_exports"]
+            .as_array()
+            .expect("hook exports")
+            .iter()
+            .any(|entry| entry["event"] == json!("Stop"))
+    );
+
+    let list_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(2503)),
+            method: "resources/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let list_body = serde_json::to_string(&list_response).unwrap();
+    assert!(list_body.contains("codelens://host-instructions/audit"));
+}
+
+#[test]
 fn project_architecture_resource_recommends_canonical_workflows() {
     let project = project_root();
     fs::write(
