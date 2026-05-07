@@ -12,6 +12,7 @@ use codelens_engine::{
     get_lsp_recipe as core_get_lsp_recipe, get_type_hierarchy_native,
 };
 use serde_json::{Value, json};
+use std::collections::HashSet;
 
 fn resolve_path_argument(
     arguments: &serde_json::Value,
@@ -56,11 +57,7 @@ fn postprocess_lsp_diagnostics(
     file_path: &str,
     diagnostics: Vec<codelens_engine::LspDiagnostic>,
 ) -> (Vec<Value>, Vec<Value>) {
-    let source = project
-        .resolve(file_path)
-        .ok()
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .unwrap_or_default();
+    let source = DiagnosticSourceContext::load(project, file_path);
     let mut visible = Vec::new();
     let mut suppressed = Vec::new();
 
@@ -92,18 +89,49 @@ fn postprocess_lsp_diagnostics(
     (visible, suppressed)
 }
 
+struct DiagnosticSourceContext {
+    lines: Vec<String>,
+    disabled_pyright_rules: HashSet<String>,
+}
+
+impl DiagnosticSourceContext {
+    fn load(project: &codelens_engine::ProjectRoot, file_path: &str) -> Self {
+        let source = project
+            .resolve(file_path)
+            .ok()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .unwrap_or_default();
+        let lines: Vec<String> = source.lines().map(ToOwned::to_owned).collect();
+        let disabled_pyright_rules = lines
+            .iter()
+            .take(10)
+            .flat_map(|line| disabled_pyright_rules_on_line(line))
+            .collect();
+        Self {
+            lines,
+            disabled_pyright_rules,
+        }
+    }
+
+    fn line(&self, one_based_line: usize) -> Option<&str> {
+        self.lines
+            .get(one_based_line.saturating_sub(1))
+            .map(String::as_str)
+    }
+}
+
 fn pyright_source_suppression_reason(
-    source: &str,
+    source: &DiagnosticSourceContext,
     diagnostic: &codelens_engine::LspDiagnostic,
 ) -> Option<&'static str> {
     let code = diagnostic.code.as_deref()?;
     if !is_pyright_diagnostic(diagnostic, code) {
         return None;
     }
-    if file_disables_pyright_rule(source, code) {
+    if source.disabled_pyright_rules.contains(code) {
         return Some("file_pyright_rule_disabled");
     }
-    let line = source.lines().nth(diagnostic.line.saturating_sub(1))?;
+    let line = source.line(diagnostic.line)?;
     if line_suppresses_pyright_rule(line, code) {
         return Some("line_pyright_ignore");
     }
@@ -114,11 +142,18 @@ fn is_pyright_diagnostic(diagnostic: &codelens_engine::LspDiagnostic, code: &str
     diagnostic.source.as_deref() == Some("pyright") || code.starts_with("report")
 }
 
-fn file_disables_pyright_rule(source: &str, code: &str) -> bool {
-    source.lines().take(10).any(|line| {
-        let normalized = normalize_pyright_directive(line);
-        normalized.contains(&format!("#pyright:{code}=false"))
-    })
+fn disabled_pyright_rules_on_line(line: &str) -> Vec<String> {
+    let normalized = normalize_pyright_directive(line);
+    let Some((_, directive)) = normalized.split_once("#pyright:") else {
+        return Vec::new();
+    };
+    directive
+        .split(',')
+        .filter_map(|entry| {
+            let (rule, value) = entry.split_once('=')?;
+            (value == "false").then(|| rule.to_owned())
+        })
+        .collect()
 }
 
 fn line_suppresses_pyright_rule(line: &str, code: &str) -> bool {
@@ -137,7 +172,7 @@ fn normalize_pyright_directive(line: &str) -> String {
 }
 
 fn is_optional_import_diagnostic(
-    source: &str,
+    source: &DiagnosticSourceContext,
     diagnostic: &codelens_engine::LspDiagnostic,
 ) -> bool {
     let Some(code) = diagnostic.code.as_deref() else {
@@ -146,23 +181,26 @@ fn is_optional_import_diagnostic(
     if !matches!(code, "reportMissingImports" | "reportMissingModuleSource") {
         return false;
     }
-    import_line_is_guarded_by_import_error(source, diagnostic.line.saturating_sub(1))
+    import_line_is_guarded_by_import_error(source, diagnostic.line)
 }
 
-fn import_line_is_guarded_by_import_error(source: &str, line_index: usize) -> bool {
-    let lines: Vec<&str> = source.lines().collect();
-    if line_index >= lines.len() {
+fn import_line_is_guarded_by_import_error(
+    source: &DiagnosticSourceContext,
+    one_based_line: usize,
+) -> bool {
+    let Some(import_line) = source.line(one_based_line) else {
+        return false;
+    };
+    if !import_line.contains("import ") {
         return false;
     }
-    if !lines[line_index].contains("import ") {
-        return false;
-    }
+    let line_index = one_based_line.saturating_sub(1);
     let start = line_index.saturating_sub(4);
-    let end = (line_index + 8).min(lines.len().saturating_sub(1));
-    let has_try = lines[start..=line_index]
+    let end = (line_index + 8).min(source.lines.len().saturating_sub(1));
+    let has_try = source.lines[start..=line_index]
         .iter()
         .any(|line| line.trim_start().starts_with("try:"));
-    let has_import_error_handler = lines[line_index..=end]
+    let has_import_error_handler = source.lines[line_index..=end]
         .iter()
         .any(|line| line.trim_start().starts_with("except ImportError"));
     has_try && has_import_error_handler
@@ -1196,5 +1234,23 @@ pub fn get_lsp_recipe(_state: &AppState, arguments: &serde_json::Value) -> ToolR
         None => Err(CodeLensError::NotFound(format!(
             "LSP recipe for extension: {extension}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disabled_pyright_rules_on_line_parses_multiple_rules() {
+        assert_eq!(
+            disabled_pyright_rules_on_line(
+                "# pyright: reportMissingImports=false, reportCallIssue=false"
+            ),
+            vec![
+                "reportMissingImports".to_owned(),
+                "reportCallIssue".to_owned()
+            ]
+        );
     }
 }
