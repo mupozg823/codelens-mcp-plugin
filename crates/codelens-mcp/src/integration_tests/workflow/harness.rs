@@ -719,6 +719,75 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
 }
 
 #[test]
+fn prepare_harness_session_normalizes_mcp_prefixed_entrypoints() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("compact_routing_prefixed.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "reviewer-graph",
+            "detail": "compact",
+            "preferred_entrypoints": [
+                "mcp__codelens__review_changes",
+                "mcp__codelens__refresh_symbol_index",
+                "mcp__codelens__this_tool_does_not_exist_xyz",
+            ],
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    let routing = &payload["data"]["routing"];
+    assert_eq!(
+        routing["preferred_entrypoints_visible"],
+        json!(["review_changes"]),
+        "MCP-prefixed visible tools should resolve to canonical tool names"
+    );
+    assert_eq!(
+        routing["preferred_entrypoints_visible_omitted_count"],
+        json!(2),
+        "prefixed hidden/unknown tools should still count as omitted diagnostics"
+    );
+
+    let omitted = routing["preferred_entrypoints_omitted"]
+        .as_array()
+        .expect("preferred_entrypoints_omitted array");
+    let hidden_surface_tool = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "refresh_symbol_index")
+        .expect("known hidden entrypoint should be normalized");
+    assert_eq!(
+        hidden_surface_tool["requested_tool"],
+        json!("mcp__codelens__refresh_symbol_index")
+    );
+    assert_eq!(
+        hidden_surface_tool["reason"],
+        json!("not_in_active_surface"),
+        "prefixed known tools must not be misclassified as unknown_tool"
+    );
+    assert_eq!(
+        hidden_surface_tool["recommended_action"],
+        json!("switch_tool_surface")
+    );
+
+    let unknown = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "this_tool_does_not_exist_xyz")
+        .expect("unknown prefixed entrypoint");
+    assert_eq!(
+        unknown["requested_tool"],
+        json!("mcp__codelens__this_tool_does_not_exist_xyz")
+    );
+    assert_eq!(unknown["reason"], json!("unknown_tool"));
+}
+
+#[test]
 fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_fields() {
     let project = project_root();
     fs::write(

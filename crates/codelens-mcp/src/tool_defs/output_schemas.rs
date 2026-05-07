@@ -1205,6 +1205,7 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                             "type": "object",
                             "properties": {
                                 "tool": {"type": "string"},
+                                "requested_tool": {"type": "string"},
                                 "reason": {"type": "string", "enum": ["not_in_active_surface", "deferred_tool_not_loaded", "unknown_tool"]},
                                 "recommended_action": {"type": "string", "enum": ["switch_tool_surface", "load_deferred_tool_namespace", "fix_preferred_entrypoint"]},
                                 "preferred_executor": {"type": "string"},

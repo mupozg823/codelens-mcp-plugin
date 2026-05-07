@@ -173,26 +173,63 @@ fn refresh_symbol_index_recommended_action_for_surface(surface: ToolSurface) -> 
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreferredEntrypointRequest {
+    requested_tool: String,
+    tool: String,
+}
+
+fn normalize_preferred_entrypoint_tool_name(tool: &str) -> String {
+    let trimmed = tool.trim();
+    trimmed
+        .strip_prefix("mcp__codelens__")
+        .unwrap_or(trimmed)
+        .to_owned()
+}
+
+fn preferred_entrypoint_requests(
+    tool_names: impl IntoIterator<Item = String>,
+) -> Vec<PreferredEntrypointRequest> {
+    tool_names
+        .into_iter()
+        .map(|requested_tool| PreferredEntrypointRequest {
+            tool: normalize_preferred_entrypoint_tool_name(&requested_tool),
+            requested_tool,
+        })
+        .collect()
+}
+
+fn maybe_insert_requested_tool(
+    omission: &mut serde_json::Map<String, Value>,
+    request: &PreferredEntrypointRequest,
+) {
+    if request.requested_tool != request.tool {
+        omission.insert("requested_tool".to_owned(), json!(request.requested_tool));
+    }
+}
+
 fn preferred_entrypoint_omissions(
-    preferred_entrypoints: &[String],
+    preferred_entrypoints: &[PreferredEntrypointRequest],
     preferred_entrypoints_visible: &[String],
     active_surface: ToolSurface,
     deferred_loading_active: bool,
 ) -> Vec<Value> {
     preferred_entrypoints
         .iter()
-        .filter(|tool| {
+        .filter(|request| {
             !preferred_entrypoints_visible
                 .iter()
-                .any(|visible| visible == *tool)
+                .any(|visible| visible == &request.tool)
         })
-        .map(|tool| {
+        .map(|request| {
+            let tool = request.tool.as_str();
             if crate::tool_defs::tool_definition(tool).is_some() {
                 let included_in = surfaces_including_tool(tool);
                 let active_surface_contains = is_tool_in_surface(tool, active_surface);
                 let hidden_by_deferred_loading = deferred_loading_active && active_surface_contains;
                 let mut omission = serde_json::Map::new();
                 omission.insert("tool".to_owned(), json!(tool));
+                maybe_insert_requested_tool(&mut omission, request);
                 if hidden_by_deferred_loading {
                     let namespace = crate::tool_defs::tool_namespace(tool);
                     let tier = crate::tool_defs::tool_tier_label(tool);
@@ -233,11 +270,15 @@ fn preferred_entrypoint_omissions(
                 omission.insert("included_in".to_owned(), json!(included_in));
                 Value::Object(omission)
             } else {
-                json!({
-                    "tool": tool,
-                    "reason": "unknown_tool",
-                    "recommended_action": "fix_preferred_entrypoint",
-                })
+                let mut omission = serde_json::Map::new();
+                omission.insert("tool".to_owned(), json!(tool));
+                maybe_insert_requested_tool(&mut omission, request);
+                omission.insert("reason".to_owned(), json!("unknown_tool"));
+                omission.insert(
+                    "recommended_action".to_owned(),
+                    json!("fix_preferred_entrypoint"),
+                );
+                Value::Object(omission)
             }
         })
         .collect()
@@ -999,17 +1040,23 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     } else {
         "surface_default"
     };
-    let preferred_entrypoints = if !requested_entrypoints.is_empty() {
-        requested_entrypoints
+    let preferred_entrypoint_requests = if !requested_entrypoints.is_empty() {
+        preferred_entrypoint_requests(requested_entrypoints)
     } else if !overlay_preferred_entrypoints.is_empty() {
-        overlay_preferred_entrypoints
+        preferred_entrypoint_requests(overlay_preferred_entrypoints)
     } else {
-        preferred_bootstrap_tools(active_surface)
-            .unwrap_or(&[])
-            .iter()
-            .map(|tool| (*tool).to_owned())
-            .collect::<Vec<_>>()
+        preferred_entrypoint_requests(
+            preferred_bootstrap_tools(active_surface)
+                .unwrap_or(&[])
+                .iter()
+                .map(|tool| (*tool).to_owned())
+                .collect::<Vec<_>>(),
+        )
     };
+    let preferred_entrypoints = preferred_entrypoint_requests
+        .iter()
+        .map(|request| request.tool.clone())
+        .collect::<Vec<_>>();
     let preferred_entrypoints_visible = preferred_entrypoints
         .iter()
         .filter(|tool| visible_tool_names.iter().any(|name| name == *tool))
@@ -1053,7 +1100,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         })
         .collect::<Vec<_>>();
     let preferred_entrypoints_omitted = preferred_entrypoint_omissions(
-        &preferred_entrypoints,
+        &preferred_entrypoint_requests,
         &preferred_entrypoints_visible,
         active_surface,
         visible.deferred_loading_active,
