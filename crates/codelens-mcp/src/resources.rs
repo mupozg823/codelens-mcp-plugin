@@ -324,6 +324,7 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                 request.session.project_path.as_deref(),
             );
             let mut stats = metrics_payload.session;
+            stats.insert("token_bill".to_owned(), metrics_payload.token_bill);
             stats.insert("derived_kpis".to_owned(), metrics_payload.derived_kpis);
             json_resource(uri, Value::Object(stats))
         }

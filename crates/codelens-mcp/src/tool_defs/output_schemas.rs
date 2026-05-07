@@ -600,6 +600,7 @@ pub(super) fn tool_metrics_output_schema() -> serde_json::Value {
             "scope": {"type": "string", "enum": ["global", "session"]},
             "session_id": {"type": ["string", "null"]},
             "session": {"type": "object"},
+            "token_bill": {"type": "object"},
             "derived_kpis": {"type": "object"}
         }
     })

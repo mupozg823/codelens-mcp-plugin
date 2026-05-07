@@ -142,6 +142,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             "scope": if requested_session_id.is_some() { "session" } else { "global" },
             "session_id": requested_session_id,
             "session": metrics_payload.session,
+            "token_bill": metrics_payload.token_bill,
             "derived_kpis": metrics_payload.derived_kpis
         }),
         success_meta(BackendKind::Telemetry, 1.0),

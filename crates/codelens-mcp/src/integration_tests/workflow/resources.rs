@@ -108,6 +108,9 @@ fn tool_metrics_expose_kpis_and_chain_detection() {
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(metrics["data"]["per_tool"].is_array());
     assert!(metrics["data"]["per_surface"].is_array());
+    assert!(metrics["data"]["token_bill"]["top_token_tools"].is_array());
+    assert!(metrics["data"]["token_bill"]["waste_signals"].is_array());
+    assert!(metrics["data"]["token_bill"]["optimization_actions"].is_array());
     assert!(metrics["data"]["derived_kpis"]["composite_ratio"].is_number());
     assert!(metrics["data"]["session"]["quality_contract_emitted_count"].is_number());
     assert!(metrics["data"]["session"]["recommended_checks_emitted_count"].is_number());
@@ -177,6 +180,9 @@ fn token_efficiency_resource_includes_watcher_metrics() {
     assert!(body.contains("watcher_pruned_missing_failures"));
     assert!(body.contains("watcher_lock_contention_rate"));
     assert!(body.contains("watcher_recent_failure_share"));
+    assert!(body.contains("token_bill"));
+    assert!(body.contains("top_token_tools"));
+    assert!(body.contains("optimization_actions"));
     assert!(body.contains("deferred_namespace_expansion_count"));
     assert!(body.contains("deferred_hidden_tool_call_denied_count"));
     assert!(body.contains("deferred_hidden_tool_call_deny_rate"));
