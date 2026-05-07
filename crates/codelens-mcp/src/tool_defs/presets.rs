@@ -758,6 +758,11 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "get_ranked_context",
     "find_referencing_symbols",
     "find_scoped_references",
+    // Reviewer sessions need NL retrieval for architecture and risk
+    // evidence. Deferred loading still keeps it out of the initial
+    // tool prompt unless the host loads the symbols namespace/tier.
+    "semantic_search",
+    "index_embeddings",
     // Diagnostics
     "get_file_diagnostics",
     // Graph / impact

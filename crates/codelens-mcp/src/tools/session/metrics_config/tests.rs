@@ -114,15 +114,19 @@ fn semantic_search_status_is_available_only_for_available_variant() {
     assert!(!SemanticSearchStatus::FeatureDisabled.is_available());
 }
 
-/// Phase 4a AC4: both Codex profiles must now expose
+/// Phase 4a AC4: core Codex profiles must now expose
 /// `semantic_search` and `index_embeddings`. This guards against
 /// accidental removal in future preset edits.
 #[cfg(feature = "semantic")]
 #[test]
-fn planner_readonly_and_builder_minimal_expose_semantic_search() {
+fn core_codex_profiles_expose_semantic_search() {
     use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
 
-    for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
+    for profile in [
+        ToolProfile::PlannerReadonly,
+        ToolProfile::BuilderMinimal,
+        ToolProfile::ReviewerGraph,
+    ] {
         let surface = ToolSurface::Profile(profile);
         assert!(
             is_tool_in_surface("semantic_search", surface),

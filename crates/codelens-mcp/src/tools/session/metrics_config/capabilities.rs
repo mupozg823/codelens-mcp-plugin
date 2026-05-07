@@ -293,7 +293,11 @@ impl SemanticSearchStatus {
         #[cfg(feature = "semantic")]
         {
             match self {
-                Self::NotInActiveSurface => Some(vec!["planner-readonly", "builder-minimal"]),
+                Self::NotInActiveSurface => Some(vec![
+                    "planner-readonly",
+                    "builder-minimal",
+                    "reviewer-graph",
+                ]),
                 _ => None,
             }
         }

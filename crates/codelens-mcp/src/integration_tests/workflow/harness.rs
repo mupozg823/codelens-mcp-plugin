@@ -128,6 +128,42 @@ fn prepare_harness_session_warns_when_diagnostics_recipe_is_missing() {
     );
 }
 
+#[cfg(feature = "semantic")]
+#[test]
+fn prepare_harness_session_reviewer_graph_does_not_report_semantic_surface_gap() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("review_surface.rs"),
+        "fn alpha() -> i32 {\n    1\n}\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "full"}),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_ne!(
+        payload["data"]["capabilities"]["semantic_search_status"],
+        json!("not_in_active_surface"),
+        "reviewer-graph should expose semantic_search; any semantic warning should be about assets or index state"
+    );
+    assert!(
+        !payload["data"]["warnings"]
+            .as_array()
+            .map(|warnings| {
+                warnings
+                    .iter()
+                    .any(|warning| warning["code"] == "semantic_not_in_active_surface")
+            })
+            .unwrap_or(false),
+        "prepare_harness_session must not tell reviewer-graph users to switch surfaces for semantic_search"
+    );
+}
+
 #[test]
 fn prepare_harness_session_warning_codes_are_unique() {
     let project = project_root();
