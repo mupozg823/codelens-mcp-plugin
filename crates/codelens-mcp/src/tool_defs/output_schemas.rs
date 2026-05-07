@@ -1373,6 +1373,18 @@ pub(super) fn get_current_config_output_schema() -> serde_json::Value {
             "token_budget": {"type": "integer"},
             "tool_count": {"type": "integer"},
             "surface_generation": surface_generation_output_schema(),
+            "project_activation": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string"},
+                    "active_project_root": {"type": "string"},
+                    "daemon_default_project_root": {"type": "string"},
+                    "native_fallback_recommended": {"type": "boolean"},
+                    "recommended_action": {"type": "string"},
+                    "message": {"type": "string"},
+                    "remediation": {"type": "object"}
+                }
+            },
             "effort_level": {"type": "string"},
             "daemon_mode": {"type": "boolean"},
             "transport": {"type": "string"}

@@ -23,6 +23,42 @@ fn load_project_config_policy(project_root: &std::path::Path) -> Value {
     }
 }
 
+fn project_activation_payload(state: &AppState) -> Value {
+    let active_project_root = state.current_project_scope();
+    let daemon_default_project_root = state.default_project_scope();
+
+    if active_project_root == daemon_default_project_root {
+        return json!({
+            "status": "default_project_active",
+            "active_project_root": active_project_root,
+            "daemon_default_project_root": daemon_default_project_root,
+            "native_fallback_recommended": false,
+            "recommended_action": "continue_with_codelens",
+        });
+    }
+
+    let suggested_project = daemon_default_project_root.clone();
+    json!({
+        "status": "active_project_differs_from_daemon_default",
+        "active_project_root": active_project_root,
+        "daemon_default_project_root": daemon_default_project_root,
+        "native_fallback_recommended": false,
+        "recommended_action": "verify_or_activate_explicit_project",
+        "message": "If the active project is not the workspace you intend to inspect, keep using CodeLens and remap it by calling prepare_harness_session or activate_project with an absolute project path.",
+        "remediation": {
+            "tool": "prepare_harness_session",
+            "args": {
+                "project": suggested_project.clone(),
+                "detail": "compact"
+            },
+            "alternative_tool": "activate_project",
+            "alternative_args": {
+                "project": suggested_project
+            }
+        }
+    })
+}
+
 pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let stats = state.symbol_index().stats()?;
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
@@ -54,6 +90,7 @@ pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> To
             "token_budget": token_budget,
             "tool_count": visible_tools.len(),
             "surface_generation": surface_generation,
+            "project_activation": project_activation_payload(state),
             "client_profile": client_profile.as_str(),
             "frameworks": frameworks,
             "workspace_packages": workspace_packages,

@@ -41,7 +41,7 @@ schema_version = "v1"
 [[tool]]
 name = "get_current_config"
 category = "file_io"
-description = "[CodeLens:Session] Project config and index stats. Use to verify project is active."
+description = "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, call activate_project or prepare_harness_session with an absolute project path; do not abandon CodeLens because the active project is stale."
 annotations = "ro_p"
 output_schema = "get_current_config_output_schema"
 
@@ -1283,6 +1283,7 @@ max_pairs = { type = "integer" }
 scope = { type = "string" }
 max_results = { type = "integer" }
 include_config_code_pairs = { type = "boolean", description = "Include low-signal config-key ↔ code-symbol duplicate pairs; default false suppresses workflow/config structural key noise." }
+include_local_same_symbol_pairs = { type = "boolean", description = "Include low-signal same-file/same-symbol helper pairs; default false suppresses local helper duplicate noise." }
 
 # ─────
 
@@ -1323,7 +1324,7 @@ symbol = { type = "string", description = "Symbol to check references for" }
 [[tool]]
 name = "activate_project"
 category = "session"
-description = "[CodeLens:Session] Activate project — auto-detect preset, index, frameworks."
+description = "[CodeLens:Session] Activate/remap project — use when get_current_config reports a different active project than the intended workspace."
 annotations = "ro_p"
 output_schema = "activate_project_output_schema"
 
@@ -1336,7 +1337,7 @@ properties = { project = { type = "string", description = "Optional project name
 [[tool]]
 name = "prepare_harness_session"
 category = "session"
-description = "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — activate project, summarize surface, capabilities, visible tools, and optionally auto-recover a small stale index in one call."
+description = "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — pass project=<absolute repo path> on first use to remap stale daemon state, then summarize surface, capabilities, visible tools, and optionally auto-recover a small stale index in one call."
 annotations = "mutating"
 output_schema = "prepare_harness_session_output_schema"
 
@@ -1352,6 +1353,7 @@ detail = { type = "string", enum = ["compact", "full"], description = "compact r
 host_context = { type = "string", enum = ["claude-code", "codex", "cursor", "cline", "windsurf", "vscode", "jetbrains", "api-agent"], description = "Optional host/runtime hint used to compile advisory bootstrap routing without changing the active tool surface" }
 task_overlay = { type = "string", enum = ["planning", "editing", "review", "onboarding", "batch-analysis", "interactive"], description = "Optional task-mode hint used to compile advisory bootstrap routing without changing the active tool surface" }
 preferred_entrypoints = { type = "array", items = { type = "string" }, description = "Optional ordered entrypoints so the server can report which are immediately visible" }
+known_tool_schema_fingerprint = { type = "string", description = "Optional client-observed tool_schema_fingerprint. If it differs from the active surface, prepare_harness_session emits a tool_schema_cache_stale warning with refresh guidance." }
 auto_refresh_stale = { type = "boolean", description = "When true (default), bootstrap auto-refreshes a small stale symbol index before reporting capabilities" }
 auto_refresh_stale_threshold = { type = "integer", description = "Maximum stale file count eligible for automatic refresh during bootstrap (default 32)" }
 

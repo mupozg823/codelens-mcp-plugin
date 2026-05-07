@@ -606,6 +606,59 @@ fn get_current_config_exposes_tool_schema_surface_generation() {
             .len(),
         64
     );
+    assert_eq!(
+        payload["data"]["project_activation"]["status"],
+        json!("default_project_active")
+    );
+}
+
+#[test]
+fn get_current_config_guides_explicit_activation_when_active_project_differs() {
+    let default_project = project_root();
+    let other_project = project_root();
+    fs::write(
+        other_project.as_path().join("other.py"),
+        "def beta():\n    return 2\n",
+    )
+    .unwrap();
+    let state = make_state(&default_project);
+    state
+        .switch_project(other_project.as_path().to_str().expect("utf8 path"))
+        .unwrap();
+
+    let payload = call_tool(&state, "get_current_config", json!({}));
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["project_root"],
+        json!(other_project.as_path().to_string_lossy().to_string())
+    );
+    let activation = &payload["data"]["project_activation"];
+    assert_eq!(
+        activation["status"],
+        json!("active_project_differs_from_daemon_default")
+    );
+    assert_eq!(activation["native_fallback_recommended"], json!(false));
+    assert_eq!(
+        activation["recommended_action"],
+        json!("verify_or_activate_explicit_project")
+    );
+    assert_eq!(
+        activation["active_project_root"],
+        json!(other_project.as_path().to_string_lossy().to_string())
+    );
+    assert_eq!(
+        activation["daemon_default_project_root"],
+        json!(default_project.as_path().to_string_lossy().to_string())
+    );
+    assert_eq!(
+        activation["remediation"]["tool"],
+        json!("prepare_harness_session")
+    );
+    assert_eq!(
+        activation["remediation"]["args"]["project"],
+        json!(default_project.as_path().to_string_lossy().to_string())
+    );
 }
 
 #[test]

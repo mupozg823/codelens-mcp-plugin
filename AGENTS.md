@@ -5,6 +5,7 @@
 
 - Native first for point lookups and already-local single-file edits.
 - Use `prepare_harness_session` before multi-file review or refactor-sensitive work.
+- If `get_current_config.project_root` is not the intended workspace, call `prepare_harness_session` or `activate_project` with `project=<absolute repo path>` and continue with CodeLens; do not fall back to native tools solely because the active project was stale.
 - Default execution profile: `builder-minimal`.
 - Use `refactor-full` only after `verify_change_readiness`; for rename-heavy changes also run `safe_rename_report` or `unresolved_reference_check`.
 - After mutation, run `audit_builder_session` and export the session summary if the change must cross sessions or CI.

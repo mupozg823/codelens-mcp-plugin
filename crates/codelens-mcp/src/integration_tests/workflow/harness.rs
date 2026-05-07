@@ -165,6 +165,49 @@ fn prepare_harness_session_warning_codes_are_unique() {
 }
 
 #[test]
+fn prepare_harness_session_warns_when_active_project_differs_without_explicit_project() {
+    let default_project = project_root();
+    let other_project = project_root();
+    fs::write(
+        other_project.as_path().join("other.py"),
+        "def beta():\n    return 2\n",
+    )
+    .unwrap();
+    let state = make_state(&default_project);
+    state
+        .switch_project(other_project.as_path().to_str().expect("utf8 path"))
+        .unwrap();
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"detail": "compact"}),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    let warnings = payload["data"]["warnings"].as_array().expect("warnings");
+    let warning = warnings
+        .iter()
+        .find(|warning| warning["code"] == "active_project_differs_from_daemon_default")
+        .expect("active project warning");
+    assert_eq!(
+        warning["recommended_action"],
+        json!("verify_or_activate_explicit_project")
+    );
+    assert_eq!(warning["action_target"], json!("active_project"));
+    assert_eq!(warning["restart_recommended"], json!(false));
+    assert_eq!(
+        warning["remediation"]["tool"],
+        json!("prepare_harness_session")
+    );
+    assert_eq!(
+        warning["remediation"]["args"]["project"],
+        json!(default_project.as_path().to_string_lossy().to_string())
+    );
+    assert_eq!(warning["native_fallback_recommended"], json!(false));
+}
+
+#[test]
 fn prepare_harness_session_surfaces_top_level_health_summary() {
     let project = project_root();
     fs::write(

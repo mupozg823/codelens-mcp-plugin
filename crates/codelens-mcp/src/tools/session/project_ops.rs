@@ -626,6 +626,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         .get("preset")
         .and_then(|v| v.as_str())
         .map(str::to_owned);
+    let explicit_project_request = arguments.get("project").and_then(|v| v.as_str()).is_some();
     let preset_dropped_for_profile = requested_profile.is_some() && requested_preset.is_some();
     // Drop `preset` for the downstream `activate_project` call so
     // the existing single-knob path runs unchanged. Working on a
@@ -885,7 +886,9 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             .get("project_name")
             .and_then(|value| value.as_str())
             .unwrap_or_default();
-        if is_anonymized_agent_project_name(active_project_name_for_check) {
+        let active_project_is_anonymized =
+            is_anonymized_agent_project_name(active_project_name_for_check);
+        if active_project_is_anonymized {
             let daemon_default = state.default_project_scope();
             push_prepare_harness_warning_with_extras(
                 &mut warnings,
@@ -907,6 +910,38 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                     },
                 }),
             );
+        }
+        if !explicit_project_request && !active_project_is_anonymized {
+            let active_project_root = state.current_project_scope();
+            let daemon_default_project_root = state.default_project_scope();
+            if active_project_root != daemon_default_project_root {
+                let suggested_project = daemon_default_project_root.clone();
+                push_prepare_harness_warning_with_extras(
+                    &mut warnings,
+                    &mut warning_codes,
+                    "active_project_differs_from_daemon_default",
+                    "active CodeLens project differs from the daemon default project. If this is not the workspace you intend to inspect, re-issue prepare_harness_session or activate_project with an absolute project path; do not fall back to native tools solely because the active project is stale.",
+                    false,
+                    "verify_or_activate_explicit_project",
+                    "active_project",
+                    json!({
+                        "active_project_root": active_project_root,
+                        "daemon_default_project_root": daemon_default_project_root,
+                        "native_fallback_recommended": false,
+                        "remediation": {
+                            "tool": "prepare_harness_session",
+                            "args": {
+                                "project": suggested_project.clone(),
+                                "detail": "compact"
+                            },
+                            "alternative_tool": "activate_project",
+                            "alternative_args": {
+                                "project": suggested_project
+                            }
+                        }
+                    }),
+                );
+            }
         }
         // Issue #224: when caller supplied both `profile` and `preset`,
         // surface a non-blocking warning naming the dropped value so the

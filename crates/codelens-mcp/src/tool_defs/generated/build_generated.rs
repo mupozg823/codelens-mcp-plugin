@@ -285,7 +285,7 @@ pub fn file_io_tools(ro_p: &ToolAnnotations) -> Vec<Tool> {
     vec![
         Tool::new(
             "get_current_config",
-            "[CodeLens:Session] Project config and index stats. Use to verify project is active.",
+            "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, call activate_project or prepare_harness_session with an absolute project path; do not abandon CodeLens because the active project is stale.",
             json!({"type":"object","properties":{}}),
         ).with_output_schema(get_current_config_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
@@ -462,12 +462,12 @@ pub fn session_tools(
     vec![
         Tool::new(
             "activate_project",
-            "[CodeLens:Session] Activate project — auto-detect preset, index, frameworks.",
+            "[CodeLens:Session] Activate/remap project — use when get_current_config reports a different active project than the intended workspace.",
             json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"}}}),
         ).with_output_schema(activate_project_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "prepare_harness_session",
-            "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — activate project, summarize surface, capabilities, visible tools, and optionally auto-recover a small stale index in one call.",
+            "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — pass project=<absolute repo path> on first use to remap stale daemon state, then summarize surface, capabilities, visible tools, and optionally auto-recover a small stale index in one call.",
             json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"},"profile":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"preset":{"type":"string","enum":["minimal","balanced","full"]},"token_budget":{"type":"integer","description":"Optional explicit token budget override after activation"},"file_path":{"type":"string","description":"Optional file path for language-specific capability checks"},"detail":{"type":"string","enum":["compact","full"],"description":"compact returns the harness preflight essentials only; full also includes the heavier config snapshot"},"host_context":{"type":"string","enum":["claude-code","codex","cursor","cline","windsurf","vscode","jetbrains","api-agent"],"description":"Optional host/runtime hint used to compile advisory bootstrap routing without changing the active tool surface"},"task_overlay":{"type":"string","enum":["planning","editing","review","onboarding","batch-analysis","interactive"],"description":"Optional task-mode hint used to compile advisory bootstrap routing without changing the active tool surface"},"preferred_entrypoints":{"type":"array","items":{"type":"string"},"description":"Optional ordered entrypoints so the server can report which are immediately visible"},"known_tool_schema_fingerprint":{"type":"string","description":"Optional client-observed tool_schema_fingerprint. If it differs from the active surface, prepare_harness_session emits a tool_schema_cache_stale warning with refresh guidance."},"auto_refresh_stale":{"type":"boolean","description":"When true (default), bootstrap auto-refreshes a small stale symbol index before reporting capabilities"},"auto_refresh_stale_threshold":{"type":"integer","description":"Maximum stale file count eligible for automatic refresh during bootstrap (default 32)"}}}),
         ).with_output_schema(prepare_harness_session_output_schema()).with_annotations(mutating.clone()),
         Tool::new(
