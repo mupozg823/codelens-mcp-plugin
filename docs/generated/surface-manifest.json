@@ -192,7 +192,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 244
+        "estimated_tokens": 425
       },
       {
         "name": "search_workspace_symbols",

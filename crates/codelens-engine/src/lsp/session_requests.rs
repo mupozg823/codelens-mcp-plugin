@@ -19,9 +19,12 @@ use super::workspace_edit::{
     apply_workspace_edit_transaction, workspace_edit_transaction_from_edit,
     workspace_edit_transaction_from_response,
 };
+use crate::import_graph::{extract_imports_from_source, resolve_module_for_file};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use url::Url;
 
 impl LspSession {
     pub(super) fn find_references(&mut self, request: &LspRequest) -> Result<Vec<LspReference>> {
@@ -49,6 +52,7 @@ impl LspSession {
     ) -> Result<Vec<LspDiagnostic>> {
         let absolute_path = self.project.resolve(&request.file_path)?;
         let (uri_string, _source) = self.prepare_document(&absolute_path)?;
+        self.sync_imported_project_documents(&absolute_path, &_source, 32)?;
 
         let id = self.next_id();
         self.send_request(
@@ -60,6 +64,47 @@ impl LspSession {
         )?;
         let response = self.read_response_for_id(id)?;
         diagnostics_from_response(&self.project, response, request.max_results)
+    }
+
+    fn sync_imported_project_documents(
+        &mut self,
+        absolute_path: &Path,
+        source: &str,
+        max_documents: usize,
+    ) -> Result<usize> {
+        let mut synced = 0usize;
+        let mut seen = HashSet::new();
+        for module in extract_imports_from_source(absolute_path, source) {
+            if synced >= max_documents {
+                break;
+            }
+            let Some(relative_path) =
+                resolve_module_for_file(&self.project, absolute_path, &module)
+            else {
+                continue;
+            };
+            if !seen.insert(relative_path.clone()) {
+                continue;
+            }
+            let Ok(imported_path) = self.project.resolve(&relative_path) else {
+                continue;
+            };
+            if imported_path == absolute_path {
+                continue;
+            }
+            let Ok(imported_source) = std::fs::read_to_string(&imported_path) else {
+                continue;
+            };
+            let Ok(language_id) = super::protocol::language_id_for_path(&imported_path) else {
+                continue;
+            };
+            let uri = Url::from_file_path(&imported_path).map_err(|_| {
+                anyhow::anyhow!("failed to build file uri for {}", imported_path.display())
+            })?;
+            self.sync_document(uri.as_str(), language_id, &imported_source)?;
+            synced += 1;
+        }
+        Ok(synced)
     }
 
     pub(super) fn search_workspace_symbols(

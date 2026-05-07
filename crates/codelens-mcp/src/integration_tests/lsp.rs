@@ -47,6 +47,55 @@ fn write_mock_diagnostics_lsp(project: &ProjectRoot, name: &str) -> std::path::P
     mock_path
 }
 
+fn write_mock_pyright_diagnostics_lsp(project: &ProjectRoot, name: &str) -> std::path::PathBuf {
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'textDocumentSync':1,'diagnosticProvider':{}}}})\n",
+        "    elif m == 'textDocument/diagnostic':\n",
+        "        uri = msg['params']['textDocument']['uri']\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'kind':'full','uri':uri,'items':[\n",
+        "          {'range':{'start':{'line':4,'character':8},'end':{'line':4,'character':15}},'severity':1,'source':'pyright','code':'reportMissingImports','message':'Import \"PySide6\" could not be resolved'},\n",
+        "          {'range':{'start':{'line':8,'character':17},'end':{'line':8,'character':31}},'severity':1,'source':'pyright','code':'reportCallIssue','message':'No parameter named \"ffmpeg_threads\"'}\n",
+        "        ]}})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let mock_path = project.as_path().join(name);
+    fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    mock_path
+}
+
 #[test]
 fn returns_lsp_references_via_tool_call() {
     let project = project_root();
@@ -115,6 +164,87 @@ fn get_file_diagnostics_accepts_legacy_file_path_with_deprecation_warning() {
     assert_eq!(
         payload["data"]["deprecation_warnings"][0]["param"],
         json!("file_path")
+    );
+}
+
+#[test]
+fn get_file_diagnostics_respects_pyright_source_suppressions() {
+    let project = project_root();
+    let mock_path = write_mock_pyright_diagnostics_lsp(&project, "mock_pyright_diag_lsp.py");
+    fs::write(
+        project.as_path().join("gui.py"),
+        concat!(
+            "# pyright: reportMissingImports=false\n",
+            "\n",
+            "def main():\n",
+            "    try:\n",
+            "        from PySide6.QtWidgets import QApplication\n",
+            "    except ImportError:\n",
+            "        return 2\n",
+            "    return GuiRunConfig(\n",
+            "        ffmpeg_threads=2,  # pyright: ignore[reportCallIssue]\n",
+            "    )\n",
+        ),
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "get_file_diagnostics",
+        json!({ "path": "gui.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["count"], json!(0));
+    assert_eq!(payload["data"]["suppressed_diagnostics_count"], json!(2));
+    assert_eq!(
+        payload["data"]["suppressed_diagnostics"][0]["suppression"],
+        json!("file_pyright_rule_disabled")
+    );
+    assert_eq!(
+        payload["data"]["suppressed_diagnostics"][1]["suppression"],
+        json!("line_pyright_ignore")
+    );
+}
+
+#[test]
+fn get_file_diagnostics_classifies_guarded_optional_imports() {
+    let project = project_root();
+    let mock_path = write_mock_pyright_diagnostics_lsp(&project, "mock_optional_diag_lsp.py");
+    fs::write(
+        project.as_path().join("gui.py"),
+        concat!(
+            "# GUI optional dependency wrapper\n",
+            "\n",
+            "def main():\n",
+            "    try:\n",
+            "        from PySide6.QtWidgets import QApplication\n",
+            "    except ImportError:\n",
+            "        return 2\n",
+            "    return GuiRunConfig(\n",
+            "        ffmpeg_threads=2,\n",
+            "    )\n",
+        ),
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "get_file_diagnostics",
+        json!({ "path": "gui.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["count"], json!(2));
+    assert_eq!(
+        payload["data"]["diagnostics"][0]["classification"],
+        json!("optional_dependency_import")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics"][0]["actionability"],
+        json!("environmental_optional_dependency")
     );
 }
 

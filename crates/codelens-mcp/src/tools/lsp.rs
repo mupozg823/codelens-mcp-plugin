@@ -51,6 +51,123 @@ fn insert_response_annotations(
     }
 }
 
+fn postprocess_lsp_diagnostics(
+    project: &codelens_engine::ProjectRoot,
+    file_path: &str,
+    diagnostics: Vec<codelens_engine::LspDiagnostic>,
+) -> (Vec<Value>, Vec<Value>) {
+    let source = project
+        .resolve(file_path)
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_default();
+    let mut visible = Vec::new();
+    let mut suppressed = Vec::new();
+
+    for diagnostic in diagnostics {
+        if let Some(reason) = pyright_source_suppression_reason(&source, &diagnostic) {
+            suppressed.push(json!({
+                "file_path": diagnostic.file_path,
+                "line": diagnostic.line,
+                "column": diagnostic.column,
+                "code": diagnostic.code,
+                "source": diagnostic.source,
+                "message": diagnostic.message,
+                "suppression": reason,
+            }));
+            continue;
+        }
+
+        let mut value = serde_json::to_value(&diagnostic).unwrap_or_else(|_| json!({}));
+        if is_optional_import_diagnostic(&source, &diagnostic) {
+            value["classification"] = json!("optional_dependency_import");
+            value["actionability"] = json!("environmental_optional_dependency");
+            value["recommended_action"] = json!(
+                "Do not patch source solely for this diagnostic; install the optional extra or treat it as non-blocking when the import is guarded by ImportError."
+            );
+        }
+        visible.push(value);
+    }
+
+    (visible, suppressed)
+}
+
+fn pyright_source_suppression_reason(
+    source: &str,
+    diagnostic: &codelens_engine::LspDiagnostic,
+) -> Option<&'static str> {
+    let code = diagnostic.code.as_deref()?;
+    if !is_pyright_diagnostic(diagnostic, code) {
+        return None;
+    }
+    if file_disables_pyright_rule(source, code) {
+        return Some("file_pyright_rule_disabled");
+    }
+    let line = source.lines().nth(diagnostic.line.saturating_sub(1))?;
+    if line_suppresses_pyright_rule(line, code) {
+        return Some("line_pyright_ignore");
+    }
+    None
+}
+
+fn is_pyright_diagnostic(diagnostic: &codelens_engine::LspDiagnostic, code: &str) -> bool {
+    diagnostic.source.as_deref() == Some("pyright") || code.starts_with("report")
+}
+
+fn file_disables_pyright_rule(source: &str, code: &str) -> bool {
+    source.lines().take(10).any(|line| {
+        let normalized = normalize_pyright_directive(line);
+        normalized.contains(&format!("#pyright:{code}=false"))
+    })
+}
+
+fn line_suppresses_pyright_rule(line: &str, code: &str) -> bool {
+    let normalized = normalize_pyright_directive(line);
+    if normalized.contains("#type:ignore") {
+        return true;
+    }
+    if !normalized.contains("#pyright:ignore") {
+        return false;
+    }
+    !normalized.contains('[') || normalized.contains(code)
+}
+
+fn normalize_pyright_directive(line: &str) -> String {
+    line.chars().filter(|ch| !ch.is_whitespace()).collect()
+}
+
+fn is_optional_import_diagnostic(
+    source: &str,
+    diagnostic: &codelens_engine::LspDiagnostic,
+) -> bool {
+    let Some(code) = diagnostic.code.as_deref() else {
+        return false;
+    };
+    if !matches!(code, "reportMissingImports" | "reportMissingModuleSource") {
+        return false;
+    }
+    import_line_is_guarded_by_import_error(source, diagnostic.line.saturating_sub(1))
+}
+
+fn import_line_is_guarded_by_import_error(source: &str, line_index: usize) -> bool {
+    let lines: Vec<&str> = source.lines().collect();
+    if line_index >= lines.len() {
+        return false;
+    }
+    if !lines[line_index].contains("import ") {
+        return false;
+    }
+    let start = line_index.saturating_sub(4);
+    let end = (line_index + 8).min(lines.len().saturating_sub(1));
+    let has_try = lines[start..=line_index]
+        .iter()
+        .any(|line| line.trim_start().starts_with("try:"));
+    let has_import_error_handler = lines[line_index..=end]
+        .iter()
+        .any(|line| line.trim_start().starts_with("except ImportError"));
+    has_try && has_import_error_handler
+}
+
 fn compact_text_references(
     references: Vec<codelens_engine::TextReference>,
     include_context: bool,
@@ -754,6 +871,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
     let args = parse_lsp_args(arguments, &command);
 
     let command_ref = command.clone();
+    let request_file_path = file_path.clone();
     state
         .lsp_pool()
         .get_diagnostics(&LspDiagnosticRequest {
@@ -764,7 +882,21 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         })
         .map_err(|e| enhance_lsp_error(e, &command_ref))
         .map(|value| {
-            let mut payload = json!({ "diagnostics": value, "count": value.len() });
+            let (diagnostics, suppressed) =
+                postprocess_lsp_diagnostics(&state.project(), &request_file_path, value);
+            let mut payload = json!({
+                "diagnostics": diagnostics,
+                "count": diagnostics.len(),
+                "backend": "lsp",
+            });
+            if !suppressed.is_empty() {
+                payload["suppressed_diagnostics"] = json!(suppressed);
+                payload["suppressed_diagnostics_count"] = json!(
+                    payload["suppressed_diagnostics"]
+                        .as_array()
+                        .map_or(0, Vec::len)
+                );
+            }
             insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
             (payload, success_meta(BackendKind::Lsp, 0.9))
         })

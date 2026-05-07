@@ -415,14 +415,40 @@ pub(super) fn diagnostics_output_schema() -> serde_json::Value {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "file": {"type": "string"},
+                        "file_path": {"type": "string"},
                         "line": {"type": "integer"},
-                        "severity": {"type": "string"},
-                        "message": {"type": "string"}
+                        "column": {"type": "integer"},
+                        "end_line": {"type": "integer"},
+                        "end_column": {"type": "integer"},
+                        "severity": {"type": ["integer", "null"]},
+                        "severity_label": {"type": ["string", "null"]},
+                        "code": {"type": ["string", "null"]},
+                        "source": {"type": ["string", "null"]},
+                        "message": {"type": "string"},
+                        "classification": {"type": "string"},
+                        "actionability": {"type": "string"},
+                        "recommended_action": {"type": "string"}
                     }
                 }
             },
-            "count": {"type": "integer"}
+            "count": {"type": "integer"},
+            "backend": {"type": "string", "enum": ["lsp", "scip"]},
+            "suppressed_diagnostics_count": {"type": "integer"},
+            "suppressed_diagnostics": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "column": {"type": "integer"},
+                        "code": {"type": ["string", "null"]},
+                        "source": {"type": ["string", "null"]},
+                        "message": {"type": "string"},
+                        "suppression": {"type": "string"}
+                    }
+                }
+            }
         }
     })
 }

@@ -357,7 +357,12 @@ impl LspSession {
         Ok((uri_string, source))
     }
 
-    fn sync_document(&mut self, uri: &str, language_id: &str, source: &str) -> Result<()> {
+    pub(super) fn sync_document(
+        &mut self,
+        uri: &str,
+        language_id: &str,
+        source: &str,
+    ) -> Result<()> {
         if let Some(state) = self.documents.get(uri)
             && state.text == source
         {

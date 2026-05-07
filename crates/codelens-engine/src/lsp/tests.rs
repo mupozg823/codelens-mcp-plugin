@@ -109,6 +109,45 @@ fn reads_diagnostics_from_mock_lsp() {
 }
 
 #[test]
+fn diagnostics_sync_project_imports_before_request() {
+    let dir = temp_dir("codelens-lsp-diagnostics-import-sync");
+    let project = ProjectRoot::new(&dir).expect("project");
+    let package_dir = dir.join("src").join("donation_heart_clipper");
+    fs::create_dir_all(&package_dir).expect("package dir");
+    fs::write(package_dir.join("__init__.py"), "").expect("write init");
+    fs::write(
+        package_dir.join("gui.py"),
+        "from donation_heart_clipper.gui_config import GuiRunConfig\n\nGuiRunConfig(ffmpeg_threads=2)\n",
+    )
+    .expect("write gui");
+    fs::write(
+        package_dir.join("gui_config.py"),
+        "from dataclasses import dataclass\n\n@dataclass\nclass GuiRunConfig:\n    ffmpeg_threads: int = 2\n",
+    )
+    .expect("write gui_config");
+    let server_path = dir.join("mock_import_sync_lsp.py");
+    fs::write(&server_path, import_sync_diagnostics_mock_server_script())
+        .expect("write mock server");
+    chmod_exec(&server_path);
+
+    let diagnostics = get_diagnostics_via_lsp(
+        &project,
+        &LspDiagnosticRequest {
+            command: "python3".to_owned(),
+            args: vec![server_path.display().to_string()],
+            file_path: "src/donation_heart_clipper/gui.py".to_owned(),
+            max_results: 10,
+        },
+    )
+    .expect("lsp diagnostics");
+
+    assert!(
+        diagnostics.is_empty(),
+        "imported gui_config.py was not synced before diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
 fn reads_workspace_symbols_from_mock_lsp() {
     let dir = temp_dir("codelens-lsp-workspace-symbols");
     let project = ProjectRoot::new(&dir).expect("project");
@@ -473,6 +512,78 @@ while True:
                 }
             }]
         send({"jsonrpc":"2.0","id":message["id"],"result":result})
+    elif method == "shutdown":
+        send({"jsonrpc":"2.0","id":message["id"],"result":None})
+    elif method == "exit":
+        break
+"#
+}
+
+fn import_sync_diagnostics_mock_server_script() -> &'static str {
+    r#"#!/usr/bin/env python3
+import json
+import sys
+from urllib.parse import unquote, urlparse
+
+documents = {}
+
+def read_message():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        name, value = line.decode("utf-8").split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+    body = sys.stdin.buffer.read(int(headers["content-length"]))
+    return json.loads(body.decode("utf-8"))
+
+def send(payload):
+    body = json.dumps(payload).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8"))
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+
+def path_for_uri(uri):
+    parsed = urlparse(uri)
+    return unquote(parsed.path)
+
+while True:
+    message = read_message()
+    if message is None:
+        break
+    method = message.get("method")
+    if method == "initialize":
+        send({"jsonrpc":"2.0","id":message["id"],"result":{"capabilities":{"diagnosticProvider":{}}}})
+    elif method == "textDocument/didOpen":
+        doc = message["params"]["textDocument"]
+        documents[path_for_uri(doc["uri"])] = doc.get("text", "")
+    elif method == "textDocument/didChange":
+        doc = message["params"]["textDocument"]
+        changes = message["params"].get("contentChanges", [])
+        if changes:
+            documents[path_for_uri(doc["uri"])] = changes[-1].get("text", "")
+    elif method == "textDocument/diagnostic":
+        uri = message["params"]["textDocument"]["uri"]
+        saw_updated_config = any(
+            path.endswith("gui_config.py") and "ffmpeg_threads" in text
+            for path, text in documents.items()
+        )
+        items = []
+        if not saw_updated_config:
+            items.append({
+                "range":{
+                    "start":{"line":2,"character":13},
+                    "end":{"line":2,"character":27}
+                },
+                "severity":1,
+                "code":"reportCallIssue",
+                "source":"pyright",
+                "message":"No parameter named 'ffmpeg_threads'"
+            })
+        send({"jsonrpc":"2.0","id":message["id"],"result":{"kind":"full","uri":uri,"items":items}})
     elif method == "shutdown":
         send({"jsonrpc":"2.0","id":message["id"],"result":None})
     elif method == "exit":
