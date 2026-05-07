@@ -300,6 +300,10 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             uri,
             crate::instruction_audit::instruction_manifest_audit(state.project().as_path()),
         ),
+        "codelens://benchmarks/host-plugin-stack" => json_resource(
+            uri,
+            crate::instruction_audit::host_plugin_stack_benchmark(state.project().as_path()),
+        ),
         "codelens://design/agent-experience" => json_resource(
             uri,
             crate::surface_manifest::build_surface_manifest_for_state(state)["agent_experience"]
@@ -515,6 +519,12 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "uri": "codelens://host-instructions/audit",
             "name": "Host Instruction Audit",
             "description": "CLAUDE.md / AGENTS.md quality, staleness, duplication, and hook-export readiness audit",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://benchmarks/host-plugin-stack",
+            "name": "Host Plugin Stack Benchmark",
+            "description": "Upper-compatible benchmark against Session Report, CLAUDE.md Management, Serena MCP, and Hookify patterns",
             "mimeType": "application/json"
         }),
         json!({

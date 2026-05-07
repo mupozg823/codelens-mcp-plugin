@@ -278,6 +278,23 @@ run checks after routing or mutation gate changes.
             .iter()
             .any(|entry| entry["event"] == json!("Stop"))
     );
+    assert!(
+        payload["upper_compatible_layers"]
+            .as_array()
+            .expect("upper-compatible layers")
+            .iter()
+            .any(|entry| entry["layer"] == json!("behavior_guardrails"))
+    );
+    assert!(
+        payload["hook_settings_templates"]["templates"]
+            .as_array()
+            .expect("hook template array")
+            .iter()
+            .any(
+                |entry| entry["name"] == json!("sessionstart_compact_bootstrap")
+                    && entry["settings_fragment"]["hooks"]["SessionStart"].is_array()
+            )
+    );
 
     let list_response = handle_request(
         &state,
@@ -291,6 +308,59 @@ run checks after routing or mutation gate changes.
     .unwrap();
     let list_body = serde_json::to_string(&list_response).unwrap();
     assert!(list_body.contains("codelens://host-instructions/audit"));
+    assert!(list_body.contains("codelens://benchmarks/host-plugin-stack"));
+}
+
+#[test]
+fn host_plugin_stack_benchmark_resource_exports_upper_compatible_plan() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(2504)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://benchmarks/host-plugin-stack"})),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    let text = value["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    let payload: serde_json::Value = serde_json::from_str(text).expect("valid benchmark JSON");
+
+    assert_eq!(
+        payload["schema_version"],
+        json!("codelens-host-plugin-stack-benchmark-v1")
+    );
+    assert!(
+        payload["upper_compatible_layers"]
+            .as_array()
+            .expect("layers")
+            .iter()
+            .any(|entry| entry["reference_tools"]
+                .as_array()
+                .expect("reference tools")
+                .contains(&json!("Serena MCP")))
+    );
+    assert!(
+        payload["hook_settings_templates"]["templates"]
+            .as_array()
+            .expect("templates")
+            .iter()
+            .any(|entry| entry["event"] == json!("PreToolUse")
+                && entry["matcher"] == json!("Bash"))
+    );
+    assert!(
+        payload["cherry_pick_backlog"]
+            .as_array()
+            .expect("backlog")
+            .iter()
+            .any(|entry| entry["source"] == json!("Session Report / ccusage"))
+    );
 }
 
 #[test]

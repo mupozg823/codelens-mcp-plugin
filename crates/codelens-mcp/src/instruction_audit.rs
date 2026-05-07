@@ -290,7 +290,7 @@ fn benchmark_mapping() -> Value {
             "reference": "Session Report",
             "absorbed_as": "get_tool_metrics.token_bill and codelens://stats/token-efficiency.token_bill",
             "status": "implemented",
-            "remaining_gap": "Persisted 7d/30d HTML reporting is still outside the MCP response path."
+            "remaining_gap": "Persisted transcript import with USD pricing remains outside the MCP response path."
         },
         {
             "reference": "CLAUDE.md Management",
@@ -306,9 +306,59 @@ fn benchmark_mapping() -> Value {
         },
         {
             "reference": "Hookify",
-            "absorbed_as": "recommended_hook_exports",
-            "status": "planned",
-            "remaining_gap": "Hook settings are recommended but not emitted as ready-to-install .claude/settings.json snippets yet."
+            "absorbed_as": "recommended_hook_exports and hook_settings_templates",
+            "status": "implemented_in_this_resource",
+            "remaining_gap": "Templates are exported as candidate settings fragments; CodeLens does not install or trust-enable host hooks automatically."
+        }
+    ])
+}
+
+fn upper_compatible_layers() -> Value {
+    json!([
+        {
+            "layer": "session_economics",
+            "reference_tools": ["Session Report", "ccusage"],
+            "reference_pattern": "Offline transcript aggregation: per-session token and cost summaries after the run.",
+            "codelens_current": [
+                "Live MCP telemetry per logical session",
+                "token_bill.top_token_tools",
+                "token_bill.waste_signals",
+                "workflow follow-through and cache-hit KPIs"
+            ],
+            "upper_compatible_delta": "CodeLens can guide the next tool call while the session is still running; transcript-cost import is the remaining offline reporting gap."
+        },
+        {
+            "layer": "instruction_memory",
+            "reference_tools": ["CLAUDE.md Management"],
+            "reference_pattern": "Score CLAUDE.md quality and propose approved updates from session learnings.",
+            "codelens_current": [
+                "AGENTS.md + CLAUDE.md scoring",
+                "staleness and duplicate-manifest findings",
+                "host-specific guidance without rewriting files by default"
+            ],
+            "upper_compatible_delta": "CodeLens keeps host-neutral policy evidence in resources so Codex, Claude Code, Cursor, and similar hosts can consume one audit surface."
+        },
+        {
+            "layer": "semantic_code_intelligence",
+            "reference_tools": ["Serena MCP"],
+            "reference_pattern": "Symbol-level LSP retrieval/editing, project activation, and persistent memory.",
+            "codelens_current": [
+                "Hybrid tree-sitter + SCIP + LSP + embedding retrieval",
+                "Verifier-gated mutation preflight",
+                "durable analysis handles and bounded reports"
+            ],
+            "upper_compatible_delta": "CodeLens is already stronger as a harness-control layer; Serena still leads broad IDE-grade backend coverage until CodeLens completes active backend routing."
+        },
+        {
+            "layer": "behavior_guardrails",
+            "reference_tools": ["Hookify", "Claude Code hooks"],
+            "reference_pattern": "Rules and hooks block or warn on unsafe commands, edits, prompts, and session stops.",
+            "codelens_current": [
+                "mutation gate",
+                "recommended_hook_exports",
+                "hook_settings_templates"
+            ],
+            "upper_compatible_delta": "CodeLens exports host-hook candidates from the same audit evidence used by MCP tools, reducing drift between prompt policy and runtime gates."
         }
     ])
 }
@@ -337,6 +387,135 @@ fn recommended_hook_exports() -> Value {
             "code_lens_source": "prepare_harness_session + codelens://host-instructions/audit"
         }
     ])
+}
+
+fn hook_settings_templates() -> Value {
+    json!({
+        "schema_version": "codelens-hook-settings-templates-v1",
+        "target_files": [".claude/settings.json", ".claude/settings.local.json"],
+        "status": "candidate_templates",
+        "install_policy": "Never auto-install; host hooks should be reviewed and enabled by the user or repository owner.",
+        "templates": [
+            {
+                "name": "stop_evidence_gate",
+                "purpose": "Warn or block premature completion when code changed but no build/test evidence is present.",
+                "event": "Stop",
+                "matcher": "",
+                "settings_fragment": {
+                    "hooks": {
+                        "Stop": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "prompt",
+                                        "timeout": 30,
+                                        "prompt": "You are a strict completion gate. Inspect this Stop hook input and allow completion only when changed-code work has explicit build/test evidence or the user explicitly waived verification. Return JSON with decision allow|block and a concise reason. Input: $ARGUMENTS"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+                "codelens_signal_source": ["token_bill", "audit_builder_session", "audit_planner_session"]
+            },
+            {
+                "name": "pretool_destructive_bash_gate",
+                "purpose": "Warn before destructive shell commands that can erase user work or bypass mutation gates.",
+                "event": "PreToolUse",
+                "matcher": "Bash",
+                "settings_fragment": {
+                    "hooks": {
+                        "PreToolUse": [
+                            {
+                                "matcher": "Bash",
+                                "hooks": [
+                                    {
+                                        "type": "prompt",
+                                        "timeout": 15,
+                                        "prompt": "Review the Bash command in this hook input. Block commands that delete, reset, overwrite, chmod/chown recursively, or rewrite git history unless the user explicitly requested that exact destructive action. Return JSON with decision allow|block and reason. Input: $ARGUMENTS"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+                "codelens_signal_source": ["mutation_gate", "instruction_manifest_audit"]
+            },
+            {
+                "name": "sessionstart_compact_bootstrap",
+                "purpose": "Load compact CodeLens routing evidence at session start without forcing full tools/list.",
+                "event": "SessionStart",
+                "matcher": "startup",
+                "settings_fragment": {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "startup",
+                                "hooks": [
+                                    {
+                                        "type": "mcp_tool",
+                                        "server": "codelens",
+                                        "tool": "prepare_harness_session",
+                                        "input": {
+                                            "host_context": "claude-code",
+                                            "task_overlay": "interactive",
+                                            "detail": "compact"
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                },
+                "codelens_signal_source": ["prepare_harness_session", "surface_overlay"]
+            }
+        ]
+    })
+}
+
+pub(crate) fn host_plugin_stack_benchmark(project_root: &Path) -> Value {
+    json!({
+        "schema_version": "codelens-host-plugin-stack-benchmark-v1",
+        "project_root": project_root.to_string_lossy(),
+        "reference_scope": [
+            "Session Report / ccusage style token reports",
+            "CLAUDE.md Management",
+            "Serena MCP",
+            "Hookify / Claude Code hooks"
+        ],
+        "positioning": "CodeLens should remain the host-neutral harness-control layer above plugin-specific tools: observe cost, audit instructions, route semantic work, gate mutation, and export hook candidates from one evidence model.",
+        "upper_compatible_layers": upper_compatible_layers(),
+        "benchmark_mapping": benchmark_mapping(),
+        "recommended_hook_exports": recommended_hook_exports(),
+        "hook_settings_templates": hook_settings_templates(),
+        "cherry_pick_backlog": [
+            {
+                "source": "Session Report / ccusage",
+                "candidate": "Import Claude Code JSONL transcripts into token_bill for 7d/30d cost reports.",
+                "priority": "P2",
+                "why_not_now": "Current CodeLens telemetry is live MCP response telemetry; transcript pricing requires a separate local data reader and pricing table."
+            },
+            {
+                "source": "CLAUDE.md Management",
+                "candidate": "Generate approved manifest patch plans from audit findings.",
+                "priority": "P1",
+                "why_not_now": "This resource intentionally audits first; file mutation should go through normal mutation gates."
+            },
+            {
+                "source": "Serena MCP",
+                "candidate": "Finish active backend routing for move/inline/change-signature only where LSP/IDE returns inspectable WorkspaceEdit.",
+                "priority": "P1",
+                "why_not_now": "Requires per-language fixture gates before claiming authoritative edit coverage."
+            },
+            {
+                "source": "Hookify",
+                "candidate": "Promote recurring audit findings into hook rule suggestions with de-duplication and confidence.",
+                "priority": "P1",
+                "why_not_now": "Templates now exist; automatic promotion needs false-positive controls."
+            }
+        ]
+    })
 }
 
 pub(crate) fn instruction_manifest_audit(project_root: &Path) -> Value {
@@ -396,7 +575,9 @@ pub(crate) fn instruction_manifest_audit(project_root: &Path) -> Value {
         "warning_findings": warning_findings,
         "files": files,
         "benchmark_mapping": benchmark_mapping(),
+        "upper_compatible_layers": upper_compatible_layers(),
         "recommended_hook_exports": recommended_hook_exports(),
+        "hook_settings_templates": hook_settings_templates(),
         "next_actions": [
             "Keep generated CodeLens routing blocks authoritative via `python3 scripts/surface-manifest.py --check`.",
             "Keep root manifests concise; move stable explanations to resources/docs and link them from manifests.",
