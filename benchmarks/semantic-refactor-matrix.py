@@ -376,13 +376,13 @@ def run_project(
 
 def main() -> int:
     args = parse_args()
-    matrix_path = Path(args.matrix)
+    matrix_path = Path(args.matrix).resolve()
     projects = load_matrix(matrix_path)
     if args.validate_only:
         print(json.dumps({"schema_version": "codelens-semantic-refactor-matrix-v1", "valid": True, "projects": len(projects)}, indent=2))
         return 0
 
-    binary = Path(args.binary)
+    binary = Path(args.binary).resolve()
     if not binary.is_file():
         raise SystemExit(f"binary missing: {binary}")
     env = default_env()
