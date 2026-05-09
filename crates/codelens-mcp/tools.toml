@@ -978,6 +978,60 @@ approved_actions = { type = "array", items = { type = "string" } }
 # ─────
 
 [[tool]]
+name = "list_orchestration_runs"
+category = "composite"
+description = "[CodeLens:Workflow] List durable orchestration runs with UI-ready summaries, state counts, analysis handles, and resume hints."
+annotations = "ro_p"
+output_schema = "orchestration_run_list_output_schema"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+state = { type = "string", enum = ["drafted", "planned", "preflighted", "approval_required", "executing", "verifying", "completed", "failed", "cancelled"] }
+mode = { type = "string", enum = ["solo", "planner_builder", "ci_audit"] }
+limit = { type = "integer" }
+
+# ─────
+
+[[tool]]
+name = "get_orchestration_run"
+category = "composite"
+description = "[CodeLens:Workflow] Retrieve one orchestration run by run_id or analysis_id, replay its event timeline, and return resume/cancel-ready handles."
+annotations = "ro_p"
+output_schema = "orchestration_run_output_schema"
+max_response_tokens = 4096
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+run_id = { type = "string" }
+analysis_id = { type = "string" }
+include_events = { type = "boolean" }
+include_sections = { type = "boolean" }
+
+# ─────
+
+[[tool]]
+name = "cancel_orchestration_run"
+category = "composite"
+description = "[CodeLens:Workflow] Cancel an active orchestration run, append run_cancelled, and revoke recorded approvals for that run."
+annotations = "mut_w"
+output_schema = "orchestration_run_output_schema"
+max_response_tokens = 2048
+
+[tool.input_schema]
+type = "object"
+[tool.input_schema.properties]
+run_id = { type = "string" }
+analysis_id = { type = "string" }
+actor = { type = "string" }
+requester = { type = "string" }
+reason = { type = "string" }
+
+# ─────
+
+[[tool]]
 name = "verify_change_readiness"
 category = "composite"
 description = "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing."

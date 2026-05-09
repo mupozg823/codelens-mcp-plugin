@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::error::CodeLensError;
+use crate::resources::{analysis_section_handles, analysis_summary_resource};
 use crate::tool_runtime::{ToolResult, required_string};
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::strings_from_array;
@@ -224,6 +225,369 @@ fn audit_event(
         "timestamp_ms": created_at_ms.saturating_add(offset),
         "audit_required": true,
     })
+}
+
+fn orchestration_sections() -> Vec<String> {
+    [
+        "orchestration_run",
+        "plan",
+        "preflight",
+        "audit_events",
+        "evidence_handles",
+        "approval_policy",
+        "dispatch_plan",
+    ]
+    .iter()
+    .map(|section| (*section).to_owned())
+    .collect()
+}
+
+fn run_state(run: &Value) -> &str {
+    run.get("state")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+}
+
+fn run_id_value(run: &Value) -> Option<&str> {
+    run.get("run_id").and_then(Value::as_str)
+}
+
+fn terminal_state(state: &str) -> bool {
+    matches!(state, "completed" | "failed" | "cancelled")
+}
+
+fn next_required_event(state: &str) -> Option<&'static str> {
+    match state {
+        "drafted" => Some("plan_proposed"),
+        "planned" => Some("preflight_passed"),
+        "preflighted" => Some("approval_requested"),
+        "approval_required" => Some("approval_granted"),
+        "executing" => Some("mutation_applied"),
+        "verifying" => Some("verification_passed"),
+        _ => None,
+    }
+}
+
+fn recommended_next_tools(state: &str) -> Vec<&'static str> {
+    match state {
+        "drafted" | "planned" | "preflighted" | "approval_required" => {
+            vec!["orchestrate_change", "verify_change_readiness"]
+        }
+        "executing" => vec!["replace", "replace_content", "verify_change_readiness"],
+        "verifying" => vec![
+            "verify_change_readiness",
+            "review_changes",
+            "audit_builder_session",
+        ],
+        _ => vec!["get_orchestration_run", "list_orchestration_runs"],
+    }
+}
+
+fn audit_events_for_analysis(state: &AppState, analysis_id: &str) -> Value {
+    state
+        .get_analysis_section(analysis_id, "audit_events")
+        .unwrap_or_else(|_| json!({"events": []}))
+}
+
+fn audit_event_count(state: &AppState, analysis_id: &str) -> usize {
+    audit_events_for_analysis(state, analysis_id)
+        .get("events")
+        .and_then(Value::as_array)
+        .map(|events| events.len())
+        .unwrap_or_default()
+}
+
+fn run_summary_item(state: &AppState, analysis_id: &str, run: &Value, created_at_ms: u64) -> Value {
+    let state_name = run_state(run);
+    let sections = orchestration_sections();
+    json!({
+        "analysis_id": analysis_id,
+        "run_id": run_id_value(run).unwrap_or(""),
+        "state": state_name,
+        "terminal": terminal_state(state_name),
+        "objective": run.get("objective").cloned().unwrap_or(Value::Null),
+        "mode": run.get("mode").cloned().unwrap_or(Value::Null),
+        "target_paths": run.get("target_paths").cloned().unwrap_or_else(|| json!([])),
+        "created_at_ms": run.get("created_at_ms").and_then(Value::as_u64).unwrap_or(created_at_ms),
+        "last_event": run.get("last_event").cloned().unwrap_or(Value::Null),
+        "last_event_timestamp_ms": run.get("last_event_timestamp_ms").cloned().unwrap_or(Value::Null),
+        "event_count": audit_event_count(state, analysis_id),
+        "summary_resource": analysis_summary_resource(analysis_id),
+        "section_handles": analysis_section_handles(analysis_id, &sections),
+        "resume": {
+            "resumable": !terminal_state(state_name),
+            "next_required_event": next_required_event(state_name),
+            "recommended_next_tools": recommended_next_tools(state_name),
+        }
+    })
+}
+
+fn find_orchestration_run(
+    state: &AppState,
+    scope: &str,
+    arguments: &Value,
+) -> Result<(String, crate::runtime_types::AnalysisArtifact, Value), CodeLensError> {
+    let requested_analysis_id = arguments.get("analysis_id").and_then(Value::as_str);
+    let requested_run_id = arguments.get("run_id").and_then(Value::as_str);
+
+    if requested_analysis_id.is_none() && requested_run_id.is_none() {
+        return Err(CodeLensError::Validation(
+            "orchestration run lookup requires run_id or analysis_id".to_owned(),
+        ));
+    }
+
+    if let Some(analysis_id) = requested_analysis_id {
+        let artifact = state
+            .get_analysis_for_scope(scope, analysis_id)
+            .ok_or_else(|| {
+                CodeLensError::NotFound(format!("unknown analysis_id `{analysis_id}`"))
+            })?;
+        if artifact.tool_name != "orchestrate_change" {
+            return Err(CodeLensError::Validation(format!(
+                "analysis_id `{analysis_id}` was produced by `{}` not orchestrate_change",
+                artifact.tool_name
+            )));
+        }
+        let run = state.get_analysis_section(analysis_id, "orchestration_run")?;
+        if let Some(run_id) = requested_run_id
+            && run_id_value(&run) != Some(run_id)
+        {
+            return Err(CodeLensError::Validation(format!(
+                "analysis_id `{analysis_id}` does not contain run_id `{run_id}`"
+            )));
+        }
+        return Ok((analysis_id.to_owned(), artifact, run));
+    }
+
+    let run_id = requested_run_id.expect("checked above");
+    for summary in state.list_analysis_summaries_for_scope(scope) {
+        if summary.tool_name != "orchestrate_change" {
+            continue;
+        }
+        let Ok(run) = state.get_analysis_section(&summary.id, "orchestration_run") else {
+            continue;
+        };
+        if run_id_value(&run) == Some(run_id)
+            && let Some(artifact) = state.get_analysis_for_scope(scope, &summary.id)
+        {
+            return Ok((summary.id, artifact, run));
+        }
+    }
+
+    Err(CodeLensError::NotFound(format!(
+        "unknown orchestration run `{run_id}`"
+    )))
+}
+
+pub fn list_orchestration_runs(state: &AppState, arguments: &Value) -> ToolResult {
+    let scope = state.project_scope_for_arguments(arguments);
+    let state_filter = arguments.get("state").and_then(Value::as_str);
+    let mode_filter = arguments.get("mode").and_then(Value::as_str);
+    let limit = arguments
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|value| value.clamp(1, 100) as usize)
+        .unwrap_or(25);
+
+    let mut status_counts = BTreeMap::new();
+    let mut runs = Vec::new();
+    for summary in state.list_analysis_summaries_for_scope(&scope) {
+        if summary.tool_name != "orchestrate_change" {
+            continue;
+        }
+        let Ok(run) = state.get_analysis_section(&summary.id, "orchestration_run") else {
+            continue;
+        };
+        let current_state = run_state(&run);
+        *status_counts
+            .entry(current_state.to_owned())
+            .or_insert(0usize) += 1;
+        if state_filter.is_some_and(|filter| filter != current_state) {
+            continue;
+        }
+        if mode_filter.is_some_and(|filter| run.get("mode").and_then(Value::as_str) != Some(filter))
+        {
+            continue;
+        }
+        runs.push(run_summary_item(
+            state,
+            &summary.id,
+            &run,
+            summary.created_at_ms,
+        ));
+        if runs.len() >= limit {
+            break;
+        }
+    }
+
+    Ok((
+        json!({
+            "runs": runs,
+            "count": runs.len(),
+            "limit": limit,
+            "status_counts": status_counts,
+            "scope": scope,
+        }),
+        crate::tools::success_meta(crate::protocol::BackendKind::Memory, 1.0),
+    ))
+}
+
+pub fn get_orchestration_run(state: &AppState, arguments: &Value) -> ToolResult {
+    let scope = state.project_scope_for_arguments(arguments);
+    let include_events = arguments
+        .get("include_events")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let include_sections = arguments
+        .get("include_sections")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let (analysis_id, artifact, run) = find_orchestration_run(state, &scope, arguments)?;
+    let run_id = run_id_value(&run)
+        .ok_or_else(|| {
+            CodeLensError::Internal(anyhow::anyhow!("orchestration run missing run_id"))
+        })?
+        .to_owned();
+    let state_name = run_state(&run);
+    let sections = orchestration_sections();
+    let audit_events = audit_events_for_analysis(state, &analysis_id);
+    let event_count = audit_events
+        .get("events")
+        .and_then(Value::as_array)
+        .map(|events| events.len())
+        .unwrap_or_default();
+
+    let mut payload = json!({
+        "analysis_id": analysis_id,
+        "run_id": run_id,
+        "run": run,
+        "state": state_name,
+        "terminal": terminal_state(state_name),
+        "event_count": event_count,
+        "events": if include_events { audit_events.get("events").cloned().unwrap_or_else(|| json!([])) } else { json!([]) },
+        "event_replay": {
+            "current_state": state_name,
+            "last_event": run.get("last_event").cloned().unwrap_or(Value::Null),
+            "terminal": terminal_state(state_name),
+        },
+        "resume": {
+            "resumable": !terminal_state(state_name),
+            "next_required_event": next_required_event(state_name),
+            "recommended_next_tools": recommended_next_tools(state_name),
+        },
+        "summary_resource": analysis_summary_resource(&analysis_id),
+        "section_handles": analysis_section_handles(&analysis_id, &sections),
+    });
+
+    if include_sections && let Some(obj) = payload.as_object_mut() {
+        let mut expanded = serde_json::Map::new();
+        for section in &sections {
+            if let Ok(content) = state.get_analysis_section(&analysis_id, section) {
+                expanded.insert(section.clone(), content);
+            }
+        }
+        obj.insert("sections".to_owned(), Value::Object(expanded));
+    }
+
+    Ok((
+        payload,
+        crate::tools::success_meta(crate::protocol::BackendKind::Memory, artifact.confidence),
+    ))
+}
+
+pub fn cancel_orchestration_run(state: &AppState, arguments: &Value) -> ToolResult {
+    let scope = state.project_scope_for_arguments(arguments);
+    let actor = arguments
+        .get("actor")
+        .or_else(|| arguments.get("requester"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let reason = arguments
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or("cancelled by requester");
+    let (analysis_id, artifact, mut run) = find_orchestration_run(state, &scope, arguments)?;
+    let run_id = run_id_value(&run)
+        .ok_or_else(|| {
+            CodeLensError::Internal(anyhow::anyhow!("orchestration run missing run_id"))
+        })?
+        .to_owned();
+    let current_state = run_state(&run).to_owned();
+
+    if current_state == "cancelled" {
+        return Ok((
+            json!({
+                "analysis_id": analysis_id,
+                "run_id": run_id,
+                "state": "cancelled",
+                "cancelled": false,
+                "reason": "already_cancelled",
+                "revoked_approvals": 0,
+                "run": run,
+            }),
+            crate::tools::success_meta(crate::protocol::BackendKind::Memory, artifact.confidence),
+        ));
+    }
+    if terminal_state(&current_state) {
+        return Err(CodeLensError::Validation(format!(
+            "orchestration run `{run_id}` is already terminal in state `{current_state}`"
+        )));
+    }
+
+    let event = audit_event(
+        &run_id,
+        "run_cancelled",
+        Some(&current_state),
+        "cancelled",
+        crate::util::now_ms(),
+        0,
+    );
+    let mut event = event.as_object().cloned().unwrap_or_default();
+    event.insert("actor".to_owned(), json!(actor));
+    event.insert("reason".to_owned(), json!(reason));
+    let event = Value::Object(event);
+
+    let mut audit_events = audit_events_for_analysis(state, &analysis_id);
+    if let Some(events) = audit_events
+        .get_mut("events")
+        .and_then(|value| value.as_array_mut())
+    {
+        events.push(event.clone());
+    } else {
+        audit_events = json!({"events": [event.clone()]});
+    }
+    state.upsert_analysis_section_for_scope(&scope, &analysis_id, "audit_events", &audit_events)?;
+
+    if let Some(obj) = run.as_object_mut() {
+        obj.insert("state".to_owned(), json!("cancelled"));
+        obj.insert("last_event".to_owned(), json!("run_cancelled"));
+        obj.insert(
+            "last_event_timestamp_ms".to_owned(),
+            event
+                .get("timestamp_ms")
+                .cloned()
+                .unwrap_or_else(|| json!(crate::util::now_ms())),
+        );
+        obj.insert("cancelled_by".to_owned(), json!(actor));
+        obj.insert("cancel_reason".to_owned(), json!(reason));
+    }
+    state.upsert_analysis_section_for_scope(&scope, &analysis_id, "orchestration_run", &run)?;
+    let revoked_approvals = state.revoke_orchestration_approvals_for_scope(&scope, &run_id);
+
+    Ok((
+        json!({
+            "analysis_id": analysis_id,
+            "run_id": run_id,
+            "state": "cancelled",
+            "cancelled": true,
+            "event": event,
+            "revoked_approvals": revoked_approvals,
+            "run": run,
+            "summary_resource": analysis_summary_resource(&analysis_id),
+            "section_handles": analysis_section_handles(&analysis_id, &orchestration_sections()),
+        }),
+        crate::tools::success_meta(crate::protocol::BackendKind::Memory, artifact.confidence),
+    ))
 }
 
 pub fn orchestrate_change(state: &AppState, arguments: &Value) -> ToolResult {

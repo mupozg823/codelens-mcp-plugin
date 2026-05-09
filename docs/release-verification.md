@@ -84,6 +84,7 @@ and then uses those release checksums to update the Homebrew tap formula.
 - an OCI image is built from the released Linux binary and pushed to GHCR
 - a machine-readable `release-manifest.json` is generated from the checksum set before publication
 - the publish job verifies the assembled release bundle locally before creating the GitHub release
+- the semantic model payload is kept outside git and staged from the pinned `model-assets-codesearch-v1` release before packaging
 - Homebrew is derived from the published release checksums rather than from a separate manual path
 - release notes can be generated from GitHub plus repository-maintained notes under [`docs/release-notes`](release-notes)
 
@@ -91,7 +92,6 @@ and then uses those release checksums to update the Homebrew tap formula.
 
 - no Sigstore bundle export is mirrored as a plain release asset
 - `checksums-sha256.txt` itself is not separately signed
-- the repository checkout used in CI does not currently stage `model.onnx`, so the air-gapped bundle is skipped by default
 
 The remaining items are roadmap gaps, not shipped capabilities.
 

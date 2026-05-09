@@ -139,6 +139,9 @@ jobs:
       - name: Build release binary
         run: cargo build --release --bin codelens-mcp
 
+      - name: Stage release model assets
+        run: bash scripts/stage-release-model-assets.sh
+
       - name: Release package dry-run
         run: |
           bash scripts/package-release-artifact.sh \

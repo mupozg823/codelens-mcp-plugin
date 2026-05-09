@@ -73,6 +73,10 @@ jobs:
           cp "crates/codelens-mcp/codelens-mcp_bin_${{ matrix.target }}.cdx.json" \
             "codelens-mcp-${{ matrix.name }}.cdx.json"
 
+      - name: Stage model assets
+        shell: bash
+        run: bash scripts/stage-release-model-assets.sh
+
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |

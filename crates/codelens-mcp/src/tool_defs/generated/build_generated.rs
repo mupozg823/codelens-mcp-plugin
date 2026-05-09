@@ -98,6 +98,21 @@ pub fn composite_tools(
             json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"mode":{"type":"string","enum":["solo","planner_builder","planner-builder","ci_audit","ci-audit"]},"target_paths":{"type":"array","items":{"type":"string"}},"changed_files":{"type":"array","items":{"type":"string"}},"acceptance":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"requester":{"type":"string"},"worktree":{"type":"string"},"approval":{"type":"object","properties":{"decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"actor":{"type":"string"},"reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}},"approval_decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"approved_by":{"type":"string"},"approval_reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new(
+            "list_orchestration_runs",
+            "[CodeLens:Workflow] List durable orchestration runs with UI-ready summaries, state counts, analysis handles, and resume hints.",
+            json!({"type":"object","properties":{"state":{"type":"string","enum":["drafted","planned","preflighted","approval_required","executing","verifying","completed","failed","cancelled"]},"mode":{"type":"string","enum":["solo","planner_builder","ci_audit"]},"limit":{"type":"integer"}}}),
+        ).with_output_schema(orchestration_run_list_output_schema()).with_annotations(ro_p.clone()).with_max_response_tokens(2048),
+        Tool::new(
+            "get_orchestration_run",
+            "[CodeLens:Workflow] Retrieve one orchestration run by run_id or analysis_id, replay its event timeline, and return resume/cancel-ready handles.",
+            json!({"type":"object","properties":{"run_id":{"type":"string"},"analysis_id":{"type":"string"},"include_events":{"type":"boolean"},"include_sections":{"type":"boolean"}}}),
+        ).with_output_schema(orchestration_run_output_schema()).with_annotations(ro_p.clone()).with_max_response_tokens(4096),
+        Tool::new(
+            "cancel_orchestration_run",
+            "[CodeLens:Workflow] Cancel an active orchestration run, append run_cancelled, and revoke recorded approvals for that run.",
+            json!({"type":"object","properties":{"run_id":{"type":"string"},"analysis_id":{"type":"string"},"actor":{"type":"string"},"requester":{"type":"string"},"reason":{"type":"string"}}}),
+        ).with_output_schema(orchestration_run_output_schema()).with_annotations(mut_w.clone()).with_max_response_tokens(2048),
+        Tool::new(
             "verify_change_readiness",
             "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing.",
             json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"orchestration_run_id":{"type":"string"}}}),

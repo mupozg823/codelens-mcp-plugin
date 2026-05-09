@@ -44,6 +44,9 @@ jobs:
       - name: Build release binary
         run: cargo build --release --features http -p codelens-mcp
 
+      - name: Stage release model assets
+        run: bash scripts/stage-release-model-assets.sh
+
       - name: Verify bundled model assets
         run: python3 scripts/verify-model-assets.py --root crates/codelens-engine/models --check
 

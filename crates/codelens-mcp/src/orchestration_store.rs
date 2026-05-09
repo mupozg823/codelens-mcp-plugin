@@ -33,6 +33,15 @@ impl OrchestrationStore {
             .cloned()
     }
 
+    pub(crate) fn remove_for_run(&self, project_scope: &str, run_id: &str) -> usize {
+        let scope_prefix = format!("{project_scope}::");
+        let run_suffix = format!("::{run_id}");
+        let mut approvals = self.approvals.lock().unwrap_or_else(|p| p.into_inner());
+        let before = approvals.len();
+        approvals.retain(|key, _| !(key.starts_with(&scope_prefix) && key.ends_with(&run_suffix)));
+        before.saturating_sub(approvals.len())
+    }
+
     pub(crate) fn clear(&self) {
         self.approvals
             .lock()

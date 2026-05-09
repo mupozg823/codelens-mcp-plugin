@@ -154,6 +154,9 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "diagnose_issues"              => workflows::diagnose_issues,
         // ── Reports / compressed context ──
         "orchestrate_change"           => reports::orchestrate_change,
+        "list_orchestration_runs"      => reports::list_orchestration_runs,
+        "get_orchestration_run"        => reports::get_orchestration_run,
+        "cancel_orchestration_run"     => reports::cancel_orchestration_run,
         "analyze_change_request"       => reports::analyze_change_request,
         "verify_change_readiness"      => reports::verify_change_readiness,
         "module_boundary_report"       => reports::module_boundary_report,

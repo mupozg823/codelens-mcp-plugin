@@ -301,6 +301,184 @@ fn orchestrate_change_granted_approval_allows_orchestrated_mutation() {
 }
 
 #[test]
+fn list_orchestration_runs_returns_ui_ready_summaries() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("run_list.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let orchestration = call_tool(
+        &state,
+        "orchestrate_change",
+        json!({
+            "task": "track run list summary",
+            "target_paths": ["run_list.py"],
+            "mode": "solo"
+        }),
+    );
+    assert_eq!(orchestration["success"], json!(true));
+    let analysis_id = orchestration["data"]["analysis_id"].as_str().unwrap();
+    let run = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "orchestration_run"}),
+    );
+    let run_id = run["data"]["content"]["run_id"].as_str().unwrap();
+
+    let list = call_tool(&state, "list_orchestration_runs", json!({"limit": 10}));
+    assert_eq!(list["success"], json!(true));
+    assert!(list["data"]["count"].as_u64().unwrap() >= 1);
+    let runs = list["data"]["runs"].as_array().unwrap();
+    let item = runs
+        .iter()
+        .find(|item| item["run_id"] == run_id)
+        .expect("run summary");
+    assert_eq!(item["analysis_id"], json!(analysis_id));
+    assert_eq!(item["state"], json!("approval_required"));
+    assert_eq!(
+        item["resume"]["next_required_event"],
+        json!("approval_granted")
+    );
+    assert!(
+        item["section_handles"]
+            .as_array()
+            .map(|handles| !handles.is_empty())
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn get_orchestration_run_replays_events_and_resume_hint() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("run_get.py"),
+        "def beta():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let orchestration = call_tool(
+        &state,
+        "orchestrate_change",
+        json!({
+            "task": "inspect resumable run",
+            "target_paths": ["run_get.py"],
+            "mode": "planner_builder"
+        }),
+    );
+    assert_eq!(orchestration["success"], json!(true));
+    let analysis_id = orchestration["data"]["analysis_id"].as_str().unwrap();
+    let run = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "orchestration_run"}),
+    );
+    let run_id = run["data"]["content"]["run_id"].as_str().unwrap();
+
+    let payload = call_tool(
+        &state,
+        "get_orchestration_run",
+        json!({"run_id": run_id, "include_sections": true}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["analysis_id"], json!(analysis_id));
+    assert_eq!(payload["data"]["state"], json!("approval_required"));
+    assert_eq!(payload["data"]["event_count"], json!(4));
+    assert!(
+        payload["data"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event"] == "approval_requested")
+    );
+    assert_eq!(
+        payload["data"]["resume"]["recommended_next_tools"][0],
+        json!("orchestrate_change")
+    );
+    assert!(payload["data"]["sections"]["plan"].is_object());
+}
+
+#[test]
+fn cancel_orchestration_run_appends_event_and_revokes_approval() {
+    let project = project_root();
+    fs::write(project.as_path().join("cancel_gate.py"), "print('old')\n").unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let orchestration = call_tool(
+        &state,
+        "orchestrate_change",
+        json!({
+            "task": "cancel approved run",
+            "target_paths": ["cancel_gate.py"],
+            "approval": {
+                "decision": "granted",
+                "actor": "integration-test",
+                "reason": "test cancellation",
+                "approved_actions": ["mutation"]
+            }
+        }),
+    );
+    assert_eq!(orchestration["success"], json!(true));
+    let analysis_id = orchestration["data"]["analysis_id"].as_str().unwrap();
+    let run = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "orchestration_run"}),
+    );
+    let run_id = run["data"]["content"]["run_id"].as_str().unwrap();
+
+    let cancelled = call_tool(
+        &state,
+        "cancel_orchestration_run",
+        json!({
+            "run_id": run_id,
+            "actor": "integration-test",
+            "reason": "no longer needed"
+        }),
+    );
+    assert_eq!(cancelled["success"], json!(true));
+    assert_eq!(cancelled["data"]["state"], json!("cancelled"));
+    assert_eq!(cancelled["data"]["event"]["event"], json!("run_cancelled"));
+    assert_eq!(cancelled["data"]["revoked_approvals"], json!(1));
+
+    let denied = call_tool(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "cancel_gate.py",
+            "old_text": "old",
+            "new_text": "new",
+            "orchestration_run_id": run_id
+        }),
+    );
+    assert_eq!(denied["success"], json!(false));
+    assert!(
+        denied["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("recorded approval")
+    );
+
+    let fetched = call_tool(
+        &state,
+        "get_orchestration_run",
+        json!({"analysis_id": analysis_id}),
+    );
+    assert_eq!(fetched["data"]["state"], json!("cancelled"));
+    assert!(
+        fetched["data"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event"] == "run_cancelled")
+    );
+}
+
+#[test]
 fn verify_change_readiness_returns_verifier_contract() {
     let project = project_root();
     fs::write(

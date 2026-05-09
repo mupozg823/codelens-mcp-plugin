@@ -896,6 +896,61 @@ pub(super) fn analysis_artifact_list_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn orchestration_run_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "analysis_id": {"type": "string"},
+            "run_id": {"type": "string"},
+            "state": {"type": "string"},
+            "terminal": {"type": "boolean"},
+            "run": {},
+            "events": {"type": "array"},
+            "event_count": {"type": "integer"},
+            "event_replay": {"type": "object"},
+            "resume": {"type": "object"},
+            "cancelled": {"type": "boolean"},
+            "revoked_approvals": {"type": "integer"},
+            "summary_resource": {
+                "type": "object",
+                "properties": {
+                    "uri": {"type": "string"}
+                }
+            },
+            "section_handles": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string"},
+                        "uri": {"type": "string"}
+                    }
+                }
+            },
+            "sections": {"type": "object"}
+        }
+    })
+}
+
+pub(super) fn orchestration_run_list_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "runs": {
+                "type": "array",
+                "items": orchestration_run_output_schema()
+            },
+            "count": {"type": "integer"},
+            "limit": {"type": "integer"},
+            "status_counts": {
+                "type": "object",
+                "additionalProperties": {"type": "integer"}
+            },
+            "scope": {"type": "string"}
+        }
+    })
+}
+
 pub(super) fn replace_content_output_schema() -> serde_json::Value {
     json!({
         "type": "object",

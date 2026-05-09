@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-surface-manifest-v1",
   "workspace": {
-    "version": "1.13.23",
+    "version": "1.13.24",
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
     "members": [
       "crates/codelens-engine",
@@ -11,8 +11,8 @@
     "member_count": 3
   },
   "tool_registry": {
-    "definition_count": 109,
-    "output_schema_count": 76,
+    "definition_count": 112,
+    "output_schema_count": 79,
     "namespaces": {
       "filesystem": 6,
       "graph": 8,
@@ -20,24 +20,24 @@
       "memory": 5,
       "mutation": 16,
       "reports": 24,
-      "session": 38,
+      "session": 41,
       "symbols": 9
     },
     "tiers": {
       "analysis": 27,
-      "primitive": 53,
-      "workflow": 29
+      "primitive": 55,
+      "workflow": 30
     },
     "phases": {
       "agnostic": 45,
       "build": 18,
-      "eval": 8,
+      "eval": 11,
       "plan": 23,
       "review": 15
     },
     "preferred_executors": {
       "any": 84,
-      "claude": 8,
+      "claude": 11,
       "codex-builder": 17
     },
     "tools": [
@@ -546,6 +546,33 @@
         "estimated_tokens": 946
       },
       {
+        "name": "list_orchestration_runs",
+        "namespace": "session",
+        "tier": "primitive",
+        "phase": "eval",
+        "preferred_executor": "claude",
+        "has_output_schema": true,
+        "estimated_tokens": 361
+      },
+      {
+        "name": "get_orchestration_run",
+        "namespace": "session",
+        "tier": "primitive",
+        "phase": "eval",
+        "preferred_executor": "claude",
+        "has_output_schema": true,
+        "estimated_tokens": 282
+      },
+      {
+        "name": "cancel_orchestration_run",
+        "namespace": "session",
+        "tier": "workflow",
+        "phase": "eval",
+        "preferred_executor": "claude",
+        "has_output_schema": true,
+        "estimated_tokens": 286
+      },
+      {
         "name": "verify_change_readiness",
         "namespace": "reports",
         "tier": "workflow",
@@ -1028,7 +1055,7 @@
     "profiles": [
       {
         "name": "planner-readonly",
-        "tool_count": 32,
+        "tool_count": 34,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1064,6 +1091,8 @@
           "find_referencing_symbols",
           "get_changed_files",
           "get_current_config",
+          "list_orchestration_runs",
+          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1080,7 +1109,7 @@
       },
       {
         "name": "builder-minimal",
-        "tool_count": 36,
+        "tool_count": 39,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1104,6 +1133,7 @@
           "orchestrate_change",
           "verify_change_readiness",
           "refresh_symbol_index",
+          "cancel_orchestration_run",
           "replace_symbol_body",
           "get_ranked_context",
           "plan_symbol_rename",
@@ -1119,6 +1149,8 @@
           "find_tests",
           "get_current_config",
           "analyze_missing_imports",
+          "list_orchestration_runs",
+          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1138,7 +1170,7 @@
       },
       {
         "name": "reviewer-graph",
-        "tool_count": 36,
+        "tool_count": 38,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1178,6 +1210,8 @@
           "get_ranked_context",
           "find_referencing_symbols",
           "get_current_config",
+          "list_orchestration_runs",
+          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1229,7 +1263,7 @@
       },
       {
         "name": "refactor-full",
-        "tool_count": 51,
+        "tool_count": 54,
         "preferred_namespaces": [
           "reports",
           "session"
@@ -1257,6 +1291,7 @@
           "explore_codebase",
           "review_architecture",
           "diagnose_issues",
+          "cancel_orchestration_run",
           "replace_symbol_body",
           "refactor_extract_function",
           "refactor_inline_function",
@@ -1264,6 +1299,8 @@
           "get_analysis_section",
           "get_current_config",
           "analyze_missing_imports",
+          "list_orchestration_runs",
+          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1299,7 +1336,7 @@
       },
       {
         "name": "ci-audit",
-        "tool_count": 43,
+        "tool_count": 46,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1329,6 +1366,7 @@
           "start_analysis_job",
           "explore_codebase",
           "diagnose_issues",
+          "cancel_orchestration_run",
           "get_analysis_job",
           "get_analysis_section",
           "get_changed_files",
@@ -1338,6 +1376,8 @@
           "find_circular_dependencies",
           "get_change_coupling",
           "get_current_config",
+          "list_orchestration_runs",
+          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1362,7 +1402,7 @@
       },
       {
         "name": "workflow-first",
-        "tool_count": 20,
+        "tool_count": 22,
         "preferred_namespaces": [
           "workflow",
           "session"
@@ -1383,6 +1423,8 @@
           "review_changes",
           "diagnose_issues",
           "get_current_config",
+          "list_orchestration_runs",
+          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1442,7 +1484,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 80,
+        "tool_count": 83,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1479,6 +1521,7 @@
           "diagnose_issues",
           "refresh_symbol_index",
           "propagate_deletions",
+          "cancel_orchestration_run",
           "semantic_code_review",
           "retry_analysis_job",
           "replace_symbol_body",
@@ -1511,6 +1554,8 @@
           "find_tests",
           "get_current_config",
           "analyze_missing_imports",
+          "list_orchestration_runs",
+          "get_orchestration_run",
           "list_analysis_jobs",
           "list_analysis_artifacts",
           "activate_project",
@@ -1539,7 +1584,7 @@
       },
       {
         "name": "full",
-        "tool_count": 109,
+        "tool_count": 112,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1583,6 +1628,7 @@
           "diagnose_issues",
           "refresh_symbol_index",
           "propagate_deletions",
+          "cancel_orchestration_run",
           "semantic_code_review",
           "retry_analysis_job",
           "summarize_file",
@@ -1643,6 +1689,8 @@
           "get_current_config",
           "get_project_structure",
           "analyze_missing_imports",
+          "list_orchestration_runs",
+          "get_orchestration_run",
           "list_analysis_jobs",
           "list_analysis_artifacts",
           "activate_project",
@@ -1698,11 +1746,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 32
+                "tool_count": 34
               },
               {
                 "name": "builder-minimal",
-                "tool_count": 36
+                "tool_count": 39
               }
             ]
           }
@@ -1740,11 +1788,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 32
+                "tool_count": 34
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 36
+                "tool_count": 38
               }
             ]
           },
@@ -1755,11 +1803,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 36
+                "tool_count": 39
               },
               {
                 "name": "refactor-full",
-                "tool_count": 51
+                "tool_count": 54
               }
             ]
           }
@@ -1802,11 +1850,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 36
+                "tool_count": 38
               },
               {
                 "name": "ci-audit",
-                "tool_count": 43
+                "tool_count": 46
               }
             ]
           }
@@ -1844,7 +1892,7 @@
             "profiles": [
               {
                 "name": "workflow-first",
-                "tool_count": 20
+                "tool_count": 22
               },
               {
                 "name": "evaluator-compact",
@@ -1852,7 +1900,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 43
+                "tool_count": 46
               }
             ]
           }
@@ -1905,11 +1953,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 32
+                "tool_count": 34
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 36
+                "tool_count": 38
               }
             ]
           },
@@ -1920,11 +1968,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 36
+                "tool_count": 39
               },
               {
                 "name": "refactor-full",
-                "tool_count": 51
+                "tool_count": 54
               }
             ]
           }
@@ -2083,11 +2131,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 36
+                "tool_count": 38
               },
               {
                 "name": "ci-audit",
-                "tool_count": 43
+                "tool_count": 46
               }
             ]
           }
@@ -2181,7 +2229,7 @@
             "profiles": [
               {
                 "name": "workflow-first",
-                "tool_count": 20
+                "tool_count": 22
               },
               {
                 "name": "evaluator-compact",
@@ -2189,7 +2237,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 43
+                "tool_count": 46
               }
             ]
           }
@@ -3194,13 +3242,13 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.13.23",
+    "version": "1.13.24",
     "transport": [
       "stdio",
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 80,
+    "visible_tool_count": 83,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": false,
@@ -3230,12 +3278,12 @@
     ]
   },
   "summary": {
-    "workspace_version": "1.13.23",
+    "workspace_version": "1.13.24",
     "workspace_member_count": 3,
-    "registered_tool_definitions": 109,
+    "registered_tool_definitions": 112,
     "tool_output_schemas": {
-      "declared": 76,
-      "total": 109
+      "declared": 79,
+      "total": 112
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,

@@ -678,6 +678,8 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "onboard_project",
     // Workflow composites
     "orchestrate_change",
+    "list_orchestration_runs",
+    "get_orchestration_run",
     "analyze_change_request",
     "verify_change_readiness",
     "impact_report",
@@ -732,6 +734,9 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "analyze_missing_imports",
     "add_import",
     "orchestrate_change",
+    "get_orchestration_run",
+    "list_orchestration_runs",
+    "cancel_orchestration_run",
     "verify_change_readiness",
 ];
 
@@ -774,6 +779,8 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "get_changed_files",
     // Workflow composites
     "orchestrate_change",
+    "list_orchestration_runs",
+    "get_orchestration_run",
     "impact_report",
     "refactor_safety_report",
     "verify_change_readiness",
@@ -838,6 +845,9 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "refactor_change_signature",
     // Workflow composites (preflight gate requires these)
     "orchestrate_change",
+    "list_orchestration_runs",
+    "get_orchestration_run",
+    "cancel_orchestration_run",
     "refactor_safety_report",
     "safe_rename_report",
     "unresolved_reference_check",
@@ -887,6 +897,9 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "find_circular_dependencies",
     "get_change_coupling",
     "orchestrate_change",
+    "list_orchestration_runs",
+    "get_orchestration_run",
+    "cancel_orchestration_run",
     "analyze_change_request",
     "verify_change_readiness",
     "unresolved_reference_check",
@@ -924,6 +937,8 @@ pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     "diagnose_issues",
     // Essential workflow-level tools
     "orchestrate_change",
+    "list_orchestration_runs",
+    "get_orchestration_run",
     "analyze_change_request",
     "onboard_project",
 ];
@@ -1115,6 +1130,9 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         // Eval — telemetry, audit export, analysis artifact retrieval.
         "get_tool_metrics"
         | "export_session_markdown"
+        | "list_orchestration_runs"
+        | "get_orchestration_run"
+        | "cancel_orchestration_run"
         | "start_analysis_job"
         | "get_analysis_job"
         | "cancel_analysis_job"
@@ -1163,6 +1181,9 @@ pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
 
         // Orchestration / synthesis — Claude-class executor preferred.
         "orchestrate_change"
+        | "list_orchestration_runs"
+        | "get_orchestration_run"
+        | "cancel_orchestration_run"
         | "analyze_change_request"
         | "plan_safe_refactor"
         | "review_architecture"
@@ -1191,6 +1212,9 @@ pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
     match name {
         "prepare_harness_session" => Some("bootstrap CodeLens harness session"),
         "orchestrate_change" => Some("dry-run code change orchestration"),
+        "list_orchestration_runs" => Some("list durable orchestration runs"),
+        "get_orchestration_run" => Some("resume or inspect orchestration run"),
+        "cancel_orchestration_run" => Some("cancel an orchestration run"),
         "explore_codebase" => Some("explore codebase with compressed context"),
         "analyze_change_request" => Some("plan a code change safely"),
         "trace_request_path" => Some("trace a request path"),

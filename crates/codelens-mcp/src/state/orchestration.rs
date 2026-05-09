@@ -30,6 +30,14 @@ impl AppState {
         self.orchestration_store.clear();
     }
 
+    pub(crate) fn revoke_orchestration_approvals_for_scope(
+        &self,
+        scope: &str,
+        run_id: &str,
+    ) -> usize {
+        self.orchestration_store.remove_for_run(scope, run_id)
+    }
+
     pub(crate) fn record_orchestration_approval(
         &self,
         logical_session: &str,
