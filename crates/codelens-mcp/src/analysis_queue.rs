@@ -13,6 +13,7 @@ pub(crate) const HTTP_ANALYSIS_WORKER_COUNT: usize = 2;
 pub(crate) fn analysis_job_cost_units(kind: &str) -> usize {
     match kind {
         "impact_report" => 1,
+        "orchestrate_change" => 1,
         "refactor_safety_report" => 2,
         "dead_code_report" => 3,
         _ => 2,

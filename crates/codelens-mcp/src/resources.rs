@@ -1059,6 +1059,7 @@ fn infer_summary_quality_focus(
             | "analyze_change_impact"
             | "cleanup_duplicate_logic"
             | "onboard_project"
+            | "orchestrate_change"
             | "analyze_change_request"
             | "verify_change_readiness"
             | "impact_report"

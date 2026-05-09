@@ -6,6 +6,7 @@ use codelens_engine::ProjectRoot;
 use crate::agent_coordination::AgentCoordinationStore;
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::client_profile::{ClientProfile, EffortLevel};
+use crate::orchestration_store::OrchestrationStore;
 use crate::preflight_store::RecentPreflightStore;
 use crate::recent_buffer::RecentRingBuffer;
 use crate::runtime_types::{RuntimeDaemonMode, RuntimeTransportMode};
@@ -50,6 +51,7 @@ impl AppState {
             doom_loop_counter: Mutex::new(HashMap::new()),
             recent_files: RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
+            orchestration_store: Arc::clone(&self.orchestration_store),
             coord_store: Arc::clone(&self.coord_store),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),
@@ -138,6 +140,7 @@ impl AppState {
             doom_loop_counter: Mutex::new(HashMap::new()),
             recent_files: RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
+            orchestration_store: Arc::new(OrchestrationStore::new()),
             coord_store: Arc::new(AgentCoordinationStore::new()),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),

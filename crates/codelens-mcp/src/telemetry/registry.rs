@@ -62,6 +62,7 @@ fn is_workflow_tool(name: &str) -> bool {
             | "assess_change_readiness"
             | "diagnose_issues"
             | "onboard_project"
+            | "orchestrate_change"
             | "analyze_change_request"
             | "verify_change_readiness"
             | "module_boundary_report"

@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::agent_coordination::AgentCoordinationStore;
 use crate::analysis_queue::AnalysisWorkerQueue;
 use crate::artifact_store::AnalysisArtifactStore;
+use crate::orchestration_store::OrchestrationStore;
 use crate::preflight_store::RecentPreflightStore;
 use crate::telemetry::ToolMetricsRegistry;
 #[cfg(test)]
@@ -21,6 +22,7 @@ mod constructors;
 mod coordination;
 mod embedding_host;
 mod metrics_host;
+mod orchestration;
 mod preflight;
 mod project_accessors;
 mod project_runtime;
@@ -101,6 +103,7 @@ pub(crate) struct AppState {
     /// Keyed by logical session_id so concurrent HTTP sessions do not corrupt each other's counters.
     doom_loop_counter: Mutex<HashMap<String, (String, u64, usize, u64)>>,
     preflight_store: RecentPreflightStore,
+    orchestration_store: Arc<OrchestrationStore>,
     coord_store: Arc<AgentCoordinationStore>,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,

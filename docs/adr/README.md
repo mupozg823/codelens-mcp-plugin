@@ -18,6 +18,7 @@ This directory contains all Architecture Decision Records for the CodeLens proje
 | [ADR-0011](ADR-0011-control-plane-sprawl-resolution.md)                        | Control-Plane Sprawl Resolution                                            | **Accepted**                     | 2026-05-01 | —                    |
 | [ADR-0012](ADR-0012-onnx-default-off.md)                                       | Default-Off Semantic on Cargo-Install Path                                 | **Accepted**                     | 2026-05-02 | —                    |
 | [ADR-0013](ADR-0013-tool-defs-codegen.md)                                      | TOML-Driven Codegen for Tool Definitions                                   | **Accepted**                     | 2026-05-02 | —                    |
+| [ADR-0014](ADR-0014-bounded-code-work-orchestrator.md)                         | Bounded Code-Work Orchestrator Direction                                   | **Accepted**                     | 2026-05-09 | ADR-0005 wording     |
 
 ## Status Legend
 

@@ -63,6 +63,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
 
     // Apply per-tool hard cap if defined (stricter than global budget)
     let effective_budget = effective_budget_for_tool(name, request_budget);
+    let mut payload = payload;
 
     if is_verifier_source_tool(name) {
         state.record_recent_preflight_from_payload(
@@ -72,6 +73,52 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
             arguments,
             &payload,
         );
+        if let Some(run_id) = arguments
+            .get("orchestration_run_id")
+            .and_then(|value| value.as_str())
+        {
+            let mutation_ready = payload
+                .get("readiness")
+                .and_then(|readiness| readiness.get("mutation_ready"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("caution");
+            let blocker_count = payload
+                .get("blocker_count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_else(|| {
+                    payload
+                        .get("blockers")
+                        .and_then(|value| value.as_array())
+                        .map(|items| items.len() as u64)
+                        .unwrap_or_default()
+                });
+            let passed = blocker_count == 0 && mutation_ready != "blocked";
+            let event_name = if passed {
+                "verification_passed"
+            } else {
+                "verification_failed"
+            };
+            let to_state = if passed { "completed" } else { "failed" };
+            let mut extra = Map::new();
+            extra.insert("tool".to_owned(), json!(name));
+            extra.insert(
+                "verification_analysis_id".to_owned(),
+                payload.get("analysis_id").cloned().unwrap_or(Value::Null),
+            );
+            extra.insert("mutation_ready".to_owned(), json!(mutation_ready));
+            extra.insert("blocker_count".to_owned(), json!(blocker_count));
+            if let Some(event) = state.append_orchestration_event_for_current_scope(
+                logical_session_id,
+                run_id,
+                event_name,
+                Some("mutation_applied"),
+                to_state,
+                extra,
+            ) && let Some(obj) = payload.as_object_mut()
+            {
+                obj.entry("orchestration_event".to_owned()).or_insert(event);
+            }
+        }
     }
 
     let had_caution = gate_allowance.map(|a| a.caution) == Some(true);

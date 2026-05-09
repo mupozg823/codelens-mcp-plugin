@@ -139,6 +139,7 @@ pub(super) fn activate_project_context(
     state.artifact_store.clear();
     state.job_store.clear();
     state.clear_recent_preflights();
+    state.clear_orchestration_approvals();
     #[cfg(feature = "semantic")]
     state.reset_embedding();
     state

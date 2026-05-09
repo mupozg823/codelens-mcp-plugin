@@ -387,7 +387,7 @@ pub(crate) fn build_verifier_contract(
         }
     } else if matches!(
         tool_name,
-        "analyze_change_request" | "verify_change_readiness"
+        "orchestrate_change" | "analyze_change_request" | "verify_change_readiness"
     ) {
         let ranked_files = sections
             .get("ranked_files")

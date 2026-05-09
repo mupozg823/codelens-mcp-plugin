@@ -142,6 +142,7 @@ fn trim_preview_first_handle_payload(tool_name: &str, ci_audit: bool, payload: &
         "impact_report"
             | "module_boundary_report"
             | "semantic_code_review"
+            | "orchestrate_change"
             | "analyze_change_request"
     );
     if !always_trim && !size_gated {
@@ -246,7 +247,8 @@ fn infer_quality_focus(
     push_unique("correctness");
     if matches!(
         tool_name,
-        "analyze_change_request"
+        "orchestrate_change"
+            | "analyze_change_request"
             | "verify_change_readiness"
             | "impact_report"
             | "refactor_safety_report"
@@ -455,6 +457,7 @@ mod preview_first_trim_tests {
         for tool in [
             "module_boundary_report",
             "semantic_code_review",
+            "orchestrate_change",
             "analyze_change_request",
         ] {
             let mut small = make_payload(0);

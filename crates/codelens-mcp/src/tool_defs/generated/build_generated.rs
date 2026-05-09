@@ -93,9 +93,14 @@ pub fn composite_tools(
             json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
         Tool::new(
+            "orchestrate_change",
+            "[CodeLens:Workflow] Plan and gate a bounded code-work orchestration run: preflight, approval events, audit timeline, dispatch boundary, and evidence handles without mutating files.",
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"mode":{"type":"string","enum":["solo","planner_builder","planner-builder","ci_audit","ci-audit"]},"target_paths":{"type":"array","items":{"type":"string"}},"changed_files":{"type":"array","items":{"type":"string"}},"acceptance":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"requester":{"type":"string"},"worktree":{"type":"string"},"approval":{"type":"object","properties":{"decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"actor":{"type":"string"},"reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}},"approval_decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"approved_by":{"type":"string"},"approval_reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}}),
+        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new(
             "verify_change_readiness",
             "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing.",
-            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"orchestration_run_id":{"type":"string"}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
         Tool::new(
             "module_boundary_report",
@@ -145,7 +150,7 @@ pub fn composite_tools(
         Tool::new(
             "start_analysis_job",
             "[CodeLens:Workflow] Start a durable analysis job and return a job handle for polling.",
-            json!({"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["impact_report","dead_code_report","refactor_safety_report","semantic_code_review","eval_session_audit"]},"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
+            json!({"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["impact_report","dead_code_report","refactor_safety_report","semantic_code_review","orchestrate_change","eval_session_audit"]},"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"target_paths":{"type":"array","items":{"type":"string"}},"mode":{"type":"string","enum":["solo","planner_builder","planner-builder","ci_audit","ci-audit"]},"acceptance":{"type":"array","items":{"type":"string"}},"approval":{"type":"object","properties":{"decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"actor":{"type":"string"},"reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
         ).with_output_schema(analysis_job_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "get_analysis_job",

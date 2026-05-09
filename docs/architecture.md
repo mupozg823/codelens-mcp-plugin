@@ -7,10 +7,10 @@
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
 
-- Workspace version: `1.13.22`
+- Workspace version: `1.13.23`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions in source: `108`
-- Tool output schemas in source: `75 / 108`
+- Registered tool definitions in source: `109`
+- Tool output schemas in source: `76 / 109`
 - Supported language families: `30` across `49` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 
@@ -23,6 +23,7 @@
 - Current audit and simplification report: [docs/architecture-audit-2026-04-24.md](architecture-audit-2026-04-24.md)
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
 - Current enterprise productization decision record: [docs/adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
+- Current product direction: CodeLens is becoming a bounded code-work orchestrator over its existing code-intelligence substrate. See [docs/adr/ADR-0014-bounded-code-work-orchestrator.md](adr/ADR-0014-bounded-code-work-orchestrator.md).
 
 This document describes the product shape and the stable architectural layers.
 The audit document above captures the current overdesign, duplication, and drift findings against the latest code.
@@ -91,14 +92,14 @@ Operational deployment modes:
 ├───────────────────────┴─────────────────────────────────────────────┤
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │          codelens-mcp (Harness Optimization Server)           │  │
+│  │       codelens-mcp (Bounded Code-Work Orchestrator)           │  │
 │  │                                                               │  │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │  │
-│  │  │ Dispatch │→ │  Tools   │→ │  State   │→ │  Telemetry   │  │  │
-│  │  │  Table   │  │ (surface │  │ AppState │  │  Metrics     │  │  │
-│  │  │          │  │ dependent)│  │          │  │              │  │  │
-│  │  └──────────┘  └────┬─────┘  └──────────┘  └──────────────┘  │  │
-│  │                     │                                         │  │
+│  │  │ Dispatch │→ │  Tools   │→ │   Run    │→ │ Audit/Events │  │  │
+│  │  │  Table   │  │ (surface │  │  State   │  │ Telemetry    │  │  │
+│  │  │          │  │ dependent)│  │          │  │ Artifacts    │  │  │
+│  │  └──────────┘  └────┬─────┘  └────┬─────┘  └──────────────┘  │  │
+│  │                     │             │                           │  │
 │  │  ┌─────────────────────────────────────────────────────────┐  │  │
 │  │  │              Tool Categories (profile dependent)        │  │  │
 │  │  │  File │ Symbol │ LSP │ Analysis │ Edit                  │  │  │
@@ -132,8 +133,12 @@ Operational deployment modes:
 
 ---
 
-CodeLens is not the interactive agent runtime.
-It is the bounded MCP tool that optimizes harnesses by compressing context, producing verifier evidence, and reusing heavy analysis through handles and stored artifacts.
+CodeLens is not a general interactive chat runtime.
+It is now positioned as a bounded code-work orchestrator: it plans, gates,
+dispatches, verifies, audits, and summarizes code-work runs while preserving
+the existing MCP/code-intelligence substrate. The host still owns model choice,
+user conversation, credentials, UI, and broad workflow policy unless a future
+ADR explicitly moves one of those responsibilities into CodeLens.
 
 Use repo-local contracts alongside this document:
 

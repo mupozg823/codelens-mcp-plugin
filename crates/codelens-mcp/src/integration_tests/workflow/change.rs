@@ -51,6 +51,256 @@ fn analyze_change_request_returns_handle_and_section() {
 }
 
 #[test]
+fn orchestrate_change_dry_run_returns_run_contract_and_evidence() {
+    let project = project_root();
+    let original = "def checkout(cart):\n    return cart\n";
+    fs::write(project.as_path().join("orchestrated_checkout.py"), original).unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "orchestrate_change",
+        json!({
+            "task": "update checkout orchestration flow",
+            "mode": "planner_builder",
+            "target_paths": ["orchestrated_checkout.py"],
+            "acceptance": ["preflight evidence exists", "no files are mutated"]
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let analysis_id = payload["data"]["analysis_id"]
+        .as_str()
+        .expect("analysis_id");
+    let sections = payload["data"]["available_sections"]
+        .as_array()
+        .expect("available_sections");
+    for expected in [
+        "orchestration_run",
+        "plan",
+        "preflight",
+        "evidence_handles",
+        "audit_events",
+        "role_bindings",
+        "approval_policy",
+        "data_ownership",
+        "dispatch_plan",
+    ] {
+        assert!(
+            sections.iter().any(|section| section == expected),
+            "{expected}"
+        );
+    }
+
+    let run = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "orchestration_run"}),
+    );
+    assert_eq!(run["success"], json!(true));
+    assert_eq!(run["data"]["content"]["dry_run"], json!(true));
+    assert_eq!(run["data"]["content"]["execution_performed"], json!(false));
+    assert_eq!(run["data"]["content"]["state"], json!("approval_required"));
+    assert_eq!(run["data"]["content"]["mode"], json!("planner_builder"));
+    assert_eq!(
+        run["data"]["content"]["target_paths"],
+        json!(["orchestrated_checkout.py"])
+    );
+
+    let audit = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "audit_events"}),
+    );
+    assert_eq!(audit["success"], json!(true));
+    let events = audit["data"]["content"]["events"]
+        .as_array()
+        .expect("audit events");
+    assert!(events.iter().any(|event| event["event"] == "run_created"));
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "approval_requested")
+    );
+    assert!(events.iter().all(|event| event["audit_required"] == true));
+    assert_eq!(
+        fs::read_to_string(project.as_path().join("orchestrated_checkout.py")).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn orchestrated_mutation_requires_recorded_approval() {
+    let project = project_root();
+    let original = "print('old')\n";
+    fs::write(project.as_path().join("needs_approval.py"), original).unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let orchestration = call_tool(
+        &state,
+        "orchestrate_change",
+        json!({
+            "task": "update approved flow",
+            "target_paths": ["needs_approval.py"]
+        }),
+    );
+    assert_eq!(orchestration["success"], json!(true));
+    let analysis_id = orchestration["data"]["analysis_id"].as_str().unwrap();
+    let run = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "orchestration_run"}),
+    );
+    let run_id = run["data"]["content"]["run_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let denied = call_tool(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "needs_approval.py",
+            "old_text": "old",
+            "new_text": "new",
+            "orchestration_run_id": run_id
+        }),
+    );
+    assert_eq!(denied["success"], json!(false));
+    assert!(
+        denied["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("recorded approval")
+    );
+    assert_eq!(
+        fs::read_to_string(project.as_path().join("needs_approval.py")).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn orchestrate_change_granted_approval_allows_orchestrated_mutation() {
+    let project = project_root();
+    fs::write(project.as_path().join("approved_gate.py"), "print('old')\n").unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let orchestration = call_tool(
+        &state,
+        "orchestrate_change",
+        json!({
+            "task": "update approved gate file",
+            "target_paths": ["approved_gate.py"],
+            "approval": {
+                "decision": "granted",
+                "actor": "integration-test",
+                "reason": "bounded test mutation",
+                "approved_actions": ["mutation"]
+            }
+        }),
+    );
+    assert_eq!(orchestration["success"], json!(true));
+    let analysis_id = orchestration["data"]["analysis_id"].as_str().unwrap();
+    let run = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "orchestration_run"}),
+    );
+    let run_id = run["data"]["content"]["run_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(run["data"]["content"]["state"], json!("executing"));
+    let dispatch = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "dispatch_plan"}),
+    );
+    assert_eq!(dispatch["data"]["content"]["dispatch_allowed"], json!(true));
+    let audit = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "audit_events"}),
+    );
+    assert!(
+        audit["data"]["content"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event"] == "approval_granted")
+    );
+
+    let payload = call_tool(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "approved_gate.py",
+            "old_text": "old",
+            "new_text": "new",
+            "orchestration_run_id": run_id
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["orchestration_event"]["event"],
+        json!("mutation_applied")
+    );
+    assert!(
+        fs::read_to_string(project.as_path().join("approved_gate.py"))
+            .unwrap()
+            .contains("new")
+    );
+
+    let after_mutation_events = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "audit_events"}),
+    );
+    assert!(
+        after_mutation_events["data"]["content"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event"] == "mutation_applied")
+    );
+
+    let verify = call_tool(
+        &state,
+        "verify_change_readiness",
+        json!({
+            "task": "verify approved gate mutation",
+            "changed_files": ["approved_gate.py"],
+            "orchestration_run_id": run_id
+        }),
+    );
+    assert_eq!(verify["success"], json!(true));
+    assert_eq!(
+        verify["data"]["orchestration_event"]["event"],
+        json!("verification_passed")
+    );
+
+    let final_run = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "orchestration_run"}),
+    );
+    assert_eq!(final_run["data"]["content"]["state"], json!("completed"));
+    let final_events = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "audit_events"}),
+    );
+    assert!(
+        final_events["data"]["content"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event"] == "verification_passed")
+    );
+}
+
+#[test]
 fn verify_change_readiness_returns_verifier_contract() {
     let project = project_root();
     fs::write(

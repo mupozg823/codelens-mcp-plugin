@@ -65,7 +65,7 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
 
-    // v1.10.1 (F2): default tools/list expanded from 13 → 25 tools to
+    // v1.10.1 (F2): default tools/list expanded from 13 → 26 tools to
     // surface the workflow-first composite tools and core navigation
     // primitives that the product is positioned around. The list is
     // ordered as defined in `DEFAULT_LISTED_TOOL_NAMES`.
@@ -73,6 +73,7 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
         // Control plane
         "activate_project",
         "prepare_harness_session",
+        "orchestrate_change",
         "get_current_config",
         "get_capabilities",
         "set_profile",

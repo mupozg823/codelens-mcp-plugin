@@ -12,6 +12,7 @@ pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
     "explore_codebase",
     "review_architecture",
     "review_changes",
+    "orchestrate_change",
     "analyze_change_request",
     "verify_change_readiness",
     "onboard_project",
@@ -167,6 +168,7 @@ pub(crate) fn infer_harness_phase(recent_tools: &[String]) -> Option<&'static st
         "review_architecture",
     ];
     const PLAN_SIGNAL: &[&str] = &[
+        "orchestrate_change",
         "analyze_change_request",
         "onboard_project",
         "explore_codebase",
@@ -281,6 +283,7 @@ fn is_workflow_tool_name(name: &str) -> bool {
             | "review_changes"
             | "assess_change_readiness"
             | "diagnose_issues"
+            | "orchestrate_change"
             | "analyze_change_request"
             | "verify_change_readiness"
             | "module_boundary_report"
@@ -524,7 +527,13 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "get_file_diagnostics",
             "get_impact_analysis",
         ],
+        "orchestrate_change" => &[
+            "get_analysis_section",
+            "verify_change_readiness",
+            "audit_planner_session",
+        ],
         "analyze_change_request" => &[
+            "orchestrate_change",
             "get_analysis_section",
             "verify_change_readiness",
             "impact_report",
@@ -602,6 +611,9 @@ pub fn suggestion_reasons_for(
             "find_referencing_symbols" => "Find all callers/users of this symbol",
             "get_ranked_context" => "Get relevant context ranked by multiple signals",
             "start_analysis_job" => "Run heavy analysis asynchronously",
+            "orchestrate_change" => {
+                "Dry-run the run state, approval boundary, and evidence handles"
+            }
             "analyze_change_request" => "Compress the change request into ranked files and risks",
             "explore_codebase" => "Get a high-level overview or targeted search",
             "review_changes" => "Review impact of changed files before merge",

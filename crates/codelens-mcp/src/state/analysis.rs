@@ -280,6 +280,21 @@ impl AppState {
         self.artifact_store.get_section(analysis_id, section)
     }
 
+    pub(crate) fn upsert_analysis_section_for_scope(
+        &self,
+        scope: &str,
+        analysis_id: &str,
+        section: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), CodeLensError> {
+        self.get_analysis_for_scope(scope, analysis_id)
+            .ok_or_else(|| {
+                CodeLensError::NotFound(format!("unknown analysis_id `{analysis_id}`"))
+            })?;
+        self.artifact_store
+            .upsert_section(analysis_id, section, value)
+    }
+
     #[cfg(test)]
     pub(crate) fn set_analysis_created_at_for_test(
         &self,

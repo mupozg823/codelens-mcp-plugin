@@ -1,0 +1,511 @@
+use crate::AppState;
+use crate::error::CodeLensError;
+use crate::tool_runtime::{ToolResult, required_string};
+use crate::tools::report_contract::make_handle_response;
+use crate::tools::report_utils::strings_from_array;
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+
+const RUN_SCHEMA_VERSION: &str = "codelens-orchestration-run-v1";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ApprovalDecision {
+    Requested,
+    Granted,
+    Denied,
+}
+
+impl ApprovalDecision {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Requested => "requested",
+            Self::Granted => "granted",
+            Self::Denied => "denied",
+        }
+    }
+}
+
+fn normalize_mode(arguments: &Value) -> Result<&str, CodeLensError> {
+    match arguments
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("solo")
+    {
+        "solo" => Ok("solo"),
+        "planner_builder" | "planner-builder" => Ok("planner_builder"),
+        "ci_audit" | "ci-audit" => Ok("ci_audit"),
+        other => Err(CodeLensError::Validation(format!(
+            "unsupported orchestrate_change mode `{other}`; expected solo, planner_builder, or ci_audit"
+        ))),
+    }
+}
+
+fn approval_value(arguments: &Value) -> Option<&Value> {
+    arguments.get("approval").filter(|value| value.is_object())
+}
+
+fn approval_decision(arguments: &Value) -> Result<Option<ApprovalDecision>, CodeLensError> {
+    let decision = approval_value(arguments)
+        .and_then(|value| value.get("decision"))
+        .or_else(|| arguments.get("approval_decision"))
+        .and_then(Value::as_str);
+    match decision {
+        None => Ok(None),
+        Some("requested") | Some("request") => Ok(Some(ApprovalDecision::Requested)),
+        Some("granted") | Some("approved") | Some("approve") => Ok(Some(ApprovalDecision::Granted)),
+        Some("denied") | Some("rejected") | Some("deny") => Ok(Some(ApprovalDecision::Denied)),
+        Some(other) => Err(CodeLensError::Validation(format!(
+            "unsupported approval decision `{other}`; expected requested, granted, or denied"
+        ))),
+    }
+}
+
+fn approval_actor(arguments: &Value) -> String {
+    approval_value(arguments)
+        .and_then(|value| value.get("actor"))
+        .or_else(|| arguments.get("approved_by"))
+        .or_else(|| arguments.get("requester"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_owned()
+}
+
+fn approval_reason(arguments: &Value) -> Option<String> {
+    approval_value(arguments)
+        .and_then(|value| value.get("reason"))
+        .or_else(|| arguments.get("approval_reason"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+}
+
+fn approved_actions(arguments: &Value) -> Vec<String> {
+    let actions = approval_value(arguments)
+        .and_then(|value| value.get("approved_actions"))
+        .or_else(|| arguments.get("approved_actions"))
+        .and_then(Value::as_array);
+    let mut values = strings_from_array(actions, "action", 16);
+    if values.is_empty() {
+        values.push("mutation".to_owned());
+    }
+    values
+}
+
+fn target_paths(arguments: &Value) -> Vec<String> {
+    let mut paths = strings_from_array(
+        arguments
+            .get("target_paths")
+            .and_then(|value| value.as_array()),
+        "path",
+        16,
+    );
+    for path in strings_from_array(
+        arguments
+            .get("changed_files")
+            .and_then(|value| value.as_array()),
+        "file",
+        16,
+    ) {
+        crate::util::push_unique_string(&mut paths, path);
+    }
+    paths
+}
+
+fn acceptance_items(arguments: &Value) -> Vec<String> {
+    strings_from_array(
+        arguments
+            .get("acceptance")
+            .and_then(|value| value.as_array()),
+        "item",
+        12,
+    )
+}
+
+fn analysis_args(task: &str, profile_hint: Option<&str>, paths: &[String]) -> Value {
+    let mut args = json!({"task": task});
+    if let Some(map) = args.as_object_mut() {
+        if let Some(profile_hint) = profile_hint {
+            map.insert("profile_hint".to_owned(), json!(profile_hint));
+        }
+        if !paths.is_empty() {
+            map.insert("changed_files".to_owned(), json!(paths));
+        }
+    }
+    args
+}
+
+fn evidence_handle(payload: &Value) -> Value {
+    json!({
+        "analysis_id": payload.get("analysis_id").cloned().unwrap_or(Value::Null),
+        "summary": payload.get("summary").cloned().unwrap_or(Value::Null),
+        "summary_resource": payload.get("summary_resource").cloned().unwrap_or(Value::Null),
+        "section_handles": payload.get("section_handles").cloned().unwrap_or_else(|| json!([])),
+        "readiness": payload.get("readiness").cloned().unwrap_or(Value::Null),
+        "blocker_count": payload.get("blocker_count").cloned().unwrap_or_else(|| json!(0)),
+    })
+}
+
+fn make_run_id(
+    task: &str,
+    mode: &str,
+    paths: &[String],
+    acceptance: &[String],
+    requester: &str,
+    worktree: &str,
+    created_at_ms: u64,
+) -> String {
+    let digest = crate::util::canonical_sha256_hex(&json!({
+        "task": task,
+        "mode": mode,
+        "target_paths": paths,
+        "acceptance": acceptance,
+        "requester": requester,
+        "worktree": worktree,
+        "created_at_ms": created_at_ms,
+    }));
+    format!("orun-{}", &digest[..16])
+}
+
+fn role_bindings() -> Value {
+    json!([
+        {
+            "role": "viewer",
+            "surface": "run summary, artifacts, audit",
+            "allowed_actions": ["inspect"],
+            "mutations": "never"
+        },
+        {
+            "role": "planner",
+            "surface": "plan, preflight, claims",
+            "allowed_actions": ["create_plan", "run_preflight", "claim_files"],
+            "tools": [
+                "prepare_harness_session",
+                "get_symbols_overview",
+                "get_file_diagnostics",
+                "verify_change_readiness",
+                "register_agent_work",
+                "claim_files"
+            ],
+            "mutations": "never"
+        },
+        {
+            "role": "builder",
+            "surface": "execution lane",
+            "allowed_actions": ["apply_approved_changes", "run_focused_tests"],
+            "mutations": "only_after_approval_and_preflight"
+        },
+        {
+            "role": "reviewer",
+            "surface": "verification lane",
+            "allowed_actions": ["review_diff", "audit_sessions", "verify_evidence"],
+            "mutations": "never"
+        },
+        {
+            "role": "admin",
+            "surface": "operation lane",
+            "allowed_actions": ["cancel_run", "override_stale_claims", "configure_policy"],
+            "mutations": "policy_controlled"
+        }
+    ])
+}
+
+fn audit_event(
+    run_id: &str,
+    event: &str,
+    from: Option<&str>,
+    to: &str,
+    created_at_ms: u64,
+    offset: u64,
+) -> Value {
+    json!({
+        "run_id": run_id,
+        "event": event,
+        "from": from,
+        "to": to,
+        "timestamp_ms": created_at_ms.saturating_add(offset),
+        "audit_required": true,
+    })
+}
+
+pub fn orchestrate_change(state: &AppState, arguments: &Value) -> ToolResult {
+    let task = required_string(arguments, "task")?;
+    let mode = normalize_mode(arguments)?;
+    let paths = target_paths(arguments);
+    let acceptance = acceptance_items(arguments);
+    let profile_hint = arguments.get("profile_hint").and_then(Value::as_str);
+    let approval_decision = approval_decision(arguments)?;
+    let approval_actor = approval_actor(arguments);
+    let approval_reason = approval_reason(arguments);
+    let approved_actions = approved_actions(arguments);
+    let project_root = state.current_project_scope();
+    let worktree = arguments
+        .get("worktree")
+        .and_then(Value::as_str)
+        .unwrap_or(project_root.as_str());
+    let requester = arguments
+        .get("requester")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let created_at_ms = crate::util::now_ms();
+    let run_id = make_run_id(
+        task,
+        mode,
+        &paths,
+        &acceptance,
+        requester,
+        worktree,
+        created_at_ms,
+    );
+    let evidence_args = analysis_args(task, profile_hint, &paths);
+
+    let (change_payload, _) = super::analyze_change_request(state, &evidence_args)?;
+    let (readiness_payload, _) = super::verify_change_readiness(state, &evidence_args)?;
+
+    let readiness = readiness_payload
+        .get("readiness")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let mutation_ready = readiness
+        .get("mutation_ready")
+        .and_then(Value::as_str)
+        .unwrap_or("caution");
+    let blocker_count = readiness_payload
+        .get("blocker_count")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let blocked = mutation_ready == "blocked" || blocker_count > 0;
+    let final_state = match (blocked, approval_decision) {
+        (true, _) => "failed",
+        (false, Some(ApprovalDecision::Granted)) => "executing",
+        (false, Some(ApprovalDecision::Denied)) => "cancelled",
+        (false, _) => "approval_required",
+    };
+    let preflight_event = if blocked {
+        "preflight_blocked"
+    } else {
+        "preflight_passed"
+    };
+    let preflight_to_state = if blocked { final_state } else { "preflighted" };
+
+    let mut events = vec![
+        audit_event(&run_id, "run_created", None, "drafted", created_at_ms, 0),
+        audit_event(
+            &run_id,
+            "plan_proposed",
+            Some("drafted"),
+            "planned",
+            created_at_ms,
+            1,
+        ),
+        audit_event(
+            &run_id,
+            preflight_event,
+            Some("planned"),
+            preflight_to_state,
+            created_at_ms,
+            2,
+        ),
+    ];
+    if !blocked {
+        events.push(audit_event(
+            &run_id,
+            "approval_requested",
+            Some("preflighted"),
+            "approval_required",
+            created_at_ms,
+            3,
+        ));
+        match approval_decision {
+            Some(ApprovalDecision::Granted) => events.push(audit_event(
+                &run_id,
+                "approval_granted",
+                Some("approval_required"),
+                "executing",
+                created_at_ms,
+                4,
+            )),
+            Some(ApprovalDecision::Denied) => events.push(audit_event(
+                &run_id,
+                "approval_denied",
+                Some("approval_required"),
+                "cancelled",
+                created_at_ms,
+                4,
+            )),
+            _ => {}
+        }
+    }
+
+    let next_actions = if blocked {
+        vec![
+            "Expand the readiness evidence before dispatching a builder.".to_owned(),
+            "Resolve blockers, then rerun orchestrate_change.".to_owned(),
+        ]
+    } else if approval_decision == Some(ApprovalDecision::Granted) {
+        vec![
+            "Dispatch the approved bounded mutation with orchestration_run_id.".to_owned(),
+            "Append mutation_applied after the wrapped mutation returns.".to_owned(),
+            "Run verification before marking the orchestration run complete.".to_owned(),
+        ]
+    } else if approval_decision == Some(ApprovalDecision::Denied) {
+        vec![
+            "Do not dispatch mutation for this run.".to_owned(),
+            "Create a new orchestration run if the objective changes.".to_owned(),
+        ]
+    } else {
+        vec![
+            "Record approval.decision=granted before any mutation.".to_owned(),
+            "Dispatch one builder/refactor lane only after approval is recorded.".to_owned(),
+        ]
+    };
+    let top_findings = vec![
+        format!("Run `{run_id}` dry-run state: `{final_state}`."),
+        format!("{} target path(s) supplied for preflight.", paths.len()),
+        format!("Verifier mutation readiness: `{mutation_ready}`."),
+    ];
+
+    let mut sections = BTreeMap::new();
+    sections.insert(
+        "orchestration_run".to_owned(),
+        json!({
+            "schema_version": RUN_SCHEMA_VERSION,
+            "run_id": run_id.clone(),
+            "dry_run": true,
+            "execution_performed": false,
+            "created_at_ms": created_at_ms,
+            "state": final_state,
+            "project_root": project_root,
+            "worktree": worktree,
+            "requester": requester,
+            "objective": task,
+            "mode": mode,
+            "target_paths": paths.clone(),
+            "acceptance": acceptance.clone(),
+        }),
+    );
+    sections.insert(
+        "plan".to_owned(),
+        json!({
+            "objective": task,
+            "mode": mode,
+            "target_paths": paths.clone(),
+            "acceptance": acceptance.clone(),
+            "recommended_sequence": [
+                "prepare_harness_session",
+                "orchestrate_change",
+                "approval_granted",
+                "task_dispatched",
+                "mutation_applied",
+                "verification_passed"
+            ],
+            "mutation_policy": "phase-2 approval can authorize dispatch; this tool still does not mutate files"
+        }),
+    );
+    sections.insert(
+        "preflight".to_owned(),
+        json!({
+            "state": final_state,
+            "mutation_ready": mutation_ready,
+            "blocker_count": blocker_count,
+            "readiness": readiness,
+            "blockers": readiness_payload.get("blockers").cloned().unwrap_or_else(|| json!([])),
+            "verifier_checks": readiness_payload.get("verifier_checks").cloned().unwrap_or_else(|| json!([])),
+        }),
+    );
+    sections.insert(
+        "evidence_handles".to_owned(),
+        json!({
+            "change_request": evidence_handle(&change_payload),
+            "readiness": evidence_handle(&readiness_payload),
+        }),
+    );
+    sections.insert("audit_events".to_owned(), json!({ "events": events }));
+    sections.insert("role_bindings".to_owned(), role_bindings());
+    sections.insert(
+        "approval_policy".to_owned(),
+        json!({
+            "mutation_requires_approval": true,
+            "current_approval_state": if blocked {
+                "not_applicable_blocked".to_owned()
+            } else {
+                approval_decision.map(ApprovalDecision::as_str).unwrap_or("requested").to_owned()
+            },
+            "approval_event_required_before": "task_dispatched",
+            "approved_by": if approval_decision == Some(ApprovalDecision::Granted) { Some(approval_actor.as_str()) } else { None },
+            "approval_reason": approval_reason.clone(),
+            "approved_actions": approved_actions.clone(),
+        }),
+    );
+    sections.insert(
+        "data_ownership".to_owned(),
+        json!({
+            "project_root": "owns index data, project memories, project-local audit, artifacts, and run event logs",
+            "worktree": "owns mutable file state and test execution side effects",
+            "orchestration_run": "owns plan, target paths, approvals, claims, artifact handles, state, and event timeline",
+            "host": "owns user chat, model choice, credentials, UI presentation, and broad workflow policy"
+        }),
+    );
+    sections.insert(
+        "dispatch_plan".to_owned(),
+        json!({
+            "dispatch_allowed": !blocked && approval_decision == Some(ApprovalDecision::Granted),
+            "reason": if blocked {
+                "preflight blocked; dispatch is not allowed"
+            } else if approval_decision == Some(ApprovalDecision::Granted) {
+                "approval recorded; a wrapped mutation may be dispatched with orchestration_run_id"
+            } else if approval_decision == Some(ApprovalDecision::Denied) {
+                "approval denied; dispatch is not allowed"
+            } else {
+                "approval is required before dispatch"
+            },
+            "next_required_event": if blocked {
+                "plan_proposed"
+            } else if approval_decision == Some(ApprovalDecision::Granted) {
+                "task_dispatched"
+            } else {
+                "approval_granted"
+            },
+        }),
+    );
+
+    let result = make_handle_response(
+        state,
+        "orchestrate_change",
+        None,
+        format!("Dry-run orchestration plan for `{task}` reached `{final_state}`."),
+        top_findings,
+        0.89,
+        next_actions,
+        sections,
+        paths.clone(),
+        None,
+        Some(arguments),
+    )?;
+
+    let logical_session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let active_surface = state.surface().as_label();
+    state.record_recent_preflight_from_payload(
+        "orchestrate_change",
+        active_surface,
+        logical_session.session_id.as_str(),
+        arguments,
+        &result.0,
+    );
+
+    if !blocked && approval_decision == Some(ApprovalDecision::Granted) {
+        let analysis_id = result
+            .0
+            .get("analysis_id")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
+        state.record_orchestration_approval(
+            logical_session.session_id.as_str(),
+            run_id,
+            approval_actor,
+            paths,
+            approved_actions,
+            analysis_id,
+        );
+    }
+
+    Ok(result)
+}

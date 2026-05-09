@@ -21,12 +21,17 @@ CodeLens provides:
 
 The host or harness still provides:
 
-- the orchestrator loop
+- the user-facing conversation loop
 - the decision to dispatch one agent to another
 - branch policy, merge policy, and release policy
 - any Claude-specific or Codex-specific custom agent wrapper
 
-CodeLens is the shared coordination and verification layer, not the orchestrator.
+CodeLens is moving from shared coordination/verification into a bounded
+code-work orchestrator, per
+[ADR-0014](adr/ADR-0014-bounded-code-work-orchestrator.md). The boundary is
+deliberate: CodeLens may own a typed code-work run state machine, audit trail,
+preflight, approval, dispatch, and verification flow; the host still owns the
+general chat/runtime loop and any host-specific agent wrapper.
 
 ## Delegate Scaffold Correlation
 

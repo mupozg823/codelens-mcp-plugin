@@ -67,6 +67,60 @@ fn start_analysis_job_returns_completed_handle() {
     assert_eq!(section["success"], json!(true));
 }
 
+#[test]
+fn start_analysis_job_runs_orchestrate_change_kind() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("orchestrated_job.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let arguments = json!({
+        "kind": "orchestrate_change",
+        "task": "update alpha via orchestration",
+        "target_paths": ["orchestrated_job.py"],
+        "mode": "solo"
+    });
+    let job = state
+        .store_analysis_job_for_current_scope(
+            "orchestrate_change",
+            None,
+            vec![
+                "orchestration_run".to_owned(),
+                "plan".to_owned(),
+                "preflight".to_owned(),
+                "audit_events".to_owned(),
+            ],
+            crate::runtime_types::JobLifecycle::Queued,
+            0,
+            Some("queued".to_owned()),
+            None,
+            None,
+        )
+        .unwrap();
+    let job_id = job.id.clone();
+
+    let final_status = crate::tools::report_jobs::run_analysis_job_from_queue(
+        &state,
+        job_id.clone(),
+        "orchestrate_change".to_owned(),
+        arguments,
+    );
+    assert_eq!(final_status, crate::runtime_types::JobLifecycle::Completed);
+
+    let completed_job = state.get_analysis_job(&job_id).unwrap();
+    let analysis_id = completed_job.analysis_id.as_deref().unwrap();
+    let section = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "orchestration_run"}),
+    );
+    assert_eq!(section["success"], json!(true));
+    assert_eq!(section["data"]["content"]["dry_run"], json!(true));
+    assert_eq!(section["data"]["content"]["mode"], json!("solo"));
+}
+
 #[cfg(feature = "http")]
 #[test]
 fn start_analysis_job_reports_running_progress() {

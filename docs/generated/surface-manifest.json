@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-surface-manifest-v1",
   "workspace": {
-    "version": "1.13.22",
+    "version": "1.13.23",
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
     "members": [
       "crates/codelens-engine",
@@ -11,33 +11,33 @@
     "member_count": 3
   },
   "tool_registry": {
-    "definition_count": 108,
-    "output_schema_count": 75,
+    "definition_count": 109,
+    "output_schema_count": 76,
     "namespaces": {
       "filesystem": 6,
       "graph": 8,
       "lsp": 3,
       "memory": 5,
       "mutation": 16,
-      "reports": 23,
+      "reports": 24,
       "session": 38,
       "symbols": 9
     },
     "tiers": {
       "analysis": 27,
       "primitive": 53,
-      "workflow": 28
+      "workflow": 29
     },
     "phases": {
       "agnostic": 45,
       "build": 18,
       "eval": 8,
-      "plan": 22,
+      "plan": 23,
       "review": 15
     },
     "preferred_executors": {
       "any": 84,
-      "claude": 7,
+      "claude": 8,
       "codex-builder": 17
     },
     "tools": [
@@ -537,13 +537,22 @@
         "estimated_tokens": 727
       },
       {
+        "name": "orchestrate_change",
+        "namespace": "reports",
+        "tier": "workflow",
+        "phase": "plan",
+        "preferred_executor": "claude",
+        "has_output_schema": true,
+        "estimated_tokens": 946
+      },
+      {
         "name": "verify_change_readiness",
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 727
+        "estimated_tokens": 737
       },
       {
         "name": "module_boundary_report",
@@ -633,7 +642,7 @@
         "phase": "eval",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 353
+        "estimated_tokens": 480
       },
       {
         "name": "get_analysis_job",
@@ -1019,7 +1028,7 @@
     "profiles": [
       {
         "name": "planner-readonly",
-        "tool_count": 31,
+        "tool_count": 32,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1040,6 +1049,7 @@
           "prepare_harness_session",
           "onboard_project",
           "analyze_change_request",
+          "orchestrate_change",
           "verify_change_readiness",
           "mermaid_module_graph",
           "impact_report",
@@ -1070,7 +1080,7 @@
       },
       {
         "name": "builder-minimal",
-        "tool_count": 35,
+        "tool_count": 36,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1091,6 +1101,7 @@
           "trace_request_path",
           "plan_safe_refactor",
           "prepare_harness_session",
+          "orchestrate_change",
           "verify_change_readiness",
           "refresh_symbol_index",
           "replace_symbol_body",
@@ -1127,7 +1138,7 @@
       },
       {
         "name": "reviewer-graph",
-        "tool_count": 35,
+        "tool_count": 36,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1146,6 +1157,7 @@
           "review_changes",
           "cleanup_duplicate_logic",
           "prepare_harness_session",
+          "orchestrate_change",
           "verify_change_readiness",
           "module_boundary_report",
           "mermaid_module_graph",
@@ -1217,7 +1229,7 @@
       },
       {
         "name": "refactor-full",
-        "tool_count": 50,
+        "tool_count": 51,
         "preferred_namespaces": [
           "reports",
           "session"
@@ -1234,6 +1246,7 @@
           "review_changes",
           "trace_request_path",
           "prepare_harness_session",
+          "orchestrate_change",
           "verify_change_readiness",
           "safe_rename_report",
           "unresolved_reference_check",
@@ -1286,7 +1299,7 @@
       },
       {
         "name": "ci-audit",
-        "tool_count": 42,
+        "tool_count": 43,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1305,6 +1318,7 @@
           "review_architecture",
           "prepare_harness_session",
           "analyze_change_request",
+          "orchestrate_change",
           "verify_change_readiness",
           "module_boundary_report",
           "unresolved_reference_check",
@@ -1348,7 +1362,7 @@
       },
       {
         "name": "workflow-first",
-        "tool_count": 19,
+        "tool_count": 20,
         "preferred_namespaces": [
           "workflow",
           "session"
@@ -1360,6 +1374,7 @@
         "tools": [
           "onboard_project",
           "analyze_change_request",
+          "orchestrate_change",
           "explore_codebase",
           "trace_request_path",
           "review_architecture",
@@ -1427,7 +1442,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 79,
+        "tool_count": 80,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1446,6 +1461,7 @@
           "prepare_harness_session",
           "onboard_project",
           "analyze_change_request",
+          "orchestrate_change",
           "verify_change_readiness",
           "module_boundary_report",
           "mermaid_module_graph",
@@ -1523,7 +1539,7 @@
       },
       {
         "name": "full",
-        "tool_count": 108,
+        "tool_count": 109,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1549,6 +1565,7 @@
           "refactor_inline_function",
           "onboard_project",
           "analyze_change_request",
+          "orchestrate_change",
           "verify_change_readiness",
           "module_boundary_report",
           "mermaid_module_graph",
@@ -1681,11 +1698,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 31
+                "tool_count": 32
               },
               {
                 "name": "builder-minimal",
-                "tool_count": 35
+                "tool_count": 36
               }
             ]
           }
@@ -1723,11 +1740,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 31
+                "tool_count": 32
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 35
+                "tool_count": 36
               }
             ]
           },
@@ -1738,11 +1755,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 35
+                "tool_count": 36
               },
               {
                 "name": "refactor-full",
-                "tool_count": 50
+                "tool_count": 51
               }
             ]
           }
@@ -1785,11 +1802,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 35
+                "tool_count": 36
               },
               {
                 "name": "ci-audit",
-                "tool_count": 42
+                "tool_count": 43
               }
             ]
           }
@@ -1827,7 +1844,7 @@
             "profiles": [
               {
                 "name": "workflow-first",
-                "tool_count": 19
+                "tool_count": 20
               },
               {
                 "name": "evaluator-compact",
@@ -1835,7 +1852,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 42
+                "tool_count": 43
               }
             ]
           }
@@ -1888,11 +1905,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 31
+                "tool_count": 32
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 35
+                "tool_count": 36
               }
             ]
           },
@@ -1903,11 +1920,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 35
+                "tool_count": 36
               },
               {
                 "name": "refactor-full",
-                "tool_count": 50
+                "tool_count": 51
               }
             ]
           }
@@ -2066,11 +2083,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 35
+                "tool_count": 36
               },
               {
                 "name": "ci-audit",
-                "tool_count": 42
+                "tool_count": 43
               }
             ]
           }
@@ -2164,7 +2181,7 @@
             "profiles": [
               {
                 "name": "workflow-first",
-                "tool_count": 19
+                "tool_count": 20
               },
               {
                 "name": "evaluator-compact",
@@ -2172,7 +2189,7 @@
               },
               {
                 "name": "ci-audit",
-                "tool_count": 42
+                "tool_count": 43
               }
             ]
           }
@@ -3177,13 +3194,13 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.13.22",
+    "version": "1.13.23",
     "transport": [
       "stdio",
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 79,
+    "visible_tool_count": 80,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": false,
@@ -3213,12 +3230,12 @@
     ]
   },
   "summary": {
-    "workspace_version": "1.13.22",
+    "workspace_version": "1.13.23",
     "workspace_member_count": 3,
-    "registered_tool_definitions": 108,
+    "registered_tool_definitions": 109,
     "tool_output_schemas": {
-      "declared": 75,
-      "total": 108
+      "declared": 76,
+      "total": 109
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,

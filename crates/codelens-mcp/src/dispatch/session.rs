@@ -64,6 +64,17 @@ pub(super) fn transaction_id_for(
     format!("{}-{}-{}", session.session_id, tool, &args_hash[..16])
 }
 
+fn insert_orchestration_event(payload: &mut serde_json::Value, event: serde_json::Value) {
+    if let Some(data) = payload.get_mut("data").and_then(|v| v.as_object_mut()) {
+        data.entry("orchestration_event".to_owned())
+            .or_insert(event);
+        return;
+    }
+    if let Some(obj) = payload.as_object_mut() {
+        obj.entry("orchestration_event".to_owned()).or_insert(event);
+    }
+}
+
 /// Capture the per-call session metadata that used to live in the
 /// retired jsonl intent record. Stored as JSON inside the audit_log
 /// `session_metadata` column — operators can query the trail without
@@ -198,10 +209,61 @@ pub(super) fn apply_post_mutation(
         }
     }
 
-    record_audit_outcome(state, name, arguments, session, active_surface, payload);
     let transaction_id = transaction_id_for(session, name, arguments);
+    record_audit_outcome(state, name, arguments, session, active_surface, payload);
     inject_transaction_id(payload, &transaction_id);
     inject_invalidated_paths(payload, &invalidated_paths);
+    if let Some(run_id) = arguments
+        .get("orchestration_run_id")
+        .and_then(|value| value.as_str())
+    {
+        let apply_status = payload
+            .get("data")
+            .and_then(|data| data.get("apply_status"))
+            .or_else(|| payload.get("apply_status"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("applied");
+        let event_name = if apply_status == "rolled_back" {
+            "mutation_failed"
+        } else {
+            "mutation_applied"
+        };
+        let to_state = if apply_status == "rolled_back" {
+            "failed"
+        } else {
+            "mutation_applied"
+        };
+        let mut extra = serde_json::Map::new();
+        extra.insert("tool".to_owned(), serde_json::json!(name));
+        extra.insert(
+            "transaction_id".to_owned(),
+            serde_json::json!(transaction_id),
+        );
+        extra.insert("apply_status".to_owned(), serde_json::json!(apply_status));
+        extra.insert(
+            "modified_files".to_owned(),
+            payload
+                .get("data")
+                .and_then(|data| data.get("modified_files"))
+                .or_else(|| payload.get("modified_files"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([])),
+        );
+        extra.insert(
+            "invalidated_paths".to_owned(),
+            serde_json::json!(invalidated_paths),
+        );
+        if let Some(event) = state.append_orchestration_event_for_current_scope(
+            session.session_id.as_str(),
+            run_id,
+            event_name,
+            Some("executing"),
+            to_state,
+            extra,
+        ) {
+            insert_orchestration_event(payload, event);
+        }
+    }
     if !session.is_local() {
         tracing::info!(
             tool = name,

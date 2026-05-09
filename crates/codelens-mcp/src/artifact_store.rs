@@ -382,6 +382,40 @@ impl AnalysisArtifactStore {
         serde_json::from_slice(&bytes).map_err(|e| CodeLensError::Internal(e.into()))
     }
 
+    pub fn upsert_section(
+        &self,
+        analysis_id: &str,
+        section: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), CodeLensError> {
+        let dir = self.artifact_dir(analysis_id);
+        fs::create_dir_all(&dir)?;
+        let summary_path = dir.join("summary.json");
+        let bytes = fs::read(&summary_path)?;
+        let mut artifact: AnalysisArtifact =
+            serde_json::from_slice(&bytes).map_err(|e| CodeLensError::Internal(e.into()))?;
+        if !artifact
+            .available_sections
+            .iter()
+            .any(|existing| existing == section)
+        {
+            artifact.available_sections.push(section.to_owned());
+            artifact.available_sections.sort();
+        }
+        let section_path = dir.join(format!("{}.json", Self::sanitize_section_name(section)));
+        let section_bytes =
+            serde_json::to_vec_pretty(value).map_err(|e| CodeLensError::Internal(e.into()))?;
+        fs::write(section_path, section_bytes)?;
+        let summary_bytes =
+            serde_json::to_vec_pretty(&artifact).map_err(|e| CodeLensError::Internal(e.into()))?;
+        fs::write(summary_path, summary_bytes)?;
+        self.artifacts
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(analysis_id.to_owned(), artifact);
+        Ok(())
+    }
+
     #[cfg(test)]
     pub fn set_created_at_for_test(
         &self,

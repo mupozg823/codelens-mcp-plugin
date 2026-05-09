@@ -950,6 +950,34 @@ profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal",
 # ─────
 
 [[tool]]
+name = "orchestrate_change"
+category = "composite"
+description = "[CodeLens:Workflow] Plan and gate a bounded code-work orchestration run: preflight, approval events, audit timeline, dispatch boundary, and evidence handles without mutating files."
+annotations = "ro_w"
+output_schema = "analysis_handle_output_schema"
+max_response_tokens = 3072
+
+[tool.input_schema]
+type = "object"
+required = ["task"]
+[tool.input_schema.properties]
+task = { type = "string" }
+mode = { type = "string", enum = ["solo", "planner_builder", "planner-builder", "ci_audit", "ci-audit"] }
+target_paths = { type = "array", items = { type = "string" } }
+changed_files = { type = "array", items = { type = "string" } }
+acceptance = { type = "array", items = { type = "string" } }
+profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+requester = { type = "string" }
+worktree = { type = "string" }
+approval = { type = "object", properties = { decision = { type = "string", enum = ["requested", "request", "granted", "approved", "approve", "denied", "rejected", "deny"] }, actor = { type = "string" }, reason = { type = "string" }, approved_actions = { type = "array", items = { type = "string" } } } }
+approval_decision = { type = "string", enum = ["requested", "request", "granted", "approved", "approve", "denied", "rejected", "deny"] }
+approved_by = { type = "string" }
+approval_reason = { type = "string" }
+approved_actions = { type = "array", items = { type = "string" } }
+
+# ─────
+
+[[tool]]
 name = "verify_change_readiness"
 category = "composite"
 description = "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing."
@@ -964,6 +992,7 @@ required = ["task"]
 task = { type = "string" }
 changed_files = { type = "array", items = { type = "string" } }
 profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+orchestration_run_id = { type = "string" }
 
 # ─────
 
@@ -1103,12 +1132,16 @@ output_schema = "analysis_job_output_schema"
 type = "object"
 required = ["kind"]
 [tool.input_schema.properties]
-kind = { type = "string", enum = ["impact_report", "dead_code_report", "refactor_safety_report", "semantic_code_review", "eval_session_audit"] }
+kind = { type = "string", enum = ["impact_report", "dead_code_report", "refactor_safety_report", "semantic_code_review", "orchestrate_change", "eval_session_audit"] }
 task = { type = "string" }
 symbol = { type = "string" }
 path = { type = "string" }
 file_path = { type = "string" }
 changed_files = { type = "array", items = { type = "string" } }
+target_paths = { type = "array", items = { type = "string" } }
+mode = { type = "string", enum = ["solo", "planner_builder", "planner-builder", "ci_audit", "ci-audit"] }
+acceptance = { type = "array", items = { type = "string" } }
+approval = { type = "object", properties = { decision = { type = "string", enum = ["requested", "request", "granted", "approved", "approve", "denied", "rejected", "deny"] }, actor = { type = "string" }, reason = { type = "string" }, approved_actions = { type = "array", items = { type = "string" } } } }
 profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
 
 # ─────

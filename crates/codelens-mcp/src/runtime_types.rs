@@ -240,3 +240,13 @@ pub(crate) struct RecentPreflight {
     pub target_paths: Vec<String>,
     pub symbol: Option<String>,
 }
+
+#[derive(Clone, Debug)]
+pub(crate) struct OrchestrationApproval {
+    pub run_id: String,
+    pub actor: String,
+    pub timestamp_ms: u64,
+    pub target_paths: Vec<String>,
+    pub approved_actions: Vec<String>,
+    pub analysis_id: Option<String>,
+}

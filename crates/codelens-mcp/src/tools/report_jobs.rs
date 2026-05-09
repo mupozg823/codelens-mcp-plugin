@@ -17,6 +17,7 @@ fn run_job_kind(state: &AppState, kind: &str, arguments: &Value) -> ToolResult {
         "safe_rename_report" => super::reports::safe_rename_report(state, arguments),
         "diff_aware_references" => super::reports::diff_aware_references(state, arguments),
         "semantic_code_review" => super::reports::semantic_code_review(state, arguments),
+        "orchestrate_change" => super::reports::orchestrate_change(state, arguments),
         "analyze_change_request" => super::reports::analyze_change_request(state, arguments),
         "verify_change_readiness" => super::reports::verify_change_readiness(state, arguments),
         "eval_session_audit" => super::reports::eval_session_audit(state, arguments),
@@ -54,6 +55,13 @@ fn estimated_sections_for_kind(kind: &str) -> Vec<String> {
         "safe_rename_report" => vec!["rename_safety".to_owned()],
         "diff_aware_references" => vec!["references".to_owned()],
         "semantic_code_review" => vec!["review_items".to_owned(), "semantic_status".to_owned()],
+        "orchestrate_change" => vec![
+            "orchestration_run".to_owned(),
+            "plan".to_owned(),
+            "preflight".to_owned(),
+            "audit_events".to_owned(),
+            "evidence_handles".to_owned(),
+        ],
         "analyze_change_request" => vec!["change_request".to_owned()],
         "verify_change_readiness" => vec!["readiness".to_owned()],
         "eval_session_audit" => vec!["audit_pass_rate".to_owned(), "session_rows".to_owned()],
@@ -176,6 +184,9 @@ fn run_job_kind_with_progress(
             run_simple_report_job(state, scope, job_id, kind, arguments, delay_ms)
         }
         "semantic_code_review" => {
+            run_simple_report_job(state, scope, job_id, kind, arguments, delay_ms)
+        }
+        "orchestrate_change" => {
             run_simple_report_job(state, scope, job_id, kind, arguments, delay_ms)
         }
         "analyze_change_request" => {

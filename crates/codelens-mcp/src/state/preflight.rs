@@ -39,10 +39,10 @@ impl AppState {
             }
         }
 
-        if let Some(paths) = arguments
-            .get("changed_files")
-            .and_then(|value| value.as_array())
-        {
+        for array_key in ["changed_files", "target_paths"] {
+            let Some(paths) = arguments.get(array_key).and_then(|value| value.as_array()) else {
+                continue;
+            };
             for value in paths {
                 if let Some(path) = value.as_str() {
                     crate::util::push_unique_string(&mut targets, self.normalize_target_path(path));

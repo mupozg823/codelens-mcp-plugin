@@ -677,6 +677,7 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "get_changed_files",
     "onboard_project",
     // Workflow composites
+    "orchestrate_change",
     "analyze_change_request",
     "verify_change_readiness",
     "impact_report",
@@ -730,6 +731,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "create_text_file",
     "analyze_missing_imports",
     "add_import",
+    "orchestrate_change",
     "verify_change_readiness",
 ];
 
@@ -771,6 +773,7 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "get_impact_analysis",
     "get_changed_files",
     // Workflow composites
+    "orchestrate_change",
     "impact_report",
     "refactor_safety_report",
     "verify_change_readiness",
@@ -834,6 +837,7 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "refactor_move_to_file",
     "refactor_change_signature",
     // Workflow composites (preflight gate requires these)
+    "orchestrate_change",
     "refactor_safety_report",
     "safe_rename_report",
     "unresolved_reference_check",
@@ -882,6 +886,7 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "find_dead_code",
     "find_circular_dependencies",
     "get_change_coupling",
+    "orchestrate_change",
     "analyze_change_request",
     "verify_change_readiness",
     "unresolved_reference_check",
@@ -918,6 +923,7 @@ pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     "review_changes",
     "diagnose_issues",
     // Essential workflow-level tools
+    "orchestrate_change",
     "analyze_change_request",
     "onboard_project",
 ];
@@ -1034,7 +1040,8 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
     use crate::protocol::ToolPhase;
     match name {
         // Plan — analyze/retrieve/orient before deciding to edit.
-        "analyze_change_request"
+        "orchestrate_change"
+        | "analyze_change_request"
         | "explore_codebase"
         | "trace_request_path"
         | "review_architecture"
@@ -1155,7 +1162,8 @@ pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
         | "propagate_deletions" => Some("codex-builder"),
 
         // Orchestration / synthesis — Claude-class executor preferred.
-        "analyze_change_request"
+        "orchestrate_change"
+        | "analyze_change_request"
         | "plan_safe_refactor"
         | "review_architecture"
         | "trace_request_path"
@@ -1182,6 +1190,7 @@ pub(crate) fn tool_preferred_executor_label(name: &str) -> &'static str {
 pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
     match name {
         "prepare_harness_session" => Some("bootstrap CodeLens harness session"),
+        "orchestrate_change" => Some("dry-run code change orchestration"),
         "explore_codebase" => Some("explore codebase with compressed context"),
         "analyze_change_request" => Some("plan a code change safely"),
         "trace_request_path" => Some("trace a request path"),
@@ -1229,6 +1238,7 @@ pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
         name,
         "prepare_harness_session"
             | "explore_codebase"
+            | "orchestrate_change"
             | "analyze_change_request"
             | "review_changes"
             | "plan_safe_refactor"
@@ -1283,7 +1293,8 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "refactor_inline_function"
         | "refactor_move_to_file"
         | "refactor_change_signature" => "mutation",
-        "analyze_change_request"
+        "orchestrate_change"
+        | "analyze_change_request"
         | "explore_codebase"
         | "trace_request_path"
         | "review_architecture"

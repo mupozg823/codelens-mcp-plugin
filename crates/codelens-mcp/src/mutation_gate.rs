@@ -27,6 +27,12 @@ pub(crate) enum MutationFailureKind {
     VerifierBlocked,
     /// No mutation target path provided
     NoTargetPath,
+    /// Orchestrated mutation named a run without a recorded approval
+    MissingApproval,
+    /// Recorded orchestration approval has expired
+    StaleApproval,
+    /// Recorded approval does not cover the mutation path
+    ApprovalPathMismatch,
 }
 
 pub(crate) struct MutationGateFailure {
@@ -40,7 +46,8 @@ pub(crate) struct MutationGateFailure {
 pub(crate) fn is_verifier_source_tool(name: &str) -> bool {
     matches!(
         name,
-        "verify_change_readiness"
+        "orchestrate_change"
+            | "verify_change_readiness"
             | "safe_rename_report"
             | "unresolved_reference_check"
             | "refactor_safety_report"
@@ -170,6 +177,109 @@ pub(crate) fn evaluate_mutation_gate(
             MutationFailureKind::PathMismatch,
             preflight.analysis_id.clone(),
         ));
+    }
+
+    if let Some(run_id) = arguments
+        .get("orchestration_run_id")
+        .and_then(|value| value.as_str())
+    {
+        let Some(approval) =
+            state.orchestration_approval_for_session(session, logical_session, run_id)
+        else {
+            return Err(MutationGateFailure {
+                message: format!(
+                    "Tool `{name}` is blocked because orchestration run `{run_id}` has no recorded approval. Re-run `orchestrate_change` with approval.decision=granted before dispatching mutation."
+                ),
+                kind: MutationFailureKind::MissingApproval,
+                analysis_id: preflight.analysis_id.clone(),
+                suggested_next_tools: vec![
+                    "orchestrate_change".to_owned(),
+                    "get_analysis_section".to_owned(),
+                    "verify_change_readiness".to_owned(),
+                ],
+                budget_hint: "Record approval on the orchestration run, then retry the bounded mutation with the same orchestration_run_id.".to_owned(),
+            });
+        };
+
+        if now_ms().saturating_sub(approval.timestamp_ms) > crate::state::preflight_ttl_ms() {
+            return Err(MutationGateFailure {
+                message: format!(
+                    "Tool `{name}` is blocked because orchestration run `{}` approval is stale. Re-run `orchestrate_change` and record a fresh approval.",
+                    approval.run_id
+                ),
+                kind: MutationFailureKind::StaleApproval,
+                analysis_id: approval
+                    .analysis_id
+                    .clone()
+                    .or(preflight.analysis_id.clone()),
+                suggested_next_tools: vec![
+                    "orchestrate_change".to_owned(),
+                    "verify_change_readiness".to_owned(),
+                    "get_analysis_section".to_owned(),
+                ],
+                budget_hint:
+                    "Refresh the orchestration approval within the preflight TTL before mutating."
+                        .to_owned(),
+            });
+        }
+
+        let action_allowed = approval.approved_actions.is_empty()
+            || approval.approved_actions.iter().any(|action| {
+                action == "*"
+                    || action == "mutation"
+                    || action == name
+                    || (action == "content_mutation" && !is_symbol_aware_mutation_tool(name))
+            });
+        if !action_allowed {
+            return Err(MutationGateFailure {
+                message: format!(
+                    "Tool `{name}` is blocked because orchestration run `{}` approval by `{}` does not include this action.",
+                    approval.run_id, approval.actor
+                ),
+                kind: MutationFailureKind::MissingApproval,
+                analysis_id: approval
+                    .analysis_id
+                    .clone()
+                    .or(preflight.analysis_id.clone()),
+                suggested_next_tools: vec![
+                    "orchestrate_change".to_owned(),
+                    "get_analysis_section".to_owned(),
+                    "verify_change_readiness".to_owned(),
+                ],
+                budget_hint:
+                    "Record approval for the requested mutation action before dispatching."
+                        .to_owned(),
+            });
+        }
+
+        let approval_covers_path = !approval.target_paths.is_empty()
+            && mutation_paths.iter().any(|path| {
+                approval
+                    .target_paths
+                    .iter()
+                    .any(|approved_path| approved_path == path)
+            });
+        if !approval_covers_path {
+            return Err(MutationGateFailure {
+                message: format!(
+                    "Tool `{name}` is blocked because orchestration run `{}` approval by `{}` does not cover the requested target paths.",
+                    approval.run_id, approval.actor
+                ),
+                kind: MutationFailureKind::ApprovalPathMismatch,
+                analysis_id: approval
+                    .analysis_id
+                    .clone()
+                    .or(preflight.analysis_id.clone()),
+                suggested_next_tools: vec![
+                    "orchestrate_change".to_owned(),
+                    "get_analysis_section".to_owned(),
+                    "verify_change_readiness".to_owned(),
+                ],
+                budget_hint:
+                    "Record approval for the exact target path set before dispatching mutation."
+                        .to_owned(),
+            });
+        }
     }
 
     if is_symbol_aware_mutation_tool(name) {

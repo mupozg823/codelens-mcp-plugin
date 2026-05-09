@@ -1,8 +1,12 @@
 # CodeLens MCP — Harness Modes
 
-> Canonical operating shapes for CodeLens as a shared harness substrate.
+> Canonical operating shapes for CodeLens as a bounded code-work orchestrator over the shared MCP substrate.
 
-CodeLens is the coordination and verification layer, not the orchestrator. These harness modes describe the recommended topologies that sit on top of the same MCP/runtime substrate.
+CodeLens historically exposed these modes as coordination and verification
+topologies. Per [ADR-0014](adr/ADR-0014-bounded-code-work-orchestrator.md), the
+product direction is now a bounded code-work orchestrator: CodeLens may own the
+typed run state, audit trail, preflight, approval, dispatch, and verification
+flow, while the host still owns general chat/runtime behavior.
 
 <!-- SURFACE_MANIFEST_HARNESS_OVERVIEW:BEGIN -->
 
@@ -31,7 +35,7 @@ Single-agent local work without cross-agent coordination overhead.
 - Daemon shape: `single-session`
 - Recommended ports: none
 - Roles:
-  - `solo-agent`: `planner-readonly` (31), `builder-minimal` (35); mutate=`false`; one session handles both planning and implementation
+  - `solo-agent`: `planner-readonly` (32), `builder-minimal` (36); mutate=`false`; one session handles both planning and implementation
 - Recommended flow:
   - `prepare_harness_session`
   - `explore_codebase`
@@ -52,8 +56,8 @@ Primary multi-agent pattern: read-only planning/review paired with mutation-enab
 - Daemon shape: `dual-daemon`
 - Recommended ports: `7837`, `7838`
 - Roles:
-  - `planner-reviewer`: `planner-readonly` (31), `reviewer-graph` (35); mutate=`false`; bootstrap, rank context, and verify change readiness before dispatch
-  - `builder-refactor`: `builder-minimal` (35), `refactor-full` (50); mutate=`true`; execute bounded edits after preflight, diagnostics, and claims
+  - `planner-reviewer`: `planner-readonly` (32), `reviewer-graph` (36); mutate=`false`; bootstrap, rank context, and verify change readiness before dispatch
+  - `builder-refactor`: `builder-minimal` (36), `refactor-full` (51); mutate=`true`; execute bounded edits after preflight, diagnostics, and claims
 - Recommended flow:
   - `prepare_harness_session`
   - `get_symbols_overview per target file`
@@ -80,7 +84,7 @@ Read-only signoff lane that checks builder output before merge or handoff.
 - Daemon shape: `read-only-daemon`
 - Recommended ports: `7837`
 - Roles:
-  - `reviewer`: `reviewer-graph` (35), `ci-audit` (42); mutate=`false`; diff-aware review, impact analysis, and audit signoff
+  - `reviewer`: `reviewer-graph` (36), `ci-audit` (43); mutate=`false`; diff-aware review, impact analysis, and audit signoff
 - Recommended flow:
   - `prepare_harness_session`
   - `review_changes or impact_report`
@@ -102,7 +106,7 @@ Asynchronous analysis lane for repo-wide or long-running read-side jobs.
 - Daemon shape: `read-only-daemon`
 - Recommended ports: `7837`
 - Roles:
-  - `analysis-runner`: `workflow-first` (19), `evaluator-compact` (14), `ci-audit` (42); mutate=`false`; start durable jobs and consume bounded sections instead of raw full reports
+  - `analysis-runner`: `workflow-first` (20), `evaluator-compact` (14), `ci-audit` (43); mutate=`false`; start durable jobs and consume bounded sections instead of raw full reports
 - Recommended flow:
   - `prepare_harness_session`
   - `start_analysis_job`

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 // Default surface for hosts that fetch `tools/list` without a phase filter
-// (claude-code is the primary one). v1.10.1 widens this from 13 → 25 to
+// (claude-code is the primary one). v1.10.1 widens this from 13 → 26 to
 // surface the workflow-first composite tools and the core navigation
 // primitives. The slogan ("workflow-first, 112 tools") was contradicted
 // by the prior 13-tool bootstrap surface — in particular, calling
@@ -23,6 +23,7 @@ const DEFAULT_LISTED_TOOL_NAMES: &[&str] = &[
     // ── Control plane ──────────────────────────────────────────────
     "activate_project",
     "prepare_harness_session",
+    "orchestrate_change",
     "get_current_config",
     "get_capabilities",
     "set_profile",

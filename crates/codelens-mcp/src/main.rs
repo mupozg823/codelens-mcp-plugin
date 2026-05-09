@@ -16,6 +16,7 @@ mod instruction_audit;
 mod job_store;
 mod mutation_gate;
 mod operator;
+mod orchestration_store;
 mod orphan_handlers;
 mod over_visible;
 mod preflight_store;
