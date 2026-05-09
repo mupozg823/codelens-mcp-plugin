@@ -240,7 +240,11 @@ def retryable_lsp_failure(payload: Any, stderr: str) -> bool:
         ]
         if isinstance(item, str)
     ).lower()
-    return "content modified" in haystack or "server not initialized" in haystack
+    return (
+        "content modified" in haystack
+        or "server not initialized" in haystack
+        or "unexpected eof while reading lsp headers" in haystack
+    )
 
 
 def merged_env(base: dict[str, str], overlay: dict[str, str] | None) -> dict[str, str]:
