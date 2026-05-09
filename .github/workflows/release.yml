@@ -54,7 +54,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          FEATURES="http"
+          FEATURES="http,semantic"
           if [[ "${{ matrix.target }}" == *-apple-darwin ]]; then
             FEATURES="http,coreml"
           fi
