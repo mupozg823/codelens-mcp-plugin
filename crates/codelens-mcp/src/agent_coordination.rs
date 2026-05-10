@@ -1,16 +1,18 @@
 use anyhow::Context;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::util::now_ms;
 
-const DEFAULT_COORDINATION_TTL_SECS: u64 = 5 * 60;
+/// Default TTL for coordination claims/leases when callers do not specify one.
+/// Single source of truth — shared with `state::coordination` to avoid drift.
+pub(crate) const DEFAULT_COORDINATION_TTL_SECS: u64 = 5 * 60;
 const MAX_COORDINATION_TTL_SECS: u64 = 60 * 60;
 const COORDINATION_DB_FILENAME: &str = "coordination.db";
 

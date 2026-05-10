@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::agent_coordination::DEFAULT_COORDINATION_TTL_SECS;
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 
@@ -9,8 +10,6 @@ use super::{
     ActiveAgentEntry, AgentWorkEntry, AppState, CoordinationCounts, CoordinationLockStats,
     CoordinationSnapshot, FileClaimEntry,
 };
-
-const DEFAULT_COORDINATION_TTL_SECS: u64 = 5 * 60;
 
 fn resolve_coordination_session_id(
     session: &SessionRequestContext,
