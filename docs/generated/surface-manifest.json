@@ -48,7 +48,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 385
+        "estimated_tokens": 396
       },
       {
         "name": "read_file",
@@ -804,7 +804,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 3578
+        "estimated_tokens": 3589
       },
       {
         "name": "register_agent_work",
