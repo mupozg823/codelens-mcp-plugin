@@ -1107,11 +1107,16 @@ fn surface_generation_output_schema() -> serde_json::Value {
         "properties": {
             "schema_version": {"type": "integer"},
             "binary_version": {"type": "string"},
-            "binary_git_sha": {"type": "string"},
-            "binary_build_time": {"type": "string"},
             "tool_schema_fingerprint": {"type": "string"},
             "refresh_action": {"type": "string", "enum": ["reissue_tools_list_or_reconnect"]},
-            "refresh_hint": {"type": "string"}
+            "refresh_hint": {"type": "string"},
+            "runtime": {
+                "type": "object",
+                "properties": {
+                    "binary_git_sha": {"type": "string"},
+                    "binary_build_time": {"type": "string"}
+                }
+            }
         }
     })
 }

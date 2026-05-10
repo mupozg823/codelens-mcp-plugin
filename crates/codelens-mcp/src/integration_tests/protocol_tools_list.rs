@@ -782,11 +782,11 @@ fn tools_list_exposes_schema_refresh_identity_for_dogfood() {
     let value = serde_json::to_value(&response).expect("serialize");
     let generation = &value["result"]["surface_generation"];
     assert_eq!(
-        generation["binary_git_sha"],
+        generation["runtime"]["binary_git_sha"],
         json!(crate::build_info::BUILD_GIT_SHA)
     );
     assert_eq!(
-        generation["binary_build_time"],
+        generation["runtime"]["binary_build_time"],
         json!(crate::build_info::BUILD_TIME)
     );
     assert_eq!(
@@ -803,6 +803,14 @@ fn tools_list_exposes_schema_refresh_identity_for_dogfood() {
             .expect("fingerprint")
             .len(),
         64
+    );
+    assert!(
+        generation["binary_git_sha"].is_null(),
+        "binary_git_sha must live under runtime, not top-level (prompt-cache safety)"
+    );
+    assert!(
+        generation["binary_build_time"].is_null(),
+        "binary_build_time must live under runtime, not top-level"
     );
 
     let tools = value["result"]["tools"]
