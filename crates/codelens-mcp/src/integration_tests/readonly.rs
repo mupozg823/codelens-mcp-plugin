@@ -592,7 +592,7 @@ fn get_current_config_exposes_tool_schema_surface_generation() {
         json!(crate::surface_manifest::SURFACE_MANIFEST_SCHEMA_VERSION)
     );
     assert_eq!(
-        generation["binary_git_sha"],
+        generation["runtime"]["binary_git_sha"],
         json!(crate::build_info::BUILD_GIT_SHA)
     );
     assert_eq!(
