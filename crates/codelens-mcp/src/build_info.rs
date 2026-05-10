@@ -83,12 +83,8 @@ fn format_rfc3339_utc(unix_seconds: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
-fn parse_fixed_u64(value: &[u8]) -> Option<u64> {
-    std::str::from_utf8(value).ok()?.parse::<u64>().ok()
-}
-
-fn parse_fixed_i64(value: &[u8]) -> Option<i64> {
-    std::str::from_utf8(value).ok()?.parse::<i64>().ok()
+fn parse_fixed<T: std::str::FromStr>(value: &[u8]) -> Option<T> {
+    std::str::from_utf8(value).ok()?.parse::<T>().ok()
 }
 
 fn parse_rfc3339_utc_seconds(value: &str) -> Option<u64> {
@@ -103,12 +99,12 @@ fn parse_rfc3339_utc_seconds(value: &str) -> Option<u64> {
     {
         return None;
     }
-    let year = parse_fixed_i64(&bytes[0..4])?;
-    let month = parse_fixed_u64(&bytes[5..7])?;
-    let day = parse_fixed_u64(&bytes[8..10])?;
-    let hour = parse_fixed_u64(&bytes[11..13])?;
-    let minute = parse_fixed_u64(&bytes[14..16])?;
-    let second = parse_fixed_u64(&bytes[17..19])?;
+    let year = parse_fixed::<i64>(&bytes[0..4])?;
+    let month = parse_fixed::<u64>(&bytes[5..7])?;
+    let day = parse_fixed::<u64>(&bytes[8..10])?;
+    let hour = parse_fixed::<u64>(&bytes[11..13])?;
+    let minute = parse_fixed::<u64>(&bytes[14..16])?;
+    let second = parse_fixed::<u64>(&bytes[17..19])?;
     if !(1..=12).contains(&month)
         || !(1..=31).contains(&day)
         || hour > 23
