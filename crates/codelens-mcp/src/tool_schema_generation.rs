@@ -1,5 +1,5 @@
 use crate::protocol::Tool;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) const TOOL_SCHEMA_REFRESH_ACTION: &str = "reissue_tools_list_or_reconnect";
 pub(crate) const TOOL_SCHEMA_REFRESH_HINT: &str = "If cached tool metadata disagrees with this fingerprint, reissue tools/list or reconnect before trusting the old schema.";
