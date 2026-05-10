@@ -1197,4 +1197,17 @@ fn cache_hit_tier_propagates_to_envelope() {
         matches!(tier, "exact" | "warm" | "cold"),
         "cache_hit_tier must be one of exact/warm/cold, got {tier}"
     );
+
+    // The routing hint on the envelope must agree with the tier:
+    // exact -> "cached_exact", warm -> "cached_warm", cold falls back to legacy "cached".
+    let routing_hint = second["routing_hint"].as_str().unwrap_or("");
+    let expected = match tier {
+        "exact" => "cached_exact",
+        "warm" => "cached_warm",
+        _ => "cached",
+    };
+    assert_eq!(
+        routing_hint, expected,
+        "routing_hint must agree with cache_hit_tier `{tier}`; got `{routing_hint}`"
+    );
 }

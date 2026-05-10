@@ -468,6 +468,7 @@ fn slim_text_payload_for_async_handle(
     copy_summarized_field(&mut text_data, data, "risk_level");
     copy_summarized_field(&mut text_data, data, "blocker_count");
     copy_summarized_field(&mut text_data, data, "reused");
+    copy_summarized_field(&mut text_data, data, "cache_hit_tier");
     copy_summarized_field(&mut text_data, data, "summary_resource");
     copy_summarized_field(&mut text_data, data, "section_handles");
     copy_summarized_field(&mut text_data, data, "next_actions");
