@@ -881,7 +881,6 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
                 "available": available,
                 "unavailable": unavailable,
                 "binary_version": crate::build_info::BUILD_VERSION,
-                "binary_git_sha": crate::build_info::BUILD_GIT_SHA,
                 "scip_status": scip_status,
                 "scip_setup_hint": scip_setup_hint,
                 "model_status": model_status,
@@ -918,12 +917,14 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "health_summary": health_summary,
             "available": available,
             "unavailable": unavailable,
-            // Phase 4b: flat top-level fields for easy jq-scraping
-            // plus the nested `binary_build_info` object for
-            // grouped access.
+            // Phase 4b → P0-3 (#282): top-level `binary_git_sha` and
+            // `binary_build_time` were duplicated against the nested
+            // `binary_build_info` object and broke prompt-cache prefix
+            // stability for hosts that absorbed this payload into their
+            // system/tools prefix. Removed in favour of the nested
+            // representation as the single source of truth. Volatile
+            // identity now lives only inside `binary_build_info`.
             "binary_version": crate::build_info::BUILD_VERSION,
-            "binary_git_sha": crate::build_info::BUILD_GIT_SHA,
-            "binary_build_time": crate::build_info::BUILD_TIME,
             "daemon_started_at": state.daemon_started_at(),
             "daemon_binary_drift": daemon_binary_drift,
             "binary_build_info": binary_build_info,

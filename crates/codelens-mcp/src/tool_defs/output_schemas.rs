@@ -1416,8 +1416,6 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
                 }
             },
             "binary_version": {"type": "string"},
-            "binary_git_sha": {"type": "string"},
-            "binary_build_time": {"type": "string"},
             "daemon_started_at": {"type": "string"},
             "daemon_binary_drift": {
                 "type": "object",
