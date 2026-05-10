@@ -1,5 +1,5 @@
 {
-  "schema_version": "codelens-surface-manifest-v1",
+  "schema_version": "codelens-surface-manifest-v2",
   "workspace": {
     "version": "1.13.27",
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
