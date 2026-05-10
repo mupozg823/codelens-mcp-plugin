@@ -26,7 +26,6 @@ fn get_capabilities_compact_returns_core_fields_only() {
         "available",
         "unavailable",
         "binary_version",
-        "binary_git_sha",
     ] {
         assert!(
             data.get(field).is_some(),
@@ -54,6 +53,7 @@ fn get_capabilities_compact_returns_core_fields_only() {
         "supported_files",
         "stale_files",
         "health_summary",
+        "binary_git_sha",
         "binary_build_time",
         "daemon_started_at",
         "daemon_binary_drift",
