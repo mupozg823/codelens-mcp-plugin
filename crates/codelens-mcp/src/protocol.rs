@@ -229,8 +229,13 @@ pub enum RoutingHint {
     Sync,
     /// Heavy computation — prefer `start_analysis_job` + polling.
     Async,
-    /// Reused a cached artifact — no new computation cost.
+    /// Reused a cached artifact (legacy alias kept for back-compat). New code
+    /// should emit `CachedExact` or `CachedWarm` from `routing_hint_for_payload`.
     Cached,
+    /// Reused a cached artifact with exact-key match — zero recomputation.
+    CachedExact,
+    /// Reused a cached artifact via warm-tier fallback — partial recomputation.
+    CachedWarm,
 }
 
 /// Type-safe backend identifier for consistent tool responses.
@@ -540,5 +545,29 @@ mod tests {
         resp.elapsed_ms = Some(42);
         let serialized = serde_json::to_string(&resp).unwrap();
         assert!(serialized.contains("\"elapsed_ms\":42"));
+    }
+
+    #[test]
+    fn routing_hint_serializes_to_snake_case_tier_variants() {
+        assert_eq!(
+            serde_json::to_string(&RoutingHint::CachedExact).unwrap(),
+            "\"cached_exact\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RoutingHint::CachedWarm).unwrap(),
+            "\"cached_warm\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RoutingHint::Cached).unwrap(),
+            "\"cached\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RoutingHint::Sync).unwrap(),
+            "\"sync\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RoutingHint::Async).unwrap(),
+            "\"async\""
+        );
     }
 }
