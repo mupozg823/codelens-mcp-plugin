@@ -69,26 +69,28 @@ pub(crate) fn apply_contextual_guidance(
 }
 
 pub(crate) fn routing_hint_for_payload(resp: &ToolCallResponse) -> RoutingHint {
-    let is_cached = resp
-        .data
-        .as_ref()
+    let data = resp.data.as_ref();
+    let is_cached = data
         .and_then(|d| d.get("reused"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let is_async_job = resp
-        .data
-        .as_ref()
+    let cache_tier = data
+        .and_then(|d| d.get("cache_hit_tier"))
+        .and_then(|v| v.as_str());
+    let is_async_job = data
         .and_then(|d| d.get("job_id"))
         .and_then(|v| v.as_str())
         .is_some();
-    let is_analysis_handle = resp
-        .data
-        .as_ref()
+    let is_analysis_handle = data
         .and_then(|d| d.get("analysis_id"))
         .and_then(|v| v.as_str())
         .is_some();
     if is_cached {
-        RoutingHint::Cached
+        match cache_tier {
+            Some("exact") => RoutingHint::CachedExact,
+            Some("warm") => RoutingHint::CachedWarm,
+            _ => RoutingHint::Cached,
+        }
     } else if is_async_job || is_analysis_handle {
         RoutingHint::Async
     } else {
@@ -466,6 +468,7 @@ fn slim_text_payload_for_async_handle(
     copy_summarized_field(&mut text_data, data, "risk_level");
     copy_summarized_field(&mut text_data, data, "blocker_count");
     copy_summarized_field(&mut text_data, data, "reused");
+    copy_summarized_field(&mut text_data, data, "cache_hit_tier");
     copy_summarized_field(&mut text_data, data, "summary_resource");
     copy_summarized_field(&mut text_data, data, "section_handles");
     copy_summarized_field(&mut text_data, data, "next_actions");
@@ -1338,5 +1341,69 @@ mod text_channel_tests {
         let summarized = summarize_structured_content(&payload, 0);
         let obj = summarized.as_object().expect("object");
         assert!(obj.get("callers_omitted_count").is_none());
+    }
+}
+
+#[cfg(test)]
+mod routing_hint_tier_tests {
+    use super::routing_hint_for_payload;
+    use crate::protocol::{
+        AnalysisSource, BackendKind, Freshness, RoutingHint, ToolCallResponse, ToolResponseMeta,
+    };
+    use serde_json::json;
+
+    fn resp_with_data(data: serde_json::Value) -> ToolCallResponse {
+        let meta = ToolResponseMeta {
+            backend_used: BackendKind::Hybrid.to_string(),
+            confidence: 1.0,
+            degraded_reason: None,
+            source: AnalysisSource::Native,
+            partial: false,
+            freshness: Freshness::Live,
+            staleness_ms: None,
+        };
+        ToolCallResponse::success(data, meta)
+    }
+
+    #[test]
+    fn returns_cached_exact_when_tier_is_exact() {
+        let resp = resp_with_data(json!({"reused": true, "cache_hit_tier": "exact"}));
+        assert!(matches!(
+            routing_hint_for_payload(&resp),
+            RoutingHint::CachedExact
+        ));
+    }
+
+    #[test]
+    fn returns_cached_warm_when_tier_is_warm() {
+        let resp = resp_with_data(json!({"reused": true, "cache_hit_tier": "warm"}));
+        assert!(matches!(
+            routing_hint_for_payload(&resp),
+            RoutingHint::CachedWarm
+        ));
+    }
+
+    #[test]
+    fn returns_legacy_cached_when_reused_without_tier() {
+        let resp = resp_with_data(json!({"reused": true}));
+        assert!(matches!(
+            routing_hint_for_payload(&resp),
+            RoutingHint::Cached
+        ));
+    }
+
+    #[test]
+    fn returns_async_when_job_id_present() {
+        let resp = resp_with_data(json!({"job_id": "j-1"}));
+        assert!(matches!(
+            routing_hint_for_payload(&resp),
+            RoutingHint::Async
+        ));
+    }
+
+    #[test]
+    fn returns_sync_when_neither_cache_nor_async() {
+        let resp = resp_with_data(json!({"foo": "bar"}));
+        assert!(matches!(routing_hint_for_payload(&resp), RoutingHint::Sync));
     }
 }

@@ -84,6 +84,7 @@ pub(super) fn make_handle_response(
             true,
             ci_audit,
         );
+        data["cache_hit_tier"] = serde_json::json!(tier.as_str());
         let overlapping_claims = overlapping_claims_from_artifact(state, &artifact.id);
         if !overlapping_claims.is_empty() {
             data["overlapping_claims"] = serde_json::json!(overlapping_claims);

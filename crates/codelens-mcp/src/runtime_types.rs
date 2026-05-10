@@ -229,6 +229,29 @@ pub(crate) enum CacheHitTier {
     Cold,
 }
 
+impl CacheHitTier {
+    /// Stable lowercase label for envelope serialization.
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Exact => "exact",
+            Self::Warm => "warm",
+            Self::Cold => "cold",
+        }
+    }
+}
+
+#[cfg(test)]
+mod cache_hit_tier_tests {
+    use super::CacheHitTier;
+
+    #[test]
+    fn as_str_emits_stable_lowercase_labels() {
+        assert_eq!(CacheHitTier::Exact.as_str(), "exact");
+        assert_eq!(CacheHitTier::Warm.as_str(), "warm");
+        assert_eq!(CacheHitTier::Cold.as_str(), "cold");
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct RecentPreflight {
     pub tool_name: String,
