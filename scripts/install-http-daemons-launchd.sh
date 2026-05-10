@@ -260,13 +260,29 @@ fi
 # redeploy from the dogfood loop comes back up cleanly. Best-effort:
 # `codesign` failure is logged but not fatal so non-Apple-tooled hosts
 # still complete the install.
-if [[ "$(uname)" == "Darwin" ]] && command -v codesign >/dev/null 2>&1; then
-	echo "==> Ad-hoc signing http binary (macOS Hardened Runtime)"
-	codesign -s - --force \
-		--preserve-metadata=identifier,entitlements,flags,runtime \
-		"$BIN_PATH" || {
-		echo "warning: codesign failed; daemons may be killed by Gatekeeper" >&2
-	}
+#
+# Issue #286: even after a clean ad-hoc sign, a `cp` from another volume
+# or a downloaded artifact can carry `com.apple.quarantine` xattrs that
+# trigger the same Gatekeeper rejection. Strip xattrs before signing so
+# this step is idempotent regardless of how the binary landed on disk.
+if [[ "$(uname)" == "Darwin" ]]; then
+	if command -v xattr >/dev/null 2>&1; then
+		xattr -cr "$BIN_PATH" 2>/dev/null || true
+	fi
+	if command -v codesign >/dev/null 2>&1; then
+		echo "==> Ad-hoc signing http binary (macOS Hardened Runtime)"
+		codesign -s - --force \
+			--preserve-metadata=identifier,entitlements,flags,runtime \
+			"$BIN_PATH" || {
+			echo "warning: codesign failed; daemons may be killed by Gatekeeper" >&2
+		}
+		# Verify the signature actually applied — a silent codesign failure
+		# (rare, but seen on partial Xcode installs) would still let the
+		# binary through to launchd where it dies with OS_REASON_CODESIGNING.
+		if ! codesign --verify --strict "$BIN_PATH" 2>/dev/null; then
+			echo "warning: codesign --verify failed for $BIN_PATH; daemons will likely fail to launch" >&2
+		fi
+	fi
 fi
 
 readonly_label="${LABEL_PREFIX}-readonly"
