@@ -1155,3 +1155,46 @@ fn find_symbol_rejects_directory_file_path_with_actionable_error() {
         "error message should suggest a directory-aware alternative tool: {err}"
     );
 }
+
+#[test]
+fn cache_hit_tier_propagates_to_envelope() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("cache_tier_target.py"),
+        "def gamma():\n    return 3\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    // First call — cache miss; populates the artifact store.
+    let first = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "rename gamma to delta in cache_tier_target.py"}),
+    );
+    assert_eq!(first["success"], json!(true));
+    assert!(
+        first["data"]["cache_hit_tier"].is_null(),
+        "first call must not carry cache_hit_tier (cache miss), payload: {first}"
+    );
+
+    // Second call with identical args — should hit cache.
+    let second = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "rename gamma to delta in cache_tier_target.py"}),
+    );
+    assert_eq!(second["success"], json!(true));
+    assert_eq!(
+        second["data"]["reused"],
+        json!(true),
+        "second identical call must reuse cached artifact, payload: {second}"
+    );
+    let tier = second["data"]["cache_hit_tier"]
+        .as_str()
+        .expect("cache_hit_tier must be present on cache hit");
+    assert!(
+        matches!(tier, "exact" | "warm" | "cold"),
+        "cache_hit_tier must be one of exact/warm/cold, got {tier}"
+    );
+}
