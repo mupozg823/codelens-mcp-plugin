@@ -23,7 +23,6 @@ const DEFAULT_LISTED_TOOL_NAMES: &[&str] = &[
     // ── Control plane ──────────────────────────────────────────────
     "activate_project",
     "prepare_harness_session",
-    "orchestrate_change",
     "get_current_config",
     "get_capabilities",
     "set_profile",

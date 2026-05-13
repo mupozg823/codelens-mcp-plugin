@@ -14,6 +14,7 @@ use codelens_engine::{
 use serde_json::json;
 
 #[allow(clippy::collapsible_if)]
+#[allow(dead_code)]
 pub fn summarize_file(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let project = state.project();

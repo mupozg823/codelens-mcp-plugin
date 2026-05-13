@@ -168,6 +168,7 @@ pub fn find_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRe
     })?)
 }
 
+#[allow(dead_code)]
 pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let pattern = arguments
         .get("pattern")

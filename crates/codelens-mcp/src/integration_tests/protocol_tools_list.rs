@@ -73,7 +73,6 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
         // Control plane
         "activate_project",
         "prepare_harness_session",
-        "orchestrate_change",
         "get_current_config",
         "get_capabilities",
         "set_profile",
@@ -443,12 +442,8 @@ fn tools_list_can_be_filtered_by_phase() {
     .unwrap();
     let build_encoded = serde_json::to_string(&build_resp).unwrap();
     assert!(
-        build_encoded.contains("\"rename_symbol\""),
-        "build phase should include rename_symbol"
-    );
-    assert!(
-        build_encoded.contains("\"replace_symbol_body\""),
-        "build phase should include replace_symbol_body"
+        build_encoded.contains("\"cleanup_duplicate_logic\""),
+        "build phase should include cleanup_duplicate_logic"
     );
     assert!(
         !build_encoded.contains("\"impact_report\""),
@@ -469,8 +464,8 @@ fn tools_list_can_be_filtered_by_phase() {
     assert!(plan_encoded.contains("\"impact_report\""));
     assert!(plan_encoded.contains("\"find_symbol\""));
     assert!(
-        !plan_encoded.contains("\"rename_symbol\""),
-        "plan phase should not include mutation tools"
+        !plan_encoded.contains("\"redundant_tool\""),
+        "plan phase should not include removed tools"
     );
 
     assert!(
@@ -490,7 +485,7 @@ fn tools_list_can_be_filtered_by_phase() {
     )
     .unwrap();
     let bogus_encoded = serde_json::to_string(&bogus_resp).unwrap();
-    assert!(bogus_encoded.contains("\"rename_symbol\""));
+    assert!(bogus_encoded.contains("\"cleanup_duplicate_logic\""));
     assert!(bogus_encoded.contains("\"impact_report\""));
 }
 
@@ -616,8 +611,6 @@ fn refactor_deferred_tools_list_starts_preview_first() {
     assert!(!encoded.contains("\"analyze_change_impact\""));
     assert!(encoded.contains("\"activate_project\""));
     assert!(encoded.contains("\"set_profile\""));
-    assert!(!encoded.contains("\"name\":\"rename_symbol\""));
-    assert!(!encoded.contains("\"name\":\"replace_symbol_body\""));
     assert!(!encoded.contains("\"name\":\"refactor_extract_function\""));
     assert!(!encoded.contains("\"name\":\"verify_change_readiness\""));
     assert!(!encoded.contains("\"name\":\"refactor_safety_report\""));
@@ -736,10 +729,10 @@ fn tools_list_exposes_preferred_executor_per_tool() {
     let tools = value["result"]["tools"]
         .as_array()
         .expect("tools/list tools array");
-    let rename = tools
+    let cleanup = tools
         .iter()
-        .find(|tool| tool["name"] == "rename_symbol")
-        .expect("rename_symbol present");
+        .find(|tool| tool["name"] == "cleanup_duplicate_logic")
+        .expect("cleanup_duplicate_logic present");
     let review = tools
         .iter()
         .find(|tool| tool["name"] == "review_changes")
@@ -750,7 +743,7 @@ fn tools_list_exposes_preferred_executor_per_tool() {
         .expect("find_symbol present");
 
     assert_eq!(
-        rename["_meta"]["codelens/preferredExecutor"],
+        cleanup["_meta"]["codelens/preferredExecutor"],
         json!("codex-builder")
     );
     assert_eq!(

@@ -58,7 +58,6 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "read_file"                    => filesystem::read_file_tool,
         "list_dir"                     => filesystem::list_dir_tool,
         "find_file"                    => filesystem::find_file_tool,
-        "search_for_pattern"           => filesystem::search_for_pattern_tool,
         "find_annotations"             => filesystem::find_annotations,
         "find_tests"                   => filesystem::find_tests,
         // ── Symbol ──
@@ -69,7 +68,6 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "refresh_symbol_index"         => symbols::refresh_symbol_index,
         "get_complexity"               => symbols::get_complexity,
         "search_symbols_fuzzy"         => symbols::search_symbols_fuzzy,
-        "get_project_structure"        => symbols::get_project_structure,
         // ── LSP ──
         "find_referencing_symbols"     => lsp::find_referencing_symbols,
         "get_file_diagnostics"         => lsp::get_file_diagnostics,
@@ -77,7 +75,6 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "get_type_hierarchy"           => lsp::get_type_hierarchy,
         "resolve_symbol_target"        => lsp::resolve_symbol_target,
         "plan_symbol_rename"           => lsp::plan_symbol_rename,
-        "check_lsp_status"             => lsp::check_lsp_status,
         "get_lsp_recipe"               => lsp::get_lsp_recipe,
         // ── Analysis ──
         "get_changed_files"            => graph::get_changed_files_tool,
@@ -85,14 +82,7 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "find_scoped_references"       => graph::find_scoped_references_tool,
         "get_callers"                  => graph::get_callers_tool,
         "get_callees"                  => graph::get_callees_tool,
-        "find_circular_dependencies"   => graph::find_circular_dependencies_tool,
-        "audit_tool_surface_consistency" => graph::audit_tool_surface_consistency_tool,
-        "find_orphan_handlers"         => graph::find_orphan_handlers_tool,
-        "find_over_visible_apis"       => graph::find_over_visible_apis_tool,
-        "find_phantom_modules"         => graph::find_phantom_modules_tool,
-        "find_redundant_definitions"   => graph::find_redundant_definitions_tool,
-        "get_change_coupling"          => graph::get_change_coupling_tool,
-        // ── Edit (individual) ──
+        // ── Edit (individual) — DEPRECATED, dispatch retained for backward compat ──
         "rename_symbol"                => mutation::rename_symbol,
         "create_text_file"             => mutation::create_text_file_tool,
         "delete_lines"                 => mutation::delete_lines_tool,
@@ -102,9 +92,7 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "replace_symbol_body"          => mutation::replace_symbol_body_tool,
         "insert_before_symbol"         => mutation::insert_before_symbol_tool,
         "insert_after_symbol"          => mutation::insert_after_symbol_tool,
-        "analyze_missing_imports"      => mutation::analyze_missing_imports_tool,
         "add_import"                   => mutation::add_import_tool,
-        // ── Edit (unified — preferred in BALANCED/MINIMAL) ──
         "insert_content"               => mutation::insert_content_tool,
         "replace"                      => mutation::replace_content_unified,
         // ── Memory ──
@@ -120,8 +108,6 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "list_active_agents"           => session::list_active_agents,
         "claim_files"                  => session::claim_files,
         "release_files"                => session::release_files,
-        "prepare_for_new_conversation" => session::prepare_for_new_conversation,
-        "summarize_changes"            => session::summarize_changes,
         "list_queryable_projects"      => session::list_queryable_projects,
         "add_queryable_project"        => session::add_queryable_project,
         "remove_queryable_project"     => session::remove_queryable_project,
@@ -136,8 +122,7 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "audit_planner_session"        => session::audit_planner_session,
         "audit_log_query"              => admin::audit_log_query,
         "export_session_markdown"      => session::export_session_markdown,
-        // ── Composite ──
-        "summarize_file"               => composite::summarize_file,
+        // ── Composite — DEPRECATED, dispatch retained for backward compat ──
         "refactor_extract_function"    => composite::refactor_extract_function,
         "refactor_inline_function"     => composite::refactor_inline_function,
         "refactor_move_to_file"        => composite::refactor_move_to_file,
@@ -153,10 +138,8 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "review_changes"               => workflows::review_changes,
         "diagnose_issues"              => workflows::diagnose_issues,
         // ── Reports / compressed context ──
+        // (orchestrate_change / analyze_change_request still in dispatch for backward compat)
         "orchestrate_change"           => reports::orchestrate_change,
-        "list_orchestration_runs"      => reports::list_orchestration_runs,
-        "get_orchestration_run"        => reports::get_orchestration_run,
-        "cancel_orchestration_run"     => reports::cancel_orchestration_run,
         "analyze_change_request"       => reports::analyze_change_request,
         "verify_change_readiness"      => reports::verify_change_readiness,
         "module_boundary_report"       => reports::module_boundary_report,
@@ -167,14 +150,12 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "impact_report"                => reports::impact_report,
         "refactor_safety_report"       => reports::refactor_safety_report,
         "diff_aware_references"        => reports::diff_aware_references,
-        "semantic_code_review"         => reports::semantic_code_review,
         "start_analysis_job"           => report_jobs::start_analysis_job,
         "get_analysis_job"             => report_jobs::get_analysis_job,
         "cancel_analysis_job"          => report_jobs::cancel_analysis_job,
         "get_analysis_section"         => report_jobs::get_analysis_section,
         "list_analysis_jobs"           => report_jobs::list_analysis_jobs,
         "list_analysis_artifacts"      => report_jobs::list_analysis_artifacts,
-        "retry_analysis_job"           => report_jobs::retry_analysis_job,
     }
 }
 

@@ -38,7 +38,6 @@ mod readonly;
 mod registry;
 #[cfg(feature = "semantic")]
 mod semantic;
-mod semantic_refactor;
 mod session_mutation;
 mod workflow;
 

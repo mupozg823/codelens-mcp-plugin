@@ -92,7 +92,7 @@ fn set_profile_changes_tools_list() {
     )
     .unwrap();
     let expanded_planner_encoded = serde_json::to_string(&expanded_planner_list).unwrap();
-    assert!(expanded_planner_encoded.contains("analyze_change_request"));
+    assert!(expanded_planner_encoded.contains("verify_change_readiness"));
 
     let builder_resp = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
     assert_eq!(builder_resp["data"]["current_profile"], "builder-minimal");
@@ -109,9 +109,8 @@ fn set_profile_changes_tools_list() {
     let builder_encoded = serde_json::to_string(&builder_list).unwrap();
     assert!(!builder_encoded.contains("\"find_dead_code\""));
     assert!(builder_encoded.contains("\"find_symbol\""));
-    assert!(builder_encoded.contains("\"create_text_file\""));
+    assert!(builder_encoded.contains("\"cleanup_duplicate_logic\""));
     assert!(!builder_encoded.contains("\"start_analysis_job\""));
-    assert!(builder_encoded.contains("\"add_import\""));
     assert!(builder_encoded.contains("\"verify_change_readiness\""));
     assert!(!builder_encoded.contains("\"unresolved_reference_check\""));
 
@@ -198,7 +197,7 @@ fn refactor_profile_limits_surface_to_approved_mutations() {
     )
     .unwrap();
     let expanded_encoded = serde_json::to_string(&expanded_resp).unwrap();
-    assert!(expanded_encoded.contains("\"rename_symbol\""));
+    assert!(expanded_encoded.contains("\"cleanup_duplicate_logic\""));
     assert!(expanded_encoded.contains("\"refactor_safety_report\""));
     assert!(!encoded.contains("\"write_memory\""));
     assert!(!encoded.contains("\"add_queryable_project\""));

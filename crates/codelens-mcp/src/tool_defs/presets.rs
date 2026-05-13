@@ -238,8 +238,6 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "onboard_project",
     // Workflow composites
     "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
     "analyze_change_request",
     "verify_change_readiness",
     "impact_report",
@@ -268,6 +266,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
     "plan_safe_refactor",
+    "cleanup_duplicate_logic",
     "find_symbol",
     "get_symbols_overview",
     "get_ranked_context",
@@ -286,17 +285,19 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "semantic_search",
     "index_embeddings",
     "plan_symbol_rename",
+    // Deprecated mutation tools (still in dispatch, will be removed in v2.0)
     "rename_symbol",
     "replace_symbol_body",
     "insert_content",
     "replace",
     "create_text_file",
-    "analyze_missing_imports",
     "add_import",
+    // Workflow orchestration (deprecated, kept for backward compat)
     "orchestrate_change",
     "get_orchestration_run",
     "list_orchestration_runs",
     "cancel_orchestration_run",
+    "analyze_change_request",
     "verify_change_readiness",
 ];
 
@@ -339,13 +340,11 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "get_changed_files",
     // Workflow composites
     "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
+    "analyze_change_request",
     "impact_report",
     "refactor_safety_report",
     "verify_change_readiness",
     "diff_aware_references",
-    "semantic_code_review",
     "module_boundary_report",
     "mermaid_module_graph",
     // Async analysis
@@ -374,6 +373,7 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "trace_request_path",
     "review_architecture",
     "plan_safe_refactor",
+    "cleanup_duplicate_logic",
     "review_changes",
     "diagnose_issues",
     // Symbol exploration
@@ -405,9 +405,7 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "refactor_change_signature",
     // Workflow composites (preflight gate requires these)
     "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
-    "cancel_orchestration_run",
+    "analyze_change_request",
     "refactor_safety_report",
     "safe_rename_report",
     "unresolved_reference_check",
@@ -457,9 +455,6 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "find_circular_dependencies",
     "get_change_coupling",
     "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
-    "cancel_orchestration_run",
     "analyze_change_request",
     "verify_change_readiness",
     "unresolved_reference_check",
@@ -497,8 +492,6 @@ pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     "diagnose_issues",
     // Essential workflow-level tools
     "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
     "analyze_change_request",
     "onboard_project",
 ];

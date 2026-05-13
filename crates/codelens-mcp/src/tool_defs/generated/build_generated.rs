@@ -38,41 +38,6 @@ pub fn analysis_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Too
             "[CodeLens:Analysis] PageRank file importance — find the most critical files in the project.",
             json!({"type":"object","properties":{"top_n":{"type":"integer"}}}),
         ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_circular_dependencies",
-            "[CodeLens:Analysis] Detect circular imports using Tarjan SCC algorithm.",
-            json!({"type":"object","properties":{"max_results":{"type":"integer"}}}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_redundant_definitions",
-            "[CodeLens:Analysis] Find Rust thin-wrapper functions whose body is a single call to another function with one literal default. Output groups by target so multi-wrapper substrates surface as cleanup clusters.",
-            json!({"type":"object","properties":{"max_results":{"type":"integer"}}}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "audit_tool_surface_consistency",
-            "[CodeLens:Analysis] Cross-check `tools.toml` entries against `dispatch_table()` macro arms and report drift. `missing_in_dispatch` = registered in toml but no handler arm; `missing_in_toml` = dispatched but missing schema entry. Catches deletion-cascade asymmetry that would otherwise surface as runtime `tool not found` or schema validation failures.",
-            json!({"type":"object","properties":{}}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_orphan_handlers",
-            "[CodeLens:Analysis] Find ToolHandler-shaped functions in `crates/codelens-mcp/src/tools/` that are neither registered in dispatch tables (`tools/mod.rs` macro arms or `dispatch/table.rs` Arc::new inserts) nor referenced from any other workspace .rs file. v2 added the cross-file reference check so handler-shaped helpers (a `*_tool` calling another via path) no longer surface as false orphans.",
-            json!({"type":"object","properties":{}}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_over_visible_apis",
-            "[CodeLens:Analysis] Find `pub` / `pub(crate)` declarations whose references all stay inside a narrower scope than they advertise. `pub` with no cross-crate caller → suggest `pub(crate)`. `pub(crate)` with no other-file caller → suggest dropping visibility. Complements find_phantom_modules / find_redundant_definitions: those find dead surface, this one finds too-wide surface that compiler warnings cannot catch because the items are still in use, just not by anyone outside the declaring boundary.",
-            json!({"type":"object","properties":{}}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_phantom_modules",
-            "[CodeLens:Analysis] Find `mod NAME;` declarations whose name is never referenced as a path segment elsewhere in the workspace. Reports both private and public mods; visibility is included so callers can filter. Known limitation: impl-extension pattern (file split where the module only adds `impl X { ... }` to a parent type) is reported but is not actually phantom — manual review required.",
-            json!({"type":"object","properties":{"max_results":{"type":"integer"}}}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "get_change_coupling",
-            "[CodeLens:Analysis] Files that frequently change together in git history.",
-            json!({"type":"object","properties":{"months":{"type":"integer"},"min_strength":{"type":"number"},"min_commits":{"type":"integer"},"max_results":{"type":"integer"}}}),
-        ).with_annotations(ro_a.clone()),
     ]
 }
 
@@ -82,36 +47,6 @@ pub fn composite_tools(
     ro_w: &ToolAnnotations,
 ) -> Vec<Tool> {
     vec![
-        Tool::new(
-            "onboard_project",
-            "[CodeLens:Session] One-shot onboarding: structure, key files, cycles, stats.",
-            json!({"type":"object","properties":{}}),
-        ).with_output_schema(onboard_output_schema()).with_annotations(ro_w.clone()),
-        Tool::new(
-            "analyze_change_request",
-            "[CodeLens:Workflow] Compress a change request into ranked files, key symbols, risk, and next actions.",
-            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
-        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
-        Tool::new(
-            "orchestrate_change",
-            "[CodeLens:Workflow] Plan and gate a bounded code-work orchestration run: preflight, approval events, audit timeline, dispatch boundary, and evidence handles without mutating files.",
-            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"mode":{"type":"string","enum":["solo","planner_builder","planner-builder","ci_audit","ci-audit"]},"target_paths":{"type":"array","items":{"type":"string"}},"changed_files":{"type":"array","items":{"type":"string"}},"acceptance":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"requester":{"type":"string"},"worktree":{"type":"string"},"approval":{"type":"object","properties":{"decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"actor":{"type":"string"},"reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}},"approval_decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"approved_by":{"type":"string"},"approval_reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}}),
-        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new(
-            "list_orchestration_runs",
-            "[CodeLens:Workflow] List durable orchestration runs with UI-ready summaries, state counts, analysis handles, and resume hints.",
-            json!({"type":"object","properties":{"state":{"type":"string","enum":["drafted","planned","preflighted","approval_required","executing","verifying","completed","failed","cancelled"]},"mode":{"type":"string","enum":["solo","planner_builder","ci_audit"]},"limit":{"type":"integer"}}}),
-        ).with_output_schema(orchestration_run_list_output_schema()).with_annotations(ro_p.clone()).with_max_response_tokens(2048),
-        Tool::new(
-            "get_orchestration_run",
-            "[CodeLens:Workflow] Retrieve one orchestration run by run_id or analysis_id, replay its event timeline, and return resume/cancel-ready handles.",
-            json!({"type":"object","properties":{"run_id":{"type":"string"},"analysis_id":{"type":"string"},"include_events":{"type":"boolean"},"include_sections":{"type":"boolean"}}}),
-        ).with_output_schema(orchestration_run_output_schema()).with_annotations(ro_p.clone()).with_max_response_tokens(4096),
-        Tool::new(
-            "cancel_orchestration_run",
-            "[CodeLens:Workflow] Cancel an active orchestration run, append run_cancelled, and revoke recorded approvals for that run.",
-            json!({"type":"object","properties":{"run_id":{"type":"string"},"analysis_id":{"type":"string"},"actor":{"type":"string"},"requester":{"type":"string"},"reason":{"type":"string"}}}),
-        ).with_output_schema(orchestration_run_output_schema()).with_annotations(mut_w.clone()).with_max_response_tokens(2048),
         Tool::new(
             "verify_change_readiness",
             "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing.",
@@ -158,11 +93,6 @@ pub fn composite_tools(
             json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"}}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
         Tool::new(
-            "semantic_code_review",
-            "[CodeLens:Workflow] Semantic code review — analyze changed symbols via references, embedding similarity, and risk assessment.",
-            json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"}}}}),
-        ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
-        Tool::new(
             "start_analysis_job",
             "[CodeLens:Workflow] Start a durable analysis job and return a job handle for polling.",
             json!({"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["impact_report","dead_code_report","refactor_safety_report","semantic_code_review","orchestrate_change","eval_session_audit"]},"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"target_paths":{"type":"array","items":{"type":"string"}},"mode":{"type":"string","enum":["solo","planner_builder","planner-builder","ci_audit","ci-audit"]},"acceptance":{"type":"array","items":{"type":"string"}},"approval":{"type":"object","properties":{"decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"actor":{"type":"string"},"reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
@@ -175,11 +105,6 @@ pub fn composite_tools(
         Tool::new(
             "cancel_analysis_job",
             "[CodeLens:Workflow] Cancel a queued or running analysis job by job_id.",
-            json!({"type":"object","required":["job_id"],"properties":{"job_id":{"type":"string"}}}),
-        ).with_output_schema(analysis_job_output_schema()).with_annotations(mut_w.clone()),
-        Tool::new(
-            "retry_analysis_job",
-            "[CodeLens:Workflow] Retry a failed or cancelled analysis job by job_id; reuses the original kind and profile_hint.",
             json!({"type":"object","required":["job_id"],"properties":{"job_id":{"type":"string"}}}),
         ).with_output_schema(analysis_job_output_schema()).with_annotations(mut_w.clone()),
         Tool::new(
@@ -197,107 +122,6 @@ pub fn composite_tools(
             "[CodeLens:Workflow] Expand a stored analysis section by analysis_id.",
             json!({"type":"object","required":["analysis_id","section"],"properties":{"analysis_id":{"type":"string"},"section":{"type":"string"}}}),
         ).with_output_schema(analysis_section_output_schema()).with_annotations(ro_p.clone()),
-    ]
-}
-
-pub fn editing_tools(
-    dest_a: &ToolAnnotations,
-    destructive: &ToolAnnotations,
-    mut_p: &ToolAnnotations,
-    mut_w: &ToolAnnotations,
-    mutating: &ToolAnnotations,
-) -> Vec<Tool> {
-    vec![
-        Tool::new(
-            "rename_symbol",
-            "[CodeLens:Edit] Rename across project — safe multi-file refactoring. Use dry_run=true to preview.",
-            json!({"type":"object","required":["file_path","new_name"],"properties":{"file_path":{"type":"string","description":"File containing the symbol declaration"},"symbol_name":{"type":"string","description":"Current symbol name"},"name":{"type":"string","description":"Alias for symbol_name"},"new_name":{"type":"string","description":"Desired new name"},"name_path":{"type":"string","description":"Qualified name path (e.g. 'Class/method')"},"scope":{"type":"string","enum":["file","project"],"description":"Rename scope (default: project; tree-sitter backend only)"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"Opt-in precise edit backend. lsp uses inspectable WorkspaceEdit APIs; jetbrains/roslyn are fail-closed adapter boundaries until a local adapter is configured."},"line":{"type":"integer","description":"1-based declaration line for semantic_edit_backend=lsp; derived from symbol index when omitted"},"column":{"type":"integer","description":"1-based declaration column for semantic_edit_backend=lsp; derived from symbol index when omitted"},"command":{"type":"string","description":"Optional LSP server command for semantic_edit_backend=lsp"},"args":{"type":"array","items":{"type":"string"},"description":"Optional LSP server args for semantic_edit_backend=lsp"},"dry_run":{"type":"boolean","description":"Preview changes without modifying files"}}}),
-        ).with_output_schema(rename_output_schema()).with_annotations(dest_a.clone()),
-        Tool::new(
-            "replace_symbol_body",
-            "[CodeLens:Edit] Replace function/class body by name — tree-sitter finds boundaries. No line numbers needed.",
-            json!({"type":"object","required":["relative_path","symbol_name","new_body"],"properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"new_body":{"type":"string"}}}),
-        ).with_output_schema(file_content_output_schema()).with_annotations(mut_w.clone()),
-        Tool::new(
-            "replace_content",
-            "[CodeLens:Edit] Find-and-replace text in a file — literal or regex mode.",
-            json!({"type":"object","required":["relative_path","old_text","new_text"],"properties":{"relative_path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"regex_mode":{"type":"boolean"}}}),
-        ).with_output_schema(replace_content_output_schema()).with_annotations(mut_p.clone()),
-        Tool::new(
-            "replace_lines",
-            "[CodeLens:Edit] Replace a line range (1-indexed). Use when you know exact line numbers.",
-            json!({"type":"object","required":["relative_path","start_line","end_line","new_content"],"properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"new_content":{"type":"string"}}}),
-        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
-        Tool::new(
-            "delete_lines",
-            "[CodeLens:Edit] Delete a line range (1-indexed, end exclusive).",
-            json!({"type":"object","required":["relative_path","start_line","end_line"],"properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}}}),
-        ).with_output_schema(file_content_output_schema()).with_annotations(destructive.clone()),
-        Tool::new(
-            "insert_at_line",
-            "[CodeLens:Edit] Insert content at a line number. Use when you know the exact position.",
-            json!({"type":"object","required":["relative_path","line","content"],"properties":{"relative_path":{"type":"string"},"line":{"type":"integer"},"content":{"type":"string"}}}),
-        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
-        Tool::new(
-            "insert_before_symbol",
-            "[CodeLens:Edit] Insert code before a named symbol — tree-sitter finds position.",
-            json!({"type":"object","required":["relative_path","symbol_name","content"],"properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"content":{"type":"string"}}}),
-        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
-        Tool::new(
-            "insert_after_symbol",
-            "[CodeLens:Edit] Insert code after a named symbol — tree-sitter finds position.",
-            json!({"type":"object","required":["relative_path","symbol_name","content"],"properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"content":{"type":"string"}}}),
-        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
-        Tool::new(
-            "insert_content",
-            "[CodeLens:Edit] Insert code at position='line'|'before_symbol'|'after_symbol'.",
-            json!({"type":"object","required":["relative_path","content"],"properties":{"relative_path":{"type":"string"},"content":{"type":"string"},"position":{"type":"string","enum":["line","before_symbol","after_symbol"],"description":"Insertion position type (default: line)"},"line":{"type":"integer","description":"Line number (for position=line)"},"symbol_name":{"type":"string","description":"Symbol name (for position=before_symbol or after_symbol)"},"name_path":{"type":"string","description":"Qualified name path"}}}),
-        ).with_output_schema(file_content_output_schema()).with_annotations(mut_p.clone()),
-        Tool::new(
-            "replace",
-            "[CodeLens:Edit] Replace text or line range. Set mode='text' (find-replace) or mode='lines' (line range).",
-            json!({"type":"object","required":["relative_path"],"properties":{"relative_path":{"type":"string"},"mode":{"type":"string","enum":["text","lines"],"description":"Replace mode (default: text)"},"old_text":{"type":"string","description":"Text to find (mode=text)"},"new_text":{"type":"string","description":"Replacement text (mode=text)"},"regex_mode":{"type":"boolean","description":"Use regex (mode=text)"},"start_line":{"type":"integer","description":"Start line (mode=lines)"},"end_line":{"type":"integer","description":"End line (mode=lines)"},"new_content":{"type":"string","description":"New content (mode=lines)"}}}),
-        ).with_output_schema(replace_content_output_schema()).with_annotations(mut_p.clone()),
-        Tool::new(
-            "create_text_file",
-            "[CodeLens:Edit] Create a new file. Fails if exists unless overwrite=true.",
-            json!({"type":"object","required":["relative_path","content"],"properties":{"relative_path":{"type":"string"},"content":{"type":"string"},"overwrite":{"type":"boolean"}}}),
-        ).with_output_schema(create_text_file_output_schema()).with_annotations(mut_p.clone()),
-        Tool::new(
-            "analyze_missing_imports",
-            "[CodeLens:Edit] Detect unresolved symbols and suggest imports.",
-            json!({"type":"object","required":["file_path"],"properties":{"file_path":{"type":"string","description":"File to analyze"}}}),
-        ).with_annotations(mutating.clone()),
-        Tool::new(
-            "add_import",
-            "[CodeLens:Edit] Insert an import statement at the correct position.",
-            json!({"type":"object","required":["file_path","import_statement"],"properties":{"file_path":{"type":"string"},"import_statement":{"type":"string","description":"Import statement to add"}}}),
-        ).with_output_schema(add_import_output_schema()).with_annotations(mut_p.clone()),
-        Tool::new(
-            "refactor_extract_function",
-            "[CodeLens:Edit] Extract line range into new function with automatic call-site replacement.",
-            json!({"type":"object","required":["file_path","start_line","end_line","new_name"],"properties":{"file_path":{"type":"string"},"start_line":{"type":"integer"},"start_column":{"type":"integer"},"end_line":{"type":"integer"},"end_column":{"type":"integer"},"new_name":{"type":"string","description":"Name for the new function"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists."},"code_action_kind":{"type":"string","description":"Optional LSP code action kind override"},"code_action_kinds":{"type":"array","items":{"type":"string"},"description":"Optional LSP code action kind list override"},"action_id":{"type":"string","description":"Title, kind, or index to select when multiple code actions match"},"command":{"type":"string","description":"Optional LSP server command"},"args":{"type":"array","items":{"type":"string"},"description":"Optional LSP server args"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
-        ).with_output_schema(semantic_refactor_output_schema()).with_annotations(mut_w.clone()),
-        Tool::new(
-            "refactor_inline_function",
-            "[CodeLens:Edit] Inline a function: replace all call sites with body, remove definition.",
-            json!({"type":"object","required":["file_path","function_name"],"properties":{"file_path":{"type":"string","description":"File containing the function definition"},"function_name":{"type":"string","description":"Function to inline"},"name_path":{"type":"string","description":"Qualified name path (e.g. Class/method)"},"line":{"type":"integer","description":"1-based symbol line for semantic_edit_backend=lsp"},"column":{"type":"integer","description":"1-based symbol byte column for semantic_edit_backend=lsp"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists."},"code_action_kind":{"type":"string"},"code_action_kinds":{"type":"array","items":{"type":"string"}},"action_id":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
-        ).with_output_schema(semantic_refactor_output_schema()).with_annotations(mut_w.clone()),
-        Tool::new(
-            "refactor_move_to_file",
-            "[CodeLens:Edit] Move a symbol to another file, updating imports across the project.",
-            json!({"type":"object","required":["file_path","symbol_name","target_file"],"properties":{"file_path":{"type":"string","description":"Source file"},"symbol_name":{"type":"string","description":"Symbol to move"},"target_file":{"type":"string","description":"Destination file"},"name_path":{"type":"string","description":"Qualified name path"},"line":{"type":"integer","description":"1-based symbol line for semantic_edit_backend=lsp"},"column":{"type":"integer","description":"1-based symbol byte column for semantic_edit_backend=lsp"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists."},"code_action_kind":{"type":"string"},"code_action_kinds":{"type":"array","items":{"type":"string"}},"action_id":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
-        ).with_output_schema(semantic_refactor_output_schema()).with_annotations(dest_a.clone()),
-        Tool::new(
-            "refactor_change_signature",
-            "[CodeLens:Edit] Change function parameters and update all call sites.",
-            json!({"type":"object","required":["file_path","function_name","new_parameters"],"properties":{"file_path":{"type":"string","description":"File containing the function"},"function_name":{"type":"string","description":"Function to modify"},"name_path":{"type":"string","description":"Qualified name path"},"new_parameters":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"default":{"type":"string"}}},"description":"New parameter list"},"line":{"type":"integer","description":"1-based symbol line for semantic_edit_backend=lsp"},"column":{"type":"integer","description":"1-based symbol byte column for semantic_edit_backend=lsp"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"lsp applies only concrete WorkspaceEdit codeAction results; jetbrains/roslyn fail closed until a local adapter exists."},"code_action_kind":{"type":"string"},"code_action_kinds":{"type":"array","items":{"type":"string"}},"action_id":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
-        ).with_output_schema(semantic_refactor_output_schema()).with_annotations(dest_a.clone()),
-        Tool::new(
-            "propagate_deletions",
-            "[CodeLens:Edit] Analyze what breaks if a symbol is deleted and list affected references/imports for cleanup.",
-            json!({"type":"object","required":["file_path","symbol_name"],"properties":{"file_path":{"type":"string","description":"File containing the symbol"},"symbol_name":{"type":"string","description":"Symbol to analyze for deletion"},"semantic_edit_backend":{"type":"string","enum":["tree-sitter","lsp","jetbrains","roslyn"],"description":"Opt-in precise safe-delete check. lsp uses textDocument/references; jetbrains/roslyn fail closed until a local adapter exists."},"line":{"type":"integer","description":"1-based declaration line for semantic_edit_backend=lsp; derived from symbol index when omitted"},"column":{"type":"integer","description":"1-based declaration column for semantic_edit_backend=lsp; derived from symbol index when omitted"},"command":{"type":"string","description":"Optional LSP server command for semantic_edit_backend=lsp"},"args":{"type":"array","items":{"type":"string"},"description":"Optional LSP server args for semantic_edit_backend=lsp"},"max_results":{"type":"integer","description":"Maximum LSP references to inspect (default 200)"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}}),
-        ).with_output_schema(safe_delete_output_schema()).with_annotations(mut_w.clone()),
     ]
 }
 
@@ -323,11 +147,6 @@ pub fn file_io_tools(ro_p: &ToolAnnotations) -> Vec<Tool> {
             "[CodeLens:File] Find files by wildcard pattern.",
             json!({"type":"object","required":["wildcard_pattern"],"properties":{"wildcard_pattern":{"type":"string"},"relative_dir":{"type":"string"}}}),
         ).with_annotations(ro_p.clone()),
-        Tool::new(
-            "search_for_pattern",
-            "[CodeLens:File] Regex search across files. Use smart=true for enclosing symbol context.",
-            json!({"type":"object","properties":{"pattern":{"type":"string"},"substring_pattern":{"type":"string"},"file_glob":{"type":"string"},"max_results":{"type":"integer"},"smart":{"type":"boolean","description":"Include enclosing symbol context for each match"},"context_lines":{"type":"integer","description":"Number of context lines before and after each match (default 0)"},"context_lines_before":{"type":"integer","description":"Context lines before each match (overrides context_lines)"},"context_lines_after":{"type":"integer","description":"Context lines after each match (overrides context_lines)"}}}),
-        ).with_output_schema(search_for_pattern_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "find_annotations",
             "[CodeLens:File] Find TODO/FIXME/HACK comments across the project.",
@@ -373,11 +192,6 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
             "[CodeLens:Symbol] Preview rename refactoring via LSP — check before applying.",
             json!({"type":"object","required":["path","line","column"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"line":{"type":"integer"},"column":{"type":"integer"},"new_name":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}}),
         ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "check_lsp_status",
-            "[CodeLens:Session] Check installed LSP servers with install commands.",
-            json!({"type":"object","properties":{}}),
-        ).with_annotations(ro_p.clone()),
         Tool::new(
             "get_lsp_recipe",
             "[CodeLens:Session] Get LSP server install instructions for a file extension.",
@@ -467,7 +281,6 @@ pub fn session_tools(
     mutating: &ToolAnnotations,
     ro_a: &ToolAnnotations,
     ro_p: &ToolAnnotations,
-    ro_w: &ToolAnnotations,
 ) -> Vec<Tool> {
     vec![
         Tool::new(
@@ -500,16 +313,6 @@ pub fn session_tools(
             "[CodeLens:Session] Release previously claimed files for the active session.",
             json!({"type":"object","required":["paths"],"properties":{"session_id":{"type":"string","description":"Optional logical session id. Defaults to the active _session_id."},"paths":{"type":"array","items":{"type":"string"},"description":"Project-relative paths to release"}}}),
         ).with_output_schema(release_files_output_schema()).with_annotations(mut_coord.clone()),
-        Tool::new(
-            "prepare_for_new_conversation",
-            "[CodeLens:Session] Project context summary for a new conversation.",
-            json!({"type":"object","properties":{}}),
-        ).with_annotations(ro_p.clone()),
-        Tool::new(
-            "summarize_changes",
-            "[CodeLens:Session] Summarize recent git changes with symbol context.",
-            json!({"type":"object","properties":{}}),
-        ).with_annotations(ro_p.clone()),
         Tool::new(
             "get_watch_status",
             "[CodeLens:Session] File watcher status: running, events, reindexed files.",
@@ -580,11 +383,6 @@ pub fn session_tools(
             "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by transaction_id and/or since_ms; default limit 100 rows. Requires Admin role.",
             json!({"type":"object","properties":{"transaction_id":{"type":"string","description":"Stable id from a mutation response (payload.data.transaction_id). Returns the rows for that one call."},"since_ms":{"type":"integer","description":"Earliest timestamp_ms (epoch millis) to include."},"limit":{"type":"integer","description":"Max rows (default 100, capped at 1000)."}}}),
         ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "summarize_file",
-            "[CodeLens:Session] Get AI-generated summary of a file's purpose and structure.",
-            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"File path to summarize"}}}),
-        ).with_annotations(ro_w.clone()),
     ]
 }
 
@@ -629,11 +427,6 @@ pub fn symbol_tools(
             "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale.",
             json!({"type":"object","properties":{}}),
         ).with_annotations(mut_w.clone()),
-        Tool::new(
-            "get_project_structure",
-            "[CodeLens:Symbol] Directory-level overview — file counts and symbol density per directory.",
-            json!({"type":"object","properties":{}}),
-        ).with_output_schema(get_project_structure_output_schema()).with_annotations(ro_p.clone()),
     ]
 }
 

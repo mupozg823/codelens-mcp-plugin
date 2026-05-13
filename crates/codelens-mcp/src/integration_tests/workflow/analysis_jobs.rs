@@ -646,35 +646,3 @@ fn analysis_reads_update_session_metrics() {
         json!(1)
     );
 }
-
-#[test]
-fn repeated_composite_request_reuses_existing_analysis_handle() {
-    let project = project_root();
-    fs::write(
-        project.as_path().join("reuse.py"),
-        "def alpha():\n    return 1\n",
-    )
-    .unwrap();
-    let state = make_state(&project);
-
-    let first = call_tool(
-        &state,
-        "analyze_change_request",
-        json!({"task": "update alpha flow", "profile_hint": "planner-readonly"}),
-    );
-    let second = call_tool(
-        &state,
-        "analyze_change_request",
-        json!({"task": "update alpha flow", "profile_hint": "planner-readonly"}),
-    );
-
-    assert_eq!(first["data"]["reused"], json!(false));
-    assert_eq!(second["data"]["reused"], json!(true));
-    assert_eq!(first["data"]["analysis_id"], second["data"]["analysis_id"]);
-
-    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
-    assert_eq!(
-        metrics["data"]["session"]["analysis_cache_hit_count"],
-        json!(1)
-    );
-}

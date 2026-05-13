@@ -1112,6 +1112,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     Ok((result, success_meta(BackendKind::Session, 1.0)))
 }
 
+#[allow(dead_code)]
 pub fn prepare_for_new_conversation(
     state: &AppState,
     _arguments: &serde_json::Value,
@@ -1134,6 +1135,7 @@ pub fn prepare_for_new_conversation(
     ))
 }
 
+#[allow(dead_code)]
 pub fn summarize_changes(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     Ok((
         json!({

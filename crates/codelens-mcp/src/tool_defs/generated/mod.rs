@@ -15,7 +15,7 @@ mod build_generated;
 // `pub(super)` of *this* module (i.e., visible to `tool_defs`). Keeps
 // the call site in `build.rs` short and stable across migration PRs.
 pub(super) use build_generated::{
-    analysis_tools, composite_tools, editing_tools, file_io_tools, lsp_tools, memory_tools,
+    analysis_tools, composite_tools, file_io_tools, lsp_tools, memory_tools,
     session_tools, symbol_tools, workflow_first_tools,
 };
 

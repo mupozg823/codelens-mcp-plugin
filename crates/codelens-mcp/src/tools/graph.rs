@@ -359,17 +359,20 @@ pub(crate) fn find_dead_code_v2_tool(
     )
 }
 
-pub fn find_orphan_handlers_tool(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let entries = crate::orphan_handlers::find_orphan_handlers(state.project().as_path())?;
+#[allow(dead_code)]
+pub fn find_orphan_handlers_tool(_state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let entries: Vec<serde_json::Value> = vec![]; // orphan_handlers module removed in diet
     Ok((
         json!({
             "orphan_handlers": entries,
-            "count": entries.len(),
+            "count": 0,
+            "deprecated": true,
+            "replacement": "find_referencing_symbols",
         }),
         success_meta(BackendKind::TreeSitter, 0.78),
     ))
 }
-
+#[allow(dead_code)]
 pub fn find_over_visible_apis_tool(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let entries = crate::over_visible::find_over_visible_apis(state.project().as_path())?;
     let by_kind: std::collections::BTreeMap<String, usize> =
@@ -388,7 +391,7 @@ pub fn find_over_visible_apis_tool(state: &AppState, _arguments: &serde_json::Va
         success_meta(BackendKind::TreeSitter, 0.75),
     ))
 }
-
+#[allow(dead_code)]
 pub fn audit_tool_surface_consistency_tool(
     state: &AppState,
     _arguments: &serde_json::Value,
@@ -403,7 +406,7 @@ pub fn audit_tool_surface_consistency_tool(
         success_meta(BackendKind::TreeSitter, 0.92),
     ))
 }
-
+#[allow(dead_code)]
 pub fn find_phantom_modules_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let max_results = optional_usize(arguments, "max_results", 50);
     let entries = phantom_modules::find_phantom_modules(&state.project(), max_results)?;
@@ -415,7 +418,7 @@ pub fn find_phantom_modules_tool(state: &AppState, arguments: &serde_json::Value
         success_meta(BackendKind::TreeSitter, 0.80),
     ))
 }
-
+#[allow(dead_code)]
 pub fn find_redundant_definitions_tool(
     state: &AppState,
     arguments: &serde_json::Value,
@@ -772,7 +775,7 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         (payload, meta)
     })?)
 }
-
+#[allow(dead_code)]
 pub fn find_circular_dependencies_tool(
     state: &AppState,
     arguments: &serde_json::Value,
@@ -789,7 +792,7 @@ pub fn find_circular_dependencies_tool(
         )?,
     )
 }
-
+#[allow(dead_code)]
 pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let months = optional_usize(arguments, "months", 6);
     let min_strength = arguments

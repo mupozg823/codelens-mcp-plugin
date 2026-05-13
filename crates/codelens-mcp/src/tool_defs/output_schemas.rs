@@ -1,4 +1,5 @@
 //! Output schema definitions for MCP tools.
+#![allow(dead_code)]
 
 use serde_json::json;
 

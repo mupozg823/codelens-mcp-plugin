@@ -1109,6 +1109,7 @@ pub fn get_complexity(state: &AppState, arguments: &Value) -> ToolResult {
     ))
 }
 
+#[allow(dead_code)]
 pub fn get_project_structure(state: &AppState, _arguments: &Value) -> ToolResult {
     let dirs = state.symbol_index().get_project_structure()?;
     let total_files: usize = dirs.iter().map(|d| d.files).sum();

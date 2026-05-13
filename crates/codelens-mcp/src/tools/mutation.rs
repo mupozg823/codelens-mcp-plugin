@@ -498,6 +498,7 @@ pub fn replace_content_unified(state: &AppState, arguments: &serde_json::Value) 
     }
 }
 
+#[allow(dead_code)]
 pub fn analyze_missing_imports_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     Ok(analyze_missing_imports(&state.project(), file_path)

@@ -1204,6 +1204,7 @@ pub fn resolve_symbol_target(state: &AppState, arguments: &serde_json::Value) ->
         })
 }
 
+#[allow(dead_code)]
 pub fn check_lsp_status(_state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let statuses = core_check_lsp_status();
     Ok((
