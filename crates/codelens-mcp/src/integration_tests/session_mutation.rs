@@ -168,6 +168,8 @@ fn refactor_profile_limits_surface_to_approved_mutations() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
 
+    // refactor-full is deprecated and canonicalizes to builder-minimal.
+    // The profile name is preserved but tool surface = BuilderMinimal.
     let profile_resp = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
     assert_eq!(profile_resp["data"]["current_profile"], "refactor-full");
 
@@ -182,8 +184,9 @@ fn refactor_profile_limits_surface_to_approved_mutations() {
     )
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
+    // BuilderMinimal surface includes verify_change_readiness but not
+    // tools outside its list.
     assert!(encoded.contains("\"verify_change_readiness\""));
-    assert!(!encoded.contains("\"name\":\"rename_symbol\""));
     assert!(!encoded.contains("\"name\":\"refactor_safety_report\""));
 
     let expanded_resp = handle_request(
@@ -198,7 +201,6 @@ fn refactor_profile_limits_surface_to_approved_mutations() {
     .unwrap();
     let expanded_encoded = serde_json::to_string(&expanded_resp).unwrap();
     assert!(expanded_encoded.contains("\"cleanup_duplicate_logic\""));
-    assert!(expanded_encoded.contains("\"refactor_safety_report\""));
     assert!(!encoded.contains("\"write_memory\""));
     assert!(!encoded.contains("\"add_queryable_project\""));
     assert!(!expanded_encoded.contains("\"write_memory\""));

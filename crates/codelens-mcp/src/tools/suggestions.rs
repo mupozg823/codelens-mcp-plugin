@@ -310,6 +310,13 @@ fn has_recent_low_level_chain(recent_tools: &[String]) -> bool {
 }
 
 fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static str] {
+    // Normalize deprecated profiles to their canonical core equivalent.
+    let surface = match surface {
+        ToolSurface::Profile(p) if p.is_deprecated() => ToolSurface::Profile(p.canonical()),
+        other => other,
+    };
+    // Deprecated profiles resolve to their canonical core equivalent,
+    // so all routing is unified through the core trio.
     match surface {
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => &[
             "explore_codebase",
@@ -317,29 +324,10 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
             "review_changes",
             "plan_safe_refactor",
         ],
-        ToolSurface::Profile(ToolProfile::ReviewerGraph)
-        | ToolSurface::Profile(ToolProfile::CiAudit) => &[
+        ToolSurface::Profile(ToolProfile::ReviewerGraph) => &[
             "review_architecture",
             "review_changes",
             "cleanup_duplicate_logic",
-            "diagnose_issues",
-        ],
-        ToolSurface::Profile(ToolProfile::RefactorFull) => &[
-            "plan_safe_refactor",
-            "review_changes",
-            "trace_request_path",
-            "review_architecture",
-        ],
-        ToolSurface::Profile(ToolProfile::EvaluatorCompact) => &[
-            "verify_change_readiness",
-            "get_file_diagnostics",
-            "find_tests",
-        ],
-        ToolSurface::Profile(ToolProfile::WorkflowFirst) => &[
-            "explore_codebase",
-            "review_architecture",
-            "plan_safe_refactor",
-            "review_changes",
             "diagnose_issues",
         ],
         ToolSurface::Profile(ToolProfile::BuilderMinimal) | ToolSurface::Preset(_) => &[
@@ -347,6 +335,14 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
             "trace_request_path",
             "plan_safe_refactor",
             "review_changes",
+        ],
+        // Fallback for any remaining surface variants (should be unreachable
+        // after canonical normalization above).
+        _ => &[
+            "explore_codebase",
+            "review_architecture",
+            "review_changes",
+            "plan_safe_refactor",
         ],
     }
 }

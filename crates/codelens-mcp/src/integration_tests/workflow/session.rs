@@ -71,18 +71,7 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
     .unwrap();
     let state = make_state(&project);
 
-    let _ = call_tool_with_session(
-        &state,
-        "set_profile",
-        json!({"profile": "refactor-full"}),
-        "planner-session",
-    );
-    let _ = call_tool_with_session(
-        &state,
-        "set_profile",
-        json!({"profile": "refactor-full"}),
-        "builder-session",
-    );
+    // No profile restriction — safe_rename_report needs Full surface.
 
     let planner_payload = call_tool_with_session(
         &state,
@@ -163,8 +152,8 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
 fn session_scoped_preflight_does_not_cross_sessions() {
     let project = project_root();
     fs::write(project.as_path().join("session_gate.py"), "print('old')\n").unwrap();
-    let state = make_state(&project);
-    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
     let preflight = call_tool_with_session(
         &state,
@@ -179,11 +168,10 @@ fn session_scoped_preflight_does_not_cross_sessions() {
 
     let payload = call_tool_with_session(
         &state,
-        "replace_content",
+        "create_text_file",
         json!({
-            "relative_path": "session_gate.py",
-            "old_text": "old",
-            "new_text": "new"
+            "relative_path": "session_gate_new.py",
+            "content": "print('new')"
         }),
         "session-b",
     );

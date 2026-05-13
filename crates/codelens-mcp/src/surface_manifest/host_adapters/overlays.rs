@@ -25,13 +25,13 @@ fn overlay_specs_for_host(host: &str) -> Vec<(ToolProfile, TaskOverlay)> {
         ],
         "codex" => vec![
             (ToolProfile::BuilderMinimal, TaskOverlay::Editing),
-            (ToolProfile::RefactorFull, TaskOverlay::Review),
-            (ToolProfile::CiAudit, TaskOverlay::BatchAnalysis),
+            (ToolProfile::BuilderMinimal, TaskOverlay::Review),
+            (ToolProfile::ReviewerGraph, TaskOverlay::BatchAnalysis),
         ],
         "cursor" => vec![
             (ToolProfile::ReviewerGraph, TaskOverlay::Review),
             (ToolProfile::PlannerReadonly, TaskOverlay::Planning),
-            (ToolProfile::CiAudit, TaskOverlay::BatchAnalysis),
+            (ToolProfile::ReviewerGraph, TaskOverlay::BatchAnalysis),
         ],
         "cline" => vec![
             (ToolProfile::BuilderMinimal, TaskOverlay::Editing),

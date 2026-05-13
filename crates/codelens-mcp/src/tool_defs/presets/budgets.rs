@@ -9,13 +9,11 @@ pub(crate) fn default_budget_for_preset(preset: ToolPreset) -> usize {
 }
 
 pub(crate) fn default_budget_for_profile(profile: ToolProfile) -> usize {
-    match profile {
+    // Deprecated profiles resolve to their canonical core equivalent.
+    match profile.canonical() {
         ToolProfile::PlannerReadonly => 2400,
         ToolProfile::BuilderMinimal => 2400,
         ToolProfile::ReviewerGraph => 2800,
-        ToolProfile::EvaluatorCompact => 1600,
-        ToolProfile::RefactorFull => 4000,
-        ToolProfile::CiAudit => 3600,
-        ToolProfile::WorkflowFirst => 2400,
+        dep => unreachable!("canonical() should not return {dep:?}"),
     }
 }

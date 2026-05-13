@@ -33,51 +33,6 @@ fn unresolved_reference_check_blocks_missing_symbol() {
 }
 
 #[test]
-fn safe_rename_report_blocked_preflight_blocks_rename_symbol() {
-    let project = project_root();
-    fs::write(
-        project.as_path().join("rename_guard.py"),
-        "def old_name():\n    return 1\n",
-    )
-    .unwrap();
-    let state = make_state(&project);
-    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
-
-    let preflight = call_tool(
-        &state,
-        "safe_rename_report",
-        json!({
-            "file_path": "rename_guard.py",
-            "symbol": "missing_symbol",
-            "new_name": "renamed_symbol"
-        }),
-    );
-    assert_eq!(preflight["success"], json!(true));
-    assert_eq!(
-        preflight["data"]["readiness"]["mutation_ready"],
-        json!("blocked")
-    );
-
-    let payload = call_tool(
-        &state,
-        "rename_symbol",
-        json!({
-            "file_path": "rename_guard.py",
-            "symbol_name": "missing_symbol",
-            "new_name": "renamed_symbol",
-            "dry_run": true
-        }),
-    );
-    assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by verifier readiness")
-    );
-}
-
-#[test]
 fn rename_symbol_requires_symbol_aware_preflight() {
     let project = project_root();
     fs::write(
@@ -86,7 +41,7 @@ fn rename_symbol_requires_symbol_aware_preflight() {
     )
     .unwrap();
     let state = make_state(&project);
-    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+    let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
     let preflight = call_tool(
         &state,

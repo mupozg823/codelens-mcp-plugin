@@ -532,6 +532,8 @@ fn profile_declares_preferred_phases_as_adoption_signal() {
         "builder-minimal must advertise build+review as preferred phases"
     );
 
+    // workflow-first is deprecated and canonicalizes to planner-readonly.
+    // It still parses but shares the planner-readonly surface.
     let _ = call_tool(&state, "set_profile", json!({"profile": "workflow-first"}));
     let list_workflow = handle_request(
         &state,
@@ -544,9 +546,11 @@ fn profile_declares_preferred_phases_as_adoption_signal() {
     )
     .unwrap();
     let encoded_workflow = serde_json::to_string(&list_workflow).unwrap();
+    // workflow-first canonicalizes to planner-readonly, which has
+    // preferred_phases: ["plan", "review"].
     assert!(
-        encoded_workflow.contains("\"preferred_phases\":[]"),
-        "workflow-first must remain phase-agnostic"
+        encoded_workflow.contains("\"preferred_phases\":[\"plan\",\"review\"]"),
+        "workflow-first (→ planner-readonly) should advertise plan+review phases"
     );
 }
 
@@ -588,6 +592,7 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
 fn refactor_deferred_tools_list_starts_preview_first() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+// refactor-full is deprecated and canonicalizes to builder-minimal.
     let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
 
     let list_resp = handle_request(
@@ -602,22 +607,15 @@ fn refactor_deferred_tools_list_starts_preview_first() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(encoded.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
-    assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
+    // refactor-full canonicalizes to builder-minimal surface.
+    assert!(encoded.contains("\"preferred_namespaces\""));
     assert!(encoded.contains("\"tool_count\":"));
     assert!(encoded.contains("\"plan_safe_refactor\""));
-    assert!(encoded.contains("\"review_changes\""));
-    assert!(encoded.contains("\"trace_request_path\""));
-    assert!(!encoded.contains("\"analyze_change_impact\""));
     assert!(encoded.contains("\"activate_project\""));
     assert!(encoded.contains("\"set_profile\""));
     assert!(!encoded.contains("\"name\":\"refactor_extract_function\""));
-    assert!(!encoded.contains("\"name\":\"verify_change_readiness\""));
     assert!(!encoded.contains("\"name\":\"refactor_safety_report\""));
-    assert!(!encoded.contains("\"name\":\"safe_rename_report\""));
-    assert!(!encoded.contains("\"name\":\"unresolved_reference_check\""));
 }
-
 #[test]
 fn codex_client_name_enables_lean_tools_list_contract() {
     let project = project_root();

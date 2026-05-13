@@ -121,9 +121,11 @@ pub(crate) fn evaluate_mutation_gate(
     surface: ToolSurface,
     arguments: &serde_json::Value,
 ) -> Result<Option<MutationGateAllowance>, MutationGateFailure> {
-    if !matches!(surface, ToolSurface::Profile(ToolProfile::RefactorFull))
-        || !is_refactor_gated_mutation_tool(name)
-    {
+    let is_gated_surface = matches!(
+        surface,
+        ToolSurface::Profile(ToolProfile::RefactorFull) | ToolSurface::Profile(ToolProfile::BuilderMinimal)
+    );
+    if !is_gated_surface || !is_refactor_gated_mutation_tool(name) {
         return Ok(None);
     }
 
@@ -133,7 +135,7 @@ pub(crate) fn evaluate_mutation_gate(
         return Err(mutation_gate_failure(
             name,
             format!(
-                "Tool `{name}` requires a fresh preflight in `refactor-full`. Run `verify_change_readiness` first."
+                "Tool `{name}` requires a fresh preflight in this surface. Run `verify_change_readiness` first."
             ),
             MutationFailureKind::MissingPreflight,
             None,

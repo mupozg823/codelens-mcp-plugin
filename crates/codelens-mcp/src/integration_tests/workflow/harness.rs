@@ -449,7 +449,7 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
         &state,
         "prepare_harness_session",
         json!({
-            "profile": "refactor-full",
+            "profile": "builder-minimal",
             "host_context": "claude-code",
             "task_overlay": "review"
         }),
@@ -467,7 +467,7 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
     );
     assert_eq!(
         payload["data"]["routing"]["recommended_entrypoint"],
-        json!("review_changes")
+        json!("audit_planner_session")
     );
     assert!(
         payload["data"]["overlay"]["avoid_tools"]
@@ -506,7 +506,7 @@ fn prepare_harness_session_compact_exposes_visible_tools_omitted_count() {
     let payload = call_tool(
         &state,
         "prepare_harness_session",
-        json!({"profile": "refactor-full", "detail": "compact"}),
+        json!({"profile": "builder-minimal", "detail": "compact"}),
     );
     assert_eq!(payload["success"], json!(true));
 
@@ -535,7 +535,7 @@ fn prepare_harness_session_compact_exposes_visible_tools_omitted_count() {
     // back to a no-op constant.
     assert!(
         omitted > 0,
-        "refactor-full compact response should report a positive omitted count, got {omitted}"
+        "builder-minimal compact response should report a positive omitted count, got {omitted}"
     );
 }
 
