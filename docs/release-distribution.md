@@ -84,10 +84,9 @@ publish by hand from a clean working tree at the tagged commit.
 git checkout vX.Y.Z
 cargo publish -p codelens-engine   # wait for "Published" line
 cargo publish -p codelens-mcp
-cargo publish -p codelens-tui
 ```
 
-Order matters: `codelens-mcp` and `codelens-tui` depend on
+Order matters: `codelens-mcp` depends on
 `codelens-engine` by exact version, so the engine must reach the index
 first. Each `cargo publish` internally waits for index propagation
 before returning.
@@ -128,7 +127,7 @@ curl -fsSL -o /dev/null -w '%{http_code}\n' \
   "https://ghcr.io/v2/mupozg823/codelens-mcp-plugin/manifests/v${VERSION}"
 
 # crates.io
-for c in codelens-engine codelens-mcp codelens-tui; do
+for c in codelens-engine codelens-mcp; do
   curl -s "https://crates.io/api/v1/crates/${c}" \
     | python3 -c "import sys,json; print('${c}:', json.load(sys.stdin)['crate']['newest_version'])"
 done

@@ -14,8 +14,8 @@ pub enum SymbolProvenance {
     McpTool,
     /// MCP dispatch/protocol layer (codelens-mcp/src/dispatch/, protocol.rs)
     McpInfra,
-    /// TUI surface layer (codelens-tui/src/)
-    TuiSurface,
+    /// UI/CLI/TUI surface application layer (src/ui/, src/tui/, src/cli/, src/app/)
+    SurfaceApp,
     /// Test code (**/tests/, *_tests.rs)
     Test,
     /// Benchmark/script code (benchmarks/, scripts/)
@@ -29,7 +29,7 @@ impl SymbolProvenance {
     /// repository-specific crate names:
     /// - Test: `/tests/`, `_tests.rs`, `/integration_tests/`
     /// - Benchmark: `benchmarks/`, `scripts/`, `models/`
-    /// - TuiSurface: `src/ui/`, `src/tui/`, `src/cli/`, `src/app/` or package
+    /// - SurfaceApp: `src/ui/`, `src/tui/`, `src/cli/`, `src/app/` or package
     ///   names ending in `-ui`, `-tui`, `-cli`, `-app`
     /// - McpTool: `src/tools/` directory (tool handler convention)
     /// - McpInfra: `src/dispatch/`, `src/server/`, `src/runtime/`,
@@ -84,7 +84,7 @@ impl SymbolProvenance {
             || package_name.ends_with("-app")
             || package_name.ends_with("_app")
         {
-            return Self::TuiSurface;
+            return Self::SurfaceApp;
         }
 
         if matches!(
@@ -108,7 +108,7 @@ impl SymbolProvenance {
             Self::EngineCore => 6.0,
             Self::McpTool => -4.0,
             Self::McpInfra => -2.0,
-            Self::TuiSurface => -8.0,
+            Self::SurfaceApp => -8.0,
             Self::Test => -12.0,
             Self::Benchmark => -14.0,
         }
@@ -303,11 +303,11 @@ mod tests {
     fn provenance_detects_surface_by_package_or_surface_file() {
         assert_eq!(
             SymbolProvenance::from_path("crates/project-tui/src/app.rs"),
-            SymbolProvenance::TuiSurface
+            SymbolProvenance::SurfaceApp
         );
         assert_eq!(
             SymbolProvenance::from_path("packages/client-ui/src/lib.rs"),
-            SymbolProvenance::TuiSurface
+            SymbolProvenance::SurfaceApp
         );
     }
 

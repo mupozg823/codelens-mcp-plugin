@@ -10,4 +10,4 @@ changelog_config = "cliff.toml"
 name = "codelens-mcp"
 # The binary crate that drives the release version.
 changelog_path = "CHANGELOG.md"
-changelog_include = ["codelens-engine", "codelens-tui"]
+changelog_include = ["codelens-engine"]

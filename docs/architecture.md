@@ -8,7 +8,7 @@
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
 
 - Workspace version: `1.13.27`
-- Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
+- Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
 - Registered tool definitions in source: `112`
 - Tool output schemas in source: `79 / 112`
 - Supported language families: `30` across `49` extensions
