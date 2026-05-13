@@ -17,7 +17,7 @@ mod job_store;
 mod mutation_gate;
 mod operator;
 mod orchestration_store;
-mod over_visible;
+
 mod preflight_store;
 mod principals;
 mod prompts;
@@ -31,7 +31,7 @@ mod server;
 mod session_context;
 mod session_metrics_payload;
 mod state;
-mod surface_audit;
+
 mod surface_manifest;
 mod symbol_corpus;
 mod symbol_retrieval;

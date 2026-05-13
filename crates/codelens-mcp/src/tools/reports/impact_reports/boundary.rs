@@ -1,6 +1,7 @@
 use crate::AppState;
-use crate::tool_runtime::{ToolResult, required_string};
+use crate::tool_runtime::{required_string, ToolResult};
 use crate::tools::report_contract::make_handle_response;
+use codelens_engine::{find_circular_dependencies, get_change_coupling};
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use crate::tools::symbols::{semantic_results_for_query, semantic_status};
 use codelens_engine::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
@@ -22,9 +23,13 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
     .map(|out| out.0)
     .unwrap_or_else(|_| json!({"blast_radius": [], "direct_importers": []}));
     let cycles =
-        crate::tools::graph::find_circular_dependencies_tool(state, &json!({"max_results": 20}))?.0;
+        find_circular_dependencies(&state.project(), 20, &state.graph_cache())
+            .unwrap_or_default();
+    let cycles = json!({ "cycles": cycles, "count": cycles.len() });
     let coupling =
-        crate::tools::graph::get_change_coupling_tool(state, &json!({"max_results": 20}))?.0;
+        get_change_coupling(&state.project(), 6, 0.3, 3, 20)
+            .unwrap_or_default();
+    let coupling = json!({ "coupling": coupling, "count": coupling.len() });
     let symbols =
         crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
             .map(|out| out.0)
