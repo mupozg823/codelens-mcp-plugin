@@ -31,12 +31,6 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         | "onboard_project"
         | "analyze_change_request"
         | "orchestrate_change"
-        | "list_orchestration_runs"
-        | "get_orchestration_run"
-        | "cancel_orchestration_run"
-        | "semantic_code_review"
-        | "retry_analysis_job"
-        | "prepare_for_new_conversation"
         | "summarize_changes"
         | "summarize_file"
         | "get_change_coupling" => {

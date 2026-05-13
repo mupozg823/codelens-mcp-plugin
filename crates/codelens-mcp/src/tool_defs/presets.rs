@@ -294,9 +294,6 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "add_import",
     // Workflow orchestration (deprecated, kept for backward compat)
     "orchestrate_change",
-    "get_orchestration_run",
-    "list_orchestration_runs",
-    "cancel_orchestration_run",
     "analyze_change_request",
     "verify_change_readiness",
 ];
