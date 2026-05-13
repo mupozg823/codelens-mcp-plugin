@@ -127,7 +127,6 @@ fn build_tools() -> Vec<Tool> {
     tools.extend(super::generated::session_tools(
         &mut_coord, &mut_p, &mutating, &ro_a, &ro_p, &ro_w,
     ));
-    tools.extend(super::generated::rule_corpus_tools(&ro_a));
     tools.extend(super::generated::memory_tools(
         &destructive,
         &mut_p,

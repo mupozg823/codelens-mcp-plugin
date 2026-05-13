@@ -12,7 +12,7 @@ mod report_payload;
 mod report_utils;
 mod report_verifier;
 pub mod reports;
-pub mod rules;
+
 mod scip_health;
 pub(crate) mod semantic_edit;
 pub(crate) mod semantic_edit_args;
@@ -175,8 +175,6 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "list_analysis_jobs"           => report_jobs::list_analysis_jobs,
         "list_analysis_artifacts"      => report_jobs::list_analysis_artifacts,
         "retry_analysis_job"           => report_jobs::retry_analysis_job,
-        // ── Rule corpus retrieval ──
-        "find_relevant_rules"          => rules::find_relevant_rules,
     }
 }
 

@@ -421,16 +421,6 @@ pub fn memory_tools(
     ]
 }
 
-pub fn rule_corpus_tools(ro_a: &ToolAnnotations) -> Vec<Tool> {
-    vec![
-        Tool::new(
-            "find_relevant_rules",
-            "[CodeLens:Workflow] BM25 search over CLAUDE.md + project memory for policy snippets matching a query. Separate corpus from code retrieval — rule text never pollutes semantic_search results.",
-            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string","description":"Natural-language query; identifier tokens are preserved"},"top_k":{"type":"integer","description":"Top-K results (1-20, default 3)"}}}),
-        ).with_annotations(ro_a.clone()).with_max_response_tokens(2048),
-    ]
-}
-
 #[cfg(feature = "semantic")]
 pub fn semantic_tools(
     ro: &ToolAnnotations,

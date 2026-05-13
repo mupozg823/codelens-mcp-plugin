@@ -1749,20 +1749,6 @@ type = "object"
 required = ["path"]
 properties = { path = { type = "string", description = "File path to summarize" } }
 
-# ── Rule corpus retrieval ────────────────────────────────────────────
-
-[[tool]]
-name = "find_relevant_rules"
-category = "rule_corpus"
-description = "[CodeLens:Workflow] BM25 search over CLAUDE.md + project memory for policy snippets matching a query. Separate corpus from code retrieval — rule text never pollutes semantic_search results."
-annotations = "ro_a"
-max_response_tokens = 2048
-
-[tool.input_schema]
-type = "object"
-required = ["query"]
-properties = { query = { type = "string", description = "Natural-language query; identifier tokens are preserved" }, top_k = { type = "integer", description = "Top-K results (1-20, default 3)" } }
-
 # ── Memory ───────────────────────────────────────────────────────────
 
 [[tool]]

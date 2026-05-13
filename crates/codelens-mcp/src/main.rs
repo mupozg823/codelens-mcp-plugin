@@ -27,8 +27,6 @@ mod recent_buffer;
 mod registry;
 mod resource_context;
 mod resources;
-mod rule_corpus;
-mod rule_retrieval;
 mod runtime_types;
 mod server;
 mod session_context;
