@@ -14,10 +14,11 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     // wait was tight enough that CI runners (especially macos-latest)
     // intermittently rounded both timestamps into the same second under load
     // and the staleness comparison flipped — chronic flake on PRs #174,
-    // #177, #184, #185, #187 in the 2026-05-03 dogfood batch. Bumping the
-    // wait to 2.5s keeps the test deterministic without meaningfully slowing
-    // the local test run.
-    std::thread::sleep(std::time::Duration::from_millis(2_500));
+    // #177, #184, #185, #187, and the 2026-05-14 PR #292 diet-cleanup
+    // batch (4+ macos-latest hits under nextest parallel load even at
+    // 2.5s). Bumping to 5s; passes solo in 2.6s so the extra wait only
+    // gates parallel-runner contention and still keeps the test cheap.
+    std::thread::sleep(std::time::Duration::from_millis(5_000));
 
     let override_path = std::env::temp_dir().join(format!(
         "codelens-stale-daemon-{}-{}",
