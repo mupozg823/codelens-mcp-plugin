@@ -187,6 +187,17 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         && let Some(map) = payload.as_object_mut()
     {
         map.insert("unknown_args".to_owned(), json!(unknown_args));
+        // Companion human-readable hint — dogfood finding (2026-05-14):
+        // bare `unknown_args` array was easy to miss in agent transcripts.
+        // Mirrors the `deprecation_warnings` pattern from find_symbol.
+        map.insert(
+            "unknown_args_hint".to_owned(),
+            json!(format!(
+                "ignored unknown argument(s): {}. valid args: {}",
+                unknown_args.join(", "),
+                KNOWN_ARGS.join(", ")
+            )),
+        );
     }
     Ok((payload, tools::success_meta(BackendKind::Semantic, 0.85)))
 }
