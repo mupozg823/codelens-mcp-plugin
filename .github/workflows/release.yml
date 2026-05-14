@@ -383,11 +383,10 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           # crates.io publish runs only when the API token is configured.
-          # The workspace has three publishable crates with internal
+          # The workspace has two publishable crates with internal
           # path+version deps, so the publish order matters:
           #   codelens-engine  (leaf)
           # → codelens-mcp     (depends on engine)
-          # → codelens-tui     (depends on engine)
           #
           # `cargo publish` waits for the registry index to become
           # consistent before returning, so subsequent publishes can
@@ -416,4 +415,3 @@ jobs:
 
           publish_one codelens-engine
           publish_one codelens-mcp
-          publish_one codelens-tui

@@ -1,14 +1,35 @@
-/// Full deprecation info: `(since_version, replacement_tool, removal_target)`.
-///
-/// Used by `tools/list` and `tools/call` envelope annotations so clients can
-/// surface deprecation status without consulting docs.
 pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str, &'static str)> {
     match name {
-        "audit_security_context" => Some(("1.12.0", "semantic_code_review", "v2.0")),
-        "analyze_change_impact" => Some(("1.12.0", "impact_report", "v2.0")),
-        "assess_change_readiness" => Some(("1.12.0", "verify_change_readiness", "v2.0")),
-        "get_impact_analysis" => Some(("1.9.46", "impact_report", "v2.0")),
-        "find_dead_code" => Some(("1.9.46", "dead_code_report", "v2.0")),
+        // Deprecated in v1.13.27, removal v2.0
+        "find_circular_dependencies"
+        | "find_redundant_definitions"
+        | "audit_tool_surface_consistency"
+        | "find_orphan_handlers"
+        | "find_over_visible_apis"
+        | "find_phantom_modules"
+        | "search_for_pattern"
+        | "get_project_structure"
+        | "analyze_missing_imports"
+        | "add_import"
+        | "refactor_extract_function"
+        | "refactor_inline_function"
+        | "refactor_move_to_file"
+        | "refactor_change_signature"
+        | "replace_symbol_body"
+        | "replace_content"
+        | "replace_lines"
+        | "delete_lines"
+        | "insert_at_line"
+        | "insert_before_symbol"
+        | "insert_after_symbol"
+        | "insert_content"
+        | "replace"
+        | "create_text_file"
+        | "rename_symbol"
+        | "propagate_deletions"
+        | "onboard_project"
+        | "analyze_change_request"
+        | "orchestrate_change" => Some(("1.13.27", "", "2.0")),
         _ => None,
     }
 }
@@ -32,9 +53,7 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
     use crate::protocol::ToolPhase;
     match name {
         // Plan — analyze/retrieve/orient before deciding to edit.
-        "orchestrate_change"
-        | "analyze_change_request"
-        | "explore_codebase"
+        "explore_codebase"
         | "trace_request_path"
         | "review_architecture"
         | "plan_safe_refactor"
@@ -44,7 +63,6 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         | "mermaid_module_graph"
         | "impact_report"
         | "get_impact_analysis"
-        | "onboard_project"
         | "get_ranked_context"
         | "get_symbols_overview"
         | "find_symbol"
@@ -56,30 +74,12 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         | "index_embeddings"
         | "find_scoped_references"
         | "get_symbol_importance"
-        | "get_change_coupling"
         | "get_complexity"
         | "find_similar_code"
         | "get_changed_files" => Some(ToolPhase::Plan),
 
         // Build — mutation surface.
-        "rename_symbol"
-        | "replace_symbol_body"
-        | "delete_lines"
-        | "insert_at_line"
-        | "insert_before_symbol"
-        | "insert_after_symbol"
-        | "insert_content"
-        | "replace_content"
-        | "replace_lines"
-        | "replace"
-        | "create_text_file"
-        | "add_import"
-        | "refactor_extract_function"
-        | "refactor_inline_function"
-        | "refactor_move_to_file"
-        | "refactor_change_signature"
-        | "cleanup_duplicate_logic"
-        | "propagate_deletions" => Some(ToolPhase::Build),
+        "cleanup_duplicate_logic" => Some(ToolPhase::Build),
 
         // Review — post-edit safety, verifier, diff-aware inspection, audits.
         "review_changes"
@@ -98,18 +98,13 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         | "diagnose_issues"
         | "audit_security_context"
         | "get_file_diagnostics"
-        | "check_lsp_status"
         | "get_lsp_recipe"
         | "audit_builder_session"
-        | "audit_planner_session"
-        | "semantic_code_review" => Some(ToolPhase::Review),
+        | "audit_planner_session" => Some(ToolPhase::Review),
 
         // Eval — telemetry, audit export, analysis artifact retrieval.
         "get_tool_metrics"
         | "export_session_markdown"
-        | "list_orchestration_runs"
-        | "get_orchestration_run"
-        | "cancel_orchestration_run"
         | "start_analysis_job"
         | "get_analysis_job"
         | "cancel_analysis_job"
@@ -134,10 +129,11 @@ pub(crate) fn tool_phase_label(name: &str) -> Option<&'static str> {
 /// `Some("claude")` — orchestration, synthesis, design compression.
 ///   Reasoning budget is the bottleneck.
 /// `None` — either executor is fine (retrieval primitives, reads,
-///   audits, session coordination, eval).
+///   audits, session coordination, eval, diagnostics).
 pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
     match name {
         // Bulk implementation / mutation — Codex-class executor preferred.
+        // (includes deprecated mutation tools still in dispatch for backward compat)
         "rename_symbol"
         | "replace_symbol_body"
         | "delete_lines"
@@ -154,20 +150,13 @@ pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
         | "refactor_inline_function"
         | "refactor_move_to_file"
         | "refactor_change_signature"
+        | "cleanup_duplicate_logic"
         | "propagate_deletions" => Some("codex-builder"),
 
         // Orchestration / synthesis — Claude-class executor preferred.
-        "orchestrate_change"
-        | "list_orchestration_runs"
-        | "get_orchestration_run"
-        | "cancel_orchestration_run"
-        | "analyze_change_request"
-        | "plan_safe_refactor"
-        | "review_architecture"
-        | "trace_request_path"
-        | "review_changes"
-        | "cleanup_duplicate_logic"
-        | "semantic_code_review" => Some("claude"),
+        "plan_safe_refactor" | "review_architecture" | "trace_request_path" | "review_changes" => {
+            Some("claude")
+        }
 
         // Everything else — retrieval primitives, file ops, audits,
         // session coordination, eval, diagnostics — both executors
@@ -188,12 +177,7 @@ pub(crate) fn tool_preferred_executor_label(name: &str) -> &'static str {
 pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
     match name {
         "prepare_harness_session" => Some("bootstrap CodeLens harness session"),
-        "orchestrate_change" => Some("dry-run code change orchestration"),
-        "list_orchestration_runs" => Some("list durable orchestration runs"),
-        "get_orchestration_run" => Some("resume or inspect orchestration run"),
-        "cancel_orchestration_run" => Some("cancel an orchestration run"),
         "explore_codebase" => Some("explore codebase with compressed context"),
-        "analyze_change_request" => Some("plan a code change safely"),
         "trace_request_path" => Some("trace a request path"),
         "review_changes" => Some("review changed files and risk"),
         "review_architecture" => Some("review architecture, boundaries, coupling"),
@@ -239,8 +223,6 @@ pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
         name,
         "prepare_harness_session"
             | "explore_codebase"
-            | "orchestrate_change"
-            | "analyze_change_request"
             | "review_changes"
             | "plan_safe_refactor"
             | "review_architecture"
@@ -251,8 +233,7 @@ pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
 
 pub(crate) fn tool_namespace(name: &str) -> &'static str {
     match name {
-        "read_file" | "list_dir" | "find_file" | "search_for_pattern" | "find_annotations"
-        | "find_tests" => "filesystem",
+        "read_file" | "list_dir" | "find_file" | "find_annotations" | "find_tests" => "filesystem",
         "get_symbols_overview"
         | "find_symbol"
         | "get_ranked_context"
@@ -272,37 +253,18 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "get_symbol_importance"
         | "find_dead_code"
         | "find_circular_dependencies"
-        | "get_change_coupling"
         | "find_similar_code"
         | "find_code_duplicates"
         | "classify_symbol"
         | "find_misplaced_code"
         | "get_complexity" => "graph",
-        "rename_symbol"
-        | "replace_symbol_body"
-        | "delete_lines"
-        | "insert_at_line"
-        | "insert_before_symbol"
-        | "insert_after_symbol"
-        | "insert_content"
-        | "replace_content"
-        | "replace_lines"
-        | "replace"
-        | "create_text_file"
-        | "add_import"
-        | "refactor_extract_function"
-        | "refactor_inline_function"
-        | "refactor_move_to_file"
-        | "refactor_change_signature" => "mutation",
-        "orchestrate_change"
-        | "analyze_change_request"
+        "cleanup_duplicate_logic"
         | "explore_codebase"
         | "trace_request_path"
         | "review_architecture"
         | "plan_safe_refactor"
         | "audit_security_context"
         | "analyze_change_impact"
-        | "cleanup_duplicate_logic"
         | "review_changes"
         | "assess_change_readiness"
         | "diagnose_issues"
@@ -318,13 +280,11 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "start_analysis_job"
         | "get_analysis_job"
         | "cancel_analysis_job"
-        | "get_analysis_section"
-        | "onboard_project"
-        | "find_relevant_rules" => "reports",
+        | "get_analysis_section" => "reports",
         "list_memories" | "read_memory" | "write_memory" | "delete_memory" | "rename_memory" => {
             "memory"
         }
-        "get_file_diagnostics" | "check_lsp_status" | "get_lsp_recipe" => "lsp",
+        "get_file_diagnostics" | "get_lsp_recipe" => "lsp",
         _ => "session",
     }
 }

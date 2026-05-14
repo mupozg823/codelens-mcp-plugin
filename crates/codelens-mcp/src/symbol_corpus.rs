@@ -1,6 +1,6 @@
 //! Symbol-document corpus for BM25-F sparse retrieval (R.1).
 //!
-//! A deliberate parallel to `rule_corpus`: rather than indexing entire
+//! A deliberate parallel to the removed `rule_corpus`: rather than indexing entire
 //! source files, the unit of retrieval here is a *symbol* (function,
 //! struct, trait, etc.) with its most information-dense slots pulled
 //! apart into fields BM25-F can weight differently.

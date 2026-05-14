@@ -310,6 +310,13 @@ fn has_recent_low_level_chain(recent_tools: &[String]) -> bool {
 }
 
 fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static str] {
+    // Normalize deprecated profiles to their canonical core equivalent.
+    let surface = match surface {
+        ToolSurface::Profile(p) if p.is_deprecated() => ToolSurface::Profile(p.canonical()),
+        other => other,
+    };
+    // Deprecated profiles resolve to their canonical core equivalent,
+    // so all routing is unified through the core trio.
     match surface {
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => &[
             "explore_codebase",
@@ -317,29 +324,10 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
             "review_changes",
             "plan_safe_refactor",
         ],
-        ToolSurface::Profile(ToolProfile::ReviewerGraph)
-        | ToolSurface::Profile(ToolProfile::CiAudit) => &[
+        ToolSurface::Profile(ToolProfile::ReviewerGraph) => &[
             "review_architecture",
             "review_changes",
             "cleanup_duplicate_logic",
-            "diagnose_issues",
-        ],
-        ToolSurface::Profile(ToolProfile::RefactorFull) => &[
-            "plan_safe_refactor",
-            "review_changes",
-            "trace_request_path",
-            "review_architecture",
-        ],
-        ToolSurface::Profile(ToolProfile::EvaluatorCompact) => &[
-            "verify_change_readiness",
-            "get_file_diagnostics",
-            "find_tests",
-        ],
-        ToolSurface::Profile(ToolProfile::WorkflowFirst) => &[
-            "explore_codebase",
-            "review_architecture",
-            "plan_safe_refactor",
-            "review_changes",
             "diagnose_issues",
         ],
         ToolSurface::Profile(ToolProfile::BuilderMinimal) | ToolSurface::Preset(_) => &[
@@ -347,6 +335,14 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
             "trace_request_path",
             "plan_safe_refactor",
             "review_changes",
+        ],
+        // Fallback for any remaining surface variants (should be unreachable
+        // after canonical normalization above).
+        _ => &[
+            "explore_codebase",
+            "review_architecture",
+            "review_changes",
+            "plan_safe_refactor",
         ],
     }
 }
@@ -399,8 +395,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "search_workspace_symbols" => &["find_symbol", "get_symbols_overview"],
         "get_type_hierarchy" => &["find_referencing_symbols", "get_symbols_overview"],
         "plan_symbol_rename" => &["rename_symbol"],
-        "check_lsp_status" => &["get_capabilities", "get_file_diagnostics"],
-        "get_lsp_recipe" => &["check_lsp_status"],
+        "get_lsp_recipe" => &["get_capabilities", "get_file_diagnostics"],
 
         // ── Graph / analysis ─────────────────────────────────────────
         "get_changed_files" => &["get_impact_analysis", "get_symbols_overview"],
@@ -409,7 +404,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "get_symbol_importance" => &["get_importers", "get_impact_analysis"],
         "find_dead_code" => &["get_symbols_overview", "delete_lines"],
         "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
-        "get_change_coupling" => &["get_impact_analysis", "find_dead_code"],
         "get_callers" => &["get_callees", "find_symbol"],
         "get_callees" => &["get_callers", "find_symbol"],
         "find_scoped_references" => &["rename_symbol", "find_referencing_symbols"],
@@ -488,11 +482,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "add_queryable_project" => &["query_project", "list_queryable_projects"],
         "query_project" => &["find_symbol", "list_queryable_projects"],
         "set_preset" => &["get_capabilities"],
-        "get_capabilities" => &[
-            "get_project_structure",
-            "get_ranked_context",
-            "check_lsp_status",
-        ],
+        "get_capabilities" => &["get_project_structure", "get_ranked_context"],
         "get_tool_metrics" => &[
             "audit_builder_session",
             "export_session_markdown",
@@ -517,7 +507,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "find_misplaced_code" => &["get_symbols_overview", "find_similar_code"],
 
         // ── Composite ────────────────────────────────────────────────
-        "summarize_file" => &["get_symbols_overview", "find_symbol"],
         "refactor_extract_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],

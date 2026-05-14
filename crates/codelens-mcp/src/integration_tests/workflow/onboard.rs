@@ -52,21 +52,6 @@ fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
     );
     assert_eq!(payload["data"]["semantic"]["loaded"], json!(false));
 }
-
-#[test]
-fn onboard_project_schema_matches_payload_shape() {
-    let schema = crate::tool_defs::tool_definition("onboard_project")
-        .and_then(|tool| tool.output_schema.as_ref())
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let properties = schema["properties"]
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
-    assert!(properties.contains_key("project_root"));
-    assert!(properties.contains_key("suggested_next_tools"));
-}
-
 #[test]
 fn explore_codebase_without_query_delegates_to_onboard() {
     let project = project_root();

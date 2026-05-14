@@ -4,9 +4,8 @@ use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::edit_transaction::{ApplyEvidence, ApplyStatus};
 use codelens_engine::{
-    add_import, analyze_missing_imports, create_text_file, delete_lines, insert_after_symbol,
-    insert_at_line, insert_before_symbol, rename, replace_content, replace_lines,
-    replace_symbol_body,
+    add_import, create_text_file, delete_lines, insert_after_symbol, insert_at_line,
+    insert_before_symbol, rename, replace_content, replace_lines, replace_symbol_body,
 };
 use serde_json::{Value, json};
 
@@ -496,12 +495,6 @@ pub fn replace_content_unified(state: &AppState, arguments: &serde_json::Value) 
         "lines" => replace_lines_tool(state, arguments),
         _ => replace_content_tool(state, arguments), // "text" or default
     }
-}
-
-pub fn analyze_missing_imports_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let file_path = required_string(arguments, "file_path")?;
-    Ok(analyze_missing_imports(&state.project(), file_path)
-        .map(|value| (json!(value), success_meta(BackendKind::TreeSitter, 0.85)))?)
 }
 
 pub fn add_import_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {

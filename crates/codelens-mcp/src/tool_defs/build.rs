@@ -25,12 +25,10 @@ fn tool_title_override(name: &str) -> Option<&'static str> {
         "get_symbols_overview" => Some("Symbols Overview"),
         "get_ranked_context" => Some("Ranked Context"),
         "get_complexity" => Some("Complexity"),
-        "check_lsp_status" => Some("LSP Status"),
         "get_lsp_recipe" => Some("LSP Recipe"),
         "get_changed_files" => Some("Changed Files"),
         "get_impact_analysis" => Some("Impact Analysis"),
         "get_symbol_importance" => Some("Symbol Importance"),
-        "get_change_coupling" => Some("Change Coupling"),
         "get_file_diagnostics" => Some("File Diagnostics"),
         "get_analysis_job" => Some("Analysis Job"),
         "list_analysis_jobs" => Some("Analysis Jobs"),
@@ -96,12 +94,7 @@ fn build_tools() -> Vec<Tool> {
         .clone()
         .with_approval_required(true)
         .with_audit_category("mutation");
-    let approved_destructive = destructive
-        .clone()
-        .with_approval_required(true)
-        .with_audit_category("destructive");
     let mut_p = approved_mutating.clone().with_tier(ToolTier::Primitive);
-    let dest_a = approved_destructive.clone().with_tier(ToolTier::Analysis);
     let mut_w = approved_mutating.clone().with_tier(ToolTier::Workflow);
     // `mutating` flavour for the multi-agent advisory surface — keeps
     // the legacy `audit_category="coordination"` tag without forcing
@@ -115,19 +108,11 @@ fn build_tools() -> Vec<Tool> {
     tools.extend(super::generated::symbol_tools(&mut_w, &ro_a, &ro_p));
     tools.extend(super::generated::lsp_tools(&ro_a, &ro_p));
     tools.extend(super::generated::analysis_tools(&ro_a, &ro_p));
-    tools.extend(super::generated::editing_tools(
-        &dest_a,
-        &destructive,
-        &mut_p,
-        &mut_w,
-        &mutating,
-    ));
     tools.extend(super::generated::composite_tools(&mut_w, &ro_p, &ro_w));
     tools.extend(super::generated::workflow_first_tools(&ro_w));
     tools.extend(super::generated::session_tools(
-        &mut_coord, &mut_p, &mutating, &ro_a, &ro_p, &ro_w,
+        &mut_coord, &mut_p, &mutating, &ro_a, &ro_p,
     ));
-    tools.extend(super::generated::rule_corpus_tools(&ro_a));
     tools.extend(super::generated::memory_tools(
         &destructive,
         &mut_p,

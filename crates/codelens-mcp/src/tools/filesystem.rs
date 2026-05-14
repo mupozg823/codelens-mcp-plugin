@@ -3,11 +3,10 @@ use super::{
     success_meta,
 };
 use crate::client_profile::ClientProfile;
-use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::{
     detect_frameworks, detect_workspace_packages, find_files, list_dir, read_file,
-    search_for_pattern, search_for_pattern_smart,
+    search_for_pattern,
 };
 use serde_json::{Value, json};
 
@@ -166,52 +165,6 @@ pub fn find_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRe
             success_meta(BackendKind::Filesystem, 1.0),
         )
     })?)
-}
-
-pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let pattern = arguments
-        .get("pattern")
-        .or_else(|| arguments.get("substring_pattern"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| CodeLensError::MissingParam("pattern".into()))?;
-    let file_glob = optional_string(arguments, "file_glob");
-    let max_results = optional_usize(arguments, "max_results", 50);
-    let smart = optional_bool(arguments, "smart", false);
-    let ctx_fallback = optional_usize(arguments, "context_lines", 0);
-    let ctx_before = optional_usize(arguments, "context_lines_before", ctx_fallback);
-    let ctx_after = optional_usize(arguments, "context_lines_after", ctx_fallback);
-
-    if smart {
-        Ok(search_for_pattern_smart(
-            &state.project(),
-            pattern,
-            file_glob,
-            max_results,
-            ctx_before,
-            ctx_after,
-        )
-        .map(|value| {
-            (
-                json!({ "matches": value, "count": value.len() }),
-                success_meta(BackendKind::TreeSitter, 0.96),
-            )
-        })?)
-    } else {
-        Ok(search_for_pattern(
-            &state.project(),
-            pattern,
-            file_glob,
-            max_results,
-            ctx_before,
-            ctx_after,
-        )
-        .map(|value| {
-            (
-                json!({ "matches": value, "count": value.len() }),
-                success_meta(BackendKind::Filesystem, 0.98),
-            )
-        })?)
-    }
 }
 
 pub fn find_annotations(state: &AppState, arguments: &serde_json::Value) -> ToolResult {

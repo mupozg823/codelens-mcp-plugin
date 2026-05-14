@@ -14,10 +14,7 @@ pub use metrics_config::{
     prune_index_failures,
 };
 pub use planner_audit::audit_planner_session;
-pub use project_ops::{
-    activate_project, auto_set_embed_hint_lang, prepare_for_new_conversation,
-    prepare_harness_session, summarize_changes,
-};
+pub use project_ops::{activate_project, auto_set_embed_hint_lang, prepare_harness_session};
 pub use registry_ops::{
     add_queryable_project, list_queryable_projects, query_project, remove_queryable_project,
 };

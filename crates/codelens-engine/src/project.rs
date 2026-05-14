@@ -134,6 +134,11 @@ pub const EXCLUDED_DIRS: &[&str] = &[
     "Library",
     // CodeLens runtime
     ".codelens",
+    // Git worktrees (dev artifacts at top-level, e.g. `git worktree add
+    // .worktrees/feature-x`). Indexing them duplicates symbols against
+    // the main tree and pollutes `find_referencing_symbols` /
+    // `semantic_search` results with stale branch versions.
+    ".worktrees",
 ];
 
 /// Returns `true` if any component of `path` matches an excluded directory.
@@ -689,6 +694,15 @@ mod tests {
             ".claude/worktrees/agent-xyz/main.rs"
         )));
         assert!(is_excluded(Path::new("project/.claire/anything.rs")));
+        // Top-level `.worktrees/` (git worktree add target) — discovered
+        // during dogfooding where `find_referencing_symbols` returned only
+        // worktree paths and missed the main tree entirely.
+        assert!(is_excluded(Path::new(
+            ".worktrees/feature-x/crates/codelens-engine/src/lib.rs"
+        )));
+        assert!(is_excluded(Path::new(
+            "project/.worktrees/branch-y/src/main.rs"
+        )));
         // And the usual suspects stay excluded.
         assert!(is_excluded(Path::new("node_modules/foo/index.js")));
         assert!(is_excluded(Path::new("target/debug/build.rs")));

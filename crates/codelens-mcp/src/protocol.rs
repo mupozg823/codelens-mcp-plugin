@@ -164,15 +164,6 @@ pub struct SuggestedNextCall {
     pub reason: String,
 }
 
-#[allow(dead_code)] // used by SSE transport for server→client push
-#[derive(Debug, Serialize)]
-pub struct JsonRpcNotification {
-    pub jsonrpc: &'static str,
-    pub method: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<serde_json::Value>,
-}
-
 #[derive(Debug, Serialize)]
 pub struct ToolCallResponse {
     pub success: bool,

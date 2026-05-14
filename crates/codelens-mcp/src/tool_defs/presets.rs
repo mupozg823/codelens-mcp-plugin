@@ -104,6 +104,26 @@ impl ToolProfile {
             None
         }
     }
+
+    /// Resolve deprecated profiles to their canonical core equivalent.
+    /// Active profiles return themselves; deprecated ones redirect:
+    ///   EvaluatorCompact → PlannerReadonly
+    ///   RefactorFull     → BuilderMinimal
+    ///   CiAudit          → ReviewerGraph
+    ///   WorkflowFirst    → PlannerReadonly
+    ///
+    /// All profile-sensitive logic (tool filtering, budgets, suggestions,
+    /// overlays) should use this so deprecated names remain parseable
+    /// but behave identically to the core trio.
+    pub fn canonical(self) -> Self {
+        match self {
+            Self::EvaluatorCompact => Self::PlannerReadonly,
+            Self::RefactorFull => Self::BuilderMinimal,
+            Self::CiAudit => Self::ReviewerGraph,
+            Self::WorkflowFirst => Self::PlannerReadonly,
+            other => other,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,7 +179,6 @@ pub(crate) const MINIMAL_TOOLS: &[&str] = &[
 pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     // ── Niche analysis (use Full preset for these) ──
     "find_circular_dependencies",
-    "get_change_coupling",
     "get_symbol_importance",
     "find_dead_code",
     "refactor_extract_function",
@@ -168,7 +187,6 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "refactor_change_signature",
     "get_complexity",
     "search_symbols_fuzzy",
-    "check_lsp_status",
     "get_lsp_recipe",
     // ── Overlap with Claude Code built-in tools ──
     "read_file",
@@ -176,15 +194,12 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "find_file",
     "search_for_pattern",
     // ── Diagnostics / session (not needed for normal work) ──
-    "prepare_for_new_conversation",
     "get_watch_status",
     "prune_index_failures",
     "get_tool_metrics",
     "audit_builder_session",
     "audit_planner_session",
     "export_session_markdown",
-    "summarize_changes",
-    "summarize_file",
     // ── Superseded by unified tools (insert_content, replace) ──
     "insert_at_line",
     "insert_before_symbol",
@@ -238,8 +253,6 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "onboard_project",
     // Workflow composites
     "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
     "analyze_change_request",
     "verify_change_readiness",
     "impact_report",
@@ -268,6 +281,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
     "plan_safe_refactor",
+    "cleanup_duplicate_logic",
     "find_symbol",
     "get_symbols_overview",
     "get_ranked_context",
@@ -286,17 +300,16 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "semantic_search",
     "index_embeddings",
     "plan_symbol_rename",
+    // Deprecated mutation tools (still in dispatch, will be removed in v2.0)
     "rename_symbol",
     "replace_symbol_body",
     "insert_content",
     "replace",
     "create_text_file",
-    "analyze_missing_imports",
     "add_import",
+    // Workflow orchestration (deprecated, kept for backward compat)
     "orchestrate_change",
-    "get_orchestration_run",
-    "list_orchestration_runs",
-    "cancel_orchestration_run",
+    "analyze_change_request",
     "verify_change_readiness",
 ];
 
@@ -339,13 +352,11 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "get_changed_files",
     // Workflow composites
     "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
+    "analyze_change_request",
     "impact_report",
     "refactor_safety_report",
     "verify_change_readiness",
     "diff_aware_references",
-    "semantic_code_review",
     "module_boundary_report",
     "mermaid_module_graph",
     // Async analysis
@@ -354,183 +365,25 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "get_analysis_section",
 ];
 
-pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
-    // Session
-    "activate_project",
-    "prepare_harness_session",
-    "register_agent_work",
-    "list_active_agents",
-    "claim_files",
-    "release_files",
-    "get_current_config",
-    "set_profile",
-    "set_preset",
-    "get_tool_metrics",
-    "audit_builder_session",
-    "audit_planner_session",
-    "export_session_markdown",
-    // Workflow-first entrypoints
-    "explore_codebase",
-    "trace_request_path",
-    "review_architecture",
-    "plan_safe_refactor",
-    "review_changes",
-    "diagnose_issues",
-    // Symbol exploration
-    "find_symbol",
-    "get_symbols_overview",
-    "get_ranked_context",
-    "find_referencing_symbols",
-    "find_scoped_references",
-    // Diagnostics
-    "get_file_diagnostics",
-    // Graph / impact
-    "get_callers",
-    "get_callees",
-    "get_impact_analysis",
-    "get_changed_files",
-    // Mutation (core)
-    "plan_symbol_rename",
-    "rename_symbol",
-    "replace_symbol_body",
-    "insert_content",
-    "replace",
-    "create_text_file",
-    "analyze_missing_imports",
-    "add_import",
-    // Refactoring
-    "refactor_extract_function",
-    "refactor_inline_function",
-    "refactor_move_to_file",
-    "refactor_change_signature",
-    // Workflow composites (preflight gate requires these)
-    "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
-    "cancel_orchestration_run",
-    "refactor_safety_report",
-    "safe_rename_report",
-    "unresolved_reference_check",
-    "verify_change_readiness",
-    "impact_report",
-    "diff_aware_references",
-    // Content mutation (used by preflight tests)
-    "replace_content",
-    // Async analysis
-    "start_analysis_job",
-    "get_analysis_job",
-    "get_analysis_section",
-];
-
-pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
-    "activate_project",
-    "prepare_harness_session",
-    "register_agent_work",
-    "list_active_agents",
-    "claim_files",
-    "release_files",
-    "get_current_config",
-    "get_capabilities",
-    "set_profile",
-    "set_preset",
-    "get_tool_metrics",
-    "audit_builder_session",
-    "audit_planner_session",
-    "export_session_markdown",
-    "explore_codebase",
-    "review_architecture",
-    "cleanup_duplicate_logic",
-    "review_changes",
-    "diagnose_issues",
-    "read_file",
-    "search_for_pattern",
-    "find_tests",
-    "get_symbols_overview",
-    "find_symbol",
-    "get_ranked_context",
-    "get_changed_files",
-    "get_impact_analysis",
-    "get_callers",
-    "get_callees",
-    "find_scoped_references",
-    "find_dead_code",
-    "find_circular_dependencies",
-    "get_change_coupling",
-    "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
-    "cancel_orchestration_run",
-    "analyze_change_request",
-    "verify_change_readiness",
-    "unresolved_reference_check",
-    "module_boundary_report",
-    "dead_code_report",
-    "impact_report",
-    "refactor_safety_report",
-    "diff_aware_references",
-    "start_analysis_job",
-    "get_analysis_job",
-    "get_analysis_section",
-];
-
-/// Problem-first workflow surface: canonical workflow entrypoints + session essentials.
-/// Agents see these by default; low-level tools are deferred.
-pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
-    // Session
-    "activate_project",
-    "register_agent_work",
-    "list_active_agents",
-    "claim_files",
-    "release_files",
-    "get_current_config",
-    "set_preset",
-    "set_profile",
-    "audit_planner_session",
-    "export_session_markdown",
-    // Canonical workflow entrypoints
-    "explore_codebase",
-    "trace_request_path",
-    "review_architecture",
-    "plan_safe_refactor",
-    "cleanup_duplicate_logic",
-    "review_changes",
-    "diagnose_issues",
-    // Essential workflow-level tools
-    "orchestrate_change",
-    "list_orchestration_runs",
-    "get_orchestration_run",
-    "analyze_change_request",
-    "onboard_project",
-];
-
-pub(crate) const EVALUATOR_COMPACT_TOOLS: &[&str] = &[
-    "activate_project",
-    "prepare_harness_session",
-    "get_current_config",
-    "get_capabilities",
-    "set_profile",
-    "set_preset",
-    "get_changed_files",
-    "verify_change_readiness",
-    "get_file_diagnostics",
-    "find_tests",
-    "read_file",
-    "get_symbols_overview",
-    "find_symbol",
-    "get_analysis_section",
-];
+// ── Deprecated profile tool lists removed (v1.13.27 diet).
+// EvaluatorCompact, RefactorFull, CiAudit, WorkflowFirst now resolve to
+// their canonical core equivalents via `ToolProfile::canonical()`:
+//   EvaluatorCompact → PlannerReadonly
+//   RefactorFull     → BuilderMinimal
+//   CiAudit          → ReviewerGraph
+//   WorkflowFirst    → PlannerReadonly
 
 // ── Filtering ──────────────────────────────────────────────────────────
 
+/// Check if a tool belongs to a profile. Deprecated profiles resolve to
+/// their canonical core equivalent, so the alias behaves identically.
 pub(crate) fn is_tool_in_profile(name: &str, profile: ToolProfile) -> bool {
-    match profile {
+    match profile.canonical() {
         ToolProfile::PlannerReadonly => PLANNER_READONLY_TOOLS.contains(&name),
         ToolProfile::BuilderMinimal => BUILDER_MINIMAL_TOOLS.contains(&name),
         ToolProfile::ReviewerGraph => REVIEWER_GRAPH_TOOLS.contains(&name),
-        ToolProfile::EvaluatorCompact => EVALUATOR_COMPACT_TOOLS.contains(&name),
-        ToolProfile::RefactorFull => REFACTOR_FULL_TOOLS.contains(&name),
-        ToolProfile::CiAudit => CI_AUDIT_TOOLS.contains(&name),
-        ToolProfile::WorkflowFirst => WORKFLOW_FIRST_TOOLS.contains(&name),
+        // Unreachable: all deprecated variants canonicalize above.
+        dep => unreachable!("canonical() should not return {dep:?}"),
     }
 }
 

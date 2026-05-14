@@ -2,6 +2,22 @@ use super::*;
 
 #[test]
 fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
+    // Root cause of the prior chronic flake (PRs #174/#177/#184/#185/#187
+    // and PR #292 in the 2026-05-14 batch): the test mutates a process-wide
+    // env var (`CODELENS_EXECUTABLE_PATH_OVERRIDE`) without holding the
+    // `env_compat::TEST_ENV_LOCK` that the rest of the env-touching tests
+    // already coordinate on (`cli::startup_tests`, `main`,
+    // `workflow::session`, …). Under nextest parallel load any other test
+    // that read/wrote the same key between this test's `set_var` and the
+    // inner `call_tool` could swap the path out from under
+    // `current_executable_path()`, causing `prepare_harness_session` to
+    // fail early with `success=false`. Holding the global lock for the
+    // env+tool-call window makes the test independent of runner load —
+    // no more sleep-duration band-aids needed.
+    let _env_guard = crate::env_compat::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     let project = project_root();
     fs::write(
         project.as_path().join("stale_daemon.py"),
@@ -10,14 +26,12 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     .unwrap();
     let state = make_state(&project);
 
-    // `daemon_started_at` is second-granularity RFC3339. The original 1.1s
-    // wait was tight enough that CI runners (especially macos-latest)
-    // intermittently rounded both timestamps into the same second under load
-    // and the staleness comparison flipped — chronic flake on PRs #174,
-    // #177, #184, #185, #187 in the 2026-05-03 dogfood batch. Bumping the
-    // wait to 2.5s keeps the test deterministic without meaningfully slowing
-    // the local test run.
-    std::thread::sleep(std::time::Duration::from_millis(2_500));
+    // `daemon_started_at` is second-granularity RFC3339. Sleep > 1s so
+    // the override file's mtime lands in a later second than
+    // `daemon_started_at` even when the test happened to start just
+    // before a second rollover. 1.5s is plenty now that the env-var
+    // race is gone — no more parallel-load contention to amplify.
+    std::thread::sleep(std::time::Duration::from_millis(1_500));
 
     let override_path = std::env::temp_dir().join(format!(
         "codelens-stale-daemon-{}-{}",
@@ -30,8 +44,8 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     fs::write(&override_path, "newer-binary-marker").unwrap();
 
     let previous = std::env::var_os("CODELENS_EXECUTABLE_PATH_OVERRIDE");
-    // SAFETY: this test mutates a process env var for the duration of a
-    // synchronous tool call, then restores the previous value.
+    // SAFETY: this test mutates a process env var while holding
+    // `TEST_ENV_LOCK`; no other env-touching test can run concurrently.
     unsafe {
         std::env::set_var("CODELENS_EXECUTABLE_PATH_OVERRIDE", &override_path);
     }
@@ -449,7 +463,7 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
         &state,
         "prepare_harness_session",
         json!({
-            "profile": "refactor-full",
+            "profile": "builder-minimal",
             "host_context": "claude-code",
             "task_overlay": "review"
         }),
@@ -467,7 +481,7 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
     );
     assert_eq!(
         payload["data"]["routing"]["recommended_entrypoint"],
-        json!("review_changes")
+        json!("audit_planner_session")
     );
     assert!(
         payload["data"]["overlay"]["avoid_tools"]
@@ -506,7 +520,7 @@ fn prepare_harness_session_compact_exposes_visible_tools_omitted_count() {
     let payload = call_tool(
         &state,
         "prepare_harness_session",
-        json!({"profile": "refactor-full", "detail": "compact"}),
+        json!({"profile": "builder-minimal", "detail": "compact"}),
     );
     assert_eq!(payload["success"], json!(true));
 
@@ -535,7 +549,7 @@ fn prepare_harness_session_compact_exposes_visible_tools_omitted_count() {
     // back to a no-op constant.
     assert!(
         omitted > 0,
-        "refactor-full compact response should report a positive omitted count, got {omitted}"
+        "builder-minimal compact response should report a positive omitted count, got {omitted}"
     );
 }
 

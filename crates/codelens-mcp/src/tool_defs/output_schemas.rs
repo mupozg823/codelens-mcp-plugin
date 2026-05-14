@@ -453,102 +453,6 @@ pub(super) fn diagnostics_output_schema() -> serde_json::Value {
     })
 }
 
-pub(super) fn rename_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "success": {"type": "boolean"},
-            "authority": {"type": "string"},
-            "authority_backend": {"type": "string"},
-            "can_preview": {"type": "boolean"},
-            "can_apply": {"type": "boolean"},
-            "support": {"type": "string"},
-            "blocker_reason": {"type": ["string", "null"]},
-            "edit_authority": {"type": "object"},
-            "transaction": {"type": "object"},
-            "verification": {"type": "object"},
-            "modified_files": {"type": "integer"},
-            "total_replacements": {"type": "integer"},
-            "edits": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {"type": "string"},
-                        "line": {"type": "integer"},
-                        "old_text": {"type": "string"},
-                        "new_text": {"type": "string"}
-                    }
-                }
-            }
-        }
-    })
-}
-
-pub(super) fn semantic_refactor_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "success": {"type": "boolean"},
-            "semantic_edit_backend": {"type": "string"},
-            "authority": {"type": "string"},
-            "authority_backend": {"type": "string"},
-            "can_preview": {"type": "boolean"},
-            "can_apply": {"type": "boolean"},
-            "support": {"type": "string"},
-            "blocker_reason": {"type": ["string", "null"]},
-            "operation": {"type": "string"},
-            "edit_authority": {"type": "object"},
-            "transaction": {"type": "object"},
-            "workspace_edit": {"type": "object"},
-            "verification": {"type": "object"},
-            "applied": {"type": "boolean"},
-            "message": {"type": "string"}
-        }
-    })
-}
-
-pub(super) fn safe_delete_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "success": {"type": "boolean"},
-            "semantic_edit_backend": {"type": "string"},
-            "authority": {"type": "string"},
-            "authority_backend": {"type": "string"},
-            "can_preview": {"type": "boolean"},
-            "can_apply": {"type": "boolean"},
-            "support": {"type": "string"},
-            "blocker_reason": {"type": ["string", "null"]},
-            "edit_authority": {"type": "object"},
-            "transaction": {"type": "object"},
-            "verification": {"type": "object"},
-            "symbol_name": {"type": "string"},
-            "file_path": {"type": "string"},
-            "position": {"type": "object"},
-            "safe_to_delete": {"type": "boolean"},
-            "total_references": {"type": "integer"},
-            "declaration_references": {"type": "integer"},
-            "affected_references": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "file": {"type": "string"},
-                        "line": {"type": "integer"},
-                        "column": {"type": "integer"},
-                        "end_line": {"type": "integer"},
-                        "end_column": {"type": "integer"},
-                        "kind": {"type": "string"}
-                    }
-                }
-            },
-            "dry_run": {"type": "boolean"},
-            "safe_delete_action": {"type": "string"}
-        }
-    })
-}
-
 pub(super) fn file_content_output_schema() -> serde_json::Value {
     json!({"type":"object","properties":{"content":{"type":"string"}}})
 }
@@ -562,21 +466,6 @@ pub(super) fn changed_files_output_schema() -> serde_json::Value {
                 "symbol_count": {"type": "integer"}
             }}},
             "count": {"type": "integer"}
-        }
-    })
-}
-
-pub(super) fn onboard_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "project_root": {"type": "string"},
-            "directory_structure": {"type": "array"},
-            "key_files": {"type": "array"},
-            "circular_dependencies": {"type": "array"},
-            "health": {"type": "object"},
-            "semantic": {"type": "object"},
-            "suggested_next_tools": {"type": "array", "items": {"type": "string"}}
         }
     })
 }
@@ -892,91 +781,6 @@ pub(super) fn analysis_artifact_list_output_schema() -> serde_json::Value {
                 "type": "object",
                 "additionalProperties": {"type": "integer"}
             }
-        }
-    })
-}
-
-pub(super) fn orchestration_run_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "analysis_id": {"type": "string"},
-            "run_id": {"type": "string"},
-            "state": {"type": "string"},
-            "terminal": {"type": "boolean"},
-            "run": {},
-            "events": {"type": "array"},
-            "event_count": {"type": "integer"},
-            "event_replay": {"type": "object"},
-            "resume": {"type": "object"},
-            "cancelled": {"type": "boolean"},
-            "revoked_approvals": {"type": "integer"},
-            "summary_resource": {
-                "type": "object",
-                "properties": {
-                    "uri": {"type": "string"}
-                }
-            },
-            "section_handles": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "section": {"type": "string"},
-                        "uri": {"type": "string"}
-                    }
-                }
-            },
-            "sections": {"type": "object"}
-        }
-    })
-}
-
-pub(super) fn orchestration_run_list_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "runs": {
-                "type": "array",
-                "items": orchestration_run_output_schema()
-            },
-            "count": {"type": "integer"},
-            "limit": {"type": "integer"},
-            "status_counts": {
-                "type": "object",
-                "additionalProperties": {"type": "integer"}
-            },
-            "scope": {"type": "string"}
-        }
-    })
-}
-
-pub(super) fn replace_content_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "content": {"type": "string", "description": "Full updated file content after replacement"},
-            "replacements": {"type": "integer", "description": "Number of replacements performed (text mode only)"}
-        }
-    })
-}
-
-pub(super) fn create_text_file_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "created": {"type": "string", "description": "Relative path of the newly created file"}
-        }
-    })
-}
-
-pub(super) fn add_import_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "success": {"type": "boolean"},
-            "file_path": {"type": "string"},
-            "content_length": {"type": "integer", "description": "Byte length of the updated file content"}
         }
     })
 }
@@ -1478,30 +1282,6 @@ pub(super) fn get_current_config_output_schema() -> serde_json::Value {
     })
 }
 
-pub(super) fn search_for_pattern_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "matches": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "file": {"type": "string"},
-                        "line": {"type": "integer"},
-                        "column": {"type": "integer"},
-                        "text": {"type": "string"},
-                        "context_before": {"type": "string"},
-                        "context_after": {"type": "string"}
-                    }
-                }
-            },
-            "count": {"type": "integer"},
-            "truncated": {"type": "boolean"}
-        }
-    })
-}
-
 pub(super) fn find_annotations_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -1540,27 +1320,6 @@ pub(super) fn find_tests_output_schema() -> serde_json::Value {
                 }
             },
             "count": {"type": "integer"}
-        }
-    })
-}
-
-pub(super) fn get_project_structure_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "directories": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string"},
-                        "files": {"type": "integer"},
-                        "languages": {"type": "array", "items": {"type": "string"}}
-                    }
-                }
-            },
-            "total_files": {"type": "integer"},
-            "total_directories": {"type": "integer"}
         }
     })
 }

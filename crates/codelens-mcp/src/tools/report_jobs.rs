@@ -918,6 +918,7 @@ pub fn list_analysis_artifacts(state: &AppState, arguments: &Value) -> ToolResul
     ))
 }
 
+#[allow(dead_code)]
 pub fn retry_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
     let job_id = required_string(arguments, "job_id")?;
     let scope = state.project_scope_for_arguments(arguments);

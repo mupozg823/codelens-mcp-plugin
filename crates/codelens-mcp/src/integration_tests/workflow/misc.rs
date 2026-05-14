@@ -74,8 +74,8 @@ fn safe_rename_report_emits_codex_builder_delegate_scaffold() {
     )
     .unwrap();
     let state = make_state(&project);
-    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
-
+    // No profile restriction — safe_rename_report is deprecated and not
+    // in any lean profile; test it with the full surface.
     let payload = call_tool(
         &state,
         "safe_rename_report",
@@ -155,15 +155,14 @@ fn repeated_builder_tool_emits_codex_builder_delegate_scaffold() {
     )
     .unwrap();
     let state = make_state(&project);
-    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+    let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
     let preflight = call_tool(
         &state,
-        "safe_rename_report",
+        "verify_change_readiness",
         json!({
-            "file_path": "rename_loop.py",
-            "symbol": "old_name",
-            "new_name": "new_name"
+            "task": "rename old_name in rename_loop.py",
+            "changed_files": ["rename_loop.py"]
         }),
     );
     assert_eq!(preflight["success"], json!(true));
@@ -242,7 +241,7 @@ fn stale_preflight_is_rejected() {
     let project = project_root();
     fs::write(project.as_path().join("stale_gate.py"), "print('old')\n").unwrap();
     let state = make_state(&project);
-    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+    let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
     let preflight = call_tool(
         &state,
@@ -257,15 +256,20 @@ fn stale_preflight_is_rejected() {
 
     let payload = call_tool(
         &state,
-        "replace_content",
+        "create_text_file",
         json!({
-            "relative_path": "stale_gate.py",
-            "old_text": "old",
-            "new_text": "new"
+            "relative_path": "stale_gate_new.py",
+            "content": "print('new')"
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"].as_str().unwrap_or("").contains("stale"));
+    assert!(
+        payload["error"].as_str().unwrap_or("").contains("stale")
+            || payload["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("preflight")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(

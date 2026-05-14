@@ -12,56 +12,38 @@ const PROFILE_GUIDE_PROFILES: [ToolProfile; 7] = [
 ];
 
 pub(crate) fn profile_guide(profile: ToolProfile) -> Value {
-    match profile {
+    // Deprecated profiles delegate to their canonical core equivalent.
+    let display_profile = profile;
+    let guide_profile = profile.canonical();
+    match guide_profile {
         ToolProfile::PlannerReadonly => json!({
-            "profile": profile.as_str(),
+            "profile": display_profile.as_str(),
+            "canonical": guide_profile.as_str(),
+            "deprecated": display_profile.is_deprecated(),
             "intent": "Use bounded, read-only analysis to plan changes and rank context before implementation.",
             "preferred_tools": ["explore_codebase", "review_architecture", "review_changes", "plan_safe_refactor"],
             "preferred_namespaces": ["reports", "symbols", "graph", "filesystem", "session"],
             "avoid": ["rename_symbol", "replace_content", "raw graph expansion unless necessary"]
         }),
         ToolProfile::BuilderMinimal => json!({
-            "profile": profile.as_str(),
+            "profile": display_profile.as_str(),
+            "canonical": guide_profile.as_str(),
+            "deprecated": display_profile.is_deprecated(),
             "intent": "Keep the visible surface small while implementing changes with only the essential symbol and edit tools.",
             "preferred_tools": ["explore_codebase", "trace_request_path", "plan_safe_refactor", "review_changes"],
             "preferred_namespaces": ["reports", "symbols", "filesystem", "session"],
             "avoid": ["dead-code audits", "full-graph exploration", "broad multi-project search"]
         }),
         ToolProfile::ReviewerGraph => json!({
-            "profile": profile.as_str(),
+            "profile": display_profile.as_str(),
+            "canonical": guide_profile.as_str(),
+            "deprecated": display_profile.is_deprecated(),
             "intent": "Review risky changes with graph-aware, read-only evidence.",
             "preferred_tools": ["review_architecture", "review_changes", "cleanup_duplicate_logic", "diagnose_issues"],
             "preferred_namespaces": ["reports", "graph", "symbols", "session"],
             "avoid": ["mutation tools"]
         }),
-        ToolProfile::RefactorFull => json!({
-            "profile": profile.as_str(),
-            "intent": "Run high-safety refactors only after a fresh preflight has narrowed the target surface and cleared blockers.",
-            "preferred_tools": ["plan_safe_refactor", "review_changes", "trace_request_path", "review_architecture"],
-            "preferred_namespaces": ["reports", "session"],
-            "avoid": ["mutation before preflight", "broad edits without diagnostics or preview"]
-        }),
-        ToolProfile::CiAudit => json!({
-            "profile": profile.as_str(),
-            "intent": "Produce machine-friendly review output around diffs, impact, dead code, and structural risk.",
-            "preferred_tools": ["review_changes", "cleanup_duplicate_logic", "review_architecture", "diagnose_issues"],
-            "preferred_namespaces": ["reports", "graph", "session"],
-            "avoid": ["interactive mutation flows"]
-        }),
-        ToolProfile::EvaluatorCompact => json!({
-            "profile": profile.as_str(),
-            "intent": "Minimal read-only profile for scoring harnesses — diagnostics, test discovery, and symbol lookup only.",
-            "preferred_tools": ["verify_change_readiness", "get_file_diagnostics", "find_tests", "find_symbol"],
-            "preferred_namespaces": ["reports", "symbols", "lsp", "session"],
-            "avoid": ["mutation tools", "graph expansion", "broad analysis reports"]
-        }),
-        ToolProfile::WorkflowFirst => json!({
-            "profile": profile.as_str(),
-            "description": "Problem-first workflow surface. Agents see 12 high-level workflow tools; low-level tools are deferred.",
-            "surface_size": "workflow",
-            "mutation": false,
-            "preferred_tiers": preferred_tier_labels(ToolSurface::Profile(profile)),
-        }),
+        dep => unreachable!("canonical() should not return {dep:?}"),
     }
 }
 

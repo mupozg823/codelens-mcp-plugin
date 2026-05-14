@@ -33,7 +33,7 @@
 //!
 //! ### Coordinate bonus
 //!
-//! Same policy as `rule_retrieval`: a document that covers ≥ 80% of the
+//! Same policy as the removed `rule_retrieval`: a document that covers ≥ 80% of the
 //! unique query terms gets score × 1.1. Keeps multi-token queries
 //! rewarding breadth over depth on one term.
 

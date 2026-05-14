@@ -129,6 +129,12 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         }
     }
 
+    // Drop results whose source file no longer exists on disk — guards
+    // against stale embeddings after file deletions/renames. The index
+    // itself is not re-pruned here (cheaper than a full rebuild), but
+    // user-facing query results stay honest.
+    results.retain(|r| project.as_path().join(&r.file_path).exists());
+
     // Re-sort and truncate
     results = crate::tools::query_analysis::rerank_semantic_matches(query, results, max_results);
 
@@ -181,6 +187,17 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         && let Some(map) = payload.as_object_mut()
     {
         map.insert("unknown_args".to_owned(), json!(unknown_args));
+        // Companion human-readable hint — dogfood finding (2026-05-14):
+        // bare `unknown_args` array was easy to miss in agent transcripts.
+        // Mirrors the `deprecation_warnings` pattern from find_symbol.
+        map.insert(
+            "unknown_args_hint".to_owned(),
+            json!(format!(
+                "ignored unknown argument(s): {}. valid args: {}",
+                unknown_args.join(", "),
+                KNOWN_ARGS.join(", ")
+            )),
+        );
     }
     Ok((payload, tools::success_meta(BackendKind::Semantic, 0.85)))
 }

@@ -10,7 +10,6 @@ Cargo workspace, edition 2024, `version = "1.13.22"` shared via `[workspace.pack
 
 - **`crates/codelens-engine`** — pure library: tree-sitter extractors, SQLite FTS5 + sqlite-vec store, hybrid retrieval (BM25 + ONNX embeddings), call/import graph, refactor primitives (rename/move/inline/edit-transaction), LSP client, optional SCIP backend. No MCP-specific code.
 - **`crates/codelens-mcp`** — MCP server binary. Owns the dispatch table, tool surfaces (presets/profiles), workflow orchestration, response envelope (token compression, suggested_next_tools, doom-loop detection), HTTP/stdio transports, and integration tests. The bin target is `codelens-mcp`; **lib target does not exist** — `cargo test -p codelens-mcp --lib` fails.
-- **`crates/codelens-tui`** — local TUI inspector. Not on the runtime hot path.
 
 Three concepts that show up across files and require reading several to understand:
 

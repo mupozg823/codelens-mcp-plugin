@@ -504,6 +504,13 @@ mod tests {
         assert!(!enabled, "sparse weighting gate leaked");
     }
 
+    // Body exercises `sparse_weighting_enabled()`'s auto-on heuristic, which
+    // only lives behind `feature = "semantic"`. Without that feature the fn
+    // shortcircuits to `false` (sparse rank path doesn't exist) and the
+    // `auto+rust should enable sparse weighting` assertion can never pass.
+    // Skip in semantic-off CI; the explicit-env branch is covered by other
+    // tests that don't depend on auto-mode.
+    #[cfg(feature = "semantic")]
     #[test]
     fn sparse_weighting_auto_gate_disables_for_js_ts_but_explicit_env_still_wins() {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());

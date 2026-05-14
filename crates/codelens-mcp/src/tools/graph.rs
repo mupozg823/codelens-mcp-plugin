@@ -5,9 +5,8 @@ use super::{
 use crate::protocol::{BackendKind, ToolResponseMeta};
 use crate::tools::symbols::flatten_symbols;
 use codelens_engine::{
-    find_circular_dependencies, find_dead_code_v2, find_scoped_references, get_blast_radius,
-    get_callees, get_callers, get_change_coupling, get_changed_files, get_importance,
-    get_importers, phantom_modules, redundant_definitions,
+    find_dead_code_v2, find_scoped_references, get_blast_radius, get_callees, get_callers,
+    get_changed_files, get_importance, get_importers,
 };
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -359,93 +358,6 @@ pub(crate) fn find_dead_code_v2_tool(
     )
 }
 
-pub fn find_orphan_handlers_tool(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let entries = crate::orphan_handlers::find_orphan_handlers(state.project().as_path())?;
-    Ok((
-        json!({
-            "orphan_handlers": entries,
-            "count": entries.len(),
-        }),
-        success_meta(BackendKind::TreeSitter, 0.78),
-    ))
-}
-
-pub fn find_over_visible_apis_tool(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let entries = crate::over_visible::find_over_visible_apis(state.project().as_path())?;
-    let by_kind: std::collections::BTreeMap<String, usize> =
-        entries
-            .iter()
-            .fold(std::collections::BTreeMap::new(), |mut acc, e| {
-                *acc.entry(e.kind.clone()).or_insert(0) += 1;
-                acc
-            });
-    Ok((
-        json!({
-            "over_visible_apis": entries,
-            "count": entries.len(),
-            "count_by_kind": by_kind,
-        }),
-        success_meta(BackendKind::TreeSitter, 0.75),
-    ))
-}
-
-pub fn audit_tool_surface_consistency_tool(
-    state: &AppState,
-    _arguments: &serde_json::Value,
-) -> ToolResult {
-    let report = crate::surface_audit::audit_tool_surface_consistency(state.project().as_path())?;
-    let drift_count = report.missing_in_dispatch.len() + report.missing_in_toml.len();
-    Ok((
-        json!({
-            "report": report,
-            "drift_count": drift_count,
-        }),
-        success_meta(BackendKind::TreeSitter, 0.92),
-    ))
-}
-
-pub fn find_phantom_modules_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let max_results = optional_usize(arguments, "max_results", 50);
-    let entries = phantom_modules::find_phantom_modules(&state.project(), max_results)?;
-    Ok((
-        json!({
-            "phantom_modules": entries,
-            "count": entries.len(),
-        }),
-        success_meta(BackendKind::TreeSitter, 0.80),
-    ))
-}
-
-pub fn find_redundant_definitions_tool(
-    state: &AppState,
-    arguments: &serde_json::Value,
-) -> ToolResult {
-    let max_results = optional_usize(arguments, "max_results", 50);
-    let entries = redundant_definitions::find_redundant_definitions(&state.project(), max_results)?;
-    let mut groups: std::collections::BTreeMap<String, Vec<&_>> = std::collections::BTreeMap::new();
-    for entry in &entries {
-        groups.entry(entry.target.clone()).or_default().push(entry);
-    }
-    let grouped = groups
-        .iter()
-        .map(|(target, members)| {
-            json!({
-                "target": target,
-                "wrapper_count": members.len(),
-                "wrappers": members,
-            })
-        })
-        .collect::<Vec<_>>();
-    Ok((
-        json!({
-            "redundant_definitions": entries,
-            "count": entries.len(),
-            "grouped_by_target": grouped,
-        }),
-        success_meta(BackendKind::TreeSitter, 0.85),
-    ))
-}
-
 pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     const KNOWN_ARGS: &[&str] = &[
         "symbol_name",
@@ -772,47 +684,6 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         (payload, meta)
     })?)
 }
-
-pub fn find_circular_dependencies_tool(
-    state: &AppState,
-    arguments: &serde_json::Value,
-) -> ToolResult {
-    let max_results = optional_usize(arguments, "max_results", 50);
-    Ok(
-        find_circular_dependencies(&state.project(), max_results, &state.graph_cache()).map(
-            |value| {
-                (
-                    json!({ "cycles": value, "count": value.len() }),
-                    success_meta(BackendKind::Hybrid, 0.88),
-                )
-            },
-        )?,
-    )
-}
-
-pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let months = optional_usize(arguments, "months", 6);
-    let min_strength = arguments
-        .get("min_strength")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.3);
-    let min_commits = optional_usize(arguments, "min_commits", 3);
-    let max_results = optional_usize(arguments, "max_results", 30);
-    Ok(get_change_coupling(
-        &state.project(),
-        months,
-        min_strength,
-        min_commits,
-        max_results,
-    )
-    .map(|value| {
-        (
-            json!({ "coupling": value, "count": value.len() }),
-            success_meta(BackendKind::Git, 0.85),
-        )
-    })?)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{count_distinct_callees, count_distinct_callers};
