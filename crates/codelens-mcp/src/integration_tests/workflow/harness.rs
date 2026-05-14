@@ -1,15 +1,23 @@
 use super::*;
 
-// Chronic CI flake under nextest parallel load (PRs #174/#177/#184/#185/#187
-// and #292 in the 2026-05-14 batch). Bumping the wait from 1.1s → 2.5s → 5s
-// helped briefly each time but the race re-emerges under heavier load;
-// second-granularity RFC3339 timestamps + parallel runners means no sleep
-// duration is a real fix. Solo runs pass deterministically in 5-6s.
-// Mark ignored until the staleness comparison is reworked to use a
-// monotonic counter or sub-second resolution.
-#[ignore = "chronic-macos-parallel-runner-flake-pending-monotonic-rework"]
 #[test]
 fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
+    // Root cause of the prior chronic flake (PRs #174/#177/#184/#185/#187
+    // and PR #292 in the 2026-05-14 batch): the test mutates a process-wide
+    // env var (`CODELENS_EXECUTABLE_PATH_OVERRIDE`) without holding the
+    // `env_compat::TEST_ENV_LOCK` that the rest of the env-touching tests
+    // already coordinate on (`cli::startup_tests`, `main`,
+    // `workflow::session`, …). Under nextest parallel load any other test
+    // that read/wrote the same key between this test's `set_var` and the
+    // inner `call_tool` could swap the path out from under
+    // `current_executable_path()`, causing `prepare_harness_session` to
+    // fail early with `success=false`. Holding the global lock for the
+    // env+tool-call window makes the test independent of runner load —
+    // no more sleep-duration band-aids needed.
+    let _env_guard = crate::env_compat::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     let project = project_root();
     fs::write(
         project.as_path().join("stale_daemon.py"),
@@ -18,15 +26,12 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     .unwrap();
     let state = make_state(&project);
 
-    // `daemon_started_at` is second-granularity RFC3339. The original 1.1s
-    // wait was tight enough that CI runners (especially macos-latest)
-    // intermittently rounded both timestamps into the same second under load
-    // and the staleness comparison flipped — chronic flake on PRs #174,
-    // #177, #184, #185, #187, and the 2026-05-14 PR #292 diet-cleanup
-    // batch (4+ macos-latest hits under nextest parallel load even at
-    // 2.5s). Bumping to 5s; passes solo in 2.6s so the extra wait only
-    // gates parallel-runner contention and still keeps the test cheap.
-    std::thread::sleep(std::time::Duration::from_millis(5_000));
+    // `daemon_started_at` is second-granularity RFC3339. Sleep > 1s so
+    // the override file's mtime lands in a later second than
+    // `daemon_started_at` even when the test happened to start just
+    // before a second rollover. 1.5s is plenty now that the env-var
+    // race is gone — no more parallel-load contention to amplify.
+    std::thread::sleep(std::time::Duration::from_millis(1_500));
 
     let override_path = std::env::temp_dir().join(format!(
         "codelens-stale-daemon-{}-{}",
@@ -39,8 +44,8 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     fs::write(&override_path, "newer-binary-marker").unwrap();
 
     let previous = std::env::var_os("CODELENS_EXECUTABLE_PATH_OVERRIDE");
-    // SAFETY: this test mutates a process env var for the duration of a
-    // synchronous tool call, then restores the previous value.
+    // SAFETY: this test mutates a process env var while holding
+    // `TEST_ENV_LOCK`; no other env-touching test can run concurrently.
     unsafe {
         std::env::set_var("CODELENS_EXECUTABLE_PATH_OVERRIDE", &override_path);
     }
