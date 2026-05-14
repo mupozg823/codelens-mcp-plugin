@@ -5,40 +5,38 @@
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
     "members": [
       "crates/codelens-engine",
-      "crates/codelens-mcp",
-      "crates/codelens-tui"
+      "crates/codelens-mcp"
     ],
-    "member_count": 3
+    "member_count": 2
   },
   "tool_registry": {
-    "definition_count": 112,
-    "output_schema_count": 79,
+    "definition_count": 72,
+    "output_schema_count": 52,
     "namespaces": {
-      "filesystem": 6,
-      "graph": 8,
-      "lsp": 3,
+      "filesystem": 5,
+      "graph": 6,
+      "lsp": 2,
       "memory": 5,
-      "mutation": 16,
-      "reports": 24,
-      "session": 41,
+      "reports": 20,
+      "session": 25,
       "symbols": 9
     },
     "tiers": {
-      "analysis": 27,
-      "primitive": 55,
-      "workflow": 30
+      "analysis": 16,
+      "primitive": 37,
+      "workflow": 19
     },
     "phases": {
-      "agnostic": 45,
-      "build": 18,
-      "eval": 11,
-      "plan": 23,
-      "review": 15
+      "agnostic": 32,
+      "build": 1,
+      "eval": 8,
+      "plan": 19,
+      "review": 12
     },
     "preferred_executors": {
-      "any": 84,
-      "claude": 11,
-      "codex-builder": 17
+      "any": 67,
+      "claude": 4,
+      "codex-builder": 1
     },
     "tools": [
       {
@@ -76,15 +74,6 @@
         "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 96
-      },
-      {
-        "name": "search_for_pattern",
-        "namespace": "filesystem",
-        "tier": "primitive",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 313
       },
       {
         "name": "find_annotations",
@@ -168,15 +157,6 @@
         "estimated_tokens": 88
       },
       {
-        "name": "get_project_structure",
-        "namespace": "session",
-        "tier": "primitive",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 161
-      },
-      {
         "name": "find_referencing_symbols",
         "namespace": "symbols",
         "tier": "primitive",
@@ -231,15 +211,6 @@
         "estimated_tokens": 167
       },
       {
-        "name": "check_lsp_status",
-        "namespace": "lsp",
-        "tier": "primitive",
-        "phase": "review",
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 77
-      },
-      {
         "name": "get_lsp_recipe",
         "namespace": "lsp",
         "tier": "primitive",
@@ -292,285 +263,6 @@
         "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 92
-      },
-      {
-        "name": "find_circular_dependencies",
-        "namespace": "graph",
-        "tier": "analysis",
-        "phase": "review",
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 92
-      },
-      {
-        "name": "find_redundant_definitions",
-        "namespace": "session",
-        "tier": "analysis",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 126
-      },
-      {
-        "name": "audit_tool_surface_consistency",
-        "namespace": "session",
-        "tier": "analysis",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 156
-      },
-      {
-        "name": "find_orphan_handlers",
-        "namespace": "session",
-        "tier": "analysis",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 162
-      },
-      {
-        "name": "find_over_visible_apis",
-        "namespace": "session",
-        "tier": "analysis",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 190
-      },
-      {
-        "name": "find_phantom_modules",
-        "namespace": "session",
-        "tier": "analysis",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 170
-      },
-      {
-        "name": "get_change_coupling",
-        "namespace": "graph",
-        "tier": "analysis",
-        "phase": "plan",
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 111
-      },
-      {
-        "name": "rename_symbol",
-        "namespace": "mutation",
-        "tier": "analysis",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 597
-      },
-      {
-        "name": "replace_symbol_body",
-        "namespace": "mutation",
-        "tier": "workflow",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 161
-      },
-      {
-        "name": "replace_content",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 189
-      },
-      {
-        "name": "replace_lines",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 157
-      },
-      {
-        "name": "delete_lines",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 134
-      },
-      {
-        "name": "insert_at_line",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 142
-      },
-      {
-        "name": "insert_before_symbol",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 154
-      },
-      {
-        "name": "insert_after_symbol",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 153
-      },
-      {
-        "name": "insert_content",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 226
-      },
-      {
-        "name": "replace",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 295
-      },
-      {
-        "name": "create_text_file",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 153
-      },
-      {
-        "name": "analyze_missing_imports",
-        "namespace": "session",
-        "tier": "primitive",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 98
-      },
-      {
-        "name": "add_import",
-        "namespace": "mutation",
-        "tier": "primitive",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 170
-      },
-      {
-        "name": "refactor_extract_function",
-        "namespace": "mutation",
-        "tier": "workflow",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 504
-      },
-      {
-        "name": "refactor_inline_function",
-        "namespace": "mutation",
-        "tier": "workflow",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 479
-      },
-      {
-        "name": "refactor_move_to_file",
-        "namespace": "mutation",
-        "tier": "analysis",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 483
-      },
-      {
-        "name": "refactor_change_signature",
-        "namespace": "mutation",
-        "tier": "analysis",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 519
-      },
-      {
-        "name": "propagate_deletions",
-        "namespace": "session",
-        "tier": "workflow",
-        "phase": "build",
-        "preferred_executor": "codex-builder",
-        "has_output_schema": true,
-        "estimated_tokens": 611
-      },
-      {
-        "name": "onboard_project",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "plan",
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 158
-      },
-      {
-        "name": "analyze_change_request",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "plan",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 727
-      },
-      {
-        "name": "orchestrate_change",
-        "namespace": "reports",
-        "tier": "workflow",
-        "phase": "plan",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 946
-      },
-      {
-        "name": "list_orchestration_runs",
-        "namespace": "session",
-        "tier": "primitive",
-        "phase": "eval",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 361
-      },
-      {
-        "name": "get_orchestration_run",
-        "namespace": "session",
-        "tier": "primitive",
-        "phase": "eval",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 282
-      },
-      {
-        "name": "cancel_orchestration_run",
-        "namespace": "session",
-        "tier": "workflow",
-        "phase": "eval",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 286
       },
       {
         "name": "verify_change_readiness",
@@ -654,15 +346,6 @@
         "estimated_tokens": 682
       },
       {
-        "name": "semantic_code_review",
-        "namespace": "session",
-        "tier": "workflow",
-        "phase": "review",
-        "preferred_executor": "claude",
-        "has_output_schema": true,
-        "estimated_tokens": 690
-      },
-      {
         "name": "start_analysis_job",
         "namespace": "reports",
         "tier": "workflow",
@@ -688,15 +371,6 @@
         "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 257
-      },
-      {
-        "name": "retry_analysis_job",
-        "namespace": "session",
-        "tier": "workflow",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": true,
-        "estimated_tokens": 267
       },
       {
         "name": "list_analysis_jobs",
@@ -766,7 +440,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "build",
-        "preferred_executor": "claude",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 288
       },
@@ -804,7 +478,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 3589
+        "estimated_tokens": 3571
       },
       {
         "name": "register_agent_work",
@@ -841,24 +515,6 @@
         "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 200
-      },
-      {
-        "name": "prepare_for_new_conversation",
-        "namespace": "session",
-        "tier": "primitive",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 84
-      },
-      {
-        "name": "summarize_changes",
-        "namespace": "session",
-        "tier": "primitive",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 79
       },
       {
         "name": "get_watch_status",
@@ -939,7 +595,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 1080
+        "estimated_tokens": 1061
       },
       {
         "name": "get_tool_metrics",
@@ -985,24 +641,6 @@
         "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 191
-      },
-      {
-        "name": "summarize_file",
-        "namespace": "session",
-        "tier": "workflow",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 101
-      },
-      {
-        "name": "find_relevant_rules",
-        "namespace": "reports",
-        "tier": "analysis",
-        "phase": null,
-        "preferred_executor": null,
-        "has_output_schema": false,
-        "estimated_tokens": 159
       },
       {
         "name": "list_memories",
@@ -1055,7 +693,7 @@
     "profiles": [
       {
         "name": "planner-readonly",
-        "tool_count": 34,
+        "tool_count": 29,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1074,9 +712,6 @@
           "review_architecture",
           "review_changes",
           "prepare_harness_session",
-          "onboard_project",
-          "analyze_change_request",
-          "orchestrate_change",
           "verify_change_readiness",
           "mermaid_module_graph",
           "impact_report",
@@ -1091,8 +726,6 @@
           "find_referencing_symbols",
           "get_changed_files",
           "get_current_config",
-          "list_orchestration_runs",
-          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1109,7 +742,7 @@
       },
       {
         "name": "builder-minimal",
-        "tool_count": 39,
+        "tool_count": 29,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1130,11 +763,9 @@
           "trace_request_path",
           "plan_safe_refactor",
           "prepare_harness_session",
-          "orchestrate_change",
           "verify_change_readiness",
+          "cleanup_duplicate_logic",
           "refresh_symbol_index",
-          "cancel_orchestration_run",
-          "replace_symbol_body",
           "get_ranked_context",
           "plan_symbol_rename",
           "get_capabilities",
@@ -1142,15 +773,11 @@
           "audit_planner_session",
           "get_callers",
           "get_callees",
-          "rename_symbol",
           "get_symbols_overview",
           "find_symbol",
           "find_referencing_symbols",
           "find_tests",
           "get_current_config",
-          "analyze_missing_imports",
-          "list_orchestration_runs",
-          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1160,17 +787,13 @@
           "set_profile",
           "get_tool_metrics",
           "export_session_markdown",
-          "get_file_diagnostics",
-          "insert_content",
-          "replace",
-          "create_text_file",
-          "add_import"
+          "get_file_diagnostics"
         ],
         "deprecated": false
       },
       {
         "name": "reviewer-graph",
-        "tool_count": 38,
+        "tool_count": 34,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1189,7 +812,6 @@
           "review_changes",
           "cleanup_duplicate_logic",
           "prepare_harness_session",
-          "orchestrate_change",
           "verify_change_readiness",
           "module_boundary_report",
           "mermaid_module_graph",
@@ -1198,7 +820,6 @@
           "diff_aware_references",
           "start_analysis_job",
           "diagnose_issues",
-          "semantic_code_review",
           "get_analysis_job",
           "get_analysis_section",
           "get_changed_files",
@@ -1210,8 +831,6 @@
           "get_ranked_context",
           "find_referencing_symbols",
           "get_current_config",
-          "list_orchestration_runs",
-          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1228,7 +847,7 @@
       },
       {
         "name": "evaluator-compact",
-        "tool_count": 14,
+        "tool_count": 29,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1240,30 +859,46 @@
           "analysis"
         ],
         "preferred_phases": [
-          "eval"
+          "plan",
+          "review"
         ],
         "tools": [
+          "get_analysis_job",
           "get_analysis_section",
           "get_symbols_overview",
           "find_symbol",
-          "get_file_diagnostics",
+          "find_referencing_symbols",
           "get_current_config",
           "activate_project",
           "prepare_harness_session",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
           "set_preset",
           "set_profile",
-          "read_file",
-          "find_tests",
+          "get_tool_metrics",
           "get_changed_files",
+          "get_ranked_context",
           "get_capabilities",
-          "verify_change_readiness"
+          "audit_builder_session",
+          "audit_planner_session",
+          "verify_change_readiness",
+          "mermaid_module_graph",
+          "impact_report",
+          "start_analysis_job",
+          "explore_codebase",
+          "review_architecture",
+          "plan_safe_refactor",
+          "review_changes",
+          "diagnose_issues"
         ],
         "deprecated": true,
         "deprecation_target": "v2.0"
       },
       {
         "name": "refactor-full",
-        "tool_count": 54,
+        "tool_count": 29,
         "preferred_namespaces": [
           "reports",
           "session"
@@ -1277,30 +912,13 @@
         ],
         "tools": [
           "plan_safe_refactor",
-          "review_changes",
           "trace_request_path",
           "prepare_harness_session",
-          "orchestrate_change",
           "verify_change_readiness",
-          "safe_rename_report",
-          "unresolved_reference_check",
-          "impact_report",
-          "refactor_safety_report",
-          "diff_aware_references",
-          "start_analysis_job",
           "explore_codebase",
-          "review_architecture",
-          "diagnose_issues",
-          "cancel_orchestration_run",
-          "replace_symbol_body",
-          "refactor_extract_function",
-          "refactor_inline_function",
-          "get_analysis_job",
-          "get_analysis_section",
+          "cleanup_duplicate_logic",
+          "refresh_symbol_index",
           "get_current_config",
-          "analyze_missing_imports",
-          "list_orchestration_runs",
-          "get_orchestration_run",
           "activate_project",
           "register_agent_work",
           "list_active_agents",
@@ -1308,35 +926,27 @@
           "release_files",
           "set_preset",
           "set_profile",
+          "get_capabilities",
           "get_tool_metrics",
           "audit_builder_session",
           "audit_planner_session",
           "export_session_markdown",
+          "find_tests",
           "get_symbols_overview",
           "find_symbol",
           "get_ranked_context",
           "find_referencing_symbols",
           "get_file_diagnostics",
           "plan_symbol_rename",
-          "get_changed_files",
           "get_callers",
-          "get_callees",
-          "find_scoped_references",
-          "rename_symbol",
-          "replace_content",
-          "insert_content",
-          "replace",
-          "create_text_file",
-          "add_import",
-          "refactor_move_to_file",
-          "refactor_change_signature"
+          "get_callees"
         ],
         "deprecated": true,
         "deprecation_target": "v2.0"
       },
       {
         "name": "ci-audit",
-        "tool_count": 46,
+        "tool_count": 34,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1354,31 +964,67 @@
           "cleanup_duplicate_logic",
           "review_architecture",
           "prepare_harness_session",
-          "analyze_change_request",
-          "orchestrate_change",
           "verify_change_readiness",
           "module_boundary_report",
-          "unresolved_reference_check",
-          "dead_code_report",
+          "mermaid_module_graph",
           "impact_report",
           "refactor_safety_report",
           "diff_aware_references",
           "start_analysis_job",
-          "explore_codebase",
           "diagnose_issues",
-          "cancel_orchestration_run",
           "get_analysis_job",
           "get_analysis_section",
           "get_changed_files",
           "get_callers",
           "get_callees",
           "find_scoped_references",
-          "find_circular_dependencies",
-          "get_change_coupling",
           "get_current_config",
-          "list_orchestration_runs",
-          "get_orchestration_run",
           "activate_project",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "set_preset",
+          "set_profile",
+          "audit_builder_session",
+          "audit_planner_session",
+          "export_session_markdown",
+          "get_symbols_overview",
+          "find_symbol",
+          "get_ranked_context",
+          "find_referencing_symbols",
+          "get_file_diagnostics"
+        ],
+        "deprecated": true,
+        "deprecation_target": "v2.0"
+      },
+      {
+        "name": "workflow-first",
+        "tool_count": 29,
+        "preferred_namespaces": [
+          "workflow",
+          "session"
+        ],
+        "preferred_tiers": [
+          "workflow"
+        ],
+        "preferred_phases": [
+          "plan",
+          "review"
+        ],
+        "tools": [
+          "verify_change_readiness",
+          "mermaid_module_graph",
+          "impact_report",
+          "start_analysis_job",
+          "explore_codebase",
+          "review_architecture",
+          "plan_safe_refactor",
+          "review_changes",
+          "diagnose_issues",
+          "get_current_config",
+          "activate_project",
+          "prepare_harness_session",
           "register_agent_work",
           "list_active_agents",
           "claim_files",
@@ -1389,51 +1035,13 @@
           "get_tool_metrics",
           "audit_builder_session",
           "audit_planner_session",
-          "export_session_markdown",
-          "read_file",
-          "search_for_pattern",
-          "find_tests",
           "get_symbols_overview",
           "find_symbol",
-          "get_ranked_context"
-        ],
-        "deprecated": true,
-        "deprecation_target": "v2.0"
-      },
-      {
-        "name": "workflow-first",
-        "tool_count": 22,
-        "preferred_namespaces": [
-          "workflow",
-          "session"
-        ],
-        "preferred_tiers": [
-          "workflow"
-        ],
-        "preferred_phases": [],
-        "tools": [
-          "onboard_project",
-          "analyze_change_request",
-          "orchestrate_change",
-          "explore_codebase",
-          "trace_request_path",
-          "review_architecture",
-          "plan_safe_refactor",
-          "cleanup_duplicate_logic",
-          "review_changes",
-          "diagnose_issues",
-          "get_current_config",
-          "list_orchestration_runs",
-          "get_orchestration_run",
-          "activate_project",
-          "register_agent_work",
-          "list_active_agents",
-          "claim_files",
-          "release_files",
-          "set_preset",
-          "set_profile",
-          "audit_planner_session",
-          "export_session_markdown"
+          "get_ranked_context",
+          "find_referencing_symbols",
+          "get_changed_files",
+          "get_analysis_job",
+          "get_analysis_section"
         ],
         "deprecated": true,
         "deprecation_target": "v2.0"
@@ -1442,7 +1050,7 @@
     "presets": [
       {
         "name": "minimal",
-        "tool_count": 27,
+        "tool_count": 21,
         "preferred_namespaces": [
           "symbols",
           "filesystem",
@@ -1460,10 +1068,6 @@
           "read_file",
           "list_dir",
           "find_file",
-          "search_for_pattern",
-          "insert_content",
-          "replace",
-          "create_text_file",
           "get_current_config",
           "get_file_diagnostics",
           "activate_project",
@@ -1477,14 +1081,12 @@
           "get_ranked_context",
           "get_type_hierarchy",
           "plan_symbol_rename",
-          "rename_symbol",
-          "replace_symbol_body",
           "refresh_symbol_index"
         ]
       },
       {
         "name": "balanced",
-        "tool_count": 83,
+        "tool_count": 59,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1501,9 +1103,6 @@
           "review_architecture",
           "review_changes",
           "prepare_harness_session",
-          "onboard_project",
-          "analyze_change_request",
-          "orchestrate_change",
           "verify_change_readiness",
           "module_boundary_report",
           "mermaid_module_graph",
@@ -1520,12 +1119,6 @@
           "cleanup_duplicate_logic",
           "diagnose_issues",
           "refresh_symbol_index",
-          "propagate_deletions",
-          "cancel_orchestration_run",
-          "semantic_code_review",
-          "retry_analysis_job",
-          "replace_symbol_body",
-          "find_relevant_rules",
           "get_ranked_context",
           "bm25_symbol_search",
           "get_type_hierarchy",
@@ -1534,15 +1127,9 @@
           "get_callees",
           "find_scoped_references",
           "resolve_symbol_target",
-          "find_redundant_definitions",
-          "audit_tool_surface_consistency",
-          "find_orphan_handlers",
-          "find_over_visible_apis",
-          "find_phantom_modules",
           "query_project",
           "get_capabilities",
           "audit_log_query",
-          "rename_symbol",
           "get_analysis_job",
           "get_analysis_section",
           "get_symbols_overview",
@@ -1553,9 +1140,6 @@
           "find_annotations",
           "find_tests",
           "get_current_config",
-          "analyze_missing_imports",
-          "list_orchestration_runs",
-          "get_orchestration_run",
           "list_analysis_jobs",
           "list_analysis_artifacts",
           "activate_project",
@@ -1569,12 +1153,6 @@
           "set_preset",
           "set_profile",
           "get_file_diagnostics",
-          "replace_content",
-          "delete_lines",
-          "insert_content",
-          "replace",
-          "create_text_file",
-          "add_import",
           "list_memories",
           "read_memory",
           "write_memory",
@@ -1584,13 +1162,12 @@
       },
       {
         "name": "full",
-        "tool_count": 112,
+        "tool_count": 72,
         "preferred_namespaces": [
           "filesystem",
           "graph",
           "lsp",
           "memory",
-          "mutation",
           "reports",
           "session",
           "symbols"
@@ -1605,12 +1182,6 @@
           "review_architecture",
           "plan_safe_refactor",
           "prepare_harness_session",
-          "replace_symbol_body",
-          "refactor_extract_function",
-          "refactor_inline_function",
-          "onboard_project",
-          "analyze_change_request",
-          "orchestrate_change",
           "verify_change_readiness",
           "module_boundary_report",
           "mermaid_module_graph",
@@ -1627,28 +1198,12 @@
           "review_changes",
           "diagnose_issues",
           "refresh_symbol_index",
-          "propagate_deletions",
-          "cancel_orchestration_run",
-          "semantic_code_review",
-          "retry_analysis_job",
-          "summarize_file",
           "get_complexity",
           "get_callers",
           "get_callees",
           "find_scoped_references",
           "get_symbol_importance",
-          "find_circular_dependencies",
-          "get_change_coupling",
-          "rename_symbol",
-          "refactor_move_to_file",
-          "refactor_change_signature",
-          "find_relevant_rules",
           "resolve_symbol_target",
-          "find_redundant_definitions",
-          "audit_tool_surface_consistency",
-          "find_orphan_handlers",
-          "find_over_visible_apis",
-          "find_phantom_modules",
           "query_project",
           "get_capabilities",
           "audit_builder_session",
@@ -1662,35 +1217,19 @@
           "read_file",
           "list_dir",
           "find_file",
-          "search_for_pattern",
           "find_annotations",
           "find_tests",
           "get_changed_files",
           "get_file_diagnostics",
-          "check_lsp_status",
           "get_lsp_recipe",
           "list_memories",
           "read_memory",
           "write_memory",
           "delete_memory",
           "rename_memory",
-          "replace_content",
-          "replace_lines",
-          "delete_lines",
-          "insert_at_line",
-          "insert_before_symbol",
-          "insert_after_symbol",
-          "insert_content",
-          "replace",
-          "create_text_file",
-          "add_import",
           "get_analysis_job",
           "get_analysis_section",
           "get_current_config",
-          "get_project_structure",
-          "analyze_missing_imports",
-          "list_orchestration_runs",
-          "get_orchestration_run",
           "list_analysis_jobs",
           "list_analysis_artifacts",
           "activate_project",
@@ -1698,8 +1237,6 @@
           "list_active_agents",
           "claim_files",
           "release_files",
-          "prepare_for_new_conversation",
-          "summarize_changes",
           "get_watch_status",
           "prune_index_failures",
           "add_queryable_project",
@@ -1746,11 +1283,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 34
+                "tool_count": 29
               },
               {
                 "name": "builder-minimal",
-                "tool_count": 39
+                "tool_count": 29
               }
             ]
           }
@@ -1788,11 +1325,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 34
+                "tool_count": 29
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 38
+                "tool_count": 34
               }
             ]
           },
@@ -1803,11 +1340,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 39
+                "tool_count": 29
               },
               {
                 "name": "refactor-full",
-                "tool_count": 54
+                "tool_count": 29
               }
             ]
           }
@@ -1850,11 +1387,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 38
+                "tool_count": 34
               },
               {
                 "name": "ci-audit",
-                "tool_count": 46
+                "tool_count": 34
               }
             ]
           }
@@ -1892,15 +1429,15 @@
             "profiles": [
               {
                 "name": "workflow-first",
-                "tool_count": 22
+                "tool_count": 29
               },
               {
                 "name": "evaluator-compact",
-                "tool_count": 14
+                "tool_count": 29
               },
               {
                 "name": "ci-audit",
-                "tool_count": 46
+                "tool_count": 34
               }
             ]
           }
@@ -1953,11 +1490,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 34
+                "tool_count": 29
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 38
+                "tool_count": 34
               }
             ]
           },
@@ -1968,11 +1505,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 39
+                "tool_count": 29
               },
               {
                 "name": "refactor-full",
-                "tool_count": 54
+                "tool_count": 29
               }
             ]
           }
@@ -2131,11 +1668,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 38
+                "tool_count": 34
               },
               {
                 "name": "ci-audit",
-                "tool_count": 46
+                "tool_count": 34
               }
             ]
           }
@@ -2229,15 +1766,15 @@
             "profiles": [
               {
                 "name": "workflow-first",
-                "tool_count": 22
+                "tool_count": 29
               },
               {
                 "name": "evaluator-compact",
-                "tool_count": 14
+                "tool_count": 29
               },
               {
                 "name": "ci-audit",
-                "tool_count": 46
+                "tool_count": 34
               }
             ]
           }
@@ -3248,7 +2785,7 @@
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 83,
+    "visible_tool_count": 59,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": false,
@@ -3279,11 +2816,11 @@
   },
   "summary": {
     "workspace_version": "1.13.27",
-    "workspace_member_count": 3,
-    "registered_tool_definitions": 112,
+    "workspace_member_count": 2,
+    "registered_tool_definitions": 72,
     "tool_output_schemas": {
-      "declared": 79,
-      "total": 112
+      "declared": 52,
+      "total": 72
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,

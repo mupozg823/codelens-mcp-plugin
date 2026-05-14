@@ -33,9 +33,7 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         | "orchestrate_change"
         | "summarize_changes"
         | "summarize_file"
-        | "get_change_coupling" => {
-            Some(("1.13.27", "", "2.0"))
-        }
+        | "get_change_coupling" => Some(("1.13.27", "", "2.0")),
         _ => None,
     }
 }
@@ -160,10 +158,9 @@ pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
         | "propagate_deletions" => Some("codex-builder"),
 
         // Orchestration / synthesis — Claude-class executor preferred.
-        "plan_safe_refactor"
-        | "review_architecture"
-        | "trace_request_path"
-        | "review_changes" => Some("claude"),
+        "plan_safe_refactor" | "review_architecture" | "trace_request_path" | "review_changes" => {
+            Some("claude")
+        }
 
         // Everything else — retrieval primitives, file ops, audits,
         // session coordination, eval, diagnostics — both executors
@@ -240,8 +237,7 @@ pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
 
 pub(crate) fn tool_namespace(name: &str) -> &'static str {
     match name {
-        "read_file" | "list_dir" | "find_file" | "find_annotations"
-        | "find_tests" => "filesystem",
+        "read_file" | "list_dir" | "find_file" | "find_annotations" | "find_tests" => "filesystem",
         "get_symbols_overview"
         | "find_symbol"
         | "get_ranked_context"
@@ -288,8 +284,7 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "start_analysis_job"
         | "get_analysis_job"
         | "cancel_analysis_job"
-        | "get_analysis_section"
-        | "find_relevant_rules" => "reports",
+        | "get_analysis_section" => "reports",
         "list_memories" | "read_memory" | "write_memory" | "delete_memory" | "rename_memory" => {
             "memory"
         }
