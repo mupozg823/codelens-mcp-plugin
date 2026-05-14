@@ -1,5 +1,13 @@
 use super::*;
 
+// Chronic CI flake under nextest parallel load (PRs #174/#177/#184/#185/#187
+// and #292 in the 2026-05-14 batch). Bumping the wait from 1.1s → 2.5s → 5s
+// helped briefly each time but the race re-emerges under heavier load;
+// second-granularity RFC3339 timestamps + parallel runners means no sleep
+// duration is a real fix. Solo runs pass deterministically in 5-6s.
+// Mark ignored until the staleness comparison is reworked to use a
+// monotonic counter or sub-second resolution.
+#[ignore = "chronic-macos-parallel-runner-flake-pending-monotonic-rework"]
 #[test]
 fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     let project = project_root();
