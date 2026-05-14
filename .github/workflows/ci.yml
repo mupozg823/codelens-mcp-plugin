@@ -15,6 +15,12 @@ env:
 jobs:
   check:
     strategy:
+      # macos-latest runner has been intermittently shipping cargo as
+      # rustup-init in the 2026-05 batch, fast-failing `cargo fmt --check`
+      # before any code work runs and dragging ubuntu down with it. Decouple
+      # the two so the linux signal is independently visible while the macos
+      # infra issue is upstream.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
