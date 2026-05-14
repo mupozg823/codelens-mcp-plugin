@@ -36,6 +36,14 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Cache cargo build
+        # 2026-05-14 PR #292: macos-latest (macos-15, M1) consistently
+        # restores a stale cargo binary via partial-match cache (`full
+        # match: false`), making `cargo fmt --check` fall through to
+        # rustup-init and fail with `unexpected argument 'fmt' found`.
+        # Skipping the cache restore here forces dtolnay/rust-toolchain
+        # to install a fresh toolchain, sidestepping the symlink
+        # corruption. Ubuntu cache stays intact.
+        if: matrix.os != 'macos-latest'
         uses: Swatinem/rust-cache@v2
 
       - name: cargo fmt --check
