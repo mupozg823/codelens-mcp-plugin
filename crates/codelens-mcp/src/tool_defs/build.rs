@@ -30,7 +30,6 @@ fn tool_title_override(name: &str) -> Option<&'static str> {
         "get_changed_files" => Some("Changed Files"),
         "get_impact_analysis" => Some("Impact Analysis"),
         "get_symbol_importance" => Some("Symbol Importance"),
-        "get_change_coupling" => Some("Change Coupling"),
         "get_file_diagnostics" => Some("File Diagnostics"),
         "get_analysis_job" => Some("Analysis Job"),
         "list_analysis_jobs" => Some("Analysis Jobs"),

@@ -405,7 +405,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "get_symbol_importance" => &["get_importers", "get_impact_analysis"],
         "find_dead_code" => &["get_symbols_overview", "delete_lines"],
         "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
-        "get_change_coupling" => &["get_impact_analysis", "find_dead_code"],
         "get_callers" => &["get_callees", "find_symbol"],
         "get_callees" => &["get_callers", "find_symbol"],
         "find_scoped_references" => &["rename_symbol", "find_referencing_symbols"],
@@ -513,7 +512,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "find_misplaced_code" => &["get_symbols_overview", "find_similar_code"],
 
         // ── Composite ────────────────────────────────────────────────
-        "summarize_file" => &["get_symbols_overview", "find_symbol"],
         "refactor_extract_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],

@@ -1112,40 +1112,6 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     Ok((result, success_meta(BackendKind::Session, 1.0)))
 }
 
-#[allow(dead_code)]
-pub fn prepare_for_new_conversation(
-    state: &AppState,
-    _arguments: &serde_json::Value,
-) -> ToolResult {
-    let project = state.project();
-    let project_name = project
-        .as_path()
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    Ok((
-        json!({
-            "status":"ready",
-            "project_name": project_name,
-            "project_base_path": project.as_path().to_string_lossy(),
-            "backend_id": "rust-core",
-            "memory_count": list_memory_names(&state.memories_dir(), None).len()
-        }),
-        success_meta(BackendKind::Session, 1.0),
-    ))
-}
-
-#[allow(dead_code)]
-pub fn summarize_changes(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    Ok((
-        json!({
-            "instructions": "To summarize your changes:\n1. Use search_for_pattern to identify modified symbols\n2. Use get_symbols_overview to understand file structure\n3. Write a summary to memory using write_memory with name 'session_summary'",
-            "project_name": state.project().as_path().file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-        }),
-        success_meta(BackendKind::Session, 1.0),
-    ))
-}
-
 /// v1.5 Phase 2j MCP follow-up: auto-detect and export the dominant source
 /// language for the given project so the engine's `auto_hint_should_enable`
 /// gate can consult `language_supports_nl_stack` on the next embedding call.

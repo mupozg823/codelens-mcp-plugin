@@ -8,54 +8,9 @@ use codelens_engine::change_signature::{ParamSpec, change_signature};
 use codelens_engine::inline::inline_function;
 use codelens_engine::move_symbol::move_symbol;
 use codelens_engine::{
-    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
-    get_importers, get_symbols_overview,
+    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
 };
 use serde_json::json;
-
-#[allow(clippy::collapsible_if)]
-#[allow(dead_code)]
-pub fn summarize_file(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let file_path = required_string(arguments, "file_path")?;
-    let project = state.project();
-    let symbols = get_symbols_overview(&project, file_path, 2)?;
-    let importers =
-        get_importers(&project, file_path, 20, &state.graph_cache()).unwrap_or_default();
-    let source = std::fs::read_to_string(project.resolve(file_path)?).unwrap_or_default();
-    let line_count = source.lines().count();
-
-    let mut functions = 0usize;
-    let mut classes = 0usize;
-    for sym in &symbols {
-        match sym.kind {
-            SymbolKind::Function | SymbolKind::Method => functions += 1,
-            SymbolKind::Class | SymbolKind::Interface => classes += 1,
-            _ => {}
-        }
-        for child in &sym.children {
-            match child.kind {
-                SymbolKind::Function | SymbolKind::Method => functions += 1,
-                _ => {}
-            }
-        }
-    }
-
-    Ok((
-        json!({
-            "file_path": file_path,
-            "lines": line_count,
-            "classes": classes,
-            "functions": functions,
-            "symbols": symbols.iter().map(|s| json!({
-                "name": s.name, "kind": s.kind, "line": s.line,
-                "signature": s.signature, "id": s.id
-            })).collect::<Vec<_>>(),
-            "importers": importers.iter().map(|i| &i.file).collect::<Vec<_>>(),
-            "importer_count": importers.len(),
-        }),
-        success_meta(BackendKind::Hybrid, 0.95),
-    ))
-}
 
 pub fn call_graph_flow(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let function_name = required_string(arguments, "function_name")?;

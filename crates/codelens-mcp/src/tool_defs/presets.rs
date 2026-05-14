@@ -179,7 +179,6 @@ pub(crate) const MINIMAL_TOOLS: &[&str] = &[
 pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     // ── Niche analysis (use Full preset for these) ──
     "find_circular_dependencies",
-    "get_change_coupling",
     "get_symbol_importance",
     "find_dead_code",
     "refactor_extract_function",
@@ -196,15 +195,12 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "find_file",
     "search_for_pattern",
     // ── Diagnostics / session (not needed for normal work) ──
-    "prepare_for_new_conversation",
     "get_watch_status",
     "prune_index_failures",
     "get_tool_metrics",
     "audit_builder_session",
     "audit_planner_session",
     "export_session_markdown",
-    "summarize_changes",
-    "summarize_file",
     // ── Superseded by unified tools (insert_content, replace) ──
     "insert_at_line",
     "insert_before_symbol",

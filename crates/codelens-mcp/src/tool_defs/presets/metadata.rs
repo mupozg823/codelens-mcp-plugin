@@ -30,10 +30,7 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         | "propagate_deletions"
         | "onboard_project"
         | "analyze_change_request"
-        | "orchestrate_change"
-        | "summarize_changes"
-        | "summarize_file"
-        | "get_change_coupling" => Some(("1.13.27", "", "2.0")),
+        | "orchestrate_change" => Some(("1.13.27", "", "2.0")),
         _ => None,
     }
 }
