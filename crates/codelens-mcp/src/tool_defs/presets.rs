@@ -187,7 +187,6 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "refactor_change_signature",
     "get_complexity",
     "search_symbols_fuzzy",
-    "check_lsp_status",
     "get_lsp_recipe",
     // ── Overlap with Claude Code built-in tools ──
     "read_file",

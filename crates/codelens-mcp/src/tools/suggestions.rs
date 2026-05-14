@@ -395,8 +395,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "search_workspace_symbols" => &["find_symbol", "get_symbols_overview"],
         "get_type_hierarchy" => &["find_referencing_symbols", "get_symbols_overview"],
         "plan_symbol_rename" => &["rename_symbol"],
-        "check_lsp_status" => &["get_capabilities", "get_file_diagnostics"],
-        "get_lsp_recipe" => &["check_lsp_status"],
+        "get_lsp_recipe" => &["get_capabilities", "get_file_diagnostics"],
 
         // ── Graph / analysis ─────────────────────────────────────────
         "get_changed_files" => &["get_impact_analysis", "get_symbols_overview"],
@@ -483,11 +482,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "add_queryable_project" => &["query_project", "list_queryable_projects"],
         "query_project" => &["find_symbol", "list_queryable_projects"],
         "set_preset" => &["get_capabilities"],
-        "get_capabilities" => &[
-            "get_project_structure",
-            "get_ranked_context",
-            "check_lsp_status",
-        ],
+        "get_capabilities" => &["get_project_structure", "get_ranked_context"],
         "get_tool_metrics" => &[
             "audit_builder_session",
             "export_session_markdown",
