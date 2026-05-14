@@ -2,6 +2,18 @@ use serde_json::{Value, json};
 
 use super::payload_compact::summarize_structured_content;
 
+/// Adaptive compression based on OpenDev 5-stage strategy (arxiv:2603.05344).
+/// Thresholds are adjusted by effort level offset (Low=-10, Medium=0, High=+10).
+/// Stage 1: <75% budget → pass through
+/// Stage 2: 75-85% → summarize structured content (depth=1)
+/// Stage 3: 85-95% → aggressive summarize (depth=0)
+/// Stage 4: 95-100% → drop structured content entirely
+/// Stage 5: >100% → hard truncation to error payload
+///
+/// Returns `(text, structured_content, truncation_info)`. When the payload
+/// passes through (stage 1), `truncation_info` is `None`. Stages 2–5 emit
+/// a `TruncationInfo` carrying the stage, original payload size estimate,
+/// effective budget, and a human-readable recovery hint.
 pub(crate) fn bounded_result_payload(
     mut text: String,
     mut structured_content: Option<Value>,

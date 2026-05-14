@@ -224,20 +224,6 @@ fn summarize_text_value(value: &Value, depth: usize) -> Value {
     }
 }
 
-/// Adaptive compression based on OpenDev 5-stage strategy (arxiv:2603.05344).
-/// Thresholds are adjusted by effort level offset (Low=-10, Medium=0, High=+10).
-/// Stage 1: <75% budget → pass through
-/// Stage 2: 75-85% → summarize structured content (depth=1)
-/// Stage 3: 85-95% → aggressive summarize (depth=0)
-/// Stage 4: 95-100% → drop structured content entirely
-/// Stage 5: >100% → hard truncation to error payload
-///
-/// Returns (text, structured_content, truncation_info). When the payload
-/// passes through (stage 1), `truncation_info` is `None`. When any
-/// summarization or truncation happens, `truncation_info` carries the
-/// stage, original payload size estimate, effective budget, and a
-/// human-readable recovery hint so callers can surface the loss to
-
 // Keeping `count`/`returned_count` metadata consistent with the visible array
 // requires `summarize_text_object` and `summarize_structured_content` to share
 // the same cap, so the shrink detector and the shrinker never disagree.
