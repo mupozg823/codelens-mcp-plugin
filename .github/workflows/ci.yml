@@ -151,6 +151,15 @@ jobs:
           fail_ci_if_error: false
 
       - name: Build release binary
+        # On macos-latest, the `mozilla-actions/sccache-action` wrapper
+        # loses its temp dir after the long test+coverage stages, then
+        # the unconditional `RUSTC_WRAPPER=sccache` makes cargo fail with
+        # `sccache: Failed to create temp dir` for every fresh proc-macro
+        # build (PR #292 batch). Bypass sccache for the release build
+        # step only — cost is one uncached release rebuild per CI run,
+        # which the check matrix already absorbs.
+        env:
+          RUSTC_WRAPPER: ""
         run: cargo build --release --bin codelens-mcp
 
       - name: Stage release model assets
@@ -173,6 +182,11 @@ jobs:
           path: target/release/codelens-mcp
 
       - name: Build release binary (semantic-off)
+        # Same sccache temp-dir bypass as the default-feature release
+        # build above; otherwise macos hits `sccache: Failed to create
+        # temp dir` again on the proc-macro recompile.
+        env:
+          RUSTC_WRAPPER: ""
         run: cargo build --release --bin codelens-mcp --no-default-features
 
       - name: Upload slim release artifact
