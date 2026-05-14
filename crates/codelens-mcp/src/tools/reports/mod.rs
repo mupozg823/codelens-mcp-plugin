@@ -13,9 +13,7 @@ pub use impact_reports::{
     dead_code_report, diff_aware_references, impact_report, mermaid_module_graph,
     module_boundary_report, refactor_safety_report, semantic_code_review,
 };
-pub use orchestrator_reports::{
-    orchestrate_change,
-};
+pub use orchestrator_reports::orchestrate_change;
 pub use verifier_reports::{
     safe_rename_report, unresolved_reference_check, verify_change_readiness,
 };

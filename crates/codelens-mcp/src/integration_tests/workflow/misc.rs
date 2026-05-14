@@ -263,8 +263,13 @@ fn stale_preflight_is_rejected() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"].as_str().unwrap_or("").contains("stale")
-        || payload["error"].as_str().unwrap_or("").contains("preflight"));
+    assert!(
+        payload["error"].as_str().unwrap_or("").contains("stale")
+            || payload["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("preflight")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(

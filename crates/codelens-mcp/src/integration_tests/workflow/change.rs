@@ -140,7 +140,7 @@ fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
         json!("caution")
     );
 
-// After canonicalization, caution tracking may differ by surface.
+    // After canonicalization, caution tracking may differ by surface.
     let payload = call_tool(
         &state,
         "create_text_file",

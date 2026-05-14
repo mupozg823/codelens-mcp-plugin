@@ -592,7 +592,7 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
 fn refactor_deferred_tools_list_starts_preview_first() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-// refactor-full is deprecated and canonicalizes to builder-minimal.
+    // refactor-full is deprecated and canonicalizes to builder-minimal.
     let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
 
     let list_resp = handle_request(

@@ -24,7 +24,6 @@ fn principal_env_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-
 #[test]
 fn audit_log_query_denied_for_non_admin_principal() {
     // P2-F: the role gate must reject `audit_log_query` for any
@@ -46,8 +45,6 @@ fn audit_log_query_denied_for_non_admin_principal() {
         "denial must name Admin as required role, response={response}"
     );
 }
-
-
 
 /// ADR-0009 §3 (P2-D lifecycle): a successful mutation now writes
 /// `state_to=Audited`, `evidence_hash` populated (canonical sha256 of
@@ -283,4 +280,3 @@ role = "ReadOnly"
         }
     }
 }
-

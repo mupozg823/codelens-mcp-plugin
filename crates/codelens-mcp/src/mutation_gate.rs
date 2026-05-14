@@ -123,7 +123,8 @@ pub(crate) fn evaluate_mutation_gate(
 ) -> Result<Option<MutationGateAllowance>, MutationGateFailure> {
     let is_gated_surface = matches!(
         surface,
-        ToolSurface::Profile(ToolProfile::RefactorFull) | ToolSurface::Profile(ToolProfile::BuilderMinimal)
+        ToolSurface::Profile(ToolProfile::RefactorFull)
+            | ToolSurface::Profile(ToolProfile::BuilderMinimal)
     );
     if !is_gated_surface || !is_refactor_gated_mutation_tool(name) {
         return Ok(None);

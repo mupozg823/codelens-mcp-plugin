@@ -4,9 +4,8 @@ use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_engine::edit_transaction::{ApplyEvidence, ApplyStatus};
 use codelens_engine::{
-    add_import, create_text_file, delete_lines, insert_after_symbol,
-    insert_at_line, insert_before_symbol, rename, replace_content, replace_lines,
-    replace_symbol_body,
+    add_import, create_text_file, delete_lines, insert_after_symbol, insert_at_line,
+    insert_before_symbol, rename, replace_content, replace_lines, replace_symbol_body,
 };
 use serde_json::{Value, json};
 

@@ -5,9 +5,8 @@ use super::{
 use crate::protocol::{BackendKind, ToolResponseMeta};
 use crate::tools::symbols::flatten_symbols;
 use codelens_engine::{
-    find_dead_code_v2, find_scoped_references, get_blast_radius,
-    get_callees, get_callers, get_changed_files, get_importance,
-    get_importers,
+    find_dead_code_v2, find_scoped_references, get_blast_radius, get_callees, get_callers,
+    get_changed_files, get_importance, get_importers,
 };
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
