@@ -36,7 +36,9 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
 pub(crate) fn apply_tool_deprecation_meta(meta: &mut serde_json::Value, name: &str) {
     if let Some((since, replacement, removal)) = tool_deprecation(name) {
         meta["codelens/deprecatedSince"] = serde_json::json!(since);
-        meta["codelens/deprecatedReplacement"] = serde_json::json!(replacement);
+        if !replacement.is_empty() {
+            meta["codelens/deprecatedReplacement"] = serde_json::json!(replacement);
+        }
         meta["codelens/deprecatedRemovalTarget"] = serde_json::json!(removal);
     }
 }
@@ -114,6 +116,26 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
 
 pub(crate) fn tool_phase_label(name: &str) -> Option<&'static str> {
     tool_phase(name).map(|p| p.as_label())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply_tool_deprecation_meta;
+    use serde_json::json;
+
+    #[test]
+    fn deprecation_meta_omits_empty_replacement() {
+        let mut meta = json!({});
+
+        apply_tool_deprecation_meta(&mut meta, "rename_symbol");
+
+        assert_eq!(meta["codelens/deprecatedSince"], json!("1.13.27"));
+        assert_eq!(meta["codelens/deprecatedRemovalTarget"], json!("2.0"));
+        assert!(
+            meta.get("codelens/deprecatedReplacement").is_none(),
+            "tools without a concrete replacement should not emit an empty replacement field"
+        );
+    }
 }
 
 /// ADR-0006 Layer 1 — routing hint advising which executor class is a
