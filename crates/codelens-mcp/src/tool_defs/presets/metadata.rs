@@ -25,10 +25,7 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         | "replace"
         | "create_text_file"
         | "rename_symbol"
-        | "propagate_deletions"
-        | "onboard_project"
-        | "analyze_change_request"
-        | "orchestrate_change" => Some(("1.13.27", "", "2.0")),
+        | "propagate_deletions" => Some(("1.13.27", "", "2.0")),
         _ => None,
     }
 }
@@ -131,6 +128,21 @@ mod tests {
             meta.get("codelens/deprecatedReplacement").is_none(),
             "tools without a concrete replacement should not emit an empty replacement field"
         );
+    }
+
+    #[test]
+    fn core_workflow_tools_are_not_deprecated() {
+        for name in [
+            "onboard_project",
+            "analyze_change_request",
+            "orchestrate_change",
+            "verify_change_readiness",
+        ] {
+            assert!(
+                super::tool_deprecation(name).is_none(),
+                "{name} is documented and routed as an active workflow entrypoint"
+            );
+        }
     }
 }
 

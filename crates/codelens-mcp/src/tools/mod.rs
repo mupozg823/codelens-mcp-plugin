@@ -128,6 +128,7 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "refactor_move_to_file"        => composite::refactor_move_to_file,
         "refactor_change_signature"    => composite::refactor_change_signature,
         "propagate_deletions"          => composite::propagate_deletions,
+        // ── Composite — onboarding ──
         "onboard_project"              => composite::onboard_project,
         // ── Workflow aliases (problem-first) ──
         "explore_codebase"             => workflows::explore_codebase,
@@ -138,7 +139,6 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "review_changes"               => workflows::review_changes,
         "diagnose_issues"              => workflows::diagnose_issues,
         // ── Reports / compressed context ──
-        // (orchestrate_change / analyze_change_request still in dispatch for backward compat)
         "orchestrate_change"           => reports::orchestrate_change,
         "analyze_change_request"       => reports::analyze_change_request,
         "verify_change_readiness"      => reports::verify_change_readiness,

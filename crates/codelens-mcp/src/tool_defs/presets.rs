@@ -299,7 +299,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "replace",
     "create_text_file",
     "add_import",
-    // Workflow orchestration (deprecated, kept for backward compat)
+    // Workflow orchestration / readiness
     "orchestrate_change",
     "analyze_change_request",
     "verify_change_readiness",
