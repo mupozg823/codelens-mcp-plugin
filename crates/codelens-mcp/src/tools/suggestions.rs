@@ -126,6 +126,26 @@ const EXPLORATION_TOOLS: &[&str] = &[
     "get_current_config",
 ];
 
+static DISPATCH_TOOL_NAMES: std::sync::LazyLock<std::collections::HashSet<&'static str>> =
+    std::sync::LazyLock::new(|| crate::tools::dispatch_table().keys().copied().collect());
+
+fn is_registered_tool_for_current_build(name: &str) -> bool {
+    crate::tool_defs::tool_definition(name).is_some() || DISPATCH_TOOL_NAMES.contains(name)
+}
+
+fn retain_registered_suggestions(suggestions: &mut Vec<String>) {
+    suggestions.retain(|tool| is_registered_tool_for_current_build(tool));
+}
+
+fn registered_suggestions(suggestions: &[&str]) -> Vec<String> {
+    suggestions
+        .iter()
+        .copied()
+        .filter(|tool| is_registered_tool_for_current_build(tool))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
 /// Infer the harness phase from recent tool usage when the client has not
 /// supplied `_harness_phase` explicitly.
 ///
@@ -258,7 +278,10 @@ pub fn suggest_next_contextual(
             "build" => BUILD_PHASE_TOOLS,
             "review" => REVIEW_PHASE_TOOLS,
             "eval" => EVAL_PHASE_TOOLS,
-            _ => return Some(suggestions), // unknown phase, no filtering
+            _ => {
+                retain_registered_suggestions(&mut suggestions);
+                return Some(suggestions);
+            } // unknown phase, no phase filtering
         };
         suggestions.retain(|s| phase_tools.contains(&s.as_str()));
         // Ensure we always have at least 1 suggestion
@@ -267,6 +290,7 @@ pub fn suggest_next_contextual(
         }
     }
 
+    retain_registered_suggestions(&mut suggestions);
     Some(suggestions)
 }
 
@@ -574,7 +598,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
 
         _ => return None,
     };
-    Some(suggestions.iter().map(|s| s.to_string()).collect())
+    Some(registered_suggestions(suggestions))
 }
 
 /// Returns a map of tool name → brief reason explaining why it is suggested.
@@ -650,6 +674,50 @@ mod phase_inference_tests {
     fn unknown_tools_only_returns_none() {
         let recent = tools(&["my_custom_thing", "another_unknown"]);
         assert_eq!(infer_harness_phase(&recent), None);
+    }
+
+    #[test]
+    fn suggestions_exclude_tools_missing_from_current_registry() {
+        let overview = super::suggest_next("get_symbols_overview").expect("overview suggestions");
+        assert!(
+            !overview.iter().any(|tool| tool == "get_impact_analysis"),
+            "removed analysis alias should not be suggested: {overview:?}"
+        );
+
+        let config = super::suggest_next("get_current_config").expect("config suggestions");
+        assert!(
+            !config.iter().any(|tool| tool == "get_project_structure"),
+            "removed project-structure alias should not be suggested: {config:?}"
+        );
+
+        let diff = super::suggest_next("diff_aware_references").expect("diff-aware suggestions");
+        assert!(
+            !diff.iter().any(|tool| tool == "semantic_code_review"),
+            "removed report kind should not be suggested as a callable tool: {diff:?}"
+        );
+
+        let contextual = super::suggest_next_contextual(
+            "review_changes",
+            &tools(&["review_architecture"]),
+            None,
+        )
+        .expect("contextual suggestions");
+        assert!(
+            contextual
+                .iter()
+                .all(|tool| super::is_registered_tool_for_current_build(tool)),
+            "contextual suggestions must be callable in the current build: {contextual:?}"
+        );
+    }
+
+    #[cfg(not(feature = "semantic"))]
+    #[test]
+    fn suggestions_hide_semantic_tools_when_feature_is_not_compiled() {
+        let ranked = super::suggest_next("get_ranked_context").expect("ranked suggestions");
+        assert!(
+            !ranked.iter().any(|tool| tool == "semantic_search"),
+            "semantic_search should not be suggested without the semantic feature: {ranked:?}"
+        );
     }
 
     #[test]

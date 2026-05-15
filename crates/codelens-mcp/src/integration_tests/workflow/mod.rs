@@ -24,7 +24,7 @@ pub(super) fn make_http_state(project: &codelens_engine::ProjectRoot) -> crate::
 
 #[allow(dead_code)]
 #[cfg(feature = "http")]
-pub(super) fn create_http_profile_session(
+pub(super) fn create_http_profile_session_without_prepare(
     state: &crate::AppState,
     project: &codelens_engine::ProjectRoot,
     profile: crate::tool_defs::ToolProfile,
@@ -41,7 +41,17 @@ pub(super) fn create_http_profile_session(
         project_path: Some(project.as_path().to_string_lossy().into_owned()),
         ..Default::default()
     });
-    let session_id = session.id.clone();
+    session.id.clone()
+}
+
+#[allow(dead_code)]
+#[cfg(feature = "http")]
+pub(super) fn create_http_profile_session(
+    state: &crate::AppState,
+    project: &codelens_engine::ProjectRoot,
+    profile: crate::tool_defs::ToolProfile,
+) -> String {
+    let session_id = create_http_profile_session_without_prepare(state, project, profile);
     let _ = call_tool_with_session(
         state,
         "prepare_harness_session",
