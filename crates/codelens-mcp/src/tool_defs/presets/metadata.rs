@@ -44,7 +44,9 @@ pub(crate) fn apply_tool_deprecation_meta(meta: &mut serde_json::Value, name: &s
 }
 
 pub(crate) fn deprecated_workflow_alias(name: &str) -> Option<(&'static str, &'static str)> {
-    tool_deprecation(name).map(|(_, replacement, removal)| (replacement, removal))
+    tool_deprecation(name).and_then(|(_, replacement, removal)| {
+        (!replacement.is_empty()).then_some((replacement, removal))
+    })
 }
 
 /// Phase alias per ADR-0005 step 4 — harness-phase scoping for `tools/list`
@@ -134,6 +136,14 @@ mod tests {
         assert!(
             meta.get("codelens/deprecatedReplacement").is_none(),
             "tools without a concrete replacement should not emit an empty replacement field"
+        );
+    }
+
+    #[test]
+    fn deprecated_workflow_alias_requires_concrete_replacement() {
+        assert!(
+            super::deprecated_workflow_alias("rename_symbol").is_none(),
+            "deprecated tools without a replacement should not be treated as workflow aliases"
         );
     }
 }
