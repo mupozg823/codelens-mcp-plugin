@@ -180,7 +180,6 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     // ── Niche analysis (use Full preset for these) ──
     "find_circular_dependencies",
     "get_symbol_importance",
-    "find_dead_code",
     "refactor_extract_function",
     "refactor_inline_function",
     "refactor_move_to_file",
@@ -205,10 +204,6 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "insert_before_symbol",
     "insert_after_symbol",
     "replace_lines",
-    // ── Deprecated workflow aliases (keep direct-call compat only) ──
-    "audit_security_context",
-    "analyze_change_impact",
-    "assess_change_readiness",
 ];
 
 pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
@@ -246,7 +241,6 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "semantic_search",
     "index_embeddings",
     // Graph / impact
-    "get_impact_analysis",
     "get_changed_files",
     "onboard_project",
     // Workflow composites
@@ -346,7 +340,6 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     // Graph / impact
     "get_callers",
     "get_callees",
-    "get_impact_analysis",
     "get_changed_files",
     // Workflow composites
     "orchestrate_change",

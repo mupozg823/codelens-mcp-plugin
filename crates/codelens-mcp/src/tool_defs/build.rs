@@ -26,7 +26,6 @@ fn tool_title_override(name: &str) -> Option<&'static str> {
         "get_complexity" => Some("Complexity"),
         "get_lsp_recipe" => Some("LSP Recipe"),
         "get_changed_files" => Some("Changed Files"),
-        "get_impact_analysis" => Some("Impact Analysis"),
         "get_symbol_importance" => Some("Symbol Importance"),
         "get_file_diagnostics" => Some("File Diagnostics"),
         "get_analysis_job" => Some("Analysis Job"),

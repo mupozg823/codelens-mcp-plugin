@@ -832,11 +832,8 @@ fn infer_session_type(timeline: &[crate::telemetry::ToolInvocation]) -> &'static
             | "refactor_change_signature" => mutation_count += 1,
 
             "get_changed_files"
-            | "get_impact_analysis"
             | "diff_aware_references"
             | "review_architecture"
-            | "analyze_change_impact"
-            | "audit_security_context"
             | "cleanup_duplicate_logic"
             | "impact_report"
             | "verify_change_readiness" => review_count += 1,
