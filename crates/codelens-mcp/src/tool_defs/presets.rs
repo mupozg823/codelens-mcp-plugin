@@ -6,9 +6,9 @@ mod overlay;
 
 pub(crate) use budgets::{default_budget_for_preset, default_budget_for_profile};
 pub(crate) use metadata::{
-    apply_tool_deprecation_meta, deprecated_workflow_alias, tool_anthropic_always_load,
-    tool_anthropic_search_hint, tool_deprecation, tool_namespace, tool_phase_label,
-    tool_preferred_executor, tool_preferred_executor_label,
+    apply_tool_deprecation_meta, tool_anthropic_always_load, tool_anthropic_search_hint,
+    tool_deprecation, tool_namespace, tool_phase_label, tool_preferred_executor,
+    tool_preferred_executor_label,
 };
 pub(crate) use overlay::{HostContext, SurfaceCompilerInput, TaskOverlay, compile_surface_overlay};
 
@@ -387,9 +387,6 @@ pub(crate) fn is_tool_in_surface(name: &str, surface: ToolSurface) -> bool {
 
 pub(crate) fn is_tool_callable_in_surface(name: &str, surface: ToolSurface) -> bool {
     is_tool_in_surface(name, surface)
-        || deprecated_workflow_alias(name)
-            .map(|(replacement, _)| is_tool_in_surface(replacement, surface))
-            .unwrap_or(false)
 }
 
 /// Check if a tool is included in a given preset.
