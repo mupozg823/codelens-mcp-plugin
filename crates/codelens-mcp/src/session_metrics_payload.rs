@@ -844,7 +844,6 @@ fn infer_session_type(timeline: &[crate::telemetry::ToolInvocation]) -> &'static
             "explore_codebase"
             | "trace_request_path"
             | "onboard_project"
-            | "get_project_structure"
             | "get_symbols_overview"
             | "get_current_config"
             | "activate_project" => exploration_count += 1,

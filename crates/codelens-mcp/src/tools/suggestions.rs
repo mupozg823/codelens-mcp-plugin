@@ -121,7 +121,6 @@ const EXPLORATION_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
     "get_symbols_overview",
-    "get_project_structure",
     "onboard_project",
     "get_current_config",
 ];
@@ -409,7 +408,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         ],
         "get_ranked_context" => &["find_symbol", "replace_symbol_body", "semantic_search"],
         "refresh_symbol_index" => &["index_embeddings", "get_symbols_overview"],
-        "get_project_structure" => &["get_symbols_overview", "get_ranked_context", "find_symbol"],
         "get_complexity" => &["find_symbol", "get_symbols_overview"],
         "search_symbols_fuzzy" => &["find_symbol", "get_ranked_context"],
 
@@ -433,7 +431,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "find_scoped_references" => &["rename_symbol", "find_referencing_symbols"],
 
         // ── Filesystem ───────────────────────────────────────────────
-        "get_current_config" => &["get_capabilities", "get_project_structure"],
+        "get_current_config" => &["get_capabilities", "onboard_project"],
         "read_file" => &["get_symbols_overview", "find_symbol"],
         "search_for_pattern" => &["find_referencing_symbols", "get_ranked_context"],
         "find_annotations" => &["get_symbols_overview", "find_symbol"],
@@ -464,11 +462,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "list_memories" => &["read_memory", "write_memory"],
 
         // ── Session ──────────────────────────────────────────────────
-        "activate_project" => &[
-            "get_project_structure",
-            "get_current_config",
-            "get_capabilities",
-        ],
+        "activate_project" => &["onboard_project", "get_current_config", "get_capabilities"],
         "prepare_harness_session" => &[
             "get_current_config",
             "get_capabilities",
@@ -506,7 +500,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "add_queryable_project" => &["query_project", "list_queryable_projects"],
         "query_project" => &["find_symbol", "list_queryable_projects"],
         "set_preset" => &["get_capabilities"],
-        "get_capabilities" => &["get_project_structure", "get_ranked_context"],
+        "get_capabilities" => &["onboard_project", "get_ranked_context"],
         "get_tool_metrics" => &[
             "audit_builder_session",
             "export_session_markdown",
@@ -678,6 +672,11 @@ mod phase_inference_tests {
 
     #[test]
     fn suggestions_exclude_tools_missing_from_current_registry() {
+        assert!(
+            super::suggest_next("get_project_structure").is_none(),
+            "removed project-structure alias should not have a static suggestion chain"
+        );
+
         let overview = super::suggest_next("get_symbols_overview").expect("overview suggestions");
         assert!(
             !overview.iter().any(|tool| tool == "get_impact_analysis"),

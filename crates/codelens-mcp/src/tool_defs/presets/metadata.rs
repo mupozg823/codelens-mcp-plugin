@@ -8,7 +8,6 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         | "find_over_visible_apis"
         | "find_phantom_modules"
         | "search_for_pattern"
-        | "get_project_structure"
         | "analyze_missing_imports"
         | "add_import"
         | "refactor_extract_function"

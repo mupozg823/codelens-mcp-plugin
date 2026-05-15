@@ -205,8 +205,6 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "insert_before_symbol",
     "insert_after_symbol",
     "replace_lines",
-    // ── Superseded by onboard_project ──
-    "get_project_structure",
     // ── Deprecated workflow aliases (keep direct-call compat only) ──
     "audit_security_context",
     "analyze_change_impact",

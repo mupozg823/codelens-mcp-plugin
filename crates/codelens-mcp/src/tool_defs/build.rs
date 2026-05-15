@@ -21,7 +21,6 @@ fn estimate_serialized_tokens(tool: &Tool) -> usize {
 fn tool_title_override(name: &str) -> Option<&'static str> {
     match name {
         "get_current_config" => Some("Current Config"),
-        "get_project_structure" => Some("Project Structure"),
         "get_symbols_overview" => Some("Symbols Overview"),
         "get_ranked_context" => Some("Ranked Context"),
         "get_complexity" => Some("Complexity"),
