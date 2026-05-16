@@ -15,6 +15,11 @@ struct DuplicateFilterOutcome {
     pairs: Vec<DuplicatePair>,
     suppressed_config_code_pairs: usize,
     suppressed_same_file_same_symbol_pairs: usize,
+    /// Issue #296 (Dogfood D3): count of pairs whose `file_a` or
+    /// `file_b` no longer exists on disk. Symptom of a stale
+    /// embedding index that still carries entries for renamed /
+    /// split / deleted source files.
+    suppressed_phantom_path_pairs: usize,
 }
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
@@ -204,7 +209,37 @@ fn filter_duplicate_pairs_for_cleanup(
         pairs,
         suppressed_config_code_pairs,
         suppressed_same_file_same_symbol_pairs,
+        suppressed_phantom_path_pairs: 0,
     }
+}
+
+/// Issue #296 (Dogfood D3): drop duplicate pairs whose either side
+/// points at a file that no longer exists on disk. Symptom of a stale
+/// embedding index that still carries entries for renamed / split /
+/// deleted source. Kept out of `filter_duplicate_pairs_for_cleanup`
+/// so the existing scope / quality test fixtures (which use
+/// tempdir-relative paths) keep working — fixture pairs would
+/// otherwise all be classified as phantom.
+#[cfg(feature = "semantic")]
+fn drop_phantom_path_pairs(
+    project: &ProjectRoot,
+    pairs: Vec<DuplicatePair>,
+) -> (Vec<DuplicatePair>, usize) {
+    let project_root = project.as_path().to_path_buf();
+    let mut suppressed = 0usize;
+    let kept: Vec<DuplicatePair> = pairs
+        .into_iter()
+        .filter(|pair| {
+            let exists = |rel: &str| !rel.is_empty() && project_root.join(rel).exists();
+            if exists(&pair.file_a) && exists(&pair.file_b) {
+                true
+            } else {
+                suppressed += 1;
+                false
+            }
+        })
+        .collect();
+    (kept, suppressed)
 }
 
 fn delegate_workflow(
@@ -440,7 +475,12 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
                 scan_limit,
                 normalized_scope.as_deref(),
             )?;
-            let filtered = filter_duplicate_pairs_for_cleanup(
+            // Dogfood D3 (#296): drop pairs that reference source
+            // files no longer on disk before the rest of the quality
+            // filters run, so the suppression counts stay clean.
+            let (pairs, suppressed_phantom_path_pairs) =
+                drop_phantom_path_pairs(&state.project(), pairs);
+            let mut filtered = filter_duplicate_pairs_for_cleanup(
                 &state.project(),
                 scope,
                 pairs,
@@ -448,10 +488,12 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
                 include_config_code_pairs,
                 include_local_same_symbol_pairs,
             );
+            filtered.suppressed_phantom_path_pairs = suppressed_phantom_path_pairs;
             let count = filtered.pairs.len();
             let suppressed_config_code_pairs = filtered.suppressed_config_code_pairs;
             let suppressed_same_file_same_symbol_pairs =
                 filtered.suppressed_same_file_same_symbol_pairs;
+            let suppressed_phantom_path_pairs = filtered.suppressed_phantom_path_pairs;
             let payload = json!({
                 "threshold": threshold,
                 "scope": scope,
@@ -462,6 +504,10 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
                     "suppressed_config_code_pairs": suppressed_config_code_pairs,
                     "same_file_same_symbol_pairs": if include_local_same_symbol_pairs { "included" } else { "suppressed_by_default" },
                     "suppressed_same_file_same_symbol_pairs": suppressed_same_file_same_symbol_pairs,
+                    // Dogfood D3 (#296): non-zero means the embedding
+                    // index is referencing source files that no longer
+                    // exist on disk — re-run refresh_symbol_index.
+                    "suppressed_phantom_path_pairs": suppressed_phantom_path_pairs,
                 },
                 "duplicates": filtered.pairs,
                 "count": count,
