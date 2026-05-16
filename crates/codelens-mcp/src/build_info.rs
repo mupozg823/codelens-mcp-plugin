@@ -292,13 +292,24 @@ pub(crate) fn daemon_binary_drift_payload(
     } else {
         None
     };
+    // Issue #301 (Dogfood): the existing `status: "stale"` /
+    // `restart_recommended: true` signals are easy to overlook in a
+    // 5 KB capabilities response. Surface a coarse `severity` band
+    // plus a ready-to-paste `workaround_command` so an operator can
+    // recover without grepping `ops.md`. Both fields are additive —
+    // existing consumers keep their current behaviour.
+    let severity = if stale_daemon { "high" } else { "info" };
+    let workaround_command =
+        stale_daemon.then_some("launchctl kickstart -k \"gui/$(id -u)/dev.codelens.mcp-readonly\"");
     json!({
         "status": status,
         "stale_daemon": stale_daemon,
         "restart_recommended": stale_daemon,
+        "severity": severity,
         "reason_code": reason_code,
         "recommended_action": recommended_action,
         "action_target": if stale_daemon { Some("daemon") } else { None },
+        "workaround_command": workaround_command,
         "executable_path": executable_path.to_string_lossy(),
         "executable_modified_at": format_rfc3339_utc(modified_seconds),
         "daemon_started_at": daemon_started_at,
