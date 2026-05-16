@@ -471,6 +471,23 @@ mod tests {
         assert!(supports_import_graph("main.css"));
     }
 
+    /// Dogfood D1 (#294) regression: `dead_code_report` was flagging
+    /// build/config manifests as "no importers". The
+    /// `supports_import_graph` predicate is the filter
+    /// `find_dead_code` / `find_dead_code_v2::Pass-1` now apply.
+    /// Locks the lang-registry-side of the contract; `.rb` / `.py` /
+    /// other entry-point scripts still pass through and are handled
+    /// by a separate path-based exclusion (follow-up).
+    #[test]
+    fn rejects_non_source_manifests() {
+        assert!(!supports_import_graph("Cargo.toml"));
+        assert!(!supports_import_graph(".cargo/audit.toml"));
+        assert!(!supports_import_graph(".github/workflows/ci.yml"));
+        assert!(!supports_import_graph("benchmarks/bench.sh"));
+        assert!(!supports_import_graph("README.md"));
+        assert!(!supports_import_graph(".serena/project.yml"));
+    }
+
     #[test]
     fn extracts_go_imports() {
         let content = r#"

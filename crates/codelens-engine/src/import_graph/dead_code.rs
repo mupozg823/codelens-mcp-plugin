@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::parsers::collect_top_level_funcs;
-use super::{DeadCodeEntry, GraphCache, collect_candidate_files};
+use super::{DeadCodeEntry, GraphCache, collect_candidate_files, supports_import_graph};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DeadCodeEntryV2 {
@@ -75,9 +75,12 @@ pub fn find_dead_code(
     cache: &GraphCache,
 ) -> Result<Vec<DeadCodeEntry>> {
     let graph = cache.get_or_build(project)?;
+    // Dogfood D1 (#294): exclude non-source manifests so build/CI files
+    // (`.yml`, `.toml`, `.py`, `.sh`, `.rb`, …) don't show up as
+    // "no importers" — they cannot have importers by definition.
     let mut dead: Vec<_> = graph
         .iter()
-        .filter(|(_, node)| node.imported_by.is_empty())
+        .filter(|(file, node)| node.imported_by.is_empty() && supports_import_graph(file))
         .map(|(file, _)| DeadCodeEntry {
             file: file.clone(),
             symbol: None,
@@ -101,7 +104,11 @@ pub fn find_dead_code_v2(
     // ── Pass 1: unreferenced files ────────────────────────────────────────────
     let graph = cache.get_or_build(project)?;
     for (file, node) in graph.iter() {
-        if node.imported_by.is_empty() && !is_entry_point_file(file) {
+        // Dogfood D1 (#294): non-source manifests can't have importers in
+        // the Rust `use`-graph sense, so they would always be false-positive
+        // dead. Skip them at Pass 1; symbol-level Pass 2 still runs.
+        if node.imported_by.is_empty() && !is_entry_point_file(file) && supports_import_graph(file)
+        {
             results.push(DeadCodeEntryV2 {
                 file: file.clone(),
                 symbol: None,
