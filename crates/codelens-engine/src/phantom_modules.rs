@@ -487,9 +487,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn dogfood_self_repo() {
-        // Run with: cargo test -p codelens-engine phantom_modules::tests::dogfood_self_repo -- --ignored --nocapture
         // Derive workspace root from CARGO_MANIFEST_DIR so contributor's
         // clone path works without hardcoding (codex P2 from PR #149).
         let repo = std::env::var("CODELENS_REPO_ROOT").unwrap_or_else(|_| {
@@ -502,6 +500,26 @@ mod tests {
         });
         let project = crate::project::ProjectRoot::new(repo).expect("project root");
         let results = super::find_phantom_modules(&project, 200).expect("find_phantom_modules");
+        assert!(
+            results.len() <= 200,
+            "dogfood scan must respect max_results: {}",
+            results.len()
+        );
+        assert!(
+            results.windows(2).all(|pair| {
+                let a = &pair[0];
+                let b = &pair[1];
+                (a.parent_file.as_str(), a.line, a.module_name.as_str())
+                    <= (b.parent_file.as_str(), b.line, b.module_name.as_str())
+            }),
+            "dogfood results must be deterministic and sorted: {results:?}"
+        );
+        assert!(
+            results
+                .iter()
+                .all(|entry| !is_excluded_path(&entry.parent_file)),
+            "dogfood scan should not return excluded paths: {results:?}"
+        );
         eprintln!("\n=== {} phantom mod declarations ===\n", results.len());
         for r in &results {
             eprintln!(

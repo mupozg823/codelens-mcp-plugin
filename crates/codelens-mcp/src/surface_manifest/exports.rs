@@ -163,7 +163,7 @@ pub(super) fn build_agent_experience() -> Value {
             "primary_path": [
                 "find_symbol",
                 "find_referencing_symbols",
-                "get_impact_analysis",
+                "impact_report",
                 "get_type_hierarchy"
             ],
             "fallback_ladder": [
