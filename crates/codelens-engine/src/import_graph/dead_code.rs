@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::parsers::collect_top_level_funcs;
-use super::{DeadCodeEntry, GraphCache, collect_candidate_files};
+use super::{DeadCodeEntry, GraphCache, collect_import_graph_candidates};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DeadCodeEntryV2 {
@@ -114,7 +114,7 @@ pub fn find_dead_code_v2(
     }
 
     // ── Pass 2: unreferenced symbols ─────────────────────────────────────────
-    let candidate_files = collect_candidate_files(project.as_path())?;
+    let candidate_files = collect_import_graph_candidates(project.as_path())?;
     let mut all_callees: HashSet<String> = HashSet::new();
     for path in &candidate_files {
         for edge in extract_calls(path) {

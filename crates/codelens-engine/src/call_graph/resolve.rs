@@ -9,7 +9,7 @@ use super::js_imports::{JSImportBindingIndex, is_import_sensitive_path};
 use super::language::{best_path_proximity_candidate, call_language_for_path, same_call_language};
 use super::types::CallEdge;
 
-pub(crate) fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
+pub(crate) fn collect_call_graph_candidates(root: &Path) -> Result<Vec<PathBuf>> {
     collect_files(root, |path| call_language_for_path(path).is_some())
 }
 pub(crate) fn maybe_import_graph(

@@ -65,12 +65,6 @@ fn replace_content_unified_default_dispatches_to_text() {
     );
     assert_raw_fs_envelope(&result, "replace_content");
 }
-/// `confidence` and `backend_used` are top-level fields in the parsed text
-/// payload (see `format_structured_response` in dispatch/response_support.rs).
-/// There is no `_meta` wrapper; they sit directly on the returned JSON object.
-fn extract_confidence(result: &serde_json::Value) -> f64 {
-    result["confidence"].as_f64().unwrap_or(1.0)
-}
 #[test]
 fn unset_backend_apply_attempt_returns_validation_error() {
     let project = project_root();
