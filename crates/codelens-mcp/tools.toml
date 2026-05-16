@@ -41,6 +41,7 @@ schema_version = "v1"
 [[tool]]
 name = "get_current_config"
 category = "file_io"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, call activate_project or prepare_harness_session with an absolute project path; do not abandon CodeLens because the active project is stale."
 annotations = "ro_p"
 output_schema = "get_current_config_output_schema"
@@ -54,6 +55,7 @@ properties = {}
 [[tool]]
 name = "read_file"
 category = "file_io"
+preset_tags = ["minimal", "balanced-excluded"]
 description = "[CodeLens:File] Read file contents with optional line range. Use `path` (canonical). Legacy `relative_path` is accepted for one release with a deprecation warning."
 annotations = "ro_p"
 output_schema = "file_content_output_schema"
@@ -68,6 +70,7 @@ properties = { path = { type = "string" }, relative_path = { type = "string", de
 [[tool]]
 name = "list_dir"
 category = "file_io"
+preset_tags = ["minimal", "balanced-excluded"]
 description = "[CodeLens:File] List directory contents, optionally recursive. Use `path` (canonical). Legacy `relative_path` is accepted for one release with a deprecation warning."
 annotations = "ro_p"
 
@@ -81,6 +84,7 @@ properties = { path = { type = "string" }, relative_path = { type = "string", de
 [[tool]]
 name = "find_file"
 category = "file_io"
+preset_tags = ["minimal", "balanced-excluded"]
 description = "[CodeLens:File] Find files by wildcard pattern."
 annotations = "ro_p"
 
@@ -94,6 +98,7 @@ properties = { wildcard_pattern = { type = "string" }, relative_dir = { type = "
 [[tool]]
 name = "find_annotations"
 category = "file_io"
+preset_tags = []
 description = "[CodeLens:File] Find TODO/FIXME/HACK comments across the project."
 annotations = "ro_p"
 output_schema = "find_annotations_output_schema"
@@ -107,6 +112,7 @@ properties = { tags = { type = "string" }, max_results = { type = "integer" } }
 [[tool]]
 name = "find_tests"
 category = "file_io"
+preset_tags = ["builder-minimal"]
 description = "[CodeLens:File] Find test functions and test modules."
 annotations = "ro_p"
 output_schema = "find_tests_output_schema"
@@ -120,6 +126,7 @@ properties = { path = { type = "string" }, max_results = { type = "integer" } }
 [[tool]]
 name = "get_symbols_overview"
 category = "symbol"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] List all symbols in a file — structural map. Use first to understand a file."
 annotations = "ro_p"
 output_schema = "symbol_output_schema"
@@ -134,6 +141,7 @@ properties = { path = { type = "string" }, file_path = { type = "string", descri
 [[tool]]
 name = "find_symbol"
 category = "symbol"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body. Use `name` (canonical). Legacy `name_path` is accepted for one release with deprecation warning. `include_body=true` returns full body via tree-sitter; SCIP backend currently returns signature only (#172)."
 annotations = "ro_p"
 output_schema = "symbol_output_schema"
@@ -154,6 +162,7 @@ name_path = { type = "string", description = "DEPRECATED v1.13.23 — use `name`
 [[tool]]
 name = "get_ranked_context"
 category = "symbol"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Smart context retrieval — best symbols for a query within token budget. For natural-language queries, set expand_query=false to skip n-gram expansion; for partial-identifier search use the default."
 annotations = "ro_a"
 output_schema = "ranked_context_output_schema"
@@ -177,6 +186,7 @@ expand_query = { type = "boolean", description = "When true (default), expand th
 [[tool]]
 name = "bm25_symbol_search"
 category = "symbol"
+preset_tags = []
 description = "[CodeLens:Symbol] Sparse BM25-F symbol retrieval — best for identifiers, signatures, path tokens, and short lexical phrases."
 annotations = "ro_a"
 output_schema = "bm25_symbol_search_output_schema"
@@ -195,6 +205,7 @@ include_generated = { type = "boolean", description = "Include generated symbols
 [[tool]]
 name = "search_symbols_fuzzy"
 category = "symbol"
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Symbol] Fuzzy symbol search — tolerates typos and partial names."
 annotations = "ro_a"
 
@@ -212,6 +223,7 @@ disable_semantic = { type = "boolean", description = "Disable semantic score ble
 [[tool]]
 name = "get_complexity"
 category = "symbol"
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Analysis] Cyclomatic complexity for functions. Use to find code needing refactoring."
 annotations = "ro_a"
 
@@ -225,6 +237,7 @@ properties = { path = { type = "string" }, symbol_name = { type = "string" } }
 [[tool]]
 name = "refresh_symbol_index"
 category = "symbol"
+preset_tags = ["minimal", "builder-minimal"]
 description = "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale."
 annotations = "mut_w"
 
@@ -237,6 +250,7 @@ properties = {}
 [[tool]]
 name = "find_referencing_symbols"
 category = "lsp"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Find all usages of a symbol. use_lsp=true for type-aware precision."
 annotations = "ro_p"
 output_schema = "references_output_schema"
@@ -261,6 +275,7 @@ max_results = { type = "integer" }
 [[tool]]
 name = "get_file_diagnostics"
 category = "lsp"
+preset_tags = ["minimal", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Type errors and lint issues via LSP. Use after editing code."
 annotations = "ro_p"
 output_schema = "diagnostics_output_schema"
@@ -281,6 +296,7 @@ max_results = { type = "integer" }
 [[tool]]
 name = "search_workspace_symbols"
 category = "lsp"
+preset_tags = ["minimal"]
 description = "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); the handler returns a structured hint toward `bm25_symbol_search` when omitted."
 annotations = "ro_p"
 
@@ -298,6 +314,7 @@ max_results = { type = "integer" }
 [[tool]]
 name = "get_type_hierarchy"
 category = "lsp"
+preset_tags = ["minimal"]
 description = "[CodeLens:Symbol] Inheritance hierarchy — supertypes and subtypes of a class/interface. Use `path` (canonical). Legacy `relative_path` is accepted for one release with a deprecation warning."
 annotations = "ro_a"
 output_schema = "get_type_hierarchy_output_schema"
@@ -319,6 +336,7 @@ args = { type = "array", items = { type = "string" } }
 [[tool]]
 name = "resolve_symbol_target"
 category = "lsp"
+preset_tags = []
 description = "[CodeLens:Symbol] Resolve declaration/definition/implementation/type target through LSP. Use when edit-grade navigation authority is required."
 annotations = "ro_a"
 output_schema = "resolve_symbol_target_output_schema"
@@ -342,6 +360,7 @@ max_results = { type = "integer" }
 [[tool]]
 name = "plan_symbol_rename"
 category = "lsp"
+preset_tags = ["minimal", "builder-minimal"]
 description = "[CodeLens:Symbol] Preview rename refactoring via LSP — check before applying."
 annotations = "ro_a"
 
@@ -362,6 +381,7 @@ args = { type = "array", items = { type = "string" } }
 [[tool]]
 name = "get_lsp_recipe"
 category = "lsp"
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Session] Get LSP server install instructions for a file extension."
 annotations = "ro_p"
 
@@ -375,6 +395,7 @@ properties = { extension = { type = "string", description = "File extension (e.g
 [[tool]]
 name = "get_changed_files"
 category = "analysis"
+preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Analysis] Files changed since a git ref with symbol counts. Use for diff review."
 annotations = "ro_p"
 output_schema = "changed_files_output_schema"
@@ -388,6 +409,7 @@ properties = { ref = { type = "string" }, include_untracked = { type = "boolean"
 [[tool]]
 name = "get_callers"
 category = "analysis"
+preset_tags = ["builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Analysis] Find functions that call a function. Returns bounded call-graph edges with backend/confidence metadata."
 annotations = "ro_a"
 output_schema = "get_callers_output_schema"
@@ -406,6 +428,7 @@ max_results = { type = "integer" }
 [[tool]]
 name = "get_callees"
 category = "analysis"
+preset_tags = ["builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Analysis] Find functions called by a function. Use path when duplicate function names exist."
 annotations = "ro_a"
 output_schema = "get_callees_output_schema"
@@ -420,6 +443,7 @@ properties = { function_name = { type = "string" }, path = { type = "string" }, 
 [[tool]]
 name = "find_scoped_references"
 category = "analysis"
+preset_tags = ["reviewer-graph"]
 description = "[CodeLens:Analysis] Classify each reference as definition/read/write/import."
 annotations = "ro_a"
 output_schema = "references_output_schema"
@@ -438,6 +462,7 @@ max_results = { type = "integer", description = "Max results (default 50)" }
 [[tool]]
 name = "get_symbol_importance"
 category = "analysis"
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Analysis] PageRank file importance — find the most critical files in the project."
 annotations = "ro_a"
 
@@ -450,6 +475,7 @@ properties = { top_n = { type = "integer" } }
 [[tool]]
 name = "verify_change_readiness"
 category = "composite"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing."
 annotations = "ro_w"
 output_schema = "analysis_handle_output_schema"
@@ -469,6 +495,7 @@ orchestration_run_id = { type = "string" }
 [[tool]]
 name = "module_boundary_report"
 category = "composite"
+preset_tags = ["reviewer-graph"]
 description = "[CodeLens:Workflow] Summarize dependency boundaries, coupling, and cycle risk for a module or path."
 annotations = "ro_w"
 output_schema = "analysis_handle_output_schema"
@@ -483,6 +510,7 @@ properties = { path = { type = "string" } }
 [[tool]]
 name = "mermaid_module_graph"
 category = "composite"
+preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Render upstream/downstream module dependencies as a Mermaid flowchart ready to embed in GitHub/GitLab Markdown."
 annotations = "ro_w"
 output_schema = "analysis_handle_output_schema"
@@ -497,6 +525,7 @@ properties = { path = { type = "string" }, max_nodes = { type = "integer", descr
 [[tool]]
 name = "safe_rename_report"
 category = "composite"
+preset_tags = []
 description = "[CodeLens:Workflow] Assess rename safety, blockers, and preview edits before refactoring."
 annotations = "ro_w"
 output_schema = "analysis_handle_output_schema"
@@ -511,6 +540,7 @@ properties = { path = { type = "string" }, file_path = { type = "string", descri
 [[tool]]
 name = "unresolved_reference_check"
 category = "composite"
+preset_tags = []
 description = "[CodeLens:Workflow] Lightweight unresolved or ambiguous reference guard before rename or broad edits."
 annotations = "ro_w"
 output_schema = "analysis_handle_output_schema"
@@ -525,6 +555,7 @@ properties = { path = { type = "string" }, file_path = { type = "string", descri
 [[tool]]
 name = "dead_code_report"
 category = "composite"
+preset_tags = []
 description = "[CodeLens:Workflow] Summarize dead-code candidates with bounded evidence and deletion risk."
 annotations = "ro_w"
 output_schema = "analysis_handle_output_schema"
@@ -538,6 +569,7 @@ properties = { scope = { type = "string" }, max_results = { type = "integer" } }
 [[tool]]
 name = "impact_report"
 category = "composite"
+preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Summarize changed-file impact, references, and blast radius with a bounded report."
 annotations = "ro_w"
 output_schema = "analysis_handle_output_schema"
@@ -552,6 +584,7 @@ properties = { path = { type = "string" }, changed_files = { type = "array", ite
 [[tool]]
 name = "refactor_safety_report"
 category = "composite"
+preset_tags = ["reviewer-graph"]
 description = "[CodeLens:Workflow] Combine boundary, symbol impact, and test cues into a preview-first refactor report."
 annotations = "ro_w"
 output_schema = "analysis_handle_output_schema"
@@ -566,6 +599,7 @@ properties = { task = { type = "string" }, symbol = { type = "string" }, path = 
 [[tool]]
 name = "diff_aware_references"
 category = "composite"
+preset_tags = ["reviewer-graph"]
 description = "[CodeLens:Workflow] Compress references for changed files into a bounded reviewer/CI report."
 annotations = "ro_w"
 output_schema = "analysis_handle_output_schema"
@@ -580,6 +614,7 @@ properties = { changed_files = { type = "array", items = { type = "string" } } }
 [[tool]]
 name = "start_analysis_job"
 category = "composite"
+preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Start a durable analysis job and return a job handle for polling."
 annotations = "ro_w"
 output_schema = "analysis_job_output_schema"
@@ -605,6 +640,7 @@ profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal",
 [[tool]]
 name = "get_analysis_job"
 category = "composite"
+preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Poll a durable analysis job by job_id."
 annotations = "ro_p"
 output_schema = "analysis_job_output_schema"
@@ -619,6 +655,7 @@ properties = { job_id = { type = "string" } }
 [[tool]]
 name = "cancel_analysis_job"
 category = "composite"
+preset_tags = []
 description = "[CodeLens:Workflow] Cancel a queued or running analysis job by job_id."
 annotations = "mut_w"
 output_schema = "analysis_job_output_schema"
@@ -633,6 +670,7 @@ properties = { job_id = { type = "string" } }
 [[tool]]
 name = "list_analysis_jobs"
 category = "composite"
+preset_tags = []
 description = "[CodeLens:Workflow] List durable analysis jobs with status counts and any attached analysis handles."
 annotations = "ro_p"
 output_schema = "analysis_job_list_output_schema"
@@ -646,6 +684,7 @@ properties = { status = { type = "string", enum = ["queued", "running", "complet
 [[tool]]
 name = "list_analysis_artifacts"
 category = "composite"
+preset_tags = []
 description = "[CodeLens:Workflow] List stored analysis artifacts with summary resource handles for reuse."
 annotations = "ro_p"
 output_schema = "analysis_artifact_list_output_schema"
@@ -659,6 +698,7 @@ properties = {}
 [[tool]]
 name = "get_analysis_section"
 category = "composite"
+preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Expand a stored analysis section by analysis_id."
 annotations = "ro_p"
 output_schema = "analysis_section_output_schema"
@@ -673,6 +713,7 @@ properties = { analysis_id = { type = "string" }, section = { type = "string" } 
 [[tool]]
 name = "explore_codebase"
 category = "workflow_first"
+preset_tags = ["planner-readonly", "builder-minimal"]
 description = "[CodeLens:Workflow] Problem-first entrypoint for codebase exploration. Use query for targeted context, or call without arguments for onboarding."
 annotations = "ro_w"
 output_schema = "workflow_alias_output_schema"
@@ -693,6 +734,7 @@ disable_semantic = { type = "boolean" }
 [[tool]]
 name = "trace_request_path"
 category = "workflow_first"
+preset_tags = ["builder-minimal"]
 description = "[CodeLens:Workflow] Trace a request or execution path from a function, symbol, or entrypoint."
 annotations = "ro_w"
 output_schema = "workflow_alias_output_schema"
@@ -712,6 +754,7 @@ max_results = { type = "integer" }
 [[tool]]
 name = "review_architecture"
 category = "workflow_first"
+preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Review project or module architecture, boundaries, coupling, and optionally render a diagram."
 annotations = "ro_w"
 output_schema = "workflow_alias_output_schema"
@@ -726,6 +769,7 @@ properties = { path = { type = "string" }, include_diagram = { type = "boolean" 
 [[tool]]
 name = "plan_safe_refactor"
 category = "workflow_first"
+preset_tags = ["planner-readonly", "builder-minimal"]
 description = "[CodeLens:Workflow] Preview a safe refactor plan. Uses rename safety when file_path+symbol are given; otherwise falls back to broader refactor safety analysis."
 annotations = "ro_w"
 output_schema = "workflow_alias_output_schema"
@@ -745,6 +789,7 @@ new_name = { type = "string" }
 [[tool]]
 name = "cleanup_duplicate_logic"
 category = "workflow_first"
+preset_tags = ["builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence."
 annotations = "ro_w"
 output_schema = "workflow_alias_output_schema"
@@ -765,6 +810,7 @@ include_local_same_symbol_pairs = { type = "boolean", description = "Include low
 [[tool]]
 name = "review_changes"
 category = "workflow_first"
+preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Pre-merge review: diff-aware references or impact analysis for changed files."
 annotations = "ro_w"
 output_schema = "workflow_alias_output_schema"
@@ -782,6 +828,7 @@ path = { type = "string", description = "Scope path" }
 [[tool]]
 name = "diagnose_issues"
 category = "workflow_first"
+preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Diagnostics: file-level issues or unresolved reference check."
 annotations = "ro_w"
 output_schema = "workflow_alias_output_schema"
@@ -799,6 +846,7 @@ symbol = { type = "string", description = "Symbol to check references for" }
 [[tool]]
 name = "activate_project"
 category = "session"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Activate/remap project — use when get_current_config reports a different active project than the intended workspace."
 annotations = "ro_p"
 output_schema = "activate_project_output_schema"
@@ -812,6 +860,7 @@ properties = { project = { type = "string", description = "Optional project name
 [[tool]]
 name = "prepare_harness_session"
 category = "session"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — pass project=<absolute repo path> on first use to remap stale daemon state, then summarize surface, capabilities, visible tools, and optionally auto-recover a small stale index in one call."
 annotations = "mutating"
 output_schema = "prepare_harness_session_output_schema"
@@ -837,6 +886,7 @@ auto_refresh_stale_threshold = { type = "integer", description = "Maximum stale 
 [[tool]]
 name = "register_agent_work"
 category = "session"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Register the current agent intent, branch, and worktree for advisory multi-agent coordination."
 annotations = "mut_coord"
 output_schema = "register_agent_work_output_schema"
@@ -857,6 +907,7 @@ ttl_secs = { type = "integer", description = "Optional advisory TTL in seconds (
 [[tool]]
 name = "list_active_agents"
 category = "session"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] List active agent registrations and their claimed paths for the current project scope."
 annotations = "ro_p"
 output_schema = "list_active_agents_output_schema"
@@ -870,6 +921,7 @@ properties = {}
 [[tool]]
 name = "claim_files"
 category = "session"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Advisory file claim for the active session. Claims downgrade readiness to caution for overlapping sessions but never hard-block writes."
 annotations = "mut_coord"
 output_schema = "claim_files_output_schema"
@@ -888,6 +940,7 @@ ttl_secs = { type = "integer", description = "Optional advisory TTL in seconds (
 [[tool]]
 name = "release_files"
 category = "session"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Release previously claimed files for the active session."
 annotations = "mut_coord"
 output_schema = "release_files_output_schema"
@@ -904,6 +957,7 @@ paths = { type = "array", items = { type = "string" }, description = "Project-re
 [[tool]]
 name = "get_watch_status"
 category = "session"
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Session] File watcher status: running, events, reindexed files."
 annotations = "ro_p"
 output_schema = "watch_status_output_schema"
@@ -917,6 +971,7 @@ properties = {}
 [[tool]]
 name = "prune_index_failures"
 category = "session"
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Session] Remove stale index-failure records for deleted files."
 annotations = "mut_p"
 output_schema = "prune_index_failures_output_schema"
@@ -930,6 +985,7 @@ properties = {}
 [[tool]]
 name = "add_queryable_project"
 category = "session"
+preset_tags = []
 description = "[CodeLens:Session] Register external project for cross-project queries."
 annotations = "mutating"
 
@@ -943,6 +999,7 @@ properties = { path = { type = "string", description = "Absolute path to the pro
 [[tool]]
 name = "remove_queryable_project"
 category = "session"
+preset_tags = []
 description = "[CodeLens:Session] Unregister an external project."
 annotations = "mutating"
 
@@ -956,6 +1013,7 @@ properties = { name = { type = "string", description = "Project name to remove" 
 [[tool]]
 name = "query_project"
 category = "session"
+preset_tags = []
 description = "[CodeLens:Session] Search symbols in a registered external project."
 annotations = "ro_a"
 
@@ -972,6 +1030,7 @@ max_results = { type = "integer", description = "Max results (default 20)" }
 [[tool]]
 name = "list_queryable_projects"
 category = "session"
+preset_tags = []
 description = "[CodeLens:Session] List all registered projects (active + external)."
 annotations = "ro_p"
 
@@ -984,6 +1043,7 @@ properties = {}
 [[tool]]
 name = "set_preset"
 category = "session"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Switch tool preset at runtime. Auto-adjusts token budget."
 annotations = "mutating"
 
@@ -999,6 +1059,7 @@ token_budget = { type = "integer", description = "Override token budget (default
 [[tool]]
 name = "set_profile"
 category = "session"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Switch the active role profile. Preferred for harness-oriented workflows."
 annotations = "mutating"
 
@@ -1014,6 +1075,7 @@ token_budget = { type = "integer", description = "Override token budget for the 
 [[tool]]
 name = "get_capabilities"
 category = "session"
+preset_tags = ["planner-readonly", "builder-minimal"]
 description = "[CodeLens:Session] Check LSP, embeddings, index freshness. Use before advanced tools."
 annotations = "ro_a"
 output_schema = "get_capabilities_output_schema"
@@ -1029,6 +1091,7 @@ detail = { type = "string", enum = ["compact", "full"], description = "compact r
 [[tool]]
 name = "get_tool_metrics"
 category = "session"
+preset_tags = ["balanced-excluded", "planner-readonly", "builder-minimal"]
 description = "[CodeLens:Session] Per-tool call counts, latency, errors. Use for self-diagnosis."
 annotations = "ro_p"
 output_schema = "tool_metrics_output_schema"
@@ -1042,6 +1105,7 @@ properties = { session_id = { type = "string", description = "Optional logical s
 [[tool]]
 name = "audit_builder_session"
 category = "session"
+preset_tags = ["balanced-excluded", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Audit a builder/refactor session for preflight, diagnostics, and coordination discipline."
 annotations = "ro_a"
 output_schema = "builder_session_audit_output_schema"
@@ -1058,6 +1122,7 @@ detail = { type = "string", enum = ["compact", "full"], description = "compact r
 [[tool]]
 name = "audit_planner_session"
 category = "session"
+preset_tags = ["balanced-excluded", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Audit a planner/reviewer session for bootstrap, workflow-first routing, and read-side evidence discipline."
 annotations = "ro_a"
 output_schema = "planner_session_audit_output_schema"
@@ -1074,6 +1139,7 @@ detail = { type = "string", enum = ["compact", "full"], description = "compact r
 [[tool]]
 name = "export_session_markdown"
 category = "session"
+preset_tags = ["balanced-excluded", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Session] Export session telemetry as markdown report."
 annotations = "ro_p"
 output_schema = "session_markdown_output_schema"
@@ -1090,6 +1156,7 @@ session_id = { type = "string", description = "Optional logical session id. When
 [[tool]]
 name = "audit_log_query"
 category = "session"
+preset_tags = []
 description = "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by transaction_id and/or since_ms; default limit 100 rows. Requires Admin role."
 annotations = "ro_a"
 
@@ -1105,6 +1172,7 @@ limit = { type = "integer", description = "Max rows (default 100, capped at 1000
 [[tool]]
 name = "list_memories"
 category = "memory"
+preset_tags = []
 description = "[CodeLens:Memory] List project memory files under .codelens/memories."
 annotations = "ro_p"
 output_schema = "memory_list_output_schema"
@@ -1118,6 +1186,7 @@ properties = { topic = { type = "string", description = "Optional topic to filte
 [[tool]]
 name = "read_memory"
 category = "memory"
+preset_tags = []
 description = "[CodeLens:Memory] Read a named project memory file."
 annotations = "ro_p"
 
@@ -1131,6 +1200,7 @@ properties = { memory_name = { type = "string" } }
 [[tool]]
 name = "write_memory"
 category = "memory"
+preset_tags = []
 description = "[CodeLens:Memory] Create or overwrite a project memory file."
 annotations = "mutating"
 
@@ -1144,6 +1214,7 @@ properties = { memory_name = { type = "string" }, content = { type = "string" } 
 [[tool]]
 name = "delete_memory"
 category = "memory"
+preset_tags = []
 description = "[CodeLens:Memory] Delete a project memory file."
 annotations = "destructive"
 
@@ -1157,6 +1228,7 @@ properties = { memory_name = { type = "string" } }
 [[tool]]
 name = "rename_memory"
 category = "memory"
+preset_tags = []
 description = "[CodeLens:Memory] Rename a project memory file."
 annotations = "mut_p"
 
@@ -1170,6 +1242,7 @@ properties = { old_name = { type = "string" }, new_name = { type = "string" } }
 [[tool]]
 name = "semantic_search"
 category = "semantic"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning."
 annotations = "ro_p"
 output_schema = "semantic_search_output_schema"
@@ -1185,6 +1258,7 @@ properties = { query = { type = "string", description = "Natural language search
 [[tool]]
 name = "index_embeddings"
 category = "semantic"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic_search."
 annotations = "ro"
 feature_gate = "semantic"
@@ -1201,6 +1275,7 @@ prewarm_limit = { type = "integer", description = "Maximum prewarm query count (
 [[tool]]
 name = "find_similar_code"
 category = "semantic"
+preset_tags = []
 description = "[CodeLens:Analysis] Find semantically similar code to a given symbol — clone detection, reuse opportunities."
 annotations = "ro_a"
 output_schema = "find_similar_code_output_schema"
@@ -1219,6 +1294,7 @@ max_results = { type = "integer", description = "Max results (default 10)" }
 [[tool]]
 name = "find_code_duplicates"
 category = "semantic"
+preset_tags = []
 description = "[CodeLens:Analysis] Find near-duplicate code pairs across the codebase — DRY violations."
 annotations = "ro_a"
 output_schema = "find_code_duplicates_output_schema"
@@ -1233,6 +1309,7 @@ properties = { threshold = { type = "number", description = "Cosine similarity t
 [[tool]]
 name = "classify_symbol"
 category = "semantic"
+preset_tags = []
 description = "[CodeLens:Analysis] Zero-shot classify a symbol into categories — e.g. error handling, auth, database."
 annotations = "ro_a"
 output_schema = "classify_symbol_output_schema"
@@ -1248,6 +1325,7 @@ properties = { file_path = { type = "string" }, symbol_name = { type = "string" 
 [[tool]]
 name = "find_misplaced_code"
 category = "semantic"
+preset_tags = []
 description = "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement."
 annotations = "ro"
 output_schema = "find_misplaced_code_output_schema"
