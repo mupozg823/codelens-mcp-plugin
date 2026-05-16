@@ -16,6 +16,7 @@ struct DuplicateFilterOutcome {
     pairs: Vec<DuplicatePair>,
     suppressed_config_code_pairs: usize,
     suppressed_same_file_same_symbol_pairs: usize,
+    suppressed_signature_only_pairs: usize,
 }
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
@@ -184,10 +185,12 @@ fn filter_duplicate_pairs_for_cleanup(
     max_pairs: usize,
     include_config_code_pairs: bool,
     include_local_same_symbol_pairs: bool,
+    include_signature_only_matches: bool,
 ) -> DuplicateFilterOutcome {
     let normalized_scope = normalize_duplicate_scope(project, scope);
     let mut suppressed_config_code_pairs = 0usize;
     let mut suppressed_same_file_same_symbol_pairs = 0usize;
+    let mut suppressed_signature_only_pairs = 0usize;
     let pairs = pairs
         .into_iter()
         .filter(|pair| {
@@ -209,6 +212,17 @@ fn filter_duplicate_pairs_for_cleanup(
             suppressed_same_file_same_symbol_pairs += 1;
             false
         })
+        .filter(|pair| {
+            // #299: namespaced wrappers around a shared helper match by
+            // signature + identifier shape but differ in body
+            // predicates. Suppress those false positives by default;
+            // callers can opt-in for debugging.
+            if include_signature_only_matches || !pair.signature_only_match {
+                return true;
+            }
+            suppressed_signature_only_pairs += 1;
+            false
+        })
         .take(max_pairs)
         .collect();
 
@@ -216,6 +230,7 @@ fn filter_duplicate_pairs_for_cleanup(
         pairs,
         suppressed_config_code_pairs,
         suppressed_same_file_same_symbol_pairs,
+        suppressed_signature_only_pairs,
     }
 }
 
@@ -439,6 +454,10 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
             .get("include_local_same_symbol_pairs")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
+        let include_signature_only_matches = arguments
+            .get("include_signature_only_matches")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
         let guard = state.embedding_engine();
         if let Some(engine) = guard.as_ref() {
             let normalized_scope = normalize_duplicate_scope(&state.project(), scope);
@@ -459,21 +478,26 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
                 max_pairs,
                 include_config_code_pairs,
                 include_local_same_symbol_pairs,
+                include_signature_only_matches,
             );
             let count = filtered.pairs.len();
             let suppressed_config_code_pairs = filtered.suppressed_config_code_pairs;
             let suppressed_same_file_same_symbol_pairs =
                 filtered.suppressed_same_file_same_symbol_pairs;
+            let suppressed_signature_only_pairs = filtered.suppressed_signature_only_pairs;
             let payload = json!({
                 "threshold": threshold,
                 "scope": scope,
                 "include_config_code_pairs": include_config_code_pairs,
                 "include_local_same_symbol_pairs": include_local_same_symbol_pairs,
+                "include_signature_only_matches": include_signature_only_matches,
                 "quality_filters": {
                     "config_code_pairs": if include_config_code_pairs { "included" } else { "suppressed_by_default" },
                     "suppressed_config_code_pairs": suppressed_config_code_pairs,
                     "same_file_same_symbol_pairs": if include_local_same_symbol_pairs { "included" } else { "suppressed_by_default" },
                     "suppressed_same_file_same_symbol_pairs": suppressed_same_file_same_symbol_pairs,
+                    "signature_only_matches": if include_signature_only_matches { "included" } else { "suppressed_by_default" },
+                    "suppressed_signature_only_pairs": suppressed_signature_only_pairs,
                 },
                 "duplicates": filtered.pairs,
                 "count": count,
@@ -521,6 +545,8 @@ mod tests {
             line_a: 1,
             line_b: 1,
             similarity: 0.99,
+            body_token_jaccard: None,
+            signature_only_match: false,
         }
     }
 
@@ -562,6 +588,7 @@ mod tests {
             20,
             false,
             false,
+            false,
         );
 
         assert_eq!(filtered.pairs.len(), 1);
@@ -596,6 +623,7 @@ mod tests {
             20,
             false,
             false,
+            false,
         );
 
         assert_eq!(filtered.suppressed_config_code_pairs, 1);
@@ -622,6 +650,7 @@ mod tests {
             pairs,
             20,
             true,
+            false,
             false,
         );
 
@@ -654,6 +683,7 @@ mod tests {
             20,
             false,
             false,
+            false,
         );
 
         assert_eq!(filtered.suppressed_same_file_same_symbol_pairs, 1);
@@ -662,6 +692,72 @@ mod tests {
             filtered.pairs[0].file_b,
             "crates/codelens-mcp/src/tools/session/coordination.rs"
         );
+    }
+
+    #[test]
+    fn duplicate_quality_filter_suppresses_signature_only_pairs_by_default() {
+        // #299: a pair flagged signature_only_match must be hidden by
+        // default. The fixture pairs two namespaced wrappers whose
+        // body bodies diverge — the embedding-side cosine put them
+        // high but body_token_jaccard contradicted.
+        let project = temp_project();
+        let real = duplicate_pair_with_symbols(
+            "crates/codelens-engine/src/symbols/parse.rs",
+            "parse_program",
+            "crates/codelens-engine/src/symbols/eval.rs",
+            "eval_program",
+        );
+        let mut signature_only = duplicate_pair_with_symbols(
+            "crates/codelens-engine/src/call_graph/resolve.rs",
+            "collect_call_graph_candidates",
+            "crates/codelens-engine/src/import_graph/mod.rs",
+            "collect_import_graph_candidates",
+        );
+        signature_only.body_token_jaccard = Some(0.21);
+        signature_only.signature_only_match = true;
+
+        let filtered = filter_duplicate_pairs_for_cleanup(
+            &project,
+            Some(project.as_path().join("crates").to_str().unwrap()),
+            vec![real.clone(), signature_only],
+            20,
+            false,
+            false,
+            false,
+        );
+
+        assert_eq!(filtered.suppressed_signature_only_pairs, 1);
+        assert_eq!(filtered.pairs.len(), 1);
+        assert_eq!(filtered.pairs[0].file_a, real.file_a);
+    }
+
+    #[test]
+    fn duplicate_quality_filter_can_include_signature_only_pairs() {
+        // #299 opt-out: callers can flip the include flag to surface
+        // signature-only matches for debugging.
+        let project = temp_project();
+        let mut pair = duplicate_pair_with_symbols(
+            "crates/codelens-engine/src/call_graph/resolve.rs",
+            "collect_call_graph_candidates",
+            "crates/codelens-engine/src/import_graph/mod.rs",
+            "collect_import_graph_candidates",
+        );
+        pair.body_token_jaccard = Some(0.21);
+        pair.signature_only_match = true;
+
+        let filtered = filter_duplicate_pairs_for_cleanup(
+            &project,
+            Some(project.as_path().join("crates").to_str().unwrap()),
+            vec![pair],
+            20,
+            false,
+            false,
+            true,
+        );
+
+        assert_eq!(filtered.suppressed_signature_only_pairs, 0);
+        assert_eq!(filtered.pairs.len(), 1);
+        assert!(filtered.pairs[0].signature_only_match);
     }
 
     #[test]
@@ -681,6 +777,7 @@ mod tests {
             20,
             false,
             true,
+            false,
         );
 
         assert_eq!(filtered.suppressed_same_file_same_symbol_pairs, 0);

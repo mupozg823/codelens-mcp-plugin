@@ -12,7 +12,8 @@ use super::cache::{
     reusable_embedding_key_for_symbol,
 };
 use super::chunk_ops::{
-    CategoryScore, DuplicatePair, OutlierSymbol, StoredChunkKey, cosine_similarity,
+    CategoryScore, DuplicatePair, OutlierSymbol, SIGNATURE_ONLY_COSINE_FLOOR,
+    SIGNATURE_ONLY_JACCARD_CEIL, StoredChunkKey, body_token_jaccard, cosine_similarity,
     duplicate_candidate_limit, duplicate_pair_key, stored_chunk_key, stored_chunk_key_for_score,
 };
 use super::ffi;
@@ -994,6 +995,19 @@ impl EmbeddingEngine {
                         continue;
                     }
 
+                    // #299: a high embedding cosine can match on
+                    // signature + identifier shape alone — three
+                    // namespaced wrappers around the same helper
+                    // produced 0.94–0.96 pairs even though their
+                    // predicates diverged. Tag the pair when body token
+                    // Jaccard contradicts the cosine so callers can
+                    // suppress signature-only matches.
+                    let jaccard = body_token_jaccard(&chunk.text, &candidate_chunk.text);
+                    let signature_only_match = matches!(
+                        (sim >= SIGNATURE_ONLY_COSINE_FLOOR, jaccard),
+                        (true, Some(j)) if j < SIGNATURE_ONLY_JACCARD_CEIL
+                    );
+
                     pairs.push(DuplicatePair {
                         symbol_a: format!("{}:{}", chunk.file_path, chunk.symbol_name),
                         symbol_b: format!(
@@ -1005,6 +1019,8 @@ impl EmbeddingEngine {
                         line_a: chunk.line,
                         line_b: candidate_chunk.line,
                         similarity: sim,
+                        body_token_jaccard: jaccard,
+                        signature_only_match,
                     });
                     if pairs.len() >= max_pairs {
                         done = true;
