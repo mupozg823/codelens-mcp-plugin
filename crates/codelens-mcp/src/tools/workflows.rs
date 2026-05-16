@@ -279,9 +279,8 @@ pub fn review_architecture(state: &AppState, arguments: &Value) -> ToolResult {
 
     if let Some(path) = arguments.get("path").and_then(|value| value.as_str()) {
         if include_diagram {
-            return delegate_workflow(
+            return delegate_workflow_with_review_followup(
                 state,
-                "review_architecture",
                 "mermaid_module_graph",
                 json!({
                     "path": path,
@@ -291,9 +290,8 @@ pub fn review_architecture(state: &AppState, arguments: &Value) -> ToolResult {
             );
         }
 
-        return delegate_workflow(
+        return delegate_workflow_with_review_followup(
             state,
-            "review_architecture",
             "module_boundary_report",
             json!({ "path": path }),
             crate::tools::reports::module_boundary_report,
@@ -309,6 +307,55 @@ pub fn review_architecture(state: &AppState, arguments: &Value) -> ToolResult {
         }),
         crate::tools::composite::onboard_project,
     )
+}
+
+/// Issue #297 (Dogfood D4): when `review_architecture` delegates to
+/// `mermaid_module_graph` or `module_boundary_report` and the resulting
+/// `risk_level == "high"`, attach a `recommended_followups` array
+/// pointing at the next workflow tool the user would have to invoke
+/// manually today. Surfacing the chain in the response envelope
+/// avoids the "high-risk finding but caller has to know to dispatch
+/// the cycle probe" gap reported in the dogfood session.
+fn delegate_workflow_with_review_followup(
+    state: &AppState,
+    delegated_tool: &str,
+    delegated_args: Value,
+    handler: ToolHandler,
+) -> ToolResult {
+    let (mut payload, meta) = handler(state, &delegated_args)?;
+    attach_review_architecture_followups(&mut payload, delegated_tool);
+    Ok((
+        attach_workflow_metadata("review_architecture", delegated_tool, payload),
+        meta,
+    ))
+}
+
+fn attach_review_architecture_followups(payload: &mut Value, delegated_tool: &str) {
+    let risk_high = payload
+        .get("risk_level")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("high"));
+    if !risk_high {
+        return;
+    }
+    let followups: &[&str] = match delegated_tool {
+        // After the diagram, the cycle / coupling evidence is the
+        // most actionable next call.
+        "mermaid_module_graph" => &["module_boundary_report", "impact_report"],
+        // After the boundary report, expand into impact + dead code
+        // so the operator can scope the cleanup.
+        "module_boundary_report" => &["impact_report", "dead_code_report"],
+        _ => return,
+    };
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("recommended_followups".to_owned(), json!(followups));
+        map.insert(
+            "risk_followup_reason".to_owned(),
+            json!(
+                "risk_level=high — the listed tools surface the cycle / coupling / cleanup evidence that turns the warning into action"
+            ),
+        );
+    }
 }
 
 pub fn plan_safe_refactor(state: &AppState, arguments: &Value) -> ToolResult {
