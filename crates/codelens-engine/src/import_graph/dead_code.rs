@@ -16,6 +16,71 @@ pub struct DeadCodeEntryV2 {
     pub line: Option<usize>,
     pub reason: String,
     pub pass: u8,
+    /// #268: confidence tier for this dead-code finding. `"high"` for
+    /// clean cases the import graph can fully account for.
+    /// `"needs_structural_evidence"` for TypeScript request/schema/type
+    /// files whose exported interfaces are frequently consumed through
+    /// structural patterns (`z.infer<...>`, `as Request`, object-literal
+    /// flow) that the import graph cannot trace — reviewers should
+    /// cross-check before deleting.
+    pub confidence: String,
+}
+
+/// #268: file is a TypeScript module whose dead-code verdict warrants a
+/// confidence downgrade because exported types are commonly consumed via
+/// structural typing (Zod-inferred shapes, `as RequestType` casts,
+/// object-literal flow) that `import_graph` does not trace. The
+/// signal is intentionally name-shaped — file path contains one of the
+/// recognised request/schema/contract tokens. False positives here only
+/// soften the verdict; they do not flip a real orphan to "alive".
+pub(super) fn is_ts_structural_likely(file: &str) -> bool {
+    let path = Path::new(file);
+    let ext_ok = matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("ts" | "tsx")
+    );
+    if !ext_ok {
+        return false;
+    }
+    const STRUCTURAL_NAME_TOKENS: &[&str] = &[
+        "request",
+        "schema",
+        "types",
+        "contract",
+        "interface",
+        "model",
+        "dto",
+    ];
+    let name_lc = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let parent_lc = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    STRUCTURAL_NAME_TOKENS
+        .iter()
+        .any(|kw| name_lc.contains(kw) || parent_lc.contains(kw))
+}
+
+/// #268: tier label for entries the import graph can fully account for.
+pub(super) const CONFIDENCE_HIGH: &str = "high";
+
+/// #268: tier label for TS request/schema/type entries whose orphan
+/// verdict needs cross-check (Zod-inferred shapes, structural casts,
+/// route-handler body usage are invisible to `import_graph`).
+pub(super) const CONFIDENCE_STRUCTURAL: &str = "needs_structural_evidence";
+
+pub(super) fn confidence_tier_for_file(file: &str) -> &'static str {
+    if is_ts_structural_likely(file) {
+        CONFIDENCE_STRUCTURAL
+    } else {
+        CONFIDENCE_HIGH
+    }
 }
 
 /// Exception file names that should not be flagged as dead (entry points / init files).
@@ -109,6 +174,7 @@ pub fn find_dead_code_v2(
                 line: None,
                 reason: "no importers".to_owned(),
                 pass: 1,
+                confidence: confidence_tier_for_file(file).to_owned(),
             });
         }
     }
@@ -160,6 +226,7 @@ pub fn find_dead_code_v2(
                     line: if func_line > 0 { Some(func_line) } else { None },
                     reason: "unreferenced symbol".to_owned(),
                     pass: 2,
+                    confidence: confidence_tier_for_file(&relative).to_owned(),
                 });
             }
         }
@@ -175,4 +242,63 @@ pub fn find_dead_code_v2(
         results.truncate(max_results);
     }
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ts_request_files_downgrade_confidence() {
+        // #268: request/schema/types/contract files commonly export
+        // interfaces consumed via structural typing — must downgrade.
+        for path in [
+            "src/api/request.ts",
+            "src/api/RequestTypes.ts",
+            "src/server/schema.ts",
+            "src/contracts/UserContract.ts",
+            "src/types/index.ts",
+            "src/models/User.ts",
+            "src/dtos/CreateUser.ts",
+            "components/MyForm/types.tsx",
+            "lib/Interface.ts",
+        ] {
+            assert!(
+                is_ts_structural_likely(path),
+                "{path:?} should be downgraded"
+            );
+            assert_eq!(confidence_tier_for_file(path), CONFIDENCE_STRUCTURAL);
+        }
+    }
+
+    #[test]
+    fn non_ts_or_unrelated_files_keep_high_confidence() {
+        for path in [
+            "src/main.rs",
+            "src/utils.py",
+            "scripts/build.sh",
+            "src/app/page.tsx", // not a request/schema/type-shaped name
+            "src/hooks/useGifStudio.ts",
+            "Cargo.toml",
+            "package.json",
+        ] {
+            assert!(
+                !is_ts_structural_likely(path),
+                "{path:?} should keep high confidence"
+            );
+            assert_eq!(confidence_tier_for_file(path), CONFIDENCE_HIGH);
+        }
+    }
+
+    #[test]
+    fn javascript_request_file_is_not_downgraded() {
+        // The downgrade is TypeScript-specific: TS structural typing +
+        // Zod schemas are the false-positive class. Plain JS does not
+        // get the same benefit.
+        assert!(!is_ts_structural_likely("src/api/request.js"));
+        assert_eq!(
+            confidence_tier_for_file("src/api/request.js"),
+            CONFIDENCE_HIGH
+        );
+    }
 }
