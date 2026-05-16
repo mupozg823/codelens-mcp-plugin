@@ -1,7 +1,7 @@
 # CodeLens vs Serena vs grep+Read — 도구 비교 매트릭스
 
 > 새 사용자가 _어느 자리에서 CodeLens가 grep보다 우월한지_ 빠르게 판단할 수 있는 카테고리별 비교.
-> 출처: [`tools.toml`](../crates/codelens-mcp/tools.toml) 121 entries · [oraios/serena `src/serena/tools/`](https://github.com/oraios/serena/tree/main/src/serena/tools).
+> 출처: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json) default public surface 72 tools · [`tools.toml`](../crates/codelens-mcp/tools.toml) 78 definitions including semantic feature-gated tools · [oraios/serena `src/serena/tools/`](https://github.com/oraios/serena/tree/main/src/serena/tools).
 
 ## 1. Symbol Navigation
 
@@ -17,9 +17,9 @@
 
 | Task                  | CodeLens                        | Serena                        | grep+Read    | CodeLens 우위 시점                              |
 | --------------------- | ------------------------------- | ----------------------------- | ------------ | ----------------------------------------------- |
-| 단순 텍스트 매칭      | `search_for_pattern`            | `SearchForPatternTool`        | ✅ (rg/grep) | 1-2 file 작은 repo면 grep이 더 빠름             |
+| 단순 텍스트 매칭      | Native `rg` 권장; public surface에서는 raw grep 도구 광고 안 함 | `SearchForPatternTool`        | ✅ (rg/grep) | 1-2 file 작은 repo면 grep이 더 빠름             |
 | 부분 이름 / NL 토큰   | `bm25_symbol_search`            | ❌                            | ❌           | "register…" 같은 partial 토큰 허용              |
-| 임베딩 시맨틱 검색    | `semantic_search` (ONNX MiniLM) | ❌                            | ❌           | 의미 기반 — 자연어 쿼리 매칭                    |
+| 임베딩 시맨틱 검색    | `semantic_search` (feature-gated) | ❌                            | ❌           | 의미 기반 — 자연어 쿼리 매칭                    |
 | 작업 컨텍스트 한 번에 | `get_ranked_context`            | ❌                            | ❌           | hybrid BM25+semantic+structural — 우선순위 순서 |
 | 파일/디렉토리 찾기    | `find_file`, `list_dir`         | `FindFileTool`, `ListDirTool` | ✅ (find/ls) | 동등                                            |
 
@@ -27,12 +27,12 @@
 
 | Task                | CodeLens                                                | Serena                                            | grep+Read            | CodeLens 우위 시점                                  |
 | ------------------- | ------------------------------------------------------- | ------------------------------------------------- | -------------------- | --------------------------------------------------- |
-| 함수 본문 통째 교체 | `replace_symbol_body`                                   | `ReplaceSymbolBodyTool`                           | partially (sed/Edit) | 함수 boundary 자동 검출 — line-stale 회피           |
-| 심볼 앞/뒤 삽입     | `insert_after_symbol`, `insert_before_symbol`           | `InsertAfterSymbolTool`, `InsertBeforeSymbolTool` | partially            | 심볼 단위로 정확                                    |
-| Cross-file rename   | `rename_symbol` (verifier-gated)                        | `RenameSymbolTool`                                | partially (grep+sed) | `safe_rename_report` 사전 검증 — broken rename 거부 |
-| 함수 추출 / 인라인  | `refactor_extract_function`, `refactor_inline_function` | ❌                                                | ❌                   | scope-aware — closure 변수 자동 처리                |
-| 시그니처 변경       | `refactor_change_signature`                             | ❌                                                | ❌                   | callsite 자동 갱신                                  |
-| import 추가         | `add_import`                                            | ❌                                                | partially            | duplicate 감지 + 정렬 유지                          |
+| 함수 본문 통째 교체 | Legacy/internal dispatch only; public claim은 `plan_safe_refactor` / `verify_change_readiness` 중심 | `ReplaceSymbolBodyTool`                           | partially (sed/Edit) | 직접 apply보다 사전 검증과 audit surface가 제품 경계 |
+| 심볼 앞/뒤 삽입     | Legacy/internal dispatch only                           | `InsertAfterSymbolTool`, `InsertBeforeSymbolTool` | partially            | public docs에서는 workflow-first surface를 우선      |
+| Cross-file rename   | `safe_rename_report` + `plan_symbol_rename`             | `RenameSymbolTool`                                | partially (grep+sed) | broken rename을 preview/gate 단계에서 차단           |
+| 함수 추출 / 인라인  | Not product-green as public direct tool                 | ❌                                                | ❌                   | fixture/gate 전까지 superiority claim 금지          |
+| 시그니처 변경       | Not product-green as public direct tool                 | ❌                                                | ❌                   | callsite 자동 갱신 claim은 외부 fixture 필요         |
+| import 추가         | Not advertised as current public surface                | ❌                                                | partially            | duplicate 감지/정렬 claim은 runtime surface 확정 후  |
 
 ## 4. Workflow (CodeLens 전용)
 
@@ -40,11 +40,11 @@ CodeLens의 가장 큰 차별 — Serena·grep 모두 부재.
 
 | Task                 | CodeLens                                                                      | Serena                  | grep+Read |
 | -------------------- | ----------------------------------------------------------------------------- | ----------------------- | --------- |
-| 첫 onboarding        | `onboard_project` → `explore_codebase`                                        | `OnboardingTool` (단순) | ❌        |
+| 첫 onboarding        | `explore_codebase` / `review_architecture`                                    | `OnboardingTool` (단순) | ❌        |
 | 변경 사전 검증       | `verify_change_readiness` (4-verifier)                                        | ❌                      | ❌        |
 | Mutation gate        | `safe_rename_report`, `unresolved_reference_check`                            | ❌                      | ❌        |
 | Pre-merge review     | `review_changes` → `impact_report` → `diff_aware_references`                  | ❌                      | partially |
-| 아키텍처 audit       | `review_architecture`, `module_boundary_report`, `find_circular_dependencies` | ❌                      | ❌        |
+| 아키텍처 audit       | `review_architecture`, `module_boundary_report`                               | ❌                      | ❌        |
 | 안전한 refactor 계획 | `plan_safe_refactor`, `analyze_change_request`                                | ❌                      | ❌        |
 | 중복 로직 정리       | `cleanup_duplicate_logic`, `find_similar_code`                                | ❌                      | ❌        |
 | 비동기 무거운 분석   | `start_analysis_job` → `get_analysis_job`                                     | ❌                      | ❌        |

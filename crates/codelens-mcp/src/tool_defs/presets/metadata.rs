@@ -8,7 +8,6 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         | "find_over_visible_apis"
         | "find_phantom_modules"
         | "search_for_pattern"
-        | "get_project_structure"
         | "analyze_missing_imports"
         | "add_import"
         | "refactor_extract_function"
@@ -26,10 +25,7 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         | "replace"
         | "create_text_file"
         | "rename_symbol"
-        | "propagate_deletions"
-        | "onboard_project"
-        | "analyze_change_request"
-        | "orchestrate_change" => Some(("1.13.27", "", "2.0")),
+        | "propagate_deletions" => Some(("1.13.27", "", "2.0")),
         _ => None,
     }
 }
@@ -37,13 +33,11 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
 pub(crate) fn apply_tool_deprecation_meta(meta: &mut serde_json::Value, name: &str) {
     if let Some((since, replacement, removal)) = tool_deprecation(name) {
         meta["codelens/deprecatedSince"] = serde_json::json!(since);
-        meta["codelens/deprecatedReplacement"] = serde_json::json!(replacement);
+        if !replacement.is_empty() {
+            meta["codelens/deprecatedReplacement"] = serde_json::json!(replacement);
+        }
         meta["codelens/deprecatedRemovalTarget"] = serde_json::json!(removal);
     }
-}
-
-pub(crate) fn deprecated_workflow_alias(name: &str) -> Option<(&'static str, &'static str)> {
-    tool_deprecation(name).map(|(_, replacement, removal)| (replacement, removal))
 }
 
 /// Phase alias per ADR-0005 step 4 — harness-phase scoping for `tools/list`
@@ -58,11 +52,9 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         | "review_architecture"
         | "plan_safe_refactor"
         | "plan_symbol_rename"
-        | "analyze_change_impact"
         | "module_boundary_report"
         | "mermaid_module_graph"
         | "impact_report"
-        | "get_impact_analysis"
         | "get_ranked_context"
         | "get_symbols_overview"
         | "find_symbol"
@@ -85,18 +77,15 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         "review_changes"
         | "diff_aware_references"
         | "verify_change_readiness"
-        | "assess_change_readiness"
         | "safe_rename_report"
         | "refactor_safety_report"
         | "unresolved_reference_check"
         | "dead_code_report"
-        | "find_dead_code"
         | "find_circular_dependencies"
         | "find_misplaced_code"
         | "find_code_duplicates"
         | "classify_symbol"
         | "diagnose_issues"
-        | "audit_security_context"
         | "get_file_diagnostics"
         | "get_lsp_recipe"
         | "audit_builder_session"
@@ -120,6 +109,41 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
 
 pub(crate) fn tool_phase_label(name: &str) -> Option<&'static str> {
     tool_phase(name).map(|p| p.as_label())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply_tool_deprecation_meta;
+    use serde_json::json;
+
+    #[test]
+    fn deprecation_meta_omits_empty_replacement() {
+        let mut meta = json!({});
+
+        apply_tool_deprecation_meta(&mut meta, "rename_symbol");
+
+        assert_eq!(meta["codelens/deprecatedSince"], json!("1.13.27"));
+        assert_eq!(meta["codelens/deprecatedRemovalTarget"], json!("2.0"));
+        assert!(
+            meta.get("codelens/deprecatedReplacement").is_none(),
+            "tools without a concrete replacement should not emit an empty replacement field"
+        );
+    }
+
+    #[test]
+    fn core_workflow_tools_are_not_deprecated() {
+        for name in [
+            "onboard_project",
+            "analyze_change_request",
+            "orchestrate_change",
+            "verify_change_readiness",
+        ] {
+            assert!(
+                super::tool_deprecation(name).is_none(),
+                "{name} is documented and routed as an active workflow entrypoint"
+            );
+        }
+    }
 }
 
 /// ADR-0006 Layer 1 — routing hint advising which executor class is a
@@ -246,12 +270,10 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "semantic_search"
         | "index_embeddings" => "symbols",
         "get_changed_files"
-        | "get_impact_analysis"
         | "get_callers"
         | "get_callees"
         | "find_scoped_references"
         | "get_symbol_importance"
-        | "find_dead_code"
         | "find_circular_dependencies"
         | "find_similar_code"
         | "find_code_duplicates"
@@ -263,10 +285,7 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "trace_request_path"
         | "review_architecture"
         | "plan_safe_refactor"
-        | "audit_security_context"
-        | "analyze_change_impact"
         | "review_changes"
-        | "assess_change_readiness"
         | "diagnose_issues"
         | "verify_change_readiness"
         | "module_boundary_report"

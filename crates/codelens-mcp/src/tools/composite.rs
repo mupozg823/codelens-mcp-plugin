@@ -521,7 +521,7 @@ pub fn propagate_deletions(state: &AppState, arguments: &serde_json::Value) -> T
             "suggested_next_tools": if safe_to_delete {
                 json!(["delete_lines", "get_file_diagnostics"])
             } else {
-                json!(["get_impact_analysis", "find_referencing_symbols"])
+                json!(["impact_report", "find_referencing_symbols"])
             }
         }),
         success_meta(BackendKind::Hybrid, 0.85),

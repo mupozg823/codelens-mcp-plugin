@@ -244,8 +244,6 @@ fn infer_summary_quality_focus(
             | "trace_request_path"
             | "review_architecture"
             | "plan_safe_refactor"
-            | "audit_security_context"
-            | "analyze_change_impact"
             | "cleanup_duplicate_logic"
             | "onboard_project"
             | "orchestrate_change"
