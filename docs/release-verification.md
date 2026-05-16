@@ -109,6 +109,7 @@ addition to the normal Rust test gate:
 scripts/smoke-release-install.sh
 scripts/smoke-http-transport.sh
 scripts/smoke-enterprise-daemons.sh
+scripts/smoke-codelens-dogfood.sh
 ```
 
 `scripts/smoke-release-install.sh` builds `target/debug/codelens-mcp` when
@@ -144,12 +145,22 @@ services:
 Override the endpoints with `CODELENS_READONLY_URL` and `CODELENS_MUTATION_URL`.
 Override the expected git SHA with `CODELENS_EXPECTED_GIT_SHA`.
 
+`scripts/smoke-codelens-dogfood.sh` verifies that CodeLens can inspect this
+repository through its own read-only daemon:
+
+1. `prepare_harness_session` binds the daemon to the current repo with health `ok`
+2. `review_architecture` produces an analysis handle for `scripts/`
+3. `codelens://session/http` reports read-only daemon mode and no binary drift
+
+Use `CODELENS_READONLY_URL` for non-default read-only daemon endpoints.
+
 For local development, `scripts/smoke-release-install.sh` is the minimum smoke
 check. For release candidates, run the binary and HTTP smoke scripts plus the
 package test gate below. For supervised enterprise deployments, also run
-`scripts/smoke-enterprise-daemons.sh` after the supervisor starts the daemons.
-Semantic/model archive dry-run smoke checks are still tracked in the
-product-readiness roadmap and remain advisory until they land.
+`scripts/smoke-enterprise-daemons.sh` and `scripts/smoke-codelens-dogfood.sh`
+after the supervisor starts the daemons. Semantic/model archive dry-run smoke
+checks are still tracked in the product-readiness roadmap and remain advisory
+until they land.
 
 ---
 

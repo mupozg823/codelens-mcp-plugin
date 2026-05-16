@@ -55,6 +55,7 @@ The 2026-05-16 audit classified the repository as **conditionally ready**:
 - [x] Add a lightweight smoke script for the default local binary shape: `--version`, `--print-surface-manifest`, and one read-only one-shot tool call.
 - [x] Add HTTP-feature smoke: build with `--features http`, start on a random local port, call `tools/list`, then terminate cleanly.
 - [x] Add supervised dual-daemon smoke for enterprise deployments: verify read-only and mutation daemon surfaces, semantic availability, and daemon binary freshness.
+- [x] Add CodeLens dogfood smoke: call `prepare_harness_session` and `review_architecture` through the read-only daemon before product-readiness claims.
 - [ ] Add semantic-feature smoke that fails closed when the model directory is absent and succeeds when a staged model payload is present.
 - [ ] Add release-archive smoke for one local dry-run archive before tag release.
 - [x] Document which smoke checks are required for release candidates vs local development.
@@ -66,6 +67,7 @@ The 2026-05-16 audit classified the repository as **conditionally ready**:
 - [x] `scripts/smoke-release-install.sh` passes on the current debug binary
 - [x] `scripts/smoke-http-transport.sh` passes on the current debug binary
 - [x] `scripts/smoke-enterprise-daemons.sh` passes against the local dual-daemon launchd stack
+- [x] `scripts/smoke-codelens-dogfood.sh` passes against the read-only daemon
 - [ ] release smoke script passes on a clean checkout
 
 **Rollback:** Remove the smoke script and release-verification doc additions; no runtime code changes should be mixed into this phase.
