@@ -29,6 +29,14 @@ REMOVED_WORKFLOW_ALIASES = (
     "summarize_symbol_impact",
 )
 
+DOC_ONLY_REMOVED_PUBLIC_TOOLS = (
+    "get_impact_analysis",
+    "find_dead_code",
+    "find_circular_dependencies",
+    "get_project_structure",
+    "search_for_pattern",
+)
+
 
 def test_current_docs_do_not_advertise_removed_workflow_aliases() -> None:
     offenders: list[str] = []
@@ -39,6 +47,19 @@ def test_current_docs_do_not_advertise_removed_workflow_aliases() -> None:
             if alias in text:
                 offenders.append(f"{doc}: {alias}")
     assert not offenders, "removed workflow aliases leaked into current docs:\n  " + "\n  ".join(
+        offenders
+    )
+
+
+def test_current_docs_do_not_advertise_removed_public_tool_names() -> None:
+    offenders: list[str] = []
+    for doc in CURRENT_DOCS:
+        path = REPO_ROOT / doc
+        text = path.read_text(encoding="utf-8")
+        for alias in DOC_ONLY_REMOVED_PUBLIC_TOOLS:
+            if alias in text:
+                offenders.append(f"{doc}: {alias}")
+    assert not offenders, "removed public tool names leaked into current docs:\n  " + "\n  ".join(
         offenders
     )
 
@@ -66,6 +87,12 @@ def main() -> int:
     except AssertionError as exc:
         print(f"FAIL  current_docs_do_not_advertise_removed_workflow_aliases: {exc}")
         failures.append("current_docs_do_not_advertise_removed_workflow_aliases")
+    try:
+        test_current_docs_do_not_advertise_removed_public_tool_names()
+        print("PASS  current_docs_do_not_advertise_removed_public_tool_names")
+    except AssertionError as exc:
+        print(f"FAIL  current_docs_do_not_advertise_removed_public_tool_names: {exc}")
+        failures.append("current_docs_do_not_advertise_removed_public_tool_names")
     try:
         test_current_runtime_sources_do_not_export_removed_workflow_aliases()
         print("PASS  current_runtime_sources_do_not_export_removed_workflow_aliases")

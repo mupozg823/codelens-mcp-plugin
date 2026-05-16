@@ -329,13 +329,63 @@ pub enum DiagnosticSeverity {
 ///
 /// # Usage
 ///
-/// ```ignore
-/// if let Some(precise) = engine.precise_backend() {
-///     let defs = precise.find_definitions("MyStruct", "src/lib.rs", 42)?;
-///     // defs carry IntelligenceSource::Scip or ::Lsp
+/// ```rust
+/// # use codelens_engine::ir::{
+/// #     CodeDiagnostic, IntelligenceSource, PreciseBackend, SearchCandidate,
+/// # };
+/// # struct DemoBackend;
+/// # impl PreciseBackend for DemoBackend {
+/// #     fn find_definitions(
+/// #         &self,
+/// #         symbol: &str,
+/// #         file_path: &str,
+/// #         line: usize,
+/// #     ) -> anyhow::Result<Vec<SearchCandidate>> {
+/// #         Ok(vec![SearchCandidate {
+/// #             name: symbol.to_owned(),
+/// #             kind: "struct".to_owned(),
+/// #             file_path: file_path.to_owned(),
+/// #             line,
+/// #             signature: format!("struct {symbol}"),
+/// #             name_path: Some(symbol.to_owned()),
+/// #             body: None,
+/// #             score: 1.0,
+/// #             source: self.source(),
+/// #         }])
+/// #     }
+/// #     fn find_references(
+/// #         &self,
+/// #         _symbol: &str,
+/// #         _file_path: &str,
+/// #         _line: usize,
+/// #     ) -> anyhow::Result<Vec<SearchCandidate>> {
+/// #         Ok(Vec::new())
+/// #     }
+/// #     fn hover(&self, _file_path: &str, _line: usize, _column: usize) -> anyhow::Result<Option<String>> {
+/// #         Ok(Some("demo backend".to_owned()))
+/// #     }
+/// #     fn diagnostics(&self, _file_path: &str) -> anyhow::Result<Vec<CodeDiagnostic>> {
+/// #         Ok(Vec::new())
+/// #     }
+/// #     fn source(&self) -> IntelligenceSource {
+/// #         IntelligenceSource::Scip
+/// #     }
+/// #     fn has_index_for(&self, _file_path: &str) -> bool {
+/// #         true
+/// #     }
+/// # }
+/// # fn main() -> anyhow::Result<()> {
+/// let precise: Option<Box<dyn PreciseBackend>> = Some(Box::new(DemoBackend));
+///
+/// if let Some(backend) = precise.as_ref() {
+///     let defs = backend.find_definitions("MyStruct", "src/lib.rs", 42)?;
+///     assert_eq!(defs[0].source, IntelligenceSource::Scip);
 /// } else {
-///     // fall back to tree-sitter search
+///     let fallback_source = IntelligenceSource::TreeSitter;
+///     assert_eq!(fallback_source, IntelligenceSource::TreeSitter);
 /// }
+/// # Ok(())
+/// # }
 /// ```
 pub trait PreciseBackend: Send + Sync {
     /// Find definitions of a symbol at the given location.

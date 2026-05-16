@@ -1109,22 +1109,6 @@ pub fn get_complexity(state: &AppState, arguments: &Value) -> ToolResult {
     ))
 }
 
-#[allow(dead_code)]
-pub fn get_project_structure(state: &AppState, _arguments: &Value) -> ToolResult {
-    let dirs = state.symbol_index().get_project_structure()?;
-    let total_files: usize = dirs.iter().map(|d| d.files).sum();
-    let total_symbols: usize = dirs.iter().map(|d| d.symbols).sum();
-    Ok((
-        json!({
-            "directories": dirs,
-            "total_files": total_files,
-            "total_symbols": total_symbols,
-            "dir_count": dirs.len()
-        }),
-        success_meta(BackendKind::Sqlite, 0.95),
-    ))
-}
-
 pub fn search_symbols_fuzzy(state: &AppState, arguments: &Value) -> ToolResult {
     let query = required_string(arguments, "query")?;
     let max_results = optional_usize(arguments, "max_results", 30);

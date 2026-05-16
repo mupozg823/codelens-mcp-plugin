@@ -21,7 +21,6 @@ fn audit_planner_session_is_not_applicable_for_non_planner_session() {
 }
 
 #[cfg(feature = "http")]
-#[ignore = "v1.12.2 root fix exposed real workflow_first guidance check; happy path scenario needs further composite-guidance enrichment — tracked as v1.13.0 follow-up"]
 #[test]
 fn audit_planner_session_passes_for_happy_path_reviewer() {
     let project = project_root();
@@ -33,12 +32,6 @@ fn audit_planner_session_passes_for_happy_path_reviewer() {
         crate::tool_defs::ToolProfile::ReviewerGraph,
     );
 
-    let _ = call_tool_with_session(
-        &state,
-        "prepare_harness_session",
-        json!({"profile": "reviewer-graph", "detail": "compact"}),
-        &session_id,
-    );
     let _ = call_tool_with_session(
         &state,
         "get_symbols_overview",
@@ -228,23 +221,15 @@ fn audit_planner_session_fails_on_mutation_attempt() {
 }
 
 #[cfg(feature = "http")]
-#[ignore = "v1.12.2 root fix exposed isolation gap; session_a finding assertions need re-verification under real http session_store — tracked as v1.13.0 follow-up"]
 #[test]
 fn audit_planner_session_isolated_by_session_id() {
     let project = project_root();
     fs::write(project.as_path().join("planner_a.py"), "print('a')\n").unwrap();
     fs::write(project.as_path().join("planner_b.py"), "print('b')\n").unwrap();
     let state = make_http_state(&project);
-    let session_a = create_http_profile_session(
-        &state,
-        &project,
-        crate::tool_defs::ToolProfile::ReviewerGraph,
-    );
-    let session_b = create_http_profile_session(
-        &state,
-        &project,
-        crate::tool_defs::ToolProfile::ReviewerGraph,
-    );
+    let profile = crate::tool_defs::ToolProfile::ReviewerGraph;
+    let session_a = create_http_profile_session_without_prepare(&state, &project, profile);
+    let session_b = create_http_profile_session(&state, &project, profile);
 
     let _ = call_tool_with_session(
         &state,

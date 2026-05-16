@@ -1,14 +1,12 @@
 /// Effort level controls response depth and compression aggressiveness.
 /// Claude Code v2.1.94 changed the default from Medium to High for most users.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum EffortLevel {
     Low,
     Medium,
     High,
 }
 
-#[allow(dead_code)]
 impl EffortLevel {
     /// Detect from `CODELENS_EFFORT_LEVEL` env var. Default: High (matching Claude Code v2.1.94).
     pub(crate) fn detect() -> Self {
@@ -16,15 +14,6 @@ impl EffortLevel {
             Some("low") => Self::Low,
             Some("medium") => Self::Medium,
             _ => Self::High,
-        }
-    }
-
-    /// Multiplier applied to base token budget.
-    pub(crate) fn budget_multiplier(&self) -> f64 {
-        match self {
-            Self::Low => 0.6,
-            Self::Medium => 1.0,
-            Self::High => 1.3,
         }
     }
 
