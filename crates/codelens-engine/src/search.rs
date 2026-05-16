@@ -234,15 +234,10 @@ mod tests {
     use crate::db::{IndexDb, NewSymbol, index_db_path};
 
     /// Create a temp directory seeded with test symbols.
-    /// Returns the owned PathBuf (keep it alive for the test duration) and a ProjectRoot.
-    fn make_project_with_symbols() -> (std::path::PathBuf, ProjectRoot) {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .subsec_nanos();
-        let root = std::env::temp_dir().join(format!("codelens_search_test_{nanos}"));
-        std::fs::create_dir_all(&root).unwrap();
+    /// Returns the owned TempDir (keep it alive for the test duration) and a ProjectRoot.
+    fn make_project_with_symbols() -> (tempfile::TempDir, ProjectRoot) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
 
         // Write a dummy source file so ProjectRoot is happy
         std::fs::write(root.join("hello.txt"), "hello").unwrap();
@@ -294,7 +289,7 @@ mod tests {
         .unwrap();
 
         let project = ProjectRoot::new(root.to_str().unwrap()).unwrap();
-        (root, project)
+        (dir, project)
     }
 
     #[test]

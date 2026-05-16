@@ -393,9 +393,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn dogfood_self_repo() {
-        // Run with: cargo test -p codelens-engine dogfood_self_repo -- --ignored --nocapture
         // Codex P2 (PR #149): derive workspace root from CARGO_MANIFEST_DIR
         // (the engine crate's directory) → parent twice → repo root. Any
         // contributor's clone path works without hardcoding `/Users/...`.
@@ -410,6 +408,24 @@ mod tests {
         let project = crate::project::ProjectRoot::new(repo).expect("project root");
         let results =
             super::find_redundant_definitions(&project, 200).expect("find_redundant_definitions");
+        assert!(
+            results.len() <= 200,
+            "dogfood scan must respect max_results: {}",
+            results.len()
+        );
+        assert!(
+            results.windows(2).all(|pair| {
+                let a = &pair[0];
+                let b = &pair[1];
+                (a.target.as_str(), a.file.as_str(), a.line)
+                    <= (b.target.as_str(), b.file.as_str(), b.line)
+            }),
+            "dogfood results must be deterministic and sorted: {results:?}"
+        );
+        assert!(
+            results.iter().all(|entry| !is_test_file(&entry.file)),
+            "dogfood scan should not return excluded test paths: {results:?}"
+        );
         eprintln!(
             "\n=== {} redundant definitions in self (post v2 filtering) ===\n",
             results.len()

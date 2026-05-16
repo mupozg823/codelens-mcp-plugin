@@ -62,6 +62,11 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
 #[test]
 fn deprecated_workflow_aliases_are_removed_from_surface_and_dispatch() {
     let removed = [
+        "get_impact_analysis",
+        "find_dead_code",
+        "analyze_change_impact",
+        "audit_security_context",
+        "assess_change_readiness",
         "explain_code_flow",
         "find_minimal_context_for_change",
         "summarize_symbol_impact",
@@ -94,9 +99,10 @@ fn suggest_next_prefers_canonical_workflows() {
     assert!(explore.iter().any(|item| item == "review_changes"));
     assert!(!explore.iter().any(|item| item == "analyze_change_impact"));
 
-    let alias = crate::tools::suggest_next("analyze_change_impact").expect("alias suggestions");
-    assert!(alias.iter().any(|item| item == "review_changes"));
-    assert!(!alias.iter().any(|item| item == "audit_security_context"));
+    assert!(
+        crate::tools::suggest_next("analyze_change_impact").is_none(),
+        "removed workflow aliases should not keep test-only static suggestions"
+    );
 }
 
 #[test]

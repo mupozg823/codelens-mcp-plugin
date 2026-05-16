@@ -19,7 +19,6 @@ pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
     "get_ranked_context",
     "get_symbols_overview",
     "find_symbol",
-    "get_impact_analysis",
     "impact_report",
     "module_boundary_report",
     "get_changed_files",
@@ -57,14 +56,12 @@ pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
     "diagnose_issues",
     "verify_change_readiness",
     "get_file_diagnostics",
-    "get_impact_analysis",
     "find_scoped_references",
     "impact_report",
     "refactor_safety_report",
     "diff_aware_references",
     "semantic_code_review",
     "dead_code_report",
-    "find_dead_code",
     "find_circular_dependencies",
     "get_changed_files",
     "find_tests",
@@ -113,7 +110,7 @@ const REVIEW_TOOLS: &[&str] = &[
     "diagnose_issues",
     "cleanup_duplicate_logic",
     "get_changed_files",
-    "get_impact_analysis",
+    "impact_report",
     "find_scoped_references",
 ];
 
@@ -121,10 +118,29 @@ const EXPLORATION_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
     "get_symbols_overview",
-    "get_project_structure",
     "onboard_project",
     "get_current_config",
 ];
+
+static DISPATCH_TOOL_NAMES: std::sync::LazyLock<std::collections::HashSet<&'static str>> =
+    std::sync::LazyLock::new(|| crate::tools::dispatch_table().keys().copied().collect());
+
+fn is_registered_tool_for_current_build(name: &str) -> bool {
+    crate::tool_defs::tool_definition(name).is_some() || DISPATCH_TOOL_NAMES.contains(name)
+}
+
+fn retain_registered_suggestions(suggestions: &mut Vec<String>) {
+    suggestions.retain(|tool| is_registered_tool_for_current_build(tool));
+}
+
+fn registered_suggestions(suggestions: &[&str]) -> Vec<String> {
+    suggestions
+        .iter()
+        .copied()
+        .filter(|tool| is_registered_tool_for_current_build(tool))
+        .map(ToOwned::to_owned)
+        .collect()
+}
 
 /// Infer the harness phase from recent tool usage when the client has not
 /// supplied `_harness_phase` explicitly.
@@ -172,7 +188,6 @@ pub(crate) fn infer_harness_phase(recent_tools: &[String]) -> Option<&'static st
         "analyze_change_request",
         "onboard_project",
         "explore_codebase",
-        "analyze_change_impact",
     ];
 
     // Look at up to the 5 most recent tools. The most recent call is the
@@ -232,9 +247,9 @@ pub fn suggest_next_contextual(
         .any(|t| REVIEW_TOOLS.contains(&t.as_str()));
     if recent_has_review
         && !MUTATION_TOOLS.contains(&tool_name)
-        && !suggestions.contains(&"get_impact_analysis".to_owned())
+        && !suggestions.contains(&"impact_report".to_owned())
     {
-        suggestions.push("get_impact_analysis".to_owned());
+        suggestions.push("impact_report".to_owned());
         suggestions.truncate(3);
     }
 
@@ -258,7 +273,10 @@ pub fn suggest_next_contextual(
             "build" => BUILD_PHASE_TOOLS,
             "review" => REVIEW_PHASE_TOOLS,
             "eval" => EVAL_PHASE_TOOLS,
-            _ => return Some(suggestions), // unknown phase, no filtering
+            _ => {
+                retain_registered_suggestions(&mut suggestions);
+                return Some(suggestions);
+            } // unknown phase, no phase filtering
         };
         suggestions.retain(|s| phase_tools.contains(&s.as_str()));
         // Ensure we always have at least 1 suggestion
@@ -267,6 +285,7 @@ pub fn suggest_next_contextual(
         }
     }
 
+    retain_registered_suggestions(&mut suggestions);
     Some(suggestions)
 }
 
@@ -277,11 +296,8 @@ fn is_workflow_tool_name(name: &str) -> bool {
             | "trace_request_path"
             | "review_architecture"
             | "plan_safe_refactor"
-            | "audit_security_context"
-            | "analyze_change_impact"
             | "cleanup_duplicate_logic"
             | "review_changes"
-            | "assess_change_readiness"
             | "diagnose_issues"
             | "orchestrate_change"
             | "analyze_change_request"
@@ -377,20 +393,19 @@ pub fn composite_guidance_for_chain(
 pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
     let suggestions: &[&str] = match tool_name {
         // ── Symbols / index ──────────────────────────────────────────
-        "get_symbols_overview" => &["find_symbol", "get_impact_analysis", "get_ranked_context"],
+        "get_symbols_overview" => &["find_symbol", "impact_report", "get_ranked_context"],
         "find_symbol" => &[
             "find_referencing_symbols",
-            "get_impact_analysis",
+            "impact_report",
             "replace_symbol_body",
         ],
         "get_ranked_context" => &["find_symbol", "replace_symbol_body", "semantic_search"],
         "refresh_symbol_index" => &["index_embeddings", "get_symbols_overview"],
-        "get_project_structure" => &["get_symbols_overview", "get_ranked_context", "find_symbol"],
         "get_complexity" => &["find_symbol", "get_symbols_overview"],
         "search_symbols_fuzzy" => &["find_symbol", "get_ranked_context"],
 
         // ── LSP ──────────────────────────────────────────────────────
-        "find_referencing_symbols" => &["get_impact_analysis", "rename_symbol"],
+        "find_referencing_symbols" => &["impact_report", "rename_symbol"],
         "get_file_diagnostics" => &["find_symbol", "get_symbols_overview"],
         "search_workspace_symbols" => &["find_symbol", "get_symbols_overview"],
         "get_type_hierarchy" => &["find_referencing_symbols", "get_symbols_overview"],
@@ -398,18 +413,16 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "get_lsp_recipe" => &["get_capabilities", "get_file_diagnostics"],
 
         // ── Graph / analysis ─────────────────────────────────────────
-        "get_changed_files" => &["get_impact_analysis", "get_symbols_overview"],
-        "get_impact_analysis" => &["find_referencing_symbols", "get_symbols_overview"],
-        "get_importers" => &["get_impact_analysis", "get_symbol_importance"],
-        "get_symbol_importance" => &["get_importers", "get_impact_analysis"],
-        "find_dead_code" => &["get_symbols_overview", "delete_lines"],
-        "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
+        "get_changed_files" => &["impact_report", "get_symbols_overview"],
+        "get_importers" => &["impact_report", "get_symbol_importance"],
+        "get_symbol_importance" => &["get_importers", "impact_report"],
+        "find_circular_dependencies" => &["impact_report", "get_symbols_overview"],
         "get_callers" => &["get_callees", "find_symbol"],
         "get_callees" => &["get_callers", "find_symbol"],
         "find_scoped_references" => &["rename_symbol", "find_referencing_symbols"],
 
         // ── Filesystem ───────────────────────────────────────────────
-        "get_current_config" => &["get_capabilities", "get_project_structure"],
+        "get_current_config" => &["get_capabilities", "onboard_project"],
         "read_file" => &["get_symbols_overview", "find_symbol"],
         "search_for_pattern" => &["find_referencing_symbols", "get_ranked_context"],
         "find_annotations" => &["get_symbols_overview", "find_symbol"],
@@ -440,11 +453,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "list_memories" => &["read_memory", "write_memory"],
 
         // ── Session ──────────────────────────────────────────────────
-        "activate_project" => &[
-            "get_project_structure",
-            "get_current_config",
-            "get_capabilities",
-        ],
+        "activate_project" => &["onboard_project", "get_current_config", "get_capabilities"],
         "prepare_harness_session" => &[
             "get_current_config",
             "get_capabilities",
@@ -457,16 +466,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "trace_request_path",
             "review_changes",
             "get_file_diagnostics",
-        ],
-        "audit_security_context" => &[
-            "review_changes",
-            "get_analysis_section",
-            "review_architecture",
-        ],
-        "analyze_change_impact" => &[
-            "review_architecture",
-            "review_changes",
-            "get_analysis_section",
         ],
         "cleanup_duplicate_logic" => &[
             "review_changes",
@@ -482,7 +481,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "add_queryable_project" => &["query_project", "list_queryable_projects"],
         "query_project" => &["find_symbol", "list_queryable_projects"],
         "set_preset" => &["get_capabilities"],
-        "get_capabilities" => &["get_project_structure", "get_ranked_context"],
+        "get_capabilities" => &["onboard_project", "get_ranked_context"],
         "get_tool_metrics" => &[
             "audit_builder_session",
             "export_session_markdown",
@@ -511,11 +510,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
         "refactor_change_signature" => &["get_file_diagnostics", "find_referencing_symbols"],
-        "propagate_deletions" => &[
-            "delete_lines",
-            "get_file_diagnostics",
-            "get_impact_analysis",
-        ],
+        "propagate_deletions" => &["delete_lines", "get_file_diagnostics", "impact_report"],
         "orchestrate_change" => &[
             "get_analysis_section",
             "verify_change_readiness",
@@ -574,7 +569,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
 
         _ => return None,
     };
-    Some(suggestions.iter().map(|s| s.to_string()).collect())
+    Some(registered_suggestions(suggestions))
 }
 
 /// Returns a map of tool name → brief reason explaining why it is suggested.
@@ -650,6 +645,64 @@ mod phase_inference_tests {
     fn unknown_tools_only_returns_none() {
         let recent = tools(&["my_custom_thing", "another_unknown"]);
         assert_eq!(infer_harness_phase(&recent), None);
+    }
+
+    #[test]
+    fn suggestions_exclude_tools_missing_from_current_registry() {
+        for removed in [
+            "get_project_structure",
+            "get_impact_analysis",
+            "find_dead_code",
+            "analyze_change_impact",
+            "audit_security_context",
+            "assess_change_readiness",
+        ] {
+            assert!(
+                super::suggest_next(removed).is_none(),
+                "removed tool alias {removed} should not have a static suggestion chain"
+            );
+        }
+
+        let overview = super::suggest_next("get_symbols_overview").expect("overview suggestions");
+        assert!(
+            !overview.iter().any(|tool| tool == "get_impact_analysis"),
+            "removed analysis alias should not be suggested: {overview:?}"
+        );
+
+        let config = super::suggest_next("get_current_config").expect("config suggestions");
+        assert!(
+            !config.iter().any(|tool| tool == "get_project_structure"),
+            "removed project-structure alias should not be suggested: {config:?}"
+        );
+
+        let diff = super::suggest_next("diff_aware_references").expect("diff-aware suggestions");
+        assert!(
+            !diff.iter().any(|tool| tool == "semantic_code_review"),
+            "removed report kind should not be suggested as a callable tool: {diff:?}"
+        );
+
+        let contextual = super::suggest_next_contextual(
+            "review_changes",
+            &tools(&["review_architecture"]),
+            None,
+        )
+        .expect("contextual suggestions");
+        assert!(
+            contextual
+                .iter()
+                .all(|tool| super::is_registered_tool_for_current_build(tool)),
+            "contextual suggestions must be callable in the current build: {contextual:?}"
+        );
+    }
+
+    #[cfg(not(feature = "semantic"))]
+    #[test]
+    fn suggestions_hide_semantic_tools_when_feature_is_not_compiled() {
+        let ranked = super::suggest_next("get_ranked_context").expect("ranked suggestions");
+        assert!(
+            !ranked.iter().any(|tool| tool == "semantic_search"),
+            "semantic_search should not be suggested without the semantic feature: {ranked:?}"
+        );
     }
 
     #[test]
