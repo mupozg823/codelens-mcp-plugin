@@ -1,4 +1,5 @@
 use super::AppState;
+use anyhow::Context;
 use codelens_engine::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -89,24 +90,35 @@ pub(super) fn build_project_runtime_context(
         .map(|s| s.indexed_files == 0)
         .unwrap_or(true)
     {
-        let _ = symbol_index.refresh_all();
+        symbol_index
+            .refresh_all()
+            .context("failed to refresh empty symbol index during runtime startup")?;
     }
     let graph_cache = Arc::new(GraphCache::new(30));
     let memories_dir = project.as_path().join(".codelens").join("memories");
     let analysis_dir = project.as_path().join(".codelens").join("analysis-cache");
     let audit_dir = project.as_path().join(".codelens").join("audit");
-    let _ = fs::create_dir_all(&memories_dir);
-    let _ = fs::create_dir_all(&analysis_dir);
-    let _ = fs::create_dir_all(analysis_dir.join("jobs"));
-    let _ = fs::create_dir_all(&audit_dir);
+    ensure_runtime_dir(&memories_dir)?;
+    ensure_runtime_dir(&analysis_dir)?;
+    ensure_runtime_dir(&analysis_dir.join("jobs"))?;
+    ensure_runtime_dir(&audit_dir)?;
     let lsp_pool = Arc::new(LspSessionPool::new(project.clone()));
     let watcher = if start_watcher {
-        FileWatcher::start(
+        match FileWatcher::start(
             project.as_path(),
             Arc::clone(&symbol_index),
             Arc::clone(&graph_cache),
-        )
-        .ok()
+        ) {
+            Ok(watcher) => Some(watcher),
+            Err(error) => {
+                tracing::warn!(
+                    project = %project.as_path().display(),
+                    error = %error,
+                    "file watcher failed to start; runtime continues with manual refresh"
+                );
+                None
+            }
+        }
     } else {
         None
     };
@@ -120,6 +132,11 @@ pub(super) fn build_project_runtime_context(
         audit_dir,
         watcher,
     })
+}
+
+fn ensure_runtime_dir(path: &std::path::Path) -> anyhow::Result<()> {
+    fs::create_dir_all(path)
+        .with_context(|| format!("failed to create runtime directory `{}`", path.display()))
 }
 
 pub(super) fn activate_project_context(
@@ -149,4 +166,26 @@ pub(super) fn activate_project_context(
     state
         .job_store
         .cleanup_stale_files(crate::util::now_ms(), Some(&scope));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_project_runtime_context_fails_when_runtime_dirs_cannot_be_created() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        fs::write(dir.path().join(".codelens"), "not a directory").expect("write blocker");
+        let project = ProjectRoot::new(dir.path().to_str().expect("utf8 path")).expect("project");
+
+        let err = match build_project_runtime_context(project, false) {
+            Ok(_) => panic!("runtime context should not ignore runtime directory setup failure"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string().contains("runtime directory"),
+            "error should identify runtime directory setup, got: {err:#}"
+        );
+    }
 }

@@ -10,7 +10,7 @@ pub(crate) fn effective_budget_for_tool(name: &str, request_budget: usize) -> us
 pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> String {
     if matches!(
         tool_name,
-        "get_project_structure" | "get_symbols_overview" | "get_current_config" | "onboard_project"
+        "get_symbols_overview" | "get_current_config" | "onboard_project"
     ) {
         return "overview complete — drill into specific files or symbols".to_owned();
     }

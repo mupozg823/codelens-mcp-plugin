@@ -35,7 +35,7 @@ All token counts use **tiktoken `cl100k_base`** — the same tokenizer used by C
 | ------------------ | -------------------------------------------- | --------------: | ---------------------------------- | --------------: | -------------: |
 | Find symbol        | `rg -n 'dispatch_tool'` (30 lines)           |             616 | `find_symbol include_body=true`    |             309 |           2.0x |
 | File structure     | `Read crates/codelens-mcp/src/dispatch.rs`   |           5,988 | `get_symbols_overview`             |           1,612 |           3.7x |
-| Impact analysis    | `Read project.rs + rg references`            |           5,321 | `get_impact_analysis`              |           1,651 |           3.2x |
+| Impact analysis    | `Read project.rs + rg references`            |           5,321 | `impact_report`                    |           1,651 |           3.2x |
 | Find references    | `rg -n 'dispatch_tool'` (50 lines)           |             616 | `find_referencing_symbols`         |             240 |           2.6x |
 | Project onboarding | `Read manifest + entry + README + file list` |           7,972 | `onboard_project`                  |             763 |          10.4x |
 | Context retrieval  | `rg + read 2 files`                          |           7,692 | `get_ranked_context max_tokens=8k` |              46 |       **167x** |
@@ -168,7 +168,7 @@ Use `--isolated-copy` to avoid index pollution when the script mutates the worki
 | `find_symbol`          | < 1 ms                              | SQLite FTS5               |
 | `get_symbols_overview` | < 1 ms                              | Cached                    |
 | `get_ranked_context`   | ~135 ms (hybrid) / ~39 ms (lexical) | 4-signal + semantic blend |
-| `get_impact_analysis`  | ~1 ms                               | Graph cache (petgraph)    |
+| `impact_report`        | ~1 ms graph core + report envelope  | Graph cache (petgraph)    |
 | `semantic_search`      | ~507 ms                             | Warm embedding pool       |
 | `onboard_project`      | ~21 ms                              | Composite workflow        |
 | Cold start             | ~12 ms                              | No LSP boot               |
