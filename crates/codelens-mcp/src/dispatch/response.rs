@@ -465,7 +465,7 @@ fn build_suggested_next_calls(
                     reason: "Escalate the same scoped exploration into an architecture review instead of starting over.".to_owned(),
                 })
             }
-            ("explore_codebase", "analyze_change_impact" | "impact_report") => {
+            ("explore_codebase", "impact_report") => {
                 target_path.map(|p| SuggestedNextCall {
                     tool: next.clone(),
                     arguments: json!({ "path": p }),
@@ -484,7 +484,7 @@ fn build_suggested_next_calls(
                     reason: "Reuse the reviewed scope as the refactor planning target.".to_owned(),
                 })
             }
-            ("review_architecture", "analyze_change_impact" | "impact_report") => {
+            ("review_architecture", "impact_report") => {
                 target_path.map(|p| SuggestedNextCall {
                     tool: next.clone(),
                     arguments: json!({ "path": p }),
@@ -496,7 +496,7 @@ fn build_suggested_next_calls(
                 arguments: json!({ "symbol": sym }),
                 reason: "Trace the same symbol before editing to confirm the execution path.".to_owned(),
             }),
-            ("plan_safe_refactor", "analyze_change_impact" | "impact_report") => {
+            ("plan_safe_refactor", "impact_report") => {
                 target_path.map(|p| SuggestedNextCall {
                     tool: next.clone(),
                     arguments: json!({ "path": p }),

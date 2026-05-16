@@ -258,6 +258,9 @@ Add benchmark families for:
 
 Until those exist, "strictly better than Serena" is not a scientific statement. It is only a preference.
 
+For the active product-readiness backlog, see
+[`docs/plans/PLAN_product-readiness-hardening.md`](plans/PLAN_product-readiness-hardening.md).
+
 ## 6. Concrete Roadmap
 
 ### Phase A — Stop overstating

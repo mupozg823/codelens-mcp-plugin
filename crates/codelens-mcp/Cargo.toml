@@ -58,6 +58,8 @@ native-tls = { workspace = true }
 rcgen = { workspace = true }
 tempfile = "3"
 filetime = "0.2"
+protobuf = { workspace = true }
+scip = { workspace = true }
 
 [features]
 # `cargo install codelens-mcp` ships a BM25 + AST + call-graph build

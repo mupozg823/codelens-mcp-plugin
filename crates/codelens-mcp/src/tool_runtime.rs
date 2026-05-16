@@ -62,12 +62,6 @@ pub fn optional_string<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'
     value.get(key).and_then(|v| v.as_str())
 }
 
-/// Extract an optional u64 argument with a default value.
-#[allow(dead_code)]
-pub fn optional_u64(value: &serde_json::Value, key: &str, default: u64) -> u64 {
-    value.get(key).and_then(|v| v.as_u64()).unwrap_or(default)
-}
-
 /// Extract an optional usize argument with a default value.
 pub fn optional_usize(value: &serde_json::Value, key: &str, default: usize) -> usize {
     value

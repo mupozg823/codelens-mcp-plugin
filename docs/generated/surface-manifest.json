@@ -406,7 +406,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 204
+        "estimated_tokens": 174
       },
       {
         "name": "trace_request_path",
@@ -415,7 +415,7 @@
         "phase": "plan",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 186
+        "estimated_tokens": 156
       },
       {
         "name": "review_architecture",
@@ -424,7 +424,7 @@
         "phase": "plan",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 176
+        "estimated_tokens": 145
       },
       {
         "name": "plan_safe_refactor",
@@ -433,7 +433,7 @@
         "phase": "plan",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 198
+        "estimated_tokens": 167
       },
       {
         "name": "cleanup_duplicate_logic",
@@ -442,7 +442,7 @@
         "phase": "build",
         "preferred_executor": "codex-builder",
         "has_output_schema": true,
-        "estimated_tokens": 288
+        "estimated_tokens": 257
       },
       {
         "name": "review_changes",
@@ -451,7 +451,7 @@
         "phase": "review",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 200
+        "estimated_tokens": 170
       },
       {
         "name": "diagnose_issues",
@@ -460,7 +460,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 191
+        "estimated_tokens": 161
       },
       {
         "name": "activate_project",
@@ -2370,7 +2370,7 @@
       "primary_path": [
         "find_symbol",
         "find_referencing_symbols",
-        "get_impact_analysis",
+        "impact_report",
         "get_type_hierarchy"
       ],
       "fallback_ladder": [

@@ -16,6 +16,9 @@ It is intentionally split into:
 
 That keeps public packaging claims grounded in what the repository actually ships today.
 
+For the active product-readiness backlog that owns release smoke expansion,
+see [`docs/plans/PLAN_product-readiness-hardening.md`](plans/PLAN_product-readiness-hardening.md).
+
 ---
 
 ## Feature-flag matrix (build-time requirements)
@@ -94,6 +97,70 @@ and then uses those release checksums to update the Homebrew tap formula.
 - `checksums-sha256.txt` itself is not separately signed
 
 The remaining items are roadmap gaps, not shipped capabilities.
+
+---
+
+## Local pre-release smoke
+
+Before cutting a tag, run the lightweight binary and HTTP smoke checks in
+addition to the normal Rust test gate:
+
+```bash
+scripts/smoke-release-install.sh
+scripts/smoke-http-transport.sh
+scripts/smoke-enterprise-daemons.sh
+scripts/smoke-codelens-dogfood.sh
+```
+
+`scripts/smoke-release-install.sh` builds `target/debug/codelens-mcp` when
+needed, then verifies:
+
+1. `--version` returns a `codelens-mcp` version banner
+2. `--print-surface-manifest` emits the v2 manifest with a populated tool/schema inventory
+3. one-shot `get_current_config` works against the repository with the minimal preset
+
+To test a release or installed binary instead of the debug build, pass
+`CODELENS_BIN=/path/to/codelens-mcp scripts/smoke-release-install.sh`.
+
+`scripts/smoke-http-transport.sh` builds the local binary with `--features http`
+when needed, starts it on a random loopback port, then verifies:
+
+1. `/.well-known/mcp.json` advertises the latest supported MCP protocol version
+2. `initialize` creates an HTTP session and returns `mcp-session-id`
+3. session-scoped `tools/list` exposes the default public workflow surface
+4. `DELETE /mcp` terminates the session without a server error
+
+To test a prebuilt HTTP-capable binary, pass
+`CODELENS_HTTP_BIN=/path/to/codelens-mcp scripts/smoke-http-transport.sh`.
+
+`scripts/smoke-enterprise-daemons.sh` verifies the long-running dual-daemon
+shape after a supervisor such as `launchd`, `systemd`, or Docker has started the
+services:
+
+1. read-only daemon on `http://127.0.0.1:7839` uses `reviewer-graph`
+2. mutation-enabled daemon on `http://127.0.0.1:7838` uses `refactor-full`
+3. both daemons expose Streamable HTTP, semantic search, and healthy session state
+4. `codelens://session/http` reports `stale_daemon=false` and matching binary/HEAD git SHAs
+
+Override the endpoints with `CODELENS_READONLY_URL` and `CODELENS_MUTATION_URL`.
+Override the expected git SHA with `CODELENS_EXPECTED_GIT_SHA`.
+
+`scripts/smoke-codelens-dogfood.sh` verifies that CodeLens can inspect this
+repository through its own read-only daemon:
+
+1. `prepare_harness_session` binds the daemon to the current repo with health `ok`
+2. `review_architecture` produces an analysis handle for `scripts/`
+3. `codelens://session/http` reports read-only daemon mode and no binary drift
+
+Use `CODELENS_READONLY_URL` for non-default read-only daemon endpoints.
+
+For local development, `scripts/smoke-release-install.sh` is the minimum smoke
+check. For release candidates, run the binary and HTTP smoke scripts plus the
+package test gate below. For supervised enterprise deployments, also run
+`scripts/smoke-enterprise-daemons.sh` and `scripts/smoke-codelens-dogfood.sh`
+after the supervisor starts the daemons. Semantic/model archive dry-run smoke
+checks are still tracked in the product-readiness roadmap and remain advisory
+until they land.
 
 ---
 

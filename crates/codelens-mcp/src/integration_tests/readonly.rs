@@ -88,26 +88,76 @@ fn find_referencing_symbols_accepts_legacy_relative_path_with_deprecation_warnin
     );
 }
 
-// Ignored because the repo's default integration-test fixture only creates
-// tree-sitter projects. Run manually with CODELENS_SCIP_HEURISTIC_FIXTURE,
-// CODELENS_SCIP_HEURISTIC_SYMBOL, and CODELENS_SCIP_HEURISTIC_FILE pointing
-// at a project that has a usable index.scip.
+#[cfg(feature = "scip-backend")]
+fn write_scip_find_symbol_fixture(project: &ProjectRoot) {
+    use protobuf::Message;
+    use scip::types as scip_types;
+
+    let src_dir = project.as_path().join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(
+        src_dir.join("main.rs"),
+        [
+            "// fixture line 0",
+            "// fixture line 1",
+            "// fixture line 2",
+            "// fixture line 3",
+            "// fixture line 4",
+            "// fixture line 5",
+            "// fixture line 6",
+            "// fixture line 7",
+            "// fixture line 8",
+            "// fixture line 9",
+            "pub struct MyStruct {",
+            "    value: i32,",
+            "}",
+            "",
+            "impl MyStruct {",
+            "    pub fn new(value: i32) -> Self {",
+            "        Self { value }",
+            "    }",
+            "}",
+            "",
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+
+    let symbol = "scip-rust cargo test 0.1.0 src/main.rs/MyStruct#";
+    let mut index = scip_types::Index::new();
+    let mut doc = scip_types::Document::new();
+    doc.relative_path = "src/main.rs".to_owned();
+
+    let mut definition = scip_types::Occurrence::new();
+    definition.range = vec![10, 11, 19];
+    definition.symbol = symbol.to_owned();
+    definition.symbol_roles = 1;
+    doc.occurrences.push(definition);
+
+    let mut info = scip_types::SymbolInformation::new();
+    info.symbol = symbol.to_owned();
+    info.documentation = vec!["Fixture documentation for MyStruct.".to_owned()];
+    doc.symbols.push(info);
+
+    index.documents.push(doc);
+    fs::write(
+        project.as_path().join("index.scip"),
+        index.write_to_bytes().unwrap(),
+    )
+    .unwrap();
+}
+
+#[cfg(feature = "scip-backend")]
 #[test]
-#[ignore = "requires a real SCIP index fixture; default temp projects exercise tree-sitter only"]
 fn find_symbol_with_include_body_returns_body_via_scip_heuristic() {
-    let fixture = std::env::var("CODELENS_SCIP_HEURISTIC_FIXTURE")
-        .expect("set CODELENS_SCIP_HEURISTIC_FIXTURE to a project with index.scip");
-    let symbol =
-        std::env::var("CODELENS_SCIP_HEURISTIC_SYMBOL").unwrap_or_else(|_| "MyStruct".to_owned());
-    let file_path =
-        std::env::var("CODELENS_SCIP_HEURISTIC_FILE").unwrap_or_else(|_| "src/main.rs".to_owned());
-    let project = ProjectRoot::new(&fixture).unwrap();
+    let project = project_root();
+    write_scip_find_symbol_fixture(&project);
     let state = make_state(&project);
 
     let payload = call_tool(
         &state,
         "find_symbol",
-        json!({ "name": symbol, "file_path": file_path, "include_body": true }),
+        json!({ "name": "MyStruct", "file_path": "src/main.rs", "include_body": true }),
     );
 
     assert_eq!(payload["success"], json!(true));
@@ -121,12 +171,14 @@ fn find_symbol_with_include_body_returns_body_via_scip_heuristic() {
     assert!(
         first["body"]
             .as_str()
-            .map(|body| !body.is_empty())
+            .map(|body| body.contains("pub struct MyStruct"))
             .unwrap_or(false),
         "SCIP heuristic should populate body content"
     );
     assert_eq!(first["body_source"], json!("scip_line_range_slice"));
     assert_eq!(first["body_truncation"], json!("heuristic_50_lines"));
+    assert_eq!(first["signature_source"], json!("source_line_read"));
+    assert_eq!(first["line"], json!(11));
 }
 
 // #183: distinguish "file is empty" from "file not in index" so callers
