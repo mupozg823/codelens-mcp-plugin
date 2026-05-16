@@ -1,4 +1,5 @@
 use crate::protocol::{JsonRpcResponse, RoutingHint, ToolCallResponse};
+use crate::runtime_types::CacheHitTier;
 use crate::tool_defs::{ToolSurface, tool_definition};
 use crate::tools;
 use serde_json::{Map, Value, json};
@@ -86,9 +87,11 @@ pub(crate) fn routing_hint_for_payload(resp: &ToolCallResponse) -> RoutingHint {
         .and_then(|v| v.as_str())
         .is_some();
     if is_cached {
-        match cache_tier {
-            Some("exact") => RoutingHint::CachedExact,
-            Some("warm") => RoutingHint::CachedWarm,
+        match cache_tier.and_then(CacheHitTier::from_label) {
+            Some(CacheHitTier::Exact) => RoutingHint::CachedExact,
+            Some(CacheHitTier::Warm) => RoutingHint::CachedWarm,
+            // `Cold` and unknown labels fall through to the legacy alias so older
+            // payloads / unseen tiers keep working without losing the cache signal.
             _ => RoutingHint::Cached,
         }
     } else if is_async_job || is_analysis_handle {

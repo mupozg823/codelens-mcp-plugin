@@ -238,6 +238,17 @@ impl CacheHitTier {
             Self::Cold => "cold",
         }
     }
+
+    /// Inverse of [`Self::as_str`] — parse the stable envelope label back into a tier.
+    /// Returns `None` for unknown labels so callers can decide on a legacy fallback.
+    pub(crate) fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "exact" => Some(Self::Exact),
+            "warm" => Some(Self::Warm),
+            "cold" => Some(Self::Cold),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -249,6 +260,20 @@ mod cache_hit_tier_tests {
         assert_eq!(CacheHitTier::Exact.as_str(), "exact");
         assert_eq!(CacheHitTier::Warm.as_str(), "warm");
         assert_eq!(CacheHitTier::Cold.as_str(), "cold");
+    }
+
+    #[test]
+    fn from_label_round_trips_as_str() {
+        for tier in [CacheHitTier::Exact, CacheHitTier::Warm, CacheHitTier::Cold] {
+            assert_eq!(CacheHitTier::from_label(tier.as_str()), Some(tier));
+        }
+    }
+
+    #[test]
+    fn from_label_returns_none_for_unknown_label() {
+        assert_eq!(CacheHitTier::from_label("unknown"), None);
+        assert_eq!(CacheHitTier::from_label(""), None);
+        assert_eq!(CacheHitTier::from_label("Exact"), None);
     }
 }
 
