@@ -681,12 +681,27 @@ pub(super) fn workflow_alias_output_schema() -> serde_json::Value {
         "properties": {
             "workflow": {"type": "string"},
             "delegated_tool": {"type": "string"},
-            "deprecated": {"type": "boolean"},
-            "replacement_tool": {"type": ["string", "null"]},
-            "removal_target": {"type": ["string", "null"]},
             "result": {}
         }
     })
+}
+
+#[cfg(test)]
+mod workflow_alias_schema_tests {
+    #[test]
+    fn workflow_alias_schema_does_not_advertise_removed_deprecation_fields() {
+        let schema = super::workflow_alias_output_schema();
+        let properties = schema["properties"]
+            .as_object()
+            .expect("workflow alias schema should have object properties");
+
+        for removed in ["deprecated", "replacement_tool", "removal_target"] {
+            assert!(
+                !properties.contains_key(removed),
+                "{removed} is no longer emitted by workflow wrappers"
+            );
+        }
+    }
 }
 
 pub(super) fn analysis_section_output_schema() -> serde_json::Value {

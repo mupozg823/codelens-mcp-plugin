@@ -21,6 +21,55 @@ pub(crate) struct ScipStaleness {
     pub(crate) stale_files: Vec<(String, u64)>,
 }
 
+/// Default precise-tier severity threshold: 24 hours.
+///
+/// Issue #295 (Dogfood D2): the on-disk `index.scip` can drift by
+/// seconds (commit-fresh) or by weeks (a daemon attached before the
+/// last rebuild). The existing `scip_index_stale_warning` fires the
+/// moment any source out-paces the index, even by one second, so the
+/// "stale" signal does not distinguish "just-rebased mid-edit" from
+/// "11 days behind reality". Past this threshold callers should
+/// treat SCIP results as advisory only.
+#[cfg(feature = "scip-backend")]
+pub(crate) const SCIP_PRECISE_DEFAULT_MAX_STALE_SECS: u64 = 24 * 60 * 60;
+
+/// Returns the configured precise-tier staleness ceiling, honouring
+/// `CODELENS_SCIP_PRECISE_MAX_STALE_SECS` (positive integer seconds).
+/// Falls back to [`SCIP_PRECISE_DEFAULT_MAX_STALE_SECS`] for any
+/// missing / unparseable / zero override so test scaffolding can lower
+/// the bar but cannot accidentally disable it.
+#[cfg(feature = "scip-backend")]
+pub(crate) fn scip_precise_max_stale_secs() -> u64 {
+    std::env::var("CODELENS_SCIP_PRECISE_MAX_STALE_SECS")
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or(SCIP_PRECISE_DEFAULT_MAX_STALE_SECS)
+}
+
+#[cfg(feature = "scip-backend")]
+impl ScipStaleness {
+    /// Largest source-vs-index age in seconds across all reported
+    /// stale files. Issue #295: callers use this to decide whether
+    /// the index is "edit-mid-flight" (acceptable) or "long-since
+    /// abandoned" (precise-tier results should be downgraded).
+    pub(crate) fn max_stale_age_secs(&self) -> u64 {
+        self.stale_files
+            .iter()
+            .map(|(_, age)| *age)
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// `true` when at least one stale file meets or exceeds the
+    /// configured precise-tier ceiling. Per-call `threshold_secs`
+    /// exists so unit tests can pin a value without going through env
+    /// vars.
+    pub(crate) fn is_severely_stale(&self, threshold_secs: u64) -> bool {
+        self.max_stale_age_secs() >= threshold_secs
+    }
+}
+
 #[cfg(feature = "scip-backend")]
 pub(crate) fn detect_scip_staleness(
     project_root: &std::path::Path,
@@ -75,6 +124,13 @@ pub(crate) fn scip_stale_warning_payload(stale: &ScipStaleness) -> serde_json::V
         .iter()
         .map(|(file, age)| json!({"file_path": file, "newer_than_index_by_seconds": age}))
         .collect();
+    // Issue #295 (Dogfood D2): expose a `severely_stale` flag + the
+    // configured threshold so callers can branch between "warn but
+    // trust" and "treat SCIP rows as advisory only" without re-running
+    // the mtime probe.
+    let threshold = scip_precise_max_stale_secs();
+    let max_age = stale.max_stale_age_secs();
+    let severely_stale = stale.is_severely_stale(threshold);
     json!({
         "code": "scip_index_stale",
         "message": "SCIP index pre-dates one or more resolved source files; reported line / body / signature may not match current source. Regenerate the index before trusting precise-tier results.",
@@ -82,6 +138,9 @@ pub(crate) fn scip_stale_warning_payload(stale: &ScipStaleness) -> serde_json::V
         "action_target": "scip_backend",
         "index_path": stale.index_path,
         "stale_files": stale_files_payload,
+        "max_stale_age_secs": max_age,
+        "precise_threshold_secs": threshold,
+        "severely_stale": severely_stale,
     })
 }
 
@@ -186,5 +245,51 @@ mod tests {
         // `find_callees` uses `usize::MAX` as a synthetic
         // next-definition sentinel — adding 1 must not panic.
         assert_eq!(scip_line_to_display(usize::MAX), usize::MAX);
+    }
+
+    /// Issue #295 (Dogfood D2): real-session reproduction showed an 11-day
+    /// stale index still emitting confidence-0.95 SCIP caller rows. The
+    /// `is_severely_stale` predicate is the per-call gate downstream
+    /// tools use to demote precise results — these assertions lock the
+    /// threshold semantics (inclusive at the boundary).
+    #[test]
+    fn is_severely_stale_compares_against_threshold_inclusive() {
+        let stale = ScipStaleness {
+            index_path: "/tmp/index.scip".to_owned(),
+            stale_files: vec![("src/a.rs".to_owned(), 60), ("src/b.rs".to_owned(), 3_600)],
+        };
+        assert_eq!(stale.max_stale_age_secs(), 3_600);
+        assert!(!stale.is_severely_stale(3_601));
+        assert!(stale.is_severely_stale(3_600));
+        assert!(stale.is_severely_stale(1));
+    }
+
+    #[test]
+    fn max_stale_age_is_zero_when_no_files() {
+        let stale = ScipStaleness {
+            index_path: "/tmp/index.scip".to_owned(),
+            stale_files: vec![],
+        };
+        assert_eq!(stale.max_stale_age_secs(), 0);
+        assert!(!stale.is_severely_stale(1));
+    }
+
+    #[test]
+    fn warning_payload_includes_severity_envelope() {
+        // Two files: one minor (60s), one severe (8 days). The
+        // payload must carry the worst age + the configured threshold
+        // + a boolean severity gate so consumers can branch without a
+        // second mtime probe.
+        let stale = ScipStaleness {
+            index_path: "/tmp/index.scip".to_owned(),
+            stale_files: vec![
+                ("src/a.rs".to_owned(), 60),
+                ("src/b.rs".to_owned(), 8 * 24 * 60 * 60),
+            ],
+        };
+        let payload = scip_stale_warning_payload(&stale);
+        assert_eq!(payload["max_stale_age_secs"], 8 * 24 * 60 * 60);
+        assert_eq!(payload["precise_threshold_secs"], 24 * 60 * 60);
+        assert_eq!(payload["severely_stale"], true);
     }
 }

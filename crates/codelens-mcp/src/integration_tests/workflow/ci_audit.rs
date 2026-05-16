@@ -44,7 +44,6 @@ fn ci_audit_reports_use_fixed_machine_schema() {
 }
 
 #[cfg(feature = "http")]
-#[ignore = "v1.12.2 root fix changed audit findings; aggregation expectations need re-baselining (top_failed_checks count, pass_rate) — tracked as v1.13.0 follow-up"]
 #[test]
 fn eval_session_audit_aggregates_across_tracked_sessions() {
     let project = project_root();
@@ -74,12 +73,6 @@ fn eval_session_audit_aggregates_across_tracked_sessions() {
         &project,
         crate::tool_defs::ToolProfile::ReviewerGraph,
     );
-    let planner_warn_session = create_http_profile_session(
-        &state,
-        &project,
-        crate::tool_defs::ToolProfile::ReviewerGraph,
-    );
-
     let _ = call_tool_with_session(
         &state,
         "get_symbols_overview",
@@ -97,9 +90,13 @@ fn eval_session_audit_aggregates_across_tracked_sessions() {
     );
     let _ = call_tool_with_session(
         &state,
-        "prepare_harness_session",
-        json!({"profile": "reviewer-graph", "detail": "compact"}),
-        &planner_pass_session,
+        "replace",
+        json!({
+            "relative_path": "eval_builder_warn.py",
+            "old_text": "old",
+            "new_text": "new"
+        }),
+        &builder_session,
     );
     let _ = call_tool_with_session(
         &state,
@@ -113,11 +110,10 @@ fn eval_session_audit_aggregates_across_tracked_sessions() {
         json!({"changed_files": ["eval_planner_pass.py"], "task": "review planner pass"}),
         &planner_pass_session,
     );
-    let _ = call_tool_with_session(
+    let planner_warn_session = create_http_profile_session_without_prepare(
         &state,
-        "get_symbols_overview",
-        json!({"path": "eval_planner_warn.py"}),
-        &planner_warn_session,
+        &project,
+        crate::tool_defs::ToolProfile::ReviewerGraph,
     );
     let _ = call_tool_with_session(
         &state,
@@ -168,7 +164,7 @@ fn eval_session_audit_aggregates_across_tracked_sessions() {
         content["top_failed_checks"][0]["code"],
         json!("bootstrap_order")
     );
-    assert_eq!(content["top_failed_checks"][0]["count"], json!(2));
+    assert_eq!(content["top_failed_checks"][0]["count"], json!(1));
 
     let rows = call_tool(
         &state,
