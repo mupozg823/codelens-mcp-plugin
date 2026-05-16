@@ -102,14 +102,16 @@ The remaining items are roadmap gaps, not shipped capabilities.
 
 ## Local pre-release smoke
 
-Before cutting a tag, run the lightweight binary smoke in addition to the
-normal Rust test gate:
+Before cutting a tag, run the lightweight binary and HTTP smoke checks in
+addition to the normal Rust test gate:
 
 ```bash
 scripts/smoke-release-install.sh
+scripts/smoke-http-transport.sh
 ```
 
-The script builds `target/debug/codelens-mcp` when needed, then verifies:
+`scripts/smoke-release-install.sh` builds `target/debug/codelens-mcp` when
+needed, then verifies:
 
 1. `--version` returns a `codelens-mcp` version banner
 2. `--print-surface-manifest` emits the v2 manifest with a populated tool/schema inventory
@@ -117,6 +119,22 @@ The script builds `target/debug/codelens-mcp` when needed, then verifies:
 
 To test a release or installed binary instead of the debug build, pass
 `CODELENS_BIN=/path/to/codelens-mcp scripts/smoke-release-install.sh`.
+
+`scripts/smoke-http-transport.sh` builds the local binary with `--features http`
+when needed, starts it on a random loopback port, then verifies:
+
+1. `/.well-known/mcp.json` advertises the latest supported MCP protocol version
+2. `initialize` creates an HTTP session and returns `mcp-session-id`
+3. session-scoped `tools/list` exposes the default public workflow surface
+4. `DELETE /mcp` terminates the session without a server error
+
+To test a prebuilt HTTP-capable binary, pass
+`CODELENS_HTTP_BIN=/path/to/codelens-mcp scripts/smoke-http-transport.sh`.
+
+For local development, `scripts/smoke-release-install.sh` is the minimum smoke
+check. For release candidates, run both smoke scripts plus the package test gate
+below. Semantic/model and archive dry-run smoke checks are still tracked in the
+product-readiness roadmap and remain advisory until they land.
 
 ---
 

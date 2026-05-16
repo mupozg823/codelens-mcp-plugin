@@ -53,16 +53,17 @@ The 2026-05-16 audit classified the repository as **conditionally ready**:
 **Tasks**
 
 - [x] Add a lightweight smoke script for the default local binary shape: `--version`, `--print-surface-manifest`, and one read-only one-shot tool call.
-- [ ] Add HTTP-feature smoke: build with `--features http`, start on a random local port, call `tools/list`, then terminate cleanly.
+- [x] Add HTTP-feature smoke: build with `--features http`, start on a random local port, call `tools/list`, then terminate cleanly.
 - [ ] Add semantic-feature smoke that fails closed when the model directory is absent and succeeds when a staged model payload is present.
 - [ ] Add release-archive smoke for one local dry-run archive before tag release.
-- [ ] Document which smoke checks are required for release candidates vs local development.
+- [x] Document which smoke checks are required for release candidates vs local development.
 
 **Quality Gate**
 
-- [ ] `cargo check`
-- [ ] `cargo test -p codelens-mcp --features http`
+- [x] `cargo check`
+- [x] `cargo test -p codelens-mcp --features http`
 - [x] `scripts/smoke-release-install.sh` passes on the current debug binary
+- [x] `scripts/smoke-http-transport.sh` passes on the current debug binary
 - [ ] release smoke script passes on a clean checkout
 
 **Rollback:** Remove the smoke script and release-verification doc additions; no runtime code changes should be mixed into this phase.
