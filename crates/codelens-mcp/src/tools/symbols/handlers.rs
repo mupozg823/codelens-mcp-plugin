@@ -70,6 +70,38 @@ fn heuristic_body_slice(state: &AppState, file_path: &str, line: usize) -> Optio
     .filter(|body| !body.is_empty())
 }
 
+/// Issue #179: when the SCIP backend resolved an enclosing-scope end
+/// (the next sibling definition in the same document), slice exactly
+/// that range. `end_line` is inclusive; `read_file` slices
+/// `lines[start..end]` so we add 1. Falls back to the 50-line
+/// heuristic when no end was reported or when the slice came back
+/// empty.
+#[cfg(feature = "scip-backend")]
+fn scip_body_slice(
+    state: &AppState,
+    file_path: &str,
+    start_line: usize,
+    end_line: Option<usize>,
+) -> Option<(String, &'static str)> {
+    if let Some(end) = end_line
+        && end > start_line
+    {
+        let body = read_file(
+            &state.project(),
+            file_path,
+            Some(start_line),
+            Some(end.saturating_add(1)),
+        )
+        .ok()
+        .map(|file| file.content)
+        .filter(|body| !body.is_empty());
+        if let Some(body) = body {
+            return Some((body, "scip_precise_range"));
+        }
+    }
+    heuristic_body_slice(state, file_path, start_line).map(|body| (body, "heuristic_50_lines"))
+}
+
 /// Issue #235 (sub-fix B): when SCIP returns a definition occurrence with
 /// neither `d.signature` nor a usable hover string, fall back to reading
 /// the single source line at the SCIP-reported position. Empty trimmed
@@ -480,11 +512,12 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         sym["documentation"] = serde_json::Value::String(doc);
                     }
                     if include_body
-                        && let Some(body) = heuristic_body_slice(state, &d.file_path, d.line)
+                        && let Some((body, truncation)) =
+                            scip_body_slice(state, &d.file_path, d.line, d.end_line)
                     {
                         sym["body"] = Value::String(body);
                         sym["body_source"] = Value::String("scip_line_range_slice".to_owned());
-                        sym["body_truncation"] = Value::String("heuristic_50_lines".to_owned());
+                        sym["body_truncation"] = Value::String(truncation.to_owned());
                     }
                     sym
                 })

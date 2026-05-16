@@ -248,6 +248,13 @@ pub struct SearchCandidate {
     pub kind: String,
     pub file_path: String,
     pub line: usize,
+    /// Inclusive end line for the underlying definition occurrence, when the
+    /// backend has it. Populated by the SCIP backend from the occurrence
+    /// range so `tools/symbols/handlers.rs` can slice the body exactly
+    /// instead of falling back to the 50-line heuristic. Other backends
+    /// (tree-sitter, embedding) leave this `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<usize>,
     pub signature: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name_path: Option<String>,
@@ -264,6 +271,7 @@ impl From<crate::search::SearchResult> for SearchCandidate {
             kind: r.kind,
             file_path: r.file,
             line: r.line,
+            end_line: None,
             signature: r.signature,
             name_path: Some(r.name_path),
             body: None,
@@ -280,6 +288,7 @@ impl From<crate::embedding_store::ScoredChunk> for SearchCandidate {
             kind: c.kind,
             file_path: c.file_path,
             line: c.line,
+            end_line: None,
             signature: c.signature,
             name_path: Some(c.name_path),
             body: None,
