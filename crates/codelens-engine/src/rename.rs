@@ -183,7 +183,7 @@ pub fn find_all_word_matches(
     project: &ProjectRoot,
     symbol_name: &str,
 ) -> Result<Vec<(String, usize, usize)>> {
-    let candidate_files = collect_candidate_files(project)?;
+    let candidate_files = collect_rename_candidate_paths(project)?;
 
     if candidate_files.is_empty() {
         return Ok(Vec::new());
@@ -210,7 +210,7 @@ pub fn find_all_word_matches(
     find_word_matches_in_files(project, symbol_name, &candidate_files)
 }
 
-fn collect_candidate_files(project: &ProjectRoot) -> Result<Vec<String>> {
+fn collect_rename_candidate_paths(project: &ProjectRoot) -> Result<Vec<String>> {
     Ok(collect_files(project.as_path(), |path| {
         crate::lang_config::language_for_path(path).is_some()
     })?

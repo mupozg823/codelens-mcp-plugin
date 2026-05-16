@@ -327,7 +327,7 @@ fn build_graph_from_db(db: &IndexDb) -> Result<HashMap<String, FileNode>> {
 }
 
 fn build_graph_from_files(project: &ProjectRoot) -> Result<HashMap<String, FileNode>> {
-    let files = collect_candidate_files(project.as_path())?;
+    let files = collect_import_graph_candidates(project.as_path())?;
     let mut graph = HashMap::new();
 
     for file in &files {
@@ -365,7 +365,7 @@ fn build_graph_from_files(project: &ProjectRoot) -> Result<HashMap<String, FileN
     Ok(graph)
 }
 
-fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
+fn collect_import_graph_candidates(root: &Path) -> Result<Vec<PathBuf>> {
     collect_files(root, |path| {
         crate::lang_registry::supports_imports_for_path(path)
     })

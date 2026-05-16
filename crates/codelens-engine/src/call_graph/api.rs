@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use super::extract::extract_calls;
 use super::js_imports::{build_js_import_binding_index, filter_external_import_edges};
-use super::resolve::{collect_candidate_files, maybe_import_graph, resolve_call_edges};
+use super::resolve::{collect_call_graph_candidates, maybe_import_graph, resolve_call_edges};
 use super::types::{CallEdge, CalleeEntry, CallerEntry};
 
 /// Find all functions that call `function_name` across the project.
@@ -21,7 +21,7 @@ pub fn get_callers(
     let files: Vec<PathBuf> = if let Some(fp) = file_path {
         vec![project.resolve(fp)?]
     } else {
-        collect_candidate_files(project.as_path())?
+        collect_call_graph_candidates(project.as_path())?
     };
     let mut all_edges: Vec<CallEdge> = Vec::new();
 
@@ -94,7 +94,7 @@ pub fn get_callees(
         let resolved = project.resolve(fp)?;
         vec![resolved]
     } else {
-        collect_candidate_files(project.as_path())?
+        collect_call_graph_candidates(project.as_path())?
     };
 
     let mut all_edges: Vec<CallEdge> = Vec::new();

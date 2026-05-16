@@ -103,7 +103,7 @@ impl SymbolIndex {
 
     pub fn stats(&self) -> Result<IndexStats> {
         let db = self.reader()?;
-        let supported_files = collect_candidate_files(self.project.as_path())?;
+        let supported_files = collect_symbol_candidates(self.project.as_path())?;
         let indexed_files = db.file_count()?;
         let indexed_paths = db.all_file_paths()?;
 
@@ -408,7 +408,7 @@ impl SymbolIndex {
             self.ensure_indexed(&resolved, &relative)?;
         } else {
             // Ensure all files are indexed for a global search
-            let files = collect_candidate_files(self.project.as_path())?;
+            let files = collect_symbol_candidates(self.project.as_path())?;
             for file in &files {
                 let relative = self.project.to_relative(file);
                 self.ensure_indexed(file, &relative)?;
@@ -570,7 +570,7 @@ pub fn find_symbol(
 
     let files = match file_path {
         Some(path) => vec![project.resolve(path)?],
-        None => collect_candidate_files(project.as_path())?,
+        None => collect_symbol_candidates(project.as_path())?,
     };
 
     let query = name.to_lowercase();
@@ -666,7 +666,7 @@ fn get_file_symbols(project: &ProjectRoot, file: &Path, depth: usize) -> Result<
         .collect())
 }
 
-fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
+fn collect_symbol_candidates(root: &Path) -> Result<Vec<PathBuf>> {
     collect_files(root, |path| language_for_path(path).is_some())
 }
 

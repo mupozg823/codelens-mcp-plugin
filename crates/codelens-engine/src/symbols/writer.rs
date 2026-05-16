@@ -1,7 +1,7 @@
 use super::SymbolIndex;
 use super::parser::{flatten_symbols, parse_symbols};
 use super::types::{AnalyzedFile, IndexStats, ParsedSymbol};
-use super::{collect_candidate_files, file_modified_ms, language_for_path};
+use super::{collect_symbol_candidates, file_modified_ms, language_for_path};
 use crate::db::{self, NewCall, NewImport, NewSymbol, content_hash};
 use crate::import_graph::{extract_imports_from_source, resolve_module_for_file};
 use crate::project::ProjectRoot;
@@ -132,7 +132,7 @@ impl SymbolIndex {
     pub fn refresh_all(&self) -> Result<IndexStats> {
         use rayon::prelude::*;
 
-        let mut files = collect_candidate_files(self.project.as_path())?;
+        let mut files = collect_symbol_candidates(self.project.as_path())?;
         files.sort_by(|a, b| {
             let sa = a.metadata().map(|m| m.len()).unwrap_or(0);
             let sb = b.metadata().map(|m| m.len()).unwrap_or(0);

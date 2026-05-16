@@ -172,7 +172,10 @@ pub(crate) fn expand_retrieval_query(query: &str) -> String {
         push_unique("extract_calls");
     }
     if lowered.contains("collect") && lowered.contains("candidate") {
-        push_unique("collect_candidate_files");
+        push_unique("collect_call_graph_candidates");
+        push_unique("collect_import_graph_candidates");
+        push_unique("collect_symbol_candidates");
+        push_unique("collect_rename_candidate_paths");
     }
 
     terms.join(" ")
