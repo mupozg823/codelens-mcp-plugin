@@ -4,7 +4,7 @@ use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{
     collect_file_mtime_digests, stable_cache_key, stable_cache_key_with_extras, strings_from_array,
 };
-use crate::tools::symbols::{semantic_results_for_query, semantic_status};
+use crate::tools::semantic_retriever::{semantic_results_for_query, semantic_status};
 use codelens_engine::search::SEMANTIC_COUPLING_THRESHOLD;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;

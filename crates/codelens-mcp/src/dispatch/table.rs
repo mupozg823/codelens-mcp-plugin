@@ -90,8 +90,12 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         .iter()
         .map(|result| format!("{}:{}", result.file, result.name))
         .collect();
-    let mut results =
-        crate::tools::symbols::semantic_results_for_query(state, query, candidate_limit, false);
+    let mut results = crate::tools::semantic_retriever::semantic_results_for_query(
+        state,
+        query,
+        candidate_limit,
+        false,
+    );
 
     // Apply structural boost: +0.06 for results that also appear in structural candidates
     for result in &mut results {

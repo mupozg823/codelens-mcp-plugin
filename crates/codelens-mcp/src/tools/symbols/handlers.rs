@@ -6,8 +6,7 @@ use super::super::{
 use super::{
     analyzer::{
         annotate_ranked_context_provenance, compact_semantic_evidence, compact_sparse_evidence,
-        merge_semantic_ranked_entries, merge_sparse_ranked_entries, semantic_results_for_query,
-        semantic_scores_for_query,
+        merge_semantic_ranked_entries, merge_sparse_ranked_entries, semantic_scores_for_query,
     },
     formatter::{compact_symbol_bodies, count_branches},
 };
@@ -15,6 +14,7 @@ use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::symbol_corpus::build_symbol_corpus;
 use crate::symbol_retrieval::{ScoredSymbol, search_symbols_bm25f, unique_query_terms};
+use crate::tools::semantic_retriever::semantic_results_for_query;
 use codelens_engine::{SymbolInfo, SymbolKind, read_file, search_symbols_hybrid_with_semantic};
 use serde_json::{Value, json};
 
