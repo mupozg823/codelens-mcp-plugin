@@ -139,6 +139,98 @@ async fn post_unknown_session_returns_not_found() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
+/// Issues #298 (Dogfood D5) and #300: after a daemon restart, the
+/// in-flight client session token stays cached on the host side and
+/// every subsequent call hits the unknown-session branch. The
+/// response must carry a machine-readable rotate hint so future
+/// clients / watchdogs can renegotiate without a manual Claude Code
+/// restart. Locks both the structured JSON body and the
+/// `x-codelens-session-rotate: 1` header.
+#[tokio::test]
+async fn post_unknown_session_carries_session_rotate_envelope() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", "stale-token-after-daemon-restart")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        resp.headers()
+            .get("x-codelens-session-rotate")
+            .and_then(|v| v.to_str().ok()),
+        Some("1"),
+        "rotate hint header must surface on the unknown-session response"
+    );
+    assert_eq!(
+        resp.headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok()),
+        Some("application/json"),
+        "unknown-session body should be machine-parseable JSON"
+    );
+
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 1024)
+        .await
+        .expect("read body");
+    let body: serde_json::Value =
+        serde_json::from_slice(&body_bytes).expect("body should parse as JSON");
+    assert_eq!(body["error"], "unknown_session");
+    assert_eq!(body["code"], "session_rotate_required");
+    assert_eq!(body["rotate_required"], true);
+    assert_eq!(body["recommended_action"], "reinitialize_mcp_session");
+    assert_eq!(body["action_target"], "mcp_client");
+    assert!(
+        body["hint"]
+            .as_str()
+            .is_some_and(|s| s.contains("initialize")),
+        "hint should mention re-initialize"
+    );
+}
+
+/// Issues #298 / #300 — same contract on the GET endpoint that
+/// upgrades to SSE. The handler shares the helper so the rotate hint
+/// surfaces on both `POST` and `GET` lockout paths.
+#[tokio::test]
+async fn get_unknown_session_carries_session_rotate_envelope() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/mcp")
+                .header("mcp-session-id", "stale-token-after-daemon-restart")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        resp.headers()
+            .get("x-codelens-session-rotate")
+            .and_then(|v| v.to_str().ok()),
+        Some("1")
+    );
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 1024)
+        .await
+        .expect("read body");
+    let body: serde_json::Value =
+        serde_json::from_slice(&body_bytes).expect("body should parse as JSON");
+    assert_eq!(body["error"], "unknown_session");
+}
+
 #[tokio::test]
 async fn post_with_sse_accept_returns_event_stream() {
     let app = build_router(test_state());

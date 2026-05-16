@@ -75,6 +75,41 @@ pub(crate) async fn load_rustls_config(
     .await?)
 }
 
+/// Issues #298 (Dogfood D5) and #300: when the daemon restarts or the
+/// SCIP backend hot-reloads, the client session table is rotated and
+/// every in-flight `Mcp-Session-Id` becomes unknown. The previous
+/// `(404, "Unknown session")` plaintext gave the host MCP client no
+/// machine-readable signal to renegotiate, so a long-running Claude
+/// Code session would stay locked out until the user restarted it.
+///
+/// Reply with a structured JSON envelope plus an
+/// `x-codelens-session-rotate: 1` hint header so future SDKs — or a
+/// thin client-side watchdog — can detect the state and re-issue
+/// `initialize` transparently. The HTTP status stays 404 so existing
+/// tests / probes keep working.
+fn unknown_session_response() -> Response {
+    let body = serde_json::json!({
+        "error": "unknown_session",
+        "code": "session_rotate_required",
+        "rotate_required": true,
+        "hint": "Daemon may have restarted or the session expired; re-issue method=\"initialize\" before retrying.",
+        "recommended_action": "reinitialize_mcp_session",
+        "action_target": "mcp_client",
+    })
+    .to_string();
+    let mut response = (
+        StatusCode::NOT_FOUND,
+        [(header::CONTENT_TYPE, "application/json")],
+        body,
+    )
+        .into_response();
+    response.headers_mut().insert(
+        "x-codelens-session-rotate",
+        axum::http::HeaderValue::from_static("1"),
+    );
+    response
+}
+
 /// Origin header gate — spec §"Security Warning": servers MUST validate Origin
 /// to defeat DNS rebinding attacks. We allow requests that either omit Origin
 /// (curl, same-process tests, stdio-style agents) or present one pointing at
@@ -445,7 +480,7 @@ async fn mcp_post_handler(
         && let Some(store) = &state.session_store
         && store.get(sid).is_none()
     {
-        return (StatusCode::NOT_FOUND, "Unknown session").into_response();
+        return unknown_session_response();
     }
 
     // L1: thread the authenticated principal id through to the
@@ -559,7 +594,7 @@ async fn mcp_get_handler(State(state): State<Arc<AppState>>, headers: HeaderMap)
     };
 
     let Some(session) = store.get(session_id) else {
-        return (StatusCode::NOT_FOUND, "Unknown session").into_response();
+        return unknown_session_response();
     };
 
     // Create SSE channel and store the sender in the session
