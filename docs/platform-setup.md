@@ -441,6 +441,49 @@ For planner/reviewer agents on `planner-readonly` or `reviewer-graph`, replace t
 
 If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first builder-heavy call should replay `delegate_tool` plus `delegate_arguments` unchanged, including `handoff_id`.
 
+**`approval_mode` per tool (recommended defaults):**
+
+Codex's MCP integration lets `~/.codex/config.toml` set `approval_mode = "approve"` on individual tools so the agent waits for the operator before invoking them. Some installers / templates default *every* codelens tool to `approve`, which silently denies read-only calls in non-interactive (subagent / background) contexts and forces Codex to fall back to native tools — losing the index, ranking, and impact-analysis value codelens was deployed for. (See dogfood discovery #175, sub-item C.)
+
+The intent map below mirrors the codelens profile boundaries — read-only profiles should not need prompts, mutation profiles always should:
+
+| Codelens profile           | Tool class                                                                                                            | Recommended `approval_mode`                     |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `planner-readonly`         | All read-only analysis / context                                                                                      | `auto` (or unset)                               |
+| `reviewer-graph`           | Diagnostics, impact, blast radius                                                                                     | `auto` (or unset)                               |
+| `builder-minimal`          | Workflow primitives (read-mostly)                                                                                     | `auto` for read, `approve` for mutation handoff |
+| `refactor-full` / mutation | `rename_symbol`, `replace_symbol_body`, `insert_*`, `delete_lines`, `refactor_*`, `safe_rename_report` execution path | `approve`                                       |
+
+Concrete patch shape for `~/.codex/config.toml` (only mutation tools listed; unset defaults to `auto`):
+
+```toml
+[mcp_servers.codelens]
+url = "http://127.0.0.1:7837/mcp"
+
+[mcp_servers.codelens.tools.rename_symbol]
+approval_mode = "approve"
+
+[mcp_servers.codelens.tools.replace_symbol_body]
+approval_mode = "approve"
+
+[mcp_servers.codelens.tools.insert_content]
+approval_mode = "approve"
+
+[mcp_servers.codelens.tools.delete_lines]
+approval_mode = "approve"
+
+[mcp_servers.codelens.tools.refactor_extract_function]
+approval_mode = "approve"
+
+[mcp_servers.codelens.tools.refactor_inline]
+approval_mode = "approve"
+
+[mcp_servers.codelens.tools.refactor_move_symbol]
+approval_mode = "approve"
+```
+
+If you keep a blanket `approval_mode = "approve"` on read-only tools, Codex subagents will *appear* to skip codelens entirely on cold starts — the symptom looks like a coverage gap, not an approval gate.
+
 ---
 
 ### 4. VS Code (Copilot / Continue / Cline)
