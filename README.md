@@ -44,7 +44,7 @@ CodeLens maintains a **live, indexed understanding** of your codebase and expose
 ```
 Without CodeLens                                    With CodeLens (with semantic feature on)
 ────────────────────────────────────────────────────────────────────────────────────────────
-Read file + grep references   → 4,600 tokens       get_impact_analysis    → 1,500 tokens  (67% saved)
+Read file + grep references   → 4,600 tokens       impact_report          → 1,500 tokens  (67% saved)
 Read manifest + entry + files → 5,000 tokens       onboard_project        →   660 tokens  (87% saved)
 Read + grep × 3 files         → 3,200 tokens       get_ranked_context     →   800 tokens  (75% saved)
 ```
@@ -399,7 +399,7 @@ The canonical family/extension inventory is generated from `codelens_engine::lan
 | `find_symbol`          | <1ms  | SQLite FTS5             |
 | `get_symbols_overview` | <1ms  | Cached                  |
 | `get_ranked_context`   | ~20ms | 4-signal hybrid ranking |
-| `get_impact_analysis`  | ~1ms  | Graph cache             |
+| `impact_report`        | ms-scale | Graph cache + bounded report envelope |
 | Cold start             | ~12ms | No LSP boot needed      |
 
 ## Semantic Search

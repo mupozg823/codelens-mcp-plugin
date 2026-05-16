@@ -16,6 +16,9 @@ It is intentionally split into:
 
 That keeps public packaging claims grounded in what the repository actually ships today.
 
+For the active product-readiness backlog that owns release smoke expansion,
+see [`docs/plans/PLAN_product-readiness-hardening.md`](plans/PLAN_product-readiness-hardening.md).
+
 ---
 
 ## Feature-flag matrix (build-time requirements)
@@ -94,6 +97,26 @@ and then uses those release checksums to update the Homebrew tap formula.
 - `checksums-sha256.txt` itself is not separately signed
 
 The remaining items are roadmap gaps, not shipped capabilities.
+
+---
+
+## Local pre-release smoke
+
+Before cutting a tag, run the lightweight binary smoke in addition to the
+normal Rust test gate:
+
+```bash
+scripts/smoke-release-install.sh
+```
+
+The script builds `target/debug/codelens-mcp` when needed, then verifies:
+
+1. `--version` returns a `codelens-mcp` version banner
+2. `--print-surface-manifest` emits the v2 manifest with a populated tool/schema inventory
+3. one-shot `get_current_config` works against the repository with the minimal preset
+
+To test a release or installed binary instead of the debug build, pass
+`CODELENS_BIN=/path/to/codelens-mcp scripts/smoke-release-install.sh`.
 
 ---
 

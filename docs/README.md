@@ -7,6 +7,7 @@
 | [`adr/`](adr/) | Architecture Decision Records (ADRs) | Contributors, maintainers |
 | [`design/`](design/) | Design specs and policy documents | Contributors, reviewers |
 | [`generated/`](generated/) | Auto-generated artifacts (surface manifest, schemas) | CI, tooling |
+| [`plans/`](plans/) | Active product-readiness and implementation plans | Maintainers, reviewers |
 | [`release-notes/`](release-notes/) | Per-version release notes | Users, operators |
 | [`schemas/`](schemas/) | JSON schemas for tool I/O and protocols | Client integrators |
 | [`superpowers/`](superpowers/) | Agent skill definitions and implementation plans | Agent orchestrators |
@@ -16,6 +17,7 @@
 
 - **ADR Index**: [`adr/README.md`](adr/README.md)
 - **Surface Manifest**: [`generated/surface-manifest.json`](generated/surface-manifest.json)
+- **Product Readiness Roadmap**: [`plans/PLAN_product-readiness-hardening.md`](plans/PLAN_product-readiness-hardening.md)
 - **Migration Guide**: [`migrate-from-codelens.md`](migrate-from-codelens.md)
 - **Install Matrix**: See top-level [`README.md`](../README.md)
 
@@ -23,7 +25,7 @@
 
 The following files are auto-generated and should not be edited manually:
 
-- `generated/surface-manifest.json` — Built from `tool_defs.rs` via `cargo run -- --print-surface-manifest`
+- `generated/surface-manifest.json` — Built from the runtime tool definitions via `cargo run -- --print-surface-manifest`
 - `generated/tool-schemas/` — JSON schemas derived from Rust types
 
 ## Contributing
