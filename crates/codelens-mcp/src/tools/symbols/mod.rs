@@ -1,5 +1,8 @@
 mod analyzer;
-mod formatter;
+// PR-C: `pub(crate)` so `symbol_query::find_symbol` can call
+// `compact_symbol_bodies`. PR-E will move the helper into the
+// pipeline module so this collapses back to `mod formatter;`.
+pub(crate) mod formatter;
 // PR-B: temporarily `pub(crate)` so the new `symbol_query::ranked_context`
 // module can reach `sparse_symbol_hits_for_query` + `adapt_budget_to_context_window`.
 // PR-C/D will move those helpers into the pipeline module and this
