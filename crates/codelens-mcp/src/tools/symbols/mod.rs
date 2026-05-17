@@ -1,4 +1,5 @@
 mod analyzer;
+mod bm25_search;
 // `formatter::compact_symbol_bodies` is shared with
 // `crate::tools::symbol_query::find_symbol`. The helper is genuinely
 // cross-cutting between the pipeline and `handlers::*` (today: only
@@ -6,27 +7,19 @@ mod analyzer;
 // here without re-implementing it). The seam stays at `pub(crate)`
 // — see CLAUDE.md "Symbol-query path lives behind one seam".
 pub(crate) mod formatter;
-// `handlers` is `pub(crate)` so the legacy BM25 / fuzzy / complexity /
-// refresh tools can keep their existing seams while the new
-// `SymbolQueryPipeline` owns the three core symbol-shape tools
-// (`get_ranked_context`, `find_symbol`, `get_symbols_overview`).
-// After PR-F the dependency flow is one-way:
-// `symbols::handlers` → `symbol_query::sparse_retriever` — no more
-// `symbol_query → symbols::handlers` upward reach, which used to
-// create the `mod.rs → ranked_context.rs → handlers.rs` cycle
-// reported by `review_architecture`.
+mod fuzzy_search;
+// `handlers` is now a 3-stub forwarder into `SymbolQueryPipeline`.
+// All non-pipeline symbol tools moved out in PR-G — see the per-tool
+// modules below. Dependency direction stays one-way:
+// `symbols::*` → `symbol_query::*`.
 pub(crate) mod handlers;
+mod inventory;
 
 pub use crate::tools::symbol_query::sparse_retriever::flatten_symbols;
-pub use handlers::{
-    bm25_symbol_search, find_symbol, get_complexity, get_ranked_context, get_symbols_overview,
-    refresh_symbol_index, search_symbols_fuzzy,
-};
-
-// The rank-fusion + provenance + SCIP-enrichment + budget-guard unit
-// tests previously lived here; they followed their helper functions
-// into `crate::tools::symbol_query::*::tests` when the helpers
-// themselves moved out (PR-B / PR-C / PR-D).
+pub use bm25_search::bm25_symbol_search;
+pub use fuzzy_search::search_symbols_fuzzy;
+pub use handlers::{find_symbol, get_ranked_context, get_symbols_overview};
+pub use inventory::{get_complexity, refresh_symbol_index};
 
 #[cfg(test)]
 mod tests {
