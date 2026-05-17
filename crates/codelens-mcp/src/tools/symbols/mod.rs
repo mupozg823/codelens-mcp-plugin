@@ -3,7 +3,6 @@ mod formatter;
 mod fusion;
 mod handlers;
 
-pub(crate) use analyzer::{semantic_results_for_query, semantic_status};
 pub use handlers::{
     bm25_symbol_search, find_symbol, flatten_symbols, get_complexity, get_ranked_context,
     get_symbols_overview, refresh_symbol_index, search_symbols_fuzzy,
