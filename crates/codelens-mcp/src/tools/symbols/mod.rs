@@ -1,12 +1,16 @@
 mod analyzer;
-// PR-C: `pub(crate)` so `symbol_query::find_symbol` can call
-// `compact_symbol_bodies`. PR-E will move the helper into the
-// pipeline module so this collapses back to `mod formatter;`.
+// `formatter::compact_symbol_bodies` is shared with
+// `crate::tools::symbol_query::find_symbol`. The helper is genuinely
+// cross-cutting between the pipeline and `handlers::*` (today: only
+// the pipeline; future tools that need body compaction can hook in
+// here without re-implementing it). The seam stays at `pub(crate)`
+// — see CLAUDE.md "Symbol-query path lives behind one seam".
 pub(crate) mod formatter;
-// PR-B: temporarily `pub(crate)` so the new `symbol_query::ranked_context`
-// module can reach `sparse_symbol_hits_for_query` + `adapt_budget_to_context_window`.
-// PR-C/D will move those helpers into the pipeline module and this
-// re-export will collapse back to `mod handlers;`.
+// `handlers` is `pub(crate)` so the pipeline can reach
+// `sparse_symbol_hits_for_query` + `adapt_budget_to_context_window`,
+// both of which are also consumed by `bm25_symbol_search` inside
+// this module. Two callers → real seam; leave the visibility wide
+// rather than duplicating the helpers inside the pipeline.
 pub(crate) mod handlers;
 
 pub use handlers::{
@@ -14,10 +18,10 @@ pub use handlers::{
     get_symbols_overview, refresh_symbol_index, search_symbols_fuzzy,
 };
 
-// PR-B: the rank-fusion + provenance unit tests previously lived
-// here; they followed the helper functions into
-// `crate::tools::symbol_query::ranked_context::tests` when the
-// helpers themselves moved out of this module.
+// The rank-fusion + provenance + SCIP-enrichment + budget-guard unit
+// tests previously lived here; they followed their helper functions
+// into `crate::tools::symbol_query::*::tests` when the helpers
+// themselves moved out (PR-B / PR-C / PR-D).
 
 #[cfg(test)]
 mod tests {

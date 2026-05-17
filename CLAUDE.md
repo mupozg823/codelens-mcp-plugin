@@ -17,6 +17,17 @@ Three concepts that show up across files and require reading several to understa
 2. **Surfaces gate which tools are visible.** A tool can be registered in `tools.toml` + dispatched in `tools/mod.rs` + implemented in `tools/<area>.rs` and **still not appear in `tools/list`** because no preset/profile exposes it. The preset constants (`PLANNER_READONLY_TOOLS`, `BUILDER_MINIMAL_TOOLS`, `REVIEWER_GRAPH_TOOLS`, `REFACTOR_FULL_TOOLS`, `CI_AUDIT_TOOLS`) live in `crates/codelens-mcp/src/tool_defs/presets.rs`. `set_preset`/`set_profile` switch the active surface at runtime per session.
 3. **Generated documentation blocks must round-trip.** `scripts/surface-manifest.py` rewrites marker pairs (`SURFACE_MANIFEST_*`, `CODELENS_HOST_ROUTING`) in README.md, AGENTS.md, CLAUDE.md, docs/architecture.md, etc. The script's `replace_block` produces `BEGIN + \n\n + content + \n\n + END` to coexist with Prettier (which would otherwise re-insert the blank line and cause permanent drift). Do not hand-edit content inside markers.
 
+### Symbol-query path lives behind one seam
+
+`get_ranked_context`, `find_symbol`, and `get_symbols_overview` all dispatch through a single deep module: `crates/codelens-mcp/src/tools/symbol_query/`. Each tool's `pub fn` in `tools/symbols/handlers.rs` is a 3-line entry that constructs a `SymbolQueryRequest` variant and calls `SymbolQueryPipeline::run`. The orchestration body (query analysis → retrieval → rank fusion → SCIP enrichment → payload shaping) lives **inside** the pipeline module, not in `handlers.rs`.
+
+When changing symbol-query semantics:
+- Body of `run_ranked_context` / `run_find_symbol` / `run_symbols_overview` is in `tools/symbol_query/<tool>.rs`.
+- Cross-cutting retrieval seam is `tools/semantic_retriever.rs` (used both by the pipeline and the impact-report family).
+- Stage helpers (rank-fusion, SCIP signature/body slicing, body Jaccard, …) are file-private inside their `symbol_query/<tool>.rs` — do not promote to `pub(super)` casually; the seam exists so the pipeline owns these.
+
+`pub(crate)` helpers that span the pipeline and a non-pipeline handler (today: `sparse_symbol_hits_for_query`, `adapt_budget_to_context_window` — used by the pipeline + `bm25_symbol_search`) stay in `tools/symbols/handlers.rs`. That visibility is intentional, not a tightening target.
+
 ## Feature Flag Matrix (build-time)
 
 The default `cargo install codelens-mcp` build is `default = ["scip-backend"]` (set in `crates/codelens-mcp/Cargo.toml`; SCIP itself only activates when an `index.scip` exists in the project). Most other operational use needs explicit features:
