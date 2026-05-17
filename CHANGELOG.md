@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.28] - 2026-05-18
+
+### Refactored
+
+- **arch (PR-A through PR-H)**: deep-module deepening of the symbol-query path.
+  - PR-A/B/C/D/E (#317, #319, #320, #321, #322 → bulk #323): `SymbolQueryPipeline` introduced at `crates/codelens-mcp/src/tools/symbol_query/`. The three symbol-shape tools (`get_ranked_context`, `find_symbol`, `get_symbols_overview`) now dispatch through a single seam; each `pub fn` in `tools/symbols/handlers.rs` is a 3-line `SymbolQueryRequest::* → SymbolQueryPipeline::run` stub.
+  - **PR-F (#324)**: cycle `mod.rs → ranked_context.rs → handlers.rs` removed by extracting `sparse_retriever.rs`. Dependency flow is now one-way: `symbols::*` → `symbol_query::*`. `review_architecture` live verify: `cycle hits = 0`.
+  - **PR-G (#325)**: `tools/symbols/handlers.rs` split by responsibility into `bm25_search.rs` + `fuzzy_search.rs` + `inventory.rs`. `handlers.rs` collapsed from 448 → **31 LOC** (-93%).
+  - **PR-H (#326)**: stage-4 rank-fusion extracted to `symbol_query/rank_fusion.rs` — 5 helpers + `RankFusionPolicy` are `pub(super)`, `ranked_context.rs` is the only legitimate caller. `ranked_context.rs` 958 → 665 LOC (-31%).
+
+### Fixed
+
+- **transport (#318 → bulk #323)**: `unknown_session` envelope unified across POST and GET-SSE paths via the new `unknown_session_response()` funnel. Both transports now return JSON + `x-codelens-session-rotate: 1` header.
+- **#179 (#314)**: SCIP `end_line` propagation for precise body slicing in `find_symbol`.
+- **#268 (#315)**: tree-sitter structural orphan files downgraded from `unused` to `low_confidence` in the dead-code report.
+- **#299 (#316)**: `cleanup_duplicate_logic` guards signature-only false positives with body-token Jaccard distance.
+
+### Docs
+
+- **PR-I (#327)**: refresh `CLAUDE.md` "Symbol-query path lives behind one seam" with the post-deepening module tree (11 files across `tools/symbol_query/` + `tools/symbols/`). Update `docs/architecture.md` tool-handler diagram to reflect the deep pipeline + per-tool split + `semantic_retriever` cross-cutting seam.
+
 ## [1.9.59] - 2026-04-30
 
 ### Added
