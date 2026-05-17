@@ -21,6 +21,10 @@ keywords = ["mcp", "code-intelligence", "tree-sitter", "lsp", "ai"]
 categories = ["development-tools", "command-line-utilities"]
 
 [workspace.dependencies]
+# Internal workspace crate. Pinned to the current workspace version so
+# release-plz can bump it via the workspace `[workspace.package].version`
+# alone, instead of every member crate hand-editing the pin.
+codelens-engine = { path = "crates/codelens-engine", version = "=1.13.28", default-features = false }
 anyhow = "1.0"
 axum = "0.8"
 axum-server = { version = "0.8", features = ["tls-rustls"] }
