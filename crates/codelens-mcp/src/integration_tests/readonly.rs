@@ -126,7 +126,14 @@ fn find_symbol_with_include_body_returns_body_via_scip_heuristic() {
         "SCIP heuristic should populate body content"
     );
     assert_eq!(first["body_source"], json!("scip_line_range_slice"));
-    assert_eq!(first["body_truncation"], json!("heuristic_50_lines"));
+    // #179: when the SCIP backend can pin the end line (next sibling
+    // definition exists in the same document), the slice is precise.
+    // Otherwise the 50-line heuristic still applies.
+    let truncation = first["body_truncation"].as_str().expect("body_truncation");
+    assert!(
+        matches!(truncation, "scip_precise_range" | "heuristic_50_lines"),
+        "body_truncation must be scip_precise_range or heuristic_50_lines, got {truncation:?}"
+    );
 }
 
 // #183: distinguish "file is empty" from "file not in index" so callers
