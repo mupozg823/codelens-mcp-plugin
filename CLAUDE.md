@@ -23,10 +23,12 @@ Three concepts that show up across files and require reading several to understa
 
 When changing symbol-query semantics:
 - Body of `run_ranked_context` / `run_find_symbol` / `run_symbols_overview` is in `tools/symbol_query/<tool>.rs`.
-- Cross-cutting retrieval seam is `tools/semantic_retriever.rs` (used both by the pipeline and the impact-report family).
+- Cross-cutting retrieval seams owned by the pipeline:
+  - `tools/semantic_retriever.rs` (dense ONNX semantic results) — used by the pipeline **and** the impact-report family.
+  - `tools/symbol_query/sparse_retriever.rs` (BM25F sparse hits, context-window-adaptive budget, `flatten_symbols` utility) — used by the pipeline **and** `symbols::handlers::{bm25_symbol_search, get_complexity}`.
 - Stage helpers (rank-fusion, SCIP signature/body slicing, body Jaccard, …) are file-private inside their `symbol_query/<tool>.rs` — do not promote to `pub(super)` casually; the seam exists so the pipeline owns these.
 
-`pub(crate)` helpers that span the pipeline and a non-pipeline handler (today: `sparse_symbol_hits_for_query`, `adapt_budget_to_context_window` — used by the pipeline + `bm25_symbol_search`) stay in `tools/symbols/handlers.rs`. That visibility is intentional, not a tightening target.
+Dependency direction is one-way: `symbols::handlers` → `symbol_query::*`. Never reach upward from the pipeline back into `symbols::handlers` — that was the cycle PR-F removed (`review_architecture` reported a 3-node loop `mod.rs → ranked_context.rs → handlers.rs`). If new sparse/retrieval helpers are needed, add them to `symbol_query/sparse_retriever.rs` (or a sibling sub-module).
 
 ## Feature Flag Matrix (build-time)
 

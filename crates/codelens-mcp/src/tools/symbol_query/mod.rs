@@ -25,6 +25,7 @@ use serde_json::Value;
 
 mod find_symbol;
 mod ranked_context;
+pub(crate) mod sparse_retriever;
 mod symbols_overview;
 
 pub(crate) use find_symbol::run_find_symbol;

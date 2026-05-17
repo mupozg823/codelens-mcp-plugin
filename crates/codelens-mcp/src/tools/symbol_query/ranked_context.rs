@@ -28,6 +28,7 @@
 //! the cross-cutting `semantic_retriever` out; PR-B (this PR) moves
 //! the rest of the ranked-context stages into a single deep module.
 
+use super::sparse_retriever::{adapt_budget_to_context_window, sparse_symbol_hits_for_query};
 use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
@@ -40,9 +41,6 @@ use crate::tool_runtime::{
 };
 use crate::tools::query_analysis::analyze_retrieval_query;
 use crate::tools::semantic_retriever::semantic_results_for_query;
-use crate::tools::symbols::handlers::{
-    adapt_budget_to_context_window, sparse_symbol_hits_for_query,
-};
 use codelens_engine::{RankedContextResult, SemanticMatch};
 use serde_json::{Value, json};
 
