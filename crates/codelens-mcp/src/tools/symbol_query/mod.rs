@@ -24,6 +24,7 @@ use crate::tool_runtime::ToolResult;
 use serde_json::Value;
 
 mod find_symbol;
+mod rank_fusion;
 mod ranked_context;
 pub(crate) mod sparse_retriever;
 mod symbols_overview;
