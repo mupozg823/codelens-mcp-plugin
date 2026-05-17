@@ -65,6 +65,20 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     let effective_budget = effective_budget_for_tool(name, request_budget);
     let mut payload = payload;
 
+    // PR-J: attach `index_freshness` to the read-hot symbol tools so
+    // callers can detect a stale daemon without diffing results against
+    // the working tree. See `tool_runtime::index_freshness_hint` for
+    // the four-bucket staleness heuristic.
+    if matches!(
+        name,
+        "find_referencing_symbols" | "find_symbol" | "get_ranked_context" | "get_symbols_overview"
+    ) && let Some(obj) = payload.as_object_mut()
+        && !obj.contains_key("index_freshness")
+        && let Some(freshness) = crate::tool_runtime::index_freshness_hint(state)
+    {
+        obj.insert("index_freshness".to_owned(), freshness);
+    }
+
     if is_verifier_source_tool(name) {
         state.record_recent_preflight_from_payload(
             name,

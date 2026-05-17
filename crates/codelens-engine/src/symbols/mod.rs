@@ -101,6 +101,22 @@ impl SymbolIndex {
         }
     }
 
+    /// Newest `indexed_at` epoch (seconds) across the index, or `None`
+    /// when no files are indexed yet. Used by tool responses to attach
+    /// a freshness hint so callers can detect a stale daemon without
+    /// having to compare results against the working tree by hand.
+    pub fn max_indexed_at(&self) -> Result<Option<i64>> {
+        let db = self.reader()?;
+        db.max_files_indexed_at()
+    }
+
+    /// Oldest `indexed_at` epoch (seconds) across the index, or `None`
+    /// when no files are indexed yet.
+    pub fn min_indexed_at(&self) -> Result<Option<i64>> {
+        let db = self.reader()?;
+        db.min_files_indexed_at()
+    }
+
     pub fn stats(&self) -> Result<IndexStats> {
         let db = self.reader()?;
         let supported_files = collect_candidate_files(self.project.as_path())?;

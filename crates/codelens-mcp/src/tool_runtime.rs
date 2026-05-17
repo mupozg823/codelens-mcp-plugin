@@ -125,6 +125,44 @@ pub fn optional_usize_with_aliases(
 /// Returns an empty Vec for non-object values so non-object inputs
 /// fall through to the handler's existing argument parsing without
 /// spurious "unknown" claims.
+/// Freshness hint for tool responses that read from the on-disk symbol
+/// index. Compares the index's newest `indexed_at` against wall-clock
+/// time so callers can detect a stale daemon without having to diff
+/// results against the working tree.
+///
+/// Buckets:
+///   - `fresh`           — newest file indexed < 60s ago
+///   - `recent`          — 60s..600s
+///   - `possibly_stale`  — 600s..3600s
+///   - `stale`           — >= 3600s (sets `refresh_recommended: true`)
+///
+/// Returns `None` when the index is empty (callers omit the hint to
+/// avoid noise on a fresh project).
+pub fn index_freshness_hint(state: &AppState) -> Option<serde_json::Value> {
+    use serde_json::json;
+    let max_at = state.symbol_index().max_indexed_at().ok().flatten()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    let age_secs = (now - max_at).max(0);
+    let (hint, refresh_recommended) = if age_secs < 60 {
+        ("fresh", false)
+    } else if age_secs < 600 {
+        ("recent", false)
+    } else if age_secs < 3600 {
+        ("possibly_stale", false)
+    } else {
+        ("stale", true)
+    };
+    Some(json!({
+        "newest_indexed_at_epoch_secs": max_at,
+        "newest_indexed_age_secs": age_secs,
+        "staleness_hint": hint,
+        "refresh_recommended": refresh_recommended,
+    }))
+}
+
 pub fn collect_unknown_args(value: &serde_json::Value, known: &[&str]) -> Vec<String> {
     let Some(map) = value.as_object() else {
         return Vec::new();
