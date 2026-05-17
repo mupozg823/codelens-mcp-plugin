@@ -1,12 +1,11 @@
 //! SymbolQueryPipeline — the single seam through which every
 //! symbol-shape tool will execute.
 //!
-//! `RankedContext` landed in PR-B; `FindSymbol` lands in PR-C (this
-//! PR); `SymbolsOverview` lands in PR-D. Once PR-D ships, the
-//! symbol-shape tool surface boils down to argument parsing in
-//! `tools/symbols/handlers.rs` followed by a single call to
-//! `SymbolQueryPipeline::run`, and the whole semantics of any one
-//! tool can be read inside this module.
+//! All three symbol-shape tools (`get_ranked_context`,
+//! `find_symbol`, `get_symbols_overview`) now dispatch through this
+//! single seam. `handlers.rs` shrinks to one-line entries that
+//! construct a `SymbolQueryRequest` variant and hand off to
+//! `SymbolQueryPipeline::run`.
 //!
 //! Stage breakdown (corpus → retrieval → fusion → SCIP enrichment →
 //! formatting) is **internal**; only `run` is exposed. Callers that
@@ -26,19 +25,21 @@ use serde_json::Value;
 
 mod find_symbol;
 mod ranked_context;
+mod symbols_overview;
 
 pub(crate) use find_symbol::run_find_symbol;
 pub(crate) use ranked_context::run_ranked_context;
+pub(crate) use symbols_overview::run_symbols_overview;
 
 pub struct SymbolQueryPipeline<'s> {
     state: &'s AppState,
 }
 
-/// One variant per symbol-shape MCP tool. Each variant captures the
-/// raw JSON `arguments`; PR-D will add `SymbolsOverview`.
+/// One variant per symbol-shape MCP tool.
 pub enum SymbolQueryRequest<'a> {
     RankedContext { arguments: &'a Value },
     FindSymbol { arguments: &'a Value },
+    SymbolsOverview { arguments: &'a Value },
 }
 
 impl<'s> SymbolQueryPipeline<'s> {
@@ -52,6 +53,9 @@ impl<'s> SymbolQueryPipeline<'s> {
                 run_ranked_context(self.state, arguments)
             }
             SymbolQueryRequest::FindSymbol { arguments } => run_find_symbol(self.state, arguments),
+            SymbolQueryRequest::SymbolsOverview { arguments } => {
+                run_symbols_overview(self.state, arguments)
+            }
         }
     }
 }
