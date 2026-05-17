@@ -344,7 +344,9 @@ codelens-mcp-plugin/
                             │
               ┌─────────────▼─────────────┐
               │      Tool Handler         │
-              │  tools/symbols.rs         │
+              │  tools/symbol_query/*     │  ← deep pipeline (PR-A/B/C/D/E/F/G/H)
+              │  tools/symbols/*          │  ← BM25/fuzzy/inventory + 3 stubs
+              │  tools/semantic_retriever │  ← cross-cutting seam
               │  tools/lsp.rs             │
               │  tools/graph.rs           │
               │  tools/mutation.rs        │
