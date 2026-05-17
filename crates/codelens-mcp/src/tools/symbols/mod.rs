@@ -6,16 +6,21 @@ mod analyzer;
 // here without re-implementing it). The seam stays at `pub(crate)`
 // — see CLAUDE.md "Symbol-query path lives behind one seam".
 pub(crate) mod formatter;
-// `handlers` is `pub(crate)` so the pipeline can reach
-// `sparse_symbol_hits_for_query` + `adapt_budget_to_context_window`,
-// both of which are also consumed by `bm25_symbol_search` inside
-// this module. Two callers → real seam; leave the visibility wide
-// rather than duplicating the helpers inside the pipeline.
+// `handlers` is `pub(crate)` so the legacy BM25 / fuzzy / complexity /
+// refresh tools can keep their existing seams while the new
+// `SymbolQueryPipeline` owns the three core symbol-shape tools
+// (`get_ranked_context`, `find_symbol`, `get_symbols_overview`).
+// After PR-F the dependency flow is one-way:
+// `symbols::handlers` → `symbol_query::sparse_retriever` — no more
+// `symbol_query → symbols::handlers` upward reach, which used to
+// create the `mod.rs → ranked_context.rs → handlers.rs` cycle
+// reported by `review_architecture`.
 pub(crate) mod handlers;
 
+pub use crate::tools::symbol_query::sparse_retriever::flatten_symbols;
 pub use handlers::{
-    bm25_symbol_search, find_symbol, flatten_symbols, get_complexity, get_ranked_context,
-    get_symbols_overview, refresh_symbol_index, search_symbols_fuzzy,
+    bm25_symbol_search, find_symbol, get_complexity, get_ranked_context, get_symbols_overview,
+    refresh_symbol_index, search_symbols_fuzzy,
 };
 
 // The rank-fusion + provenance + SCIP-enrichment + budget-guard unit
