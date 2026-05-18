@@ -7,9 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **artifact_store: cross-tool cache isolation (#G2)**: `find_reusable_tiered`'s L3 cold-tier matched on scope + generic `cache_key` alone, allowing a stored `dead_code_report` artifact to be returned verbatim for an unrelated `module_boundary_report` call when the latter missed L1/L2. The two tools produce structurally different payloads (summary, findings, section layout), so the fallback was payload-poisoning. All three tiers now require `tool_name` to match; L3 still relaxes the surface constraint (planner-readonly can reuse a refactor-full artifact from the same scope). Replaces the cross-tool hit test with an isolation regression test and adds an L3 same-tool different-surface hit test. Discovered via self-dogfood (2026-05-18).
+- **dead_code_report: accept `path` as soft alias of `scope` (#G1)**: `dead_code_report` was the only composite report tool that argued over `scope`; the rest of the family (`impact_report`, `module_boundary_report`, `refactor_safety_report`, `diff_aware_references`, …) takes `path`. A caller copy-pasting the sibling-tool convention sent `{"path":"crates/..."}` and the handler silently fell back to `scope = "."`, scanning the project root and surfacing false positives like `.cargo/audit.toml`. Accept `path` as a soft alias in both the sync and async-job handlers, include `path` in the cache key, and add `path` to the tools.toml input schema with a description marking it as the alias. Bonus: narrower scope drops the `.cargo/audit.toml` false positives from `top_findings` naturally.
+
 ### Refactored
 
 - **build_info: isolate drift evidence from payload shaping**: `daemon_binary_drift_payload` no longer mixes evidence-gathering with JSON shaping. The pure decision now lives in `build_drift_payload(&DriftEvidence, &str) -> Value`; `DriftEvidence` carries the four fields the classifier needs (`mtime_stale`, `executable_path`, `modified_seconds`, `head_git_sha`). The entry function still owns I/O (env var + `fs::metadata` + `current_head_git_sha`) and its four `status: "unknown"` early returns, so the public contract is byte-identical. Adds 3 pure unit tests next to the existing `classify_drift` suite — the staleness response envelope no longer depends on fixture-level env/fs/filetime hacks. Follow-up to #335 (`build_info::current_executable_path()` env+fs isolation note).
+
+### Documentation
+
+- **docs/comparison.md: mark detector-family tools as removed from MCP surface**: the five tools that the comparison table cited as CodeLens-exclusive — `find_over_visible_apis`, `find_phantom_modules`, `find_orphan_handlers`, `find_redundant_definitions`, `audit_tool_surface_consistency` — were silently dropped from the dispatch table during the v1.13.27 surface trim. `audit_tool_surface_consistency` still answers via the daemon path with `_meta.codelens/deprecatedSince=1.13.27` but the CLI oneshot path returns `Unknown tool`, and the other four are unreachable from either path. Library modules (`phantom_modules.rs`, `redundant_definitions.rs`) remain in `crates/codelens-engine/src/` but are not surfaced. Strike-throughs added to the comparison matrix with a footnote pointing at the self-auditability roadmap item.
 
 ## [1.13.29] - 2026-05-18
 

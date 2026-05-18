@@ -54,10 +54,10 @@ CodeLens의 가장 큰 차별 — Serena·grep 모두 부재.
 | Task                   | CodeLens                                                                      | Serena                                 | grep+Read |
 | ---------------------- | ----------------------------------------------------------------------------- | -------------------------------------- | --------- |
 | 파일 진단              | `get_file_diagnostics`, `diagnose_issues`                                     | `GetDiagnosticsForFileTool/SymbolTool` | ❌        |
-| Dead code              | `dead_code_report`, `find_orphan_handlers`, `find_phantom_modules`            | ❌                                     | partially |
+| Dead code              | `dead_code_report` (+ ~~`find_orphan_handlers`, `find_phantom_modules`~~ §Note 1) | ❌                                     | partially |
 | 복잡도 / 변경 coupling | `get_complexity`, `get_change_coupling`                                       | ❌                                     | ❌        |
 | 누락 import            | `analyze_missing_imports`                                                     | ❌                                     | partially |
-| 잘못된 위치의 코드     | `find_misplaced_code`, `find_over_visible_apis`, `find_redundant_definitions` | ❌                                     | ❌        |
+| 잘못된 위치의 코드     | `find_misplaced_code` (+ ~~`find_over_visible_apis`, `find_redundant_definitions`~~ §Note 1) | ❌                                     | ❌        |
 | 테스트 위치            | `find_tests`                                                                  | ❌                                     | partially |
 
 ## 6. Memory / Audit / Telemetry
@@ -66,7 +66,7 @@ CodeLens의 가장 큰 차별 — Serena·grep 모두 부재.
 | ------------------- | ------------------------------------------------ | ----------------------------------- | --------- |
 | 프로젝트 메모리     | `write_memory`, `read_memory`, `list_memories`   | `WriteMemoryTool`, `ReadMemoryTool` | ❌        |
 | 세션 audit          | `audit_builder_session`, `audit_planner_session` | ❌                                  | ❌        |
-| Tool surface 일관성 | `audit_tool_surface_consistency`                 | ❌                                  | ❌        |
+| Tool surface 일관성 | ~~`audit_tool_surface_consistency`~~ §Note 1     | ❌                                  | ❌        |
 | 메트릭 export       | `get_tool_metrics`, `audit_log_query`            | ❌                                  | ❌        |
 
 ## 7. Multi-agent Coordination (CodeLens 전용)
@@ -107,3 +107,19 @@ CodeLens의 가장 큰 차별 — Serena·grep 모두 부재.
 - "이 단어 어디든" → grep
 - "이 파일 빠르게 보기" → Read (Read는 30 LOC 이하면 CodeLens보다 항상 빠름)
 - "여러 LSP 동시 + IDE 안에서" → Serena
+
+---
+
+### Note 1 — Detector 가족 deprecation (v1.13.27+)
+
+다음 5 도구는 v1.13.27 이후 MCP surface 에서 제거됨:
+
+- `find_over_visible_apis` — 1.13.21 신규, 제거
+- `find_phantom_modules` — 1.13.20 v3, 제거
+- `find_orphan_handlers` — 1.13.11 v2, 제거
+- `find_redundant_definitions` — 1.13.6 v2, 제거
+- `audit_tool_surface_consistency` — 1.13.10, 응답에 `_meta.codelens/deprecatedSince=1.13.27` 마킹
+
+`phantom_modules.rs`, `redundant_definitions.rs` 등은 `crates/codelens-engine/src/` 에 library 함수로 잔존하나 MCP `tools/call` 로는 호출 불가. 일부 기능은 `find_misplaced_code`, `find_code_duplicates`, `dead_code_report` 가 흡수.
+
+자기-감사 대체 도구는 v2.0 로드맵의 self-auditability sprint 후속 (P1-4, [[improvement/codelens_roadmap_v2]]).
