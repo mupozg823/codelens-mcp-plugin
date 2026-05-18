@@ -2,18 +2,29 @@ use super::*;
 
 #[test]
 fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
-    // Root cause of the prior chronic flake (PRs #174/#177/#184/#185/#187
-    // and PR #292 in the 2026-05-14 batch): the test mutates a process-wide
-    // env var (`CODELENS_EXECUTABLE_PATH_OVERRIDE`) without holding the
-    // `env_compat::TEST_ENV_LOCK` that the rest of the env-touching tests
-    // already coordinate on (`cli::startup_tests`, `main`,
-    // `workflow::session`, …). Under nextest parallel load any other test
-    // that read/wrote the same key between this test's `set_var` and the
-    // inner `call_tool` could swap the path out from under
-    // `current_executable_path()`, causing `prepare_harness_session` to
-    // fail early with `success=false`. Holding the global lock for the
-    // env+tool-call window makes the test independent of runner load —
-    // no more sleep-duration band-aids needed.
+    // Two layers of flake-resistance already in place from prior PRs:
+    //
+    //  1. `TEST_ENV_LOCK` (PRs #174/#177/#184/#185/#187/#292) — prevents
+    //     other env-touching tests from racing this one's
+    //     `set_var(CODELENS_EXECUTABLE_PATH_OVERRIDE)` and `call_tool`.
+    //  2. A 1.5 s `thread::sleep` — tried to push the override file's
+    //     `mtime` into a later wall-clock second than `daemon_started_at`.
+    //
+    // Layer 2 was still racy under heavy CI scheduler load and contributed
+    // to recurrences observed during the PR-K..#334 sweep (single-shot
+    // ubuntu fail with the rest of the matrix green). The mtime guarantee
+    // depended on `SystemTime::now()` advancing through a full second
+    // boundary during the sleep, which on a contended CI runner is not
+    // bounded by the requested sleep duration. Same root-cause class as
+    // #332 (`subsec_nanos`-only paths colliding under parallel load): the
+    // fixture relied on wall-clock side-effects rather than a deterministic
+    // assignment.
+    //
+    // Fix: set the override file's `mtime` explicitly via `filetime` to
+    // `daemon_started_at + 10 s`. The `mtime > daemon_started_seconds`
+    // relationship is now a property of the assignment, not of the
+    // runner's scheduling — race window collapsed to zero, sleep removed
+    // (~1.5 s reclaimed per run).
     let _env_guard = crate::env_compat::TEST_ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -26,13 +37,6 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     .unwrap();
     let state = make_state(&project);
 
-    // `daemon_started_at` is second-granularity RFC3339. Sleep > 1s so
-    // the override file's mtime lands in a later second than
-    // `daemon_started_at` even when the test happened to start just
-    // before a second rollover. 1.5s is plenty now that the env-var
-    // race is gone — no more parallel-load contention to amplify.
-    std::thread::sleep(std::time::Duration::from_millis(1_500));
-
     let override_path = std::env::temp_dir().join(format!(
         "codelens-stale-daemon-{}-{}",
         std::process::id(),
@@ -42,6 +46,18 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
             .as_nanos()
     ));
     fs::write(&override_path, "newer-binary-marker").unwrap();
+
+    // Pin the override file's mtime explicitly to a point well after
+    // `daemon_started_at` (which `make_state` snapshots from
+    // `SystemTime::now()` a moment ago). The 10 s headroom comfortably
+    // clears any plausible second-boundary issue without depending on
+    // the runner advancing wall-clock time.
+    let future_mtime = std::time::SystemTime::now() + std::time::Duration::from_secs(10);
+    filetime::set_file_mtime(
+        &override_path,
+        filetime::FileTime::from_system_time(future_mtime),
+    )
+    .unwrap();
 
     let previous = std::env::var_os("CODELENS_EXECUTABLE_PATH_OVERRIDE");
     // SAFETY: this test mutates a process env var while holding
