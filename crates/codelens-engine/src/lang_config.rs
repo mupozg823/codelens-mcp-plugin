@@ -38,32 +38,49 @@ fn config_for_canonical(canonical: &str) -> Option<LanguageConfig> {
             tree_sitter_typescript::LANGUAGE_TSX.into(),
             TYPESCRIPT_QUERY,
         ),
+        #[cfg(feature = "lang-extra")]
         "go" => ("go", tree_sitter_go::LANGUAGE.into(), GO_QUERY),
+        #[cfg(feature = "lang-extra")]
         "java" => ("java", tree_sitter_java::LANGUAGE.into(), JAVA_QUERY),
+        #[cfg(feature = "lang-extra")]
         "kt" => ("kt", tree_sitter_kotlin::LANGUAGE.into(), KOTLIN_QUERY),
         "rs" => ("rs", tree_sitter_rust::LANGUAGE.into(), RUST_QUERY),
         "c" => ("c", tree_sitter_c::LANGUAGE.into(), C_QUERY),
         "cpp" => ("cpp", tree_sitter_cpp::LANGUAGE.into(), CPP_QUERY),
+        #[cfg(feature = "lang-extra")]
         "php" => ("php", tree_sitter_php::LANGUAGE_PHP.into(), PHP_QUERY),
+        #[cfg(feature = "lang-extra")]
         "swift" => ("swift", tree_sitter_swift::LANGUAGE.into(), SWIFT_QUERY),
+        #[cfg(feature = "lang-extra")]
         "scala" => ("scala", tree_sitter_scala::LANGUAGE.into(), SCALA_QUERY),
+        #[cfg(feature = "lang-extra")]
         "rb" => ("rb", tree_sitter_ruby::LANGUAGE.into(), RUBY_QUERY),
+        #[cfg(feature = "lang-extra")]
         "cs" => ("cs", tree_sitter_c_sharp::LANGUAGE.into(), CSHARP_QUERY),
+        #[cfg(feature = "lang-extra")]
         "dart" => ("dart", tree_sitter_dart::LANGUAGE.into(), DART_QUERY),
         // Phase 6a: new languages
         "lua" => ("lua", tree_sitter_lua::LANGUAGE.into(), LUA_QUERY),
+        #[cfg(feature = "lang-extra")]
         "zig" => ("zig", tree_sitter_zig::LANGUAGE.into(), ZIG_QUERY),
+        #[cfg(feature = "lang-extra")]
         "ex" => ("ex", tree_sitter_elixir::LANGUAGE.into(), ELIXIR_QUERY),
+        #[cfg(feature = "lang-extra")]
         "hs" => ("hs", tree_sitter_haskell::LANGUAGE.into(), HASKELL_QUERY),
+        #[cfg(feature = "lang-extra")]
         "ml" => ("ml", tree_sitter_ocaml::LANGUAGE_OCAML.into(), OCAML_QUERY),
+        #[cfg(feature = "lang-extra")]
         "erl" => ("erl", tree_sitter_erlang::LANGUAGE.into(), ERLANG_QUERY),
+        #[cfg(feature = "lang-extra")]
         "r" => ("r", tree_sitter_r::LANGUAGE.into(), R_QUERY),
         "sh" => ("sh", tree_sitter_bash::LANGUAGE.into(), BASH_QUERY),
+        #[cfg(feature = "lang-extra")]
         "jl" => ("jl", tree_sitter_julia::LANGUAGE.into(), JULIA_QUERY),
         "css" => ("css", tree_sitter_css::LANGUAGE.into(), CSS_QUERY),
         "html" => ("html", tree_sitter_html::LANGUAGE.into(), HTML_QUERY),
         "toml" => ("toml", tree_sitter_toml_updated::language(), TOML_QUERY),
         "yaml" => ("yaml", tree_sitter_yaml::LANGUAGE.into(), YAML_QUERY),
+        #[cfg(feature = "lang-extra")]
         "clj" => ("clj", tree_sitter_clojure::LANGUAGE.into(), CLOJURE_QUERY),
         // make/dockerfile/vim/fsharp/perl — all blocked by tree-sitter 0.25→0.26 LanguageFn conflict
         _ => return None,
@@ -103,6 +120,7 @@ const TYPESCRIPT_QUERY: &str = r#"
     (lexical_declaration (variable_declarator name: (identifier) @variable.name)) @variable.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const GO_QUERY: &str = r#"
     (function_declaration name: (identifier) @function.name) @function.def
     (method_declaration name: (field_identifier) @method.name) @method.def
@@ -113,6 +131,7 @@ const GO_QUERY: &str = r#"
     (var_declaration (var_spec name: (identifier) @variable.name)) @variable.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const JAVA_QUERY: &str = r#"
     (class_declaration name: (identifier) @class.name) @class.def
     (interface_declaration name: (identifier) @interface.name) @interface.def
@@ -124,6 +143,7 @@ const JAVA_QUERY: &str = r#"
     (record_declaration name: (identifier) @class.name) @class.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const KOTLIN_QUERY: &str = r#"
     (class_declaration name: (identifier) @class.name) @class.def
     (object_declaration name: (identifier) @class.name) @class.def
@@ -161,6 +181,7 @@ const CPP_QUERY: &str = r#"
 (template_declaration (class_specifier name: (type_identifier) @class.name)) @class.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const PHP_QUERY: &str = r#"
 (class_declaration name: (name) @class.name) @class.def
 (interface_declaration name: (name) @interface.name) @interface.def
@@ -170,12 +191,14 @@ const PHP_QUERY: &str = r#"
 (method_declaration name: (name) @method.name) @method.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const SWIFT_QUERY: &str = r#"
 (class_declaration name: (type_identifier) @class.name) @class.def
 (protocol_declaration name: (type_identifier) @interface.name) @interface.def
 (function_declaration name: (simple_identifier) @function.name) @function.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const SCALA_QUERY: &str = r#"
     (class_definition name: (identifier) @class.name) @class.def
     (object_definition name: (identifier) @class.name) @class.def
@@ -183,6 +206,7 @@ const SCALA_QUERY: &str = r#"
     (function_definition name: (identifier) @function.name) @function.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const RUBY_QUERY: &str = r#"
     (class name: [(constant) (scope_resolution)] @class.name) @class.def
     (module name: [(constant) (scope_resolution)] @module.name) @module.def
@@ -190,6 +214,7 @@ const RUBY_QUERY: &str = r#"
     (singleton_method name: [(identifier) (constant) (simple_symbol) (delimited_symbol) (setter)] @method.name) @method.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const CSHARP_QUERY: &str = r#"
     (class_declaration name: (identifier) @class.name) @class.def
     (struct_declaration name: (identifier) @class.name) @class.def
@@ -200,6 +225,7 @@ const CSHARP_QUERY: &str = r#"
     (namespace_declaration name: (identifier) @module.name) @module.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const DART_QUERY: &str = r#"
     (class_declaration name: (identifier) @class.name) @class.def
     (mixin_declaration name: (identifier) @class.name) @class.def
@@ -215,29 +241,35 @@ const LUA_QUERY: &str = r#"
     (function_declaration name: (dot_index_expression) @function.name) @function.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const ZIG_QUERY: &str = r#"
     (function_declaration name: (identifier) @function.name) @function.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const ELIXIR_QUERY: &str = r#"
     (call target: (identifier) (arguments (alias) @class.name) (do_block)) @class.def
     (call target: (identifier) (arguments (call target: (identifier) @function.name))) @function.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const HASKELL_QUERY: &str = r#"
     (function name: (variable) @function.name) @function.def
     (signature name: (variable) @function.name) @function.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const OCAML_QUERY: &str = r#"
     (value_definition (let_binding pattern: (value_name) @function.name)) @function.def
     (type_definition (type_binding name: (type_constructor) @class.name)) @class.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const ERLANG_QUERY: &str = r#"
     (fun_decl clause: (function_clause name: (atom) @function.name)) @function.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const R_QUERY: &str = r#"
     (binary_operator lhs: (identifier) @function.name rhs: (function_definition)) @function.def
 "#;
@@ -246,6 +278,7 @@ const BASH_QUERY: &str = r#"
     (function_definition name: (word) @function.name) @function.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const JULIA_QUERY: &str = r#"
     (function_definition (signature (call_expression (identifier) @function.name))) @function.def
     (struct_definition name: (identifier) @class.name) @class.def
@@ -536,6 +569,7 @@ const YAML_QUERY: &str = r#"
     (block_mapping_pair key: (flow_node) @class.name) @class.def
 "#;
 
+#[cfg(feature = "lang-extra")]
 const CLOJURE_QUERY: &str = r#"
     (list_lit (sym_lit) @func.name) @func.def
 "#;

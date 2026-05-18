@@ -95,8 +95,20 @@ if [[ $DO_BUILD -eq 1 ]]; then
 		esac
 		[[ -n "${RUSTFLAGS:-}" ]] && log "auto-applied RUSTFLAGS=\"${RUSTFLAGS}\" for ${BRAND}"
 	fi
-	log "cargo build --release --features http,semantic,coreml"
-	(cd "${REPO_ROOT}" && cargo build --release --features http,semantic,coreml)
+	# Default: full language support (lang-extra ON, matches `cargo install` users).
+	# Set CODELENS_LANG_MINIMAL=1 to drop the 17 niche tree-sitter languages
+	# (go/java/kt/php/swift/scala/rb/cs/dart/zig/ex/hs/ml/erl/r/jl/clj) and
+	# shave ~2-3 MB off the binary. Only safe on hosts that don't index those
+	# languages — this repo's `~/.codelens/index/symbols.db` had 0 files for
+	# all 17 at the time the flag was introduced.
+	if [[ "${CODELENS_LANG_MINIMAL:-0}" == "1" ]]; then
+		BUILD_FEATURES_ARGS=(--no-default-features --features http,semantic,coreml,scip-backend)
+		log "minimal language build (CODELENS_LANG_MINIMAL=1, lang-extra OFF)"
+	else
+		BUILD_FEATURES_ARGS=(--features http,semantic,coreml)
+	fi
+	log "cargo build --release ${BUILD_FEATURES_ARGS[*]}"
+	(cd "${REPO_ROOT}" && cargo build --release "${BUILD_FEATURES_ARGS[@]}")
 fi
 
 if [[ ! -x "${SOURCE_BIN}" ]]; then
