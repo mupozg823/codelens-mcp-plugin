@@ -28,8 +28,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOLS_TOML = REPO_ROOT / "crates" / "codelens-mcp" / "tools.toml"
 OUT_DIR = REPO_ROOT / "crates" / "codelens-mcp" / "src" / "tool_defs" / "generated"
 BUILD_GEN = OUT_DIR / "build_generated.rs"
+PRESETS_RS = REPO_ROOT / "crates" / "codelens-mcp" / "src" / "tool_defs" / "presets.rs"
 
 SUPPORTED_SCHEMA = "v1"
+
+# Maps the `preset_tags` token used in tools.toml to the Rust constant in
+# `tool_defs/presets.rs` that should mirror its inversion. Drift between
+# the two surfaces is a CI failure (see `validate_preset_tags`). #200
+# stage 2 only validates equivalence; stage 3 will switch the Rust side
+# to a codegen path so tools.toml becomes the single source.
+PRESET_TAG_TO_CONST: dict[str, str] = {
+    "minimal": "MINIMAL_TOOLS",
+    "balanced-excluded": "BALANCED_EXCLUDES",
+    "planner-readonly": "PLANNER_READONLY_TOOLS",
+    "builder-minimal": "BUILDER_MINIMAL_TOOLS",
+    "reviewer-graph": "REVIEWER_GRAPH_TOOLS",
+}
 
 # Map TOML `annotations` strings to the Rust local-variable name in
 # `tool_defs/build.rs::build_tools`. Extend this table as new categories
@@ -146,6 +160,96 @@ def render_category(category: str, tools: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def extract_preset_const(name: str, src: str) -> set[str]:
+    """Return the &str literals inside `pub(crate) const <name>: &[&str] = &[ ... ];`.
+
+    Strips `// ...` line comments from the body before extracting string
+    literals — the constants contain prose rationale that would
+    otherwise contribute false-positive matches.
+    """
+    import re
+
+    pat = re.compile(
+        rf"pub\(crate\) const {re.escape(name)}: &\[&str\] = &\[(.*?)\];",
+        re.DOTALL,
+    )
+    m = pat.search(src)
+    if not m:
+        raise SystemExit(f"could not locate const {name} in presets.rs")
+    body = m.group(1)
+    cleaned_lines: list[str] = []
+    for line in body.split("\n"):
+        idx = line.find("//")
+        cleaned_lines.append(line if idx < 0 else line[:idx])
+    cleaned = "\n".join(cleaned_lines)
+    return set(re.findall(r'"([^"]+)"', cleaned))
+
+
+def validate_preset_tags(tools: list[dict[str, Any]]) -> list[str]:
+    """Return human-readable mismatch lines between preset_tags and presets.rs.
+
+    Inverts `[[tool]].preset_tags` into one set per preset tag. The Rust
+    side holds the same data as five `pub(crate) const <NAME>: &[&str]`
+    arrays in `tool_defs/presets.rs`. The two must agree **for tools
+    that exist in tools.toml**. Members listed in presets.rs but absent
+    from tools.toml are reported as "orphans" — dead members that
+    `tools()` cannot surface because no `Tool::new` row emits them.
+    Orphans are a stderr warning only; stage 3 codegen will drop them.
+    """
+    src = PRESETS_RS.read_text()
+    tools_in_toml = {tool["name"] for tool in tools}
+
+    inverse: dict[str, set[str]] = {tag: set() for tag in PRESET_TAG_TO_CONST}
+    for tool in tools:
+        for tag in tool.get("preset_tags", []) or []:
+            if tag in inverse:
+                inverse[tag].add(tool["name"])
+
+    mismatches: list[str] = []
+    orphan_summary: dict[str, list[str]] = {}
+
+    for tag, const_name in PRESET_TAG_TO_CONST.items():
+        toml_set = inverse.get(tag, set())
+        rs_set = extract_preset_const(const_name, src)
+        rs_in_toml = rs_set & tools_in_toml
+        only_toml = toml_set - rs_in_toml
+        only_rs = rs_in_toml - toml_set
+        if only_toml:
+            mismatches.append(
+                f"{const_name}: in tools.toml preset_tags but not in "
+                f"presets.rs: {sorted(only_toml)}"
+            )
+        if only_rs:
+            mismatches.append(
+                f"{const_name}: in presets.rs but missing from "
+                f"tools.toml preset_tags: {sorted(only_rs)}"
+            )
+        orphans = rs_set - tools_in_toml
+        if orphans:
+            orphan_summary[const_name] = sorted(orphans)
+
+    if orphan_summary:
+        print(
+            "Note: orphan preset members in presets.rs (no tools.toml "
+            "definition; tools() cannot surface them — stage 3 will drop):",
+            file=sys.stderr,
+        )
+        for const_name, orphans in orphan_summary.items():
+            print(f"  {const_name}: {orphans}", file=sys.stderr)
+
+    unknown_tags: set[str] = set()
+    for tool in tools:
+        for tag in tool.get("preset_tags", []) or []:
+            if tag not in PRESET_TAG_TO_CONST:
+                unknown_tags.add(tag)
+    if unknown_tags:
+        mismatches.append(
+            f"unknown preset_tags values (not in PRESET_TAG_TO_CONST): "
+            f"{sorted(unknown_tags)}"
+        )
+    return mismatches
+
+
 def render() -> str:
     with TOOLS_TOML.open("rb") as f:
         data = tomllib.load(f)
@@ -171,6 +275,24 @@ def main() -> int:
     mode.add_argument("--write", action="store_true", help="rewrite generated files")
     mode.add_argument("--check", action="store_true", help="exit 1 on drift")
     args = parser.parse_args()
+
+    with TOOLS_TOML.open("rb") as f:
+        toml_data = tomllib.load(f)
+    preset_mismatches = validate_preset_tags(toml_data.get("tool", []))
+    if preset_mismatches:
+        print(
+            "preset_tags drift between tools.toml and "
+            "crates/codelens-mcp/src/tool_defs/presets.rs:",
+            file=sys.stderr,
+        )
+        for line in preset_mismatches:
+            print(f"  - {line}", file=sys.stderr)
+        print(
+            "edit tools.toml preset_tags or presets.rs constants so they "
+            "agree, then re-run.",
+            file=sys.stderr,
+        )
+        return 1
 
     rendered = render()
 
