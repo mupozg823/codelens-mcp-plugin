@@ -60,7 +60,9 @@ impl HttpServerConfig {
 pub(crate) fn install_default_rustls_provider() {
     static INSTALL: Once = Once::new();
     INSTALL.call_once(|| {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        // Workspace pins `rustls` to the ring backend; axum-server uses
+        // `tls-rustls-no-provider` so the provider is registered here.
+        let _ = rustls::crypto::ring::default_provider().install_default();
     });
 }
 
