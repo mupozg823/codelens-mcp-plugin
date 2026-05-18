@@ -121,8 +121,16 @@ impl IndexDb {
         open_derived_sqlite_with_recovery(db_path, "symbol index", || {
             let conn = Connection::open(db_path)
                 .with_context(|| format!("failed to open db at {}", db_path.display()))?;
+            // `busy_timeout` MUST come first. The subsequent
+            // `journal_mode = WAL` change needs a schema-level write
+            // lock; without an active busy timeout, a second connection
+            // racing the same database file gets `SQLITE_BUSY` returned
+            // immediately (Error code 5). See #332 for the test-side
+            // collision that surfaced this; this defence-in-depth fix
+            // also covers any production caller that ever opens the
+            // same index DB from two threads at once.
             conn.execute_batch(
-                "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -8000; PRAGMA auto_vacuum = INCREMENTAL;",
+                "PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -8000; PRAGMA auto_vacuum = INCREMENTAL;",
             )?;
             let mut db = Self { conn };
             db.migrate()?;

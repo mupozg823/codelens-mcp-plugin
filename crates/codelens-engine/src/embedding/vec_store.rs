@@ -31,8 +31,12 @@ impl SqliteVecStore {
             ffi::register_sqlite_vec()?;
 
             let conn = Connection::open(db_path)?;
+            // `busy_timeout` first — see crate::db::IndexDb::open and #332.
+            // Without an active timeout, `journal_mode = WAL` returns
+            // SQLITE_BUSY immediately when two connections race the
+            // same file.
             conn.execute_batch(
-                "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL; PRAGMA auto_vacuum=INCREMENTAL;",
+                "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA auto_vacuum=INCREMENTAL;",
             )?;
 
             // Check if DB exists with a different model — if so, drop and recreate
