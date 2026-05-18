@@ -272,6 +272,23 @@ The server detects identical tool+args called 3+ times consecutively:
 - **Rapid burst detection**: 3+ identical calls within 10 seconds triggers async job fallback suggestions (`start_analysis_job`)
 - Applies only in persistent MCP stdio mode (not CLI one-shot)
 
+## Index Freshness Signal
+
+The four read-hot symbol tools (`find_referencing_symbols`, `find_symbol`, `get_ranked_context`, `get_symbols_overview`) and `onboard_project` attach an `index_freshness` object to every response so callers can detect a stale daemon without diffing results against the working tree:
+
+```json
+{
+  "newest_indexed_at_epoch_secs": 1779032712,
+  "newest_indexed_age_secs": 642,
+  "staleness_hint": "possibly_stale",
+  "refresh_recommended": false
+}
+```
+
+Buckets (newest `files.indexed_at` vs wall-clock): `fresh` < 60s · `recent` 60s..600s · `possibly_stale` 600s..3600s · `stale` ≥ 3600s. When `refresh_recommended: true`, the response also prepends `refresh_symbol_index` to `suggested_next_tools` so an agent doesn't need to know the recovery path — just follow the chain.
+
+If you're driving the harness manually, call `refresh_symbol_index` once after a large file move/rename burst (e.g. multi-file refactor) — the daemon does not auto-watch for changes.
+
 ## Schema Pre-Validation
 
 Dispatch validates `required` fields from `input_schema` before the handler runs.
