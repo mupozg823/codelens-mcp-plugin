@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.29] - 2026-05-18
+
+### Fixed
+
+- **macOS test flake root cause (#332)**: 6 PRs (PR-F..PR-J) had been failing the same macOS-only check (`codelens-engine search::tests::semantic_low_scores_filtered_out`) since 2026-04. systematic-debugging tracked it to a path-collision bug in the shared search-test fixture: `subsec_nanos()` quantises to ~1 µs on macOS vs 1 ns on Ubuntu, so the 9 tests sharing `make_project_with_symbols` regularly hit the same temp-dir path. Two tests racing into the same SQLite file then hit `journal_mode = WAL`'s schema-level lock before the batch's own `busy_timeout = 5000` PRAGMA was applied (it was the 6th PRAGMA). Fixed by switching the fixture to `tempfile::TempDir`.
+- **db (defense in depth) (#333)**: reorder `IndexDb::open` and `SqliteVecStore::new` PRAGMA batches so `busy_timeout = 5000` precedes `journal_mode = WAL`. Any production caller that ever opens the same DB from two threads now waits up to 5 s instead of erroring out instantly.
+
+### Added
+
+- **transparency: index_freshness signal (PR-J, #329)**: `find_referencing_symbols`, `find_symbol`, `get_ranked_context`, `get_symbols_overview` (and `onboard_project` via PR-L) now attach an `index_freshness` object with `newest_indexed_at_epoch_secs`, `newest_indexed_age_secs`, a 4-bucket `staleness_hint` (`fresh`/`recent`/`possibly_stale`/`stale`), and `refresh_recommended`. Backed by new `IndexDb::max_files_indexed_at()` / `SymbolIndex::max_indexed_at()` queries.
+- **auto-suggest refresh on stale index (PR-L, #331)**: when `refresh_recommended: true`, `refresh_symbol_index` is prepended to `suggested_next_tools` so an agent can recover without knowing the call name. Idempotent. Sits after doom-loop override (heavy retry guidance still wins) but before the calls-builder.
+- **onboard_project carries `index_freshness` (PR-L, #331)**: the first call into a new MCP session reports its own index staleness up front.
+
+### Changed
+
+- **deps: workspace pin for `codelens-engine` (PR-K, #328)**: moved the `version = "=…"` pin into `[workspace.dependencies]`. Future releases bump a single version string at the workspace root; member crates use `codelens-engine = { workspace = true }`. release-plz can now propagate version bumps without a member-crate hand-edit.
+- **docs: Index Freshness Signal section in CLAUDE.md (#334)**: documents the four-bucket staleness contract and the human-driven `refresh_symbol_index` workflow for large multi-file renames.
+
+### Infrastructure
+
+- **release-plz workflow permission**: GitHub Actions can now create release PRs (`default_workflow_permissions=write` + `can_approve_pull_request_reviews=true`). Closes the recurring 403 in the release-plz workflow that had been blocking automation since the PR-F..PR-I sequence.
+
 ## [1.13.28] - 2026-05-18
 
 ### Refactored
