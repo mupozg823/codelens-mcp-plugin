@@ -55,6 +55,13 @@ jobs:
       - name: surface manifest drift check
         run: python3 scripts/surface-manifest.py --check
 
+      - name: bench invocation lint
+        # Guard against the 2026-05 regression where `benchmark.yml` was
+        # the lone `cargo bench` invocation without `--bench <name>` /
+        # `--benches`, crashing the Benchmark workflow for 8 commits.
+        # See scripts/lint-bench-invocations.py + commit 10ac00d6.
+        run: python3 scripts/lint-bench-invocations.py
+
       - name: script contract tests
         run: |
           for test in scripts/test/test-*.py; do
