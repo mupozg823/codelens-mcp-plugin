@@ -562,7 +562,7 @@ output_schema = "analysis_handle_output_schema"
 
 [tool.input_schema]
 type = "object"
-properties = { scope = { type = "string" }, max_results = { type = "integer" } }
+properties = { scope = { type = "string" }, path = { type = "string", description = "Soft alias of `scope` — matches the path-argument convention used by sibling composite reports (impact_report, module_boundary_report, …)." }, max_results = { type = "integer" } }
 
 # ─────
 

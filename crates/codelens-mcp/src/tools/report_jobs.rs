@@ -244,8 +244,13 @@ fn run_dead_code_report_job(
     arguments: &Value,
     delay_ms: u64,
 ) -> Result<Value, String> {
+    // Accept `path` as a soft alias of `scope` so async-job callers stay
+    // consistent with the rest of the composite-report family (issue G1,
+    // 2026-05-18 self-dogfood). Mirrors the sync handler in
+    // `tools/reports/impact_reports/boundary.rs`.
     let scope = arguments
         .get("scope")
+        .or_else(|| arguments.get("path"))
         .and_then(|v| v.as_str())
         .unwrap_or(".");
     let max_results = arguments
@@ -305,7 +310,11 @@ fn run_dead_code_report_job(
     super::report_contract::make_handle_response(
         state,
         "dead_code_report",
-        stable_cache_key("dead_code_report", arguments, &["scope", "max_results"]),
+        stable_cache_key(
+            "dead_code_report",
+            arguments,
+            &["scope", "path", "max_results"],
+        ),
         format!("Bounded dead-code audit for scope `{scope}`."),
         top_findings,
         0.84,

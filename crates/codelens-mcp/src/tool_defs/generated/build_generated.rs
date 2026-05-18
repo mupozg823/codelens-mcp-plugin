@@ -75,7 +75,7 @@ pub fn composite_tools(
         Tool::new(
             "dead_code_report",
             "[CodeLens:Workflow] Summarize dead-code candidates with bounded evidence and deletion risk.",
-            json!({"type":"object","properties":{"scope":{"type":"string"},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","properties":{"scope":{"type":"string"},"path":{"type":"string","description":"Soft alias of `scope` — matches the path-argument convention used by sibling composite reports (impact_report, module_boundary_report, …)."},"max_results":{"type":"integer"}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "impact_report",

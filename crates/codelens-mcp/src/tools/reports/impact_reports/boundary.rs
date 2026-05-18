@@ -135,8 +135,14 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
 
 #[allow(deprecated)]
 pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
+    // Accept `path` as a soft alias of `scope`. The rest of the composite
+    // report family (`module_boundary_report`, `impact_report`, …) takes a
+    // `path` argument; without this fallback a caller copy-pasting that
+    // convention silently scans the whole project root (issue G1, 2026-05-18
+    // self-dogfood).
     let scope = arguments
         .get("scope")
+        .or_else(|| arguments.get("path"))
         .and_then(|v| v.as_str())
         .unwrap_or(".");
     let max_results = arguments
@@ -218,7 +224,11 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
     make_handle_response(
         state,
         "dead_code_report",
-        stable_cache_key("dead_code_report", arguments, &["scope", "max_results"]),
+        stable_cache_key(
+            "dead_code_report",
+            arguments,
+            &["scope", "path", "max_results"],
+        ),
         format!("Bounded dead-code audit for scope `{scope}`."),
         top_findings,
         0.84,
