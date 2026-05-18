@@ -18,14 +18,6 @@ exclude = [
     ".codelens/**",
 ]
 
-# Excluded from `cargo bench` — criterion harness lives in the `[[bench]]`
-# targets below and the lib has no `#[bench]` fns. Without this, the std
-# test runner is invoked on lib unit tests by `cargo bench`, receives
-# criterion's `--save-baseline <name>` arg, and crashes the Benchmark
-# workflow with `error: Unrecognized option: 'save-baseline'`.
-[lib]
-bench = false
-
 [dependencies]
 anyhow.workspace = true
 globset.workspace = true
