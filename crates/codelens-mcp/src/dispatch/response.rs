@@ -69,13 +69,30 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     // callers can detect a stale daemon without diffing results against
     // the working tree. See `tool_runtime::index_freshness_hint` for
     // the four-bucket staleness heuristic.
+    //
+    // PR (this commit): include `onboard_project` in the whitelist (D).
+    // It synthesises project structure from the same SymbolIndex, so
+    // a stale index produces a misleading first-impression report.
+    //
+    // `refresh_recommended_from_freshness` records whether we should
+    // bubble `refresh_symbol_index` to the top of suggested_next_tools
+    // later in this function (C).
+    let mut refresh_recommended_from_freshness = false;
     if matches!(
         name,
-        "find_referencing_symbols" | "find_symbol" | "get_ranked_context" | "get_symbols_overview"
+        "find_referencing_symbols"
+            | "find_symbol"
+            | "get_ranked_context"
+            | "get_symbols_overview"
+            | "onboard_project"
     ) && let Some(obj) = payload.as_object_mut()
         && !obj.contains_key("index_freshness")
         && let Some(freshness) = crate::tool_runtime::index_freshness_hint(state)
     {
+        refresh_recommended_from_freshness = freshness
+            .get("refresh_recommended")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         obj.insert("index_freshness".to_owned(), freshness);
     }
 
@@ -195,6 +212,23 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
                 "analyze_change_request".to_owned(),
                 "impact_report".to_owned(),
             ]);
+        }
+    }
+
+    // PR (this commit, C): when the index is stale, surface
+    // `refresh_symbol_index` at the top of `suggested_next_tools` so
+    // the agent doesn't have to know to call it before retrying.
+    // Idempotent: skip if it's already in the list.
+    if refresh_recommended_from_freshness {
+        match resp.suggested_next_tools.as_mut() {
+            Some(tools) => {
+                if !tools.iter().any(|t| t == "refresh_symbol_index") {
+                    tools.insert(0, "refresh_symbol_index".to_owned());
+                }
+            }
+            None => {
+                resp.suggested_next_tools = Some(vec!["refresh_symbol_index".to_owned()]);
+            }
         }
     }
 
