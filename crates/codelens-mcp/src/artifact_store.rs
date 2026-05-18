@@ -284,7 +284,15 @@ impl AnalysisArtifactStore {
     /// Tiered cache lookup:
     /// - L1 (Exact):  tool_name + cache_key + surface + scope match
     /// - L2 (Warm):   tool_name + surface + scope match (any cache_key)
-    /// - L3 (Cold):   same scope, any tool, most recent within TTL
+    /// - L3 (Cold):   tool_name + scope match (generic cache_key, any surface)
+    ///
+    /// All tiers require `tool_name` to match. Earlier revisions allowed L3
+    /// to fall back across different tools when the stored artifact had no
+    /// `cache_key`, but that produced cross-tool payload poisoning: e.g. a
+    /// generic `dead_code_report` (args `{}`) would be returned verbatim
+    /// for a later `module_boundary_report` call whose summary, findings,
+    /// and section layout are unrelated. See issue G2 (2026-05-18 self-
+    /// dogfood).
     pub fn find_reusable_tiered(
         &self,
         tool_name: &str,
@@ -330,11 +338,16 @@ impl AnalysisArtifactStore {
             return Some((artifact, crate::runtime_types::CacheHitTier::Warm));
         }
 
-        // L3: cold match — same scope, stored artifact has no cache_key (generic), most recent
+        // L3: cold match — same tool + scope, stored artifact has no cache_key (generic).
+        // Surface is intentionally not constrained so e.g. a `reviewer-graph`
+        // call can reuse a `refactor-full` artifact from the same scope; but
+        // tool_name MUST match so payload shapes stay compatible.
         if let Some(artifact) = order.iter().find_map(|id| {
             let a = arts.get(id)?;
-            (matches_scope(a.project_scope.as_deref(), project_scope) && a.cache_key.is_none())
-                .then(|| a.clone())
+            (a.tool_name == tool_name
+                && matches_scope(a.project_scope.as_deref(), project_scope)
+                && a.cache_key.is_none())
+            .then(|| a.clone())
         }) {
             return Some((artifact, crate::runtime_types::CacheHitTier::Cold));
         }
@@ -548,8 +561,15 @@ mod tests {
         assert_eq!(tier, CacheHitTier::Warm);
     }
 
+    /// Regression for G2 (2026-05-18): an earlier `find_reusable_tiered`
+    /// allowed L3 cold-tier to fall back across different tools when the
+    /// stored artifact had no `cache_key`. That meant a generic
+    /// `dead_code_report` (args `{}` → `cache_key = None`) was returned
+    /// verbatim for a later `module_boundary_report` call, even though the
+    /// two tools produce structurally different payloads. The hit now
+    /// requires `tool_name` to match in every tier.
     #[test]
-    fn tiered_cold_hit_different_tool_same_scope_generic() {
+    fn tiered_miss_when_different_tool_even_if_scope_generic() {
         let (store, _tmp) = make_store();
         let artifact = make_test_artifact(
             "a1",
@@ -560,9 +580,32 @@ mod tests {
             crate::util::now_ms(),
         );
         store_artifact(&store, artifact);
+        assert!(
+            store
+                .find_reusable_tiered("change_request", "other-key", "full", Some("/proj"))
+                .is_none(),
+            "cross-tool cold-tier reuse must not poison a different tool's payload"
+        );
+    }
+
+    /// L3 still hits when the same tool revisits the same scope with a
+    /// different surface (e.g. planner-readonly → reviewer-graph) and the
+    /// original artifact was stored without a cache_key.
+    #[test]
+    fn tiered_cold_hit_same_tool_different_surface() {
+        let (store, _tmp) = make_store();
+        let artifact = make_test_artifact(
+            "a1",
+            "impact_report",
+            "refactor-full",
+            Some("/proj"),
+            None, // generic analysis
+            crate::util::now_ms(),
+        );
+        store_artifact(&store, artifact);
         let (found, tier) = store
-            .find_reusable_tiered("change_request", "other-key", "full", Some("/proj"))
-            .unwrap();
+            .find_reusable_tiered("impact_report", "any-key", "reviewer-graph", Some("/proj"))
+            .expect("same-tool generic artifact should still hit via L3");
         assert_eq!(found.tool_name, "impact_report");
         assert_eq!(tier, CacheHitTier::Cold);
     }
