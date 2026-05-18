@@ -353,7 +353,12 @@ create_plist() {
     <string>${RERANK_VALUE}</string>
 ${model_dir_xml}  </dict>
   <key>KeepAlive</key>
-  <true/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <true/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
 ${run_at_load_xml}  <key>StandardOutPath</key>
   <string>${stdout_xml}</string>
   <key>StandardErrorPath</key>

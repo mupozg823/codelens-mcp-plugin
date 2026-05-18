@@ -121,16 +121,15 @@ impl IndexDb {
         open_derived_sqlite_with_recovery(db_path, "symbol index", || {
             let conn = Connection::open(db_path)
                 .with_context(|| format!("failed to open db at {}", db_path.display()))?;
-            // `busy_timeout` MUST come first. The subsequent
-            // `journal_mode = WAL` change needs a schema-level write
-            // lock; without an active busy timeout, a second connection
-            // racing the same database file gets `SQLITE_BUSY` returned
-            // immediately (Error code 5). See #332 for the test-side
-            // collision that surfaced this; this defence-in-depth fix
-            // also covers any production caller that ever opens the
-            // same index DB from two threads at once.
+            // `page_size` first: applies only at DB creation; silent no-op on
+            // existing files. `busy_timeout` MUST precede `journal_mode = WAL`
+            // — WAL needs a schema-level write lock and without an active
+            // busy timeout a racing connection gets `SQLITE_BUSY` immediately
+            // (Error code 5). See #332. `mmap_size`/`cache_size`/`wal_autocheckpoint`
+            // are tuned for the 1+ GB symbol index on 16 KB Apple Silicon pages
+            // (cold-start page-fault burst was the main pain point).
             conn.execute_batch(
-                "PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -8000; PRAGMA auto_vacuum = INCREMENTAL;",
+                "PRAGMA page_size = 16384; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000; PRAGMA auto_vacuum = INCREMENTAL;",
             )?;
             let mut db = Self { conn };
             db.migrate()?;
@@ -149,7 +148,11 @@ impl IndexDb {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .with_context(|| format!("failed to open db readonly at {}", db_path.display()))?;
-        conn.execute_batch("PRAGMA busy_timeout = 5000;")?;
+        // Read-only path: mmap + larger page cache shrinks the cold-start
+        // b-tree-traversal page-fault burst on 1+ GB indexes (16 KB pages).
+        conn.execute_batch(
+            "PRAGMA busy_timeout = 5000; PRAGMA mmap_size = 268435456; PRAGMA cache_size = -32000;",
+        )?;
         Ok(Some(Self { conn }))
     }
 
