@@ -316,7 +316,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 679
+        "estimated_tokens": 725
       },
       {
         "name": "impact_report",
