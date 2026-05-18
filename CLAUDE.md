@@ -17,6 +17,41 @@ Three concepts that show up across files and require reading several to understa
 2. **Surfaces gate which tools are visible.** A tool can be registered in `tools.toml` + dispatched in `tools/mod.rs` + implemented in `tools/<area>.rs` and **still not appear in `tools/list`** because no preset/profile exposes it. The preset constants (`PLANNER_READONLY_TOOLS`, `BUILDER_MINIMAL_TOOLS`, `REVIEWER_GRAPH_TOOLS`, `REFACTOR_FULL_TOOLS`, `CI_AUDIT_TOOLS`) live in `crates/codelens-mcp/src/tool_defs/presets.rs`. `set_preset`/`set_profile` switch the active surface at runtime per session.
 3. **Generated documentation blocks must round-trip.** `scripts/surface-manifest.py` rewrites marker pairs (`SURFACE_MANIFEST_*`, `CODELENS_HOST_ROUTING`) in README.md, AGENTS.md, CLAUDE.md, docs/architecture.md, etc. The script's `replace_block` produces `BEGIN + \n\n + content + \n\n + END` to coexist with Prettier (which would otherwise re-insert the blank line and cause permanent drift). Do not hand-edit content inside markers.
 
+### Symbol-query path lives behind one seam
+
+`get_ranked_context`, `find_symbol`, and `get_symbols_overview` all dispatch through a single deep module: `crates/codelens-mcp/src/tools/symbol_query/`. Each tool's `pub fn` in `tools/symbols/handlers.rs` is a 3-line entry that constructs a `SymbolQueryRequest` variant and calls `SymbolQueryPipeline::run`. The orchestration body (query analysis → retrieval → rank fusion → SCIP enrichment → payload shaping) lives **inside** the pipeline module, not in `handlers.rs`.
+
+Module layout (post-PR-F/G/H):
+
+```
+crates/codelens-mcp/src/tools/
+├── semantic_retriever.rs           ← cross-cutting (pipeline + impact reports)
+├── symbol_query/
+│   ├── mod.rs                       ← SymbolQueryPipeline + SymbolQueryRequest
+│   ├── find_symbol.rs               ← stage body for find_symbol
+│   ├── ranked_context.rs            ← stage body for get_ranked_context
+│   ├── symbols_overview.rs          ← stage body for get_symbols_overview
+│   ├── sparse_retriever.rs          ← BM25F + context-window-adaptive budget + flatten_symbols
+│   └── rank_fusion.rs               ← stage-4 helpers (5 fn + RankFusionPolicy, all pub(super))
+└── symbols/
+    ├── handlers.rs                  ← 31 LOC: 3 thin pipeline stubs only
+    ├── bm25_search.rs               ← bm25_symbol_search + suggested_follow_up + confidence_tier
+    ├── fuzzy_search.rs              ← search_symbols_fuzzy (hybrid + semantic boost)
+    ├── inventory.rs                 ← refresh_symbol_index + get_complexity + get_project_structure
+    ├── formatter.rs                 ← compact_symbol_bodies (used by pipeline)
+    └── analyzer.rs                  ← semantic_scores_for_query
+```
+
+When changing symbol-query semantics:
+- Body of `run_ranked_context` / `run_find_symbol` / `run_symbols_overview` is in `tools/symbol_query/<tool>.rs`.
+- Cross-cutting retrieval seams owned by the pipeline:
+  - `tools/semantic_retriever.rs` (dense ONNX semantic results) — used by the pipeline **and** the impact-report family.
+  - `tools/symbol_query/sparse_retriever.rs` (BM25F sparse hits, context-window-adaptive budget, `flatten_symbols` utility) — used by the pipeline **and** `symbols::{bm25_search, inventory}`.
+- Rank-fusion stage (PR-H): the 5 helpers + `RankFusionPolicy` are `pub(super)` in `symbol_query/rank_fusion.rs`. `ranked_context.rs` is the only legitimate caller — the seam exists so the pipeline owns stage-4 entirely. Do not export rank-fusion items out of `symbol_query/`.
+- Other stage helpers (SCIP signature/body slicing in `find_symbol.rs`, body Jaccard, query analysis) are file-private inside their `symbol_query/<tool>.rs` — do not promote to `pub(super)` casually.
+
+Dependency direction is one-way: `symbols::*` → `symbol_query::*`. Never reach upward from the pipeline back into `symbols::*` — that was the cycle PR-F removed (`review_architecture` reported a 3-node loop `mod.rs → ranked_context.rs → handlers.rs`). If new sparse/retrieval helpers are needed, add them to `symbol_query/sparse_retriever.rs` (or a sibling sub-module).
+
 ## Feature Flag Matrix (build-time)
 
 The default `cargo install codelens-mcp` build is `default = ["scip-backend"]` (set in `crates/codelens-mcp/Cargo.toml`; SCIP itself only activates when an `index.scip` exists in the project). Most other operational use needs explicit features:
@@ -236,6 +271,23 @@ The server detects identical tool+args called 3+ times consecutively:
 - `suggested_next_tools` switches to alternative high-level tools
 - **Rapid burst detection**: 3+ identical calls within 10 seconds triggers async job fallback suggestions (`start_analysis_job`)
 - Applies only in persistent MCP stdio mode (not CLI one-shot)
+
+## Index Freshness Signal
+
+The four read-hot symbol tools (`find_referencing_symbols`, `find_symbol`, `get_ranked_context`, `get_symbols_overview`) and `onboard_project` attach an `index_freshness` object to every response so callers can detect a stale daemon without diffing results against the working tree:
+
+```json
+{
+  "newest_indexed_at_epoch_secs": 1779032712,
+  "newest_indexed_age_secs": 642,
+  "staleness_hint": "possibly_stale",
+  "refresh_recommended": false
+}
+```
+
+Buckets (newest `files.indexed_at` vs wall-clock): `fresh` < 60s · `recent` 60s..600s · `possibly_stale` 600s..3600s · `stale` ≥ 3600s. When `refresh_recommended: true`, the response also prepends `refresh_symbol_index` to `suggested_next_tools` so an agent doesn't need to know the recovery path — just follow the chain.
+
+If you're driving the harness manually, call `refresh_symbol_index` once after a large file move/rename burst (e.g. multi-file refactor) — the daemon does not auto-watch for changes.
 
 ## Schema Pre-Validation
 

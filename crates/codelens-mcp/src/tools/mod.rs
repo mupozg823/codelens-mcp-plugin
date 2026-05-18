@@ -16,8 +16,10 @@ pub mod reports;
 mod scip_health;
 pub(crate) mod semantic_edit;
 pub(crate) mod semantic_edit_args;
+pub(crate) mod semantic_retriever;
 pub mod session;
 mod suggestions;
+pub(crate) mod symbol_query;
 pub mod symbols;
 pub mod workflows;
 

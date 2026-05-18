@@ -326,6 +326,27 @@ impl IndexDb {
         Ok(count as usize)
     }
 
+    /// Newest `indexed_at` epoch (seconds) across all files in the index,
+    /// or `None` when the table is empty. Callers compare against the
+    /// current wall-clock to surface a freshness hint on responses.
+    pub fn max_files_indexed_at(&self) -> Result<Option<i64>> {
+        let row: Option<i64> = self
+            .conn
+            .query_row("SELECT MAX(indexed_at) FROM files", [], |row| row.get(0))
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Oldest `indexed_at` epoch (seconds) across all files in the index,
+    /// or `None` when the table is empty.
+    pub fn min_files_indexed_at(&self) -> Result<Option<i64>> {
+        let row: Option<i64> = self
+            .conn
+            .query_row("SELECT MIN(indexed_at) FROM files", [], |row| row.get(0))
+            .optional()?;
+        Ok(row)
+    }
+
     /// Return all indexed file paths.
     pub fn all_file_paths(&self) -> Result<Vec<String>> {
         all_file_paths(&self.conn)

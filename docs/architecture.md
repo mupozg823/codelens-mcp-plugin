@@ -7,7 +7,7 @@
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
 
-- Workspace version: `1.13.27`
+- Workspace version: `1.13.28`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
 - Registered tool definitions in source: `72`
 - Tool output schemas in source: `52 / 72`
@@ -344,7 +344,9 @@ codelens-mcp-plugin/
                             │
               ┌─────────────▼─────────────┐
               │      Tool Handler         │
-              │  tools/symbols.rs         │
+              │  tools/symbol_query/*     │  ← deep pipeline (PR-A/B/C/D/E/F/G/H)
+              │  tools/symbols/*          │  ← BM25/fuzzy/inventory + 3 stubs
+              │  tools/semantic_retriever │  ← cross-cutting seam
               │  tools/lsp.rs             │
               │  tools/graph.rs           │
               │  tools/mutation.rs        │

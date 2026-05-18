@@ -234,21 +234,34 @@ mod tests {
     use crate::db::{IndexDb, NewSymbol, index_db_path};
 
     /// Create a temp directory seeded with test symbols.
-    /// Returns the owned PathBuf (keep it alive for the test duration) and a ProjectRoot.
-    fn make_project_with_symbols() -> (std::path::PathBuf, ProjectRoot) {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .subsec_nanos();
-        let root = std::env::temp_dir().join(format!("codelens_search_test_{nanos}"));
-        std::fs::create_dir_all(&root).unwrap();
+    ///
+    /// Returns the owned [`tempfile::TempDir`] (keep it alive for the
+    /// test duration so the directory isn't reaped early) plus a
+    /// [`ProjectRoot`] pointed at it.
+    ///
+    /// Why `tempfile::TempDir` instead of `std::env::temp_dir().join(nanos)`:
+    /// the previous version generated paths from `subsec_nanos()` alone,
+    /// which collided in macOS CI when nextest scheduled multiple
+    /// fixture-using tests on overlapping nanoseconds (9 tests in this
+    /// file share this helper). Two tests racing into the same SQLite
+    /// file hit `journal_mode = WAL`'s schema-level write lock before
+    /// our own `busy_timeout = 5000` PRAGMA could be applied (it's the
+    /// 6th PRAGMA in the open batch, so the first PRAGMA still uses
+    /// the default 0 ms timeout) — surfacing as `Error code 5:
+    /// The database file is locked` at ~0.14 s into the test. macOS
+    /// reproduced this on every CI run since 2026-04; Ubuntu happened
+    /// to schedule those nine tests in an order that avoided the
+    /// collision. `tempfile::tempdir()` guarantees a process-unique
+    /// path, removing the collision class entirely.
+    fn make_project_with_symbols() -> (tempfile::TempDir, ProjectRoot) {
+        let temp = tempfile::tempdir().expect("create temp dir for search test fixture");
+        let root = temp.path();
 
         // Write a dummy source file so ProjectRoot is happy
         std::fs::write(root.join("hello.txt"), "hello").unwrap();
 
         // Seed the SQLite index
-        let db_path = index_db_path(&root);
+        let db_path = index_db_path(root);
         let db = IndexDb::open(&db_path).unwrap();
         let fid = db
             .upsert_file("main.py", 100, "h1", 10, Some("py"))
@@ -294,7 +307,7 @@ mod tests {
         .unwrap();
 
         let project = ProjectRoot::new(root.to_str().unwrap()).unwrap();
-        (root, project)
+        (temp, project)
     }
 
     #[test]

@@ -113,6 +113,40 @@ impl ScipBackend {
         }
     }
 
+    /// Estimate the inclusive last line of a definition's body.
+    ///
+    /// SCIP records occurrence ranges that cover the symbol identifier
+    /// (e.g. the function name), not the body. Most indexers emit a
+    /// single-line range there, so we use the same enclosing-scope
+    /// heuristic as `find_callees`: the body extends until just before
+    /// the next definition occurrence in the same document. If no
+    /// following definition exists, returns `None` — the MCP layer falls
+    /// back to its 50-line slice. If the occurrence itself already spans
+    /// multiple lines (rare; rust-analyzer's macro-expanded items can do
+    /// this), we honor that span when it exceeds the next-def estimate.
+    fn body_end_line(
+        doc: &scip_types::Document,
+        start_line: usize,
+        occ_end_line: usize,
+    ) -> Option<usize> {
+        let mut sibling_starts: Vec<usize> = doc
+            .occurrences
+            .iter()
+            .filter(|occ| Self::is_definition(occ))
+            .map(|occ| Self::parse_range(occ).0)
+            .filter(|line| *line > start_line)
+            .collect();
+        sibling_starts.sort_unstable();
+        let next_def = sibling_starts.first().copied();
+        let sibling_estimate = next_def.map(|n| n.saturating_sub(1));
+        match (sibling_estimate, occ_end_line) {
+            (Some(est), occ) if occ > est => Some(occ),
+            (Some(est), _) if est > start_line => Some(est),
+            (None, occ) if occ > start_line => Some(occ),
+            _ => None,
+        }
+    }
+
     /// Find callees of `function_name` defined in `file_path` using SCIP occurrences.
     ///
     /// Strategy: SCIP does not directly model "function body extent", so we
@@ -335,7 +369,7 @@ impl PreciseBackend for ScipBackend {
             for (path, doc) in &self.documents {
                 for occ in &doc.occurrences {
                     if &occ.symbol == target && Self::is_definition(occ) {
-                        let (line, _, _, _) = Self::parse_range(occ);
+                        let (line, _, occ_end_line, _) = Self::parse_range(occ);
                         let short = Self::short_name(&occ.symbol);
                         // Issue #245: previously `signature` was filled
                         // from `SymbolInformation.documentation.first()`,
@@ -351,6 +385,7 @@ impl PreciseBackend for ScipBackend {
                             kind: "symbol".to_owned(),
                             file_path: path.clone(),
                             line,
+                            end_line: Self::body_end_line(doc, line, occ_end_line),
                             signature: String::new(),
                             name_path: Some(occ.symbol.clone()),
                             body: None,
@@ -367,12 +402,13 @@ impl PreciseBackend for ScipBackend {
             for (path, doc) in &self.documents {
                 for occ in &doc.occurrences {
                     if Self::is_definition(occ) && Self::short_name(&occ.symbol) == symbol {
-                        let (line, _, _, _) = Self::parse_range(occ);
+                        let (line, _, occ_end_line, _) = Self::parse_range(occ);
                         results.push(SearchCandidate {
                             name: symbol.to_owned(),
                             kind: "symbol".to_owned(),
                             file_path: path.clone(),
                             line,
+                            end_line: Self::body_end_line(doc, line, occ_end_line),
                             signature: String::new(),
                             name_path: Some(occ.symbol.clone()),
                             body: None,
@@ -411,6 +447,7 @@ impl PreciseBackend for ScipBackend {
                             },
                             file_path: path.clone(),
                             line,
+                            end_line: None,
                             signature: String::new(),
                             name_path: Some(occ.symbol.clone()),
                             body: None,
@@ -433,6 +470,7 @@ impl PreciseBackend for ScipBackend {
                             kind: "reference".to_owned(),
                             file_path: path.clone(),
                             line,
+                            end_line: None,
                             signature: String::new(),
                             name_path: Some(occ.symbol.clone()),
                             body: None,
@@ -647,7 +685,36 @@ mod tests {
         assert_eq!(defs[0].name, "MyStruct");
         assert_eq!(defs[0].file_path, "src/main.rs");
         assert_eq!(defs[0].line, 10);
+        // No sibling definition follows in src/main.rs and the
+        // occurrence range is single-line, so end_line stays None.
+        // Issue #179: the MCP layer must fall back to the 50-line
+        // heuristic in that case.
+        assert_eq!(defs[0].end_line, None);
         assert!(matches!(defs[0].source, IntelligenceSource::Scip));
+    }
+
+    /// Issue #179: when a same-document sibling definition follows the
+    /// queried symbol, `find_definitions` reports an `end_line` so the
+    /// MCP layer can slice the body precisely instead of falling back
+    /// to the 50-line heuristic.
+    #[test]
+    fn test_find_definitions_end_line_from_sibling() {
+        let idx = build_callees_fixture();
+        let file = write_index_to_file(&idx);
+        let backend = ScipBackend::load(file.path()).unwrap();
+
+        let defs = backend
+            .find_definitions(
+                "handle_request",
+                "crates/codelens-mcp/src/server/router.rs",
+                10,
+            )
+            .unwrap();
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].line, 10);
+        // Next definition (`other_fn`) starts at line 25, so the body
+        // body extends through line 24 inclusive.
+        assert_eq!(defs[0].end_line, Some(24));
     }
 
     #[test]

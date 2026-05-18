@@ -46,6 +46,7 @@ adapters/**/obj/
 # Agent worktrees (subagent isolation copies — not source of truth)
 .claire/
 .claude/worktrees/
+.worktrees/
 models/.venv/
 models/benchmark_results.json
 models/benchmark_hard_results.json

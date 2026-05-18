@@ -22,7 +22,7 @@ use crate::protocol::{JsonRpcRequest, JsonRpcResponse, SUPPORTED_PROTOCOL_VERSIO
 use crate::tool_defs::{ToolProfile, ToolSurface, default_budget_for_profile};
 use anyhow::Result;
 use axum::extract::{OriginalUri, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::{Router, routing};
@@ -178,6 +178,36 @@ async fn protected_resource_metadata_handler(
         }
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+/// Issue #298 (D5) / #300 / #318: client-side stored session id has
+/// gone stale (daemon restart, hot-reload, or session timeout). Surface
+/// a structured envelope plus the `x-codelens-session-rotate: 1`
+/// response header so well-behaved clients can reinitialize without
+/// human intervention. Both POST and SSE GET paths must funnel through
+/// this helper so the hint is uniform across MCP transport routes —
+/// #318 reproduction was the SSE path emitting raw "Unknown session"
+/// while only the legacy fix-up (#308) covered one POST path.
+fn unknown_session_response() -> Response {
+    let body = serde_json::json!({
+        "error": "unknown_session",
+        "code": "session_rotate_required",
+        "rotate_required": true,
+        "hint": "Daemon may have restarted, session may have timed out, or the SCIP index was hot-reloaded. Reinitialize the MCP session.",
+        "recommended_action": "reinitialize_mcp_session",
+        "action_target": "mcp_client",
+    })
+    .to_string();
+    let mut response = (
+        StatusCode::NOT_FOUND,
+        [(header::CONTENT_TYPE, "application/json")],
+        body,
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert("x-codelens-session-rotate", HeaderValue::from_static("1"));
+    response
 }
 
 fn protected_resource_path(request_path: &str) -> Option<String> {
@@ -445,7 +475,7 @@ async fn mcp_post_handler(
         && let Some(store) = &state.session_store
         && store.get(sid).is_none()
     {
-        return (StatusCode::NOT_FOUND, "Unknown session").into_response();
+        return unknown_session_response();
     }
 
     // L1: thread the authenticated principal id through to the
@@ -559,7 +589,7 @@ async fn mcp_get_handler(State(state): State<Arc<AppState>>, headers: HeaderMap)
     };
 
     let Some(session) = store.get(session_id) else {
-        return (StatusCode::NOT_FOUND, "Unknown session").into_response();
+        return unknown_session_response();
     };
 
     // Create SSE channel and store the sender in the session

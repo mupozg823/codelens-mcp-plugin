@@ -25,7 +25,7 @@ pub(super) fn truncate_body_preview(
     (preview, truncated)
 }
 
-pub(super) fn compact_symbol_bodies(
+pub(crate) fn compact_symbol_bodies(
     symbols: &mut [SymbolInfo],
     max_symbols_with_body: usize,
     max_body_lines: usize,
