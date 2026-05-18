@@ -27,7 +27,7 @@ Options:
   --target PATH               daemon binary (default: <repo>/.codelens/bin/codelens-mcp-http)
   --skip-readonly             do not kick the read-only daemon
   --skip-mutation             do not kick the mutation daemon
-  --build                     also run `cargo build --release --features http,semantic` first
+  --build                     also run `cargo build --release --features http,semantic,coreml` first
   --probe                     after kickstart, run a tools/list health probe
   --wait-secs N               LISTEN wait timeout in seconds (default: 12)
   --help                      print this help
@@ -95,14 +95,14 @@ if [[ $DO_BUILD -eq 1 ]]; then
 		esac
 		[[ -n "${RUSTFLAGS:-}" ]] && log "auto-applied RUSTFLAGS=\"${RUSTFLAGS}\" for ${BRAND}"
 	fi
-	log "cargo build --release --features http,semantic"
-	(cd "${REPO_ROOT}" && cargo build --release --features http,semantic)
+	log "cargo build --release --features http,semantic,coreml"
+	(cd "${REPO_ROOT}" && cargo build --release --features http,semantic,coreml)
 fi
 
 if [[ ! -x "${SOURCE_BIN}" ]]; then
 	log "ERROR: source binary not found at ${SOURCE_BIN}" >&2
 	log "       run with --build, or build manually:" >&2
-	log "         cargo build --release --features http,semantic" >&2
+	log "         cargo build --release --features http,semantic,coreml" >&2
 	exit 1
 fi
 
