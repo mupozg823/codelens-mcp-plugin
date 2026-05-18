@@ -107,6 +107,7 @@ fn ranked_context_prefers_exact_matches_and_respects_budget() {
     assert!(ranked.chars_used <= ranked.token_budget * 4);
 }
 
+#[cfg(feature = "lang-extra")]
 #[test]
 fn extracts_go_symbols() {
     let dir = std::env::temp_dir().join(format!(
@@ -135,6 +136,7 @@ fn extracts_go_symbols() {
     );
 }
 
+#[cfg(feature = "lang-extra")]
 #[test]
 fn extracts_java_symbols() {
     let dir = std::env::temp_dir().join(format!(
@@ -157,6 +159,7 @@ fn extracts_java_symbols() {
     assert_eq!(symbols[0].kind, SymbolKind::Class);
 }
 
+#[cfg(feature = "lang-extra")]
 #[test]
 fn extracts_kotlin_symbols() {
     let dir = std::env::temp_dir().join(format!(
@@ -324,6 +327,7 @@ fn cached_directory_children_preserve_file_identity_and_provenance() {
     assert_eq!(run.provenance, SymbolProvenance::EngineCore);
 }
 
+#[cfg(feature = "lang-extra")]
 #[test]
 fn extracts_csharp_symbols() {
     let dir = std::env::temp_dir().join(format!(
@@ -367,6 +371,7 @@ fn extracts_csharp_symbols() {
     );
 }
 
+#[cfg(feature = "lang-extra")]
 #[test]
 fn extracts_dart_symbols() {
     let dir = std::env::temp_dir().join(format!(

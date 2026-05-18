@@ -805,7 +805,15 @@ impl EmbeddingEngine {
             crate::db::open_derived_sqlite_with_recovery(&db_path, "embedding index", || {
                 ffi::register_sqlite_vec()?;
                 let conn = Connection::open(&db_path)?;
-                conn.execute_batch("PRAGMA busy_timeout=5000;")?;
+                // Read-only metadata probe (model name + symbol count); aligns
+                // mmap_size / cache_size with `vec_store.rs` so this transient
+                // connection benefits from the same OS page cache state. WAL /
+                // synchronous / wal_autocheckpoint deliberately omitted — this
+                // path never writes, and grabbing the schema-level lock for a
+                // mode change would race with a live store connection.
+                conn.execute_batch(
+                    "PRAGMA busy_timeout = 5000; PRAGMA mmap_size = 67108864; PRAGMA cache_size = -16000;",
+                )?;
                 conn.query_row("PRAGMA schema_version", [], |_row| Ok(()))?;
                 Ok(conn)
             })?;
