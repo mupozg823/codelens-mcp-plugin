@@ -200,6 +200,7 @@ fn extracts_js_arrow_function_callers() {
 /// Java `new Foo()` — `object_creation_expression`, NOT method_invocation.
 /// Before C-2 the constructor target was silently dropped; only the
 /// follow-up `.method()` call was captured.
+#[cfg(feature = "lang-extra")]
 #[test]
 fn extracts_java_constructor_invocations() {
     let dir = temp_dir("java-ctor");
@@ -226,6 +227,7 @@ fn extracts_java_constructor_invocations() {
 /// `method_invocation`. Uses non-noise method names so edges survive
 /// the std-noise filter (forEach/stream/map/println/toUpperCase are
 /// all in is_noise_callee).
+#[cfg(feature = "lang-extra")]
 #[test]
 fn extracts_java_method_references() {
     let dir = temp_dir("java-mref");
@@ -439,6 +441,7 @@ def setup():
 /// scheduler dispatch (`time.AfterFunc(d, fn)`), finalizers, and
 /// worker pools. Pre-v1.11.2, only the call-expression form was
 /// captured; the function-reference form was silently dropped.
+#[cfg(feature = "lang-extra")]
 #[test]
 fn extracts_go_function_reference_arguments() {
     let dir = temp_dir("go-fn-refs");
@@ -472,6 +475,7 @@ func setup() {
 /// callbacks passed as bare identifiers (executor submit, listener
 /// registration) rather than via the explicit `Class::method`
 /// syntax that was already covered.
+#[cfg(feature = "lang-extra")]
 #[test]
 fn extracts_java_function_reference_arguments() {
     let dir = temp_dir("java-fn-refs");
