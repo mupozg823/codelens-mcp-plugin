@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Refactored
+
+- **build_info: isolate drift evidence from payload shaping**: `daemon_binary_drift_payload` no longer mixes evidence-gathering with JSON shaping. The pure decision now lives in `build_drift_payload(&DriftEvidence, &str) -> Value`; `DriftEvidence` carries the four fields the classifier needs (`mtime_stale`, `executable_path`, `modified_seconds`, `head_git_sha`). The entry function still owns I/O (env var + `fs::metadata` + `current_head_git_sha`) and its four `status: "unknown"` early returns, so the public contract is byte-identical. Adds 3 pure unit tests next to the existing `classify_drift` suite — the staleness response envelope no longer depends on fixture-level env/fs/filetime hacks. Follow-up to #335 (`build_info::current_executable_path()` env+fs isolation note).
+
 ## [1.13.29] - 2026-05-18
 
 ### Fixed

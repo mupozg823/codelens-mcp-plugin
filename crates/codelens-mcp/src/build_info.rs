@@ -214,18 +214,55 @@ fn classify_drift(
     (stale, reason_code, reason)
 }
 
-/// Runtime check for two independent daemon-staleness failure modes:
-///
-/// 1. Phase 4a: the on-disk executable mtime is newer than the daemon
-///    start time (binary was rebuilt while the long-running daemon
-///    kept serving the older in-memory copy).
-/// 2. HEAD git_sha mismatch: the project's current HEAD differs from
-///    `BUILD_GIT_SHA`, so a fix merged after the binary was compiled
-///    is silently absent. Detected when `project_root` is supplied
-///    and `git rev-parse --short=7 HEAD` succeeds.
-///
-/// Either signal sets `stale_daemon = true`; the mtime signal takes
-/// precedence in `reason_code` so existing consumers keep semantics.
+/// Pure decomposition of the staleness decision: everything
+/// `build_drift_payload` needs to serialize a non-error response.
+/// `executable_path` and `modified_seconds` are second-precision
+/// snapshots taken at evidence-collection time; the same precision
+/// `classify_drift` operates on.
+pub(crate) struct DriftEvidence {
+    pub(crate) mtime_stale: bool,
+    pub(crate) executable_path: std::path::PathBuf,
+    pub(crate) modified_seconds: u64,
+    pub(crate) head_git_sha: Option<String>,
+}
+
+/// Pure JSON shaping from already-collected evidence. Kept side-effect
+/// free so unit tests can assert the response envelope without touching
+/// env vars, the filesystem, or `git rev-parse`. `daemon_binary_drift_payload`
+/// is the only legitimate caller in production; the test suite below
+/// drives it directly.
+pub(crate) fn build_drift_payload(
+    evidence: &DriftEvidence,
+    daemon_started_at: &str,
+) -> serde_json::Value {
+    let (stale_daemon, reason_code, reason) = classify_drift(
+        evidence.mtime_stale,
+        evidence.head_git_sha.as_deref(),
+        BUILD_GIT_SHA,
+    );
+    let status = if stale_daemon { "stale" } else { "ok" };
+    let recommended_action = if stale_daemon {
+        Some("restart_mcp_server")
+    } else {
+        None
+    };
+    json!({
+        "status": status,
+        "stale_daemon": stale_daemon,
+        "restart_recommended": stale_daemon,
+        "reason_code": reason_code,
+        "recommended_action": recommended_action,
+        "action_target": if stale_daemon { Some("daemon") } else { None },
+        "executable_path": evidence.executable_path.to_string_lossy(),
+        "executable_modified_at": format_rfc3339_utc(evidence.modified_seconds),
+        "daemon_started_at": daemon_started_at,
+        "binary_build_time": BUILD_TIME,
+        "binary_git_sha": BUILD_GIT_SHA,
+        "head_git_sha": evidence.head_git_sha,
+        "reason": reason,
+    })
+}
+
 pub(crate) fn daemon_binary_drift_payload(
     daemon_started_at: &str,
     project_root: Option<&std::path::Path>,
@@ -282,36 +319,22 @@ pub(crate) fn daemon_binary_drift_payload(
             });
         }
     };
-    let mtime_stale = modified_seconds > daemon_started_seconds;
-    let head_git_sha = project_root.and_then(current_head_git_sha);
-    let (stale_daemon, reason_code, reason) =
-        classify_drift(mtime_stale, head_git_sha.as_deref(), BUILD_GIT_SHA);
-    let status = if stale_daemon { "stale" } else { "ok" };
-    let recommended_action = if stale_daemon {
-        Some("restart_mcp_server")
-    } else {
-        None
+    let evidence = DriftEvidence {
+        mtime_stale: modified_seconds > daemon_started_seconds,
+        executable_path,
+        modified_seconds,
+        head_git_sha: project_root.and_then(current_head_git_sha),
     };
-    json!({
-        "status": status,
-        "stale_daemon": stale_daemon,
-        "restart_recommended": stale_daemon,
-        "reason_code": reason_code,
-        "recommended_action": recommended_action,
-        "action_target": if stale_daemon { Some("daemon") } else { None },
-        "executable_path": executable_path.to_string_lossy(),
-        "executable_modified_at": format_rfc3339_utc(modified_seconds),
-        "daemon_started_at": daemon_started_at,
-        "binary_build_time": BUILD_TIME,
-        "binary_git_sha": BUILD_GIT_SHA,
-        "head_git_sha": head_git_sha,
-        "reason": reason,
-    })
+    build_drift_payload(&evidence, daemon_started_at)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_drift, format_rfc3339_utc, parse_rfc3339_utc_seconds};
+    use super::{
+        BUILD_GIT_SHA, DriftEvidence, build_drift_payload, classify_drift, format_rfc3339_utc,
+        parse_rfc3339_utc_seconds,
+    };
+    use serde_json::json;
 
     #[test]
     fn rfc3339_utc_round_trips_known_epoch_values() {
@@ -417,5 +440,64 @@ mod tests {
         let (stale, code, _) = classify_drift(false, Some("f28000a"), "f28620a5");
         assert!(stale);
         assert_eq!(code, Some("head_git_sha_mismatch"));
+    }
+
+    #[test]
+    fn build_drift_payload_marks_stale_when_mtime_signal_set() {
+        let evidence = DriftEvidence {
+            mtime_stale: true,
+            executable_path: std::path::PathBuf::from("/tmp/codelens-mcp"),
+            modified_seconds: 1_779_032_712,
+            head_git_sha: None,
+        };
+        let payload = build_drift_payload(&evidence, "2026-05-18T06:25:12Z");
+        assert_eq!(payload["status"], json!("stale"));
+        assert_eq!(payload["stale_daemon"], json!(true));
+        assert_eq!(payload["restart_recommended"], json!(true));
+        assert_eq!(payload["reason_code"], json!("stale_daemon_binary"));
+        assert_eq!(payload["recommended_action"], json!("restart_mcp_server"));
+        assert_eq!(payload["action_target"], json!("daemon"));
+        assert_eq!(payload["executable_path"], json!("/tmp/codelens-mcp"));
+        assert_eq!(payload["daemon_started_at"], json!("2026-05-18T06:25:12Z"));
+        assert!(payload["executable_modified_at"].is_string());
+    }
+
+    #[test]
+    fn build_drift_payload_reports_ok_when_evidence_is_clean() {
+        let evidence = DriftEvidence {
+            mtime_stale: false,
+            executable_path: std::path::PathBuf::from("/usr/local/bin/codelens-mcp"),
+            modified_seconds: 1_779_032_000,
+            head_git_sha: Some(BUILD_GIT_SHA.to_owned()),
+        };
+        let payload = build_drift_payload(&evidence, "2026-05-18T06:25:12Z");
+        assert_eq!(payload["status"], json!("ok"));
+        assert_eq!(payload["stale_daemon"], json!(false));
+        assert_eq!(payload["restart_recommended"], json!(false));
+        assert_eq!(payload["reason_code"], json!(null));
+        assert_eq!(payload["recommended_action"], json!(null));
+        assert_eq!(payload["action_target"], json!(null));
+        assert_eq!(payload["reason"], json!(null));
+    }
+
+    #[test]
+    fn build_drift_payload_marks_stale_on_head_mismatch_alone() {
+        let evidence = DriftEvidence {
+            mtime_stale: false,
+            executable_path: std::path::PathBuf::from("/tmp/codelens-mcp"),
+            modified_seconds: 1_779_032_000,
+            head_git_sha: Some("ffffffff".to_owned()),
+        };
+        let payload = build_drift_payload(&evidence, "2026-05-18T06:25:12Z");
+        if BUILD_GIT_SHA == "unknown" {
+            assert_eq!(payload["status"], json!("ok"));
+            assert_eq!(payload["reason_code"], json!(null));
+        } else if super::shas_share_prefix("ffffffff", BUILD_GIT_SHA) {
+            assert_eq!(payload["status"], json!("ok"));
+        } else {
+            assert_eq!(payload["status"], json!("stale"));
+            assert_eq!(payload["reason_code"], json!("head_git_sha_mismatch"));
+            assert_eq!(payload["recommended_action"], json!("restart_mcp_server"));
+        }
     }
 }
