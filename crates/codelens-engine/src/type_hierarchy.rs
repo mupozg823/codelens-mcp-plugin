@@ -566,6 +566,7 @@ mod tests {
         assert!(names.contains(&"B"), "self: {names:?}");
     }
 
+    #[cfg(feature = "lang-extra")]
     #[test]
     fn java_class_hierarchy() {
         let dir = temp_dir("java-hier");

@@ -23,6 +23,8 @@
 //! tree-sitter extractor disagrees with your hand-written ground truth,
 //! the test prints a diff so you can decide which side is wrong.
 
+#![cfg(feature = "lang-extra")] // fixtures include java/kotlin/scala/swift
+
 use codelens_engine::extract_calls;
 use serde::Deserialize;
 use std::collections::HashSet;
