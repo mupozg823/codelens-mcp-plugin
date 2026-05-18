@@ -31,14 +31,15 @@ impl SqliteVecStore {
             ffi::register_sqlite_vec()?;
 
             let conn = Connection::open(db_path)?;
-            // `page_size` first (no-op on existing files). `busy_timeout`
-            // before `journal_mode=WAL` — see crate::db::IndexDb::open and
-            // #332 (WAL grabs a schema-level write lock; a racing connection
-            // gets SQLITE_BUSY immediately without busy_timeout active).
-            // mmap/cache budgets are proportionally smaller than the symbol
-            // index because the embedding store is ~100 MB, not 1 GB.
+            // `busy_timeout` first — every subsequent PRAGMA (esp.
+            // `journal_mode=WAL`, which takes a schema-level write lock)
+            // would otherwise fail with `SQLITE_BUSY` immediately under
+            // contention; see crate::db::IndexDb::open and #332. `page_size`
+            // is a no-op on existing files. mmap/cache budgets are
+            // proportionally smaller than the symbol index because the
+            // embedding store is ~100 MB, not 1 GB.
             conn.execute_batch(
-                "PRAGMA page_size = 16384; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -16000; PRAGMA mmap_size = 67108864; PRAGMA wal_autocheckpoint = 4000; PRAGMA auto_vacuum = INCREMENTAL;",
+                "PRAGMA busy_timeout = 5000; PRAGMA page_size = 16384; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -16000; PRAGMA mmap_size = 67108864; PRAGMA wal_autocheckpoint = 4000; PRAGMA auto_vacuum = INCREMENTAL;",
             )?;
 
             // Check if DB exists with a different model — if so, drop and recreate

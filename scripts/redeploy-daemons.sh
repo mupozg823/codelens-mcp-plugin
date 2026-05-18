@@ -78,29 +78,21 @@ TARGET_BIN="${TARGET_BIN:-${REPO_ROOT}/.codelens/bin/codelens-mcp-http}"
 log() { printf '[redeploy] %s\n' "$*"; }
 
 if [[ $DO_BUILD -eq 1 ]]; then
-	# Apple Silicon dev-machine native CPU tuning. Detects M-series chip and
-	# sets `-C target-cpu=apple-mN` so the release binary uses chip-specific
-	# instructions (modest speed-up on hot paths, no portability needed for
-	# a daemon that only runs on this host). Skipped when RUSTFLAGS is
-	# already set (allow override), in CI (CI env var), or on non-arm64
-	# macOS. SIGILL risk: a binary built with -C target-cpu=apple-m4 will
-	# fault on M1/M2/M3 — we narrow by chip detection.
+	# Apple Silicon dev-machine native CPU tuning. `-C target-cpu=native`
+	# lets rustc pick the running host's ISA — covers M1..M5+ without
+	# enumeration drift and removes the cross-chip SIGILL footgun. Skipped
+	# when RUSTFLAGS is already set (allow override), in CI (CI env var),
+	# or on non-arm64 macOS.
 	if [[ "$(uname -sm)" == "Darwin arm64" ]] && [[ -z "${RUSTFLAGS:-}" ]] && [[ -z "${CI:-}" ]]; then
-		BRAND="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "")"
-		case "$BRAND" in
-			*M4*) export RUSTFLAGS="-C target-cpu=apple-m4" ;;
-			*M3*) export RUSTFLAGS="-C target-cpu=apple-m3" ;;
-			*M2*) export RUSTFLAGS="-C target-cpu=apple-m2" ;;
-			*M1*) export RUSTFLAGS="-C target-cpu=apple-m1" ;;
-		esac
-		[[ -n "${RUSTFLAGS:-}" ]] && log "auto-applied RUSTFLAGS=\"${RUSTFLAGS}\" for ${BRAND}"
+		export RUSTFLAGS="-C target-cpu=native"
+		log "auto-applied RUSTFLAGS=\"${RUSTFLAGS}\""
 	fi
 	# Default: full language support (lang-extra ON, matches `cargo install` users).
-	# Set CODELENS_LANG_MINIMAL=1 to drop the 17 niche tree-sitter languages
-	# (go/java/kt/php/swift/scala/rb/cs/dart/zig/ex/hs/ml/erl/r/jl/clj) and
+	# Set CODELENS_LANG_MINIMAL=1 to drop the niche tree-sitter languages gated
+	# by `lang-extra` (canonical list in crates/codelens-engine/Cargo.toml) and
 	# shave ~2-3 MB off the binary. Only safe on hosts that don't index those
 	# languages — this repo's `~/.codelens/index/symbols.db` had 0 files for
-	# all 17 at the time the flag was introduced.
+	# all of them at the time the flag was introduced.
 	if [[ "${CODELENS_LANG_MINIMAL:-0}" == "1" ]]; then
 		BUILD_FEATURES_ARGS=(--no-default-features --features http,semantic,coreml,scip-backend)
 		log "minimal language build (CODELENS_LANG_MINIMAL=1, lang-extra OFF)"

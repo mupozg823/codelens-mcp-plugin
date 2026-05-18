@@ -82,30 +82,27 @@ default = ["semantic", "lang-extra"]
 semantic = ["dep:fastembed", "dep:ort", "dep:sqlite-vec"]
 coreml = ["semantic", "ort/coreml"]
 scip-backend = ["dep:scip", "dep:protobuf"]
-# Niche / unused-in-this-repo tree-sitter languages. On by default for
-# `cargo install codelens-mcp` backward-compat; turn off with
-# `--no-default-features` when binary size matters and you don't analyse
-# go / java / kotlin / php / swift / scala / ruby / c# / dart / zig /
-# elixir / haskell / ocaml / erlang / r / julia / clojure source. Saves
-# ~2-3 MB binary from dropped `_ts_lex` tables.
+# Niche tree-sitter languages — on by default so `cargo install codelens-mcp`
+# is unchanged; opt out with `--no-default-features` to drop ~40 MB of `_ts_lex`
+# binary when this host doesn't analyse them. Canonical list below (alphabetical).
 lang-extra = [
-    "dep:tree-sitter-go",
-    "dep:tree-sitter-java",
-    "dep:tree-sitter-kotlin",
-    "dep:tree-sitter-php",
-    "dep:tree-sitter-swift",
-    "dep:tree-sitter-scala",
-    "dep:tree-sitter-ruby",
     "dep:tree-sitter-c-sharp",
-    "dep:tree-sitter-dart",
-    "dep:tree-sitter-zig",
-    "dep:tree-sitter-elixir",
-    "dep:tree-sitter-haskell",
-    "dep:tree-sitter-ocaml",
-    "dep:tree-sitter-erlang",
-    "dep:tree-sitter-r",
-    "dep:tree-sitter-julia",
     "dep:tree-sitter-clojure",
+    "dep:tree-sitter-dart",
+    "dep:tree-sitter-elixir",
+    "dep:tree-sitter-erlang",
+    "dep:tree-sitter-go",
+    "dep:tree-sitter-haskell",
+    "dep:tree-sitter-java",
+    "dep:tree-sitter-julia",
+    "dep:tree-sitter-kotlin",
+    "dep:tree-sitter-ocaml",
+    "dep:tree-sitter-php",
+    "dep:tree-sitter-r",
+    "dep:tree-sitter-ruby",
+    "dep:tree-sitter-scala",
+    "dep:tree-sitter-swift",
+    "dep:tree-sitter-zig",
 ]
 ## Enable fastembed built-in model loading (auto-download from HuggingFace).
 ## Used for A/B model comparison via CODELENS_EMBED_MODEL env var.

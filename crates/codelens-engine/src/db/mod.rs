@@ -121,15 +121,17 @@ impl IndexDb {
         open_derived_sqlite_with_recovery(db_path, "symbol index", || {
             let conn = Connection::open(db_path)
                 .with_context(|| format!("failed to open db at {}", db_path.display()))?;
-            // `page_size` first: applies only at DB creation; silent no-op on
-            // existing files. `busy_timeout` MUST precede `journal_mode = WAL`
-            // — WAL needs a schema-level write lock and without an active
-            // busy timeout a racing connection gets `SQLITE_BUSY` immediately
-            // (Error code 5). See #332. `mmap_size`/`cache_size`/`wal_autocheckpoint`
-            // are tuned for the 1+ GB symbol index on 16 KB Apple Silicon pages
-            // (cold-start page-fault burst was the main pain point).
+            // `busy_timeout` first — every subsequent PRAGMA (especially
+            // `journal_mode = WAL`, which takes a schema-level write lock)
+            // would otherwise fail with `SQLITE_BUSY` immediately under
+            // contention. See #332 (Error code 5). `page_size` is a silent
+            // no-op on existing files and applies only at DB creation, so
+            // its placement after `busy_timeout` is harmless. `mmap_size`/
+            // `cache_size`/`wal_autocheckpoint` are tuned for the 1+ GB
+            // symbol index on 16 KB Apple Silicon pages (cold-start page-
+            // fault burst was the main pain point).
             conn.execute_batch(
-                "PRAGMA page_size = 16384; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000; PRAGMA auto_vacuum = INCREMENTAL;",
+                "PRAGMA busy_timeout = 5000; PRAGMA page_size = 16384; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000; PRAGMA auto_vacuum = INCREMENTAL;",
             )?;
             let mut db = Self { conn };
             db.migrate()?;

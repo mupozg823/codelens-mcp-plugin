@@ -332,13 +332,12 @@ fn assert_extracts(
 //     (package_statement name: (package_name) @class.name) @class.def
 // "#;
 
-// `lang-extra` gate: the entire tests module exercises queries for the 17
-// niche tree-sitter languages (go/java/kt/php/swift/scala/rb/cs/dart/zig/
-// ex/hs/ml/erl/r/jl/clj). Under `--no-default-features` builds those
-// crates are not linked and the test bodies would fail to compile.
-// `assert_extracts` above remains under `#[cfg(test)]` only — it is a
-// generic helper that takes a `tree_sitter::Language` and is language-
-// agnostic.
+// `lang-extra` gate: the entire tests module exercises queries for the
+// niche tree-sitter languages (canonical list in Cargo.toml `lang-extra`).
+// Under `--no-default-features` builds those crates are not linked and the
+// test bodies would fail to compile. `assert_extracts` above remains under
+// `#[cfg(test)]` only — it is a generic helper that takes a
+// `tree_sitter::Language` and is language-agnostic.
 #[cfg(all(test, feature = "lang-extra"))]
 #[allow(clippy::items_after_test_module)]
 mod tests {
