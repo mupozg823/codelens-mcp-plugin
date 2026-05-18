@@ -1,5 +1,12 @@
 #![recursion_limit = "256"]
 
+// mimalloc as the global allocator. Faster small-object allocation than
+// macOS libsystem_malloc for tokio task spawn / serde_json / regex matchers.
+// Crate is declared in Cargo.toml; cost is ~70 KB binary + zero runtime
+// init beyond the static.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod agent_coordination;
 mod analysis_queue;
 mod artifact_store;

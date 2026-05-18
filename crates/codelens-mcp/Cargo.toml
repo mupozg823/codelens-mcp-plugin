@@ -48,6 +48,10 @@ tracing-opentelemetry = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, optional = true }
 ureq = { workspace = true, optional = true }
 rayon.workspace = true
+# mimalloc as the global allocator (declared in main.rs). Faster small-object
+# allocation than macOS libsystem_malloc for tokio task spawn / serde_json /
+# regex matchers — measured ~5-15% on alloc-heavy hot paths.
+mimalloc = { version = "0.1.50", default-features = false }
 
 [dev-dependencies]
 tower = { workspace = true }

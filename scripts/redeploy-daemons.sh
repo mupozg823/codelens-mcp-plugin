@@ -78,6 +78,23 @@ TARGET_BIN="${TARGET_BIN:-${REPO_ROOT}/.codelens/bin/codelens-mcp-http}"
 log() { printf '[redeploy] %s\n' "$*"; }
 
 if [[ $DO_BUILD -eq 1 ]]; then
+	# Apple Silicon dev-machine native CPU tuning. Detects M-series chip and
+	# sets `-C target-cpu=apple-mN` so the release binary uses chip-specific
+	# instructions (modest speed-up on hot paths, no portability needed for
+	# a daemon that only runs on this host). Skipped when RUSTFLAGS is
+	# already set (allow override), in CI (CI env var), or on non-arm64
+	# macOS. SIGILL risk: a binary built with -C target-cpu=apple-m4 will
+	# fault on M1/M2/M3 — we narrow by chip detection.
+	if [[ "$(uname -sm)" == "Darwin arm64" ]] && [[ -z "${RUSTFLAGS:-}" ]] && [[ -z "${CI:-}" ]]; then
+		BRAND="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "")"
+		case "$BRAND" in
+			*M4*) export RUSTFLAGS="-C target-cpu=apple-m4" ;;
+			*M3*) export RUSTFLAGS="-C target-cpu=apple-m3" ;;
+			*M2*) export RUSTFLAGS="-C target-cpu=apple-m2" ;;
+			*M1*) export RUSTFLAGS="-C target-cpu=apple-m1" ;;
+		esac
+		[[ -n "${RUSTFLAGS:-}" ]] && log "auto-applied RUSTFLAGS=\"${RUSTFLAGS}\" for ${BRAND}"
+	fi
 	log "cargo build --release --features http,semantic"
 	(cd "${REPO_ROOT}" && cargo build --release --features http,semantic)
 fi
