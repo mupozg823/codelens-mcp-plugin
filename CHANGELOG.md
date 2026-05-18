@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **scripts/redeploy-daemons.sh**: post-build daemon redeploy automation. Encodes the friction discovered during the 2026-05-18 self-dogfood session: every `cargo build` → `cp` → `launchctl kickstart` cycle was hitting `OS_REASON_CODESIGNING SIGKILL` because cargo-produced binaries carry a `com.apple.provenance` xattr that macOS gatekeeper rejects on launchd-spawned processes. The script handles `cp + xattr strip + ad-hoc codesign + kickstart + LISTEN wait + (optional) tools/list health probe`. Has `--build` (run cargo build first), `--skip-{readonly,mutation}`, `--probe`, and `--wait-secs` flags. CLAUDE.md HTTP Daemon Operations section now points at this script as the preferred restart path; the manual sequence remains for fallback. Closes P0-3 of the v2 improvement roadmap.
+
 ### Fixed
 
 - **artifact_store: cross-tool cache isolation (#G2)**: `find_reusable_tiered`'s L3 cold-tier matched on scope + generic `cache_key` alone, allowing a stored `dead_code_report` artifact to be returned verbatim for an unrelated `module_boundary_report` call when the latter missed L1/L2. The two tools produce structurally different payloads (summary, findings, section layout), so the fallback was payload-poisoning. All three tiers now require `tool_name` to match; L3 still relaxes the surface constraint (planner-readonly can reuse a refactor-full artifact from the same scope). Replaces the cross-tool hit test with an isolation regression test and adds an L3 same-tool different-surface hit test. Discovered via self-dogfood (2026-05-18).

@@ -111,18 +111,27 @@ Two repo-local launchd agents share the on-disk index and use advisory `register
 - `dev.codelens.mcp-readonly` → `:7839`, profile `reviewer-graph`, mode `read-only` — for planner/reviewer (Claude) sessions
 - `dev.codelens.mcp-mutation` → `:7838`, profile `refactor-full`, mode `mutation-enabled` — for builder (Codex) sessions
 
-Both clients (`~/.claude.json`, `~/.codex/config.toml`) attach by URL to `:7839` by default. Restart cycle:
+Both clients (`~/.claude.json`, `~/.codex/config.toml`) attach by URL to `:7839` by default. Restart cycle (preferred path):
 
 ```bash
+bash scripts/redeploy-daemons.sh --probe          # quick: cp + xattr/codesign + kickstart + LISTEN + tools/list
+bash scripts/redeploy-daemons.sh --build --probe  # also runs cargo build --release --features http,semantic
+```
+
+What the script does: `cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http`, `xattr -dr com.apple.provenance ${target}` (otherwise macOS gatekeeper SIGKILLs the daemon with `OS_REASON_CODESIGNING`), `codesign --force --sign -` (ad-hoc resign so launchd accepts the new mach-o), `launchctl kickstart -k gui/$UID/dev.codelens.mcp-{readonly,mutation}`, wait for LISTEN on 7838/7839, and (with `--probe`) issue `tools/list` against both.
+
+Manual fallback (if the script is unavailable):
+
+```bash
+cp -f target/release/codelens-mcp .codelens/bin/codelens-mcp-http
+xattr -dr com.apple.provenance .codelens/bin/codelens-mcp-http
+codesign --force --sign - .codelens/bin/codelens-mcp-http
 launchctl kickstart -k "gui/$(id -u)/dev.codelens.mcp-readonly"
 launchctl kickstart -k "gui/$(id -u)/dev.codelens.mcp-mutation"
 sleep 4 && pgrep -fl codelens-mcp
-curl -sS http://127.0.0.1:7839/mcp -X POST -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"v","version":"0"}}}'
 ```
 
-If `pgrep` shows nothing after restart, the binary is missing `--features http` (see the matrix above) — check `.codelens/reports/launchd/dev.codelens.mcp-readonly.err.log`.
+If `pgrep` shows nothing after restart, the binary is missing `--features http` (see the matrix above) — check `.codelens/reports/launchd/dev.codelens.mcp-readonly.err.log`. If the err log shows `last exit reason = OS_REASON_CODESIGNING`, the xattr/codesign step was skipped.
 
 ## Common Pitfalls
 
