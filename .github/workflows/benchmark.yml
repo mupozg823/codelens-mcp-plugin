@@ -36,7 +36,14 @@ jobs:
         with:
           shared-key: bench
       - name: Run benchmarks
-        run: cargo bench -p codelens-engine -- --save-baseline main
+        # `--benches` restricts target selection to the `[[bench]]` entries
+        # (`indexing`, `search_paths`). Without it, `cargo bench` also
+        # invokes lib + integration test binaries through the std test
+        # runner, which rejects criterion's `--save-baseline` arg and
+        # fails with `error: Unrecognized option: 'save-baseline'`.
+        # nightly-benchmarks.yml + build.yml already use `--bench <name>`;
+        # this mirrors that pattern.
+        run: cargo bench --benches -p codelens-engine -- --save-baseline main
       - name: Save baseline JSON
         run: python3 scripts/bench-compare.py --save-baseline main
       - name: Upload baseline artifact
@@ -64,7 +71,9 @@ jobs:
         # Allow failure on first PR after baseline workflow creation
         continue-on-error: true
       - name: Run benchmarks
-        run: cargo bench -p codelens-engine -- --baseline main
+        # See "Run benchmarks" in the `baseline` job above for the
+        # `--benches` rationale (same `--save-baseline`-class arg fail).
+        run: cargo bench --benches -p codelens-engine -- --baseline main
         continue-on-error: true
       - name: Compare against baseline
         id: compare
