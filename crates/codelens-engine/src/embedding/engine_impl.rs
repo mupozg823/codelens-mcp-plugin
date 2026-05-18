@@ -801,8 +801,10 @@ impl EmbeddingEngine {
             return Ok(None);
         }
 
-        let conn =
-            crate::db::open_derived_sqlite_with_recovery(&db_path, "embedding index", || {
+        let conn = crate::db::open_derived_sqlite_with_recovery(
+            &db_path,
+            "embedding index",
+            || {
                 ffi::register_sqlite_vec()?;
                 let conn = Connection::open(&db_path)?;
                 // Read-only metadata probe (model name + symbol count); aligns
@@ -816,7 +818,8 @@ impl EmbeddingEngine {
                 )?;
                 conn.query_row("PRAGMA schema_version", [], |_row| Ok(()))?;
                 Ok(conn)
-            })?;
+            },
+        )?;
 
         let model_name: Option<String> = conn
             .query_row(
