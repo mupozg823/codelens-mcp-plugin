@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.32] - 2026-05-19
+
+### Fixed
+
+- **`tools.toml`: drop 4 schema-only ghost entries (Sprint B-3)** — `find_similar_code`, `find_code_duplicates`, `classify_symbol`, `find_misplaced_code` had schemas in `tools.toml` but no dispatch handlers; calling them returned `Unknown tool` despite being visible in `tools/list`. All four had `preset_tags = []` confirming they weren't surfaced anywhere, so removing the schemas closes a tools/list contract violation without changing any callable surface. Engine implementations remain in `crates/codelens-engine/src/embedding/engine_impl.rs` for future wrapper restoration. 2 active ghosts kept (`semantic_search` + `index_embeddings`) — they have `preset_tags` set and 9 references across `suggestions.rs` / `principals.rs`; handler revival is a follow-up sprint.
+- **`audit_tool_surface_consistency`: split intentional deprecations out of violation buckets (Sprint B-2)** — the audit was reporting 27 false positives from the `tool_deprecation()` allowlist (v1.13.27 deprecation cycle). Now partitions `missing_in_toml` and `orphan_in_preset` through the deprecation allowlist: violations bucket contains only real issues, `intentional_deprecation` bucket surfaces the 27 grandfathered tools separately for visibility. `missing_in_dispatch` is intentionally NOT filtered — schema visibility implies callable, deprecation is irrelevant for that direction.
+- **`cliff.toml`: empty header to stop CHANGELOG re-injection (#339)** — release-plz PR #339 (chore: release v1.13.30) shipped a broken CHANGELOG diff: the markdown title block was injected under `[Unreleased]` on every release PR because git-cliff emitted the `[changelog] header = "..."` template each invocation, and release-plz unconditionally prepended the output. Set `header = ""`; the title + blurb live permanently at the top of CHANGELOG.md. Verified with git-cliff 2.13.1 dry-run.
+
+### Refactored
+
+- **`scip_backend.rs` → 5-file directory module (P2-2)** — 974-line monolith split into `mod.rs` (96 LOC: struct + load/detect/counts), `parse.rs` (78 LOC: 5 stateless helpers), `call_graph.rs` (210 LOC: find_callees/find_callers), `navigation.rs` (259 LOC: PreciseBackend impl + resolve_scip_symbols), `tests.rs` (377 LOC: 12 unit tests). Public API unchanged — sub-modules use multi-impl-block pattern so `backend.find_callees(..)` etc. callsites are byte-identical. `pub(super)` on `documents` / `symbol_info` fields scopes field access to the module tree. Verified: engine 412 / 412 + mcp 599 / 599 pass, clippy / fmt clean.
+
+### Chore
+
+- **rustfmt normalization across recent commits** — 6 files where local rustfmt collapsed multi-line `let` / `use` blocks to single lines that CI's `cargo fmt --all -- --check` would otherwise reject. Pure whitespace, no semantic change.
+
 ### Added
 
 - **scripts/redeploy-daemons.sh**: post-build daemon redeploy automation. Encodes the friction discovered during the 2026-05-18 self-dogfood session: every `cargo build` → `cp` → `launchctl kickstart` cycle was hitting `OS_REASON_CODESIGNING SIGKILL` because cargo-produced binaries carry a `com.apple.provenance` xattr that macOS gatekeeper rejects on launchd-spawned processes. The script handles `cp + xattr strip + ad-hoc codesign + kickstart + LISTEN wait + (optional) tools/list health probe`. Has `--build` (run cargo build first), `--skip-{readonly,mutation}`, `--probe`, and `--wait-secs` flags. CLAUDE.md HTTP Daemon Operations section now points at this script as the preferred restart path; the manual sequence remains for fallback. Closes P0-3 of the v2 improvement roadmap.
