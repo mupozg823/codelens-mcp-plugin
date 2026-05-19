@@ -18,6 +18,18 @@ exclude = [
     ".codelens/**",
 ]
 
+# REQUIRED for Benchmark CI. `cargo bench --benches` (used by
+# benchmark.yml) does NOT skip the library target: per `cargo bench
+# --help`, `--benches` "Benchmark all targets in bench mode that have
+# `bench = true`" — that includes the lib by default. Without this
+# opt-out, criterion's `--save-baseline <name>` arg leaks into the std
+# test runner invoked on `unittests src/lib.rs` and crashes the
+# workflow with `error: Unrecognized option: 'save-baseline'`. Revert
+# a9c9ae96 proved this: dropping the section put Benchmark CI back
+# into failure on the next push.
+[lib]
+bench = false
+
 [dependencies]
 anyhow.workspace = true
 globset.workspace = true
