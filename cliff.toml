@@ -2,14 +2,13 @@
 # Based on Keep a Changelog format
 
 [changelog]
-header = """# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-"""
+# Header intentionally empty: the markdown title + Keep-a-Changelog blurb live
+# at the top of CHANGELOG.md permanently. release-plz invokes git-cliff in
+# prepend-mode for every release PR, and a non-empty header here gets emitted
+# into the diff each time — PR #339 (2026-05-19) shipped a broken CHANGELOG
+# because the header block was injected under `[Unreleased]`. Keeping this
+# empty makes the emitted entry idempotent across release cycles.
+header = ""
 body = """
 {% if version %}
 ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
