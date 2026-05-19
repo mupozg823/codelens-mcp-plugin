@@ -87,7 +87,8 @@ pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
 
 /// Cross-layer drift detector for the tool surface (P1-4 Sprint A).
 ///
-/// Compares three runtime sources of truth:
+/// Compares three runtime sources of truth plus the deprecation
+/// allowlist to surface only the violations that matter:
 ///
 /// - **Layer 1: `tools.toml`** — surfaced via the `Tool` registry that
 ///   `scripts/regen-tool-defs.py` emits into
@@ -107,10 +108,16 @@ pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
 ///   `regen-tool-defs.py --check` warns about the same drift on the
 ///   build side. `BALANCED_EXCLUDES` is intentionally not folded in
 ///   because it's an exclusion list, not a membership list.
+/// - **Layer 5: `tool_deprecation` allowlist** (Sprint B-2) — tools on
+///   the v1.13.27 deprecation list still appear in dispatch/preset
+///   for backward compat but are intentionally missing from
+///   tools.toml. Splitting them into the `intentional_deprecation`
+///   bucket prevents the 27-entry deprecation cycle from showing up
+///   as 27 false-positive violations.
 ///
-/// Three violation classes are reported. All three should be empty
-/// in a clean tree; any non-empty list points at the layer mismatch
-/// that needs a fix. The CI tolerance is `all_clean = true`.
+/// Three violation classes are reported plus the `intentional_deprecation`
+/// surface. Violations should be empty in a clean tree; the deprecation
+/// bucket is informational. The CI tolerance is `all_clean = true`.
 ///
 /// Earlier revisions (v1.13.9..v1.13.27) parsed `tools.toml` and the
 /// `dispatch_table()` macro body with regexes, which broke whenever
@@ -118,7 +125,10 @@ pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
 /// version asks the runtime instead, so it cannot drift from the
 /// thing it audits.
 pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> ToolResult {
-    use crate::tool_defs::{ToolPreset, ToolSurface, visible_tools, whitelist_preset_member_union};
+    use crate::tool_defs::{
+        ToolPreset, ToolSurface, tool_deprecation, visible_tools,
+        whitelist_preset_member_union,
+    };
 
     let toml_tools: BTreeSet<String> = visible_tools(ToolSurface::Preset(ToolPreset::Full))
         .into_iter()
@@ -135,9 +145,34 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
         .map(str::to_owned)
         .collect();
 
+    let is_intentional = |name: &String| tool_deprecation(name).is_some();
+
+    // `missing_in_dispatch` is NOT filtered through the deprecation list —
+    // if a tool is registered in tools.toml (schema visible) but not in
+    // dispatch (no handler), that's a real bug regardless of deprecation
+    // status. Schema visibility implies callable.
     let missing_in_dispatch: Vec<String> = toml_tools.difference(&dispatched).cloned().collect();
-    let missing_in_toml: Vec<String> = dispatched.difference(&toml_tools).cloned().collect();
-    let orphan_in_preset: Vec<String> = preset_members.difference(&toml_tools).cloned().collect();
+
+    let raw_missing_in_toml: Vec<String> =
+        dispatched.difference(&toml_tools).cloned().collect();
+    let (intentional_missing_toml, missing_in_toml): (Vec<String>, Vec<String>) =
+        raw_missing_in_toml
+            .into_iter()
+            .partition(is_intentional);
+
+    let raw_orphan_in_preset: Vec<String> =
+        preset_members.difference(&toml_tools).cloned().collect();
+    let (intentional_orphan_preset, orphan_in_preset): (Vec<String>, Vec<String>) =
+        raw_orphan_in_preset
+            .into_iter()
+            .partition(is_intentional);
+
+    let intentional_deprecation: Vec<String> = intentional_missing_toml
+        .into_iter()
+        .chain(intentional_orphan_preset)
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect();
 
     let violation_count =
         missing_in_dispatch.len() + missing_in_toml.len() + orphan_in_preset.len();
@@ -152,14 +187,20 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
     }
     if !missing_in_toml.is_empty() {
         next_actions.push(format!(
-            "{} tool(s) wired into dispatch_table have no tools.toml schema — add the schema (and re-run `scripts/regen-tool-defs.py --write`) or drop the dispatch arm.",
+            "{} tool(s) wired into dispatch_table have no tools.toml schema (and are not on the deprecation allowlist) — add the schema (and re-run `scripts/regen-tool-defs.py --write`) or drop the dispatch arm.",
             missing_in_toml.len()
         ));
     }
     if !orphan_in_preset.is_empty() {
         next_actions.push(format!(
-            "{} tool(s) listed in a preset whitelist no longer exist in tools.toml — prune the preset entries or restore the tool.",
+            "{} tool(s) listed in a preset whitelist no longer exist in tools.toml (and are not on the deprecation allowlist) — prune the preset entries or restore the tool.",
             orphan_in_preset.len()
+        ));
+    }
+    if !intentional_deprecation.is_empty() {
+        next_actions.push(format!(
+            "{} tool(s) are on the v1.13.27 deprecation allowlist (kept in dispatch/preset for backward compat) — surfaced for visibility, not counted as violations.",
+            intentional_deprecation.len()
         ));
     }
     if all_clean {
@@ -174,17 +215,20 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
                 "tools.toml (via tool_defs::visible_tools(Preset::Full))",
                 "dispatch_table (runtime HashMap)",
                 "presets.{MINIMAL,PLANNER_READONLY,BUILDER_MINIMAL,REVIEWER_GRAPH}_TOOLS",
+                "tool_deprecation (v1.13.27 allowlist, surfaced separately)",
             ],
             "summary": {
                 "toml_tool_count": toml_tools.len(),
                 "dispatch_count": dispatched.len(),
                 "preset_member_count": preset_members.len(),
+                "intentional_deprecation_count": intentional_deprecation.len(),
             },
             "violations": {
                 "missing_in_dispatch": missing_in_dispatch,
                 "missing_in_toml": missing_in_toml,
                 "orphan_in_preset": orphan_in_preset,
             },
+            "intentional_deprecation": intentional_deprecation,
             "next_actions": next_actions,
         }),
         success_meta(BackendKind::Config, 1.0),
