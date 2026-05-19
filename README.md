@@ -22,11 +22,11 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 
 - Workspace version: `1.13.29`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
-- Registered tool definitions: `72`
-- Tool output schemas: `52 / 72`
+- Registered tool definitions: `73`
+- Tool output schemas: `52 / 73`
 - Supported language families: `30` across `49` extensions
 - Profiles: `planner-readonly` (29), `builder-minimal` (29), `reviewer-graph` (34), `evaluator-compact` (29), `refactor-full` (29), `ci-audit` (34), `workflow-first` (29)
-- Presets: `minimal` (21), `balanced` (59), `full` (72)
+- Presets: `minimal` (21), `balanced` (60), `full` (73)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->

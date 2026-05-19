@@ -10,7 +10,7 @@
     "member_count": 2
   },
   "tool_registry": {
-    "definition_count": 72,
+    "definition_count": 73,
     "output_schema_count": 52,
     "namespaces": {
       "filesystem": 5,
@@ -18,23 +18,23 @@
       "lsp": 2,
       "memory": 5,
       "reports": 20,
-      "session": 25,
+      "session": 26,
       "symbols": 9
     },
     "tiers": {
-      "analysis": 16,
+      "analysis": 17,
       "primitive": 37,
       "workflow": 19
     },
     "phases": {
-      "agnostic": 32,
+      "agnostic": 33,
       "build": 1,
       "eval": 8,
       "plan": 19,
       "review": 12
     },
     "preferred_executors": {
-      "any": 67,
+      "any": 68,
       "claude": 4,
       "codex-builder": 1
     },
@@ -643,6 +643,15 @@
         "estimated_tokens": 191
       },
       {
+        "name": "audit_tool_surface_consistency",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 137
+      },
+      {
         "name": "list_memories",
         "namespace": "memory",
         "tier": "primitive",
@@ -1086,7 +1095,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 59,
+        "tool_count": 60,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1130,6 +1139,7 @@
           "query_project",
           "get_capabilities",
           "audit_log_query",
+          "audit_tool_surface_consistency",
           "get_analysis_job",
           "get_analysis_section",
           "get_symbols_overview",
@@ -1162,7 +1172,7 @@
       },
       {
         "name": "full",
-        "tool_count": 72,
+        "tool_count": 73,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1209,6 +1219,7 @@
           "audit_builder_session",
           "audit_planner_session",
           "audit_log_query",
+          "audit_tool_surface_consistency",
           "get_ranked_context",
           "bm25_symbol_search",
           "search_symbols_fuzzy",
@@ -2785,7 +2796,7 @@
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 59,
+    "visible_tool_count": 60,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": false,
@@ -2817,10 +2828,10 @@
   "summary": {
     "workspace_version": "1.13.29",
     "workspace_member_count": 2,
-    "registered_tool_definitions": 72,
+    "registered_tool_definitions": 73,
     "tool_output_schemas": {
       "declared": 52,
-      "total": 72
+      "total": 73
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,
