@@ -383,6 +383,11 @@ pub fn session_tools(
             "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by transaction_id and/or since_ms; default limit 100 rows. Requires Admin role.",
             json!({"type":"object","properties":{"transaction_id":{"type":"string","description":"Stable id from a mutation response (payload.data.transaction_id). Returns the rows for that one call."},"since_ms":{"type":"integer","description":"Earliest timestamp_ms (epoch millis) to include."},"limit":{"type":"integer","description":"Max rows (default 100, capped at 1000)."}}}),
         ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "audit_tool_surface_consistency",
+            "[CodeLens:Admin] Cross-layer drift detector for the tool surface. Compares tools.toml (schema registry) ↔ dispatch_table (runtime handlers) ↔ preset whitelists at runtime and reports three violation buckets: missing_in_dispatch, missing_in_toml, orphan_in_preset. Requires Admin role.",
+            json!({"type":"object"}),
+        ).with_annotations(ro_a.clone()),
     ]
 }
 

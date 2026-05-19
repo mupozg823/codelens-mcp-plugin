@@ -387,6 +387,23 @@ pub(crate) fn is_tool_in_profile(name: &str, profile: ToolProfile) -> bool {
     }
 }
 
+/// Union of all whitelist-style preset members. `BALANCED_EXCLUDES` is
+/// intentionally excluded because it is a *deny*-list, not a membership
+/// list — folding it in would make the result meaningless.
+///
+/// Returns sorted+deduplicated names. Used by
+/// `audit_tool_surface_consistency` (admin tool, P1-4 Sprint A) to spot
+/// preset members that no longer exist in `tools.toml`.
+pub(crate) fn whitelist_preset_member_union() -> std::collections::BTreeSet<&'static str> {
+    MINIMAL_TOOLS
+        .iter()
+        .copied()
+        .chain(PLANNER_READONLY_TOOLS.iter().copied())
+        .chain(BUILDER_MINIMAL_TOOLS.iter().copied())
+        .chain(REVIEWER_GRAPH_TOOLS.iter().copied())
+        .collect()
+}
+
 pub(crate) fn is_tool_in_surface(name: &str, surface: ToolSurface) -> bool {
     match surface {
         ToolSurface::Preset(preset) => is_tool_in_preset(name, preset),

@@ -1170,6 +1170,18 @@ limit = { type = "integer", description = "Max rows (default 100, capped at 1000
 # ─────
 
 [[tool]]
+name = "audit_tool_surface_consistency"
+category = "session"
+preset_tags = []
+description = "[CodeLens:Admin] Cross-layer drift detector for the tool surface. Compares tools.toml (schema registry) ↔ dispatch_table (runtime handlers) ↔ preset whitelists at runtime and reports three violation buckets: missing_in_dispatch, missing_in_toml, orphan_in_preset. Requires Admin role."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+
+# ─────
+
+[[tool]]
 name = "list_memories"
 category = "memory"
 preset_tags = []
