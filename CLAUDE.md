@@ -116,6 +116,7 @@ Both clients (`~/.claude.json`, `~/.codex/config.toml`) attach by URL to `:7839`
 ```bash
 bash scripts/redeploy-daemons.sh --probe          # quick: cp + xattr/codesign + kickstart + LISTEN + tools/list
 bash scripts/redeploy-daemons.sh --build --probe  # also runs cargo build --release --features http,semantic
+bash scripts/daemon-stale-check.sh                # read-only: compare daemon binary git sha to source HEAD (exit 1 if stale)
 ```
 
 What the script does: `cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http`, `xattr -dr com.apple.provenance ${target}` (otherwise macOS gatekeeper SIGKILLs the daemon with `OS_REASON_CODESIGNING`), `codesign --force --sign -` (ad-hoc resign so launchd accepts the new mach-o), `launchctl kickstart -k gui/$UID/dev.codelens.mcp-{readonly,mutation}`, wait for LISTEN on 7838/7839, and (with `--probe`) issue `tools/list` against both.
