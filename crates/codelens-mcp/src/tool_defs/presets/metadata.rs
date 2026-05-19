@@ -1,9 +1,11 @@
 pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str, &'static str)> {
     match name {
-        // Deprecated in v1.13.27, removal v2.0
+        // Deprecated in v1.13.27, removal v2.0.
+        // `audit_tool_surface_consistency` was on this list but was resurrected
+        // in ae8c6f2f (P1-4 Sprint A) — removing it from the deprecation list
+        // closes the daemon "deprecated" / CLI "Unknown tool" mismatch (#G7).
         "find_circular_dependencies"
         | "find_redundant_definitions"
-        | "audit_tool_surface_consistency"
         | "find_orphan_handlers"
         | "find_over_visible_apis"
         | "find_phantom_modules"
