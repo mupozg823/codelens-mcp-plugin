@@ -464,17 +464,20 @@ mod tests {
     use super::*;
     use crate::ProjectRoot;
 
-    fn make_fixture() -> (std::path::PathBuf, ProjectRoot) {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-scope-fixture-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&dir).unwrap();
+    fn make_fixture() -> (tempfile::TempDir, ProjectRoot) {
+        // `tempfile::TempDir` guarantees a process-unique path. The previous
+        // `std::env::temp_dir().join(format!("...{nanos}", ...))` pattern
+        // collided on macOS because `SystemTime::now()` quantises to ~1 µs
+        // there (vs 1 ns on Linux), so two scope_analysis tests racing
+        // through `make_fixture()` would land on the same temp dir and
+        // overwrite each other's `main.py` mid-`find_scoped_references`,
+        // surfacing as `detects_import_reference ... FAILED  (refs: [])`
+        // on macos-latest CI while ubuntu stayed green. Same v1.13.29 #332
+        // class of bug; the search-module fix (#332 / 45b76f38) hadn't
+        // reached this fixture.
+        let dir = tempfile::TempDir::new().unwrap();
         fs::write(
-            dir.join("example.py"),
+            dir.path().join("example.py"),
             r#"class UserService:
     def get_user(self, user_id):
         user = self.db.find(user_id)
@@ -490,11 +493,11 @@ def get_user():
         )
         .unwrap();
         fs::write(
-            dir.join("main.py"),
+            dir.path().join("main.py"),
             "from example import UserService\n\nsvc = UserService()\nresult = svc.get_user(1)\n",
         )
         .unwrap();
-        let project = ProjectRoot::new(&dir).unwrap();
+        let project = ProjectRoot::new(dir.path()).unwrap();
         (dir, project)
     }
 
