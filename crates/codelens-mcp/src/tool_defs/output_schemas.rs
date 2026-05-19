@@ -785,103 +785,12 @@ pub(super) fn analysis_artifact_list_output_schema() -> serde_json::Value {
     })
 }
 
-#[cfg(feature = "semantic")]
-pub(super) fn find_similar_code_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "query_symbol": {"type": "string"},
-            "file": {"type": "string"},
-            "min_similarity": {"type": "number"},
-            "similar": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {"type": "string"},
-                        "symbol_name": {"type": "string"},
-                        "kind": {"type": "string"},
-                        "line": {"type": "integer"},
-                        "signature": {"type": "string"},
-                        "name_path": {"type": "string"},
-                        "score": {"type": "number", "description": "Cosine similarity score 0.0-1.0"}
-                    }
-                }
-            },
-            "count": {"type": "integer"}
-        }
-    })
-}
-
-#[cfg(feature = "semantic")]
-pub(super) fn find_code_duplicates_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "threshold": {"type": "number"},
-            "duplicates": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "symbol_a": {"type": "string"},
-                        "symbol_b": {"type": "string"},
-                        "file_a": {"type": "string"},
-                        "file_b": {"type": "string"},
-                        "line_a": {"type": "integer"},
-                        "line_b": {"type": "integer"},
-                        "similarity": {"type": "number"}
-                    }
-                }
-            },
-            "count": {"type": "integer"}
-        }
-    })
-}
-
-#[cfg(feature = "semantic")]
-pub(super) fn classify_symbol_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "symbol": {"type": "string"},
-            "file": {"type": "string"},
-            "classifications": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "category": {"type": "string"},
-                        "score": {"type": "number", "description": "Zero-shot cosine similarity score"}
-                    }
-                }
-            }
-        }
-    })
-}
-
-#[cfg(feature = "semantic")]
-pub(super) fn find_misplaced_code_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "outliers": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {"type": "string"},
-                        "symbol_name": {"type": "string"},
-                        "kind": {"type": "string"},
-                        "line": {"type": "integer"},
-                        "avg_similarity_to_file": {"type": "number", "description": "Lower values indicate stronger semantic outliers"}
-                    }
-                }
-            },
-            "count": {"type": "integer"}
-        }
-    })
-}
+// Sprint B-3 follow-up (v1.13.32): the 4 output schemas for
+// `find_similar_code`, `find_code_duplicates`, `classify_symbol`, and
+// `find_misplaced_code` were removed here after their tools.toml entries
+// were dropped. Engine implementations remain in
+// crates/codelens-engine/src/embedding/engine_impl.rs — restore the schemas
+// alongside the dispatch wrappers if/when these tools are wired back up.
 
 // ── Group A: Agent high-frequency tools (v1.7 schema expansion) ────
 

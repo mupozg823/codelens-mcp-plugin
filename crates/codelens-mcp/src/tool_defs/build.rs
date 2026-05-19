@@ -121,7 +121,7 @@ fn build_tools() -> Vec<Tool> {
     ));
 
     #[cfg(feature = "semantic")]
-    tools.extend(super::generated::semantic_tools(&ro, &ro_a, &ro_p));
+    tools.extend(super::generated::semantic_tools(&ro, &ro_p));
 
     for tool in &mut tools {
         let annotations = tool
