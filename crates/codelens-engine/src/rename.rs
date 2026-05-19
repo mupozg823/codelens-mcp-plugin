@@ -694,7 +694,8 @@ mod tests {
 
     #[test]
     fn apply_edits_ignores_invalid_utf8_boundary_column() {
-        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-boundary-");
+        let (_temp_dir, dir) =
+            crate::test_helpers::make_unique_temp_dir("codelens-rename-boundary-");
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::write(dir.join("src/unicode.py"), "🙂 old_name()\n").unwrap();
         let project = ProjectRoot::new_exact(&dir).unwrap();
@@ -716,7 +717,8 @@ mod tests {
 
     #[test]
     fn apply_edits_handles_multiline_lsp_workspace_edit() {
-        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-multiline-");
+        let (_temp_dir, dir) =
+            crate::test_helpers::make_unique_temp_dir("codelens-rename-multiline-");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("sample.ts"), "function main() {\n  old();\n}\n").unwrap();
         let project = ProjectRoot::new_exact(&dir).unwrap();
@@ -757,7 +759,8 @@ mod tests {
 
     #[test]
     fn apply_edits_ignores_zero_line_or_column() {
-        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-zero-position-");
+        let (_temp_dir, dir) =
+            crate::test_helpers::make_unique_temp_dir("codelens-rename-zero-position-");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("sample.py"), "old_name()\n").unwrap();
         let project = ProjectRoot::new_exact(&dir).unwrap();

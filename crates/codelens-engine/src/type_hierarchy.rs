@@ -616,8 +616,7 @@ mod tests {
     }
 
     fn temp_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
-        let (td, dir) =
-            crate::test_helpers::make_unique_temp_dir(&format!("codelens-{name}-"));
+        let (td, dir) = crate::test_helpers::make_unique_temp_dir(&format!("codelens-{name}-"));
         fs::create_dir_all(&dir).unwrap();
         (td, dir)
     }

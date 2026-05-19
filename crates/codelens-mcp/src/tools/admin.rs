@@ -126,8 +126,7 @@ pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
 /// thing it audits.
 pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> ToolResult {
     use crate::tool_defs::{
-        ToolPreset, ToolSurface, tool_deprecation, visible_tools,
-        whitelist_preset_member_union,
+        ToolPreset, ToolSurface, tool_deprecation, visible_tools, whitelist_preset_member_union,
     };
 
     let toml_tools: BTreeSet<String> = visible_tools(ToolSurface::Preset(ToolPreset::Full))
@@ -153,19 +152,14 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
     // status. Schema visibility implies callable.
     let missing_in_dispatch: Vec<String> = toml_tools.difference(&dispatched).cloned().collect();
 
-    let raw_missing_in_toml: Vec<String> =
-        dispatched.difference(&toml_tools).cloned().collect();
+    let raw_missing_in_toml: Vec<String> = dispatched.difference(&toml_tools).cloned().collect();
     let (intentional_missing_toml, missing_in_toml): (Vec<String>, Vec<String>) =
-        raw_missing_in_toml
-            .into_iter()
-            .partition(is_intentional);
+        raw_missing_in_toml.into_iter().partition(is_intentional);
 
     let raw_orphan_in_preset: Vec<String> =
         preset_members.difference(&toml_tools).cloned().collect();
     let (intentional_orphan_preset, orphan_in_preset): (Vec<String>, Vec<String>) =
-        raw_orphan_in_preset
-            .into_iter()
-            .partition(is_intentional);
+        raw_orphan_in_preset.into_iter().partition(is_intentional);
 
     let intentional_deprecation: Vec<String> = intentional_missing_toml
         .into_iter()

@@ -888,8 +888,7 @@ mod tests {
     }
 
     fn tempfile_dir() -> (tempfile::TempDir, std::path::PathBuf) {
-        let (td, dir) =
-            crate::test_helpers::make_unique_temp_dir("codelens-core-project-");
+        let (td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-core-project-");
         fs::create_dir_all(&dir).expect("create tempdir");
         (td, dir)
     }

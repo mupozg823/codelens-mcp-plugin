@@ -31,8 +31,8 @@ fn temp_project(prefix: &str) -> (tempfile::TempDir, PathBuf, ProjectRoot) {
     // overwrite each other's `hello.txt` mid-run. Defense-in-depth alongside
     // the in-crate `src/test_helpers.rs::make_unique_temp_dir` helper, which
     // is `pub(crate)` and not visible from this integration-test binary.
-    let td = tempfile::TempDir::with_prefix(format!("codelens_pr_test_{prefix}_"))
-        .expect("tempfile");
+    let td =
+        tempfile::TempDir::with_prefix(format!("codelens_pr_test_{prefix}_")).expect("tempfile");
     let root = td.path().to_path_buf();
     std::fs::write(root.join("hello.txt"), "hello").unwrap();
     let project = ProjectRoot::new(root.to_str().unwrap()).unwrap();

@@ -68,9 +68,8 @@ mod tests {
     use std::fs;
 
     fn temp_project_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
-        let (td, dir) = crate::test_helpers::make_unique_temp_dir(&format!(
-            "codelens-core-circular-{name}-"
-        ));
+        let (td, dir) =
+            crate::test_helpers::make_unique_temp_dir(&format!("codelens-core-circular-{name}-"));
         fs::create_dir_all(&dir).expect("create tempdir");
         (td, dir)
     }
