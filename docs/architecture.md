@@ -7,7 +7,7 @@
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
 
-- Workspace version: `1.13.29`
+- Workspace version: `1.13.30`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
 - Registered tool definitions in source: `73`
 - Tool output schemas in source: `52 / 73`
