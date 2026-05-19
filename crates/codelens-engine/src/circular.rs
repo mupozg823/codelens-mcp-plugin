@@ -67,21 +67,17 @@ mod tests {
     use crate::import_graph::GraphCache;
     use std::fs;
 
-    fn temp_project_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-core-circular-{name}-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("time")
-                .as_nanos()
+    fn temp_project_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let (td, dir) = crate::test_helpers::make_unique_temp_dir(&format!(
+            "codelens-core-circular-{name}-"
         ));
         fs::create_dir_all(&dir).expect("create tempdir");
-        dir
+        (td, dir)
     }
 
     #[test]
     fn detects_simple_cycle() {
-        let dir = temp_project_dir("simple");
+        let (_td, dir) = temp_project_dir("simple");
         // a.py -> b.py -> a.py (cycle)
         fs::write(dir.join("a.py"), "from b import foo\n").expect("write a");
         fs::write(dir.join("b.py"), "from a import bar\n").expect("write b");
@@ -99,7 +95,7 @@ mod tests {
 
     #[test]
     fn no_cycles_in_dag() {
-        let dir = temp_project_dir("dag");
+        let (_td, dir) = temp_project_dir("dag");
         fs::write(dir.join("main.py"), "from utils import greet\n").expect("write main");
         fs::write(dir.join("utils.py"), "from models import User\n").expect("write utils");
         fs::write(dir.join("models.py"), "class User:\n    pass\n").expect("write models");

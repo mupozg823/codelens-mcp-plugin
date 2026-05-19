@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn python_class_inheritance() {
-        let dir = temp_dir("py-hier");
+        let (_td, dir) = temp_dir("py-hier");
         fs::write(
             dir.join("models.py"),
             "class Animal:\n    pass\n\nclass Dog(Animal):\n    pass\n\nclass GoldenRetriever(Dog):\n    pass\n",
@@ -520,7 +520,7 @@ mod tests {
 
     #[test]
     fn python_subtypes() {
-        let dir = temp_dir("py-sub");
+        let (_td, dir) = temp_dir("py-sub");
         fs::write(
             dir.join("models.py"),
             "class Base:\n    pass\n\nclass ChildA(Base):\n    pass\n\nclass ChildB(Base):\n    pass\n",
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn typescript_extends() {
-        let dir = temp_dir("ts-hier");
+        let (_td, dir) = temp_dir("ts-hier");
         fs::write(
             dir.join("models.ts"),
             "class Base {}\nclass Child extends Base {}\ninterface Printable {}\nclass PrintableChild extends Child implements Printable {}\n",
@@ -551,7 +551,7 @@ mod tests {
 
     #[test]
     fn both_direction() {
-        let dir = temp_dir("both");
+        let (_td, dir) = temp_dir("both");
         fs::write(
             dir.join("hier.py"),
             "class A:\n    pass\n\nclass B(A):\n    pass\n\nclass C(B):\n    pass\n",
@@ -569,7 +569,7 @@ mod tests {
     #[cfg(feature = "lang-extra")]
     #[test]
     fn java_class_hierarchy() {
-        let dir = temp_dir("java-hier");
+        let (_td, dir) = temp_dir("java-hier");
         fs::write(dir.join("Animal.java"), "public class Animal {}\n").unwrap();
         fs::write(dir.join("Dog.java"), "public class Dog extends Animal {}\n").unwrap();
         let project = ProjectRoot::new(&dir).unwrap();
@@ -581,7 +581,7 @@ mod tests {
 
     #[test]
     fn rust_trait_impl() {
-        let dir = temp_dir("rs-impl");
+        let (_td, dir) = temp_dir("rs-impl");
         fs::write(
             dir.join("lib.rs"),
             "pub trait Drawable { fn draw(&self); }\npub struct Circle { pub radius: f64 }\nimpl Drawable for Circle { fn draw(&self) {} }\n",
@@ -615,15 +615,10 @@ mod tests {
         );
     }
 
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-{name}-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+    fn temp_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let (td, dir) =
+            crate::test_helpers::make_unique_temp_dir(&format!("codelens-{name}-"));
         fs::create_dir_all(&dir).unwrap();
-        dir
+        (td, dir)
     }
 }

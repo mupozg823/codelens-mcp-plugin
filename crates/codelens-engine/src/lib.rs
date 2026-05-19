@@ -105,6 +105,8 @@ pub mod move_symbol;
 pub mod oxc_analysis;
 #[cfg(feature = "scip-backend")]
 pub mod scip_backend;
+#[cfg(test)]
+pub(crate) mod test_helpers;
 #[cfg(feature = "semantic")]
 pub use embedding::{
     EmbeddingEngine, configured_embedding_model_name, configured_embedding_runtime_info,

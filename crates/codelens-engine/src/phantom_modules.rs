@@ -559,13 +559,7 @@ mod tests {
         // codex P1 #158 regression guard: a module containing only `impl X`
         // for a *locally* defined `struct X` is dead code, not a split-impl
         // pattern, and find_phantom_modules must still report it.
-        let dir = std::env::temp_dir().join(format!(
-            "phantom-impl-local-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("phantom-impl-local-");
         let src_dir = dir.join("crates").join("c").join("src");
         std::fs::create_dir_all(&src_dir).unwrap();
         std::fs::write(src_dir.join("lib.rs"), "mod stale;\n").unwrap();
@@ -594,13 +588,7 @@ mod tests {
         // Inverse of the regression test: a module whose `impl AppState`
         // (or any non-local target) plausibly extends a parent type
         // remains exempt — the original v1.13.12 split-module behaviour.
-        let dir = std::env::temp_dir().join(format!(
-            "phantom-impl-extern-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("phantom-impl-extern-");
         let src_dir = dir.join("crates").join("c").join("src");
         std::fs::create_dir_all(&src_dir).unwrap();
         std::fs::write(src_dir.join("lib.rs"), "mod analysis;\n").unwrap();

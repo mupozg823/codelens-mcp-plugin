@@ -770,17 +770,19 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-edit-tx-{}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-            n,
+        // `_td` is intentionally leaked into oblivion (drop = cleanup) — the
+        // existing helper returns only `ProjectRoot` and tests never touch
+        // the disk after this fn returns. If a future test starts re-reading
+        // the dir, migrate this helper's return type to `(TempDir,
+        // ProjectRoot)` so the temp dir survives.
+        let (td, dir) = crate::test_helpers::make_unique_temp_dir(&format!(
+            "codelens-edit-tx-{}-{n}-",
+            std::process::id()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        ProjectRoot::new(dir.to_str().unwrap()).unwrap()
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        std::mem::forget(td);
+        project
     }
 
     #[test]

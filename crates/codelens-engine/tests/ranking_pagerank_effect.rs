@@ -23,18 +23,20 @@
 use codelens_engine::{ProjectRoot, search_symbols_hybrid_with_semantic};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn temp_project(prefix: &str) -> (PathBuf, ProjectRoot) {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("codelens_pr_test_{prefix}_{nanos}"));
-    std::fs::create_dir_all(&root).unwrap();
+fn temp_project(prefix: &str) -> (tempfile::TempDir, PathBuf, ProjectRoot) {
+    // `tempfile::TempDir` over `std::env::temp_dir().join(format!("...{nanos}", ...))`
+    // — macOS quantises `SystemTime::now()` to ~1 µs, so two integration tests
+    // racing through `temp_project` could land on the same directory and
+    // overwrite each other's `hello.txt` mid-run. Defense-in-depth alongside
+    // the in-crate `src/test_helpers.rs::make_unique_temp_dir` helper, which
+    // is `pub(crate)` and not visible from this integration-test binary.
+    let td = tempfile::TempDir::with_prefix(format!("codelens_pr_test_{prefix}_"))
+        .expect("tempfile");
+    let root = td.path().to_path_buf();
     std::fs::write(root.join("hello.txt"), "hello").unwrap();
     let project = ProjectRoot::new(root.to_str().unwrap()).unwrap();
-    (root, project)
+    (td, root, project)
 }
 
 fn seed_two_file_index(project: &ProjectRoot) {
@@ -80,7 +82,7 @@ fn seed_two_file_index(project: &ProjectRoot) {
 
 #[test]
 fn pagerank_boost_changes_result_score() {
-    let (_root, project) = temp_project("changes_score");
+    let (_temp, _root, project) = temp_project("changes_score");
     seed_two_file_index(&project);
 
     let baseline =
@@ -134,7 +136,7 @@ fn pagerank_boost_changes_result_score() {
 
 #[test]
 fn empty_pagerank_map_is_indistinguishable_from_none() {
-    let (_root, project) = temp_project("empty_map");
+    let (_temp, _root, project) = temp_project("empty_map");
     seed_two_file_index(&project);
 
     let none_result =

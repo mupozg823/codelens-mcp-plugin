@@ -510,14 +510,8 @@ mod tests {
     use crate::ProjectRoot;
     use std::fs;
 
-    fn make_fixture() -> (std::path::PathBuf, ProjectRoot) {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-rename-fixture-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+    fn make_fixture() -> (tempfile::TempDir, std::path::PathBuf, ProjectRoot) {
+        let (temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-fixture-");
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::write(
             dir.join("src/service.py"),
@@ -535,7 +529,7 @@ mod tests {
         )
         .unwrap();
         let project = ProjectRoot::new(&dir).unwrap();
-        (dir, project)
+        (temp_dir, dir, project)
     }
 
     #[test]
@@ -549,7 +543,7 @@ mod tests {
 
     #[test]
     fn file_scope_renames_within_symbol_body() {
-        let (_dir, project) = make_fixture();
+        let (_temp, _dir, project) = make_fixture();
         let result = rename_symbol(
             &project,
             "src/service.py",
@@ -571,7 +565,7 @@ mod tests {
 
     #[test]
     fn project_scope_renames_across_files() {
-        let (_dir, project) = make_fixture();
+        let (_temp, _dir, project) = make_fixture();
         let result = rename_symbol(
             &project,
             "src/service.py",
@@ -591,7 +585,7 @@ mod tests {
 
     #[test]
     fn project_scope_falls_back_when_symbol_db_is_empty() {
-        let (dir, project) = make_fixture();
+        let (_temp, dir, project) = make_fixture();
         let db_dir = dir.join(".codelens/index");
         fs::create_dir_all(&db_dir).unwrap();
         let _db = crate::db::IndexDb::open(&db_dir.join("symbols.db")).unwrap();
@@ -614,7 +608,7 @@ mod tests {
 
     #[test]
     fn dry_run_does_not_modify_files() {
-        let (_dir, project) = make_fixture();
+        let (_temp, _dir, project) = make_fixture();
         let original = fs::read_to_string(project.resolve("src/service.py").unwrap()).unwrap();
         let result = rename_symbol(
             &project,
@@ -634,7 +628,7 @@ mod tests {
 
     #[test]
     fn shadowing_skips_other_declarations() {
-        let (_dir, project) = make_fixture();
+        let (_temp, _dir, project) = make_fixture();
         // other.py has its own get_user — should not be renamed
         let result = rename_symbol(
             &project,
@@ -660,7 +654,7 @@ mod tests {
 
     #[test]
     fn same_name_returns_no_changes() {
-        let (_dir, project) = make_fixture();
+        let (_temp, _dir, project) = make_fixture();
         let result = rename_symbol(
             &project,
             "src/service.py",
@@ -677,13 +671,7 @@ mod tests {
 
     #[test]
     fn column_precise_replacement() {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-rename-col-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-col-");
         fs::create_dir_all(&dir).unwrap();
         // "foo" appears twice on the same line
         fs::write(dir.join("test.py"), "x = foo + foo\n").unwrap();
@@ -706,13 +694,7 @@ mod tests {
 
     #[test]
     fn apply_edits_ignores_invalid_utf8_boundary_column() {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-rename-boundary-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-boundary-");
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::write(dir.join("src/unicode.py"), "🙂 old_name()\n").unwrap();
         let project = ProjectRoot::new_exact(&dir).unwrap();
@@ -734,13 +716,7 @@ mod tests {
 
     #[test]
     fn apply_edits_handles_multiline_lsp_workspace_edit() {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-rename-multiline-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-multiline-");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("sample.ts"), "function main() {\n  old();\n}\n").unwrap();
         let project = ProjectRoot::new_exact(&dir).unwrap();
@@ -761,13 +737,7 @@ mod tests {
 
     #[test]
     fn apply_edits_handles_empty_old_text_insertion() {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-rename-insert-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-insert-");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("sample.ts"), "const value = 1;\n").unwrap();
         let project = ProjectRoot::new_exact(&dir).unwrap();
@@ -787,13 +757,7 @@ mod tests {
 
     #[test]
     fn apply_edits_ignores_zero_line_or_column() {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-rename-zero-position-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-zero-position-");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("sample.py"), "old_name()\n").unwrap();
         let project = ProjectRoot::new_exact(&dir).unwrap();
@@ -822,13 +786,7 @@ mod tests {
 
     #[test]
     fn find_all_word_matches_skips_crlf_string_literals() {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-rename-crlf-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-rename-crlf-");
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::write(
             dir.join("src/main.py"),

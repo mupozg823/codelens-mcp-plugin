@@ -541,14 +541,8 @@ mod tests {
     use super::*;
     use crate::ProjectRoot;
 
-    fn make_fixture() -> (std::path::PathBuf, ProjectRoot) {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-autoimport-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+    fn make_fixture() -> (tempfile::TempDir, std::path::PathBuf, ProjectRoot) {
+        let (temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-autoimport-");
         fs::create_dir_all(dir.join("src")).unwrap();
         fs::write(
             dir.join("src/models.py"),
@@ -561,12 +555,12 @@ mod tests {
         )
         .unwrap();
         let project = ProjectRoot::new(&dir).unwrap();
-        (dir, project)
+        (temp_dir, dir, project)
     }
 
     #[test]
     fn detects_unresolved_type() {
-        let (_dir, project) = make_fixture();
+        let (_temp, _dir, project) = make_fixture();
         let result = analyze_missing_imports(&project, "src/service.py").unwrap();
         assert!(
             result.unresolved_symbols.contains(&"UserModel".to_string()),
@@ -577,7 +571,7 @@ mod tests {
 
     #[test]
     fn suggests_import_for_unresolved() {
-        let (_dir, project) = make_fixture();
+        let (_temp, _dir, project) = make_fixture();
         let result = analyze_missing_imports(&project, "src/service.py").unwrap();
         let suggestion = result
             .suggestions
@@ -599,7 +593,7 @@ mod tests {
 
     #[test]
     fn does_not_suggest_locally_defined() {
-        let (_dir, project) = make_fixture();
+        let (_temp, _dir, project) = make_fixture();
         let result = analyze_missing_imports(&project, "src/models.py").unwrap();
         assert!(
             !result.unresolved_symbols.contains(&"UserModel".to_string()),
@@ -611,13 +605,7 @@ mod tests {
     fn add_import_inserts_at_correct_position() {
         use crate::edit_transaction::ApplyStatus;
 
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-addimport-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-addimport-");
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("test.py"),
@@ -652,13 +640,7 @@ mod tests {
 
     #[test]
     fn skip_already_imported() {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-skipimport-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let (_temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-skipimport-");
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("test.py"),

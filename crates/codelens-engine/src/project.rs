@@ -593,7 +593,7 @@ mod tests {
     #[test]
     fn workspace_packages_dedup_when_members_and_default_members_share_paths() {
         use super::detect_workspace_packages;
-        let temp = tempfile_dir();
+        let (_td, temp) = tempfile_dir();
         let crate_dir = temp.join("crates/foo");
         fs::create_dir_all(&crate_dir).expect("mkdir crate");
         fs::write(
@@ -626,7 +626,7 @@ mod tests {
     #[test]
     fn workspace_packages_recognizes_single_line_toml_array() {
         use super::detect_workspace_packages;
-        let temp = tempfile_dir();
+        let (_td, temp) = tempfile_dir();
         let crate_dir = temp.join("crates/foo");
         fs::create_dir_all(&crate_dir).expect("mkdir crate");
         fs::write(
@@ -656,7 +656,7 @@ mod tests {
     #[test]
     fn workspace_packages_handles_single_line_array_with_multiple_paths() {
         use super::detect_workspace_packages;
-        let temp = tempfile_dir();
+        let (_td, temp) = tempfile_dir();
         for name in &["foo", "bar"] {
             let crate_dir = temp.join("crates").join(name);
             fs::create_dir_all(&crate_dir).expect("mkdir crate");
@@ -713,7 +713,7 @@ mod tests {
 
     #[test]
     fn rejects_path_escape() {
-        let dir = tempfile_dir();
+        let (_td, dir) = tempfile_dir();
         let project = ProjectRoot::new_exact(&dir).expect("project root");
         let err = project
             .resolve("../outside.txt")
@@ -723,7 +723,7 @@ mod tests {
 
     #[test]
     fn makes_relative_paths() {
-        let dir = tempfile_dir();
+        let (_td, dir) = tempfile_dir();
         let nested = dir.join("src/lib.rs");
         fs::create_dir_all(nested.parent().expect("parent")).expect("mkdir");
         fs::write(&nested, "fn main() {}\n").expect("write file");
@@ -734,7 +734,7 @@ mod tests {
 
     #[test]
     fn does_not_promote_home_directory_from_global_codelens_marker() {
-        let home = tempfile_dir();
+        let (_td, home) = tempfile_dir();
         let nested = home.join("Downloads/codelens");
         fs::create_dir_all(home.join(".codelens")).expect("mkdir global codelens");
         fs::create_dir_all(&nested).expect("mkdir nested");
@@ -750,7 +750,7 @@ mod tests {
 
     #[test]
     fn does_not_promote_temp_directory_from_global_codelens_marker() {
-        let temp_root = tempfile_dir();
+        let (_td, temp_root) = tempfile_dir();
         let nested = temp_root.join("projectless-fixture");
         fs::create_dir_all(temp_root.join(".codelens")).expect("mkdir temp codelens");
         fs::create_dir_all(&nested).expect("mkdir nested");
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn still_detects_project_root_before_home_directory() {
-        let home = tempfile_dir();
+        let (_td, home) = tempfile_dir();
         let project_root = home.join("workspace/app");
         let nested = project_root.join("src/features");
         fs::create_dir_all(home.join(".codelens")).expect("mkdir global codelens");
@@ -802,16 +802,20 @@ mod tests {
     }
 
     /// Unique per-test subdirectory inside `tempfile_dir()` to avoid
-    /// parallel-execution collisions on the nanosecond-timestamp path.
-    fn fresh_test_dir(label: &str) -> std::path::PathBuf {
-        let dir = tempfile_dir().join(label);
+    /// parallel-execution collisions. Returns the `TempDir` guard so the
+    /// directory survives until the caller drops it; otherwise `tempfile`
+    /// cleans up at the end of this fn and downstream writes hit
+    /// `NotFound`.
+    fn fresh_test_dir(label: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let (td, base) = tempfile_dir();
+        let dir = base.join(label);
         fs::create_dir_all(&dir).expect("mkdir fresh test dir");
-        dir
+        (td, dir)
     }
 
     #[test]
     fn compute_dominant_language_picks_rust_for_rust_heavy_project() {
-        let dir = fresh_test_dir("phase2j_rust_heavy");
+        let (_td, dir) = fresh_test_dir("phase2j_rust_heavy");
         // 5 Rust files, 1 Python file, 1 unknown extension file
         fs::create_dir_all(dir.join("src")).expect("mkdir src");
         fs::write(dir.join("Cargo.toml"), "[package]\nname = \"x\"\n").expect("Cargo.toml");
@@ -827,7 +831,7 @@ mod tests {
 
     #[test]
     fn compute_dominant_language_picks_python_for_python_heavy_project() {
-        let dir = fresh_test_dir("phase2j_python_heavy");
+        let (_td, dir) = fresh_test_dir("phase2j_python_heavy");
         // 4 Python files, 1 Rust file
         fs::create_dir_all(dir.join("pkg")).expect("mkdir pkg");
         for name in ["mod_a.py", "mod_b.py", "mod_c.py", "mod_d.py"] {
@@ -841,7 +845,7 @@ mod tests {
 
     #[test]
     fn compute_dominant_language_returns_none_below_min_file_count() {
-        let dir = fresh_test_dir("phase2j_below_min");
+        let (_td, dir) = fresh_test_dir("phase2j_below_min");
         // Only 2 source files (below MIN_FILES = 3)
         fs::write(dir.join("only.rs"), "fn x() {}\n").expect("write rs");
         fs::write(dir.join("other.py"), "def y(): pass\n").expect("write py");
@@ -852,7 +856,7 @@ mod tests {
 
     #[test]
     fn compute_dominant_language_skips_excluded_dirs() {
-        let dir = fresh_test_dir("phase2j_excluded_dirs");
+        let (_td, dir) = fresh_test_dir("phase2j_excluded_dirs");
         fs::create_dir_all(dir.join("src")).expect("mkdir src");
         fs::create_dir_all(dir.join("node_modules/foo")).expect("mkdir node_modules");
         fs::create_dir_all(dir.join("target")).expect("mkdir target");
@@ -883,15 +887,10 @@ mod tests {
         assert_eq!(lang, "rs", "expected rs from src only, got {lang}");
     }
 
-    fn tempfile_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-core-project-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("time")
-                .as_nanos()
-        ));
+    fn tempfile_dir() -> (tempfile::TempDir, std::path::PathBuf) {
+        let (td, dir) =
+            crate::test_helpers::make_unique_temp_dir("codelens-core-project-");
         fs::create_dir_all(&dir).expect("create tempdir");
-        dir
+        (td, dir)
     }
 }

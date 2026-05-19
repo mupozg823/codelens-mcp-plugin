@@ -405,17 +405,11 @@ mod tests {
     use crate::ProjectRoot;
     use std::fs;
 
-    fn make_fixture() -> (std::path::PathBuf, ProjectRoot) {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-inline-fixture-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+    fn make_fixture() -> (tempfile::TempDir, std::path::PathBuf, ProjectRoot) {
+        let (temp_dir, dir) = crate::test_helpers::make_unique_temp_dir("codelens-inline-fixture-");
         fs::create_dir_all(&dir).unwrap();
         let project = ProjectRoot::new(dir.clone()).unwrap();
-        (dir, project)
+        (temp_dir, dir, project)
     }
 
     #[test]
@@ -471,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_inline_dry_run() {
-        let (dir, project) = make_fixture();
+        let (_temp, dir, project) = make_fixture();
 
         let main_content = r#"function greet(name) {
     return "Hello, " + name;
