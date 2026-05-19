@@ -236,11 +236,7 @@ pub fn memory_tools(
 }
 
 #[cfg(feature = "semantic")]
-pub fn semantic_tools(
-    ro: &ToolAnnotations,
-    ro_a: &ToolAnnotations,
-    ro_p: &ToolAnnotations,
-) -> Vec<Tool> {
+pub fn semantic_tools(ro: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
     vec![
         Tool::new(
             "semantic_search",
@@ -252,26 +248,6 @@ pub fn semantic_tools(
             "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic_search.",
             json!({"type":"object","properties":{"background":{"type":"boolean","description":"Run as a durable background job and poll with get_analysis_job"},"prewarm_queries":{"type":"array","items":{"type":"string"},"description":"Representative semantic_search queries to warm immediately after indexing"},"prewarm_limit":{"type":"integer","description":"Maximum prewarm query count (default 128, max 1024)"}}}),
         ).with_annotations(ro.clone()),
-        Tool::new(
-            "find_similar_code",
-            "[CodeLens:Analysis] Find semantically similar code to a given symbol — clone detection, reuse opportunities.",
-            json!({"type":"object","required":["file_path","symbol_name"],"properties":{"file_path":{"type":"string","description":"File containing the symbol"},"symbol_name":{"type":"string","description":"Symbol to find similar code for"},"max_results":{"type":"integer","description":"Max results (default 10)"}}}),
-        ).with_output_schema(find_similar_code_output_schema()).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_code_duplicates",
-            "[CodeLens:Analysis] Find near-duplicate code pairs across the codebase — DRY violations.",
-            json!({"type":"object","properties":{"threshold":{"type":"number","description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","description":"Max pairs to return (default 20)"}}}),
-        ).with_output_schema(find_code_duplicates_output_schema()).with_annotations(ro_a.clone()),
-        Tool::new(
-            "classify_symbol",
-            "[CodeLens:Analysis] Zero-shot classify a symbol into categories — e.g. error handling, auth, database.",
-            json!({"type":"object","required":["file_path","symbol_name","categories"],"properties":{"file_path":{"type":"string"},"symbol_name":{"type":"string"},"categories":{"type":"array","items":{"type":"string"},"description":"Category labels to classify against"}}}),
-        ).with_output_schema(classify_symbol_output_schema()).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_misplaced_code",
-            "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement.",
-            json!({"type":"object","properties":{"max_results":{"type":"integer","description":"Max outliers to return (default 10)"}}}),
-        ).with_output_schema(find_misplaced_code_output_schema()).with_annotations(ro.clone()),
     ]
 }
 
