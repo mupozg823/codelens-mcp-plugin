@@ -167,8 +167,6 @@ pub(super) fn project_root() -> ProjectRoot {
     ProjectRoot::new(dir.to_str().unwrap()).unwrap()
 }
 
-
-
 /// Verify every tool in tool_defs has a corresponding dispatch handler.
 /// Catches drift between definitions and implementations.
 #[test]
