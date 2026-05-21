@@ -639,6 +639,37 @@ mod surface_audit_tests {
 
     #[test]
     #[cfg(feature = "semantic")]
+    fn resurrected_semantic_detectors_all_registered_in_toml() {
+        // Sibling guard to find_misplaced_code_registered_in_toml.
+        // find_similar_code, find_code_duplicates, classify_symbol all
+        // have feature-gated dispatch handlers in dispatch/table.rs
+        // that survived the Sprint B-3 schema trim. This pins the
+        // four sibling schemas against future Sprint B-style cleanups.
+        let state = make_state();
+        let (payload, _meta) =
+            audit_tool_surface_consistency(&state, &json!({})).expect("audit succeeds");
+        let toml_tools: Vec<String> = payload["violations"]["missing_in_toml"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(ToOwned::to_owned))
+            .collect();
+        for tool in [
+            "find_misplaced_code",
+            "find_similar_code",
+            "find_code_duplicates",
+            "classify_symbol",
+        ] {
+            assert!(
+                !toml_tools.contains(&tool.to_owned()),
+                "{tool} must be in tools.toml — handler was preserved through Sprint B-3, schema restored here"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "semantic")]
     fn find_misplaced_code_registered_in_toml() {
         // find_misplaced_code's dispatch handler has lived in
         // dispatch/table.rs since v1.13.6 (feature-gated on `semantic`).
