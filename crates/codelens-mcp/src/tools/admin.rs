@@ -429,6 +429,7 @@ pub fn audit_memory_consistency(state: &AppState, arguments: &Value) -> ToolResu
     let project_root = state.project().as_path().to_path_buf();
 
     let mut total_files = 0u64;
+    let mut stable_skipped = 0u64;
     let mut stale: Vec<Value> = Vec::new();
 
     if memories_dir.exists() {
@@ -447,6 +448,15 @@ pub fn audit_memory_consistency(state: &AppState, arguments: &Value) -> ToolResu
                 continue;
             }
             total_files += 1;
+            // `<!-- audit-skip: stable -->` marker (anywhere in the first
+            // 4 lines) opts a memory out of staleness checks. Use for
+            // ADRs, benchmark snapshots, post-mortems — entries whose
+            // accuracy is pinned to a moment in time and is not expected
+            // to age into invalidity.
+            if file_has_stable_marker(&path) {
+                stable_skipped += 1;
+                continue;
+            }
             let Ok(meta) = entry.metadata() else {
                 continue;
             };
@@ -505,6 +515,7 @@ pub fn audit_memory_consistency(state: &AppState, arguments: &Value) -> ToolResu
         json!({
             "memories_dir": memories_dir.to_string_lossy(),
             "total_files": total_files,
+            "stable_skipped": stable_skipped,
             "stale_count": stale_count,
             "stale_entries": stale,
             "threshold_days": threshold_days,
@@ -513,6 +524,25 @@ pub fn audit_memory_consistency(state: &AppState, arguments: &Value) -> ToolResu
         }),
         success_meta(BackendKind::Filesystem, 1.0),
     ))
+}
+
+/// Returns true when the first 4 lines of `path` contain the
+/// `<!-- audit-skip: stable -->` marker (case-sensitive, exact text).
+/// Used by [`audit_memory_consistency`] to opt out point-in-time
+/// snapshots (ADRs, benchmark results, post-mortems) from staleness
+/// checks. The narrow scan window keeps the IO bounded — a typo
+/// further down in the file deliberately won't match.
+fn file_has_stable_marker(path: &std::path::Path) -> bool {
+    use std::io::{BufRead, BufReader};
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let reader = BufReader::new(file);
+    reader
+        .lines()
+        .take(4)
+        .filter_map(Result::ok)
+        .any(|line| line.contains("<!-- audit-skip: stable -->"))
 }
 
 #[cfg(test)]
@@ -637,6 +667,53 @@ mod surface_audit_tests {
         assert!(payload["memories_dir"].is_string());
         assert!(payload["stale_entries"].is_array());
         assert!(payload["next_actions"].as_array().unwrap().len() >= 1);
+    }
+
+    #[test]
+    fn audit_memory_consistency_response_includes_stable_skipped_field() {
+        // Even on a synthetic project the new `stable_skipped` field
+        // must appear in the response envelope so callers can rely on it.
+        let state = make_state();
+        let (payload, _meta) = audit_memory_consistency(&state, &json!({})).expect("call succeeds");
+        assert!(
+            payload["stable_skipped"].is_number(),
+            "stable_skipped must always be present (got: {})",
+            payload["stable_skipped"]
+        );
+    }
+
+    #[test]
+    fn file_has_stable_marker_detects_only_within_first_four_lines() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().expect("tempdir for marker test");
+
+        let early = tmp.path().join("early.md");
+        let mut f = std::fs::File::create(&early).unwrap();
+        writeln!(f, "# Title").unwrap();
+        writeln!(f, "<!-- audit-skip: stable -->").unwrap();
+        writeln!(f, "body").unwrap();
+        drop(f);
+        assert!(file_has_stable_marker(&early), "marker on line 2 detected");
+
+        let late = tmp.path().join("late.md");
+        let mut f = std::fs::File::create(&late).unwrap();
+        writeln!(f, "# line 1").unwrap();
+        writeln!(f, "body line 2").unwrap();
+        writeln!(f, "body line 3").unwrap();
+        writeln!(f, "body line 4").unwrap();
+        writeln!(f, "<!-- audit-skip: stable -->").unwrap();
+        drop(f);
+        assert!(
+            !file_has_stable_marker(&late),
+            "marker beyond line 4 must not be detected — keeps the IO window bounded"
+        );
+
+        let missing = tmp.path().join("missing.md");
+        let mut f = std::fs::File::create(&missing).unwrap();
+        writeln!(f, "# Title").unwrap();
+        writeln!(f, "no marker here").unwrap();
+        drop(f);
+        assert!(!file_has_stable_marker(&missing));
     }
 
     #[test]
