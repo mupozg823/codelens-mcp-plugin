@@ -124,6 +124,8 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "audit_planner_session"        => session::audit_planner_session,
         "audit_log_query"              => admin::audit_log_query,
         "audit_tool_surface_consistency" => admin::audit_tool_surface_consistency,
+        "find_phantom_modules"         => admin::find_phantom_modules,
+        "find_redundant_definitions"   => admin::find_redundant_definitions,
         "export_session_markdown"      => session::export_session_markdown,
         // ── Composite — DEPRECATED, dispatch retained for backward compat ──
         "refactor_extract_function"    => composite::refactor_extract_function,

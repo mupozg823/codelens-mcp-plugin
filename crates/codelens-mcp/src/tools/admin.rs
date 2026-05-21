@@ -229,6 +229,91 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
     ))
 }
 
+/// Surface phantom `mod NAME;` declarations whose target name is never
+/// `use`d anywhere else in the workspace. Resurrected from the v1.13.27
+/// surface trim alongside `audit_tool_surface_consistency`. Engine impl
+/// in `codelens_engine::phantom_modules` is unchanged — this is the
+/// missing MCP wrapper. Heuristic: `pub mod` is reported but may be
+/// intentional for re-export patterns, so visibility is included in
+/// each entry for callers to filter.
+pub fn find_phantom_modules(state: &AppState, arguments: &Value) -> ToolResult {
+    let max_results = optional_usize(arguments, "max_results", 50).clamp(1, 500);
+    let project = state.project();
+
+    let entries = codelens_engine::phantom_modules::find_phantom_modules(&project, max_results)
+        .map_err(|err| CodeLensError::Internal(err.context("find_phantom_modules")))?;
+
+    let count = entries.len();
+    let truncated = count >= max_results;
+    let mut next_actions = Vec::new();
+    if count == 0 {
+        next_actions.push("No phantom modules detected.".to_owned());
+    } else {
+        next_actions.push(format!(
+            "{} phantom mod declaration(s) found — review before removal (re-export patterns can keep `pub mod` useful).",
+            count,
+        ));
+        if truncated {
+            next_actions.push(
+                "Result truncated. Raise `max_results` (max 500) for the full list.".to_owned(),
+            );
+        }
+    }
+
+    Ok((
+        json!({
+            "phantom_modules": entries,
+            "count": count,
+            "max_results": max_results,
+            "truncated": truncated,
+            "next_actions": next_actions,
+        }),
+        success_meta(BackendKind::TreeSitter, 0.85),
+    ))
+}
+
+/// Surface Rust one-line wrappers whose entire body forwards to another
+/// function with a literal default argument. Resurrected from the v1.13.27
+/// surface trim. Engine impl in `codelens_engine::redundant_definitions`
+/// unchanged. Group results by `target` to find substrates with multiple
+/// wrappers — the highest cleanup leverage per Phase 1-A's findings.
+pub fn find_redundant_definitions(state: &AppState, arguments: &Value) -> ToolResult {
+    let max_results = optional_usize(arguments, "max_results", 50).clamp(1, 500);
+    let project = state.project();
+
+    let entries =
+        codelens_engine::redundant_definitions::find_redundant_definitions(&project, max_results)
+            .map_err(|err| CodeLensError::Internal(err.context("find_redundant_definitions")))?;
+
+    let count = entries.len();
+    let truncated = count >= max_results;
+    let mut next_actions = Vec::new();
+    if count == 0 {
+        next_actions.push("No one-line wrapper redundancies detected.".to_owned());
+    } else {
+        next_actions.push(format!(
+            "{} one-line wrapper(s) found. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage.",
+            count,
+        ));
+        if truncated {
+            next_actions.push(
+                "Result truncated. Raise `max_results` (max 500) for the full list.".to_owned(),
+            );
+        }
+    }
+
+    Ok((
+        json!({
+            "redundant_definitions": entries,
+            "count": count,
+            "max_results": max_results,
+            "truncated": truncated,
+            "next_actions": next_actions,
+        }),
+        success_meta(BackendKind::TreeSitter, 0.85),
+    ))
+}
+
 #[cfg(test)]
 mod surface_audit_tests {
     use super::*;
@@ -286,5 +371,54 @@ mod surface_audit_tests {
             !missing_toml,
             "audit_tool_surface_consistency must be in tools.toml (regression guard)"
         );
+    }
+
+    #[test]
+    fn resurrected_detectors_registered_on_both_sides() {
+        // Regression guard for the v1.13.27 surface trim follow-up: the two
+        // detectors must stay in dispatch_table + tools.toml together. If
+        // one drifts, the audit's `missing_in_*` buckets surface it.
+        let state = make_state();
+        let (payload, _meta) =
+            audit_tool_surface_consistency(&state, &json!({})).expect("audit succeeds");
+        let violations = &payload["violations"];
+        for tool in ["find_phantom_modules", "find_redundant_definitions"] {
+            let missing_dispatch = violations["missing_in_dispatch"]
+                .as_array()
+                .map(|arr| arr.iter().any(|v| v == tool))
+                .unwrap_or(false);
+            let missing_toml = violations["missing_in_toml"]
+                .as_array()
+                .map(|arr| arr.iter().any(|v| v == tool))
+                .unwrap_or(false);
+            assert!(!missing_dispatch, "{tool} must be in dispatch_table");
+            assert!(!missing_toml, "{tool} must be in tools.toml");
+        }
+    }
+
+    #[test]
+    fn find_phantom_modules_on_empty_project_returns_zero() {
+        let state = make_state();
+        let (payload, _meta) = find_phantom_modules(&state, &json!({})).expect("call succeeds");
+        assert_eq!(payload["count"].as_u64().unwrap_or(99), 0);
+        assert!(payload["phantom_modules"].as_array().unwrap().is_empty());
+        assert_eq!(payload["truncated"].as_bool().unwrap_or(true), false);
+        assert_eq!(payload["max_results"].as_u64().unwrap_or(0), 50);
+    }
+
+    #[test]
+    fn find_redundant_definitions_on_empty_project_returns_zero() {
+        let state = make_state();
+        let (payload, _meta) =
+            find_redundant_definitions(&state, &json!({})).expect("call succeeds");
+        assert_eq!(payload["count"].as_u64().unwrap_or(99), 0);
+        assert!(
+            payload["redundant_definitions"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(payload["truncated"].as_bool().unwrap_or(true), false);
+        assert_eq!(payload["max_results"].as_u64().unwrap_or(0), 50);
     }
 }

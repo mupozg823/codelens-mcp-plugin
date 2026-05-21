@@ -364,6 +364,16 @@ pub fn session_tools(
             "[CodeLens:Admin] Cross-layer drift detector for the tool surface. Compares tools.toml (schema registry) ↔ dispatch_table (runtime handlers) ↔ preset whitelists at runtime and reports three violation buckets: missing_in_dispatch, missing_in_toml, orphan_in_preset. Requires Admin role.",
             json!({"type":"object"}),
         ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_phantom_modules",
+            "[CodeLens:Audit] Surface `mod NAME;` declarations whose target name is never `use`d elsewhere in the workspace. Returns parent_file, module_name, line, visibility, kind. Heuristic — `pub mod` reported but may be intentional for re-export patterns. Resurrected from the v1.13.27 surface trim. Use after a deletion cascade to find leftover module declarations.",
+            json!({"type":"object","properties":{"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on entries returned (default 50)"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_redundant_definitions",
+            "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Use before `dead_code_report` — wrappers obscure substrates.",
+            json!({"type":"object","properties":{"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on entries returned (default 50)"}}}),
+        ).with_annotations(ro_a.clone()),
     ]
 }
 
