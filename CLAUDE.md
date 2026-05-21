@@ -317,6 +317,15 @@ Controls compression aggressiveness. Set via `CODELENS_EFFORT_LEVEL` env var.
 - `medium` — default thresholds
 - `high` — compress later (thresholds +10pp), budget ×1.3 **(default, matching Claude Code v2.1.94)**
 
+## Analysis Artifact Cache (LRU + TTL)
+
+`artifact_store` keeps recent analysis results (the `analysis_id` values returned by `review_architecture`, `module_boundary_report`, `dead_code_report`, etc.) so chained calls like `get_analysis_section` can resolve them. Two caps with runtime overrides:
+
+- `CODELENS_MAX_ANALYSIS_ARTIFACTS` (non-zero usize, default `50`) — FIFO eviction count cap.
+- `CODELENS_ANALYSIS_TTL_HOURS` (non-zero u64, default `6`) — TTL after which entries expire.
+
+Invalid or `0` values fall back to the compiled defaults. Raise both when chaining many `start_analysis_job` calls within one session, or when a builder depends on a multi-hour-old handle.
+
 ## Adaptive Token Compression (OpenDev 5-Stage)
 
 Response payloads are compressed based on budget usage.

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`artifact_store`: runtime override for cache caps via env vars** — `CODELENS_MAX_ANALYSIS_ARTIFACTS` (non-zero usize, default 50) and `CODELENS_ANALYSIS_TTL_HOURS` (non-zero u64, default 6) now adjust the analysis artifact LRU count cap and TTL without rebuilding. Discovered via self-dogfood (2026-05-21): `get_analysis_section` follow-ups can hit `Not found: unknown analysis_id` when long-running planner sessions exceed 50 chained analyses, and there was no operator escape hatch short of patching the const. Invalid or zero values fall back to the compiled defaults. Documented in CLAUDE.md "Analysis Artifact Cache" section. Underlying `reused: true` vs stored-id consistency remains a separate sprint (#G8 root cause).
+
 ## [1.13.32] - 2026-05-19
 
 ### Fixed

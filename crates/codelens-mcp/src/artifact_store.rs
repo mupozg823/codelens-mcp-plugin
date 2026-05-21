@@ -11,6 +11,27 @@ use crate::runtime_types::{
 pub(crate) const MAX_ANALYSIS_ARTIFACTS: usize = 50;
 const TTL_MS: u64 = 6 * 60 * 60 * 1000; // 6 hours
 
+/// Runtime cap override. `CODELENS_MAX_ANALYSIS_ARTIFACTS` accepts any non-zero
+/// usize; falls back to [`MAX_ANALYSIS_ARTIFACTS`] when unset or invalid.
+fn configured_max_analysis_artifacts() -> usize {
+    std::env::var("CODELENS_MAX_ANALYSIS_ARTIFACTS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(MAX_ANALYSIS_ARTIFACTS)
+}
+
+/// Runtime TTL override (hours). `CODELENS_ANALYSIS_TTL_HOURS` accepts any
+/// non-zero u64; falls back to [`TTL_MS`] (6 h) when unset or invalid.
+fn configured_analysis_ttl_ms() -> u64 {
+    std::env::var("CODELENS_ANALYSIS_TTL_HOURS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .map(|h| h.saturating_mul(60 * 60 * 1000))
+        .unwrap_or(TTL_MS)
+}
+
 pub(crate) struct AnalysisArtifactStore {
     analysis_dir: Mutex<PathBuf>,
     seq: std::sync::atomic::AtomicU64,
@@ -57,7 +78,7 @@ impl AnalysisArtifactStore {
     }
 
     fn expired(created_at_ms: u64, now_ms: u64) -> bool {
-        now_ms.saturating_sub(created_at_ms) > TTL_MS
+        now_ms.saturating_sub(created_at_ms) > configured_analysis_ttl_ms()
     }
 
     // ── Disk I/O ────────────────────────────────────────────────────────
@@ -162,7 +183,7 @@ impl AnalysisArtifactStore {
             if !evicted.is_empty() {
                 order.retain(|id| !evicted.contains(id));
             }
-            while order.len() > MAX_ANALYSIS_ARTIFACTS {
+            while order.len() > configured_max_analysis_artifacts() {
                 if let Some(oldest) = order.pop_front() {
                     evicted.push(oldest);
                 }
@@ -655,5 +676,54 @@ mod tests {
             .unwrap();
         assert_eq!(found.cache_key.as_deref(), Some("key1"));
         assert_eq!(tier, CacheHitTier::Exact);
+    }
+
+    #[test]
+    fn configured_caps_respect_env_overrides_and_reject_invalid() {
+        let saved_max = std::env::var("CODELENS_MAX_ANALYSIS_ARTIFACTS").ok();
+        let saved_ttl = std::env::var("CODELENS_ANALYSIS_TTL_HOURS").ok();
+
+        // SAFETY: env-var mutation is safe here — these vars are dedicated to
+        // this test and no other thread/test reads them concurrently. Restored
+        // at the end via the saved snapshots.
+        unsafe {
+            std::env::set_var("CODELENS_MAX_ANALYSIS_ARTIFACTS", "200");
+            std::env::set_var("CODELENS_ANALYSIS_TTL_HOURS", "12");
+        }
+        assert_eq!(configured_max_analysis_artifacts(), 200);
+        assert_eq!(configured_analysis_ttl_ms(), 12 * 60 * 60 * 1000);
+
+        unsafe {
+            std::env::set_var("CODELENS_MAX_ANALYSIS_ARTIFACTS", "0");
+            std::env::set_var("CODELENS_ANALYSIS_TTL_HOURS", "0");
+        }
+        assert_eq!(
+            configured_max_analysis_artifacts(),
+            MAX_ANALYSIS_ARTIFACTS,
+            "zero rejected, fallback to default cap",
+        );
+        assert_eq!(
+            configured_analysis_ttl_ms(),
+            TTL_MS,
+            "zero rejected, fallback to default TTL",
+        );
+
+        unsafe {
+            std::env::set_var("CODELENS_MAX_ANALYSIS_ARTIFACTS", "garbage");
+            std::env::set_var("CODELENS_ANALYSIS_TTL_HOURS", "garbage");
+        }
+        assert_eq!(configured_max_analysis_artifacts(), MAX_ANALYSIS_ARTIFACTS);
+        assert_eq!(configured_analysis_ttl_ms(), TTL_MS);
+
+        unsafe {
+            match saved_max {
+                Some(v) => std::env::set_var("CODELENS_MAX_ANALYSIS_ARTIFACTS", v),
+                None => std::env::remove_var("CODELENS_MAX_ANALYSIS_ARTIFACTS"),
+            }
+            match saved_ttl {
+                Some(v) => std::env::set_var("CODELENS_ANALYSIS_TTL_HOURS", v),
+                None => std::env::remove_var("CODELENS_ANALYSIS_TTL_HOURS"),
+            }
+        }
     }
 }
