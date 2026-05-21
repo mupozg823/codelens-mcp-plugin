@@ -379,6 +379,11 @@ pub fn session_tools(
             "[CodeLens:Audit] Cross-layer policy detector: surfaces tools whose annotations contradict the readonly-intent of the preset/profile they're listed in. A `destructive_hint=true` or `approval_required=true` tool exposed on the `Minimal` preset or `PlannerReadonly`/`ReviewerGraph` profiles is leakage — the surface promises read-only safety but the tool reserves write/approval semantics. Resurrected from the v1.13.27 surface trim (\"495 over-visible cleanup\" item, 2026-05-18 dogfood memo). Runtime query only — no engine impl, data lives in the Tool registry + preset whitelists.",
             json!({"type":"object"}),
         ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "audit_memory_consistency",
+            "[CodeLens:Audit] Surface project memory files (`.codelens/memories/*.md`) whose modification time exceeds the staleness threshold. Memories are frozen-in-time observations and silently drift from the codebase they describe (cited paths get renamed, cited symbols disappear). Self-auditability complement to the four tool-surface detectors. `threshold_days` (default 30, clamped 1..3650) configurable. Returns oldest-first list of `{file, age_days, mtime_epoch_secs}` for each stale entry plus `total_files`, `stale_count`, `all_clean`.",
+            json!({"type":"object","properties":{"threshold_days":{"type":"integer","minimum":1,"maximum":3650,"description":"Files older than this (in days) are reported as stale (default 30)"}}}),
+        ).with_annotations(ro_a.clone()),
     ]
 }
 

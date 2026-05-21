@@ -1220,6 +1220,19 @@ type = "object"
 # ─────
 
 [[tool]]
+name = "audit_memory_consistency"
+category = "session"
+preset_tags = []
+description = "[CodeLens:Audit] Surface project memory files (`.codelens/memories/*.md`) whose modification time exceeds the staleness threshold. Memories are frozen-in-time observations and silently drift from the codebase they describe (cited paths get renamed, cited symbols disappear). Self-auditability complement to the four tool-surface detectors. `threshold_days` (default 30, clamped 1..3650) configurable. Returns oldest-first list of `{file, age_days, mtime_epoch_secs}` for each stale entry plus `total_files`, `stale_count`, `all_clean`."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+properties = { threshold_days = { type = "integer", minimum = 1, maximum = 3650, description = "Files older than this (in days) are reported as stale (default 30)" } }
+
+# ─────
+
+[[tool]]
 name = "list_memories"
 category = "memory"
 preset_tags = []

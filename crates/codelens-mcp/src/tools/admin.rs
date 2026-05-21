@@ -402,6 +402,119 @@ pub fn find_over_visible_apis(_state: &AppState, _arguments: &Value) -> ToolResu
     ))
 }
 
+/// Surface project memory files (`.codelens/memories/*.md`) whose
+/// modification time exceeds the staleness threshold. Memories are
+/// frozen-in-time observations — without a freshness check they
+/// silently drift from the codebase they describe (e.g. cited
+/// file paths get renamed, cited symbols disappear, cited
+/// architectural claims stop matching the code). This is the
+/// self-auditability complement to the four detectors that audit
+/// the tool surface; the same pattern (runtime query, admin-only,
+/// preset_tags=[]) applies.
+///
+/// Threshold is configurable via `threshold_days` argument
+/// (default 30, clamped 1..=3650). Each entry reports the file
+/// path (relative to project root), age in days, and modification
+/// timestamp (epoch millis) so callers can fold the output back
+/// into a freshness ratchet.
+pub fn audit_memory_consistency(state: &AppState, arguments: &Value) -> ToolResult {
+    let threshold_days = optional_usize(arguments, "threshold_days", 30).clamp(1, 3650);
+    let threshold_secs = (threshold_days as u64) * 24 * 60 * 60;
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let memories_dir = state.memories_dir();
+    let project_root = state.project().as_path().to_path_buf();
+
+    let mut total_files = 0u64;
+    let mut stale: Vec<Value> = Vec::new();
+
+    if memories_dir.exists() {
+        let entries = match std::fs::read_dir(&memories_dir) {
+            Ok(rd) => rd,
+            Err(error) => {
+                return Err(CodeLensError::Io(error));
+            }
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            total_files += 1;
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            let Ok(modified) = meta.modified() else {
+                continue;
+            };
+            let Ok(mtime_dur) = modified.duration_since(std::time::UNIX_EPOCH) else {
+                continue;
+            };
+            let mtime_secs = mtime_dur.as_secs();
+            let age_secs = now_secs.saturating_sub(mtime_secs);
+            if age_secs <= threshold_secs {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(&project_root)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| path.to_string_lossy().to_string());
+            stale.push(json!({
+                "file": relative,
+                "age_days": age_secs / (24 * 60 * 60),
+                "mtime_epoch_secs": mtime_secs,
+            }));
+        }
+    }
+
+    // Sort stale entries deterministically — oldest first surfaces
+    // the most egregious drift to readers / dashboards.
+    stale.sort_by(|a, b| {
+        b["age_days"]
+            .as_u64()
+            .unwrap_or(0)
+            .cmp(&a["age_days"].as_u64().unwrap_or(0))
+            .then_with(|| {
+                a["file"]
+                    .as_str()
+                    .unwrap_or("")
+                    .cmp(b["file"].as_str().unwrap_or(""))
+            })
+    });
+
+    let stale_count = stale.len();
+    let all_clean = stale_count == 0;
+    let mut next_actions: Vec<String> = Vec::new();
+    if all_clean {
+        next_actions.push(format!(
+            "No stale memories ({total_files} file(s) scanned, all newer than {threshold_days} days)."
+        ));
+    } else {
+        next_actions.push(format!(
+            "{stale_count} memory file(s) older than {threshold_days} days. Re-verify against current code, update mtime by re-saving, or delete if obsolete.",
+        ));
+    }
+
+    Ok((
+        json!({
+            "memories_dir": memories_dir.to_string_lossy(),
+            "total_files": total_files,
+            "stale_count": stale_count,
+            "stale_entries": stale,
+            "threshold_days": threshold_days,
+            "all_clean": all_clean,
+            "next_actions": next_actions,
+        }),
+        success_meta(BackendKind::Filesystem, 1.0),
+    ))
+}
+
 #[cfg(test)]
 mod surface_audit_tests {
     use super::*;
@@ -492,6 +605,49 @@ mod surface_audit_tests {
         assert!(payload["phantom_modules"].as_array().unwrap().is_empty());
         assert_eq!(payload["truncated"].as_bool().unwrap_or(true), false);
         assert_eq!(payload["max_results"].as_u64().unwrap_or(0), 50);
+    }
+
+    #[test]
+    fn audit_memory_consistency_registered_on_both_sides() {
+        let state = make_state();
+        let (payload, _meta) =
+            audit_tool_surface_consistency(&state, &json!({})).expect("audit succeeds");
+        let violations = &payload["violations"];
+        let tool = "audit_memory_consistency";
+        let missing_dispatch = violations["missing_in_dispatch"]
+            .as_array()
+            .map(|arr| arr.iter().any(|v| v == tool))
+            .unwrap_or(false);
+        let missing_toml = violations["missing_in_toml"]
+            .as_array()
+            .map(|arr| arr.iter().any(|v| v == tool))
+            .unwrap_or(false);
+        assert!(!missing_dispatch, "{tool} must be in dispatch_table");
+        assert!(!missing_toml, "{tool} must be in tools.toml");
+    }
+
+    #[test]
+    fn audit_memory_consistency_shape_and_threshold_keys() {
+        let state = make_state();
+        let (payload, _meta) = audit_memory_consistency(&state, &json!({})).expect("call succeeds");
+        assert!(payload["total_files"].is_number());
+        assert!(payload["stale_count"].is_number());
+        assert!(payload["all_clean"].is_boolean());
+        assert_eq!(payload["threshold_days"].as_u64().unwrap_or(0), 30);
+        assert!(payload["memories_dir"].is_string());
+        assert!(payload["stale_entries"].is_array());
+        assert!(payload["next_actions"].as_array().unwrap().len() >= 1);
+    }
+
+    #[test]
+    fn audit_memory_consistency_clamps_threshold_days() {
+        let state = make_state();
+        let (low, _) = audit_memory_consistency(&state, &json!({"threshold_days": 0}))
+            .expect("call succeeds with 0");
+        assert_eq!(low["threshold_days"].as_u64().unwrap_or(0), 1);
+        let (high, _) = audit_memory_consistency(&state, &json!({"threshold_days": 10000}))
+            .expect("call succeeds with 10000");
+        assert_eq!(high["threshold_days"].as_u64().unwrap_or(0), 3650);
     }
 
     #[test]
