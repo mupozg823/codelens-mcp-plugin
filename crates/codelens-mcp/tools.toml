@@ -1208,6 +1208,18 @@ properties = { max_results = { type = "integer", minimum = 1, maximum = 500, des
 # ─────
 
 [[tool]]
+name = "find_over_visible_apis"
+category = "session"
+preset_tags = []
+description = "[CodeLens:Audit] Cross-layer policy detector: surfaces tools whose annotations contradict the readonly-intent of the preset/profile they're listed in. A `destructive_hint=true` or `approval_required=true` tool exposed on the `Minimal` preset or `PlannerReadonly`/`ReviewerGraph` profiles is leakage — the surface promises read-only safety but the tool reserves write/approval semantics. Resurrected from the v1.13.27 surface trim (\"495 over-visible cleanup\" item, 2026-05-18 dogfood memo). Runtime query only — no engine impl, data lives in the Tool registry + preset whitelists."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+
+# ─────
+
+[[tool]]
 name = "list_memories"
 category = "memory"
 preset_tags = []

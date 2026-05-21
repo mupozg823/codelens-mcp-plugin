@@ -314,6 +314,94 @@ pub fn find_redundant_definitions(state: &AppState, arguments: &Value) -> ToolRe
     ))
 }
 
+/// Surface tools whose annotations contradict the readonly-intent of the
+/// surface they appear in. A `destructive_hint=true` or
+/// `approval_required=true` tool listed on a readonly preset/profile
+/// (`Minimal`, `PlannerReadonly`, `ReviewerGraph`) is leakage — the
+/// surface promises read-only safety, but the tool reserves write or
+/// approval semantics. This is the runtime detector that the 2026-05-18
+/// dogfood memo referred to as "495 over-visible cleanup".
+///
+/// Resurrected from the v1.13.27 surface trim. Runtime query only — no
+/// engine impl needed, since the data lives entirely in the `Tool`
+/// registry (compiled from tools.toml) and the preset whitelists. Sits
+/// alongside `audit_tool_surface_consistency` and the resurrected
+/// `find_phantom_modules` / `find_redundant_definitions` in the
+/// self-auditability detector family.
+pub fn find_over_visible_apis(_state: &AppState, _arguments: &Value) -> ToolResult {
+    use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, visible_tools};
+
+    let readonly_surfaces: &[(&str, ToolSurface)] = &[
+        ("preset:minimal", ToolSurface::Preset(ToolPreset::Minimal)),
+        (
+            "profile:planner-readonly",
+            ToolSurface::Profile(ToolProfile::PlannerReadonly),
+        ),
+        (
+            "profile:reviewer-graph",
+            ToolSurface::Profile(ToolProfile::ReviewerGraph),
+        ),
+    ];
+
+    let mut violations: Vec<Value> = Vec::new();
+    for (label, surface) in readonly_surfaces {
+        for tool in visible_tools(*surface) {
+            let Some(ann) = tool.annotations.as_ref() else {
+                continue;
+            };
+            let mut reasons: Vec<&'static str> = Vec::new();
+            if ann.destructive_hint == Some(true) {
+                reasons.push("destructive_hint=true");
+            }
+            if ann.approval_required == Some(true) {
+                reasons.push("approval_required=true");
+            }
+            if !reasons.is_empty() {
+                violations.push(json!({
+                    "surface": label,
+                    "tool": tool.name,
+                    "reasons": reasons,
+                    "destructive_hint": ann.destructive_hint,
+                    "approval_required": ann.approval_required,
+                    "audit_category": ann.audit_category,
+                }));
+            }
+        }
+    }
+
+    let violation_count = violations.len();
+    let all_clean = violation_count == 0;
+    let mut next_actions: Vec<String> = Vec::new();
+    if all_clean {
+        next_actions.push(
+            "No over-visible API leakage: every readonly-intent surface is free of destructive or approval-required tools."
+                .to_owned(),
+        );
+    } else {
+        next_actions.push(format!(
+            "{violation_count} over-visible exposure(s) across readonly surfaces. Either tighten the preset/profile member list, or relax the tool annotation (only if the previous tag was wrong).",
+        ));
+    }
+
+    Ok((
+        json!({
+            "violations": violations,
+            "violation_count": violation_count,
+            "all_clean": all_clean,
+            "readonly_surfaces_checked": readonly_surfaces
+                .iter()
+                .map(|(label, _)| (*label).to_owned())
+                .collect::<Vec<_>>(),
+            "policy": {
+                "destructive_hint_true": "over-visible in any readonly-intent surface",
+                "approval_required_true": "over-visible in any readonly-intent surface",
+            },
+            "next_actions": next_actions,
+        }),
+        success_meta(BackendKind::Config, 1.0),
+    ))
+}
+
 #[cfg(test)]
 mod surface_audit_tests {
     use super::*;
@@ -404,6 +492,70 @@ mod surface_audit_tests {
         assert!(payload["phantom_modules"].as_array().unwrap().is_empty());
         assert_eq!(payload["truncated"].as_bool().unwrap_or(true), false);
         assert_eq!(payload["max_results"].as_u64().unwrap_or(0), 50);
+    }
+
+    #[test]
+    fn find_over_visible_apis_registered_on_both_sides() {
+        // Regression guard: the detector must stay in dispatch_table +
+        // tools.toml together. Same pattern as `audit_self_includes_itself_in_dispatch`.
+        let state = make_state();
+        let (payload, _meta) =
+            audit_tool_surface_consistency(&state, &json!({})).expect("audit succeeds");
+        let violations = &payload["violations"];
+        let missing_dispatch = violations["missing_in_dispatch"]
+            .as_array()
+            .map(|arr| arr.iter().any(|v| v == "find_over_visible_apis"))
+            .unwrap_or(false);
+        let missing_toml = violations["missing_in_toml"]
+            .as_array()
+            .map(|arr| arr.iter().any(|v| v == "find_over_visible_apis"))
+            .unwrap_or(false);
+        assert!(
+            !missing_dispatch,
+            "find_over_visible_apis must be in dispatch_table"
+        );
+        assert!(
+            !missing_toml,
+            "find_over_visible_apis must be in tools.toml"
+        );
+    }
+
+    #[test]
+    fn find_over_visible_apis_shape_and_policy_keys() {
+        // Smoke-test the shape: should return JSON with violations,
+        // violation_count, all_clean, readonly_surfaces_checked,
+        // policy, next_actions. Content of violations depends on the
+        // current preset whitelists, so we don't pin specific tool names.
+        let state = make_state();
+        let (payload, _meta) = find_over_visible_apis(&state, &json!({})).expect("call succeeds");
+        assert!(payload["violation_count"].is_number());
+        assert!(payload["all_clean"].is_boolean());
+        let surfaces = payload["readonly_surfaces_checked"]
+            .as_array()
+            .expect("readonly_surfaces_checked is an array");
+        assert_eq!(surfaces.len(), 3, "checks 3 readonly-intent surfaces");
+        assert!(
+            payload["policy"]["destructive_hint_true"].is_string(),
+            "policy.destructive_hint_true documented",
+        );
+        assert!(
+            payload["policy"]["approval_required_true"].is_string(),
+            "policy.approval_required_true documented",
+        );
+        assert!(
+            payload["next_actions"].as_array().unwrap().len() >= 1,
+            "at least one next_action surfaced",
+        );
+        // Every violation entry must carry tool + surface + reasons.
+        for v in payload["violations"].as_array().unwrap() {
+            assert!(v["tool"].is_string());
+            assert!(v["surface"].is_string());
+            let reasons = v["reasons"].as_array().expect("reasons is an array");
+            assert!(
+                !reasons.is_empty(),
+                "violation must cite at least one reason"
+            );
+        }
     }
 
     #[test]
