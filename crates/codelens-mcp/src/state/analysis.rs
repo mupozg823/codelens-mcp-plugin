@@ -252,6 +252,23 @@ impl AppState {
         self.artifact_store.get(analysis_id, Some(scope))
     }
 
+    /// Look up an analysis artifact by id, ignoring the project scope.
+    ///
+    /// Used by `get_analysis_section` as a graceful fallback when the
+    /// strict scope-matched lookup misses — typically because the caller
+    /// invoked `review_architecture` with an explicit `path` argument and
+    /// then chained `get_analysis_section` without restating the path,
+    /// so `current_project_scope()` resolves to a different scope than
+    /// the one stored on the artifact (G8 self-dogfood, 2026-05-21).
+    ///
+    /// analysis_id is a monotonic `analysis-{ms}-{seq}` from a single
+    /// daemon process, so cross-scope id collisions are vanishingly rare.
+    /// Callers that need scope isolation should still use
+    /// `get_analysis_for_scope`.
+    pub(crate) fn get_analysis_any_scope(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
+        self.artifact_store.get(analysis_id, None)
+    }
+
     pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
         self.get_analysis_for_scope(&self.current_project_scope(), analysis_id)
     }

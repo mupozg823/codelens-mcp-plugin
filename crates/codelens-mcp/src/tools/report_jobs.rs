@@ -817,9 +817,25 @@ pub fn get_analysis_section(state: &AppState, arguments: &Value) -> ToolResult {
     let analysis_id = required_string(arguments, "analysis_id")?;
     let section = required_string(arguments, "section")?;
     let scope = state.project_scope_for_arguments(arguments);
-    let artifact = state
-        .get_analysis_for_scope(&scope, analysis_id)
-        .ok_or_else(|| CodeLensError::NotFound(format!("unknown analysis_id `{analysis_id}`")))?;
+    // G8 (2026-05-21): scope-strict lookup is the primary path, but fall
+    // back to any-scope lookup when the strict match misses. This handles
+    // the common chaining shape where `review_architecture` was called
+    // with an explicit `path` argument and then `get_analysis_section`
+    // was called without restating it — `current_project_scope()` would
+    // otherwise resolve to a different scope than the artifact's stored
+    // scope and surface a misleading "unknown analysis_id" error even
+    // milliseconds after the handle was returned.
+    let (artifact, scope_widened) = match state.get_analysis_for_scope(&scope, analysis_id) {
+        Some(art) => (art, false),
+        None => match state.get_analysis_any_scope(analysis_id) {
+            Some(art) => (art, true),
+            None => {
+                return Err(CodeLensError::NotFound(format!(
+                    "unknown analysis_id `{analysis_id}`"
+                )));
+            }
+        },
+    };
     state
         .metrics()
         .record_analysis_read_for_session(true, Some(session.session_id.as_str()));
@@ -834,14 +850,20 @@ pub fn get_analysis_section(state: &AppState, arguments: &Value) -> ToolResult {
                 }
                 other => other,
             })?;
+    let mut payload = json!({
+        "analysis_id": analysis_id,
+        "section": section,
+        "content": content,
+        "tool_name": artifact.tool_name,
+        "surface": artifact.surface,
+    });
+    if scope_widened {
+        payload["scope_widened"] = json!(true);
+        payload["stored_scope"] = json!(artifact.project_scope);
+        payload["requested_scope"] = json!(scope);
+    }
     Ok((
-        json!({
-            "analysis_id": analysis_id,
-            "section": section,
-            "content": content,
-            "tool_name": artifact.tool_name,
-            "surface": artifact.surface,
-        }),
+        payload,
         success_meta(BackendKind::Memory, artifact.confidence),
     ))
 }

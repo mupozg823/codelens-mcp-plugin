@@ -679,6 +679,42 @@ mod tests {
     }
 
     #[test]
+    fn any_scope_lookup_returns_artifact_across_scopes() {
+        // G8 (2026-05-21): get_analysis_section falls back to any-scope
+        // lookup when the strict scope-matched lookup misses. This pins
+        // the contract that artifact_store.get(id, None) returns the
+        // artifact regardless of the stored project_scope value.
+        let (store, _tmp) = make_store();
+        let stored = store
+            .store(
+                "review_architecture",
+                "full",
+                "/explicit/path/passed/by/caller".to_owned(),
+                Some("key1".to_owned()),
+                "test".to_owned(),
+                vec!["finding".to_owned()],
+                "medium".to_owned(),
+                0.5,
+                vec!["act".to_owned()],
+                vec![],
+                AnalysisReadiness::default(),
+                vec![],
+                std::collections::BTreeMap::from([("summary".to_owned(), serde_json::json!({}))]),
+            )
+            .expect("store succeeds");
+        let id = stored.id.as_str();
+
+        assert!(
+            store.get(id, Some("/some/other/active/scope")).is_none(),
+            "strict lookup with mismatched scope must miss",
+        );
+        assert!(
+            store.get(id, None).is_some(),
+            "any-scope lookup (None) must hit regardless of stored scope",
+        );
+    }
+
+    #[test]
     fn configured_caps_respect_env_overrides_and_reject_invalid() {
         let saved_max = std::env::var("CODELENS_MAX_ANALYSIS_ARTIFACTS").ok();
         let saved_ttl = std::env::var("CODELENS_ANALYSIS_TTL_HOURS").ok();
