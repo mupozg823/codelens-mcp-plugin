@@ -237,7 +237,7 @@ properties = { path = { type = "string" }, symbol_name = { type = "string" } }
 [[tool]]
 name = "refresh_symbol_index"
 category = "symbol"
-preset_tags = ["minimal", "builder-minimal"]
+preset_tags = ["builder-minimal"]
 description = "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale."
 annotations = "mut_w"
 

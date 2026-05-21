@@ -164,7 +164,13 @@ pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     "get_ranked_context",
     "find_referencing_symbols",
     "get_type_hierarchy",
-    "refresh_symbol_index",
+    // `refresh_symbol_index` removed from Minimal (b07d5773 dogfood):
+    // `find_over_visible_apis` flagged it as leakage — the annotation is
+    // `approval_required=true` + `audit_category="mutation"`, but the
+    // Minimal preset promises read-only safety. The tool remains in
+    // `BUILDER_MINIMAL_TOOLS` and `REVIEWER_GRAPH_TOOLS` (line 291) where
+    // mutation surface is expected. Callers that need it from a minimal
+    // surface should `set_preset full` first.
     "get_file_diagnostics",
     "search_workspace_symbols",
     // Mutation (safe)
