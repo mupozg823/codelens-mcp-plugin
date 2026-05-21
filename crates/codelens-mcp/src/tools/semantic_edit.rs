@@ -31,8 +31,24 @@ pub(crate) fn selected_backend(
             Ok(SemanticEditBackendSelection::TreeSitter)
         }
         "lsp" => Ok(SemanticEditBackendSelection::Lsp),
+        // `auto`: pick LSP when the file extension has a default LSP server
+        // mapping (`default_lsp_command_for_path` returns Some), otherwise
+        // fall back to the tree-sitter degraded path. This makes opt-in LSP
+        // routing as cheap as setting `semantic_edit_backend=auto` instead
+        // of choosing per call. Serena's default is always LSP — `auto` is
+        // the CodeLens equivalent without breaking the existing
+        // `tree-sitter` default for callers that hadn't opted in. Falls
+        // back to tree-sitter if no `file_path` argument is present so the
+        // resolver never errors purely on capability detection.
+        "auto" => {
+            let file_path = optional_string(arguments, "file_path");
+            match file_path.and_then(default_lsp_command_for_path) {
+                Some(_) => Ok(SemanticEditBackendSelection::Lsp),
+                None => Ok(SemanticEditBackendSelection::TreeSitter),
+            }
+        }
         other => Err(CodeLensError::Validation(format!(
-            "unsupported semantic_edit_backend `{other}`; expected tree-sitter or lsp"
+            "unsupported semantic_edit_backend `{other}`; expected tree-sitter, lsp, or auto"
         ))),
     }
 }
@@ -748,4 +764,77 @@ fn hex_bytes(bytes: &[u8]) -> String {
         let _ = write!(output, "{byte:02x}");
     }
     output
+}
+
+#[cfg(test)]
+mod selected_backend_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn default_is_tree_sitter() {
+        let result = selected_backend(&json!({})).expect("default succeeds");
+        assert_eq!(result, SemanticEditBackendSelection::TreeSitter);
+    }
+
+    #[test]
+    fn explicit_tree_sitter_aliases_resolve() {
+        for alias in ["tree-sitter", "tree_sitter", "default", "off"] {
+            let result =
+                selected_backend(&json!({"semantic_edit_backend": alias})).expect("alias resolves");
+            assert_eq!(
+                result,
+                SemanticEditBackendSelection::TreeSitter,
+                "alias `{alias}` should resolve to TreeSitter"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_lsp_resolves() {
+        let result =
+            selected_backend(&json!({"semantic_edit_backend": "lsp"})).expect("lsp resolves");
+        assert_eq!(result, SemanticEditBackendSelection::Lsp);
+    }
+
+    #[test]
+    fn auto_with_lsp_capable_extension_picks_lsp() {
+        // `.rs` has a default LSP server mapping in
+        // codelens_engine::default_lsp_command_for_path (rust-analyzer).
+        let result = selected_backend(&json!({
+            "semantic_edit_backend": "auto",
+            "file_path": "src/lib.rs",
+        }))
+        .expect("auto+rs resolves");
+        assert_eq!(result, SemanticEditBackendSelection::Lsp);
+    }
+
+    #[test]
+    fn auto_with_uncapable_extension_falls_back_to_tree_sitter() {
+        let result = selected_backend(&json!({
+            "semantic_edit_backend": "auto",
+            "file_path": "data/manifest.unknownext",
+        }))
+        .expect("auto+unknown resolves");
+        assert_eq!(result, SemanticEditBackendSelection::TreeSitter);
+    }
+
+    #[test]
+    fn auto_without_file_path_falls_back_to_tree_sitter() {
+        // No file_path: capability cannot be detected, must not error.
+        let result = selected_backend(&json!({"semantic_edit_backend": "auto"}))
+            .expect("auto+nofile resolves");
+        assert_eq!(result, SemanticEditBackendSelection::TreeSitter);
+    }
+
+    #[test]
+    fn unsupported_backend_value_errors_with_hint_listing_auto() {
+        let result = selected_backend(&json!({"semantic_edit_backend": "garbage"}));
+        let err = result.expect_err("garbage should error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("auto"),
+            "error message must list `auto` as a valid choice (got: {msg})",
+        );
+    }
 }
