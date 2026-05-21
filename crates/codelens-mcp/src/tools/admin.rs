@@ -638,6 +638,30 @@ mod surface_audit_tests {
     }
 
     #[test]
+    #[cfg(feature = "semantic")]
+    fn find_misplaced_code_registered_in_toml() {
+        // find_misplaced_code's dispatch handler has lived in
+        // dispatch/table.rs since v1.13.6 (feature-gated on `semantic`).
+        // The Sprint B-3 cleanup (6726e663) only dropped the tools.toml
+        // schema; the handler remained. This guard pins the schema
+        // re-registration so the audit no longer surfaces it as drift.
+        let state = make_state();
+        let (payload, _meta) =
+            audit_tool_surface_consistency(&state, &json!({})).expect("audit succeeds");
+        let toml_tools: Vec<String> = payload["violations"]["missing_in_toml"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(ToOwned::to_owned))
+            .collect();
+        assert!(
+            !toml_tools.contains(&"find_misplaced_code".to_owned()),
+            "find_misplaced_code must be in tools.toml — was dropped in Sprint B-3 and restored here"
+        );
+    }
+
+    #[test]
     fn audit_memory_consistency_registered_on_both_sides() {
         let state = make_state();
         let (payload, _meta) =

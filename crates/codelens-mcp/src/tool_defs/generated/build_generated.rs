@@ -380,6 +380,11 @@ pub fn session_tools(
             json!({"type":"object"}),
         ).with_annotations(ro_a.clone()),
         Tool::new(
+            "find_misplaced_code",
+            "[CodeLens:Audit] Surface symbols that sit semantically far from their file's center — outliers whose `avg_similarity_to_file` is below the cluster mean by a significant margin. Useful before refactor planning: high outliers are candidates for relocation (to a more cohesive home file). Requires the embedding index (semantic feature). Returns `{file_path, symbol_name, kind, line, avg_similarity_to_file}` per outlier. Schema-only re-registration: the handler in `dispatch/table.rs` has been live since v1.13.6 (feature-gated on `semantic`), only the tools.toml schema was missing after the v1.13.32 Sprint B-3 cleanup.",
+            json!({"type":"object","properties":{"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on outliers returned (default 10)"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
             "audit_memory_consistency",
             "[CodeLens:Audit] Surface project memory files (`.codelens/memories/*.md`) whose modification time exceeds the staleness threshold. Memories are frozen-in-time observations and silently drift from the codebase they describe (cited paths get renamed, cited symbols disappear). Self-auditability complement to the four tool-surface detectors. `threshold_days` (default 30, clamped 1..3650) configurable. Returns oldest-first list of `{file, age_days, mtime_epoch_secs}` for each stale entry plus `total_files`, `stale_count`, `all_clean`.",
             json!({"type":"object","properties":{"threshold_days":{"type":"integer","minimum":1,"maximum":3650,"description":"Files older than this (in days) are reported as stale (default 30)"}}}),

@@ -1220,6 +1220,19 @@ type = "object"
 # ─────
 
 [[tool]]
+name = "find_misplaced_code"
+category = "session"
+preset_tags = []
+description = "[CodeLens:Audit] Surface symbols that sit semantically far from their file's center — outliers whose `avg_similarity_to_file` is below the cluster mean by a significant margin. Useful before refactor planning: high outliers are candidates for relocation (to a more cohesive home file). Requires the embedding index (semantic feature). Returns `{file_path, symbol_name, kind, line, avg_similarity_to_file}` per outlier. Schema-only re-registration: the handler in `dispatch/table.rs` has been live since v1.13.6 (feature-gated on `semantic`), only the tools.toml schema was missing after the v1.13.32 Sprint B-3 cleanup."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+properties = { max_results = { type = "integer", minimum = 1, maximum = 500, description = "Cap on outliers returned (default 10)" } }
+
+# ─────
+
+[[tool]]
 name = "audit_memory_consistency"
 category = "session"
 preset_tags = []
