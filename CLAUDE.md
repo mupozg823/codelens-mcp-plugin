@@ -317,6 +317,16 @@ Controls compression aggressiveness. Set via `CODELENS_EFFORT_LEVEL` env var.
 - `medium` — default thresholds
 - `high` — compress later (thresholds +10pp), budget ×1.3 **(default, matching Claude Code v2.1.94)**
 
+## Backup Rotation
+
+Three backup patterns accumulate without retention if left unmanaged:
+
+- `${REPO}/.codelens/bin/codelens-mcp-http.bak-pre-*` — daemon redeploy preserves the previous binary by version tag.
+- `~/.codelens/index/{symbols,embeddings}.db.bak-*-migration` — in-place schema migrations preserve the previous shape.
+- `~/.codelens/index/{symbols,embeddings}.db.bak-readonly-old` — read-only conversion preserves the writable copy.
+
+Run `bash scripts/cleanup-stale-backups.sh [--keep N] [--dry-run]` periodically (or wire into a build/release hook). Defaults to keeping the 2 most recent per pattern.
+
 ## Analysis Artifact Cache (LRU + TTL)
 
 `artifact_store` keeps recent analysis results (the `analysis_id` values returned by `review_architecture`, `module_boundary_report`, `dead_code_report`, etc.) so chained calls like `get_analysis_section` can resolve them. Two caps with runtime overrides:
