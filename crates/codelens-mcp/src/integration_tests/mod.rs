@@ -7,7 +7,6 @@ use crate::server::router::handle_request;
 use crate::tool_defs::tools;
 use codelens_engine::ProjectRoot;
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -168,10 +167,7 @@ pub(super) fn project_root() -> ProjectRoot {
     ProjectRoot::new(dir.to_str().unwrap()).unwrap()
 }
 
-pub(super) fn sha256_hex_text(text: &str) -> String {
-    let digest = Sha256::digest(text.as_bytes());
-    format!("{digest:x}")
-}
+
 
 /// Verify every tool in tool_defs has a corresponding dispatch handler.
 /// Catches drift between definitions and implementations.
