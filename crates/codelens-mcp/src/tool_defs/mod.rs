@@ -13,8 +13,9 @@ pub(crate) use presets::{
     ToolProfile, ToolSurface, apply_tool_deprecation_meta, compile_surface_overlay,
     default_budget_for_preset, default_budget_for_profile, deprecated_workflow_alias,
     is_tool_callable_in_surface, is_tool_in_surface, tool_anthropic_always_load,
-    tool_anthropic_search_hint, tool_deprecation, tool_namespace, tool_phase_label,
-    tool_preferred_executor, tool_preferred_executor_label, whitelist_preset_member_union,
+    tool_anthropic_search_hint, tool_deprecation, tool_feature_gate, tool_namespace,
+    tool_phase_label, tool_preferred_executor, tool_preferred_executor_label,
+    whitelist_preset_member_union,
 };
 
 // Re-exports from build
@@ -288,6 +289,8 @@ pub(crate) fn is_content_mutation_tool(name: &str) -> bool {
             | "write_memory"
             | "delete_memory"
             | "rename_memory"
+            | "archive_memory"
+            | "restore_memory"
             | "add_queryable_project"
             | "remove_queryable_project"
             | "refactor_extract_function"

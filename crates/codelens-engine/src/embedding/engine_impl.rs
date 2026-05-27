@@ -1,5 +1,7 @@
 use crate::db::IndexDb;
-use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
+use crate::embedding_store::{
+    ArtifactEmbeddingChunk, EmbeddingChunk, ScoredArtifactChunk, ScoredChunk,
+};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
 use fastembed::TextEmbedding;
@@ -1140,5 +1142,89 @@ impl EmbeddingEngine {
         });
         outliers.truncate(max_results);
         Ok(outliers)
+    }
+
+    pub fn embed_text(&self, text: &str) -> Result<Vec<f32>> {
+        self.embed_texts_cached(&[text])?
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("missing embedding for text"))
+    }
+
+    // ── Artifact memory API (Phase 1 — v0.15+) ────────────────────────────
+
+    /// Store pre-computed artifact embeddings in the semantic index.
+    pub fn store_artifact_embeddings(&self, chunks: &[ArtifactEmbeddingChunk]) -> Result<usize> {
+        self.store.upsert_artifacts(chunks)
+    }
+
+    /// Semantic search over stored artifact analyses.
+    pub fn search_artifact_embeddings(
+        &self,
+        query: &str,
+        top_k: usize,
+    ) -> Result<Vec<ScoredArtifactChunk>> {
+        let query_embedding = self.embed_query_cached(query)?;
+        self.store.search_artifacts(&query_embedding, top_k)
+    }
+
+    /// Count stored artifact embeddings.
+    pub fn artifact_embedding_count(&self) -> Result<usize> {
+        self.store.artifact_count()
+    }
+
+    /// Prune artifact embeddings older than the given duration (ms).
+    pub fn prune_artifact_embeddings(&self, max_age_ms: u64) -> Result<usize> {
+        self.store.prune_artifacts_by_age(max_age_ms)
+    }
+
+    /// Compute mean embedding for each file from indexed symbol embeddings.
+    pub fn file_mean_embeddings(&self, file_paths: &[&str]) -> Result<HashMap<String, Vec<f32>>> {
+        let chunks = self.store.embeddings_for_files(file_paths)?;
+        let mut per_file: HashMap<String, Vec<Vec<f32>>> = HashMap::new();
+        for chunk in chunks {
+            per_file
+                .entry(chunk.file_path)
+                .or_default()
+                .push(chunk.embedding);
+        }
+        let mut result = HashMap::new();
+        for (file, embeddings) in per_file {
+            if embeddings.is_empty() {
+                continue;
+            }
+            let dim = embeddings[0].len();
+            let mut mean = vec![0.0f32; dim];
+            for emb in &embeddings {
+                for i in 0..dim {
+                    mean[i] += emb[i];
+                }
+            }
+            let count = embeddings.len() as f32;
+            for v in &mut mean {
+                *v /= count;
+            }
+            result.insert(file, mean);
+        }
+        Ok(result)
+    }
+
+    /// Compute mean embedding of multiple file embeddings.
+    pub fn mean_of_embeddings(embeddings: &[Vec<f32>]) -> Option<Vec<f32>> {
+        if embeddings.is_empty() {
+            return None;
+        }
+        let dim = embeddings[0].len();
+        let mut mean = vec![0.0f32; dim];
+        for emb in embeddings {
+            for i in 0..dim {
+                mean[i] += emb[i];
+            }
+        }
+        let count = embeddings.len() as f32;
+        for v in &mut mean {
+            *v /= count;
+        }
+        Some(mean)
     }
 }

@@ -7,8 +7,8 @@ mod overlay;
 pub(crate) use budgets::{default_budget_for_preset, default_budget_for_profile};
 pub(crate) use metadata::{
     apply_tool_deprecation_meta, deprecated_workflow_alias, tool_anthropic_always_load,
-    tool_anthropic_search_hint, tool_deprecation, tool_namespace, tool_phase_label,
-    tool_preferred_executor, tool_preferred_executor_label,
+    tool_anthropic_search_hint, tool_deprecation, tool_feature_gate, tool_namespace,
+    tool_phase_label, tool_preferred_executor, tool_preferred_executor_label,
 };
 pub(crate) use overlay::{HostContext, SurfaceCompilerInput, TaskOverlay, compile_surface_overlay};
 
@@ -254,7 +254,6 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "semantic_search",
     "index_embeddings",
     // Graph / impact
-    "get_impact_analysis",
     "get_changed_files",
     "onboard_project",
     // Workflow composites
@@ -354,7 +353,6 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     // Graph / impact
     "get_callers",
     "get_callees",
-    "get_impact_analysis",
     "get_changed_files",
     // Workflow composites
     "orchestrate_change",

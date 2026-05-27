@@ -1,13 +1,9 @@
-//! Sparse retrieval helpers shared between the symbol-query pipeline
-//! and the legacy `bm25_symbol_search` / `get_complexity` handlers.
+//! Sparse retrieval helpers shared by ranked-context fusion,
+//! `bm25_symbol_search`, and `get_complexity`.
 //!
-//! Moved here from `tools/symbols/handlers.rs` to break the
-//! `symbol_query ↔ symbols` cycle reported by `review_architecture`:
-//! the pipeline used to import these helpers upward from
-//! `handlers.rs`, while `handlers.rs` re-entered the pipeline through
-//! its 3-line tool entries. The dependency now flows one way —
-//! `symbols::handlers` → `symbol_query::sparse_retriever` — so the
-//! pipeline owns its retrieval primitives.
+//! The dependency flows one way: `symbols::*` can call into these
+//! retrieval primitives, while `symbol_query::*` does not import from
+//! `symbols::*`.
 
 use crate::AppState;
 use crate::error::CodeLensError;

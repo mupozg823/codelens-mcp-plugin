@@ -1,10 +1,8 @@
 //! `search_symbols_fuzzy` — hybrid fuzzy symbol search with optional
-//! semantic boost. Distinct from the BM25 lane and the
-//! `SymbolQueryPipeline`: this lane accepts a `fuzzy_threshold`
-//! parameter and routes through `search_symbols_hybrid_with_semantic`
-//! in `codelens_engine`. Kept as its own seam so callers can pin the
-//! fuzzy behaviour without paying the pipeline's full rank-fusion
-//! orchestration cost.
+//! semantic boost. Distinct from the BM25 lane and ranked-context
+//! fusion: this lane accepts a `fuzzy_threshold` parameter and routes
+//! through `search_symbols_hybrid_with_semantic` in `codelens_engine`.
+//! Kept as its own seam so callers can pin the fuzzy behaviour.
 
 use super::super::{
     AppState, ToolResult, optional_bool, optional_usize, required_string, success_meta,

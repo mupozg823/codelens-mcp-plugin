@@ -253,12 +253,24 @@ fn resolve_js_module(project: &ProjectRoot, source_file: &Path, module: &str) ->
 pub(super) fn js_resolution_candidates(base: &Path) -> Vec<PathBuf> {
     let mut candidates = vec![base.to_path_buf()];
     let extensions = ["js", "jsx", "ts", "tsx", "mjs", "cjs"];
-    if base.extension().is_none() {
+
+    let needs_stripped_candidates = if let Some(ext) = base.extension().and_then(|e| e.to_str()) {
+        matches!(ext, "js" | "jsx" | "mjs" | "cjs")
+    } else {
+        true
+    };
+
+    if needs_stripped_candidates {
+        let stripped = if base.extension().is_some() {
+            base.with_extension("")
+        } else {
+            base.to_path_buf()
+        };
         for ext in extensions {
-            candidates.push(base.with_extension(ext));
+            candidates.push(stripped.with_extension(ext));
         }
         for ext in extensions {
-            candidates.push(base.join(format!("index.{ext}")));
+            candidates.push(stripped.join(format!("index.{ext}")));
         }
     }
     candidates

@@ -17,8 +17,8 @@
 //!   5. **response annotations** — surface `unknown_args` +
 //!      `deprecation_warnings` at the top level.
 //!
-//! All five stages now concentrate here; `handlers.rs::get_symbols_overview`
-//! is a 3-line dispatch into `SymbolQueryPipeline`.
+//! All five stages now concentrate here; the public symbol handler only
+//! forwards arguments into this concrete implementation.
 
 use crate::AppState;
 use crate::error::CodeLensError;

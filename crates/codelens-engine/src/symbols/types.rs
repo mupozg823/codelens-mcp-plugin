@@ -248,6 +248,22 @@ pub struct RankedContextResult {
     pub chars_used: usize,
 }
 
+impl RankedContextEntry {
+    /// Truncate signature to reduce payload size when token budget is tight.
+    pub fn truncate_signature(&mut self, max_len: usize) {
+        if self.signature.len() > max_len {
+            self.signature.truncate(max_len);
+            self.signature.push('…');
+        }
+    }
+
+    /// Drop body and truncate signature — used for low-detail mode.
+    pub fn compact(&mut self, signature_max: usize) {
+        self.body = None;
+        self.truncate_signature(signature_max);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ParsedSymbol {
     pub name: String,

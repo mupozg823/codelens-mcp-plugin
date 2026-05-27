@@ -34,3 +34,29 @@ pub struct ScoredChunk {
     pub name_path: String,
     pub score: f64,
 }
+
+// ── Artifact memory embeddings ──────────────────────────────────────────
+
+/// A single artifact analysis summary ready for semantic storage.
+#[derive(Debug, Clone)]
+pub struct ArtifactEmbeddingChunk {
+    pub analysis_id: String,
+    pub tool_name: String,
+    pub surface: String,
+    pub project_scope: Option<String>,
+    pub summary: String,
+    pub top_findings: Vec<String>,
+    pub risk_level: String,
+    pub embedding: Vec<f32>,
+}
+
+/// Result of a semantic artifact search.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScoredArtifactChunk {
+    pub analysis_id: String,
+    pub tool_name: String,
+    pub surface: String,
+    pub project_scope: Option<String>,
+    pub summary: String,
+    pub score: f64,
+}

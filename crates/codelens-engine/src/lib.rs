@@ -114,6 +114,15 @@ pub use embedding::{
     embedding_model_assets_available,
 };
 pub use embedding_types::{EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch};
+pub use memory::{
+    AuditRecorder, MemoryAuditEvent, MemoryFrontmatter, MemoryLocation, MemoryMetadata,
+    MemoryPolicy, MemoryTier, NullRecorder, archive_memory, archive_memory_rec, delete_memory,
+    delete_memory_tiered, delete_memory_tiered_rec, global_memory_dir, list_all_memory_names,
+    list_archived, list_memory_names, parse_frontmatter, read_memory, read_memory_from_tier,
+    read_memory_with_metadata, read_policy, rename_memory, resolve_memory_path,
+    resolve_memory_tier, restore_archived, restore_archived_rec, strip_frontmatter, write_memory,
+    write_memory_tiered, write_memory_tiered_rec,
+};
 #[cfg(feature = "scip-backend")]
 pub use scip_backend::ScipBackend;
 pub use scope_analysis::{

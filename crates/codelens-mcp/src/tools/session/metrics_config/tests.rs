@@ -1,7 +1,7 @@
 // ── Phase 4a tests: capability reporting correctness ─────────────────
 
 #[cfg(feature = "semantic")]
-use super::capabilities::SemanticSearchStatus;
+use super::semantic::SemanticSearchStatus;
 
 /// Phase 4a AC1: the LSP fallback helper must resolve a binary
 /// that exists in a known install directory even when the daemon

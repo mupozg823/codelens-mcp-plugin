@@ -1,5 +1,9 @@
 pub(crate) mod capabilities;
+mod diagnostics;
+mod health;
 mod metrics;
+mod probe_status;
+mod semantic;
 mod watch_prune;
 
 #[cfg(test)]

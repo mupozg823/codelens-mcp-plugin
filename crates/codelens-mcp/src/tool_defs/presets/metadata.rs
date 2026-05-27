@@ -48,6 +48,18 @@ pub(crate) fn deprecated_workflow_alias(name: &str) -> Option<(&'static str, &'s
     tool_deprecation(name).map(|(_, replacement, removal)| (replacement, removal))
 }
 
+pub(crate) fn tool_feature_gate(name: &str) -> Option<&'static str> {
+    match name {
+        "semantic_search"
+        | "index_embeddings"
+        | "find_similar_code"
+        | "find_code_duplicates"
+        | "classify_symbol"
+        | "find_misplaced_code" => Some("semantic"),
+        _ => None,
+    }
+}
+
 /// Phase alias per ADR-0005 step 4 — harness-phase scoping for `tools/list`
 /// filter without introducing a second tool registry. Returning `None` marks
 /// the tool as phase-agnostic (infrastructure / coordination).
@@ -64,7 +76,6 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         | "module_boundary_report"
         | "mermaid_module_graph"
         | "impact_report"
-        | "get_impact_analysis"
         | "get_ranked_context"
         | "get_symbols_overview"
         | "find_symbol"
@@ -248,7 +259,6 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "semantic_search"
         | "index_embeddings" => "symbols",
         "get_changed_files"
-        | "get_impact_analysis"
         | "get_callers"
         | "get_callees"
         | "find_scoped_references"

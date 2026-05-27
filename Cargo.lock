@@ -410,6 +410,7 @@ dependencies = [
  "streaming-iterator",
  "strsim",
  "tempfile",
+ "toml",
  "tracing",
  "tree-sitter",
  "tree-sitter-bash",

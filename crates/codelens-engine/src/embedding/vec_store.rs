@@ -7,7 +7,9 @@
 //! was not publicly re-exported, so it was removed in favor of calling the
 //! concrete struct directly.
 
-use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
+use crate::embedding_store::{
+    ArtifactEmbeddingChunk, EmbeddingChunk, ScoredArtifactChunk, ScoredChunk,
+};
 use anyhow::Result;
 use rusqlite::Connection;
 use std::collections::HashSet;
@@ -103,6 +105,25 @@ impl SqliteVecStore {
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('model', ?1)",
                 rusqlite::params![model_name],
             )?;
+
+            // Migration: artifact memory tables (Phase 1 — v0.15+)
+            conn.execute_batch(&format!(
+                "CREATE TABLE IF NOT EXISTS artifacts (
+                    id INTEGER PRIMARY KEY,
+                    analysis_id TEXT NOT NULL UNIQUE,
+                    tool_name TEXT NOT NULL,
+                    surface TEXT NOT NULL,
+                    project_scope TEXT,
+                    summary TEXT NOT NULL,
+                    top_findings TEXT NOT NULL DEFAULT '[]',
+                    risk_level TEXT NOT NULL DEFAULT 'medium',
+                    created_at_ms INTEGER NOT NULL
+                );
+                CREATE VIRTUAL TABLE IF NOT EXISTS vec_artifacts USING vec0(
+                    embedding float[{dimension}]
+                );",
+                dimension = dimension
+            ))?;
 
             Ok(Self {
                 db: Mutex::new(conn),
@@ -626,5 +647,135 @@ impl SqliteVecStore {
         }
 
         Ok(())
+    }
+
+    // ── Artifact memory operations (Phase 1 — v0.15+) ───────────────────
+
+    pub(super) fn upsert_artifacts(&self, chunks: &[ArtifactEmbeddingChunk]) -> Result<usize> {
+        if chunks.is_empty() {
+            return Ok(0);
+        }
+        let mut db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let tx = db.transaction()?;
+
+        let mut meta_stmt = tx.prepare(
+            "INSERT OR REPLACE INTO artifacts
+             (analysis_id, tool_name, surface, project_scope, summary, top_findings, risk_level, created_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+        )?;
+        let mut vec_stmt =
+            tx.prepare("INSERT OR REPLACE INTO vec_artifacts (rowid, embedding) VALUES (?1, ?2)")?;
+
+        for chunk in chunks {
+            let id: i64 = tx
+                .query_row(
+                    "SELECT id FROM artifacts WHERE analysis_id = ?1",
+                    rusqlite::params![&chunk.analysis_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+
+            let row_id = if id == 0 {
+                tx.execute(
+                    "INSERT INTO artifacts (analysis_id, tool_name, surface, project_scope, summary, top_findings, risk_level, created_at_ms)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    rusqlite::params![
+                        &chunk.analysis_id,
+                        &chunk.tool_name,
+                        &chunk.surface,
+                        &chunk.project_scope,
+                        &chunk.summary,
+                        serde_json::to_string(&chunk.top_findings)?,
+                        &chunk.risk_level,
+                        Self::now_ms(),
+                    ],
+                )?;
+                tx.last_insert_rowid()
+            } else {
+                id
+            };
+
+            let emb_bytes = embedding_to_bytes(&chunk.embedding);
+            vec_stmt.execute(rusqlite::params![row_id, emb_bytes])?;
+
+            // Also update metadata in case it changed
+            if id != 0 {
+                meta_stmt.execute(rusqlite::params![
+                    &chunk.analysis_id,
+                    &chunk.tool_name,
+                    &chunk.surface,
+                    &chunk.project_scope,
+                    &chunk.summary,
+                    serde_json::to_string(&chunk.top_findings)?,
+                    &chunk.risk_level,
+                    Self::now_ms(),
+                ])?;
+            }
+        }
+
+        drop(meta_stmt);
+        drop(vec_stmt);
+        tx.commit()?;
+        Ok(chunks.len())
+    }
+
+    pub(super) fn search_artifacts(
+        &self,
+        query_vec: &[f32],
+        top_k: usize,
+    ) -> Result<Vec<ScoredArtifactChunk>> {
+        let query_bytes = embedding_to_bytes(query_vec);
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+
+        let mut stmt = db.prepare(
+            "SELECT a.analysis_id, a.tool_name, a.surface, a.project_scope, a.summary, v.distance
+             FROM vec_artifacts v
+             JOIN artifacts a ON a.id = v.rowid
+             WHERE v.embedding MATCH ?1 AND k = ?2
+             ORDER BY v.distance",
+        )?;
+
+        let results = stmt
+            .query_map(rusqlite::params![query_bytes, top_k as i64], |row| {
+                Ok(ScoredArtifactChunk {
+                    analysis_id: row.get(0)?,
+                    tool_name: row.get(1)?,
+                    surface: row.get(2)?,
+                    project_scope: row.get(3)?,
+                    summary: row.get(4)?,
+                    score: 1.0 - row.get::<_, f64>(5)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(results)
+    }
+
+    pub(super) fn prune_artifacts_by_age(&self, max_age_ms: u64) -> Result<usize> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let cutoff = Self::now_ms() - max_age_ms as i64;
+
+        let to_remove: Vec<i64> = db
+            .prepare("SELECT id FROM artifacts WHERE created_at_ms < ?1")?
+            .query_map(rusqlite::params![cutoff], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        if to_remove.is_empty() {
+            return Ok(0);
+        }
+
+        let placeholders = vec!["?"; to_remove.len()].join(", ");
+        let vec_sql = format!("DELETE FROM vec_artifacts WHERE rowid IN ({placeholders})");
+        let meta_sql = format!("DELETE FROM artifacts WHERE id IN ({placeholders})");
+
+        db.execute(&vec_sql, rusqlite::params_from_iter(to_remove.iter()))?;
+        let removed = db.execute(&meta_sql, rusqlite::params_from_iter(to_remove.iter()))?;
+        Ok(removed)
+    }
+
+    pub(super) fn artifact_count(&self) -> Result<usize> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let count: i64 = db.query_row("SELECT COUNT(*) FROM artifacts", [], |row| row.get(0))?;
+        Ok(count as usize)
     }
 }

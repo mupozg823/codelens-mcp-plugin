@@ -47,7 +47,7 @@ pub struct AuditRecord {
     pub session_metadata: Option<serde_json::Value>,
 }
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 const CREATE_SQL: &str = "
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -67,12 +67,31 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_log_tx ON audit_log(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(timestamp_ms);
+
+CREATE TABLE IF NOT EXISTS memory_audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event       TEXT NOT NULL,
+    tier        TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    timestamp_ms INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_audit_tier ON memory_audit_log(tier);
+CREATE INDEX IF NOT EXISTS idx_memory_audit_ts ON memory_audit_log(timestamp_ms);
 ";
 
 /// Append-only audit log backed by SQLite.
 pub struct AuditSink {
     conn: Mutex<Connection>,
     path: PathBuf,
+}
+
+impl std::fmt::Debug for AuditSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuditSink")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AuditSink {
@@ -226,6 +245,46 @@ impl AuditSink {
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
+
+    /// Record a memory lifecycle event into the `memory_audit_log` table.
+    pub fn record_memory_event(
+        &self,
+        event: &codelens_engine::memory::MemoryAuditEvent,
+    ) -> Result<()> {
+        use codelens_engine::memory::MemoryAuditEvent;
+        let (event_type, tier, path) = match event {
+            MemoryAuditEvent::Created { tier, path } => ("Created", tier.as_str(), path.as_str()),
+            MemoryAuditEvent::Updated { tier, path } => ("Updated", tier.as_str(), path.as_str()),
+            MemoryAuditEvent::Deleted { tier, path } => ("Deleted", tier.as_str(), path.as_str()),
+            MemoryAuditEvent::Archived { tier, path } => ("Archived", tier.as_str(), path.as_str()),
+            MemoryAuditEvent::Restored { tier, path } => ("Restored", tier.as_str(), path.as_str()),
+        };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("audit_log mutex poisoned: {e}"))?;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO memory_audit_log (event, tier, path, timestamp_ms)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![event_type, tier, path, now_ms],
+        )
+        .with_context(|| format!("failed to record memory audit event: {event_type}"))?;
+        Ok(())
+    }
+}
+
+/// Implement AuditRecorder for AuditSink so the engine can record
+/// memory lifecycle events without a direct dependency on the MCP crate.
+impl codelens_engine::memory::AuditRecorder for AuditSink {
+    fn record(&self, event: &codelens_engine::memory::MemoryAuditEvent) {
+        if let Err(e) = self.record_memory_event(event) {
+            tracing::warn!(error = %e, "failed to record memory audit event");
+        }
+    }
 }
 
 /// Apply schema migrations from the on-disk `user_version` to the
@@ -260,6 +319,22 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
                     conn.execute_batch("ALTER TABLE audit_log ADD COLUMN session_metadata TEXT")
                         .context("failed to add session_metadata column")?;
                 }
+            }
+            2 => {
+                // v2 → v3: create memory_audit_log table for Phase B
+                // memory lifecycle events.
+                conn.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS memory_audit_log (
+                        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event       TEXT NOT NULL,
+                        tier        TEXT NOT NULL,
+                        path        TEXT NOT NULL,
+                        timestamp_ms INTEGER NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_memory_audit_tier ON memory_audit_log(tier);
+                    CREATE INDEX IF NOT EXISTS idx_memory_audit_ts ON memory_audit_log(timestamp_ms);",
+                )
+                .context("failed to create memory_audit_log table")?;
             }
             other => anyhow::bail!(
                 "audit_log schema at unexpected version {other}; current code targets {SCHEMA_VERSION}"

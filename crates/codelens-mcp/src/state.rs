@@ -323,4 +323,63 @@ mod tests {
         assert!(Arc::ptr_eq(&first_index, &reused_index));
         assert!(Arc::ptr_eq(&first_lsp_pool, &reused_lsp_pool));
     }
+
+    #[test]
+    fn switch_project_eviction_resource_release() {
+        let default_project = temp_project_root("evict-default");
+        let project_a = temp_project_root("evict-a");
+        let project_b = temp_project_root("evict-b");
+        let project_c = temp_project_root("evict-c");
+        let project_d = temp_project_root("evict-d");
+        let project_e = temp_project_root("evict-e");
+
+        let state = AppState::new_minimal(default_project, ToolPreset::Balanced);
+
+        // 1. 프로젝트 a 활성화 및 캐시 컨텍스트 획득
+        state
+            .switch_project(project_a.as_path().to_str().unwrap())
+            .unwrap();
+
+        let ctx_a = {
+            let cache = state.project_context_cache.lock().unwrap();
+            cache
+                .entries
+                .get(&project_a.as_path().to_string_lossy().to_string())
+                .cloned()
+                .unwrap()
+        };
+
+        // 활성화된 상태에서는 watcher가 살아있음
+        assert!(
+            ctx_a
+                .watcher
+                .as_ref()
+                .map(|w| w.stats().running)
+                .unwrap_or(false)
+        );
+
+        // 2. 캐시 한계(4)를 넘도록 b, c, d, e 프로젝트로 차례대로 스위칭하여 a가 축출되게 유도
+        state
+            .switch_project(project_b.as_path().to_str().unwrap())
+            .unwrap();
+        state
+            .switch_project(project_c.as_path().to_str().unwrap())
+            .unwrap();
+        state
+            .switch_project(project_d.as_path().to_str().unwrap())
+            .unwrap();
+        state
+            .switch_project(project_e.as_path().to_str().unwrap())
+            .unwrap();
+
+        // 3. 축출된 프로젝트 a의 자원이 명시적으로 종료(Watcher 정지)되었는지 검증
+        assert!(
+            !ctx_a
+                .watcher
+                .as_ref()
+                .map(|w| w.stats().running)
+                .unwrap_or(true)
+        );
+        assert_eq!(ctx_a.lsp_pool.session_count(), 0);
+    }
 }

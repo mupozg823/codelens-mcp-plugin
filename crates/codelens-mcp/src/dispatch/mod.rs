@@ -29,6 +29,13 @@ use session::{apply_post_mutation, collect_session_context, record_span_fields};
 
 use tracing::info_span;
 
+pub(crate) fn registered_tool_names() -> std::collections::BTreeSet<String> {
+    table::DISPATCH_TABLE
+        .keys()
+        .map(|name| (*name).to_owned())
+        .collect()
+}
+
 // Thread-local request budget — avoids race condition when multiple
 // HTTP requests override the global token_budget concurrently.
 thread_local! {

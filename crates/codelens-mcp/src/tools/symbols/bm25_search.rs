@@ -1,9 +1,9 @@
 //! `bm25_symbol_search` — sparse BM25F lane over the symbol corpus.
 //!
-//! Distinct from the pipeline (`SymbolQueryPipeline`): this is the
-//! single-lane fallback exposed as a top-level tool when the caller
-//! explicitly wants BM25 evidence (lexical match transparency,
-//! debugging, harness probes that don't want hybrid fusion).
+//! This is the single-lane fallback exposed as a top-level tool when
+//! the caller explicitly wants BM25 evidence (lexical match
+//! transparency, debugging, harness probes that don't want hybrid
+//! fusion).
 //!
 //! Internal helpers `suggested_follow_up` and `confidence_tier` shape
 //! the per-card metadata the harness consumes. Both stay file-private.

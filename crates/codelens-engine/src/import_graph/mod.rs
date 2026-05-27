@@ -69,6 +69,9 @@ struct GraphCacheInner {
     /// Computed lazily on first `file_pagerank_scores` call after each
     /// rebuild; reused across requests until the next invalidation.
     pagerank: Option<Arc<HashMap<String, f64>>>,
+    /// Semantic coupling scores injected from the embedding layer.
+    /// Multiplied against PageRank scores in `file_pagerank_scores`.
+    semantic_scores: Option<Arc<HashMap<String, f64>>>,
     /// Generation at which this cache entry was built.
     built_generation: u64,
 }
@@ -81,6 +84,7 @@ impl GraphCache {
             inner: Mutex::new(GraphCacheInner {
                 graph: None,
                 pagerank: None,
+                semantic_scores: None,
                 built_generation: 0,
             }),
             generation: AtomicU64::new(1), // start at 1 so default 0 is always stale
@@ -122,7 +126,21 @@ impl GraphCache {
             && inner.built_generation == current_gen
             && let Some(pr) = inner.pagerank.as_ref()
         {
-            return Arc::clone(pr);
+            let scores = if let Some(semantic) = inner.semantic_scores.as_ref() {
+                let merged: HashMap<String, f64> = pr
+                    .iter()
+                    .map(|(file, pr_score)| {
+                        let sem_boost = semantic.get(file).copied().unwrap_or(0.0);
+                        // Multiply PageRank by (1 + semantic_boost), cap at 5.0x
+                        let boosted = pr_score * (1.0 + sem_boost).min(5.0);
+                        (file.clone(), boosted)
+                    })
+                    .collect();
+                Arc::new(merged)
+            } else {
+                Arc::clone(pr)
+            };
+            return scores;
         }
         // Slow path: rebuild graph if needed, then compute + memoize.
         let graph = match self.get_or_build(project) {
@@ -131,16 +149,32 @@ impl GraphCache {
         };
         let pr = Arc::new(compute_pagerank(&graph));
         if let Ok(mut inner) = self.inner.lock() {
+            let sem = inner.semantic_scores.as_ref();
+            let result = if let Some(semantic) = sem {
+                let merged: HashMap<String, f64> = pr
+                    .iter()
+                    .map(|(file, pr_score)| {
+                        let sem_boost = semantic.get(file).copied().unwrap_or(0.0);
+                        let boosted = pr_score * (1.0 + sem_boost).min(5.0);
+                        (file.clone(), boosted)
+                    })
+                    .collect();
+                Arc::new(merged)
+            } else {
+                Arc::clone(&pr)
+            };
             // Re-check generation under lock — another writer may have
             // bumped it while we were computing. If so, leave their
             // (newer) cache in place and return our computed result for
             // this request without poisoning the cache.
             let still_current = self.generation.load(Ordering::Acquire);
             if inner.built_generation == still_current {
-                inner.pagerank = Some(Arc::clone(&pr));
+                inner.pagerank = Some(pr);
             }
+            result
+        } else {
+            Arc::clone(&pr)
         }
-        pr
     }
 
     /// Bump the generation counter, causing the next `get_or_build` to rebuild.
@@ -151,6 +185,15 @@ impl GraphCache {
     /// Current generation (for diagnostics / testing).
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::Relaxed)
+    }
+
+    /// Inject semantic coupling scores from the embedding layer.
+    /// These scores are multiplied against PageRank scores (capped at 5.0x).
+    /// Call `invalidate()` after injection to force recompute on next query.
+    pub fn inject_semantic_scores(&self, scores: Arc<HashMap<String, f64>>) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.semantic_scores = Some(scores);
+        }
     }
 }
 

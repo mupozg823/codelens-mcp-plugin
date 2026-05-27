@@ -126,6 +126,14 @@ impl LspSessionPool {
         Self::new(project)
     }
 
+    /// Shutdown all active LSP sessions in this pool by dropping them.
+    pub fn shutdown(&self) {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+    }
+
     pub fn session_count(&self) -> usize {
         self.sessions
             .lock()

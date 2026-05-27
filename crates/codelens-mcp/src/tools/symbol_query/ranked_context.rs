@@ -12,11 +12,9 @@
 //!      cover the query.
 //!   3. **structural fetch** (`SymbolIndex::get_ranked_context_cached`)
 //!      builds the base ranking with semantic scores as a soft prior.
-//!   4. **rank fusion** (this file: `merge_semantic_ranked_entries`,
-//!      `merge_sparse_ranked_entries`) folds the retrieval lanes back
-//!      into the structural ranking with score caps that prevent
-//!      semantic-only entries from outranking strong structural
-//!      evidence.
+//!   4. **rank fusion** (`rank_fusion::fuse_ranked_entries_weighted_rrf`)
+//!      folds the retrieval lanes back into the structural ranking with
+//!      weighted reciprocal-rank fusion.
 //!   5. **payload shaping**
 //!      (`compact_semantic_evidence` / `compact_sparse_evidence` /
 //!      `annotate_ranked_context_provenance`) attaches per-symbol
@@ -30,7 +28,7 @@
 
 use super::rank_fusion::{
     annotate_ranked_context_provenance, compact_semantic_evidence, compact_sparse_evidence,
-    merge_semantic_ranked_entries, merge_sparse_ranked_entries,
+    fuse_ranked_entries_weighted_rrf,
 };
 use super::sparse_retriever::{adapt_budget_to_context_window, sparse_symbol_hits_for_query};
 use crate::AppState;
@@ -145,6 +143,62 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             }
         }
     }
+    // Phase 4: build user-context scores for 4-lane RRF. Default builds do not
+    // compile the semantic engine, so semantic query/file blending must stay
+    // behind the feature gate and fall back to recency-only scoring.
+    let recency_user_context_scores = || {
+        recent_files
+            .iter()
+            .rev()
+            .enumerate()
+            .map(|(idx, file)| (file.clone(), 1.0_f64 - (idx as f64 * 0.15)))
+            .collect::<std::collections::HashMap<String, f64>>()
+    };
+    let user_context_scores: std::collections::HashMap<String, f64> = {
+        #[cfg(feature = "semantic")]
+        {
+            if use_semantic_in_core {
+                let guard = state.embedding_engine();
+                if let Some(engine) = guard.as_ref() {
+                    match engine.embed_query_cached(query) {
+                        Ok(query_emb) => {
+                            let file_refs: Vec<&str> =
+                                recent_files.iter().map(String::as_str).collect();
+                            match engine.file_mean_embeddings(&file_refs) {
+                                Ok(file_embs) => recent_files
+                                    .iter()
+                                    .rev()
+                                    .enumerate()
+                                    .map(|(idx, file)| {
+                                        let recency = 1.0_f64 - (idx as f64 * 0.15).min(1.0);
+                                        let similarity = file_embs
+                                            .get(file)
+                                            .map(|emb| {
+                                                codelens_engine::embedding::cosine_similarity(
+                                                    &query_emb, emb,
+                                                )
+                                            })
+                                            .unwrap_or(0.0);
+                                        (file.clone(), (recency * 0.5 + similarity * 0.5).max(0.0))
+                                    })
+                                    .collect(),
+                                Err(_) => recency_user_context_scores(),
+                            }
+                        }
+                        Err(_) => recency_user_context_scores(),
+                    }
+                } else {
+                    recency_user_context_scores()
+                }
+            } else {
+                recency_user_context_scores()
+            }
+        }
+        #[cfg(not(feature = "semantic"))]
+        {
+            recency_user_context_scores()
+        }
+    };
 
     // v1.10.1: when `expand_query=false`, use the user's literal query
     // for retrieval. The default keeps the n-gram expansion path so
@@ -175,11 +229,34 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         .map(|entry| format!("{}:{}", entry.file, entry.name))
         .collect::<std::collections::HashSet<_>>();
 
-    if !effective_disable_semantic {
-        merge_semantic_ranked_entries(query, &mut result, semantic_results.clone(), 8);
-    }
-    if use_sparse_in_core {
-        merge_sparse_ranked_entries(query, &mut result, sparse_results.clone(), 6);
+    // Weighted RRF를 적용해 네 검색 차선(Structural, Semantic, Sparse, UserContext)을 통합적으로 융합합니다.
+    fuse_ranked_entries_weighted_rrf(
+        query,
+        &mut result,
+        if effective_disable_semantic {
+            Vec::new()
+        } else {
+            semantic_results.clone()
+        },
+        if use_sparse_in_core {
+            sparse_results.clone()
+        } else {
+            Vec::new()
+        },
+        8,
+        6,
+        Some(&user_context_scores),
+    );
+
+    // Phase 3: adaptive granularity based on token budget
+    if max_tokens < 4096 {
+        for entry in result.symbols.iter_mut() {
+            entry.compact(60);
+        }
+    } else if max_tokens < 8192 || !include_body {
+        for entry in result.symbols.iter_mut() {
+            entry.body = None;
+        }
     }
 
     // v1.5 Phase 2e: sparse term coverage bonus — post-process
@@ -189,8 +266,8 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
     // dilute the coverage ratio below any reasonable threshold — the
     // 4-arm pilot that measured zero effect used the expanded query
     // and confirmed this dilution. Running the pass here (after
-    // `get_ranked_context_cached` + `merge_semantic_ranked_entries`)
-    // also keeps the engine layer free of query-semantics knowledge —
+    // `get_ranked_context_cached` + weighted RRF) also keeps the engine
+    // layer free of query-semantics knowledge —
     // the engine ranks, the MCP layer decides what "the query" means.
     if codelens_engine::sparse_weighting_enabled() {
         let query_lower_for_sparse = query.to_lowercase();
@@ -312,167 +389,6 @@ mod tests {
     use codelens_engine::{RankedContextEntry, RankedContextResult, SemanticMatch};
 
     #[test]
-    fn merge_semantic_ranked_entries_inserts_and_upgrades() {
-        let mut result = RankedContextResult {
-            query: "rename across project".to_owned(),
-            count: 1,
-            token_budget: 1200,
-            chars_used: 128,
-            symbols: vec![RankedContextEntry {
-                name: "project_scope_renames_across_files".to_owned(),
-                kind: "function".to_owned(),
-                file: "crates/codelens-core/src/rename.rs".to_owned(),
-                line: 10,
-                signature: "fn project_scope_renames_across_files".to_owned(),
-                body: None,
-                relevance_score: 32,
-            }],
-        };
-
-        merge_semantic_ranked_entries(
-            "rename a variable or function across the project",
-            &mut result,
-            vec![
-                SemanticMatch {
-                    symbol_name: "project_scope_renames_across_files".to_owned(),
-                    kind: "function".to_owned(),
-                    file_path: "crates/codelens-core/src/rename.rs".to_owned(),
-                    line: 10,
-                    signature: "fn project_scope_renames_across_files".to_owned(),
-                    name_path: "project_scope_renames_across_files".to_owned(),
-                    score: 0.41,
-                },
-                SemanticMatch {
-                    symbol_name: "rename_symbol".to_owned(),
-                    kind: "function".to_owned(),
-                    file_path: "crates/codelens-core/src/rename.rs".to_owned(),
-                    line: 42,
-                    signature: "fn rename_symbol".to_owned(),
-                    name_path: "rename_symbol".to_owned(),
-                    score: 0.93,
-                },
-            ],
-            8,
-        );
-
-        assert_eq!(result.symbols[0].name, "rename_symbol");
-        assert!(result.symbols[0].relevance_score >= 80);
-        assert!(result.symbols[0].relevance_score < 90);
-        assert!(
-            result
-                .symbols
-                .iter()
-                .find(|entry| entry.name == "project_scope_renames_across_files")
-                .unwrap()
-                .relevance_score
-                > 32
-        );
-    }
-
-    #[test]
-    fn short_phrase_merge_only_inserts_top_confident_semantic_hit() {
-        let mut result = RankedContextResult {
-            query: "change function parameters".to_owned(),
-            count: 1,
-            token_budget: 1200,
-            chars_used: 64,
-            symbols: vec![RankedContextEntry {
-                name: "change_signature".to_owned(),
-                kind: "function".to_owned(),
-                file: "crates/codelens-core/src/refactor.rs".to_owned(),
-                line: 12,
-                signature: "fn change_signature".to_owned(),
-                body: None,
-                relevance_score: 41,
-            }],
-        };
-
-        merge_semantic_ranked_entries(
-            "change function parameters",
-            &mut result,
-            vec![
-                SemanticMatch {
-                    symbol_name: "apply_signature_change".to_owned(),
-                    kind: "function".to_owned(),
-                    file_path: "crates/codelens-core/src/refactor.rs".to_owned(),
-                    line: 44,
-                    signature: "fn apply_signature_change".to_owned(),
-                    name_path: "apply_signature_change".to_owned(),
-                    score: 0.32,
-                },
-                SemanticMatch {
-                    symbol_name: "rewrite_call_arguments".to_owned(),
-                    kind: "function".to_owned(),
-                    file_path: "crates/codelens-core/src/refactor.rs".to_owned(),
-                    line: 60,
-                    signature: "fn rewrite_call_arguments".to_owned(),
-                    name_path: "rewrite_call_arguments".to_owned(),
-                    score: 0.27,
-                },
-            ],
-            8,
-        );
-
-        assert!(
-            result
-                .symbols
-                .iter()
-                .any(|entry| entry.name == "apply_signature_change")
-        );
-        assert!(
-            !result
-                .symbols
-                .iter()
-                .any(|entry| entry.name == "rewrite_call_arguments")
-        );
-    }
-
-    #[test]
-    fn semantic_only_entries_do_not_outrank_strong_structural_evidence() {
-        let mut result = RankedContextResult {
-            query: "route http request to mcp handler".to_owned(),
-            count: 1,
-            token_budget: 1200,
-            chars_used: 64,
-            symbols: vec![RankedContextEntry {
-                name: "mcp_post_handler".to_owned(),
-                kind: "function".to_owned(),
-                file: "crates/codelens-mcp/src/server/transport_http.rs".to_owned(),
-                line: 344,
-                signature: "async fn mcp_post_handler".to_owned(),
-                body: None,
-                relevance_score: 91,
-            }],
-        };
-
-        merge_semantic_ranked_entries(
-            "route http request to mcp handler",
-            &mut result,
-            vec![SemanticMatch {
-                symbol_name: "unrelated_route_helper".to_owned(),
-                kind: "function".to_owned(),
-                file_path: "crates/codelens-mcp/src/server/router.rs".to_owned(),
-                line: 20,
-                signature: "fn unrelated_route_helper".to_owned(),
-                name_path: "unrelated_route_helper".to_owned(),
-                score: 0.99,
-            }],
-            8,
-        );
-
-        assert_eq!(result.symbols[0].name, "mcp_post_handler");
-        let semantic_only = result
-            .symbols
-            .iter()
-            .find(|entry| entry.name == "unrelated_route_helper")
-            .expect("semantic-only entry should still be visible as a hint");
-        assert!(
-            semantic_only.relevance_score < 90,
-            "semantic-only hints should be capped below strong structural evidence"
-        );
-    }
-
-    #[test]
     fn annotate_ranked_context_provenance_marks_structural_and_semantic_entries() {
         let result = RankedContextResult {
             query: "rename across project".to_owned(),
@@ -538,85 +454,6 @@ mod tests {
     }
 
     #[test]
-    fn merge_sparse_ranked_entries_inserts_and_upgrades() {
-        let mut result = RankedContextResult {
-            query: "natural language retrieval".to_owned(),
-            count: 1,
-            token_budget: 1200,
-            chars_used: 128,
-            symbols: vec![RankedContextEntry {
-                name: "semantic_query_for_embedding_search".to_owned(),
-                kind: "function".to_owned(),
-                file: "crates/codelens-mcp/src/tools/query_analysis/bridge.rs".to_owned(),
-                line: 10,
-                signature: "fn semantic_query_for_embedding_search".to_owned(),
-                body: None,
-                relevance_score: 44,
-            }],
-        };
-
-        merge_sparse_ranked_entries(
-            "improve natural language retrieval with bm25 and rerank",
-            &mut result,
-            vec![
-                ScoredSymbol {
-                    document: SymbolDocument {
-                        symbol_id: "1".to_owned(),
-                        name: "semantic_query_for_embedding_search".to_owned(),
-                        name_path: "semantic_query_for_embedding_search".to_owned(),
-                        kind: "function".to_owned(),
-                        signature: "fn semantic_query_for_embedding_search".to_owned(),
-                        file_path: "crates/codelens-mcp/src/tools/query_analysis/bridge.rs"
-                            .to_owned(),
-                        module_path: "tools::query_analysis::bridge".to_owned(),
-                        doc_comment: String::new(),
-                        body_lexical_chunk: String::new(),
-                        language: "rust",
-                        line_start: 10,
-                        is_test: false,
-                        is_generated: false,
-                        exported: false,
-                    },
-                    score: 3.9,
-                    matched_terms: vec!["retrieval".to_owned(), "rerank".to_owned()],
-                },
-                ScoredSymbol {
-                    document: SymbolDocument {
-                        symbol_id: "2".to_owned(),
-                        name: "bm25_symbol_search".to_owned(),
-                        name_path: "bm25_symbol_search".to_owned(),
-                        kind: "function".to_owned(),
-                        signature: "fn bm25_symbol_search".to_owned(),
-                        file_path: "crates/codelens-mcp/src/tools/symbols/handlers.rs".to_owned(),
-                        module_path: "tools::symbols::handlers".to_owned(),
-                        doc_comment: String::new(),
-                        body_lexical_chunk: String::new(),
-                        language: "rust",
-                        line_start: 172,
-                        is_test: false,
-                        is_generated: false,
-                        exported: true,
-                    },
-                    score: 5.2,
-                    matched_terms: vec!["bm25".to_owned(), "retrieval".to_owned()],
-                },
-            ],
-            4,
-        );
-
-        assert_eq!(result.symbols[0].name, "bm25_symbol_search");
-        assert!(
-            result
-                .symbols
-                .iter()
-                .find(|entry| entry.name == "semantic_query_for_embedding_search")
-                .unwrap()
-                .relevance_score
-                > 44
-        );
-    }
-
-    #[test]
     fn annotate_ranked_context_provenance_marks_sparse_entries() {
         let result = RankedContextResult {
             query: "bm25 retrieval".to_owned(),
@@ -626,7 +463,7 @@ mod tests {
             symbols: vec![RankedContextEntry {
                 name: "bm25_symbol_search".to_owned(),
                 kind: "function".to_owned(),
-                file: "crates/codelens-mcp/src/tools/symbols/handlers.rs".to_owned(),
+                file: "crates/codelens-mcp/src/tools/symbols/bm25_search.rs".to_owned(),
                 line: 172,
                 signature: "fn bm25_symbol_search".to_owned(),
                 body: None,
@@ -641,8 +478,8 @@ mod tests {
                 name_path: "bm25_symbol_search".to_owned(),
                 kind: "function".to_owned(),
                 signature: "fn bm25_symbol_search".to_owned(),
-                file_path: "crates/codelens-mcp/src/tools/symbols/handlers.rs".to_owned(),
-                module_path: "tools::symbols::handlers".to_owned(),
+                file_path: "crates/codelens-mcp/src/tools/symbols/bm25_search.rs".to_owned(),
+                module_path: "tools::symbols::bm25_search".to_owned(),
                 doc_comment: String::new(),
                 body_lexical_chunk: String::new(),
                 language: "rust",
@@ -661,5 +498,96 @@ mod tests {
         let symbols = payload["symbols"].as_array().unwrap();
         assert_eq!(symbols[0]["provenance"]["source"], json!("sparse_added"));
         assert_eq!(symbols[0]["provenance"]["sparse_score"], json!(5.2));
+    }
+
+    #[test]
+    fn fuse_ranked_entries_weighted_rrf_combines_three_lanes() {
+        let mut result = RankedContextResult {
+            query: "hybrid search".to_owned(),
+            count: 2,
+            token_budget: 1200,
+            chars_used: 128,
+            symbols: vec![
+                RankedContextEntry {
+                    name: "symbol_a".to_owned(),
+                    kind: "struct".to_owned(),
+                    file: "src/a.rs".to_owned(),
+                    line: 1,
+                    signature: "struct symbol_a".to_owned(),
+                    body: None,
+                    relevance_score: 90,
+                },
+                RankedContextEntry {
+                    name: "symbol_b".to_owned(),
+                    kind: "struct".to_owned(),
+                    file: "src/b.rs".to_owned(),
+                    line: 10,
+                    signature: "struct symbol_b".to_owned(),
+                    body: None,
+                    relevance_score: 80,
+                },
+            ],
+        };
+
+        let semantic_results = vec![
+            SemanticMatch {
+                symbol_name: "symbol_c".to_owned(),
+                kind: "function".to_owned(),
+                file_path: "src/c.rs".to_owned(),
+                line: 5,
+                signature: "fn symbol_c".to_owned(),
+                name_path: "symbol_c".to_owned(),
+                score: 0.95,
+            },
+            SemanticMatch {
+                symbol_name: "symbol_b".to_owned(),
+                kind: "struct".to_owned(),
+                file_path: "src/b.rs".to_owned(),
+                line: 10,
+                signature: "struct symbol_b".to_owned(),
+                name_path: "symbol_b".to_owned(),
+                score: 0.85,
+            },
+        ];
+
+        let sparse_results = vec![ScoredSymbol {
+            document: SymbolDocument {
+                symbol_id: "3".to_owned(),
+                name: "symbol_a".to_owned(),
+                name_path: "symbol_a".to_owned(),
+                kind: "struct".to_owned(),
+                signature: "struct symbol_a".to_owned(),
+                file_path: "src/a.rs".to_owned(),
+                module_path: "a".to_owned(),
+                doc_comment: String::new(),
+                body_lexical_chunk: String::new(),
+                language: "rust",
+                line_start: 1,
+                is_test: false,
+                is_generated: false,
+                exported: true,
+            },
+            score: 4.5,
+            matched_terms: vec!["hybrid".to_owned()],
+        }];
+
+        fuse_ranked_entries_weighted_rrf(
+            "hybrid search",
+            &mut result,
+            semantic_results,
+            sparse_results,
+            8,
+            6,
+            Some(&std::collections::HashMap::new()),
+        );
+
+        assert_eq!(result.symbols[0].name, "symbol_b");
+        assert_eq!(result.symbols[0].relevance_score, 100);
+
+        assert_eq!(result.symbols[1].name, "symbol_a");
+        assert_eq!(result.symbols[1].relevance_score, 83);
+
+        assert_eq!(result.symbols[2].name, "symbol_c");
+        assert_eq!(result.symbols[2].relevance_score, 1);
     }
 }

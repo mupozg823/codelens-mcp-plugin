@@ -464,7 +464,7 @@ pub(crate) fn run_find_symbol(state: &AppState, arguments: &Value) -> ToolResult
 
 #[cfg(test)]
 mod find_symbol_argument_tests {
-    use super::super::{SymbolQueryPipeline, SymbolQueryRequest};
+    use super::run_find_symbol;
     use crate::test_helpers::fixtures::temp_project_root;
     use crate::tool_defs::ToolPreset;
     use serde_json::json;
@@ -478,10 +478,7 @@ mod find_symbol_argument_tests {
     fn name_path_alias_resolves_with_deprecation_warning() {
         let state = test_state("find-symbol-name-path-alias");
 
-        let (payload, _) = SymbolQueryPipeline::new(&state)
-            .run(SymbolQueryRequest::FindSymbol {
-                arguments: &json!({ "name_path": "find_symbol" }),
-            })
+        let (payload, _) = run_find_symbol(&state, &json!({ "name_path": "find_symbol" }))
             .expect("name_path alias should resolve without MissingParam");
 
         let warnings = payload["deprecation_warnings"]
@@ -500,11 +497,11 @@ mod find_symbol_argument_tests {
     fn unknown_args_surfaced_in_top_level_warnings() {
         let state = test_state("find-symbol-unknown-args");
 
-        let (payload, _) = SymbolQueryPipeline::new(&state)
-            .run(SymbolQueryRequest::FindSymbol {
-                arguments: &json!({ "name": "find_symbol", "nonexistent_arg": "value" }),
-            })
-            .expect("unknown args should be ignored");
+        let (payload, _) = run_find_symbol(
+            &state,
+            &json!({ "name": "find_symbol", "nonexistent_arg": "value" }),
+        )
+        .expect("unknown args should be ignored");
 
         let warnings = payload["warnings"]
             .as_array()

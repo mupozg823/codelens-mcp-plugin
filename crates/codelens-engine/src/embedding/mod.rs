@@ -19,7 +19,7 @@ use cache::TextEmbeddingCache;
 use vec_store::SqliteVecStore;
 
 // ── Public re-exports ─────────────────────────────────────────────────
-pub use chunk_ops::{CategoryScore, DuplicatePair, OutlierSymbol};
+pub use chunk_ops::{CategoryScore, DuplicatePair, OutlierSymbol, cosine_similarity};
 pub use prompt::auto_sparse_should_enable;
 pub use runtime::{
     configured_embedding_model_name, configured_embedding_runtime_info,

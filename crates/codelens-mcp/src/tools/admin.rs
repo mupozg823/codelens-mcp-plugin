@@ -126,7 +126,8 @@ pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
 /// thing it audits.
 pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> ToolResult {
     use crate::tool_defs::{
-        ToolPreset, ToolSurface, tool_deprecation, visible_tools, whitelist_preset_member_union,
+        ToolPreset, ToolSurface, tool_deprecation, tool_feature_gate, visible_tools,
+        whitelist_preset_member_union,
     };
 
     let toml_tools: BTreeSet<String> = visible_tools(ToolSurface::Preset(ToolPreset::Full))
@@ -134,17 +135,17 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
         .map(|t| t.name.to_owned())
         .collect();
 
-    let dispatched: BTreeSet<String> = crate::tools::dispatch_table()
-        .keys()
-        .map(|k| (*k).to_owned())
-        .collect();
+    let dispatched: BTreeSet<String> = crate::dispatch::registered_tool_names();
 
     let preset_members: BTreeSet<String> = whitelist_preset_member_union()
         .into_iter()
         .map(str::to_owned)
         .collect();
 
-    let is_intentional = |name: &String| tool_deprecation(name).is_some();
+    let is_deprecated = |name: &String| tool_deprecation(name).is_some();
+    let is_feature_gated_out = |name: &String| {
+        matches!(tool_feature_gate(name), Some("semantic")) && !cfg!(feature = "semantic")
+    };
 
     // `missing_in_dispatch` is NOT filtered through the deprecation list —
     // if a tool is registered in tools.toml (schema visible) but not in
@@ -153,17 +154,31 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
     let missing_in_dispatch: Vec<String> = toml_tools.difference(&dispatched).cloned().collect();
 
     let raw_missing_in_toml: Vec<String> = dispatched.difference(&toml_tools).cloned().collect();
-    let (intentional_missing_toml, missing_in_toml): (Vec<String>, Vec<String>) =
-        raw_missing_in_toml.into_iter().partition(is_intentional);
+    let (intentional_missing_toml, maybe_missing_in_toml): (Vec<String>, Vec<String>) =
+        raw_missing_in_toml.into_iter().partition(is_deprecated);
+    let (feature_gated_missing_toml, missing_in_toml): (Vec<String>, Vec<String>) =
+        maybe_missing_in_toml
+            .into_iter()
+            .partition(is_feature_gated_out);
 
     let raw_orphan_in_preset: Vec<String> =
         preset_members.difference(&toml_tools).cloned().collect();
-    let (intentional_orphan_preset, orphan_in_preset): (Vec<String>, Vec<String>) =
-        raw_orphan_in_preset.into_iter().partition(is_intentional);
+    let (intentional_orphan_preset, maybe_orphan_in_preset): (Vec<String>, Vec<String>) =
+        raw_orphan_in_preset.into_iter().partition(is_deprecated);
+    let (feature_gated_orphan_preset, orphan_in_preset): (Vec<String>, Vec<String>) =
+        maybe_orphan_in_preset
+            .into_iter()
+            .partition(is_feature_gated_out);
 
     let intentional_deprecation: Vec<String> = intentional_missing_toml
         .into_iter()
         .chain(intentional_orphan_preset)
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect();
+    let intentional_feature_gated: Vec<String> = feature_gated_missing_toml
+        .into_iter()
+        .chain(feature_gated_orphan_preset)
         .collect::<BTreeSet<String>>()
         .into_iter()
         .collect();
@@ -197,6 +212,12 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
             intentional_deprecation.len()
         ));
     }
+    if !intentional_feature_gated.is_empty() {
+        next_actions.push(format!(
+            "{} feature-gated tool reference(s) are hidden in this build and not counted as violations.",
+            intentional_feature_gated.len()
+        ));
+    }
     if all_clean {
         next_actions.push("Surface is consistent across all checked layers.".to_owned());
     }
@@ -216,6 +237,7 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
                 "dispatch_count": dispatched.len(),
                 "preset_member_count": preset_members.len(),
                 "intentional_deprecation_count": intentional_deprecation.len(),
+                "intentional_feature_gated_count": intentional_feature_gated.len(),
             },
             "violations": {
                 "missing_in_dispatch": missing_in_dispatch,
@@ -223,6 +245,7 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
                 "orphan_in_preset": orphan_in_preset,
             },
             "intentional_deprecation": intentional_deprecation,
+            "intentional_feature_gated": intentional_feature_gated,
             "next_actions": next_actions,
         }),
         success_meta(BackendKind::Config, 1.0),
@@ -573,6 +596,20 @@ mod surface_audit_tests {
         assert!(data.contains_key("all_clean"));
         assert!(data.contains_key("violation_count"));
         assert!(data.contains_key("layers_checked"));
+    }
+
+    #[test]
+    fn audit_surface_has_no_unintentional_drift() {
+        let state = make_state();
+        let (payload, _meta) =
+            audit_tool_surface_consistency(&state, &json!({})).expect("audit succeeds");
+        assert_eq!(
+            payload["violation_count"].as_u64().unwrap_or(u64::MAX),
+            0,
+            "tool surface drift must stay at zero: {}",
+            payload
+        );
+        assert_eq!(payload["all_clean"].as_bool(), Some(true));
     }
 
     #[test]

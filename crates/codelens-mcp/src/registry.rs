@@ -1,25 +1,15 @@
-//! Project + memory registry scaffold (P3 passive half).
+//! Project + memory registry scaffold (P3 passive half, refactored).
 //!
-//! Serena-comparison §Adopt 3 calls out an optional project registry and a
-//! global/project memory registry for multi-repo operators. CodeLens already
-//! has a project registry via `list_queryable_projects`/`add_queryable_project`
-//! tools, and project-local memory under `.codelens/memories/`. What it lacks
-//! is a first-class discoverability surface and a declared global memory
-//! scope.
-//!
-//! This module provides the passive half of P3: a `MemoryScope` enum, a
-//! global-memory-dir helper, and resource-friendly snapshots that existing
-//! resource handlers can render without adding new tools or mutating the
-//! current memory paths. Write/read routing to the global scope stays
-//! deliberately out of scope until the active half of P3 lands.
+//! Memory tier logic and `global_memory_dir` live in `codelens_engine::memory`.
+//! This module provides the project-registry surface and thin wrappers
+//! (`MemoryScope`) that map engine types to the MCP reporting contract.
 
 use crate::AppState;
+use codelens_engine::memory::{self, MemoryTier};
 use serde::Serialize;
-use std::path::PathBuf;
 
-/// Which tier a memory record belongs to. Only `Project` is currently wired
-/// to mutation tools; `Global` is a declared extension point so the contract
-/// is visible before wiring the active half of P3.
+/// Which tier a memory record belongs to — mirrors the engine's `MemoryTier`
+/// for JSON serialization compatibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryScope {
@@ -36,13 +26,13 @@ impl MemoryScope {
     }
 }
 
-/// Canonical global-memory directory — `$HOME/.codelens/memories`. Returns
-/// `None` if `HOME` is not set (exotic environments) so callers can fall
-/// back rather than crash.
-pub fn global_memory_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .map(|home| home.join(".codelens").join("memories"))
+impl From<MemoryTier> for MemoryScope {
+    fn from(tier: MemoryTier) -> Self {
+        match tier {
+            MemoryTier::Project => Self::Project,
+            MemoryTier::Global => Self::Global,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -54,12 +44,10 @@ pub struct MemoryScopeReport {
 }
 
 /// Enumerate memory scopes with their current paths and wiring status.
-/// `mutation_wired=true` means `write_memory`/`read_memory` tools currently
-/// operate on this scope. The global scope reports `false` until the active
-/// half of P3 lands.
+/// Both project and global scopes now have full mutation wiring.
 pub fn enumerate_memory_scopes(state: &AppState) -> Vec<MemoryScopeReport> {
     let project_dir = state.memories_dir();
-    let global_dir = global_memory_dir();
+    let global_dir = memory::global_memory_dir();
     vec![
         MemoryScopeReport {
             scope: MemoryScope::Project.as_str(),
@@ -73,7 +61,7 @@ pub fn enumerate_memory_scopes(state: &AppState) -> Vec<MemoryScopeReport> {
                 .as_ref()
                 .map(|p| p.to_string_lossy().into_owned()),
             exists: global_dir.as_ref().is_some_and(|p| p.is_dir()),
-            mutation_wired: false,
+            mutation_wired: true,
         },
     ]
 }
@@ -133,7 +121,7 @@ mod tests {
         // Only assert the structural invariant (ends with
         // `.codelens/memories`) so the test remains CI-independent
         // regardless of the host's actual HOME value.
-        if let Some(path) = global_memory_dir() {
+        if let Some(path) = memory::global_memory_dir() {
             let as_string = path.to_string_lossy();
             assert!(
                 as_string.ends_with(".codelens/memories"),

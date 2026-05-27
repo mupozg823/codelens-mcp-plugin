@@ -18,10 +18,19 @@ pub(super) struct ProjectRuntimeContext {
     pub(super) watcher: Option<FileWatcher>,
 }
 
+impl ProjectRuntimeContext {
+    pub(super) fn shutdown_resources(&self) {
+        if let Some(ref watcher) = self.watcher {
+            watcher.stop();
+        }
+        self.lsp_pool.shutdown();
+    }
+}
+
 #[derive(Default)]
 pub(super) struct ProjectContextCache {
-    entries: HashMap<String, Arc<ProjectRuntimeContext>>,
-    access_order: VecDeque<String>,
+    pub(super) entries: HashMap<String, Arc<ProjectRuntimeContext>>,
+    pub(super) access_order: VecDeque<String>,
 }
 
 impl ProjectContextCache {

@@ -1,34 +1,24 @@
 //! Stage 4 of the ranked-context pipeline: fuse semantic + sparse
 //! retrieval lanes back into the structural ranking.
 //!
-//! `RankFusionPolicy` keeps the per-query thresholds (insertion floor,
-//! per-lane score cap, max merged entries) in one place so the
-//! merge functions don't have to re-derive them. Policies are tuned
-//! by query word count today; future query-shape signals can extend
-//! the match arms in `rank_fusion_policy` without touching the
-//! merge logic.
+//! `RankFusionPolicy` keeps the per-query retrieval lane limits in one
+//! place so weighted RRF doesn't have to re-derive them. Policies are
+//! tuned by query word count today; future query-shape signals can
+//! extend the match arms in `rank_fusion_policy` without touching the
+//! fusion logic.
 //!
 //! Visibility: every export here is `pub(super)`. `ranked_context.rs`
 //! is the only legitimate caller — these helpers don't make sense in
 //! isolation from the pipeline's stage ordering.
 
-use crate::symbol_corpus::SymbolDocument as _SymbolDocument;
 use crate::symbol_retrieval::ScoredSymbol;
 use codelens_engine::{RankedContextEntry, RankedContextResult, SemanticMatch};
 use serde_json::{Value, json};
 
-// Used in test fixtures (`mod tests` in ranked_context.rs).
-#[allow(unused_imports)]
-use _SymbolDocument as SymbolDocument;
-
 #[derive(Debug, Clone, Copy)]
 pub(super) struct RankFusionPolicy {
     pub(super) semantic_limit: usize,
-    pub(super) semantic_insertion_floor: f64,
-    pub(super) semantic_added_score_cap: i32,
-    pub(super) semantic_boosted_score_cap: i32,
     pub(super) sparse_limit: usize,
-    pub(super) sparse_insertion_floor: i32,
 }
 
 pub(super) fn rank_fusion_policy(
@@ -40,98 +30,19 @@ pub(super) fn rank_fusion_policy(
     if word_count >= 4 {
         return RankFusionPolicy {
             semantic_limit: max_semantic.min(6),
-            semantic_insertion_floor: 0.10,
-            semantic_added_score_cap: 86,
-            semantic_boosted_score_cap: 96,
             sparse_limit: max_sparse.min(4),
-            sparse_insertion_floor: 28,
         };
     }
     if word_count >= 2 {
         return RankFusionPolicy {
             semantic_limit: max_semantic.min(2),
-            semantic_insertion_floor: 0.18,
-            semantic_added_score_cap: 82,
-            semantic_boosted_score_cap: 92,
             sparse_limit: max_sparse.min(3),
-            sparse_insertion_floor: 35,
         };
     }
     RankFusionPolicy {
         semantic_limit: max_semantic.min(3),
-        semantic_insertion_floor: 0.12,
-        semantic_added_score_cap: 80,
-        semantic_boosted_score_cap: 90,
         sparse_limit: max_sparse.min(2),
-        sparse_insertion_floor: 35,
     }
-}
-
-pub(super) fn merge_semantic_ranked_entries(
-    query: &str,
-    result: &mut RankedContextResult,
-    semantic_results: Vec<SemanticMatch>,
-    max_semantic_entries: usize,
-) {
-    if semantic_results.is_empty() {
-        return;
-    }
-
-    let mut index_by_key = std::collections::HashMap::new();
-    for (idx, entry) in result.symbols.iter().enumerate() {
-        index_by_key.insert(format!("{}:{}", entry.file, entry.name), idx);
-    }
-
-    let policy = rank_fusion_policy(query, max_semantic_entries, 0);
-    let query_word_count = query.split_whitespace().count();
-    let is_short_phrase = (2..4).contains(&query_word_count);
-    let semantic_max = semantic_results
-        .iter()
-        .map(|sem| sem.score)
-        .fold(0.0_f64, f64::max)
-        .max(0.05);
-
-    for (rank_idx, sem) in semantic_results
-        .into_iter()
-        .take(policy.semantic_limit)
-        .enumerate()
-    {
-        if sem.score < 0.05 {
-            continue;
-        }
-        let key = format!("{}:{}", sem.file_path, sem.symbol_name);
-        let normalized_semantic = ((sem.score / semantic_max) * 100.0).clamp(1.0, 100.0) as i32;
-        let semantic_score = (normalized_semantic - (rank_idx as i32 * 8)).clamp(1, 100);
-        if let Some(idx) = index_by_key.get(&key).copied() {
-            let semantic_score = semantic_score.min(policy.semantic_boosted_score_cap);
-            result.symbols[idx].relevance_score =
-                result.symbols[idx].relevance_score.max(semantic_score);
-            continue;
-        }
-        if sem.score < policy.semantic_insertion_floor {
-            continue;
-        }
-        if is_short_phrase && rank_idx > 0 {
-            continue;
-        }
-
-        let idx = result.symbols.len();
-        result.symbols.push(RankedContextEntry {
-            name: sem.symbol_name,
-            kind: sem.kind,
-            file: sem.file_path,
-            line: sem.line,
-            signature: sem.signature,
-            body: None,
-            relevance_score: semantic_score.min(policy.semantic_added_score_cap),
-        });
-        index_by_key.insert(key, idx);
-    }
-
-    result
-        .symbols
-        .sort_unstable_by_key(|b| std::cmp::Reverse(b.relevance_score));
-    result.count = result.symbols.len();
 }
 
 pub(super) fn compact_semantic_evidence(
@@ -161,66 +72,187 @@ pub(super) fn compact_semantic_evidence(
         .collect()
 }
 
-pub(super) fn merge_sparse_ranked_entries(
+struct RankEntry {
+    name: String,
+    kind: String,
+    file: String,
+    line: usize,
+    signature: String,
+    structural_rank: Option<usize>,
+    semantic_rank: Option<usize>,
+    sparse_rank: Option<usize>,
+    user_context_rank: Option<usize>,
+}
+
+pub(super) fn fuse_ranked_entries_weighted_rrf(
     query: &str,
     result: &mut RankedContextResult,
+    semantic_results: Vec<SemanticMatch>,
     sparse_results: Vec<ScoredSymbol>,
+    max_semantic_entries: usize,
     max_sparse_entries: usize,
+    user_context_scores: Option<&std::collections::HashMap<String, f64>>,
 ) {
-    if sparse_results.is_empty() {
-        return;
+    let policy = rank_fusion_policy(query, max_semantic_entries, max_sparse_entries);
+    let mut entries_map = std::collections::HashMap::new();
+
+    // 1) Structural lane.
+    for (idx, item) in result.symbols.iter().enumerate() {
+        let key = format!("{}:{}", item.file, item.name);
+        entries_map.insert(
+            key,
+            RankEntry {
+                name: item.name.clone(),
+                kind: item.kind.clone(),
+                file: item.file.clone(),
+                line: item.line,
+                signature: item.signature.clone(),
+                structural_rank: Some(idx + 1),
+                semantic_rank: None,
+                sparse_rank: None,
+                user_context_rank: None,
+            },
+        );
     }
 
-    let mut index_by_key = std::collections::HashMap::new();
-    for (idx, entry) in result.symbols.iter().enumerate() {
-        index_by_key.insert(format!("{}:{}", entry.file, entry.name), idx);
+    // 2) Semantic lane, capped by policy.
+    for (idx, item) in semantic_results
+        .into_iter()
+        .take(policy.semantic_limit)
+        .enumerate()
+    {
+        let key = format!("{}:{}", item.file_path, item.symbol_name);
+        if let Some(entry) = entries_map.get_mut(&key) {
+            entry.semantic_rank = Some(idx + 1);
+        } else {
+            entries_map.insert(
+                key,
+                RankEntry {
+                    name: item.symbol_name,
+                    kind: item.kind,
+                    file: item.file_path,
+                    line: item.line,
+                    signature: item.signature,
+                    structural_rank: None,
+                    semantic_rank: Some(idx + 1),
+                    sparse_rank: None,
+                    user_context_rank: None,
+                },
+            );
+        }
     }
 
-    let policy = rank_fusion_policy(query, 0, max_sparse_entries);
-    let query_word_count = query.split_whitespace().count();
-    let sparse_max = sparse_results
-        .iter()
-        .map(|hit| hit.score)
-        .fold(0.0_f64, f64::max)
-        .max(0.01);
-
-    for (rank_idx, hit) in sparse_results
+    // 3) Sparse lane, capped by policy.
+    for (idx, item) in sparse_results
         .into_iter()
         .take(policy.sparse_limit)
         .enumerate()
     {
-        let key = format!("{}:{}", hit.document.file_path, hit.document.name);
-        let normalized_sparse = ((hit.score / sparse_max) * 100.0).clamp(1.0, 100.0) as i32;
-        let sparse_score = (normalized_sparse - (rank_idx as i32 * 6)).clamp(1, 100);
-        if let Some(idx) = index_by_key.get(&key).copied() {
-            result.symbols[idx].relevance_score =
-                result.symbols[idx].relevance_score.max(sparse_score);
-            continue;
+        let key = format!("{}:{}", item.document.file_path, item.document.name);
+        if let Some(entry) = entries_map.get_mut(&key) {
+            entry.sparse_rank = Some(idx + 1);
+        } else {
+            entries_map.insert(
+                key,
+                RankEntry {
+                    name: item.document.name,
+                    kind: item.document.kind,
+                    file: item.document.file_path,
+                    line: item.document.line_start,
+                    signature: item.document.signature,
+                    structural_rank: None,
+                    semantic_rank: None,
+                    sparse_rank: Some(idx + 1),
+                    user_context_rank: None,
+                },
+            );
         }
-        if sparse_score < policy.sparse_insertion_floor {
-            continue;
-        }
-        if query_word_count < 3 && rank_idx > 0 {
-            continue;
-        }
-
-        let idx = result.symbols.len();
-        result.symbols.push(RankedContextEntry {
-            name: hit.document.name,
-            kind: hit.document.kind,
-            file: hit.document.file_path,
-            line: hit.document.line_start,
-            signature: hit.document.signature,
-            body: None,
-            relevance_score: sparse_score,
-        });
-        index_by_key.insert(key, idx);
     }
 
-    result
-        .symbols
-        .sort_unstable_by_key(|b| std::cmp::Reverse(b.relevance_score));
-    result.count = result.symbols.len();
+    // 4) User context lane.
+    if let Some(uc_scores) = user_context_scores {
+        let mut uc_sorted: Vec<(&String, &f64)> = uc_scores.iter().collect();
+        uc_sorted.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+        for (idx, (file_key, _)) in uc_sorted.into_iter().enumerate().take(5) {
+            for entry in entries_map.values_mut() {
+                if &entry.file == file_key {
+                    entry.user_context_rank = Some(idx + 1);
+                }
+            }
+        }
+    }
+
+    // Weighted reciprocal-rank fusion.
+    let k = 60.0;
+    let w_struct = 1.0;
+    let w_sem = 1.0;
+    let w_sparse = 0.8;
+    let w_user = 0.6;
+
+    let mut scored_entries = Vec::new();
+    for (_, entry) in entries_map {
+        let mut rrf_score = 0.0;
+        if let Some(r) = entry.structural_rank {
+            rrf_score += w_struct / (k + r as f64);
+        }
+        if let Some(r) = entry.semantic_rank {
+            rrf_score += w_sem / (k + r as f64);
+        }
+        if let Some(r) = entry.sparse_rank {
+            rrf_score += w_sparse / (k + r as f64);
+        }
+        if let Some(r) = entry.user_context_rank {
+            rrf_score += w_user / (k + r as f64);
+        }
+        scored_entries.push((entry, rrf_score));
+    }
+
+    // Sort by descending RRF score.
+    scored_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if scored_entries.is_empty() {
+        result.symbols.clear();
+        result.count = 0;
+    } else if scored_entries.len() == 1 {
+        let (entry, _) = scored_entries.remove(0);
+        result.symbols = vec![RankedContextEntry {
+            name: entry.name,
+            kind: entry.kind,
+            file: entry.file,
+            line: entry.line,
+            signature: entry.signature,
+            body: None,
+            relevance_score: 100,
+        }];
+        result.count = 1;
+    } else {
+        let max_rrf = scored_entries.first().map(|x| x.1).unwrap_or(0.0);
+        let min_rrf = scored_entries.last().map(|x| x.1).unwrap_or(0.0);
+        let diff = max_rrf - min_rrf;
+
+        let mut final_symbols = Vec::new();
+        for (entry, rrf_score) in scored_entries {
+            let relevance_score = if diff > 1e-9 {
+                let norm = (rrf_score - min_rrf) / diff;
+                (norm * 99.0 + 1.0).round() as i32
+            } else {
+                100
+            };
+
+            final_symbols.push(RankedContextEntry {
+                name: entry.name,
+                kind: entry.kind,
+                file: entry.file,
+                line: entry.line,
+                signature: entry.signature,
+                body: None,
+                relevance_score,
+            });
+        }
+
+        result.symbols = final_symbols;
+        result.count = result.symbols.len();
+    }
 }
 
 pub(super) fn compact_sparse_evidence(

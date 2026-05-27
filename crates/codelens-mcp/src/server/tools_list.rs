@@ -25,6 +25,10 @@ pub(crate) fn build_tools_list_response(
 ) -> Value {
     let request_context =
         ResourceRequestContext::from_request("codelens://tools/list", request.params.as_ref());
+    let _session_project_guard = state
+        .ensure_session_project(&request_context.session)
+        .ok()
+        .flatten();
     let selection_requests = parse_tool_selection_requests(request.params.as_ref());
     let surface = state.execution_surface(&request_context.session);
     let visible_context = build_visible_tool_context(state, &request_context);

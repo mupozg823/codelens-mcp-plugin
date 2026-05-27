@@ -1,0 +1,543 @@
+{
+  "schema_version": "codelens-call-graph-quality-result-v1",
+  "generated_at": "2026-05-25T11:05:38.916686+00:00",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/call-graph-quality-dataset.json",
+  "preset": "balanced",
+  "metrics": {
+    "configured_row_count": 5,
+    "available_row_count": 5,
+    "skipped_row_count": 0,
+    "minimum_available_rows": 4,
+    "edge_recall_at_k": 0.9090909090909091,
+    "mrr_first_expected_edge": 0.8125,
+    "avg_elapsed_ms": 286.046,
+    "p95_elapsed_ms": 1208,
+    "unresolved_rate": 0.38271604938271603,
+    "fallback_rate": 0.4444444444444444,
+    "confidence_honesty_failure_count": 0,
+    "forbidden_high_confidence_failure_count": 0,
+    "failed_row_ids": [
+      "claw-dev-main-callees"
+    ],
+    "quality_gate_passed": false
+  },
+  "rows": [
+    {
+      "id": "self-rust-dispatch-tool-callers",
+      "repo_id": "self",
+      "tool": "get_callers",
+      "function_name": "dispatch_tool",
+      "file_path": null,
+      "benchmark_project": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "ignore_paths": [],
+      "status": "passed",
+      "elapsed_ms": 1208.99,
+      "returncode": 0,
+      "edge_count": 2,
+      "top_edges": [
+        {
+          "name": "run_oneshot",
+          "file": "crates/codelens-mcp/src/server/oneshot.rs",
+          "line": 18,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "handle_request",
+          "file": "crates/codelens-mcp/src/server/router.rs",
+          "line": 128,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        }
+      ],
+      "stderr": "codelens-mcp: hybrid retrieval enabled (semantic feature on).",
+      "expected_total": 2,
+      "expected_found_count": 2,
+      "edge_recall_at_k": 1.0,
+      "first_expected_rank": 1,
+      "mrr_first_expected_edge": 1.0,
+      "expected_found": [
+        {
+          "expected": {
+            "name": "handle_request",
+            "file_suffix": "crates/codelens-mcp/src/server/router.rs",
+            "min_confidence": 0.4
+          },
+          "rank": 2,
+          "edge": {
+            "name": "handle_request",
+            "file": "crates/codelens-mcp/src/server/router.rs",
+            "line": 128,
+            "confidence": 0.95,
+            "resolution": "import_map"
+          }
+        },
+        {
+          "expected": {
+            "name": "run_oneshot",
+            "file_suffix": "crates/codelens-mcp/src/server/oneshot.rs",
+            "min_confidence": 0.4
+          },
+          "rank": 1,
+          "edge": {
+            "name": "run_oneshot",
+            "file": "crates/codelens-mcp/src/server/oneshot.rs",
+            "line": 18,
+            "confidence": 0.95,
+            "resolution": "import_map"
+          }
+        }
+      ],
+      "expected_missing": [],
+      "unresolved_rate": 0.0,
+      "fallback_rate": 0.0,
+      "confidence_honesty_failures": [],
+      "forbidden_high_confidence_failures": []
+    },
+    {
+      "id": "self-rust-handle-request-callees",
+      "repo_id": "self",
+      "tool": "get_callees",
+      "function_name": "handle_request",
+      "file_path": "crates/codelens-mcp/src/server/router.rs",
+      "benchmark_project": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "ignore_paths": [],
+      "status": "passed",
+      "elapsed_ms": 68.54,
+      "returncode": 0,
+      "edge_count": 40,
+      "top_edges": [
+        {
+          "name": "result",
+          "file": "crates/codelens-mcp/src/protocol.rs",
+          "line": 72,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "result",
+          "file": "crates/codelens-mcp/src/protocol.rs",
+          "line": 85,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "result",
+          "file": "crates/codelens-mcp/src/protocol.rs",
+          "line": 96,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "read_resource",
+          "file": "crates/codelens-mcp/src/resources.rs",
+          "line": 98,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "result",
+          "file": "crates/codelens-mcp/src/protocol.rs",
+          "line": 101,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "result",
+          "file": "crates/codelens-mcp/src/protocol.rs",
+          "line": 118,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "get_prompt",
+          "file": "crates/codelens-mcp/src/prompts.rs",
+          "line": 120,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "build_tools_list_response",
+          "file": "crates/codelens-mcp/src/server/tools_list.rs",
+          "line": 124,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "result",
+          "file": "crates/codelens-mcp/src/protocol.rs",
+          "line": 125,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "dispatch_tool",
+          "file": "crates/codelens-mcp/src/dispatch/mod.rs",
+          "line": 128,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        }
+      ],
+      "stderr": "codelens-mcp: hybrid retrieval enabled (semantic feature on).",
+      "expected_total": 3,
+      "expected_found_count": 3,
+      "edge_recall_at_k": 1.0,
+      "first_expected_rank": 4,
+      "mrr_first_expected_edge": 0.25,
+      "expected_found": [
+        {
+          "expected": {
+            "name": "dispatch_tool",
+            "file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs",
+            "min_confidence": 0.4
+          },
+          "rank": 10,
+          "edge": {
+            "name": "dispatch_tool",
+            "file": "crates/codelens-mcp/src/dispatch/mod.rs",
+            "line": 128,
+            "confidence": 0.95,
+            "resolution": "import_map"
+          }
+        },
+        {
+          "expected": {
+            "name": "read_resource",
+            "file_suffix": "crates/codelens-mcp/src/resources.rs",
+            "min_confidence": 0.4
+          },
+          "rank": 4,
+          "edge": {
+            "name": "read_resource",
+            "file": "crates/codelens-mcp/src/resources.rs",
+            "line": 98,
+            "confidence": 0.95,
+            "resolution": "import_map"
+          }
+        },
+        {
+          "expected": {
+            "name": "build_tools_list_response",
+            "file_suffix": "crates/codelens-mcp/src/server/tools_list.rs",
+            "min_confidence": 0.4
+          },
+          "rank": 8,
+          "edge": {
+            "name": "build_tools_list_response",
+            "file": "crates/codelens-mcp/src/server/tools_list.rs",
+            "line": 124,
+            "confidence": 0.95,
+            "resolution": "import_map"
+          }
+        }
+      ],
+      "expected_missing": [],
+      "unresolved_rate": 0.55,
+      "fallback_rate": 0.55,
+      "confidence_honesty_failures": [],
+      "forbidden_high_confidence_failures": []
+    },
+    {
+      "id": "claw-dev-main-callees",
+      "repo_id": "claw-dev",
+      "tool": "get_callees",
+      "function_name": "main",
+      "file_path": "src/index.ts",
+      "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-callgraph-rnnyv_p9/claw-dev",
+      "ignore_paths": [
+        "Leonxlnx-claude-code"
+      ],
+      "status": "failed",
+      "elapsed_ms": 50.74,
+      "returncode": 0,
+      "edge_count": 8,
+      "top_edges": [
+        {
+          "name": "parseArgs",
+          "file": "src/index.ts",
+          "line": 96,
+          "confidence": 0.9,
+          "resolution": "same_file"
+        },
+        {
+          "name": "printHelp",
+          "file": "src/index.ts",
+          "line": 98,
+          "confidence": 0.9,
+          "resolution": "same_file"
+        },
+        {
+          "name": "printTools",
+          "file": "src/index.ts",
+          "line": 102,
+          "confidence": 0.9,
+          "resolution": "same_file"
+        },
+        {
+          "name": "agent",
+          "file": "src/index.ts",
+          "line": 122,
+          "confidence": 0.9,
+          "resolution": "same_file"
+        },
+        {
+          "name": "loadConfig",
+          "file": "src/config.ts",
+          "line": 105,
+          "confidence": 0.5,
+          "resolution": "path_proximity"
+        },
+        {
+          "name": "runTurn",
+          "file": "src/agent.ts",
+          "line": 117,
+          "confidence": 0.5,
+          "resolution": "path_proximity"
+        },
+        {
+          "name": "prompt",
+          "file": "",
+          "line": 117,
+          "confidence": 0.25,
+          "resolution": "unresolved"
+        },
+        {
+          "name": "startRepl",
+          "file": "",
+          "line": 122,
+          "confidence": 0.25,
+          "resolution": "unresolved"
+        }
+      ],
+      "stderr": "codelens-mcp: hybrid retrieval enabled (semantic feature on).",
+      "expected_total": 5,
+      "expected_found_count": 4,
+      "edge_recall_at_k": 0.8,
+      "first_expected_rank": 1,
+      "mrr_first_expected_edge": 1.0,
+      "expected_found": [
+        {
+          "expected": {
+            "name": "loadConfig",
+            "file_suffix": "src/config.ts",
+            "min_confidence": 0.4
+          },
+          "rank": 5,
+          "edge": {
+            "name": "loadConfig",
+            "file": "src/config.ts",
+            "line": 105,
+            "confidence": 0.5,
+            "resolution": "path_proximity"
+          }
+        },
+        {
+          "expected": {
+            "name": "parseArgs",
+            "file_suffix": "src/index.ts",
+            "min_confidence": 0.4
+          },
+          "rank": 1,
+          "edge": {
+            "name": "parseArgs",
+            "file": "src/index.ts",
+            "line": 96,
+            "confidence": 0.9,
+            "resolution": "same_file"
+          }
+        },
+        {
+          "expected": {
+            "name": "printHelp",
+            "file_suffix": "src/index.ts",
+            "min_confidence": 0.4
+          },
+          "rank": 2,
+          "edge": {
+            "name": "printHelp",
+            "file": "src/index.ts",
+            "line": 98,
+            "confidence": 0.9,
+            "resolution": "same_file"
+          }
+        },
+        {
+          "expected": {
+            "name": "runTurn",
+            "file_suffix": "src/agent.ts",
+            "min_confidence": 0.4
+          },
+          "rank": 6,
+          "edge": {
+            "name": "runTurn",
+            "file": "src/agent.ts",
+            "line": 117,
+            "confidence": 0.5,
+            "resolution": "path_proximity"
+          }
+        }
+      ],
+      "expected_missing": [
+        {
+          "name": "startRepl",
+          "file_suffix": "src/cli.tsx",
+          "min_confidence": 0.4
+        }
+      ],
+      "unresolved_rate": 0.25,
+      "fallback_rate": 0.5,
+      "confidence_honesty_failures": [],
+      "forbidden_high_confidence_failures": []
+    },
+    {
+      "id": "claw-dev-load-config-callers",
+      "repo_id": "claw-dev",
+      "tool": "get_callers",
+      "function_name": "loadConfig",
+      "file_path": null,
+      "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-callgraph-rnnyv_p9/claw-dev",
+      "ignore_paths": [
+        "Leonxlnx-claude-code"
+      ],
+      "status": "passed",
+      "elapsed_ms": 59.41,
+      "returncode": 0,
+      "edge_count": 1,
+      "top_edges": [
+        {
+          "name": "main",
+          "file": "src/index.ts",
+          "line": 105,
+          "confidence": 0.5,
+          "resolution": "path_proximity"
+        }
+      ],
+      "stderr": "codelens-mcp: hybrid retrieval enabled (semantic feature on).",
+      "expected_total": 1,
+      "expected_found_count": 1,
+      "edge_recall_at_k": 1.0,
+      "first_expected_rank": 1,
+      "mrr_first_expected_edge": 1.0,
+      "expected_found": [
+        {
+          "expected": {
+            "name": "main",
+            "file_suffix": "src/index.ts",
+            "min_confidence": 0.4
+          },
+          "rank": 1,
+          "edge": {
+            "name": "main",
+            "file": "src/index.ts",
+            "line": 105,
+            "confidence": 0.5,
+            "resolution": "path_proximity"
+          }
+        }
+      ],
+      "expected_missing": [],
+      "unresolved_rate": 0.0,
+      "fallback_rate": 1.0,
+      "confidence_honesty_failures": [],
+      "forbidden_high_confidence_failures": []
+    },
+    {
+      "id": "rg-family-register-page-callees",
+      "repo_id": "rg-family-clone",
+      "tool": "get_callees",
+      "function_name": "RegisterPage",
+      "file_path": "src/app/(auth)/register/page.tsx",
+      "benchmark_project": "/Users/bagjaeseog/Projects/rg-family-clone",
+      "ignore_paths": [],
+      "status": "passed",
+      "elapsed_ms": 42.55,
+      "returncode": 0,
+      "edge_count": 30,
+      "top_edges": [
+        {
+          "name": "Card",
+          "file": "src/components/ui/card.tsx",
+          "line": 84,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "CardContent",
+          "file": "src/components/ui/card.tsx",
+          "line": 85,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "Card",
+          "file": "src/components/ui/card.tsx",
+          "line": 99,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "CardHeader",
+          "file": "src/components/ui/card.tsx",
+          "line": 100,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "CardTitle",
+          "file": "src/components/ui/card.tsx",
+          "line": 101,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "CardDescription",
+          "file": "src/components/ui/card.tsx",
+          "line": 102,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "CardContent",
+          "file": "src/components/ui/card.tsx",
+          "line": 106,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "Alert",
+          "file": "src/components/ui/alert.tsx",
+          "line": 108,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "AlertDescription",
+          "file": "src/components/ui/alert.tsx",
+          "line": 110,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        },
+        {
+          "name": "Label",
+          "file": "src/components/ui/label.tsx",
+          "line": 116,
+          "confidence": 0.95,
+          "resolution": "import_map"
+        }
+      ],
+      "stderr": "codelens-mcp: hybrid retrieval enabled (semantic feature on).",
+      "expected_total": 0,
+      "expected_found_count": 0,
+      "edge_recall_at_k": null,
+      "first_expected_rank": null,
+      "mrr_first_expected_edge": null,
+      "expected_found": [],
+      "expected_missing": [],
+      "unresolved_rate": 0.23333333333333334,
+      "fallback_rate": 0.3,
+      "confidence_honesty_failures": [],
+      "forbidden_high_confidence_failures": []
+    }
+  ]
+}

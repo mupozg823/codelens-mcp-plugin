@@ -19,7 +19,6 @@ pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
     "get_ranked_context",
     "get_symbols_overview",
     "find_symbol",
-    "get_impact_analysis",
     "impact_report",
     "module_boundary_report",
     "get_changed_files",
@@ -57,7 +56,6 @@ pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
     "diagnose_issues",
     "verify_change_readiness",
     "get_file_diagnostics",
-    "get_impact_analysis",
     "find_scoped_references",
     "impact_report",
     "refactor_safety_report",
@@ -113,7 +111,6 @@ const REVIEW_TOOLS: &[&str] = &[
     "diagnose_issues",
     "cleanup_duplicate_logic",
     "get_changed_files",
-    "get_impact_analysis",
     "find_scoped_references",
 ];
 
@@ -232,9 +229,9 @@ pub fn suggest_next_contextual(
         .any(|t| REVIEW_TOOLS.contains(&t.as_str()));
     if recent_has_review
         && !MUTATION_TOOLS.contains(&tool_name)
-        && !suggestions.contains(&"get_impact_analysis".to_owned())
+        && !suggestions.contains(&"impact_report".to_owned())
     {
-        suggestions.push("get_impact_analysis".to_owned());
+        suggestions.push("impact_report".to_owned());
         suggestions.truncate(3);
     }
 
@@ -377,10 +374,10 @@ pub fn composite_guidance_for_chain(
 pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
     let suggestions: &[&str] = match tool_name {
         // ── Symbols / index ──────────────────────────────────────────
-        "get_symbols_overview" => &["find_symbol", "get_impact_analysis", "get_ranked_context"],
+        "get_symbols_overview" => &["find_symbol", "impact_report", "get_ranked_context"],
         "find_symbol" => &[
             "find_referencing_symbols",
-            "get_impact_analysis",
+            "impact_report",
             "replace_symbol_body",
         ],
         "get_ranked_context" => &["find_symbol", "replace_symbol_body", "semantic_search"],
@@ -390,7 +387,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "search_symbols_fuzzy" => &["find_symbol", "get_ranked_context"],
 
         // ── LSP ──────────────────────────────────────────────────────
-        "find_referencing_symbols" => &["get_impact_analysis", "rename_symbol"],
+        "find_referencing_symbols" => &["impact_report", "rename_symbol"],
         "get_file_diagnostics" => &["find_symbol", "get_symbols_overview"],
         "search_workspace_symbols" => &["find_symbol", "get_symbols_overview"],
         "get_type_hierarchy" => &["find_referencing_symbols", "get_symbols_overview"],
@@ -398,12 +395,11 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "get_lsp_recipe" => &["get_capabilities", "get_file_diagnostics"],
 
         // ── Graph / analysis ─────────────────────────────────────────
-        "get_changed_files" => &["get_impact_analysis", "get_symbols_overview"],
-        "get_impact_analysis" => &["find_referencing_symbols", "get_symbols_overview"],
-        "get_importers" => &["get_impact_analysis", "get_symbol_importance"],
-        "get_symbol_importance" => &["get_importers", "get_impact_analysis"],
+        "get_changed_files" => &["impact_report", "get_symbols_overview"],
+        "get_importers" => &["impact_report", "get_symbol_importance"],
+        "get_symbol_importance" => &["get_importers", "impact_report"],
         "find_dead_code" => &["get_symbols_overview", "delete_lines"],
-        "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
+        "find_circular_dependencies" => &["impact_report", "get_symbols_overview"],
         "get_callers" => &["get_callees", "find_symbol"],
         "get_callees" => &["get_callers", "find_symbol"],
         "find_scoped_references" => &["rename_symbol", "find_referencing_symbols"],
@@ -511,11 +507,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
         "refactor_change_signature" => &["get_file_diagnostics", "find_referencing_symbols"],
-        "propagate_deletions" => &[
-            "delete_lines",
-            "get_file_diagnostics",
-            "get_impact_analysis",
-        ],
+        "propagate_deletions" => &["delete_lines", "get_file_diagnostics", "impact_report"],
         "orchestrate_change" => &[
             "get_analysis_section",
             "verify_change_readiness",

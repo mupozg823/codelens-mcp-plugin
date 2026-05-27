@@ -102,26 +102,46 @@ impl AppState {
             _ => {}
         }
 
-        let context = {
-            let mut cache = self
-                .project_context_cache
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if let Some(cached) = cache.get(&scope) {
-                cached
+        let (context, evicted) = {
+            let cached = {
+                let mut cache = self
+                    .project_context_cache
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                cache.get(&scope)
+            };
+
+            if let Some(cached) = cached {
+                (cached, Vec::new())
             } else {
                 let built = Arc::new(Self::build_project_runtime_context(project, true)?);
-                cache.insert(scope.clone(), Arc::clone(&built));
-                let active_scope = self.current_project_scope();
-                let protected = [self.default_project_scope(), active_scope, scope.clone()];
-                let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
-                let _evicted = cache.evict_until_within_limit(
-                    crate::state::PROJECT_CONTEXT_CACHE_LIMIT,
-                    &protected_refs,
-                );
-                built
+
+                let mut cache = self
+                    .project_context_cache
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+
+                if let Some(cached) = cache.get(&scope) {
+                    built.shutdown_resources();
+                    (cached, Vec::new())
+                } else {
+                    cache.insert(scope.clone(), Arc::clone(&built));
+                    let active_scope = self.current_project_scope();
+                    let protected = [self.default_project_scope(), active_scope, scope.clone()];
+                    let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
+                    let evicted = cache.evict_until_within_limit(
+                        crate::state::PROJECT_CONTEXT_CACHE_LIMIT,
+                        &protected_refs,
+                    );
+                    (built, evicted)
+                }
             }
         };
+
+        for ctx in evicted {
+            ctx.shutdown_resources();
+        }
+
         self.activate_project_context(Some(context));
         Ok(name)
     }

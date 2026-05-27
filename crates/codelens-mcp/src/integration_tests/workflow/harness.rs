@@ -628,7 +628,6 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
                 "tool_tier": "workflow",
                 "recommended_profile": "builder-minimal",
                 "included_in": [
-                    "preset:minimal",
                     "preset:balanced",
                     "preset:full",
                     "builder-minimal",
@@ -918,7 +917,6 @@ fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_field
                 "preferred_executor": "any",
                 "tool_tier": "workflow",
                 "included_in": [
-                    "preset:minimal",
                     "preset:balanced",
                     "preset:full",
                     "builder-minimal",

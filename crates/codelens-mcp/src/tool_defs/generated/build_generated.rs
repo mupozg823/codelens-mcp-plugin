@@ -232,12 +232,56 @@ pub fn memory_tools(
             "[CodeLens:Memory] Rename a project memory file.",
             json!({"type":"object","required":["old_name","new_name"],"properties":{"old_name":{"type":"string"},"new_name":{"type":"string"}}}),
         ).with_annotations(mut_p.clone()),
+        Tool::new(
+            "archive_memory",
+            "[CodeLens:Memory] Move a project memory file into the archive.",
+            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string"}}}),
+        ).with_annotations(mut_p.clone()),
+        Tool::new(
+            "restore_memory",
+            "[CodeLens:Memory] Restore an archived project memory file.",
+            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string","description":"Archived memory name, with or without the archived/ prefix"}}}),
+        ).with_annotations(mut_p.clone()),
+        Tool::new(
+            "list_archived",
+            "[CodeLens:Memory] List archived project memory files.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_p.clone()),
+        Tool::new(
+            "read_policy",
+            "[CodeLens:Memory] Read parsed project or global memory policy.",
+            json!({"type":"object","properties":{"scope":{"type":"string","enum":["project","global"],"description":"Policy scope to read (default project)"}}}),
+        ).with_annotations(ro_p.clone()),
     ]
 }
 
 #[cfg(feature = "semantic")]
-pub fn semantic_tools(ro: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
+pub fn semantic_tools(
+    ro: &ToolAnnotations,
+    ro_a: &ToolAnnotations,
+    ro_p: &ToolAnnotations,
+) -> Vec<Tool> {
     vec![
+        Tool::new(
+            "find_misplaced_code",
+            "[CodeLens:Audit] Surface symbols that sit semantically far from their file's center — outliers whose `avg_similarity_to_file` is below the cluster mean by a significant margin. Useful before refactor planning: high outliers are candidates for relocation (to a more cohesive home file). Requires the embedding index (semantic feature). Returns `{file_path, symbol_name, kind, line, avg_similarity_to_file}` per outlier. Schema-only re-registration: the handler in `dispatch/table.rs` has been live since v1.13.6 (feature-gated on `semantic`), only the tools.toml schema was missing after the v1.13.32 Sprint B-3 cleanup.",
+            json!({"type":"object","properties":{"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on outliers returned (default 10)"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_similar_code",
+            "[CodeLens:Audit] Find symbols semantically similar to a target — over-fetches then filters by `min_similarity`. Useful for DRY-violation detection (\"are there 3 files that all do this thing?\"). Requires `file_path` + `symbol_name` to anchor the query; the target symbol itself is excluded from results. Requires the embedding index (semantic feature). Schema-only re-registration; handler has lived in `dispatch/table.rs` since v1.13.6.",
+            json!({"type":"object","required":["file_path","symbol_name"],"properties":{"file_path":{"type":"string","description":"Path of the file containing the target symbol"},"symbol_name":{"type":"string","description":"Name of the target symbol to find neighbours of"},"max_results":{"type":"integer","minimum":1,"maximum":100,"description":"Cap on returned similar symbols (default 10)"},"min_similarity":{"type":"number","minimum":0,"maximum":1,"description":"Filter threshold on similarity score (default 0.3)"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_code_duplicates",
+            "[CodeLens:Audit] Find near-duplicate symbol pairs across the workspace using cosine similarity above a threshold (default 0.85). Returns symbol pairs and their similarity score. Useful for DRY cleanup planning at the codebase level. Requires the embedding index (semantic feature). Schema-only re-registration; handler has lived in `dispatch/table.rs` since v1.13.6.",
+            json!({"type":"object","properties":{"threshold":{"type":"number","minimum":0,"maximum":1,"description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on returned duplicate pairs (default 20)"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
+            "classify_symbol",
+            "[CodeLens:Audit] Classify a symbol against a list of caller-supplied categories using semantic similarity. Returns per-category scores ranked highest-first. Useful for triaging unfamiliar symbols (\"is this auth, persistence, or pure transformation?\"). Requires `file_path` + `symbol_name` + `categories` (array of strings). Requires the embedding index (semantic feature). Schema-only re-registration; handler has lived in `dispatch/table.rs` since v1.13.6.",
+            json!({"type":"object","required":["file_path","symbol_name","categories"],"properties":{"file_path":{"type":"string","description":"Path of the file containing the target symbol"},"symbol_name":{"type":"string","description":"Name of the target symbol to classify"},"categories":{"type":"array","items":{"type":"string"},"minItems":1,"description":"Candidate category labels — the tool returns per-category similarity scores"}}}),
+        ).with_annotations(ro_a.clone()),
         Tool::new(
             "semantic_search",
             "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning.",
@@ -378,26 +422,6 @@ pub fn session_tools(
             "find_over_visible_apis",
             "[CodeLens:Audit] Cross-layer policy detector: surfaces tools whose annotations contradict the readonly-intent of the preset/profile they're listed in. A `destructive_hint=true` or `approval_required=true` tool exposed on the `Minimal` preset or `PlannerReadonly`/`ReviewerGraph` profiles is leakage — the surface promises read-only safety but the tool reserves write/approval semantics. Resurrected from the v1.13.27 surface trim (\"495 over-visible cleanup\" item, 2026-05-18 dogfood memo). Runtime query only — no engine impl, data lives in the Tool registry + preset whitelists.",
             json!({"type":"object"}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_misplaced_code",
-            "[CodeLens:Audit] Surface symbols that sit semantically far from their file's center — outliers whose `avg_similarity_to_file` is below the cluster mean by a significant margin. Useful before refactor planning: high outliers are candidates for relocation (to a more cohesive home file). Requires the embedding index (semantic feature). Returns `{file_path, symbol_name, kind, line, avg_similarity_to_file}` per outlier. Schema-only re-registration: the handler in `dispatch/table.rs` has been live since v1.13.6 (feature-gated on `semantic`), only the tools.toml schema was missing after the v1.13.32 Sprint B-3 cleanup.",
-            json!({"type":"object","properties":{"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on outliers returned (default 10)"}}}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_similar_code",
-            "[CodeLens:Audit] Find symbols semantically similar to a target — over-fetches then filters by `min_similarity`. Useful for DRY-violation detection (\"are there 3 files that all do this thing?\"). Requires `file_path` + `symbol_name` to anchor the query; the target symbol itself is excluded from results. Requires the embedding index (semantic feature). Schema-only re-registration; handler has lived in `dispatch/table.rs` since v1.13.6.",
-            json!({"type":"object","required":["file_path","symbol_name"],"properties":{"file_path":{"type":"string","description":"Path of the file containing the target symbol"},"symbol_name":{"type":"string","description":"Name of the target symbol to find neighbours of"},"max_results":{"type":"integer","minimum":1,"maximum":100,"description":"Cap on returned similar symbols (default 10)"},"min_similarity":{"type":"number","minimum":0,"maximum":1,"description":"Filter threshold on similarity score (default 0.3)"}}}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "find_code_duplicates",
-            "[CodeLens:Audit] Find near-duplicate symbol pairs across the workspace using cosine similarity above a threshold (default 0.85). Returns symbol pairs and their similarity score. Useful for DRY cleanup planning at the codebase level. Requires the embedding index (semantic feature). Schema-only re-registration; handler has lived in `dispatch/table.rs` since v1.13.6.",
-            json!({"type":"object","properties":{"threshold":{"type":"number","minimum":0,"maximum":1,"description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on returned duplicate pairs (default 20)"}}}),
-        ).with_annotations(ro_a.clone()),
-        Tool::new(
-            "classify_symbol",
-            "[CodeLens:Audit] Classify a symbol against a list of caller-supplied categories using semantic similarity. Returns per-category scores ranked highest-first. Useful for triaging unfamiliar symbols (\"is this auth, persistence, or pure transformation?\"). Requires `file_path` + `symbol_name` + `categories` (array of strings). Requires the embedding index (semantic feature). Schema-only re-registration; handler has lived in `dispatch/table.rs` since v1.13.6.",
-            json!({"type":"object","required":["file_path","symbol_name","categories"],"properties":{"file_path":{"type":"string","description":"Path of the file containing the target symbol"},"symbol_name":{"type":"string","description":"Name of the target symbol to classify"},"categories":{"type":"array","items":{"type":"string"},"minItems":1,"description":"Candidate category labels — the tool returns per-category similarity scores"}}}),
         ).with_annotations(ro_a.clone()),
         Tool::new(
             "audit_memory_consistency",

@@ -103,6 +103,10 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "write_memory"                 => memory::write_memory,
         "delete_memory"                => memory::delete_memory,
         "rename_memory"                => memory::rename_memory,
+        "archive_memory"              => memory::archive_memory,
+        "restore_memory"              => memory::restore_memory,
+        "list_archived"                => memory::list_archived,
+        "read_policy"                  => memory::read_policy,
         // ── Session ──
         "activate_project"             => session::activate_project,
         "prepare_harness_session"      => session::prepare_harness_session,
