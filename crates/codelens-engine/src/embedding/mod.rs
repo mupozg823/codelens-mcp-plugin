@@ -9,6 +9,7 @@ use std::sync::Mutex;
 // ── Sub-modules ───────────────────────────────────────────────────────
 mod cache;
 mod chunk_ops;
+mod duplicates;
 mod engine_impl;
 pub(super) mod ffi;
 mod prompt;
