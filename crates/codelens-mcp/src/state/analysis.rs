@@ -190,22 +190,22 @@ impl AppState {
         // Phase 1: semantic artifact memory — embed summary + findings
         #[cfg(feature = "semantic")]
         {
-            if let Ok(guard) = self.embedding.read() {
-                if let Some(engine) = guard.as_ref() {
-                    let text = format!("{} {}", artifact.summary, artifact.top_findings.join(" "));
-                    if let Ok(embedding) = engine.embed_text(&text) {
-                        let chunk = codelens_engine::embedding_store::ArtifactEmbeddingChunk {
-                            analysis_id: artifact.id.clone(),
-                            tool_name: artifact.tool_name.clone(),
-                            surface: artifact.surface.clone(),
-                            project_scope: artifact.project_scope.clone(),
-                            summary: artifact.summary.clone(),
-                            top_findings: artifact.top_findings.clone(),
-                            risk_level: artifact.risk_level.clone(),
-                            embedding,
-                        };
-                        let _ = engine.store_artifact_embeddings(&[chunk]);
-                    }
+            if let Ok(guard) = self.embedding.read()
+                && let Some(engine) = guard.as_ref()
+            {
+                let text = format!("{} {}", artifact.summary, artifact.top_findings.join(" "));
+                if let Ok(embedding) = engine.embed_text(&text) {
+                    let chunk = codelens_engine::embedding_store::ArtifactEmbeddingChunk {
+                        analysis_id: artifact.id.clone(),
+                        tool_name: artifact.tool_name.clone(),
+                        surface: artifact.surface.clone(),
+                        project_scope: artifact.project_scope.clone(),
+                        summary: artifact.summary.clone(),
+                        top_findings: artifact.top_findings.clone(),
+                        risk_level: artifact.risk_level.clone(),
+                        embedding,
+                    };
+                    let _ = engine.store_artifact_embeddings(&[chunk]);
                 }
             }
         }

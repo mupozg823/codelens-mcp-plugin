@@ -146,10 +146,11 @@ pub(super) fn ensure_session_project<'a>(
     session: &SessionRequestContext,
 ) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
     let mut bound_project_opt = session.project_path.clone();
-    if bound_project_opt.is_none() && !session.is_local() {
-        if let Some(session_state) = http_session_state(state, session) {
-            bound_project_opt = session_state.client_metadata().project_path;
-        }
+    if bound_project_opt.is_none()
+        && !session.is_local()
+        && let Some(session_state) = http_session_state(state, session)
+    {
+        bound_project_opt = session_state.client_metadata().project_path;
     }
     let Some(bound_project) = bound_project_opt.as_deref() else {
         return Ok(None);
