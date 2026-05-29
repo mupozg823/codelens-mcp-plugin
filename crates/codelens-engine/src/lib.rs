@@ -32,6 +32,7 @@ pub mod call_graph;
 pub mod circular;
 pub mod coupling;
 pub mod db;
+pub mod dead_code;
 pub mod edit_transaction;
 #[cfg(feature = "semantic")]
 pub mod embedding;
@@ -75,10 +76,11 @@ pub use file_ops::{
     search_for_pattern_smart,
 };
 pub use git::{ChangedFile, DiffSymbol, DiffSymbolEntry, get_changed_files, get_diff_symbols};
+pub use dead_code::{DeadCodeEntryV2, find_dead_code, find_dead_code_v2};
 pub use import_graph::{
-    BlastRadiusEntry, DeadCodeEntry, DeadCodeEntryV2, GraphCache, ImportanceEntry, ImporterEntry,
-    extract_imports_for_file, find_dead_code, find_dead_code_v2, get_blast_radius, get_importance,
-    get_importers, resolve_module_for_file, supports_import_graph,
+    BlastRadiusEntry, DeadCodeEntry, GraphCache, ImportanceEntry, ImporterEntry,
+    extract_imports_for_file, get_blast_radius, get_importance, get_importers,
+    resolve_module_for_file, supports_import_graph,
 };
 pub use lsp::{
     LSP_RECIPES, LspDiagnostic, LspDiagnosticRequest, LspRecipe, LspReference, LspRenamePlan,

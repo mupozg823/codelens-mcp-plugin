@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use super::paths::now_secs;
+use super::now_secs;
 
 /// Policy controlling visibility and mutability of memory entries.
 ///

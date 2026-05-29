@@ -5,8 +5,8 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use super::parsers::collect_top_level_funcs;
-use super::{DeadCodeEntry, GraphCache, collect_candidate_files};
+use crate::import_graph::parsers::collect_top_level_funcs;
+use crate::import_graph::{DeadCodeEntry, GraphCache, collect_candidate_files};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DeadCodeEntryV2 {

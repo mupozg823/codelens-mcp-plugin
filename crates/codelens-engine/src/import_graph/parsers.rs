@@ -329,7 +329,7 @@ pub fn extract_imports_for_file(path: &Path) -> Vec<String> {
 
 /// Lightweight regex-based top-level function name extractor.
 /// Fills `funcs` map with (name -> line_number). Does not overwrite existing entries.
-pub(super) fn collect_top_level_funcs(
+pub(crate) fn collect_top_level_funcs(
     path: &Path,
     source: &str,
     funcs: &mut HashMap<String, usize>,

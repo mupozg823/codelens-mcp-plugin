@@ -1,5 +1,4 @@
-mod dead_code;
-mod parsers;
+pub(crate) mod parsers;
 mod resolvers;
 
 use crate::db::{IndexDb, index_db_path};
@@ -13,7 +12,6 @@ use std::sync::{Arc, Mutex};
 
 // ── Re-exports ───────────────────────────────────────────────────────────────
 
-pub use dead_code::{DeadCodeEntryV2, find_dead_code, find_dead_code_v2};
 pub use parsers::extract_imports_for_file;
 pub use parsers::extract_imports_from_source;
 pub use resolvers::resolve_module_for_file;
@@ -408,7 +406,7 @@ fn build_graph_from_files(project: &ProjectRoot) -> Result<HashMap<String, FileN
     Ok(graph)
 }
 
-fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
+pub(crate) fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
     collect_files(root, |path| {
         crate::lang_registry::supports_imports_for_path(path)
     })
@@ -423,10 +421,10 @@ fn normalize_key(file_path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        GraphCache, find_dead_code, get_blast_radius, get_importance, get_importers,
-        supports_import_graph,
+        GraphCache, get_blast_radius, get_importance, get_importers, supports_import_graph,
     };
     use crate::ProjectRoot;
+    use crate::dead_code::find_dead_code;
     use std::fs;
 
     #[test]

@@ -90,14 +90,6 @@ pub fn global_memory_dir() -> Option<PathBuf> {
         .map(|home| home.join(".codelens").join("memories"))
 }
 
-pub(crate) fn now_secs() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 /// Resolve a memory name to a filesystem path, with validation.
 pub fn resolve_memory_path(memories_dir: &Path, name: &str) -> Result<PathBuf> {
     let normalized = name

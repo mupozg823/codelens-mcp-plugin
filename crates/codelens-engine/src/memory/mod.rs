@@ -15,6 +15,17 @@ mod paths;
 mod policy;
 mod store;
 
+/// Current Unix time in seconds. Shared time util kept at module root so
+/// neither `paths` nor `policy` depend on each other for it
+/// (breaks the former paths↔policy import cycle).
+pub(crate) fn now_secs() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 pub use archive::{
     archive_memory, archive_memory_rec, list_archived, restore_archived, restore_archived_rec,
 };
