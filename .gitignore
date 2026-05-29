@@ -23,6 +23,9 @@ __pycache__/
 !/.codelens/eval-session-audit-gate.json
 .codelens-port
 
+# Codex CLI local config (per-developer: MCP url, hooks, agent defs)
+.codex/
+
 # Serena runtime
 **/.serena/
 
