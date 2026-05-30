@@ -53,10 +53,63 @@ fn canonicalise(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// Lexical scope canonicalization (no filesystem access): collapses `.`/`..`
+/// components and trailing-slash differences so the same project under a
+/// different path representation compares equal. Avoids `fs::canonicalize`
+/// (which requires the path to exist and resolves symlinks) so scope matching
+/// stays pure and works for deleted/virtual scopes.
+fn canonicalize_scope(s: &str) -> String {
+    use std::path::{Component, Path, PathBuf};
+    let mut out = PathBuf::new();
+    for comp in Path::new(s).components() {
+        match comp {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out.to_string_lossy().into_owned()
+}
+
+/// Scope-equality check shared by `job_store` and `artifact_store`. Either side
+/// `None` matches (unscoped). When both are present, paths are lexically
+/// canonicalized first so trailing-slash / `.`-`..` representation differences
+/// of the same project do not produce a silent miss (former G8-class bug, where
+/// an explicit `path` arg and `current_project_scope()` resolved the same
+/// project to different string forms).
+pub(crate) fn matches_scope(scope: Option<&str>, current: Option<&str>) -> bool {
+    match (scope, current) {
+        (Some(s), Some(c)) => canonicalize_scope(s) == canonicalize_scope(c),
+        (None, _) => true,
+        (_, None) => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::canonical_sha256_hex;
     use serde_json::json;
+
+    #[test]
+    fn matches_scope_canonicalizes_path_representation() {
+        use super::matches_scope;
+        // 같은 프로젝트의 다른 경로 표현은 match (canonicalize 일원화)
+        assert!(
+            matches_scope(Some("/proj"), Some("/proj/")),
+            "trailing slash"
+        );
+        assert!(
+            matches_scope(Some("/a/proj"), Some("/a/sub/../proj")),
+            "비정규화 경로(.. 포함)"
+        );
+        // 다른 프로젝트는 여전히 불일치 (검사 의미 보존)
+        assert!(!matches_scope(Some("/proj"), Some("/other")));
+        // None 의미 보존
+        assert!(matches_scope(None, Some("/proj")));
+        assert!(matches_scope(Some("/proj"), None));
+    }
 
     #[test]
     fn canonical_sha256_hex_is_key_order_independent() {

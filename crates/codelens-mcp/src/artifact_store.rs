@@ -7,6 +7,7 @@ use crate::error::CodeLensError;
 use crate::runtime_types::{
     AnalysisArtifact, AnalysisReadiness, AnalysisSummary, AnalysisVerifierCheck,
 };
+use crate::util::matches_scope;
 
 pub(crate) const MAX_ANALYSIS_ARTIFACTS: usize = 50;
 const TTL_MS: u64 = 6 * 60 * 60 * 1000; // 6 hours
@@ -469,14 +470,6 @@ impl AnalysisArtifactStore {
             a.created_at_ms = created_at_ms;
         }
         Ok(())
-    }
-}
-
-fn matches_scope(artifact_scope: Option<&str>, current_scope: Option<&str>) -> bool {
-    match (artifact_scope, current_scope) {
-        (Some(a), Some(c)) => a == c,
-        (None, _) => true,
-        (_, None) => true,
     }
 }
 

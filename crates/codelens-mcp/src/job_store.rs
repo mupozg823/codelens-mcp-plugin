@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 use crate::error::CodeLensError;
 use crate::runtime_types::{AnalysisJob, JobLifecycle};
+use crate::util::matches_scope;
 
 pub(crate) const MAX_ANALYSIS_JOBS: usize = 128;
 const TTL_MS: u64 = 24 * 60 * 60 * 1000;
@@ -304,14 +305,6 @@ impl AnalysisJobStore {
                 .push_back(job_id.to_owned());
         }
         Ok(job)
-    }
-}
-
-fn matches_scope(job_scope: Option<&str>, current_scope: Option<&str>) -> bool {
-    match (job_scope, current_scope) {
-        (Some(j), Some(c)) => j == c,
-        (None, _) => true,
-        (_, None) => true,
     }
 }
 
