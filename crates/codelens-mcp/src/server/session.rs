@@ -15,6 +15,65 @@ use tokio::sync::mpsc;
 
 pub type SessionId = String;
 
+/// Guard #5 (#300/#301): accept only the canonical session-id shape the server
+/// itself mints (UUID). Resurrecting arbitrary client-chosen keys is refused so
+/// a misbehaving client cannot flood the map or collide with another id.
+pub fn is_valid_session_id(id: &str) -> bool {
+    uuid::Uuid::parse_str(id).is_ok()
+}
+
+/// Guard #3 (#300/#301): bounded, short-TTL set of explicitly-DELETEd session
+/// ids. A tombstoned id is refused resurrection so DELETE stays authoritative,
+/// without the unbounded growth of a permanent tombstone.
+pub struct Tombstone {
+    entries: Mutex<std::collections::VecDeque<(String, Instant)>>,
+    ttl: Duration,
+    cap: usize,
+}
+
+impl Tombstone {
+    pub fn new(ttl: Duration, cap: usize) -> Self {
+        Self {
+            entries: Mutex::new(std::collections::VecDeque::new()),
+            ttl,
+            cap,
+        }
+    }
+
+    fn prune(
+        entries: &mut std::collections::VecDeque<(String, Instant)>,
+        ttl: Duration,
+        cap: usize,
+    ) {
+        while entries.front().is_some_and(|(_, marked)| marked.elapsed() > ttl) {
+            entries.pop_front();
+        }
+        while entries.len() > cap {
+            entries.pop_front();
+        }
+    }
+
+    pub fn mark(&self, id: &str) {
+        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        entries.push_back((id.to_owned(), Instant::now()));
+        Self::prune(&mut entries, self.ttl, self.cap);
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        Self::prune(&mut entries, self.ttl, self.cap);
+        entries.iter().any(|(key, _)| key == id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.lock().map(|e| e.len()).unwrap_or(0)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct SessionActivitySnapshot {
     pub id: String,
@@ -408,5 +467,33 @@ mod tests {
         assert!(was_resumed);
         assert_eq!(resumed.id, session_id);
         assert_eq!(resumed.resume_count(), 1);
+    }
+
+    // ── Task 1: store primitives (#300/#301 auto-resurrect) ──────────
+
+    #[test]
+    fn valid_session_id_accepts_uuid_rejects_garbage() {
+        let good = uuid::Uuid::new_v4().to_string();
+        assert!(is_valid_session_id(&good));
+        assert!(!is_valid_session_id("not-a-uuid"));
+        assert!(!is_valid_session_id(""));
+    }
+
+    #[test]
+    fn tombstone_marks_and_expires() {
+        let tomb = Tombstone::new(Duration::from_millis(20), 8);
+        tomb.mark("abc");
+        assert!(tomb.contains("abc"));
+        std::thread::sleep(Duration::from_millis(35));
+        assert!(!tomb.contains("abc")); // TTL expiry
+    }
+
+    #[test]
+    fn tombstone_is_bounded() {
+        let tomb = Tombstone::new(Duration::from_secs(300), 4);
+        for i in 0..10 {
+            tomb.mark(&format!("id{i}"));
+        }
+        assert!(tomb.len() <= 4); // cap honored, oldest dropped
     }
 }
