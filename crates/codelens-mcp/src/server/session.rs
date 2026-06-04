@@ -107,6 +107,19 @@ pub struct SessionSeed {
     pub client_name: Option<String>,
 }
 
+/// Guard #11 (#300/#301): how the POST gate handles an unknown session id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SessionPolicy {
+    /// Default: a non-initialize request with an unknown (UUID-shaped,
+    /// non-tombstoned) session id is transparently resurrected — no client
+    /// cooperation required, so daemon-restart / idle-timeout never lock out.
+    #[default]
+    Lenient,
+    /// Opt-in via `CODELENS_SESSION_STRICT=1`: an unknown session returns the
+    /// structured 404 envelope so cooperative clients (e.g. Codex) re-initialize.
+    Strict,
+}
+
 /// Server-Sent Event for pushing to clients via GET /mcp SSE stream.
 #[derive(Debug, Clone)]
 pub struct SseEvent {
@@ -358,6 +371,8 @@ pub struct SessionStore {
     /// Guard #3: bounded short-TTL record of explicitly-DELETEd ids so DELETE
     /// stays authoritative (a tombstoned id is refused resurrection).
     tombstone: Tombstone,
+    /// Guard #11: unknown-session handling at the POST gate.
+    policy: SessionPolicy,
 }
 
 impl SessionStore {
@@ -366,7 +381,18 @@ impl SessionStore {
             sessions: RwLock::new(HashMap::new()),
             timeout,
             tombstone: Tombstone::new(Duration::from_secs(300), 256),
+            policy: SessionPolicy::Lenient,
         }
+    }
+
+    /// Builder: set the unknown-session policy (default [`SessionPolicy::Lenient`]).
+    pub fn with_policy(mut self, policy: SessionPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    pub fn policy(&self) -> SessionPolicy {
+        self.policy
     }
 
     /// Maximum live sessions. `create()` evicts expired-then-oldest at this cap;
@@ -691,5 +717,20 @@ mod tests {
                 .get_or_resurrect(&id, &SessionSeed::default())
                 .is_none()
         );
+    }
+
+    // ── Task 5: session policy (strict opt-out) ──────────────────────
+
+    #[test]
+    fn session_store_defaults_to_lenient_policy() {
+        let store = SessionStore::new(Duration::from_secs(300));
+        assert!(matches!(store.policy(), SessionPolicy::Lenient));
+    }
+
+    #[test]
+    fn session_store_with_policy_sets_strict() {
+        let store =
+            SessionStore::new(Duration::from_secs(300)).with_policy(SessionPolicy::Strict);
+        assert!(matches!(store.policy(), SessionPolicy::Strict));
     }
 }

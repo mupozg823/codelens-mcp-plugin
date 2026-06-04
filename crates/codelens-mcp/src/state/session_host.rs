@@ -150,9 +150,20 @@ impl AppState {
     /// Initialize the session store for HTTP mode.
     #[cfg(feature = "http")]
     pub(crate) fn with_session_store(mut self) -> Self {
-        self.session_store = Some(crate::server::session::SessionStore::new(
-            std::time::Duration::from_secs(30 * 60), // 30 minutes
-        ));
+        // Guard #11: default Lenient (auto-resurrect); CODELENS_SESSION_STRICT=1
+        // opts into the strict 404-envelope path for cooperative clients.
+        let policy = match std::env::var("CODELENS_SESSION_STRICT") {
+            Ok(value) if value == "1" || value.eq_ignore_ascii_case("true") => {
+                crate::server::session::SessionPolicy::Strict
+            }
+            _ => crate::server::session::SessionPolicy::Lenient,
+        };
+        self.session_store = Some(
+            crate::server::session::SessionStore::new(
+                std::time::Duration::from_secs(30 * 60), // 30 minutes
+            )
+            .with_policy(policy),
+        );
         self
     }
 
