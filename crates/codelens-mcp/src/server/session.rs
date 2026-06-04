@@ -96,6 +96,17 @@ pub struct SessionClientMetadata {
     pub full_tool_exposure: Option<bool>,
 }
 
+/// Guard #2/#8 (#300/#301): soft surface state seeded onto a resurrected
+/// session from request headers. Deliberately has NO `trusted_client` field —
+/// privilege-bearing state must never be seeded from a non-initialize request
+/// (that would let any client assert trust and bypass the mutation gate).
+#[derive(Debug, Clone, Default)]
+pub struct SessionSeed {
+    pub requested_profile: Option<String>,
+    pub deferred_tool_loading: Option<bool>,
+    pub client_name: Option<String>,
+}
+
 /// Server-Sent Event for pushing to clients via GET /mcp SSE stream.
 #[derive(Debug, Clone)]
 pub struct SseEvent {
@@ -191,6 +202,33 @@ impl SessionState {
     pub fn set_project_path(&self, project_path: impl Into<String>) {
         if let Ok(mut current) = self.client_metadata.write() {
             current.project_path = Some(project_path.into());
+        }
+    }
+
+    /// Guard #2/#8: apply a [`SessionSeed`] onto a freshly-resurrected session.
+    /// Sets only soft surface state (profile/deferred/client_name) and, when a
+    /// profile is supplied, mirrors initialize's surface+budget so the
+    /// `tools/list` shape stays stable across resurrection. NEVER seeds
+    /// `trusted_client` — that stays at its fail-closed default (false).
+    pub fn apply_seed(&self, seed: &SessionSeed) {
+        if let Ok(mut metadata) = self.client_metadata.write() {
+            if seed.requested_profile.is_some() {
+                metadata.requested_profile = seed.requested_profile.clone();
+            }
+            if seed.deferred_tool_loading.is_some() {
+                metadata.deferred_tool_loading = seed.deferred_tool_loading;
+            }
+            if seed.client_name.is_some() {
+                metadata.client_name = seed.client_name.clone();
+            }
+        }
+        if let Some(profile) = seed
+            .requested_profile
+            .as_deref()
+            .and_then(crate::tool_defs::ToolProfile::from_str)
+        {
+            self.set_surface(ToolSurface::Profile(profile));
+            self.set_token_budget(crate::tool_defs::default_budget_for_profile(profile));
         }
     }
 
@@ -327,20 +365,23 @@ impl SessionStore {
         }
     }
 
+    /// Maximum live sessions. `create()` evicts expired-then-oldest at this cap;
+    /// `get_or_resurrect()` refuses (never evicts a live session) at this cap.
+    const MAX_SESSIONS: usize = 1000;
+
     /// Create a new session and return it.
     /// Caps total sessions at 1000; evicts expired then oldest if over limit.
     pub fn create(&self) -> Arc<SessionState> {
-        const MAX_SESSIONS: usize = 1000;
         let id = uuid::Uuid::new_v4().to_string();
         let session = Arc::new(SessionState::new(id.clone()));
         if let Ok(mut sessions) = self.sessions.write() {
             // Evict expired sessions first
-            if sessions.len() >= MAX_SESSIONS {
+            if sessions.len() >= Self::MAX_SESSIONS {
                 let timeout = self.timeout;
                 sessions.retain(|_, s| !s.is_expired(timeout));
             }
             // If still over limit, remove oldest
-            if sessions.len() >= MAX_SESSIONS
+            if sessions.len() >= Self::MAX_SESSIONS
                 && let Some(oldest_id) = sessions
                     .iter()
                     .min_by_key(|(_, s)| {
@@ -366,6 +407,44 @@ impl SessionStore {
             return (session, true);
         }
         (self.create(), false)
+    }
+
+    /// Non-initialize recovery (#300/#301). Returns:
+    /// - `Some((s, false))` — an existing session was found,
+    /// - `Some((s, true))`  — a session was resurrected under the client id,
+    /// - `None`             — refused: the id is not UUID-shaped, or the map is
+    ///   full of *active* sessions (guard #6: never evict a live client).
+    ///
+    /// Single write-lock critical section (std `RwLock` is non-reentrant and has
+    /// no upgradable guard) so concurrent callers for the same lost id converge
+    /// on one `Arc`. Tombstone refusal is the caller's responsibility (the gate
+    /// owns the tombstone set). Poison is recovered so the `(Arc, bool)` contract
+    /// — and the "id sticks" invariant — survive a panic elsewhere.
+    pub fn get_or_resurrect(
+        &self,
+        id: &str,
+        seed: &SessionSeed,
+    ) -> Option<(Arc<SessionState>, bool)> {
+        if !is_valid_session_id(id) {
+            return None;
+        }
+        let mut sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
+        if let Some(existing) = sessions.get(id) {
+            let session = Arc::clone(existing);
+            session.touch();
+            return Some((session, false));
+        }
+        // Guard #6: reclaim only EXPIRED slots; if the map is still full of
+        // active sessions, refuse rather than evict a live client.
+        let timeout = self.timeout;
+        sessions.retain(|_, session| !session.is_expired(timeout));
+        if sessions.len() >= Self::MAX_SESSIONS {
+            return None;
+        }
+        let session = Arc::new(SessionState::new(id.to_owned()));
+        session.apply_seed(seed);
+        sessions.insert(id.to_owned(), Arc::clone(&session));
+        Some((session, true))
     }
 
     /// Look up a session by ID and refresh its activity timestamp.
@@ -495,5 +574,79 @@ mod tests {
             tomb.mark(&format!("id{i}"));
         }
         assert!(tomb.len() <= 4); // cap honored, oldest dropped
+    }
+
+    // ── Task 2: get_or_resurrect + SessionSeed ───────────────────────
+
+    #[test]
+    fn get_or_resurrect_creates_under_client_id() {
+        let store = SessionStore::new(Duration::from_secs(300));
+        let id = uuid::Uuid::new_v4().to_string();
+        let (s, resurrected) = store.get_or_resurrect(&id, &SessionSeed::default()).unwrap();
+        assert!(resurrected);
+        assert_eq!(s.id, id); // client id, NOT a fresh uuid
+        let (s2, again) = store.get_or_resurrect(&id, &SessionSeed::default()).unwrap();
+        assert!(!again); // second call finds it
+        assert!(Arc::ptr_eq(&s, &s2)); // same Arc
+    }
+
+    #[test]
+    fn get_or_resurrect_rejects_non_uuid() {
+        let store = SessionStore::new(Duration::from_secs(300));
+        assert!(
+            store
+                .get_or_resurrect("garbage", &SessionSeed::default())
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn get_or_resurrect_seeds_profile_not_trusted_client() {
+        let store = SessionStore::new(Duration::from_secs(300));
+        let id = uuid::Uuid::new_v4().to_string();
+        let seed = SessionSeed {
+            requested_profile: Some("reviewer-graph".into()),
+            deferred_tool_loading: Some(true),
+            client_name: Some("codex".into()),
+        };
+        let (s, _) = store.get_or_resurrect(&id, &seed).unwrap();
+        let metadata = s.client_metadata();
+        assert_eq!(metadata.requested_profile.as_deref(), Some("reviewer-graph"));
+        assert_eq!(metadata.deferred_tool_loading, Some(true));
+        assert_eq!(metadata.trusted_client, None); // guard #2 — never seeded
+    }
+
+    #[test]
+    fn get_or_resurrect_refuses_when_full_of_active() {
+        // Long timeout → nothing expires, so the map is full of ACTIVE sessions.
+        let store = SessionStore::new(Duration::from_secs(3600));
+        for _ in 0..1000 {
+            store.create();
+        }
+        assert_eq!(store.len(), 1000);
+        let id = uuid::Uuid::new_v4().to_string();
+        // Guard #6: refuse rather than evict a live session.
+        assert!(store.get_or_resurrect(&id, &SessionSeed::default()).is_none());
+        assert_eq!(store.len(), 1000); // unchanged — no active eviction
+    }
+
+    #[test]
+    fn get_or_resurrect_concurrent_same_id_one_arc() {
+        let store = Arc::new(SessionStore::new(Duration::from_secs(300)));
+        let id = uuid::Uuid::new_v4().to_string();
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let store = Arc::clone(&store);
+                let id = id.clone();
+                std::thread::spawn(move || {
+                    store.get_or_resurrect(&id, &SessionSeed::default()).unwrap()
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let resurrected = results.iter().filter(|(_, r)| *r).count();
+        assert_eq!(resurrected, 1); // exactly one winner
+        let first = &results[0].0;
+        assert!(results.iter().all(|(s, _)| Arc::ptr_eq(s, first)));
     }
 }
