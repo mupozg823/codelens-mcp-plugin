@@ -355,6 +355,9 @@ impl SessionState {
 pub struct SessionStore {
     sessions: RwLock<HashMap<SessionId, Arc<SessionState>>>,
     timeout: Duration,
+    /// Guard #3: bounded short-TTL record of explicitly-DELETEd ids so DELETE
+    /// stays authoritative (a tombstoned id is refused resurrection).
+    tombstone: Tombstone,
 }
 
 impl SessionStore {
@@ -362,6 +365,7 @@ impl SessionStore {
         Self {
             sessions: RwLock::new(HashMap::new()),
             timeout,
+            tombstone: Tombstone::new(Duration::from_secs(300), 256),
         }
     }
 
@@ -412,20 +416,20 @@ impl SessionStore {
     /// Non-initialize recovery (#300/#301). Returns:
     /// - `Some((s, false))` — an existing session was found,
     /// - `Some((s, true))`  — a session was resurrected under the client id,
-    /// - `None`             — refused: the id is not UUID-shaped, or the map is
-    ///   full of *active* sessions (guard #6: never evict a live client).
+    /// - `None`             — refused: the id is not UUID-shaped, was explicitly
+    ///   DELETEd (tombstoned), or the map is full of *active* sessions
+    ///   (guard #6: never evict a live client).
     ///
     /// Single write-lock critical section (std `RwLock` is non-reentrant and has
     /// no upgradable guard) so concurrent callers for the same lost id converge
-    /// on one `Arc`. Tombstone refusal is the caller's responsibility (the gate
-    /// owns the tombstone set). Poison is recovered so the `(Arc, bool)` contract
-    /// — and the "id sticks" invariant — survive a panic elsewhere.
+    /// on one `Arc`. Poison is recovered so the `(Arc, bool)` contract — and the
+    /// "id sticks" invariant — survive a panic elsewhere.
     pub fn get_or_resurrect(
         &self,
         id: &str,
         seed: &SessionSeed,
     ) -> Option<(Arc<SessionState>, bool)> {
-        if !is_valid_session_id(id) {
+        if !is_valid_session_id(id) || self.tombstone.contains(id) {
             return None;
         }
         let mut sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
@@ -460,6 +464,18 @@ impl SessionStore {
         if let Ok(mut sessions) = self.sessions.write() {
             sessions.remove(id);
         }
+    }
+
+    /// Guard #3: record an explicitly-DELETEd id and drop its live session so a
+    /// later non-initialize request is refused resurrection for the tombstone
+    /// TTL — keeping DELETE authoritative even under the lenient session policy.
+    pub fn mark_tombstone(&self, id: &str) {
+        self.remove(id);
+        self.tombstone.mark(id);
+    }
+
+    pub fn is_tombstoned(&self, id: &str) -> bool {
+        self.tombstone.contains(id)
     }
 
     /// Remove all expired sessions. Returns number removed.
@@ -648,5 +664,32 @@ mod tests {
         assert_eq!(resurrected, 1); // exactly one winner
         let first = &results[0].0;
         assert!(results.iter().all(|(s, _)| Arc::ptr_eq(s, first)));
+    }
+
+    // ── Task 3: tombstone wiring (DELETE stays authoritative) ─────────
+
+    #[test]
+    fn mark_tombstone_removes_and_records() {
+        let store = SessionStore::new(Duration::from_secs(300));
+        let id = uuid::Uuid::new_v4().to_string();
+        store.get_or_resurrect(&id, &SessionSeed::default()).unwrap();
+        assert!(store.get(&id).is_some());
+        store.mark_tombstone(&id);
+        assert!(store.get(&id).is_none()); // session removed
+        assert!(store.is_tombstoned(&id)); // and recorded as deleted
+    }
+
+    #[test]
+    fn get_or_resurrect_refuses_tombstoned_id() {
+        let store = SessionStore::new(Duration::from_secs(300));
+        let id = uuid::Uuid::new_v4().to_string();
+        store.get_or_resurrect(&id, &SessionSeed::default()).unwrap();
+        store.mark_tombstone(&id);
+        // tombstoned → refused even though the id is UUID-shaped
+        assert!(
+            store
+                .get_or_resurrect(&id, &SessionSeed::default())
+                .is_none()
+        );
     }
 }

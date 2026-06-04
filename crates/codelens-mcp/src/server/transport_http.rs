@@ -627,7 +627,10 @@ async fn mcp_delete_handler(State(state): State<Arc<AppState>>, headers: HeaderM
     if let Some(id) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
         && let Some(store) = &state.session_store
     {
-        store.remove(id);
+        // Guard #3: tombstone (not just remove) so an explicitly-terminated id
+        // is refused resurrection under the lenient policy — DELETE stays
+        // authoritative.
+        store.mark_tombstone(id);
         tracing::debug!(session_id = id, "session terminated by client");
     }
     StatusCode::NO_CONTENT.into_response()
