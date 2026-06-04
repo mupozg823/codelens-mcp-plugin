@@ -1,4 +1,4 @@
-use super::session::{SessionClientMetadata, SessionStore};
+use super::session::{SessionClientMetadata, SessionSeed, SessionStore};
 use crate::client_profile::ClientProfile;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::tool_defs::ToolSurface;
@@ -96,6 +96,31 @@ pub(crate) fn extract_initialize_metadata(
         loaded_tiers: Vec::new(),
         full_tool_exposure: None,
     })
+}
+
+impl SessionSeed {
+    /// Guard #2/#8: build a resurrection seed from request headers. Reads only
+    /// soft surface knobs (`x-codelens-profile`, `x-codelens-deferred-tool-loading`,
+    /// `x-codelens-client`). It deliberately does NOT read
+    /// `x-codelens-trusted-client` — that privilege-bearing header is honored
+    /// only on `initialize`, so a non-initialize resurrection can never assert
+    /// trust and bypass the mutation gate.
+    pub fn from_headers(headers: &HeaderMap) -> Self {
+        let header = |key: &str| {
+            headers
+                .get(key)
+                .and_then(|value| value.to_str().ok())
+                .map(ToOwned::to_owned)
+        };
+        SessionSeed {
+            requested_profile: header("x-codelens-profile"),
+            deferred_tool_loading: headers
+                .get("x-codelens-deferred-tool-loading")
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_bool_header),
+            client_name: header("x-codelens-client"),
+        }
+    }
 }
 
 pub(crate) fn create_initialize_session(
@@ -223,5 +248,31 @@ fn apply_session_headers(response: &mut Response, session: Option<&InitializeSes
         response
             .headers_mut()
             .insert("x-codelens-session-resumed", val);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_seed_reads_profile_deferred_client_not_trusted() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-codelens-profile",
+            HeaderValue::from_static("reviewer-graph"),
+        );
+        headers.insert(
+            "x-codelens-deferred-tool-loading",
+            HeaderValue::from_static("1"),
+        );
+        headers.insert("x-codelens-client", HeaderValue::from_static("codex"));
+        // Guard #2: trusted_client must be ignored on the resurrection path.
+        headers.insert("x-codelens-trusted-client", HeaderValue::from_static("1"));
+        let seed = SessionSeed::from_headers(&headers);
+        assert_eq!(seed.requested_profile.as_deref(), Some("reviewer-graph"));
+        assert_eq!(seed.deferred_tool_loading, Some(true));
+        assert_eq!(seed.client_name.as_deref(), Some("codex"));
+        // SessionSeed has no trusted_client field — guard #2 enforced by type.
     }
 }
