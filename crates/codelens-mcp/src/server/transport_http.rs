@@ -182,20 +182,20 @@ async fn protected_resource_metadata_handler(
     }
 }
 
-/// Issue #298 (D5) / #300 / #318: client-side stored session id has
-/// gone stale (daemon restart, hot-reload, or session timeout). Surface
-/// a structured envelope plus the `x-codelens-session-rotate: 1`
-/// response header so well-behaved clients can reinitialize without
-/// human intervention. Both POST and SSE GET paths must funnel through
-/// this helper so the hint is uniform across MCP transport routes —
-/// #318 reproduction was the SSE path emitting raw "Unknown session"
-/// while only the legacy fix-up (#308) covered one POST path.
+/// Issue #300 / #301 / #318: the client-side stored session id has gone stale
+/// (daemon restart or idle timeout). Returned only on the **strict** session
+/// policy and on the SSE GET path; under the default **lenient** policy the POST
+/// gate resurrects instead (see `SessionStore::get_or_resurrect`). Surfaces a
+/// structured envelope plus the `x-codelens-session-rotate: 1` response header
+/// so a cooperative client can reinitialize. Both POST and SSE GET funnel
+/// through this helper so the hint is uniform (the #318 fix). Note: SCIP index
+/// hot-reload does NOT wipe the in-memory session store, so it is not a cause.
 fn unknown_session_response() -> Response {
     let body = serde_json::json!({
         "error": "unknown_session",
         "code": "session_rotate_required",
         "rotate_required": true,
-        "hint": "Daemon may have restarted, session may have timed out, or the SCIP index was hot-reloaded. Reinitialize the MCP session.",
+        "hint": "Daemon may have restarted or the session timed out. Reinitialize the MCP session.",
         "recommended_action": "reinitialize_mcp_session",
         "action_target": "mcp_client",
     })
@@ -471,13 +471,36 @@ async fn mcp_post_handler(
     };
     let mut request = request;
 
-    // Validate session for non-initialize requests
+    // Validate / recover session for non-initialize requests (#300/#301).
+    // Under the default lenient policy a UUID-shaped, non-tombstoned unknown
+    // session is resurrected so a daemon restart / idle timeout never locks the
+    // whole client out; strict policy keeps the spec 404 envelope.
+    let mut session_resurrected = false;
     if !is_initialize
         && let Some(ref sid) = session_id
         && let Some(store) = &state.session_store
         && store.get(sid).is_none()
     {
-        return unknown_session_response();
+        match store.policy() {
+            crate::server::session::SessionPolicy::Strict => return unknown_session_response(),
+            crate::server::session::SessionPolicy::Lenient => {
+                let seed = crate::server::session::SessionSeed::from_headers(&headers);
+                match store.get_or_resurrect(sid, &seed) {
+                    Some((_session, true)) => {
+                        session_resurrected = true;
+                        tracing::info!(
+                            session_id = sid.as_str(),
+                            "resurrected stale MCP session (#300): daemon restart or idle timeout — recovered without lockout"
+                        );
+                    }
+                    // A concurrent request already recreated it — proceed.
+                    Some((_session, false)) => {}
+                    // None: non-UUID id, tombstoned (explicit DELETE), or the map
+                    // is full of active sessions — keep the strict envelope.
+                    None => return unknown_session_response(),
+                }
+            }
+        }
     }
 
     // L1: thread the authenticated principal id through to the
@@ -549,15 +572,29 @@ async fn mcp_post_handler(
     let Some(resp) = response else {
         // Spec §"Sending Messages to the Server" item 4: a notification or
         // response body with no JSON-RPC reply returns 202 Accepted, not 204.
-        return StatusCode::ACCEPTED.into_response();
+        let mut accepted = StatusCode::ACCEPTED.into_response();
+        if session_resurrected {
+            accepted.headers_mut().insert(
+                "x-codelens-session-resurrected",
+                HeaderValue::from_static("1"),
+            );
+        }
+        return accepted;
     };
 
-    into_mcp_response(
+    let mut response = into_mcp_response(
         resp,
         accept,
         initialize_session.as_ref(),
         state.daemon_mode().as_str(),
-    )
+    );
+    if session_resurrected {
+        response.headers_mut().insert(
+            "x-codelens-session-resurrected",
+            HeaderValue::from_static("1"),
+        );
+    }
+    response
 }
 
 // ── GET /mcp (persistent SSE stream) ──────────────────────────────────

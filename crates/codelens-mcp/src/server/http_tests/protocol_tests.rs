@@ -139,6 +139,70 @@ async fn post_unknown_session_returns_not_found() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
+// #300/#301: a UUID-shaped unknown session is transparently resurrected under
+// the default lenient policy (no 404 lockout), with an observability header.
+#[tokio::test]
+async fn post_unknown_uuid_session_resurrects_under_lenient() {
+    let app = build_router(test_state());
+    let sid = uuid::Uuid::new_v4().to_string();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()
+            .get("x-codelens-session-resurrected")
+            .and_then(|value| value.to_str().ok()),
+        Some("1"),
+        "a resurrected session must carry the observability header"
+    );
+}
+
+// #300 guard #11: under strict policy an unknown session keeps the spec 404
+// envelope (also the first assertion of the envelope body contract).
+#[tokio::test]
+async fn post_unknown_uuid_session_strict_returns_envelope() {
+    let app = build_router(test_state_strict());
+    let sid = uuid::Uuid::new_v4().to_string();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        resp.headers()
+            .get("x-codelens-session-rotate")
+            .and_then(|value| value.to_str().ok()),
+        Some("1")
+    );
+    let body = body_string(resp).await;
+    assert!(body.contains("\"error\":\"unknown_session\""));
+    assert!(body.contains("\"rotate_required\":true"));
+}
+
 #[tokio::test]
 async fn post_with_sse_accept_returns_event_stream() {
     let app = build_router(test_state());

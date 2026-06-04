@@ -38,6 +38,23 @@ fn test_state_with_compat(compat_mode: ServerCompatMode) -> Arc<AppState> {
     state
 }
 
+/// Like `test_state` but forces the strict session policy (#300 guard #11),
+/// without depending on the `CODELENS_SESSION_STRICT` process env.
+fn test_state_strict() -> Arc<AppState> {
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-http-test-strict-{}-{:?}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        std::thread::current().id(),
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+    let state = AppState::new(project, crate::tool_defs::ToolPreset::Balanced);
+    Arc::new(state.with_session_store_policy(crate::server::session::SessionPolicy::Strict))
+}
+
 fn temp_project_dir(name: &str) -> std::path::PathBuf {
     crate::test_helpers::fixtures::temp_project_dir(name)
 }

@@ -149,7 +149,7 @@ impl AppState {
 
     /// Initialize the session store for HTTP mode.
     #[cfg(feature = "http")]
-    pub(crate) fn with_session_store(mut self) -> Self {
+    pub(crate) fn with_session_store(self) -> Self {
         // Guard #11: default Lenient (auto-resurrect); CODELENS_SESSION_STRICT=1
         // opts into the strict 404-envelope path for cooperative clients.
         let policy = match std::env::var("CODELENS_SESSION_STRICT") {
@@ -158,6 +158,17 @@ impl AppState {
             }
             _ => crate::server::session::SessionPolicy::Lenient,
         };
+        self.with_session_store_policy(policy)
+    }
+
+    /// Initialize the session store with an explicit unknown-session policy.
+    /// `with_session_store` resolves the policy from env and delegates here;
+    /// tests use it to force a strict store without touching process env.
+    #[cfg(feature = "http")]
+    pub(crate) fn with_session_store_policy(
+        mut self,
+        policy: crate::server::session::SessionPolicy,
+    ) -> Self {
         self.session_store = Some(
             crate::server::session::SessionStore::new(
                 std::time::Duration::from_secs(30 * 60), // 30 minutes
