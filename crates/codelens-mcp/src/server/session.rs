@@ -45,7 +45,10 @@ impl Tombstone {
         ttl: Duration,
         cap: usize,
     ) {
-        while entries.front().is_some_and(|(_, marked)| marked.elapsed() > ttl) {
+        while entries
+            .front()
+            .is_some_and(|(_, marked)| marked.elapsed() > ttl)
+        {
             entries.pop_front();
         }
         while entries.len() > cap {
@@ -624,10 +627,14 @@ mod tests {
     fn get_or_resurrect_creates_under_client_id() {
         let store = SessionStore::new(Duration::from_secs(300));
         let id = uuid::Uuid::new_v4().to_string();
-        let (s, resurrected) = store.get_or_resurrect(&id, &SessionSeed::default()).unwrap();
+        let (s, resurrected) = store
+            .get_or_resurrect(&id, &SessionSeed::default())
+            .unwrap();
         assert!(resurrected);
         assert_eq!(s.id, id); // client id, NOT a fresh uuid
-        let (s2, again) = store.get_or_resurrect(&id, &SessionSeed::default()).unwrap();
+        let (s2, again) = store
+            .get_or_resurrect(&id, &SessionSeed::default())
+            .unwrap();
         assert!(!again); // second call finds it
         assert!(Arc::ptr_eq(&s, &s2)); // same Arc
     }
@@ -653,7 +660,10 @@ mod tests {
         };
         let (s, _) = store.get_or_resurrect(&id, &seed).unwrap();
         let metadata = s.client_metadata();
-        assert_eq!(metadata.requested_profile.as_deref(), Some("reviewer-graph"));
+        assert_eq!(
+            metadata.requested_profile.as_deref(),
+            Some("reviewer-graph")
+        );
         assert_eq!(metadata.deferred_tool_loading, Some(true));
         assert_eq!(metadata.trusted_client, None); // guard #2 — never seeded
     }
@@ -668,7 +678,11 @@ mod tests {
         assert_eq!(store.len(), 1000);
         let id = uuid::Uuid::new_v4().to_string();
         // Guard #6: refuse rather than evict a live session.
-        assert!(store.get_or_resurrect(&id, &SessionSeed::default()).is_none());
+        assert!(
+            store
+                .get_or_resurrect(&id, &SessionSeed::default())
+                .is_none()
+        );
         assert_eq!(store.len(), 1000); // unchanged — no active eviction
     }
 
@@ -681,7 +695,9 @@ mod tests {
                 let store = Arc::clone(&store);
                 let id = id.clone();
                 std::thread::spawn(move || {
-                    store.get_or_resurrect(&id, &SessionSeed::default()).unwrap()
+                    store
+                        .get_or_resurrect(&id, &SessionSeed::default())
+                        .unwrap()
                 })
             })
             .collect();
@@ -698,7 +714,9 @@ mod tests {
     fn mark_tombstone_removes_and_records() {
         let store = SessionStore::new(Duration::from_secs(300));
         let id = uuid::Uuid::new_v4().to_string();
-        store.get_or_resurrect(&id, &SessionSeed::default()).unwrap();
+        store
+            .get_or_resurrect(&id, &SessionSeed::default())
+            .unwrap();
         assert!(store.get(&id).is_some());
         store.mark_tombstone(&id);
         assert!(store.get(&id).is_none()); // session removed
@@ -709,7 +727,9 @@ mod tests {
     fn get_or_resurrect_refuses_tombstoned_id() {
         let store = SessionStore::new(Duration::from_secs(300));
         let id = uuid::Uuid::new_v4().to_string();
-        store.get_or_resurrect(&id, &SessionSeed::default()).unwrap();
+        store
+            .get_or_resurrect(&id, &SessionSeed::default())
+            .unwrap();
         store.mark_tombstone(&id);
         // tombstoned → refused even though the id is UUID-shaped
         assert!(
@@ -729,8 +749,7 @@ mod tests {
 
     #[test]
     fn session_store_with_policy_sets_strict() {
-        let store =
-            SessionStore::new(Duration::from_secs(300)).with_policy(SessionPolicy::Strict);
+        let store = SessionStore::new(Duration::from_secs(300)).with_policy(SessionPolicy::Strict);
         assert!(matches!(store.policy(), SessionPolicy::Strict));
     }
 }
