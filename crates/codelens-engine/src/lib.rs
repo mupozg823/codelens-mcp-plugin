@@ -64,6 +64,7 @@ pub use coupling::{CouplingEntry, get_change_coupling};
 pub use db::{
     DirStats, IndexDb, NewCall, NewImport, NewSymbol, SymbolWithFile, content_hash, index_db_path,
 };
+pub use dead_code::{DeadCodeEntryV2, find_dead_code, find_dead_code_v2};
 pub use edit_transaction::{
     ApplyError, ApplyEvidence, ApplyStatus, FileHash, RollbackEntry, WorkspaceEditTransaction,
     apply_full_write_with_evidence, apply_full_writes_with_evidence,
@@ -76,7 +77,6 @@ pub use file_ops::{
     search_for_pattern_smart,
 };
 pub use git::{ChangedFile, DiffSymbol, DiffSymbolEntry, get_changed_files, get_diff_symbols};
-pub use dead_code::{DeadCodeEntryV2, find_dead_code, find_dead_code_v2};
 pub use import_graph::{
     BlastRadiusEntry, DeadCodeEntry, GraphCache, ImportanceEntry, ImporterEntry,
     extract_imports_for_file, get_blast_radius, get_importance, get_importers,

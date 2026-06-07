@@ -10,7 +10,7 @@
     "member_count": 2
   },
   "tool_registry": {
-    "definition_count": 73,
+    "definition_count": 81,
     "output_schema_count": 52,
     "namespaces": {
       "filesystem": 5,
@@ -18,23 +18,23 @@
       "lsp": 2,
       "memory": 5,
       "reports": 20,
-      "session": 26,
+      "session": 34,
       "symbols": 9
     },
     "tiers": {
-      "analysis": 17,
-      "primitive": 37,
+      "analysis": 21,
+      "primitive": 41,
       "workflow": 19
     },
     "phases": {
-      "agnostic": 33,
+      "agnostic": 41,
       "build": 1,
       "eval": 8,
       "plan": 19,
       "review": 12
     },
     "preferred_executors": {
-      "any": 68,
+      "any": 76,
       "claude": 4,
       "codex-builder": 1
     },
@@ -652,6 +652,42 @@
         "estimated_tokens": 137
       },
       {
+        "name": "find_phantom_modules",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 181
+      },
+      {
+        "name": "find_redundant_definitions",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 192
+      },
+      {
+        "name": "find_over_visible_apis",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 207
+      },
+      {
+        "name": "audit_memory_consistency",
+        "namespace": "session",
+        "tier": "analysis",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 236
+      },
+      {
         "name": "list_memories",
         "namespace": "memory",
         "tier": "primitive",
@@ -690,6 +726,42 @@
       {
         "name": "rename_memory",
         "namespace": "memory",
+        "tier": "primitive",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 102
+      },
+      {
+        "name": "archive_memory",
+        "namespace": "session",
+        "tier": "primitive",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 98
+      },
+      {
+        "name": "restore_memory",
+        "namespace": "session",
+        "tier": "primitive",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 115
+      },
+      {
+        "name": "list_archived",
+        "namespace": "session",
+        "tier": "primitive",
+        "phase": null,
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 74
+      },
+      {
+        "name": "read_policy",
+        "namespace": "session",
         "tier": "primitive",
         "phase": null,
         "preferred_executor": null,
@@ -1059,7 +1131,7 @@
     "presets": [
       {
         "name": "minimal",
-        "tool_count": 21,
+        "tool_count": 20,
         "preferred_namespaces": [
           "symbols",
           "filesystem",
@@ -1089,13 +1161,12 @@
           "set_profile",
           "get_ranked_context",
           "get_type_hierarchy",
-          "plan_symbol_rename",
-          "refresh_symbol_index"
+          "plan_symbol_rename"
         ]
       },
       {
         "name": "balanced",
-        "tool_count": 60,
+        "tool_count": 68,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1140,6 +1211,10 @@
           "get_capabilities",
           "audit_log_query",
           "audit_tool_surface_consistency",
+          "find_phantom_modules",
+          "find_redundant_definitions",
+          "find_over_visible_apis",
+          "audit_memory_consistency",
           "get_analysis_job",
           "get_analysis_section",
           "get_symbols_overview",
@@ -1162,6 +1237,10 @@
           "list_queryable_projects",
           "set_preset",
           "set_profile",
+          "archive_memory",
+          "restore_memory",
+          "list_archived",
+          "read_policy",
           "get_file_diagnostics",
           "list_memories",
           "read_memory",
@@ -1172,7 +1251,7 @@
       },
       {
         "name": "full",
-        "tool_count": 73,
+        "tool_count": 81,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1220,6 +1299,10 @@
           "audit_planner_session",
           "audit_log_query",
           "audit_tool_surface_consistency",
+          "find_phantom_modules",
+          "find_redundant_definitions",
+          "find_over_visible_apis",
+          "audit_memory_consistency",
           "get_ranked_context",
           "bm25_symbol_search",
           "search_symbols_fuzzy",
@@ -1257,6 +1340,10 @@
           "set_profile",
           "get_tool_metrics",
           "export_session_markdown",
+          "archive_memory",
+          "restore_memory",
+          "list_archived",
+          "read_policy",
           "get_symbols_overview",
           "find_symbol",
           "find_referencing_symbols",
@@ -2796,7 +2883,7 @@
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 60,
+    "visible_tool_count": 68,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": false,
@@ -2828,10 +2915,10 @@
   "summary": {
     "workspace_version": "1.13.32",
     "workspace_member_count": 2,
-    "registered_tool_definitions": 73,
+    "registered_tool_definitions": 81,
     "tool_output_schemas": {
       "declared": 52,
-      "total": 73
+      "total": 81
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,
