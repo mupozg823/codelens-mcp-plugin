@@ -153,6 +153,17 @@ pub struct DuplicatePair {
     /// missing.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub signature_only_match: bool,
+    /// G7: symbol kind ("function"/"method"/"variable"/"constant"/…) for
+    /// each side, copied from the embedding chunk. The
+    /// cleanup_duplicate_logic workflow uses these to suppress same-file
+    /// *cross-symbol data* pairs — adjacent local variables/constants whose
+    /// short declarations score a high cosine (0.9+) but are distinct
+    /// values, not shared logic. Filter-internal only: `#[serde(skip)]`
+    /// keeps it out of the response payload so consumer output is unchanged.
+    #[serde(skip)]
+    pub kind_a: String,
+    #[serde(skip)]
+    pub kind_b: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

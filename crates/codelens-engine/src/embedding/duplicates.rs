@@ -215,6 +215,8 @@ impl EmbeddingEngine {
                         similarity: sim,
                         body_token_jaccard: jaccard,
                         signature_only_match,
+                        kind_a: chunk.kind.clone(),
+                        kind_b: candidate_chunk.kind.clone(),
                     });
                     if pairs.len() >= max_pairs {
                         done = true;

@@ -16,6 +16,7 @@ struct DuplicateFilterOutcome {
     pairs: Vec<DuplicatePair>,
     suppressed_config_code_pairs: usize,
     suppressed_same_file_same_symbol_pairs: usize,
+    suppressed_same_file_cross_symbol_pairs: usize,
     suppressed_signature_only_pairs: usize,
 }
 
@@ -174,6 +175,35 @@ fn is_same_file_same_symbol_pair(pair: &DuplicatePair) -> bool {
 }
 
 #[cfg(feature = "semantic")]
+fn is_data_symbol_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "variable" | "constant" | "const" | "field" | "property" | "parameter" | "static" | "local"
+    )
+}
+
+#[cfg(feature = "semantic")]
+fn is_same_file_cross_symbol_data_noise(pair: &DuplicatePair) -> bool {
+    if pair.file_a != pair.file_b {
+        return false;
+    }
+    let name_a = symbol_name_for_duplicate_side(&pair.symbol_a, &pair.file_a);
+    let name_b = symbol_name_for_duplicate_side(&pair.symbol_b, &pair.file_b);
+    if name_a == name_b {
+        // same-file/same-symbol overloads are handled by
+        // is_same_file_same_symbol_pair — don't double-count here.
+        return false;
+    }
+    // G7: two *data* symbols (locals/constants/fields) declared in the
+    // same file score a high embedding cosine on their short declarations
+    // (e.g. `key_files_list` vs `key_files`, 0.9+) but are distinct
+    // values, not shared logic. Function/method/class/struct pairs are
+    // preserved — a real same-file duplicate *function* is an extract
+    // candidate, the one signal worth surfacing here.
+    is_data_symbol_kind(&pair.kind_a) && is_data_symbol_kind(&pair.kind_b)
+}
+
+#[cfg(feature = "semantic")]
 fn duplicate_quality_scan_limit(
     include_config_code_pairs: bool,
     include_local_same_symbol_pairs: bool,
@@ -199,6 +229,7 @@ fn filter_duplicate_pairs_for_cleanup(
     let normalized_scope = normalize_duplicate_scope(project, scope);
     let mut suppressed_config_code_pairs = 0usize;
     let mut suppressed_same_file_same_symbol_pairs = 0usize;
+    let mut suppressed_same_file_cross_symbol_pairs = 0usize;
     let mut suppressed_signature_only_pairs = 0usize;
     let pairs = pairs
         .into_iter()
@@ -222,6 +253,16 @@ fn filter_duplicate_pairs_for_cleanup(
             false
         })
         .filter(|pair| {
+            // G7: same-file cross-symbol *data* pairs (adjacent locals /
+            // constants) are embedding noise, not shared logic. Gated by
+            // the same include_local flag as same-symbol helper noise.
+            if include_local_same_symbol_pairs || !is_same_file_cross_symbol_data_noise(pair) {
+                return true;
+            }
+            suppressed_same_file_cross_symbol_pairs += 1;
+            false
+        })
+        .filter(|pair| {
             // #299: namespaced wrappers around a shared helper match by
             // signature + identifier shape but differ in body
             // predicates. Suppress those false positives by default;
@@ -239,6 +280,7 @@ fn filter_duplicate_pairs_for_cleanup(
         pairs,
         suppressed_config_code_pairs,
         suppressed_same_file_same_symbol_pairs,
+        suppressed_same_file_cross_symbol_pairs,
         suppressed_signature_only_pairs,
     }
 }
@@ -493,6 +535,8 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
             let suppressed_config_code_pairs = filtered.suppressed_config_code_pairs;
             let suppressed_same_file_same_symbol_pairs =
                 filtered.suppressed_same_file_same_symbol_pairs;
+            let suppressed_same_file_cross_symbol_pairs =
+                filtered.suppressed_same_file_cross_symbol_pairs;
             let suppressed_signature_only_pairs = filtered.suppressed_signature_only_pairs;
             let payload = json!({
                 "threshold": threshold,
@@ -505,6 +549,8 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
                     "suppressed_config_code_pairs": suppressed_config_code_pairs,
                     "same_file_same_symbol_pairs": if include_local_same_symbol_pairs { "included" } else { "suppressed_by_default" },
                     "suppressed_same_file_same_symbol_pairs": suppressed_same_file_same_symbol_pairs,
+                    "same_file_cross_symbol_pairs": if include_local_same_symbol_pairs { "included" } else { "suppressed_by_default" },
+                    "suppressed_same_file_cross_symbol_pairs": suppressed_same_file_cross_symbol_pairs,
                     "signature_only_matches": if include_signature_only_matches { "included" } else { "suppressed_by_default" },
                     "suppressed_signature_only_pairs": suppressed_signature_only_pairs,
                 },
@@ -556,11 +602,27 @@ mod tests {
             similarity: 0.99,
             body_token_jaccard: None,
             signature_only_match: false,
+            kind_a: "function".to_owned(),
+            kind_b: "function".to_owned(),
         }
     }
 
     fn duplicate_pair(file_a: &str, file_b: &str) -> DuplicatePair {
         duplicate_pair_with_symbols(file_a, "a", file_b, "b")
+    }
+
+    fn duplicate_pair_with_kinds(
+        file_a: &str,
+        symbol_a: &str,
+        kind_a: &str,
+        file_b: &str,
+        symbol_b: &str,
+        kind_b: &str,
+    ) -> DuplicatePair {
+        let mut pair = duplicate_pair_with_symbols(file_a, symbol_a, file_b, symbol_b);
+        pair.kind_a = kind_a.to_owned();
+        pair.kind_b = kind_b.to_owned();
+        pair
     }
 
     fn temp_project() -> ProjectRoot {
@@ -623,6 +685,63 @@ mod tests {
             1,
             "config-config restored when included"
         );
+    }
+
+    #[test]
+    fn same_file_cross_symbol_variable_pairs_suppressed_by_default() {
+        // G7 dogfood: adjacent local variables in one function
+        // (key_files_list vs key_files) score 0.9+ cosine on their short
+        // declarations but are distinct values — not shared logic. A real
+        // same-file *function* duplicate (an extract candidate) must survive.
+        let project = temp_project();
+        let pairs = vec![
+            duplicate_pair_with_kinds(
+                "benchmarks/x.py",
+                "key_files_list",
+                "variable",
+                "benchmarks/x.py",
+                "key_files",
+                "variable",
+            ),
+            duplicate_pair_with_kinds(
+                "benchmarks/x.py",
+                "helper_a",
+                "function",
+                "benchmarks/x.py",
+                "helper_b",
+                "function",
+            ),
+        ];
+        let filtered =
+            filter_duplicate_pairs_for_cleanup(&project, None, pairs, 20, false, false, false);
+        assert_eq!(
+            filtered.pairs.len(),
+            1,
+            "variable noise suppressed, function duplicate preserved"
+        );
+        assert_eq!(filtered.pairs[0].symbol_a, "benchmarks/x.py:helper_a");
+        assert_eq!(filtered.suppressed_same_file_cross_symbol_pairs, 1);
+    }
+
+    #[test]
+    fn same_file_cross_symbol_variable_pairs_restored_when_included() {
+        let project = temp_project();
+        let pairs = vec![duplicate_pair_with_kinds(
+            "benchmarks/x.py",
+            "key_files_list",
+            "variable",
+            "benchmarks/x.py",
+            "key_files",
+            "variable",
+        )];
+        let filtered =
+            filter_duplicate_pairs_for_cleanup(&project, None, pairs, 20, false, true, false);
+        assert_eq!(
+            filtered.pairs.len(),
+            1,
+            "cross-symbol variable noise restored when local pairs included"
+        );
+        assert_eq!(filtered.suppressed_same_file_cross_symbol_pairs, 0);
     }
 
     #[test]
