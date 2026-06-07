@@ -21,6 +21,8 @@ set -euo pipefail
 #   1 — daemon binary lags source HEAD (stale, redeploy required)
 #   2 — daemon binary not found
 #   3 — daemon binary version string unparseable
+#   4 — daemon binary runs a commit NOT reachable from HEAD
+#       (divergent/unmerged/ahead; a redeploy would REGRESS it)
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${1:-${REPO_ROOT}/.codelens/bin/codelens-mcp-http}"
@@ -62,6 +64,25 @@ if [[ "${DAEMON_PREFIX}" == "${SOURCE_PREFIX}" ]]; then
 	exit 0
 fi
 
-echo "[daemon-stale-check] STALE: daemon=${DAEMON_SHA}, source HEAD=${SOURCE_SHA}" >&2
-echo "  run: bash scripts/redeploy-daemons.sh --build --probe" >&2
-exit 1
+# SHA differs — classify by git ancestry instead of blindly calling it stale.
+# A daemon running an UNMERGED/AHEAD commit must NOT be told to redeploy:
+# redeploying from HEAD would replace the running fix with older code.
+DAEMON_FULL="$(git -C "${REPO_ROOT}" rev-parse --verify --quiet "${DAEMON_SHA}^{commit}" 2>/dev/null || true)"
+
+if [[ -z "${DAEMON_FULL}" ]]; then
+	echo "[daemon-stale-check] DIVERGENT: daemon=${DAEMON_SHA} is unknown to this repo (unmerged/unpushed build), source HEAD=${SOURCE_SHA}" >&2
+	echo "  the live daemon runs code not present in HEAD — a redeploy would REGRESS it." >&2
+	echo "  confirm the daemon commit is merged (or check out its branch) before redeploying." >&2
+	exit 4
+fi
+
+if git -C "${REPO_ROOT}" merge-base --is-ancestor "${DAEMON_FULL}" HEAD 2>/dev/null; then
+	echo "[daemon-stale-check] STALE: daemon=${DAEMON_SHA} lags source HEAD=${SOURCE_SHA}" >&2
+	echo "  run: bash scripts/redeploy-daemons.sh --build --probe" >&2
+	exit 1
+fi
+
+echo "[daemon-stale-check] DIVERGENT: daemon=${DAEMON_SHA} is not reachable from HEAD=${SOURCE_SHA} (ahead/unmerged)" >&2
+echo "  the live daemon runs a commit not in HEAD history — a redeploy would REGRESS it." >&2
+echo "  merge the daemon commit (or check out the right branch) before redeploying." >&2
+exit 4
