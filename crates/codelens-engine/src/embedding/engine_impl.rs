@@ -910,8 +910,13 @@ impl EmbeddingEngine {
             })?;
 
         outliers.sort_by(|a, b| {
-            a.avg_similarity_to_file
-                .partial_cmp(&b.avg_similarity_to_file)
+            // G5: bias the ranking by structural role so expected-diverse
+            // files (entry points, tests, handler aggregators) fall below
+            // genuine misplacements instead of crowding the top.
+            let a_adj = a.avg_similarity_to_file + file_structural_role_boost(&a.file_path);
+            let b_adj = b.avg_similarity_to_file + file_structural_role_boost(&b.file_path);
+            a_adj
+                .partial_cmp(&b_adj)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         outliers.truncate(max_results);
@@ -1000,5 +1005,92 @@ impl EmbeddingEngine {
             *v /= count;
         }
         Some(mean)
+    }
+}
+
+// ── G5: role-aware outlier weighting ───────────────────────────────
+// find_misplaced_code flags symbols whose embedding is dissimilar to the
+// rest of their file. Entry points (mod.rs/lib.rs/main.*), test files, and
+// handler/dispatch aggregators legitimately hold heterogeneous symbols, so
+// their low intra-file similarity is expected — not "misplaced". A small
+// role boost on the sort key pushes those expected-diverse files down the
+// outlier ranking, reducing false positives without dropping data.
+
+/// Sort-key boost for files whose role makes heterogeneous symbols normal.
+/// Tuned conservatively; revisit with live dogfood false-positive metrics.
+const ROLE_BOOST_DIVERSE: f64 = 0.15; // entry points + test files
+const ROLE_BOOST_HANDLER: f64 = 0.10; // handler/dispatch aggregators
+
+/// Outlier-score boost for files whose structural role makes low intra-file
+/// similarity expected. `0.0` for ordinary code files. Match is by file name
+/// (case-insensitive) and path segment, so it is language-agnostic.
+fn file_structural_role_boost(path: &str) -> f64 {
+    let file = std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let path_lower = path.to_ascii_lowercase();
+
+    let is_test = file == "tests.rs"
+        || file.ends_with("_test.rs")
+        || file.ends_with("_tests.rs")
+        || path_lower
+            .split('/')
+            .any(|seg| seg == "tests" || seg == "test");
+    let is_entry = matches!(file.as_str(), "mod.rs" | "lib.rs" | "main.rs")
+        || file.starts_with("main.")
+        || file.starts_with("index.");
+    let is_handler =
+        file == "handlers.rs" || file.ends_with("_handler.rs") || file.ends_with("_handlers.rs");
+
+    if is_test || is_entry {
+        ROLE_BOOST_DIVERSE
+    } else if is_handler {
+        ROLE_BOOST_HANDLER
+    } else {
+        0.0
+    }
+}
+
+#[cfg(test)]
+mod g5_role_boost_tests {
+    use super::file_structural_role_boost;
+
+    #[test]
+    fn entry_point_files_get_boost() {
+        assert!(file_structural_role_boost("src/lib.rs") > 0.0);
+        assert!(file_structural_role_boost("a/b/mod.rs") > 0.0);
+        assert!(file_structural_role_boost("pkg/main.py") > 0.0);
+    }
+
+    #[test]
+    fn test_files_get_boost() {
+        assert!(file_structural_role_boost("src/embedding/tests.rs") > 0.0);
+        assert!(file_structural_role_boost("foo/bar_test.rs") > 0.0);
+        assert!(file_structural_role_boost("tests/integration.rs") > 0.0);
+    }
+
+    #[test]
+    fn handler_aggregators_get_boost() {
+        assert!(file_structural_role_boost("tools/handlers.rs") > 0.0);
+        assert!(file_structural_role_boost("foo_handler.rs") > 0.0);
+    }
+
+    #[test]
+    fn plain_code_files_get_no_boost() {
+        assert_eq!(
+            file_structural_role_boost("src/embedding/duplicates.rs"),
+            0.0
+        );
+        assert_eq!(file_structural_role_boost("src/ranking.rs"), 0.0);
+    }
+
+    #[test]
+    fn boost_stays_bounded() {
+        for p in ["lib.rs", "tests.rs", "x_handler.rs", "normal.rs"] {
+            let b = file_structural_role_boost(p);
+            assert!((0.0..=0.3).contains(&b), "{p} -> {b}");
+        }
     }
 }
