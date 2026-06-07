@@ -140,8 +140,17 @@ fn is_structural_config_symbol(symbol: &str) -> bool {
 fn is_config_code_duplicate_noise(pair: &DuplicatePair) -> bool {
     let left_config = is_config_file(&pair.file_a);
     let right_config = is_config_file(&pair.file_b);
+
+    // G6.1: config-vs-config pairs (the same CI YAML key across workflows,
+    // shared env vars, etc.) are configuration structure, not shared code
+    // logic. Their embedding cosine runs very high (0.98+) so the engine's
+    // filetype floor cannot catch them — suppress here regardless of symbol.
+    if left_config && right_config {
+        return true;
+    }
+
     if left_config == right_config {
-        return false;
+        return false; // both code files: not config noise
     }
 
     let left_code = is_code_file(&pair.file_a);
@@ -565,6 +574,55 @@ mod tests {
         ));
         std::fs::create_dir_all(dir.join("crates")).unwrap();
         ProjectRoot::new_exact(&dir).unwrap()
+    }
+
+    #[test]
+    fn config_vs_config_pairs_suppressed_by_default() {
+        // G6.1 dogfood: .yml<->.yml structural-key pairs (CI workflow keys,
+        // env vars) are configuration structure, not shared code logic.
+        let project = temp_project();
+        let pairs = vec![
+            duplicate_pair_with_symbols(
+                ".github/workflows/build.yml",
+                "uses",
+                ".github/workflows/release.yml",
+                "uses",
+            ),
+            duplicate_pair_with_symbols(
+                ".github/workflows/build.yml",
+                "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24",
+                ".github/workflows/release.yml",
+                "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24",
+            ),
+            duplicate_pair_with_symbols("crates/a.rs", "foo", "crates/b.rs", "bar"),
+        ];
+        let filtered =
+            filter_duplicate_pairs_for_cleanup(&project, None, pairs, 20, false, false, false);
+        assert_eq!(
+            filtered.pairs.len(),
+            1,
+            "only the real code pair should survive"
+        );
+        assert_eq!(filtered.pairs[0].file_a, "crates/a.rs");
+        assert_eq!(filtered.suppressed_config_code_pairs, 2);
+    }
+
+    #[test]
+    fn config_vs_config_pairs_restored_when_included() {
+        let project = temp_project();
+        let pairs = vec![duplicate_pair_with_symbols(
+            ".github/workflows/build.yml",
+            "uses",
+            ".github/workflows/release.yml",
+            "uses",
+        )];
+        let filtered =
+            filter_duplicate_pairs_for_cleanup(&project, None, pairs, 20, true, false, false);
+        assert_eq!(
+            filtered.pairs.len(),
+            1,
+            "config-config restored when included"
+        );
     }
 
     #[test]
