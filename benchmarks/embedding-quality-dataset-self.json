@@ -171,7 +171,7 @@
     "query": "truncate response when too large",
     "query_type": "natural_language",
     "expected_symbol": "bounded_result_payload",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response_support.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response_support/truncation.rs"
   },
   {
     "query": "record which files were recently accessed",
@@ -195,31 +195,31 @@
     "query": "find all functions that call a given function",
     "query_type": "natural_language",
     "expected_symbol": "extract_calls",
-    "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/call_graph/extract.rs"
   },
   {
     "query": "filter out standard library noise from call graph",
     "query_type": "natural_language",
     "expected_symbol": "is_noise_callee",
-    "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/call_graph/noise.rs"
   },
   {
     "query": "resolve which file a called function belongs to",
     "query_type": "natural_language",
     "expected_symbol": "collect_candidate_files",
-    "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/call_graph/resolve.rs"
   },
   {
     "query": "CallEdge",
     "query_type": "identifier",
     "expected_symbol": "CallEdge",
-    "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/call_graph/types.rs"
   },
   {
     "query": "CallerEntry",
     "query_type": "identifier",
     "expected_symbol": "CallerEntry",
-    "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/call_graph/types.rs"
   },
   {
     "query": "register sqlite vector extension for similarity search",
@@ -399,7 +399,7 @@
     "query": "determine which language config to use for a file",
     "query_type": "natural_language",
     "expected_symbol": "call_language_for_path",
-    "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/call_graph/language.rs"
   },
   {
     "query": "doom loop detection and prevention",
@@ -477,7 +477,7 @@
     "query": "CallLanguageConfig",
     "query_type": "identifier",
     "expected_symbol": "CallLanguageConfig",
-    "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/call_graph/language.rs"
   },
   {
     "query": "MutationGateFailure",
@@ -489,7 +489,7 @@
     "query": "CalleeEntry",
     "query_type": "identifier",
     "expected_symbol": "CalleeEntry",
-    "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/call_graph/types.rs"
   },
   {
     "query": "Relation type for symbol dependencies",
@@ -549,13 +549,13 @@
     "query": "strip empty null fields from JSON response",
     "query_type": "natural_language",
     "expected_symbol": "strip_empty_fields",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response_support.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response_support/payload_compact.rs"
   },
   {
     "query": "format structured pretty print response",
     "query_type": "short_phrase",
     "expected_symbol": "format_structured_response",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response_support.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response_support/text_channel.rs"
   },
   {
     "query": "suggestion_reasons_for",
@@ -574,17 +574,5 @@
     "query_type": "natural_language",
     "expected_symbol": "WorkflowFirst",
     "expected_file_suffix": "crates/codelens-mcp/src/tool_defs/presets.rs"
-  },
-  {
-    "query": "TUI file entry for dashboard",
-    "query_type": "short_phrase",
-    "expected_symbol": "FileEntry",
-    "expected_file_suffix": "crates/codelens-tui/src/app.rs"
-  },
-  {
-    "query": "draw file tree in terminal",
-    "query_type": "natural_language",
-    "expected_symbol": "draw_file_tree",
-    "expected_file_suffix": "crates/codelens-tui/src/ui.rs"
   }
 ]
