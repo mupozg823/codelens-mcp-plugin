@@ -178,7 +178,14 @@ impl EmbeddingEngine {
                     };
 
                     let sim = cosine_similarity(&chunk.embedding, &candidate_chunk.embedding);
-                    if sim < threshold {
+                    // G6: structured/config filetypes need a higher floor than
+                    // code, because boilerplate structure inflates cosine.
+                    let effective_threshold = effective_duplicate_threshold(
+                        threshold,
+                        &chunk.file_path,
+                        &candidate_chunk.file_path,
+                    );
+                    if sim < effective_threshold {
                         continue;
                     }
 
@@ -235,5 +242,76 @@ impl EmbeddingEngine {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         Ok(pairs)
+    }
+}
+
+// ── G6: filetype-aware duplicate threshold ─────────────────────────
+// Structured/config filetypes (CI YAML, lockfiles, JSON/TOML, Markdown)
+// share boilerplate structure that inflates embedding cosine, producing
+// false-positive "duplicate" pairs at the default 0.85 floor. Raise the
+// floor for those filetypes; code files keep the caller's threshold so
+// behavior is unchanged for code-vs-code pairs.
+
+/// Similarity floor for structured/config filetypes whose boilerplate
+/// inflates embedding cosine (CI YAML, lockfiles, JSON/TOML/INI, Markdown).
+const STRUCTURED_FILETYPE_DUPLICATE_FLOOR: f64 = 0.95;
+
+/// Similarity floor for a structured/config filetype, or `0.0` for code
+/// and unknown extensions. Extension match is case-insensitive.
+fn structured_filetype_floor(path: &str) -> f64 {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("yml" | "yaml" | "json" | "toml" | "lock" | "md" | "cfg" | "ini") => {
+            STRUCTURED_FILETYPE_DUPLICATE_FLOOR
+        }
+        _ => 0.0,
+    }
+}
+
+/// Effective duplicate threshold for a pair: the higher of the caller's
+/// `base` and the structured-filetype floor of either file.
+fn effective_duplicate_threshold(base: f64, file_a: &str, file_b: &str) -> f64 {
+    base.max(structured_filetype_floor(file_a))
+        .max(structured_filetype_floor(file_b))
+}
+
+#[cfg(test)]
+mod g6_filetype_threshold_tests {
+    use super::{effective_duplicate_threshold, structured_filetype_floor};
+
+    #[test]
+    fn structured_filetypes_get_higher_floor() {
+        assert_eq!(structured_filetype_floor("ci.yml"), 0.95);
+        assert_eq!(structured_filetype_floor("a/b/config.yaml"), 0.95);
+        assert_eq!(structured_filetype_floor("Cargo.lock"), 0.95);
+        assert_eq!(structured_filetype_floor("data.json"), 0.95);
+        assert_eq!(structured_filetype_floor("Config.TOML"), 0.95);
+    }
+
+    #[test]
+    fn code_and_unknown_filetypes_get_no_floor() {
+        assert_eq!(structured_filetype_floor("src/main.rs"), 0.0);
+        assert_eq!(structured_filetype_floor("app.py"), 0.0);
+        assert_eq!(structured_filetype_floor("noext"), 0.0);
+    }
+
+    #[test]
+    fn effective_threshold_raises_when_either_side_structured() {
+        assert_eq!(effective_duplicate_threshold(0.85, "a.yml", "b.rs"), 0.95);
+        assert_eq!(effective_duplicate_threshold(0.85, "a.rs", "b.yaml"), 0.95);
+    }
+
+    #[test]
+    fn effective_threshold_keeps_base_for_code_pairs() {
+        assert_eq!(effective_duplicate_threshold(0.85, "a.rs", "b.rs"), 0.85);
+    }
+
+    #[test]
+    fn effective_threshold_respects_stricter_base() {
+        let t = effective_duplicate_threshold(0.97, "a.yml", "b.yml");
+        assert!((t - 0.97).abs() < 1e-9, "got {t}");
     }
 }
