@@ -1,0 +1,11 @@
+{
+  "name": "codelens",
+  "owner": { "name": "mupozg823" },
+  "plugins": [
+    {
+      "name": "codelens",
+      "source": "./",
+      "description": "CodeLens MCP + analyze/review/onboard skills + read-only explorer agent."
+    }
+  ]
+}
