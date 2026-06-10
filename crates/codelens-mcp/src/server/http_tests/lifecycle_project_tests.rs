@@ -643,3 +643,156 @@ async fn bound_session_responses_omit_project_binding_hint() {
         "explicitly bound session must not nag: {body}"
     );
 }
+
+/// #351: eviction + lenient resurrect must not drop an explicit header
+/// binding. The same request that resurrects the session re-binds it, so
+/// reads keep targeting the caller's workspace (not the daemon default)
+/// and no `project_binding` nag appears.
+#[tokio::test]
+async fn resurrected_session_keeps_header_project_binding() {
+    let daemon_default = temp_project_dir("resurrect-default");
+    let workspace = temp_project_dir("resurrect-workspace");
+    std::fs::write(
+        workspace.join("resurrect_fixture.py"),
+        "def resurrect_marker_symbol():\n    return 1\n",
+    )
+    .unwrap();
+
+    let project = ProjectRoot::new(daemon_default.to_str().unwrap()).unwrap();
+    let state = Arc::new(
+        AppState::new(project, crate::tool_defs::ToolPreset::Balanced).with_session_store(),
+    );
+    let app = build_router(state.clone());
+
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("x-codelens-project", workspace.to_str().unwrap())
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"resurrect-qa"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    // Simulate the 30-min idle sweep: the session vanishes from the store.
+    state
+        .session_store
+        .as_ref()
+        .expect("session store")
+        .remove(&sid);
+
+    // Same session id, same header — hosts attach the header to EVERY
+    // request. The lenient gate resurrects, the seed re-binds.
+    let find = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .header("x-codelens-project", workspace.to_str().unwrap())
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find_symbol","arguments":{"name":"resurrect_marker_symbol"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        find.headers()
+            .get("x-codelens-session-resurrected")
+            .and_then(|value| value.to_str().ok()),
+        Some("1"),
+        "the eviction simulation must actually exercise the resurrect path"
+    );
+    let body = body_string(find).await;
+    assert!(
+        body.contains("resurrect_marker_symbol") && body.contains("resurrect_fixture.py"),
+        "resurrected session must still read the bound workspace: {body}"
+    );
+    assert!(
+        !body.contains("\"project_binding\""),
+        "header re-bind keeps the session explicit — no nag: {body}"
+    );
+}
+
+/// #351: a session that never declared a workspace at initialize is
+/// re-bound by the first request that carries the header — per-request
+/// capture, not initialize-only.
+#[tokio::test]
+async fn header_rebinds_unbound_session_per_request() {
+    let daemon_default = temp_project_dir("rebind-default");
+    let workspace = temp_project_dir("rebind-workspace");
+    std::fs::write(
+        workspace.join("rebind_fixture.py"),
+        "def rebind_marker_symbol():\n    return 1\n",
+    )
+    .unwrap();
+
+    let project = ProjectRoot::new(daemon_default.to_str().unwrap()).unwrap();
+    let state = Arc::new(
+        AppState::new(project, crate::tool_defs::ToolPreset::Balanced).with_session_store(),
+    );
+    let app = build_router(state.clone());
+
+    // Initialize WITHOUT the header — unbound, seeded to the daemon default.
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"rebind-qa"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let find = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .header("x-codelens-project", workspace.to_str().unwrap())
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find_symbol","arguments":{"name":"rebind_marker_symbol"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = body_string(find).await;
+    assert!(
+        body.contains("rebind_marker_symbol") && body.contains("rebind_fixture.py"),
+        "header on a later request must bind the workspace: {body}"
+    );
+    assert!(
+        !body.contains("\"project_binding\""),
+        "per-request capture makes the binding explicit — no nag: {body}"
+    );
+}

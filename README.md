@@ -25,7 +25,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 - Registered tool definitions: `87`
 - Tool output schemas: `55 / 87`
 - Supported language families: `30` across `49` extensions
-- Profiles: `planner-readonly` (35), `builder-minimal` (34), `reviewer-graph` (39), `evaluator-compact` (35), `refactor-full` (34), `ci-audit` (39), `workflow-first` (35)
+- Profiles: `planner-readonly` (36), `builder-minimal` (35), `reviewer-graph` (40), `evaluator-compact` (36), `refactor-full` (35), `ci-audit` (40), `workflow-first` (36)
 - Presets: `minimal` (20), `balanced` (74), `full` (87)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 

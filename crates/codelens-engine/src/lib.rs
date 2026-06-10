@@ -52,6 +52,7 @@ pub mod scope_analysis;
 pub mod search;
 pub mod symbols;
 pub mod type_hierarchy;
+pub mod unicode;
 pub mod vfs;
 pub mod watcher;
 

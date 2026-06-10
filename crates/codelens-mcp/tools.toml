@@ -186,7 +186,10 @@ expand_query = { type = "boolean", description = "When true (default), expand th
 [[tool]]
 name = "bm25_symbol_search"
 category = "symbol"
-preset_tags = []
+# #350: every surface that exposes the hint emitters (find_symbol miss
+# hint, D1 LSP read trio fallback_hint) must also expose this tool, or
+# the suggested recovery chain dead-ends on "not available in surface".
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Sparse BM25-F symbol retrieval — best for identifiers, signatures, path tokens, and short lexical phrases."
 annotations = "ro_a"
 output_schema = "bm25_symbol_search_output_schema"
