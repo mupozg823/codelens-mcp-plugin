@@ -86,15 +86,19 @@ fn refactor_safety_report_keeps_preview_payload_lean() {
 }
 
 #[test]
-fn refactor_surface_requires_preflight_before_create_text_file() {
+fn refactor_surface_requires_preflight_before_replace_symbol_body() {
     let project = project_root();
     let state = make_state(&project);
     let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
     let payload = call_tool(
         &state,
-        "create_text_file",
-        json!({"relative_path": "mutated.txt", "content": "hello"}),
+        "replace_symbol_body",
+        json!({
+            "relative_path": "mutated.py",
+            "symbol_name": "alpha",
+            "new_body": "    return 2"
+        }),
     );
     assert_eq!(payload["success"], json!(false));
     assert!(
@@ -122,7 +126,11 @@ fn refactor_surface_requires_preflight_before_create_text_file() {
 #[test]
 fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
     let project = project_root();
-    fs::write(project.as_path().join("gated.py"), "print('old')\n").unwrap();
+    fs::write(
+        project.as_path().join("gated.py"),
+        "def gated():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
     let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
@@ -143,10 +151,11 @@ fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
     // After canonicalization, caution tracking may differ by surface.
     let payload = call_tool(
         &state,
-        "create_text_file",
+        "replace_symbol_body",
         json!({
             "relative_path": "gated.py",
-            "content": "print('new')\n"
+            "symbol_name": "gated",
+            "new_body": "    return 2"
         }),
     );
     let _ = payload;
@@ -158,15 +167,20 @@ fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
 #[test]
 fn builder_minimal_mutation_behavior_unchanged() {
     let project = project_root();
-    fs::write(project.as_path().join("builder_import.py"), "print('hi')\n").unwrap();
+    fs::write(
+        project.as_path().join("builder_import.py"),
+        "def hi():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
 
     let payload = call_tool(
         &state,
-        "add_import",
+        "insert_after_symbol",
         json!({
-            "file_path": "builder_import.py",
-            "import_statement": "import os"
+            "relative_path": "builder_import.py",
+            "symbol_name": "hi",
+            "content": "\ndef bye():\n    return 2\n"
         }),
     );
     assert_eq!(payload["success"], json!(true));

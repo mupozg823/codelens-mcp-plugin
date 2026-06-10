@@ -53,6 +53,21 @@ pub fn composite_tools(
             json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"orchestration_run_id":{"type":"string"}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
         Tool::new(
+            "onboard_project",
+            "[CodeLens:Workflow] First-look project survey — directory structure, top-importance files, dependency cycles, and semantic-index status in one call. Use on first contact with an unfamiliar repository.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_w.clone()),
+        Tool::new(
+            "analyze_change_request",
+            "[CodeLens:Workflow] Pre-change analysis for a natural-language task — ranked relevant symbols, changed files, and recommended target files. Use before planning a multi-file change.",
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string","description":"Natural-language description of the intended change"},"changed_files":{"type":"array","items":{"type":"string"},"description":"Optional explicit changed-file paths (max 8); defaults to git status"}}}),
+        ).with_annotations(ro_w.clone()),
+        Tool::new(
+            "orchestrate_change",
+            "[CodeLens:Workflow] Bounded change-orchestration run for a described task — preflight evidence, approval-gate state machine, and audit events. Returns run_id and final state (approval_required / executing / cancelled / failed).",
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"mode":{"type":"string","enum":["solo","planner_builder","ci_audit"]},"target_paths":{"type":"array","items":{"type":"string"},"description":"Scope paths (max 16)"},"acceptance":{"type":"array","items":{"type":"string"},"description":"Acceptance criteria items (max 12)"},"profile_hint":{"type":"string"},"approval":{"type":"object","description":"Approval payload: { decision: granted|denied, actor?, reason?, actions? }"},"worktree":{"type":"string"},"requester":{"type":"string"}}}),
+        ).with_annotations(ro_w.clone()),
+        Tool::new(
             "module_boundary_report",
             "[CodeLens:Workflow] Summarize dependency boundaries, coupling, and cycle risk for a module or path.",
             json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"}}}),

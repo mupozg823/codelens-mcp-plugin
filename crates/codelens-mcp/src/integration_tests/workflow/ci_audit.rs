@@ -773,11 +773,20 @@ fn mutation_tools_write_audit_log() {
     // audit_sink absorbs the same per-call metadata via the new
     // session_metadata column.
     let project = project_root();
+    fs::write(
+        project.as_path().join("audit_target.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
     let payload = call_tool(
         &state,
-        "create_text_file",
-        json!({"relative_path": "audit.txt", "content": "hello"}),
+        "insert_after_symbol",
+        json!({
+            "relative_path": "audit_target.py",
+            "symbol_name": "alpha",
+            "content": "\ndef beta():\n    return 2\n"
+        }),
     );
     assert_eq!(payload["success"], json!(true));
 
@@ -785,8 +794,8 @@ fn mutation_tools_write_audit_log() {
     let rows = sink.query(None, None, 100).expect("query rows");
     let row = rows
         .iter()
-        .find(|r| r.tool == "create_text_file")
-        .expect("create_text_file row");
+        .find(|r| r.tool == "insert_after_symbol")
+        .expect("insert_after_symbol row");
     let metadata = row
         .session_metadata
         .as_ref()

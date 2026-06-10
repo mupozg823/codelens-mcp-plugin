@@ -51,7 +51,8 @@ fn audit_log_query_denied_for_non_admin_principal() {
 /// the response payload's data subobject), `principal` set when
 /// CODELENS_PRINCIPAL is bound. This builds on the
 /// create_text_file_writes_audit_sink_row test from P2-B by checking
-/// the new fields.
+/// the new fields. (Vehicle: insert_after_symbol — the line-edit family
+/// was tombstoned, #346.)
 #[test]
 fn audit_outcome_row_carries_evidence_hash_and_correct_terminal_state() {
     let _guard = principal_env_guard();
@@ -61,20 +62,25 @@ fn audit_outcome_row_carries_evidence_hash_and_correct_terminal_state() {
         std::env::set_var("CODELENS_PRINCIPAL", "p2d-test-user");
     }
     let state = make_state(&project);
+    fs::write(
+        project.as_path().join("p2d_audit_target.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let _ = call_tool(
         &state,
-        "create_text_file",
+        "insert_after_symbol",
         json!({
-            "relative_path": "p2d_audit_target.txt",
-            "content": "p2d\n",
-            "overwrite": false,
+            "relative_path": "p2d_audit_target.py",
+            "symbol_name": "alpha",
+            "content": "\ndef beta():\n    return 2\n",
         }),
     );
     let sink = state.audit_sink().expect("audit_sink available");
     let rows = sink.query(None, None, 100).expect("query");
     let row = rows
         .iter()
-        .find(|r| r.tool == "create_text_file" && r.apply_status == "applied")
+        .find(|r| r.tool == "insert_after_symbol" && r.apply_status == "applied")
         .expect("applied audit row");
 
     assert_eq!(row.state_to, "Audited", "Ok mutation reaches Audited");
@@ -113,30 +119,34 @@ fn audit_failure_row_recorded_for_error_response() {
     let project = project_root();
     let state = make_state(&project);
 
-    // delete_lines with start_line=99 in a 1-line file forces the
-    // engine primitive to bail with `start_line out of range`. The
-    // Err propagates back to dispatch's match arm.
-    fs::write(project.as_path().join("p2d_failure_target.txt"), "only\n").unwrap();
+    // insert_after_symbol on a symbol that does not exist forces the
+    // engine primitive to bail. The Err propagates back to dispatch's
+    // match arm. (Old vehicle delete_lines was tombstoned, #346.)
+    fs::write(
+        project.as_path().join("p2d_failure_target.py"),
+        "def only():\n    return 1\n",
+    )
+    .unwrap();
     let err_response = call_tool(
         &state,
-        "delete_lines",
+        "insert_after_symbol",
         json!({
-            "relative_path": "p2d_failure_target.txt",
-            "start_line": 99,
-            "end_line": 100,
+            "relative_path": "p2d_failure_target.py",
+            "symbol_name": "ghost_symbol_does_not_exist",
+            "content": "\ndef nope():\n    return 0\n",
         }),
     );
     assert_eq!(
         err_response.get("success").and_then(|v| v.as_bool()),
         Some(false),
-        "out-of-range delete_lines must surface success=false, got {err_response}"
+        "missing-symbol insert_after_symbol must surface success=false, got {err_response}"
     );
 
     let sink = state.audit_sink().expect("audit_sink available");
     let rows = sink.query(None, None, 100).expect("query");
     let failure_row = rows
         .iter()
-        .find(|r| r.tool == "delete_lines" && r.apply_status == "failed")
+        .find(|r| r.tool == "insert_after_symbol" && r.apply_status == "failed")
         .expect("failed audit row must exist");
 
     assert_eq!(
@@ -153,8 +163,8 @@ fn audit_failure_row_recorded_for_error_response() {
         .as_deref()
         .expect("error_message populated on Err");
     assert!(
-        msg.contains("out of range") || msg.contains("start_line"),
-        "error_message must reflect the error cause, got {msg:?}"
+        msg.contains("not found") && msg.contains("ghost_symbol_does_not_exist"),
+        "error_message must reflect the missing-symbol cause, got {msg:?}"
     );
 }
 
@@ -208,11 +218,11 @@ role = "ReadOnly"
     // Mutation tool MUST be denied.
     let denied = call_tool(
         &state,
-        "create_text_file",
+        "replace_symbol_body",
         json!({
-            "relative_path": "role_gate_target.txt",
-            "content": "should-not-be-written\n",
-            "overwrite": false,
+            "relative_path": "role_gate_target.py",
+            "symbol_name": "alpha",
+            "new_body": "    return 2",
         }),
     );
     assert_eq!(
@@ -258,7 +268,7 @@ role = "ReadOnly"
     let rows = sink.query(None, None, 100).expect("query");
     let denied_row = rows
         .iter()
-        .find(|r| r.tool == "create_text_file" && r.apply_status == "denied")
+        .find(|r| r.tool == "replace_symbol_body" && r.apply_status == "denied")
         .expect("denied audit row must exist");
     assert_eq!(denied_row.state_to, "Denied");
     assert_eq!(denied_row.principal.as_deref(), Some("ci-bot"));

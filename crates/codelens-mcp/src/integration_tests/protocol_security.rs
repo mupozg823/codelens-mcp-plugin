@@ -14,11 +14,12 @@ fn tool_call_result_meta_exposes_preferred_executor() {
             id: Some(json!(1)),
             method: "tools/call".to_owned(),
             params: Some(json!({
-                "name": "create_text_file",
+                "name": "replace_symbol_body",
                 "arguments": {
                     "_session_id": default_session_id(&state),
-                    "relative_path": "new_file.txt",
-                    "content": "hello\n"
+                    "relative_path": "new_file.py",
+                    "symbol_name": "alpha",
+                    "new_body": "    return 2"
                 }
             })),
         },
@@ -43,8 +44,8 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
 
     let payload = call_tool(
         &state,
-        "create_text_file",
-        json!({"relative_path": "blocked.txt", "content": "nope"}),
+        "replace_symbol_body",
+        json!({"relative_path": "blocked.py", "symbol_name": "alpha", "new_body": "    return 2"}),
     );
     assert_eq!(payload["success"], json!(false));
     assert!(
@@ -67,8 +68,8 @@ fn hidden_tools_are_blocked_at_call_time() {
 
     let payload = call_tool(
         &state,
-        "create_text_file",
-        json!({"relative_path": "blocked.txt", "content": "nope"}),
+        "replace_symbol_body",
+        json!({"relative_path": "blocked.py", "symbol_name": "alpha", "new_body": "    return 2"}),
     );
     assert_eq!(payload["success"], json!(false));
     assert!(
@@ -85,7 +86,7 @@ fn read_only_surface_marks_content_mutations_for_blocking() {
         crate::tool_defs::ToolSurface::Profile(crate::tool_defs::ToolProfile::PlannerReadonly),
     ));
     assert!(crate::tool_defs::is_content_mutation_tool(
-        "create_text_file"
+        "replace_symbol_body"
     ));
     assert!(!crate::tool_defs::is_content_mutation_tool("set_profile"));
 }

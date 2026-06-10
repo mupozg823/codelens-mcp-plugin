@@ -256,10 +256,11 @@ fn stale_preflight_is_rejected() {
 
     let payload = call_tool(
         &state,
-        "create_text_file",
+        "replace_symbol_body",
         json!({
-            "relative_path": "stale_gate_new.py",
-            "content": "print('new')"
+            "relative_path": "stale_gate.py",
+            "symbol_name": "alpha",
+            "new_body": "    return 2"
         }),
     );
     assert_eq!(payload["success"], json!(false));
@@ -282,7 +283,7 @@ fn stale_preflight_is_rejected() {
 
 #[cfg(feature = "semantic")]
 #[test]
-fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded() {
+fn symbol_mutation_reindexes_existing_embedding_index_when_engine_is_not_loaded() {
     if !embedding_model_available_for_test() {
         return;
     }
@@ -303,11 +304,11 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
 
     let payload = call_tool(
         &state,
-        "replace_content",
+        "insert_after_symbol",
         json!({
             "relative_path": "semantic_mutation.py",
-            "old_text": "winter_orbit_launch",
-            "new_text": "ember_archive_delta"
+            "symbol_name": "winter_orbit_launch",
+            "content": "\ndef ember_archive_delta():\n    return 2\n"
         }),
     );
     assert_eq!(payload["success"], json!(true));

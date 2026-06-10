@@ -272,20 +272,13 @@ pub(crate) fn is_read_only_surface(surface: ToolSurface) -> bool {
 }
 
 pub(crate) fn is_content_mutation_tool(name: &str) -> bool {
+    // Line-edit family removed (#346 tombstones).
     matches!(
         name,
         "replace_symbol_body"
-            | "delete_lines"
-            | "insert_at_line"
             | "insert_before_symbol"
             | "insert_after_symbol"
-            | "insert_content"
-            | "replace_content"
-            | "replace_lines"
-            | "replace"
             | "rename_symbol"
-            | "create_text_file"
-            | "add_import"
             | "write_memory"
             | "delete_memory"
             | "rename_memory"

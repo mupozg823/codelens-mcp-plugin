@@ -1006,3 +1006,31 @@ fn deferred_tools_list_can_restore_output_schema_explicitly() {
         "explicit includeOutputSchema should preserve output schemas"
     );
 }
+
+// ── PLAN_serena-alignment-p1 Phase 2 (#346): ghost resolution ─────────
+
+#[test]
+fn workflow_ghost_tools_are_registered_and_planner_visible() {
+    // The generated routing blocks (CLAUDE.md/AGENTS.md) teach these
+    // three workflow tools; they must exist in the tools.toml registry
+    // with input schemas and be visible on the planner surface.
+    use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
+    for name in [
+        "onboard_project",
+        "analyze_change_request",
+        "orchestrate_change",
+    ] {
+        let tool = crate::tool_defs::tools()
+            .iter()
+            .find(|tool| tool.name == name)
+            .unwrap_or_else(|| panic!("{name} missing from tools.toml registry"));
+        assert!(
+            tool.input_schema.is_object(),
+            "{name} must carry an input schema"
+        );
+        assert!(
+            is_tool_in_surface(name, ToolSurface::Profile(ToolProfile::PlannerReadonly)),
+            "{name} must be visible on planner-readonly"
+        );
+    }
+}

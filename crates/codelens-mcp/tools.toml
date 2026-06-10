@@ -493,6 +493,57 @@ orchestration_run_id = { type = "string" }
 # ─────
 
 [[tool]]
+name = "onboard_project"
+category = "composite"
+preset_tags = ["planner-readonly"]
+description = "[CodeLens:Workflow] First-look project survey — directory structure, top-importance files, dependency cycles, and semantic-index status in one call. Use on first contact with an unfamiliar repository."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "analyze_change_request"
+category = "composite"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Workflow] Pre-change analysis for a natural-language task — ranked relevant symbols, changed files, and recommended target files. Use before planning a multi-file change."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+required = ["task"]
+[tool.input_schema.properties]
+task = { type = "string", description = "Natural-language description of the intended change" }
+changed_files = { type = "array", items = { type = "string" }, description = "Optional explicit changed-file paths (max 8); defaults to git status" }
+
+# ─────
+
+[[tool]]
+name = "orchestrate_change"
+category = "composite"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Workflow] Bounded change-orchestration run for a described task — preflight evidence, approval-gate state machine, and audit events. Returns run_id and final state (approval_required / executing / cancelled / failed)."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+required = ["task"]
+[tool.input_schema.properties]
+task = { type = "string" }
+mode = { type = "string", enum = ["solo", "planner_builder", "ci_audit"] }
+target_paths = { type = "array", items = { type = "string" }, description = "Scope paths (max 16)" }
+acceptance = { type = "array", items = { type = "string" }, description = "Acceptance criteria items (max 12)" }
+profile_hint = { type = "string" }
+approval = { type = "object", description = "Approval payload: { decision: granted|denied, actor?, reason?, actions? }" }
+worktree = { type = "string" }
+requester = { type = "string" }
+
+# ─────
+
+[[tool]]
 name = "module_boundary_report"
 category = "composite"
 preset_tags = ["reviewer-graph"]

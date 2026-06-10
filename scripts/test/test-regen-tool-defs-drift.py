@@ -110,11 +110,13 @@ def test_three_way_report_allowlist_carveout() -> None:
     report = three_way_report(
         dispatch={"a", "rename_symbol", "ghost"},
         schema={"a"},
-        preset_members={"a"},
+        preset_members={"a", "rename_symbol"},
         dispatch_only_allowlist={"rename_symbol"},
     )
     assert report["dispatch_only"] == ["ghost"]
     assert report["allowlisted_dispatch_only"] == ["rename_symbol"]
+    # pending-D3 names may sit in preset constants (callable-but-unlisted)
+    assert report["preset_dead"] == []
 
 
 def test_lint_flags_crossref() -> None:
@@ -158,8 +160,60 @@ def test_live_tree_sentinels() -> None:
     # serde_json payload inserts in handler bodies must not leak
     assert "provenance" not in names
     assert "unknown_args" not in names
-    # sanity floor: both files parsed (style drift breaks loudly)
-    assert len(names) >= 100, f"suspiciously few dispatch names: {len(names)}"
+    # sanity floor: both files parsed (style drift breaks loudly).
+    # 99 dispatch names after the #346 line-edit tombstones; the floor
+    # only needs to catch a parser/style break (which drops to ~0).
+    assert len(names) >= 90, f"suspiciously few dispatch names: {len(names)}"
+
+
+# ── Phase 2: enforce-mode + tombstone re-introduction guard ────────────
+
+enforce_failures = getattr(_MOD, "enforce_failures", None)
+extract_tombstones = getattr(_MOD, "extract_tombstones", None)
+
+EMPTY_REPORT = {
+    "dispatch_only": [],
+    "allowlisted_dispatch_only": [],
+    "schema_only": [],
+    "preset_dead": [],
+}
+
+
+def test_enforce_blocks_unexplained_drift() -> None:
+    report = dict(EMPTY_REPORT, dispatch_only=["ghost"])
+    fails = enforce_failures(report, lint_offenses=[], tombstone_hits=[])
+    assert fails, "dispatch_only ghosts must block enforce mode"
+
+
+def test_enforce_allows_allowlisted_only() -> None:
+    report = dict(EMPTY_REPORT, allowlisted_dispatch_only=["rename_symbol"])
+    assert enforce_failures(report, lint_offenses=[], tombstone_hits=[]) == []
+
+
+def test_enforce_blocks_lint_and_tombstone_hits() -> None:
+    fails = enforce_failures(
+        dict(EMPTY_REPORT),
+        lint_offenses=["x: description references tool `y`"],
+        tombstone_hits=["replace re-introduced in dispatch"],
+    )
+    assert len(fails) == 2
+
+
+TOMBSTONE_FIXTURE = """
+pub(crate) const TOMBSTONED_TOOLS: &[(&str, &str)] = &[
+    // line-edit family (#346)
+    ("replace", "use host-native Edit"),
+    (
+        "insert_at_line",
+        "use host-native Edit/Write",
+    ),
+];
+"""
+
+
+def test_extract_tombstones_parses_tuple_list() -> None:
+    names = extract_tombstones(TOMBSTONE_FIXTURE)
+    assert names == {"replace", "insert_at_line"}, f"unexpected: {sorted(names)}"
 
 
 def main() -> int:
@@ -172,6 +226,10 @@ def main() -> int:
         test_lint_flags_crossref,
         test_lint_honors_allowlist_self_and_word_boundary,
         test_live_tree_sentinels,
+        test_enforce_blocks_unexplained_drift,
+        test_enforce_allows_allowlisted_only,
+        test_enforce_blocks_lint_and_tombstone_hits,
+        test_extract_tombstones_parses_tuple_list,
     ]
     for t in tests:
         try:

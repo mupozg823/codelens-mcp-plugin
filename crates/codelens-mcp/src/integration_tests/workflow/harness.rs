@@ -495,9 +495,12 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
         payload["data"]["routing"]["preferred_entrypoints_source"],
         json!("overlay")
     );
+    // analyze_change_request joined tools.toml in #346 (ghost resolution),
+    // so the claude-code host sequence now resolves it as the first visible
+    // entrypoint ahead of the review-overlay audit lane.
     assert_eq!(
         payload["data"]["routing"]["recommended_entrypoint"],
-        json!("audit_planner_session")
+        json!("analyze_change_request")
     );
     assert!(
         payload["data"]["overlay"]["avoid_tools"]

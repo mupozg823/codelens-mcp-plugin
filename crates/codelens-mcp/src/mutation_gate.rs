@@ -55,20 +55,14 @@ pub(crate) fn is_verifier_source_tool(name: &str) -> bool {
 }
 
 pub(crate) fn is_refactor_gated_mutation_tool(name: &str) -> bool {
+    // Line-edit family removed (#346 tombstones); the gate covers the
+    // pending-D3 symbolic edit core + refactor substrate.
     matches!(
         name,
         "rename_symbol"
             | "replace_symbol_body"
-            | "delete_lines"
-            | "insert_at_line"
             | "insert_before_symbol"
             | "insert_after_symbol"
-            | "insert_content"
-            | "replace_content"
-            | "replace_lines"
-            | "replace"
-            | "create_text_file"
-            | "add_import"
             | "refactor_extract_function"
             | "refactor_inline_function"
             | "refactor_move_to_file"

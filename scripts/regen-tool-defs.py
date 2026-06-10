@@ -199,9 +199,27 @@ DISPATCH_SOURCES: tuple[Path, ...] = (
 )
 
 # Dispatch-only names sanctioned while ADR-0009/D3 decides the symbolic
-# edit core (spec 2026-06-10 §D3). Filled by Phase 2; empty means every
-# dispatch-only name is reported as drift.
-DISPATCH_ONLY_ALLOWLIST: frozenset[str] = frozenset()
+# edit core (spec 2026-06-10 §D3). Visible in every drift report as
+# `allowlisted_dispatch_only`; everything else dispatch-only fails
+# enforce mode.
+DISPATCH_ONLY_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # pending-D3 symbolic edit core — re-list candidates
+        "replace_symbol_body",
+        "insert_before_symbol",
+        "insert_after_symbol",
+        "rename_symbol",
+        # pending-D3 refactor substrate — these dispatch arms are the only
+        # callers keeping the semantic_edit substrate alive; ADR-0009/D3
+        # decides re-list vs delete. Removing them now would dead-code the
+        # substrate that decision needs intact.
+        "refactor_extract_function",
+        "refactor_inline_function",
+        "refactor_move_to_file",
+        "refactor_change_signature",
+        "propagate_deletions",
+    }
+)
 
 # (tool, referenced_tool) description cross-references that are
 # intentionally allowed. Keep empty unless a pairing is genuinely
@@ -253,11 +271,14 @@ def three_way_report(
       strings the surface filter can never match
     """
     dispatch_only = dispatch - schema
+    allow = set(dispatch_only_allowlist)
     return {
-        "dispatch_only": sorted(dispatch_only - set(dispatch_only_allowlist)),
-        "allowlisted_dispatch_only": sorted(dispatch_only & set(dispatch_only_allowlist)),
+        "dispatch_only": sorted(dispatch_only - allow),
+        "allowlisted_dispatch_only": sorted(dispatch_only & allow),
         "schema_only": sorted(schema - dispatch),
-        "preset_dead": sorted(preset_members - schema),
+        # Allowlisted (pending-D3) names may legitimately sit in preset
+        # constants — callable-but-unlisted on their surfaces.
+        "preset_dead": sorted(preset_members - schema - allow),
     }
 
 
@@ -286,30 +307,66 @@ def lint_description_crossrefs(
     return offenses
 
 
-def surface_drift_warnings(tools: list[dict[str, Any]]) -> list[str]:
-    """Assemble the live 3-way drift report + description lint lines."""
+def extract_tombstones(src: str) -> set[str]:
+    """Names in the `TOMBSTONED_TOOLS: &[(&str, &str)]` const (tools/mod.rs).
+
+    Tombstoned names must never reappear in dispatch, tools.toml, or
+    preset constants (Serena `_deleted_tools` pattern).
+    """
+    m = re.search(
+        r"const TOMBSTONED_TOOLS: &\[\(&str, &str\)\] = &\[(.*?)\];",
+        src,
+        re.DOTALL,
+    )
+    if not m:
+        return set()
+    cleaned = _strip_line_comments(m.group(1))
+    return set(re.findall(r'\(\s*"([A-Za-z0-9_]+)"\s*,', cleaned))
+
+
+def enforce_failures(
+    report: dict[str, list[str]],
+    lint_offenses: list[str],
+    tombstone_hits: list[str],
+) -> list[str]:
+    """Blocking lines for `--enforce-drift`. Allowlisted entries pass."""
+    fails: list[str] = []
+    for key in ("dispatch_only", "schema_only", "preset_dead"):
+        if report[key]:
+            fails.append(f"{key} ({len(report[key])}): {', '.join(report[key])}")
+    fails.extend(lint_offenses)
+    fails.extend(tombstone_hits)
+    return fails
+
+
+def collect_surface_state(
+    tools: list[dict[str, Any]],
+) -> tuple[dict[str, list[str]], list[str], list[str]]:
+    """Live (report, lint_offenses, tombstone_hits) for the working tree."""
     schema_names = {tool["name"] for tool in tools}
     presets_src = PRESETS_RS.read_text()
     preset_members: set[str] = set()
     for const_name in PRESET_TAG_TO_CONST.values():
         preset_members |= extract_preset_const(const_name, presets_src)
+    dispatch = collect_dispatch_names()
     report = three_way_report(
-        collect_dispatch_names(),
+        dispatch,
         schema_names,
         preset_members,
         dispatch_only_allowlist=DISPATCH_ONLY_ALLOWLIST,
     )
-    lines: list[str] = []
-    for key in ("dispatch_only", "schema_only", "preset_dead"):
-        if report[key]:
-            lines.append(f"{key} ({len(report[key])}): {', '.join(report[key])}")
-    if report["allowlisted_dispatch_only"]:
-        lines.append(
-            "allowlisted_dispatch_only (pending-D3): "
-            + ", ".join(report["allowlisted_dispatch_only"])
-        )
-    lines.extend(lint_description_crossrefs(tools))
-    return lines
+    lint_offenses = lint_description_crossrefs(tools)
+    tombstone_hits: list[str] = []
+    tombstones = extract_tombstones(DISPATCH_SOURCES[0].read_text())
+    for name in sorted(tombstones):
+        if name in dispatch:
+            tombstone_hits.append(f"tombstoned tool `{name}` re-introduced in dispatch")
+        if name in schema_names:
+            tombstone_hits.append(f"tombstoned tool `{name}` re-introduced in tools.toml")
+        if name in preset_members:
+            tombstone_hits.append(f"tombstoned tool `{name}` re-introduced in presets.rs")
+    return report, lint_offenses, tombstone_hits
+
 
 
 def validate_preset_tags(tools: list[dict[str, Any]]) -> list[str]:
@@ -387,6 +444,11 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--write", action="store_true", help="rewrite generated files")
     mode.add_argument("--check", action="store_true", help="exit 1 on drift")
+    parser.add_argument(
+        "--enforce-drift",
+        action="store_true",
+        help="exit 1 on unexplained surface drift / lint / tombstone hits (#346)",
+    )
     args = parser.parse_args()
 
     with TOOLS_TOML.open("rb") as f:
@@ -407,15 +469,28 @@ def main() -> int:
         )
         return 1
 
-    drift_warnings = surface_drift_warnings(toml_data.get("tool", []))
-    if drift_warnings:
+    report, lint_offenses, tombstone_hits = collect_surface_state(
+        toml_data.get("tool", [])
+    )
+    blocking = enforce_failures(report, lint_offenses, tombstone_hits)
+    info_lines = list(blocking)
+    if report["allowlisted_dispatch_only"]:
+        info_lines.append(
+            "allowlisted_dispatch_only (pending-D3): "
+            + ", ".join(report["allowlisted_dispatch_only"])
+        )
+    if info_lines:
+        label = "blocking" if (args.enforce_drift and blocking) else "info"
+        print(f"surface drift ({label}, #346):", file=sys.stderr)
+        for line in info_lines:
+            print(f"  - {line}", file=sys.stderr)
+    if args.enforce_drift and blocking:
         print(
-            "surface drift (warn-only — enforcement lands with "
-            "PLAN_serena-alignment-p1 Phase 2, see #346):",
+            "--enforce-drift: unexplained surface drift — register the tool "
+            "in tools.toml, tombstone it, or extend the pending-D3 allowlist.",
             file=sys.stderr,
         )
-        for line in drift_warnings:
-            print(f"  - {line}", file=sys.stderr)
+        return 1
 
     rendered = render()
 

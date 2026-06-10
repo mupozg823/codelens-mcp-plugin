@@ -53,11 +53,11 @@ fn audit_builder_session_warns_when_bootstrap_is_missing() {
     );
     let _ = call_tool_with_session(
         &state,
-        "replace",
+        "replace_symbol_body",
         json!({
             "relative_path": "bootstrap_warn.py",
-            "old_text": "old",
-            "new_text": "new"
+            "symbol_name": "old",
+            "new_body": "    return 2"
         }),
         "builder-warn",
     );
@@ -84,8 +84,8 @@ fn audit_builder_session_fails_when_gate_failure_was_recorded() {
     fs::write(project.as_path().join("audit_fail.py"), "print('old')\n").unwrap();
     let state = make_state(&project);
 
-    // Mutation gate test: use builder-minimal profile + create_text_file
-    // to test that stale preflight blocks mutations.
+    // Mutation gate test: use builder-minimal profile + a symbolic edit
+    // tool to test that stale preflight blocks mutations.
     let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
     let preflight = call_tool_with_session(
@@ -102,10 +102,11 @@ fn audit_builder_session_fails_when_gate_failure_was_recorded() {
 
     let payload = call_tool_with_session(
         &state,
-        "create_text_file",
+        "replace_symbol_body",
         json!({
-            "relative_path": "audit_fail_new.py",
-            "content": "print('new')\n"
+            "relative_path": "audit_fail.py",
+            "symbol_name": "old",
+            "new_body": "    return 2"
         }),
         "builder-fail",
     );
@@ -132,7 +133,11 @@ fn audit_builder_session_fails_when_gate_failure_was_recorded() {
 #[test]
 fn audit_builder_session_passes_for_happy_path_http_builder() {
     let project = project_root();
-    fs::write(project.as_path().join("http_builder.py"), "print('old')\n").unwrap();
+    fs::write(
+        project.as_path().join("http_builder.py"),
+        "def old():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_http_state(&project);
     let session_id = create_http_profile_session(
         &state,
@@ -183,11 +188,11 @@ fn audit_builder_session_passes_for_happy_path_http_builder() {
     );
     let payload = call_tool_with_session(
         &state,
-        "replace_content",
+        "replace_symbol_body",
         json!({
             "relative_path": "http_builder.py",
-            "old_text": "old",
-            "new_text": "new"
+            "symbol_name": "old",
+            "new_body": "    return 2"
         }),
         &session_id,
     );
@@ -225,7 +230,11 @@ fn audit_builder_session_passes_for_happy_path_http_builder() {
 #[test]
 fn audit_builder_session_warns_when_http_coordination_is_missing() {
     let project = project_root();
-    fs::write(project.as_path().join("http_warn.py"), "print('old')\n").unwrap();
+    fs::write(
+        project.as_path().join("http_warn.py"),
+        "def old():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_http_state(&project);
     let session_id = create_http_profile_session(
         &state,
@@ -253,11 +262,11 @@ fn audit_builder_session_warns_when_http_coordination_is_missing() {
     );
     let payload = call_tool_with_session(
         &state,
-        "replace_content",
+        "replace_symbol_body",
         json!({
             "relative_path": "http_warn.py",
-            "old_text": "old",
-            "new_text": "new"
+            "symbol_name": "old",
+            "new_body": "    return 2"
         }),
         &session_id,
     );

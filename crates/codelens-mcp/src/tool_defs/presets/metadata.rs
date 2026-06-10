@@ -146,19 +146,12 @@ pub(crate) fn tool_phase_label(name: &str) -> Option<&'static str> {
 pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
     match name {
         // Bulk implementation / mutation — Codex-class executor preferred.
-        // (includes deprecated mutation tools still in dispatch for backward compat)
+        // (pending-D3 edit core + refactor substrate; line-edit family
+        // tombstoned, #346)
         "rename_symbol"
         | "replace_symbol_body"
-        | "delete_lines"
-        | "insert_at_line"
         | "insert_before_symbol"
         | "insert_after_symbol"
-        | "insert_content"
-        | "replace_content"
-        | "replace_lines"
-        | "replace"
-        | "create_text_file"
-        | "add_import"
         | "refactor_extract_function"
         | "refactor_inline_function"
         | "refactor_move_to_file"
