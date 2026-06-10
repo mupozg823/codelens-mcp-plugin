@@ -1,7 +1,7 @@
 # Implementation Plan: Serena-Pattern Alignment P1 (read core + surface hygiene)
 
-**Status**: ⏳ Pending approval-to-start
-**Started**: —
+**Status**: 🔄 In Progress (Phase 1 ✅)
+**Started**: 2026-06-10
 **Last Updated**: 2026-06-10
 **Estimated Completion**: ~10–13h across 4 phases (1–2 sessions)
 
@@ -104,29 +104,29 @@ Naming follows existing patterns (`test_<behavior>` Rust, `test_*` pytest-style 
 **Goal**: `regen-tool-defs.py --check` reports (warn-only) every dispatch/schema/preset
 inconsistency and description cross-references; the 5 existing cross-ref descriptions are cleaned.
 **Estimated Time**: ~2h
-**Status**: ⏳ Pending
+**Status**: ✅ Complete (2026-06-10, commits `b6f83cc5` + `4d9a481b`)
 
 #### Tasks
 
 **🔴 RED: Write Failing Tests First**
 
-- [ ] **Test 1.1**: `scripts/test/test-regen-tool-defs-drift.py` — drift parser contract
+- [x] **Test 1.1**: `scripts/test/test-regen-tool-defs-drift.py` — drift parser contract
   - Fixture Rust snippets containing both registration styles (`"name" =>` match arms and
     `.register("name", std::sync::Arc::new(handler))`); expect `parse_dispatch_names()` to find both
   - `three_way_report()` over fixture sets classifies `dispatch_only` / `schema_only` / `preset_dead`
   - Expected: FAIL (functions don't exist yet)
-- [ ] **Test 1.2**: description cross-ref lint contract
+- [x] **Test 1.2**: description cross-ref lint contract
   - Fixture tool list where one description names another tool → lint flags it; allowlisted pair
     passes; self-reference does not flag
   - Expected: FAIL
 
 **🟢 GREEN: Implement to Make Tests Pass**
 
-- [ ] **Task 1.3**: `parse_dispatch_names()` + `three_way_report()` in `scripts/regen-tool-defs.py`
+- [x] **Task 1.3**: `parse_dispatch_names()` + `three_way_report()` in `scripts/regen-tool-defs.py`
   - Parse `crates/codelens-mcp/src/tools/mod.rs` + `crates/codelens-mcp/src/dispatch/table.rs`
     (both styles); regression-pin the parsed count against the live tree so style drift breaks loudly
   - Wire into `--check` as **stderr warnings, exit 0** (enforcement comes in Phase 2)
-- [ ] **Task 1.4**: `lint_description_crossrefs()` + clean the 5 current offenders
+- [x] **Task 1.4**: `lint_description_crossrefs()` + clean the 5 current offenders
   - Decide allowlist at implementation (candidate: `activate_project`↔`get_current_config`)
   - Edit `tools.toml` descriptions (`get_current_config`, `search_workspace_symbols`,
     `activate_project`, `find_redundant_definitions`, `index_embeddings`) → run regen `--write`,
@@ -134,16 +134,16 @@ inconsistency and description cross-references; the 5 existing cross-ref descrip
 
 **🔵 REFACTOR**
 
-- [ ] **Task 1.5**: dedup parser helpers with existing `extract_preset_const`; docstrings; keep
+- [x] **Task 1.5**: dedup parser helpers with existing `extract_preset_const`; docstrings; keep
       `validate_preset_tags` orphan warning path delegating to the new report (single formatter)
 
 #### Quality Gate ✋
 
-- [ ] RED ran first and failed; GREEN made them pass; REFACTOR kept them green
-- [ ] Script contract tests pass (incl. pre-existing `test-validate-plugin-manifest.py`)
-- [ ] `python3 scripts/regen-tool-defs.py --check` exit 0, warnings list exactly the known 20 ghosts + preset-dead strings
-- [ ] `cargo fmt --all -- --check` · `cargo nextest run --workspace --features http,semantic` (descriptions are metadata-only; full matrix deferred to Phase 2 gate)
-- [ ] `python3 scripts/surface-manifest.py --check` green
+- [x] RED ran first and failed; GREEN made them pass; REFACTOR kept them green
+- [x] Script contract tests pass (incl. pre-existing `test-validate-plugin-manifest.py`)
+- [x] `python3 scripts/regen-tool-defs.py --check` exit 0, warnings list exactly the known 20 ghosts + preset-dead strings
+- [x] `cargo fmt --all -- --check` · `cargo nextest run --workspace --features http,semantic` (descriptions are metadata-only; full matrix deferred to Phase 2 gate)
+- [x] `python3 scripts/surface-manifest.py --check` green
 
 **Validation Commands**:
 
@@ -348,18 +348,18 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
 
 ### Completion Status
 
-- **Phase 1 (script gate, warn)**: ⏳ 0%
+- **Phase 1 (script gate, warn)**: ✅ 100%
 - **Phase 2 (ghost resolution + enforce)**: ⏳ 0%
 - **Phase 3 (runtime audit)**: ⏳ 0%
 - **Phase 4 (3 LSP read tools)**: ⏳ 0%
 
-**Overall Progress**: 0%
+**Overall Progress**: 25% (Phase 1/4)
 
 ### Time Tracking
 
 | Phase | Estimated | Actual | Variance |
 |-------|-----------|--------|----------|
-| Phase 1 | 2h | — | — |
+| Phase 1 | 2h | ~1.5h | -0.5h |
 | Phase 2 | 3–4h | — | — |
 | Phase 3 | 2–3h | — | — |
 | Phase 4 | 3–4h | — | — |
@@ -371,7 +371,23 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
 
 ### Implementation Notes
 
-- (append during execution)
+- Phase 1 (2026-06-10): live report exposed 3 parser false positives (`provenance`,
+  `unknown_args`, `unknown_args_hint`) — serde_json `payload.insert("...")` inside handler
+  bodies in `dispatch/table.rs`. Fixed by requiring `Arc::new` after the insert name; pinned in
+  fixtures + live sentinels. dispatch_only is now exactly the 20 known ghosts; schema_only = ∅.
+- `preset_dead` (24) is richer than the plan assumed: also stale `BALANCED_EXCLUDES` strings
+  (`analyze_change_impact`, `assess_change_readiness`, `audit_security_context`,
+  `find_circular_dependencies`, `find_dead_code`, `get_project_structure`, `search_for_pattern`)
+  and `MINIMAL_TOOLS` orphans incl. `search_for_pattern`. Phase 2 cleanup list extended
+  accordingly; `get_project_structure` is also referenced by the stale `agents/codelens-explorer.md`
+  tool list + CLAUDE.md routing tables → Phase 2 doc-scrub follow-up.
+- Description cross-ref allowlist is directional (`(tool, referenced)`); kept empty — all 5
+  offenders rewrote cleanly without needing exceptions.
+- Pre-existing repo debt surfaced: unpushed SP-2 commits violate default rustfmt
+  `reorder_imports`/`reorder_modules` — `cargo fmt --all -- --check` failed on 11 files at HEAD.
+  Landed as a separate `style:` commit (`b6f83cc5`) before the Phase 1 commit. The first-run
+  "fmt OK" was the post-edit hook having already rewritten the tree; reverting those files was
+  the wrong move (CLAUDE.md: fmt --check exit code is the truth) — corrected.
 
 ### Blockers Encountered
 
