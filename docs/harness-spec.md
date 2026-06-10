@@ -30,8 +30,8 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `planner-builder`
 - Intent: Planner/reviewer session prepares bounded evidence, then a mutation-enabled builder session executes the change under explicit coordination.
 - Roles:
-  - `planner-reviewer`: `planner-readonly` (32), `reviewer-graph` (36); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
-  - `builder-refactor`: `builder-minimal` (31), `refactor-full` (31); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
+  - `planner-reviewer`: `planner-readonly` (35), `reviewer-graph` (39); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
+  - `builder-refactor`: `builder-minimal` (34), `refactor-full` (34); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
 
 **Preflight Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: planner or builder bootstrap | purpose: establish session-local project view, visible surface, and health summary
@@ -100,7 +100,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `reviewer-gate`
 - Intent: Read-only reviewer or CI-facing session validates a builder session and exports a human-readable signoff artifact.
 - Roles:
-  - `reviewer`: `reviewer-graph` (36), `ci-audit` (36); mutate=`false`; perform diff-aware review, signoff, and audit validation without content mutation
+  - `reviewer`: `reviewer-graph` (39), `ci-audit` (39); mutate=`false`; perform diff-aware review, signoff, and audit validation without content mutation
 
 **Read Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: before the first reviewer workflow | purpose: bind the reviewer session to the project and bounded read-side surface
@@ -141,7 +141,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `batch-analysis`
 - Intent: Long-running read-only analyses should move through durable jobs and bounded sections rather than raw full-report expansion.
 - Roles:
-  - `analysis-runner`: `workflow-first` (32), `evaluator-compact` (32), `ci-audit` (36); mutate=`false`; queue durable read-side jobs and consume bounded sections
+  - `analysis-runner`: `workflow-first` (35), `evaluator-compact` (35), `ci-audit` (39); mutate=`false`; queue durable read-side jobs and consume bounded sections
 
 **Analysis Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: before job creation | purpose: establish the analysis surface and runtime health view
