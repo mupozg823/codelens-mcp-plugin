@@ -14,10 +14,11 @@
 
 ## Compiled Routing Overlays
 
-- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics`
-- `builder-minimal` + `editing` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics`
-- `refactor-full` + `review` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session` | avoid: `rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`
-- `ci-audit` + `batch-analysis` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `verify_change_readiness` -> `start_analysis_job` -> `get_analysis_job` -> `get_analysis_section` -> `module_boundary_report`
+- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics` -> `rename_symbol` -> `replace_symbol_body` -> `insert_before_symbol` -> `insert_after_symbol`
+- `builder-minimal` + `editing` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics` -> `rename_symbol` -> `replace_symbol_body` -> `insert_before_symbol` -> `insert_after_symbol`
+- `builder-minimal` + `review` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `audit_planner_session` | avoid: `rename_symbol`, `replace_symbol_body`, `insert_before_symbol`, `insert_after_symbol`
+- `reviewer-graph` + `batch-analysis` [bias: `codex-builder`]: `prepare_harness_session` -> `verify_change_readiness` -> `start_analysis_job` -> `get_analysis_job` -> `get_analysis_section` -> `module_boundary_report`
+
 <!-- CODELENS_HOST_ROUTING:END -->
 
 ## Verify
@@ -49,7 +50,7 @@ cargo clippy -- -W clippy::all
 
 ## Mutation Gate Protocol
 
-Before any CodeLens mutation tool in `refactor-full` (`rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`, `delete_lines`, `add_import`, `refactor_*`):
+Before any CodeLens mutation tool in `refactor-full` (`rename_symbol`, `replace_symbol_body`, `insert_before_symbol`, `insert_after_symbol`, `refactor_*`):
 
 1. Run `verify_change_readiness` with:
    - `task`: the intended change in one sentence

@@ -43,8 +43,8 @@ fn planning_task_overlay_avoids_mutation_tools() {
     for mutation in [
         "rename_symbol",
         "replace_symbol_body",
-        "insert_content",
-        "replace",
+        "insert_before_symbol",
+        "insert_after_symbol",
     ] {
         assert!(
             plan.avoid_tools.contains(&mutation),
@@ -63,8 +63,8 @@ fn editing_task_overlay_emphasizes_mutation_tools() {
     for mutation in [
         "rename_symbol",
         "replace_symbol_body",
-        "insert_content",
-        "replace",
+        "insert_before_symbol",
+        "insert_after_symbol",
     ] {
         assert!(
             plan.emphasized_tools.contains(&mutation),
@@ -85,8 +85,8 @@ fn review_task_overlay_keeps_mutation_out_of_primary_entrypoints() {
     for mutation in [
         "rename_symbol",
         "replace_symbol_body",
-        "insert_content",
-        "replace",
+        "insert_before_symbol",
+        "insert_after_symbol",
     ] {
         assert!(!plan.preferred_entrypoints.contains(&mutation));
         assert!(plan.avoid_tools.contains(&mutation));
