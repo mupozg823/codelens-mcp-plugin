@@ -161,62 +161,62 @@ cargo fmt --all -- --check && cargo nextest run -p codelens-mcp --features http,
 **Goal**: tools.toml ∪ dispatch ∪ presets reconcile; 3 workflow tools listed; 13 tools tombstoned;
 drift check enforced in CI.
 **Estimated Time**: ~3–4h
-**Status**: ⏳ Pending
+**Status**: ✅ Complete (2026-06-10) — deviation: tombstone 13→8 / pending-D3 allowlist 4→9, see Notes
 
 #### Tasks
 
 **🔴 RED: Write Failing Tests First**
 
-- [ ] **Test 2.1**: `integration_tests/protocol_tools_list.rs` — planner-readonly surface contains
+- [x] **Test 2.1**: `integration_tests/protocol_tools_list.rs` — planner-readonly surface contains
       `onboard_project`, `analyze_change_request`, `orchestrate_change` with input schemas
       (currently absent → FAIL)
-- [ ] **Test 2.2**: tombstone dispatch test — calling `insert_at_line` (representative of the 13)
+- [x] **Test 2.2**: tombstone dispatch test — calling `insert_at_line` (representative of the 13)
       returns structured `MethodNotFound` guidance naming the replacement path (currently
       dispatches → FAIL); `TOMBSTONED_TOOLS` re-introduction test: every tombstoned name must NOT
       appear in dispatch or tools.toml
-- [ ] **Test 2.3**: script enforce-mode contract — with `--enforce-drift`, unexplained drift exits 1;
+- [x] **Test 2.3**: script enforce-mode contract — with `--enforce-drift`, unexplained drift exits 1;
       `pending-D3` allowlist (`replace_symbol_body`, `insert_before_symbol`, `insert_after_symbol`,
       `rename_symbol` dispatch-only) passes but is printed
 
 **🟢 GREEN: Implement to Make Tests Pass**
 
-- [ ] **Task 2.4**: author `tools.toml` entries for the 3 workflow tools — derive input schemas from
+- [x] **Task 2.4**: author `tools.toml` entries for the 3 workflow tools — derive input schemas from
       handler arg extraction in their `tools/*.rs` bodies (not from docs); add `output_schema`
       entries; `preset_tags` matching today's preset constants (planner-readonly +/- reviewer-graph)
-- [ ] **Task 2.5**: tombstone the 13 (`insert_content`, `insert_at_line`, `replace`,
+- [x] **Task 2.5**: tombstone the 13 (`insert_content`, `insert_at_line`, `replace`,
       `replace_content`, `replace_lines`, `delete_lines`, `create_text_file`, `add_import`,
       `propagate_deletions`, `refactor_extract_function`, `refactor_inline_function`,
       `refactor_move_to_file`, `refactor_change_signature`): remove dispatch arms, add
       `TOMBSTONED_TOOLS: &[(&str, &str)]` (name → guidance) consulted by dispatch error path
-- [ ] **Task 2.6**: presets cleanup — remove the 6-entry deprecated block from
+- [x] **Task 2.6**: presets cleanup — remove the 6-entry deprecated block from
       `BUILDER_MINIMAL_TOOLS` (the 4 allowlisted stay dispatch-only, NOT preset members until D3);
       remove dead strings; run regen `--write`; run `surface-manifest.py --write` (routing blocks
       will change — review diff deliberately)
-- [ ] **Task 2.7**: CI — add `--enforce-drift` to the existing tool-defs drift step in
+- [x] **Task 2.7**: CI — add `--enforce-drift` to the existing tool-defs drift step in
       `.github/workflows/ci.yml`
 
 **🔵 REFACTOR**
 
-- [ ] **Task 2.8**: dispatch error-path dedup (tombstone guidance vs generic MethodNotFound);
+- [x] **Task 2.8**: dispatch error-path dedup (tombstone guidance vs generic MethodNotFound);
       comment the allowlist with D3 spec pointer
 
 #### Quality Gate ✋
 
-- [ ] RED→GREEN→REFACTOR evidenced in commit order
-- [ ] Full repo matrix: `cargo fmt --all -- --check` · `cargo clippy --workspace -- -D warnings` ·
+- [x] RED→GREEN→REFACTOR evidenced in commit order
+- [x] Full repo matrix: `cargo fmt --all -- --check` · `cargo clippy --workspace -- -D warnings` ·
       `cargo clippy --workspace --no-default-features -- -D warnings` ·
       `cargo nextest run --workspace --features http,semantic` ·
       `cargo nextest run --workspace --no-default-features` · `cargo test --doc --workspace`
-- [ ] `python3 scripts/regen-tool-defs.py --check --enforce-drift` exit 0 (allowlist printed)
-- [ ] `python3 scripts/surface-manifest.py --check` green AFTER regeneration commit
-- [ ] `python3 benchmarks/lint-datasets.py --project .` green (dataset rows may reference moved symbols)
-- [ ] Manual: `tools/list` via local stdio run shows the 3 workflow tools; `tools/call insert_at_line` returns guidance
+- [x] `python3 scripts/regen-tool-defs.py --check --enforce-drift` exit 0 (allowlist printed)
+- [x] `python3 scripts/surface-manifest.py --check` green AFTER regeneration commit
+- [x] `python3 benchmarks/lint-datasets.py --project .` green (dataset rows may reference moved symbols)
+- [x] Manual: `tools/list` via local stdio run shows the 3 workflow tools; `tools/call insert_at_line` returns guidance
 
 **Manual Test Checklist**:
 
-- [ ] planner-readonly `tools/list` includes 3 workflow tools, excludes all 13 tombstoned
-- [ ] CLAUDE.md/AGENTS.md regenerated routing blocks reviewed — bootstrap chains now reference only listable tools
-- [ ] Direct `tools/call rename_symbol` still dispatches (allowlist behavior unchanged pending D3)
+- [x] planner-readonly `tools/list` includes 3 workflow tools, excludes all 13 tombstoned
+- [x] CLAUDE.md/AGENTS.md regenerated routing blocks reviewed — bootstrap chains now reference only listable tools
+- [x] Direct `tools/call rename_symbol` still dispatches (allowlist behavior unchanged pending D3)
 
 ---
 
@@ -349,18 +349,18 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
 ### Completion Status
 
 - **Phase 1 (script gate, warn)**: ✅ 100%
-- **Phase 2 (ghost resolution + enforce)**: ⏳ 0%
+- **Phase 2 (ghost resolution + enforce)**: ✅ 100%
 - **Phase 3 (runtime audit)**: ⏳ 0%
 - **Phase 4 (3 LSP read tools)**: ⏳ 0%
 
-**Overall Progress**: 25% (Phase 1/4)
+**Overall Progress**: 50% (Phase 2/4)
 
 ### Time Tracking
 
 | Phase | Estimated | Actual | Variance |
 |-------|-----------|--------|----------|
 | Phase 1 | 2h | ~1.5h | -0.5h |
-| Phase 2 | 3–4h | — | — |
+| Phase 2 | 3–4h | ~4.5h | +0.5–1.5h |
 | Phase 3 | 2–3h | — | — |
 | Phase 4 | 3–4h | — | — |
 | **Total** | 10–13h | — | — |
@@ -388,6 +388,40 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
   Landed as a separate `style:` commit (`b6f83cc5`) before the Phase 1 commit. The first-run
   "fmt OK" was the post-edit hook having already rewritten the tree; reverting those files was
   the wrong move (CLAUDE.md: fmt --check exit code is the truth) — corrected.
+- Phase 2 (2026-06-10) — **deviation: tombstone 13→8, allowlist 4→9.** `refactor_*`×4 +
+  `propagate_deletions` have no callers besides their dispatch arms; deleting them would
+  dead-code the `semantic_edit` substrate the ADR-0009/D3 decision needs intact. Moved to the
+  pending-D3 allowlist instead (script `DISPATCH_ONLY_ALLOWLIST` + Rust `PENDING_D3_ALLOWLIST`).
+- Phase 2 — **deviation: 4 edit-core names RESTORED to `BUILDER_MINIMAL_TOOLS`** (plan said
+  "NOT preset members until D3"). The surface check fires *before* the mutation gate, so
+  callable-but-unlisted requires preset membership; removing them broke
+  `rename_symbol_requires_symbol_aware_preflight`. `three_way_report.preset_dead` exempts
+  allowlist members accordingly.
+- Phase 2 — **live stdio QA caught a listing layer the integration test missed**: the server
+  tools/list path drops names flagged by `tool_deprecation` (v1.13.27 wave) via the
+  resource_context filter. The promoted trio was schema-registered yet invisible. Fixed by
+  lifting all 20 #346-reclassified names off the deprecation list; pinned with
+  `workflow_ghost_tools_survive_server_listing_filters` (real handler, not `is_tool_in_surface`).
+  Lesson: surface-membership assertions ≠ listing assertions — always test through the handler.
+- Phase 2 — `audit_tool_surface_consistency` reused `tool_deprecation` as its intentional-drift
+  allowlist; now partitions a dedicated `pending_d3_allowlisted` bucket (the runtime seam
+  Phase 3 extends).
+- Phase 2 — **deviation: no `output_schema` for the 3 promoted tools** (Task 2.4 wanted them).
+  Their payloads are ad-hoc composites (not analysis-handle / workflow-alias shapes); a wrong
+  schema is worse than none, the field is optional (37/90 entries omit it), and
+  `analyze_change_request` is already contract-tested via `workflow_contract.rs`. Authoring
+  real schemas is D3-adjacent follow-up work.
+- Phase 2 — compiled overlays (planning/review avoid lanes, editing mutation lane) and the
+  `CODELENS_HOST_ROUTING` blocks still taught tombstoned names. Blocks re-synced from
+  `codelens-mcp attach <host>` canonical output — which, not `surface-manifest.py`, is the
+  real owner of those markers (CLAUDE.md header corrected).
+- Phase 2 — overlay routing expectation shift: with `analyze_change_request` schema-visible,
+  the claude-code host sequence resolves it as `recommended_entrypoint` ahead of the review
+  audit lane (harness test updated with rationale comment).
+- Phase 2 — test-vehicle rewriting principle applied: tests OF removed tools deleted
+  (`integration_tests/mutation.rs`); tests of live substrate (audit/role/preflight/reindex)
+  rewritten with `insert_after_symbol` / `replace_symbol_body` vehicles. Script sentinel floor
+  100→90 (dispatch is 99 names post-tombstone).
 
 ### Blockers Encountered
 
