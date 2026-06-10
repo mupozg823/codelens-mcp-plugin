@@ -225,38 +225,39 @@ drift check enforced in CI.
 **Goal**: `audit_tool_surface_consistency` reports the same 3-way truth at runtime from the
 generated const; tombstone regression locked.
 **Estimated Time**: ~2–3h
-**Status**: ⏳ Pending
+**Status**: ✅ Complete (2026-06-10) — deviation: runtime dispatch enumeration supersedes the
+generated const (Task 3.3), see Notes
 
 #### Tasks
 
 **🔴 RED: Write Failing Tests First**
 
-- [ ] **Test 3.1**: admin contract test — response contains
+- [x] **Test 3.1**: admin contract test — response contains
       `surface_drift: {dispatch_only: [...pending-D3 only], schema_only: [], preset_dead: []}`
       (section doesn't exist yet → FAIL)
-- [ ] **Test 3.2**: tombstoned name passed to audit's "explain tool" path (or dispatch) yields the
+- [x] **Test 3.2**: tombstoned name passed to audit's "explain tool" path (or dispatch) yields the
       guidance string, not a panic/empty
 
 **🟢 GREEN: Implement to Make Tests Pass**
 
-- [ ] **Task 3.3**: emit `DISPATCHED_TOOLS` const from `regen-tool-defs.py` into
+- [x] **Task 3.3**: emit `DISPATCHED_TOOLS` const from `regen-tool-defs.py` into
       `tool_defs/generated/build_generated.rs` (or sibling generated file) — script is the single
       parser; runtime never re-parses source
-- [ ] **Task 3.4**: extend `audit_tool_surface_consistency` (`tools/admin/mod.rs:130`) to compute
+- [x] **Task 3.4**: extend `audit_tool_surface_consistency` (`tools/admin/mod.rs:130`) to compute
       the 3-way diff from `DISPATCHED_TOOLS` × tool registry × preset membership; include
       `pending_d3_allowlist` and `tombstoned_count` fields; update its `output_schema` if present
 
 **🔵 REFACTOR**
 
-- [ ] **Task 3.5**: share set-diff helper with any existing audit internals; keep response bounded
+- [x] **Task 3.5**: share set-diff helper with any existing audit internals; keep response bounded
       (lists capped + `_omitted_count` per repo truncation convention)
 
 #### Quality Gate ✋
 
-- [ ] TDD evidence; admin contract tests green
-- [ ] `cargo nextest run -p codelens-mcp --features http,semantic` + no-default axis green
-- [ ] regen `--check --enforce-drift` + surface-manifest `--check` green (generated const is fresh)
-- [ ] Manual: run audit via stdio; `surface_drift` empty except allowlist
+- [x] TDD evidence; admin contract tests green
+- [x] `cargo nextest run -p codelens-mcp --features http,semantic` + no-default axis green
+- [x] regen `--check --enforce-drift` + surface-manifest `--check` green (generated const is fresh)
+- [x] Manual: run audit via stdio; `surface_drift` empty except allowlist
 
 ---
 
@@ -350,10 +351,10 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
 
 - **Phase 1 (script gate, warn)**: ✅ 100%
 - **Phase 2 (ghost resolution + enforce)**: ✅ 100%
-- **Phase 3 (runtime audit)**: ⏳ 0%
+- **Phase 3 (runtime audit)**: ✅ 100%
 - **Phase 4 (3 LSP read tools)**: ⏳ 0%
 
-**Overall Progress**: 50% (Phase 2/4)
+**Overall Progress**: 75% (Phase 3/4)
 
 ### Time Tracking
 
@@ -361,7 +362,7 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
 |-------|-----------|--------|----------|
 | Phase 1 | 2h | ~1.5h | -0.5h |
 | Phase 2 | 3–4h | ~4.5h | +0.5–1.5h |
-| Phase 3 | 2–3h | — | — |
+| Phase 3 | 2–3h | ~1h | -1–2h (Phase 2 후속에서 seam 선행 구축) |
 | Phase 4 | 3–4h | — | — |
 | **Total** | 10–13h | — | — |
 
@@ -422,6 +423,19 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
   (`integration_tests/mutation.rs`); tests of live substrate (audit/role/preflight/reindex)
   rewritten with `insert_after_symbol` / `replace_symbol_body` vehicles. Script sentinel floor
   100→90 (dispatch is 99 names post-tombstone).
+- Phase 3 (2026-06-10) — **deviation: Task 3.3 (generated `DISPATCHED_TOOLS` const) dropped.**
+  The audit enumerates the live dispatch HashMap (`registered_tool_names()`) at runtime — it
+  cannot drift from the thing it audits, while a generated const would reintroduce exactly the
+  parse seam the audit's doc comment warns about. Plan was written before noticing the runtime
+  path already existed.
+- Phase 3 — much of the phase landed early inside the Phase 2 deprecation follow-up
+  (`PENDING_D3_ALLOWLIST` + `pending_d3_allowlisted` bucket); the remaining work was the
+  `surface_drift` script-parity section, the `tombstone_reintroduced` violation bucket, the
+  bounded-list convention, and the end-to-end tombstone dispatch pin. Actual ~1h vs 2–3h
+  estimate.
+- Phase 3 — protocol detail pinned: tombstoned calls keep JSON-RPC `-32601` (unknown tool)
+  with the guidance string in `error.message`; the tool-payload channel stays empty, so tests
+  must assert on the raw response, not `call_tool`'s parsed payload.
 
 ### Blockers Encountered
 
