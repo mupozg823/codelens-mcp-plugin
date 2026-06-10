@@ -129,7 +129,7 @@ pub fn file_io_tools(ro_p: &ToolAnnotations) -> Vec<Tool> {
     vec![
         Tool::new(
             "get_current_config",
-            "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, call activate_project or prepare_harness_session with an absolute project path; do not abandon CodeLens because the active project is stale.",
+            "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, re-activate the session with an absolute project path; do not abandon CodeLens because the active project is stale.",
             json!({"type":"object","properties":{}}),
         ).with_output_schema(get_current_config_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
@@ -174,7 +174,7 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
         ).with_output_schema(diagnostics_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "search_workspace_symbols",
-            "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); the handler returns a structured hint toward `bm25_symbol_search` when omitted.",
+            "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); when omitted, the handler returns a structured hint toward the BM25 fallback.",
             json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
         ).with_annotations(ro_p.clone()),
         Tool::new(
@@ -289,7 +289,7 @@ pub fn semantic_tools(
         ).with_output_schema(semantic_search_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "index_embeddings",
-            "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic_search.",
+            "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic search can serve results.",
             json!({"type":"object","properties":{"background":{"type":"boolean","description":"Run as a durable background job and poll with get_analysis_job"},"prewarm_queries":{"type":"array","items":{"type":"string"},"description":"Representative semantic_search queries to warm immediately after indexing"},"prewarm_limit":{"type":"integer","description":"Maximum prewarm query count (default 128, max 1024)"}}}),
         ).with_annotations(ro.clone()),
     ]
@@ -305,7 +305,7 @@ pub fn session_tools(
     vec![
         Tool::new(
             "activate_project",
-            "[CodeLens:Session] Activate/remap project — use when get_current_config reports a different active project than the intended workspace.",
+            "[CodeLens:Session] Activate/remap project — use when the session config reports a different active project than the intended workspace.",
             json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"}}}),
         ).with_output_schema(activate_project_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
@@ -415,7 +415,7 @@ pub fn session_tools(
         ).with_annotations(ro_a.clone()),
         Tool::new(
             "find_redundant_definitions",
-            "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Use before `dead_code_report` — wrappers obscure substrates.",
+            "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Run it before dead-code analysis — wrappers obscure substrates.",
             json!({"type":"object","properties":{"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on entries returned (default 50)"}}}),
         ).with_annotations(ro_a.clone()),
         Tool::new(

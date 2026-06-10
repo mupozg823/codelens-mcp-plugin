@@ -46,7 +46,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 396
+        "estimated_tokens": 389
       },
       {
         "name": "read_file",
@@ -181,7 +181,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 167
+        "estimated_tokens": 166
       },
       {
         "name": "get_type_hierarchy",
@@ -667,7 +667,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 192
+        "estimated_tokens": 193
       },
       {
         "name": "find_over_visible_apis",

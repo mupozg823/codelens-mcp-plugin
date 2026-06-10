@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -160,6 +161,16 @@ def render_category(category: str, tools: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _strip_line_comments(src: str) -> str:
+    """Drop `// ...` tails line-wise so quoted names inside comments
+    (doc examples, commented-out registrations) never count as matches."""
+    cleaned_lines: list[str] = []
+    for line in src.split("\n"):
+        idx = line.find("//")
+        cleaned_lines.append(line if idx < 0 else line[:idx])
+    return "\n".join(cleaned_lines)
+
+
 def extract_preset_const(name: str, src: str) -> set[str]:
     """Return the &str literals inside `pub(crate) const <name>: &[&str] = &[ ... ];`.
 
@@ -167,8 +178,6 @@ def extract_preset_const(name: str, src: str) -> set[str]:
     literals — the constants contain prose rationale that would
     otherwise contribute false-positive matches.
     """
-    import re
-
     pat = re.compile(
         rf"pub\(crate\) const {re.escape(name)}: &\[&str\] = &\[(.*?)\];",
         re.DOTALL,
@@ -176,13 +185,131 @@ def extract_preset_const(name: str, src: str) -> set[str]:
     m = pat.search(src)
     if not m:
         raise SystemExit(f"could not locate const {name} in presets.rs")
-    body = m.group(1)
-    cleaned_lines: list[str] = []
-    for line in body.split("\n"):
-        idx = line.find("//")
-        cleaned_lines.append(line if idx < 0 else line[:idx])
-    cleaned = "\n".join(cleaned_lines)
+    cleaned = _strip_line_comments(m.group(1))
     return set(re.findall(r'"([^"]+)"', cleaned))
+
+
+# ── Surface drift report + description lint ────────────────────────────
+# PLAN_serena-alignment-p1 Phase 1 (#346). Warn-only until Phase 2
+# resolves the known ghosts and flips on enforcement.
+
+DISPATCH_SOURCES: tuple[Path, ...] = (
+    REPO_ROOT / "crates" / "codelens-mcp" / "src" / "tools" / "mod.rs",
+    REPO_ROOT / "crates" / "codelens-mcp" / "src" / "dispatch" / "table.rs",
+)
+
+# Dispatch-only names sanctioned while ADR-0009/D3 decides the symbolic
+# edit core (spec 2026-06-10 §D3). Filled by Phase 2; empty means every
+# dispatch-only name is reported as drift.
+DISPATCH_ONLY_ALLOWLIST: frozenset[str] = frozenset()
+
+# (tool, referenced_tool) description cross-references that are
+# intentionally allowed. Keep empty unless a pairing is genuinely
+# load-bearing; chaining belongs in suggested_next_tools (spec D7).
+DESCRIPTION_XREF_ALLOWLIST: frozenset[tuple[str, str]] = frozenset()
+
+
+def parse_dispatch_names(src: str) -> set[str]:
+    """Extract tool names from dispatch-registration source text.
+
+    Handles both registration styles in this repo:
+      1. `tool_registry!` match arms — `"name" => module::handler,`
+      2. handler-map inserts — `m.insert("name", std::sync::Arc::new(handler))`,
+         including the rustfmt multi-line form. The `Arc::new` requirement
+         keeps serde_json payload inserts inside handler bodies
+         (`payload.insert("provenance", json!(..))`) from counting.
+    """
+    stripped = _strip_line_comments(src)
+    names = set(re.findall(r'"([A-Za-z0-9_]+)"\s*=>', stripped))
+    names |= set(
+        re.findall(
+            r'\.insert\(\s*"([A-Za-z0-9_]+)"\s*,\s*(?:std::sync::)?Arc::new',
+            stripped,
+        )
+    )
+    return names
+
+
+def collect_dispatch_names() -> set[str]:
+    """Union of dispatch names across all known registration sites."""
+    names: set[str] = set()
+    for path in DISPATCH_SOURCES:
+        names |= parse_dispatch_names(path.read_text())
+    return names
+
+
+def three_way_report(
+    dispatch: set[str],
+    schema: set[str],
+    preset_members: set[str],
+    dispatch_only_allowlist: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, list[str]]:
+    """Classify surface drift between the three registries.
+
+    - dispatch_only: callable but schemaless — invisible to tools/list
+    - allowlisted_dispatch_only: sanctioned pending-D3 exceptions
+    - schema_only: listed but not dispatchable — dead schema
+    - preset_dead: preset members without a tools.toml definition —
+      strings the surface filter can never match
+    """
+    dispatch_only = dispatch - schema
+    return {
+        "dispatch_only": sorted(dispatch_only - set(dispatch_only_allowlist)),
+        "allowlisted_dispatch_only": sorted(dispatch_only & set(dispatch_only_allowlist)),
+        "schema_only": sorted(schema - dispatch),
+        "preset_dead": sorted(preset_members - schema),
+    }
+
+
+def lint_description_crossrefs(
+    tools: list[dict[str, Any]],
+    allowlist: frozenset[tuple[str, str]] | set[tuple[str, str]] = DESCRIPTION_XREF_ALLOWLIST,
+) -> list[str]:
+    """Flag descriptions that reference other tools by name (spec D7).
+
+    Tool-search surfaces retrieve descriptions independently; chaining
+    guidance belongs in suggested_next_tools, not prose name-drops.
+    Word-boundary match; self-references are fine.
+    """
+    names = {tool["name"] for tool in tools}
+    offenses: list[str] = []
+    for tool in tools:
+        desc = tool.get("description", "") or ""
+        for other in sorted(names - {tool["name"]}):
+            if (tool["name"], other) in allowlist:
+                continue
+            if re.search(rf"\b{re.escape(other)}\b", desc):
+                offenses.append(
+                    f"{tool['name']}: description references tool `{other}` "
+                    "(move chaining to suggested_next_tools — spec D7)"
+                )
+    return offenses
+
+
+def surface_drift_warnings(tools: list[dict[str, Any]]) -> list[str]:
+    """Assemble the live 3-way drift report + description lint lines."""
+    schema_names = {tool["name"] for tool in tools}
+    presets_src = PRESETS_RS.read_text()
+    preset_members: set[str] = set()
+    for const_name in PRESET_TAG_TO_CONST.values():
+        preset_members |= extract_preset_const(const_name, presets_src)
+    report = three_way_report(
+        collect_dispatch_names(),
+        schema_names,
+        preset_members,
+        dispatch_only_allowlist=DISPATCH_ONLY_ALLOWLIST,
+    )
+    lines: list[str] = []
+    for key in ("dispatch_only", "schema_only", "preset_dead"):
+        if report[key]:
+            lines.append(f"{key} ({len(report[key])}): {', '.join(report[key])}")
+    if report["allowlisted_dispatch_only"]:
+        lines.append(
+            "allowlisted_dispatch_only (pending-D3): "
+            + ", ".join(report["allowlisted_dispatch_only"])
+        )
+    lines.extend(lint_description_crossrefs(tools))
+    return lines
 
 
 def validate_preset_tags(tools: list[dict[str, Any]]) -> list[str]:
@@ -192,9 +319,8 @@ def validate_preset_tags(tools: list[dict[str, Any]]) -> list[str]:
     side holds the same data as five `pub(crate) const <NAME>: &[&str]`
     arrays in `tool_defs/presets.rs`. The two must agree **for tools
     that exist in tools.toml**. Members listed in presets.rs but absent
-    from tools.toml are reported as "orphans" — dead members that
-    `tools()` cannot surface because no `Tool::new` row emits them.
-    Orphans are a stderr warning only; stage 3 codegen will drop them.
+    from tools.toml ("orphans" — dead members `tools()` cannot surface)
+    are reported by `surface_drift_warnings` as `preset_dead`.
     """
     src = PRESETS_RS.read_text()
     tools_in_toml = {tool["name"] for tool in tools}
@@ -206,7 +332,6 @@ def validate_preset_tags(tools: list[dict[str, Any]]) -> list[str]:
                 inverse[tag].add(tool["name"])
 
     mismatches: list[str] = []
-    orphan_summary: dict[str, list[str]] = {}
 
     for tag, const_name in PRESET_TAG_TO_CONST.items():
         toml_set = inverse.get(tag, set())
@@ -224,18 +349,6 @@ def validate_preset_tags(tools: list[dict[str, Any]]) -> list[str]:
                 f"{const_name}: in presets.rs but missing from "
                 f"tools.toml preset_tags: {sorted(only_rs)}"
             )
-        orphans = rs_set - tools_in_toml
-        if orphans:
-            orphan_summary[const_name] = sorted(orphans)
-
-    if orphan_summary:
-        print(
-            "Note: orphan preset members in presets.rs (no tools.toml "
-            "definition; tools() cannot surface them — stage 3 will drop):",
-            file=sys.stderr,
-        )
-        for const_name, orphans in orphan_summary.items():
-            print(f"  {const_name}: {orphans}", file=sys.stderr)
 
     unknown_tags: set[str] = set()
     for tool in tools:
@@ -293,6 +406,16 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
+    drift_warnings = surface_drift_warnings(toml_data.get("tool", []))
+    if drift_warnings:
+        print(
+            "surface drift (warn-only — enforcement lands with "
+            "PLAN_serena-alignment-p1 Phase 2, see #346):",
+            file=sys.stderr,
+        )
+        for line in drift_warnings:
+            print(f"  - {line}", file=sys.stderr)
 
     rendered = render()
 

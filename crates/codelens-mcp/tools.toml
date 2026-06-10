@@ -42,7 +42,7 @@ schema_version = "v1"
 name = "get_current_config"
 category = "file_io"
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, call activate_project or prepare_harness_session with an absolute project path; do not abandon CodeLens because the active project is stale."
+description = "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, re-activate the session with an absolute project path; do not abandon CodeLens because the active project is stale."
 annotations = "ro_p"
 output_schema = "get_current_config_output_schema"
 
@@ -297,7 +297,7 @@ max_results = { type = "integer" }
 name = "search_workspace_symbols"
 category = "lsp"
 preset_tags = ["minimal"]
-description = "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); the handler returns a structured hint toward `bm25_symbol_search` when omitted."
+description = "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); when omitted, the handler returns a structured hint toward the BM25 fallback."
 annotations = "ro_p"
 
 [tool.input_schema]
@@ -847,7 +847,7 @@ symbol = { type = "string", description = "Symbol to check references for" }
 name = "activate_project"
 category = "session"
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Session] Activate/remap project — use when get_current_config reports a different active project than the intended workspace."
+description = "[CodeLens:Session] Activate/remap project — use when the session config reports a different active project than the intended workspace."
 annotations = "ro_p"
 output_schema = "activate_project_output_schema"
 
@@ -1198,7 +1198,7 @@ properties = { max_results = { type = "integer", minimum = 1, maximum = 500, des
 name = "find_redundant_definitions"
 category = "session"
 preset_tags = []
-description = "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Use before `dead_code_report` — wrappers obscure substrates."
+description = "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Run it before dead-code analysis — wrappers obscure substrates."
 annotations = "ro_a"
 
 [tool.input_schema]
@@ -1434,7 +1434,7 @@ properties = { query = { type = "string", description = "Natural language search
 name = "index_embeddings"
 category = "semantic"
 preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic_search."
+description = "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic search can serve results."
 annotations = "ro"
 feature_gate = "semantic"
 
