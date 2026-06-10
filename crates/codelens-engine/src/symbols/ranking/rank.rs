@@ -1,8 +1,8 @@
-use super::priors::{file_path_prior, symbol_kind_prior};
-use super::weights::RankingContext;
 use super::super::parser::slice_source;
 use super::super::scoring::score_symbol_with_lower;
 use super::super::types::{RankedContextEntry, SymbolInfo};
+use super::priors::{file_path_prior, symbol_kind_prior};
+use super::weights::RankingContext;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -184,8 +184,8 @@ pub(crate) fn prune_to_budget(
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
-    use super::super::weights::auto_weights_with_semantic_count;
     use super::super::priors::symbol_kind_prior;
+    use super::super::weights::auto_weights_with_semantic_count;
     use crate::{SymbolInfo, SymbolKind, SymbolProvenance};
 
     #[test]

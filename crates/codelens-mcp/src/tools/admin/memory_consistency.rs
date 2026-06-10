@@ -202,6 +202,60 @@ mod surface_audit_tests {
     }
 
     #[test]
+    fn audit_reports_script_parity_surface_drift_section() {
+        // Phase 3 (#346): the runtime audit must speak the same 3-way
+        // vocabulary as scripts/regen-tool-defs.py three_way_report so
+        // CI (script) and live daemons (this tool) can be diffed 1:1.
+        // Clean tree: every drift list empty except the pending-D3
+        // allowlist; tombstone re-introduction is a violation bucket.
+        let state = make_state();
+        let (payload, _meta) = super::super::audit_tool_surface_consistency(&state, &json!({}))
+            .expect("audit succeeds");
+        let drift = payload["surface_drift"]
+            .as_object()
+            .expect("surface_drift section present");
+        assert_eq!(drift["dispatch_only"], json!([]), "got {drift:?}");
+        assert_eq!(drift["schema_only"], json!([]), "got {drift:?}");
+        assert_eq!(drift["preset_dead"], json!([]), "got {drift:?}");
+        assert_eq!(drift["tombstone_reintroduced"], json!([]), "got {drift:?}");
+        let allow = drift["allowlisted_dispatch_only"]
+            .as_array()
+            .expect("allowlisted_dispatch_only list");
+        for name in crate::tools::PENDING_D3_ALLOWLIST {
+            assert!(
+                allow.iter().any(|v| v == name),
+                "{name} must appear in allowlisted_dispatch_only, got {allow:?}"
+            );
+        }
+        assert_eq!(
+            payload["summary"]["tombstoned_count"].as_u64(),
+            Some(crate::tools::TOMBSTONED_TOOLS.len() as u64),
+            "summary must carry the tombstone inventory size"
+        );
+    }
+
+    #[test]
+    fn audit_surfaces_pending_d3_allowlist_without_violations() {
+        // #346: the 9 dispatch-only symbolic-edit/refactor tools are an
+        // explicit carve-out, not drift. They must land in the
+        // `pending_d3_allowlisted` bucket (mirroring the script's
+        // DISPATCH_ONLY_ALLOWLIST) while `all_clean` stays true.
+        let state = make_state();
+        let (payload, _meta) = super::super::audit_tool_surface_consistency(&state, &json!({}))
+            .expect("audit succeeds");
+        let bucket = payload["pending_d3_allowlisted"]
+            .as_array()
+            .expect("pending_d3_allowlisted bucket present");
+        for name in crate::tools::PENDING_D3_ALLOWLIST {
+            assert!(
+                bucket.iter().any(|v| v == name),
+                "{name} must be surfaced in pending_d3_allowlisted, got {bucket:?}"
+            );
+        }
+        assert_eq!(payload["all_clean"].as_bool(), Some(true));
+    }
+
+    #[test]
     fn audit_self_includes_itself_in_dispatch() {
         // Once the dispatch_table arm + tools.toml entry land in the
         // same PR, calling the audit must see itself on both sides:

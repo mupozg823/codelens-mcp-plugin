@@ -32,38 +32,61 @@ fn assert_raw_fs_envelope(result: &serde_json::Value, expected_op: &str) {
     );
 }
 
-fn seed_lines(project: &codelens_engine::ProjectRoot, name: &str) -> std::path::PathBuf {
-    let path = project.as_path().join(name);
-    fs::write(&path, "alpha\nbeta\ngamma\ndelta\n").unwrap();
-    path
-}
+// Line-edit family tombstoned (#346); the raw_fs envelope contract is
+// carried by the remaining symbolic edit core.
+
+/// Phase 3 pin (#346, plan Test 3.2): calling a tombstoned name through
+/// the full dispatch path returns the replacement guidance, not a bare
+/// unknown-tool error (and certainly not a panic).
 #[test]
-fn insert_content_default_dispatches_to_line_envelope() {
+fn tombstoned_tool_call_returns_replacement_guidance() {
     let project = project_root();
     let state = make_state(&project);
-    seed_lines(&project, "envelope_insert_content.txt");
-    let result = call_tool(
+    let response = handle_request(
         &state,
-        "insert_content",
-        json!({"relative_path": "envelope_insert_content.txt", "line": 1, "content": "new\n"}),
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "insert_at_line",
+                "arguments": {"relative_path": "x.py", "line": 1, "content": "y"}
+            })),
+        },
+    )
+    .expect("tools/call returns a JSON-RPC response");
+    let value = serde_json::to_value(&response).expect("serialize");
+    assert_eq!(
+        value["error"]["code"],
+        json!(-32601),
+        "tombstoned names keep the unknown-tool JSON-RPC code"
     );
-    assert_raw_fs_envelope(&result, "insert_at_line");
+    let err = value["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        err.contains("insert_at_line") && err.contains("#346") && err.contains("Edit"),
+        "tombstone guidance must name the removed tool and replacement path, got {err:?}"
+    );
 }
+
 #[test]
-fn replace_content_unified_default_dispatches_to_text() {
+fn insert_after_symbol_reports_raw_fs_envelope() {
     let project = project_root();
     let state = make_state(&project);
-    seed_lines(&project, "envelope_replace_unified.txt");
+    fs::write(
+        project.as_path().join("envelope_insert_sym.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let result = call_tool(
         &state,
-        "replace_content",
+        "insert_after_symbol",
         json!({
-            "relative_path": "envelope_replace_unified.txt",
-            "old_text": "alpha",
-            "new_text": "ALPHA"
+            "relative_path": "envelope_insert_sym.py",
+            "symbol_name": "alpha",
+            "content": "\ndef beta():\n    return 2\n"
         }),
     );
-    assert_raw_fs_envelope(&result, "replace_content");
+    assert_raw_fs_envelope(&result, "insert_after_symbol");
 }
 
 #[test]

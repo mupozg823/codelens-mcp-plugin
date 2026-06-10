@@ -1,8 +1,8 @@
+use super::super::types::{SymbolInfo, SymbolKind};
 use super::weights::{
     is_natural_language_query, mentions_any, query_targets_builder_impl,
     query_targets_entrypoint_impl, query_targets_helper_impl,
 };
-use super::super::types::{SymbolInfo, SymbolKind};
 
 pub(crate) fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
     let entrypoint_query = query_targets_entrypoint_impl(query_lower);

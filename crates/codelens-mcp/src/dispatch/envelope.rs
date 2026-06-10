@@ -141,6 +141,10 @@ fn apply_path_alias_normalisation(tool_name: &str, arguments: &mut serde_json::V
             | "read_file"
             | "list_dir"
             | "get_type_hierarchy"
+            // D1 LSP read trio (#346 Phase 4)
+            | "find_declaration"
+            | "find_implementations"
+            | "get_diagnostics_for_symbol"
     );
     match (has_file_path, has_path) {
         (true, false) => {

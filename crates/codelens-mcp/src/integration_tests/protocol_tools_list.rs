@@ -1006,3 +1006,73 @@ fn deferred_tools_list_can_restore_output_schema_explicitly() {
         "explicit includeOutputSchema should preserve output schemas"
     );
 }
+
+// ── PLAN_serena-alignment-p1 Phase 2 (#346): ghost resolution ─────────
+
+#[test]
+fn workflow_ghost_tools_are_registered_and_planner_visible() {
+    // The generated routing blocks (CLAUDE.md/AGENTS.md) teach these
+    // three workflow tools; they must exist in the tools.toml registry
+    // with input schemas and be visible on the planner surface.
+    use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
+    for name in [
+        "onboard_project",
+        "analyze_change_request",
+        "orchestrate_change",
+    ] {
+        let tool = crate::tool_defs::tools()
+            .iter()
+            .find(|tool| tool.name == name)
+            .unwrap_or_else(|| panic!("{name} missing from tools.toml registry"));
+        assert!(
+            tool.input_schema.is_object(),
+            "{name} must carry an input schema"
+        );
+        assert!(
+            is_tool_in_surface(name, ToolSurface::Profile(ToolProfile::PlannerReadonly)),
+            "{name} must be visible on planner-readonly"
+        );
+    }
+}
+
+#[test]
+fn workflow_ghost_tools_survive_server_listing_filters() {
+    // Surface membership alone is not enough: the server listing path
+    // additionally drops tools flagged by `tool_deprecation` (the live
+    // miss this test pins). The promoted trio must survive the real
+    // `tools/list` handler on the planner profile.
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let _ = call_tool(
+        &state,
+        "set_profile",
+        json!({"profile": "planner-readonly"}),
+    );
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"full": true})),
+        },
+    )
+    .expect("tools/list should return a response");
+    let value = serde_json::to_value(&response).expect("serialize");
+    let names = value["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    for name in [
+        "onboard_project",
+        "analyze_change_request",
+        "orchestrate_change",
+    ] {
+        assert!(
+            names.contains(&name),
+            "{name} must survive the server tools/list filters, got {names:?}"
+        );
+    }
+}

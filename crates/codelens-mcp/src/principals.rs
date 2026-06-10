@@ -246,7 +246,7 @@ mod tests {
         assert_eq!(p.resolve(Some("anyone")), Role::ReadOnly);
         assert!(
             !p.resolve(Some("anyone"))
-                .satisfies(required_role_for("create_text_file")),
+                .satisfies(required_role_for("replace_symbol_body")),
             "strict default must deny code-mutation tools"
         );
         assert!(
@@ -378,8 +378,10 @@ role = "Admin"
 
     #[test]
     fn required_role_for_mutation_tool_is_refactor() {
-        assert_eq!(required_role_for("create_text_file"), Role::Refactor);
-        assert_eq!(required_role_for("delete_lines"), Role::Refactor);
+        // create_text_file/delete_lines were tombstoned (#346); the
+        // symbolic edit core remains the representative mutation tier.
+        assert_eq!(required_role_for("replace_symbol_body"), Role::Refactor);
+        assert_eq!(required_role_for("insert_after_symbol"), Role::Refactor);
         assert_eq!(required_role_for("rename_symbol"), Role::Refactor);
     }
 

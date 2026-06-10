@@ -168,10 +168,11 @@ fn session_scoped_preflight_does_not_cross_sessions() {
 
     let payload = call_tool_with_session(
         &state,
-        "create_text_file",
+        "replace_symbol_body",
         json!({
-            "relative_path": "session_gate_new.py",
-            "content": "print('new')"
+            "relative_path": "session_gate.py",
+            "symbol_name": "alpha",
+            "new_body": "    return 2"
         }),
         "session-b",
     );

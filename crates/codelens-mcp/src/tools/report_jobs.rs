@@ -1,6 +1,6 @@
+pub mod handlers;
 mod helpers;
 mod runners;
-pub mod handlers;
 
 pub use handlers::{
     cancel_analysis_job, get_analysis_job, get_analysis_section, list_analysis_artifacts,

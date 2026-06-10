@@ -4,6 +4,12 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         // `audit_tool_surface_consistency` was on this list but was resurrected
         // in ae8c6f2f (P1-4 Sprint A) — removing it from the deprecation list
         // closes the daemon "deprecated" / CLI "Unknown tool" mismatch (#G7).
+        // #346 re-classified the rest of the v1.13.27 wave:
+        // - line-edit family → removed outright (TOMBSTONED_TOOLS guidance)
+        // - symbolic edit core + refactor substrate → pending-D3 allowlist
+        //   (dispatch-only, decision open — not "deprecated for removal")
+        // - onboard_project / analyze_change_request / orchestrate_change →
+        //   promoted to first-class tools.toml entries (must list).
         "find_circular_dependencies"
         | "find_redundant_definitions"
         | "find_orphan_handlers"
@@ -11,27 +17,7 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         | "find_phantom_modules"
         | "search_for_pattern"
         | "get_project_structure"
-        | "analyze_missing_imports"
-        | "add_import"
-        | "refactor_extract_function"
-        | "refactor_inline_function"
-        | "refactor_move_to_file"
-        | "refactor_change_signature"
-        | "replace_symbol_body"
-        | "replace_content"
-        | "replace_lines"
-        | "delete_lines"
-        | "insert_at_line"
-        | "insert_before_symbol"
-        | "insert_after_symbol"
-        | "insert_content"
-        | "replace"
-        | "create_text_file"
-        | "rename_symbol"
-        | "propagate_deletions"
-        | "onboard_project"
-        | "analyze_change_request"
-        | "orchestrate_change" => Some(("1.13.27", "", "2.0")),
+        | "analyze_missing_imports" => Some(("1.13.27", "", "2.0")),
         _ => None,
     }
 }
@@ -146,19 +132,12 @@ pub(crate) fn tool_phase_label(name: &str) -> Option<&'static str> {
 pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
     match name {
         // Bulk implementation / mutation — Codex-class executor preferred.
-        // (includes deprecated mutation tools still in dispatch for backward compat)
+        // (pending-D3 edit core + refactor substrate; line-edit family
+        // tombstoned, #346)
         "rename_symbol"
         | "replace_symbol_body"
-        | "delete_lines"
-        | "insert_at_line"
         | "insert_before_symbol"
         | "insert_after_symbol"
-        | "insert_content"
-        | "replace_content"
-        | "replace_lines"
-        | "replace"
-        | "create_text_file"
-        | "add_import"
         | "refactor_extract_function"
         | "refactor_inline_function"
         | "refactor_move_to_file"

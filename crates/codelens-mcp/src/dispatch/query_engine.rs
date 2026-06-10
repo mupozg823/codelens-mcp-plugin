@@ -37,11 +37,13 @@ impl<'a> QueryEngine<'a> {
         let tool = match DISPATCH_TABLE.get(name) {
             Some(t) => t,
             None => {
-                return (
-                    Err(CodeLensError::ToolNotFound(name.to_owned())),
-                    None,
-                    None,
-                );
+                // Tombstoned names (#346) get a replacement hint instead of a
+                // bare unknown-tool error; the JSON-RPC error code is the same.
+                let detail = match crate::tools::tombstone_guidance(name) {
+                    Some(guidance) => format!("{name} — {guidance}"),
+                    None => name.to_owned(),
+                };
+                return (Err(CodeLensError::ToolNotFound(detail)), None, None);
             }
         };
 

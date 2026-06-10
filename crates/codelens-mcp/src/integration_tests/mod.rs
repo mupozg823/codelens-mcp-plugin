@@ -26,7 +26,6 @@ fn embedding_model_available_for_test() -> bool {
 mod coordination;
 mod lsp;
 mod memory;
-mod mutation;
 mod mutation_envelope;
 mod mutation_evidence;
 mod protocol_observability;

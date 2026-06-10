@@ -332,9 +332,8 @@ pub(crate) fn compile_surface_overlay(
                     &[
                         "rename_symbol",
                         "replace_symbol_body",
-                        "insert_content",
-                        "replace",
-                        "add_import",
+                        "insert_before_symbol",
+                        "insert_after_symbol",
                     ],
                 );
                 crate::util::push_unique(
@@ -360,9 +359,8 @@ pub(crate) fn compile_surface_overlay(
                     &[
                         "rename_symbol",
                         "replace_symbol_body",
-                        "insert_content",
-                        "replace",
-                        "add_import",
+                        "insert_before_symbol",
+                        "insert_after_symbol",
                     ],
                 );
                 crate::util::push_unique(
@@ -388,8 +386,8 @@ pub(crate) fn compile_surface_overlay(
                     &[
                         "rename_symbol",
                         "replace_symbol_body",
-                        "insert_content",
-                        "replace",
+                        "insert_before_symbol",
+                        "insert_after_symbol",
                     ],
                 );
                 crate::util::push_unique(

@@ -1,8 +1,8 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
-use super::super::chunk_ops::{CategoryScore, OutlierSymbol, cosine_similarity};
 use super::super::EmbeddingEngine;
+use super::super::chunk_ops::{CategoryScore, OutlierSymbol, cosine_similarity};
 use crate::embedding_store::{ArtifactEmbeddingChunk, ScoredArtifactChunk};
 
 impl EmbeddingEngine {

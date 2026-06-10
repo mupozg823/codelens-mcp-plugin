@@ -1,9 +1,6 @@
-use super::helpers::{
-    advance_job_progress, debug_step_delay_ms, patch_job_file,
-    run_job_kind,
-};
-use super::super::report_utils::{extract_handle_fields, stable_cache_key, strings_from_array};
 use super::super::AppState;
+use super::super::report_utils::{extract_handle_fields, stable_cache_key, strings_from_array};
+use super::helpers::{advance_job_progress, debug_step_delay_ms, patch_job_file, run_job_kind};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -377,9 +374,10 @@ fn run_refactor_safety_report_job(
     )? {
         return Ok(json!({}));
     }
-    let tests = super::super::filesystem::find_tests(state, &json!({"path": path, "max_results": 10}))
-        .map(|output| output.0)
-        .unwrap_or_else(|_| json!({"tests": []}));
+    let tests =
+        super::super::filesystem::find_tests(state, &json!({"path": path, "max_results": 10}))
+            .map(|output| output.0)
+            .unwrap_or_else(|_| json!({"tests": []}));
 
     let mut top_findings = Vec::new();
     if let Some(symbol) = symbol {

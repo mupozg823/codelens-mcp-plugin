@@ -213,8 +213,12 @@ fn audit_planner_session_fails_on_mutation_attempt() {
     );
     let payload = call_tool_with_session(
         &state,
-        "create_text_file",
-        json!({"relative_path": "planner_fail.py", "content": "print('fail')\n"}),
+        "replace_symbol_body",
+        json!({
+            "relative_path": "planner_fail.py",
+            "symbol_name": "alpha",
+            "new_body": "    return 2"
+        }),
         "planner-fail",
     );
     assert_eq!(payload["success"], json!(false));

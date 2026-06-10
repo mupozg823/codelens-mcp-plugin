@@ -4,335 +4,159 @@ This document answers a narrower question than marketing:
 
 > Is CodeLens already a strict superset of Serena?
 
-Current answer as of 2026-04-25: **no, but the gap is now narrower and more explicit**.
+Current answer as of **2026-06-10**, measured against **Serena v1.5.3** (released 2026-05-26, source-audited from a tag checkout) and **CodeLens v1.13.32** (HEAD `bf2ecdf6`): **no — and the gap changed shape**.
 
-CodeLens is already stronger as a harness-native MCP layer. It now has an opt-in semantic edit substrate for LSP-authoritative `rename`, declaration/definition/implementation/type-definition resolution, and `safe_delete_check`. Broader LSP `codeAction` refactors remain conditional: CodeLens may execute them only when the server returns an inspectable minimal `WorkspaceEdit`, but they are not advertised as product-green `authoritative_apply` until fixture and external matrix gates prove them per language. CodeLens also keeps an IDE adapter protocol boundary for local JetBrains/Roslyn-style integrations. Serena is still stronger as a broad IDE/LSP-centric semantic backend because JetBrains-backed workspace intelligence and language-specific adapter coverage are not complete in CodeLens.
+The 2026-04-25 revision of this document (archived at `docs/archive/serena-comparison-2026-04-25.md`) framed the gap as "semantic edit depth." That framing is now stale. Between v1.3.0 and v1.5.3 Serena executed a deliberate **agent-harness engineering program** — tool-surface diet, behavioral enforcement hooks, host-context prompt engineering, memory conventions — that overlaps exactly with the territory CodeLens claimed as its differentiator. Meanwhile CodeLens quietly **de-surfaced its own symbolic mutation tools** (they remain dispatchable but have no schema in `tools.toml`, hence never appear in `tools/list`). The two projects are converging on each other's strengths from opposite directions.
+
+Sources for the Serena side (all verified in source, not docs):
+
+- Tag checkout: `oraios/serena` @ `v1.5.3`
+- `src/serena/tools/tools_base.py` (`ToolRegistry._deleted_tools`, marker taxonomy, `EditingToolWithDiagnostics`)
+- `src/serena/resources/config/contexts/*.yml` (14 host contexts)
+- `src/serena/resources/config/prompt_templates/system_prompt.yml` (incl. `cc_system_prompt_override`)
+- `src/serena/hooks.py` (PreToolUse deny/auto-approve hooks)
+- `src/serena/tools/{symbol,memory,file,workflow}_tools.py`
+- Live MCP surface cross-check: serena `--context claude-code` exposes 23 tools in an actual Claude Code session
 
 ## 1. Current Verdict
 
-| Axis | Current winner | Why |
+| Axis | Winner | Why |
 | --- | --- | --- |
-| Harness ergonomics | CodeLens | Role-based surfaces, deferred bootstrap, bounded reports, durable jobs |
-| Semantic retrieval for NL queries | CodeLens | Bundled embedding model and hybrid ranking with measured external benchmarks |
-| Offline setup and cold start | CodeLens | Single Rust binary, no per-language server requirement by default |
-| Deep type-aware editing/refactoring | Serena | CodeLens has LSP/Roslyn `WorkspaceEdit` boundaries and authoritative rename/check paths, but broad refactor apply remains conditional until per-language matrix gates are green |
-| Memory and long-lived knowledge | Serena | Mature project/global memory model and onboarding workflow |
-| Broad language-backend coverage | Serena | 40+ LSP-backed languages plus JetBrains backend |
-| Benchmark/eval discipline | CodeLens | Explicit evaluation contract and external retrieval matrix in-repo |
+| Harness surface shaping at runtime | CodeLens | presets/profiles switchable per session (`set_preset`/`set_profile`), tier metadata, deferred bootstrap, response-envelope compression. Serena's contexts/modes are start-time config, not runtime tools. |
+| Behavioral routing **enforcement** | **Serena** | PreToolUse hooks that **deny** after 3 consecutive grep/read calls and remind the agent of symbolic alternatives; auto-approve hook for its own tools; full Claude Code system-prompt override. CodeLens only advises (`suggested_next_tools`, doom-loop hints). |
+| Semantic retrieval for NL queries | CodeLens | Bundled ONNX embedding + hybrid BM25 ranking with measured external benchmarks. Serena has zero embedding/retrieval substrate. |
+| Symbolic **read** core | Serena (narrowly) | `find_declaration`, `find_implementations`, `get_diagnostics_for_symbol` (v1.3.0) have no listed CodeLens equivalents. CodeLens counters with `get_ranked_context`, call graph, BM25/fuzzy — different shape, broader but less LSP-precise. |
+| Symbolic **edit** core | **Serena (widened)** | Serena ships `replace_symbol_body`, `insert_before/after_symbol`, LSP `rename_symbol`, reference-checked `safe_delete_symbol` as the *primary* edit path and forbids the host's native Edit on code files. CodeLens mutation tools are deprecated ghosts (dispatch-only, no `tools.toml` schema, "will be removed in v2.0"). |
+| Memory layer | Serena | `mem:` cross-references with rename propagation, `edit_memory` (literal/regex), `memory_maintenance` seed memory, CLI referential-integrity check. CodeLens has memory tools + `audit_memory_consistency` but no reference convention. |
+| Offline setup / cold start | CodeLens | Single Rust binary; tree-sitter always-on; no per-language server requirement. |
+| Long-running analysis | CodeLens | Durable jobs, artifact handles, sections, progress/cancel. Serena has none. |
+| Multi-agent coordination | CodeLens | `register_agent_work`/`claim_files` advisory locks, audit log. Serena is single-agent per project. |
+| Language breadth | Serena | ~60 LSP adapters (Svelte, Ada, Angular, GDScript, CUE, 1C… added in 1.3–1.5) vs CodeLens 30 tree-sitter languages. |
+| Benchmark/eval discipline | CodeLens | `EVAL_CONTRACT.md`, external retrieval matrix, regression gates in CI. Serena ships no eval harness. |
+| Self-auditability | CodeLens | 9-detector family (`audit_tool_surface_consistency`, `find_phantom_modules`, …). No Serena equivalent. |
 
-If the target definition of "superior" is:
+## 2. What Serena Changed (v1.3.0 → v1.5.3) — the harness engineering program
 
-- better harness behavior under token pressure: CodeLens already wins.
-- better semantic IDE replacement for all agent coding tasks: CodeLens does not win yet.
-- strict superset of Serena capabilities: CodeLens does not qualify yet, because the semantic edit backend is partial.
+These are the moves that matter for CodeLens, each verified in source:
 
-## 2. CodeLens Advantages Today
+### 2.1 Tool diet executed, not proposed
 
-### 2.1 Tool-surface shaping is a first-class runtime concept
+`ToolRegistry._deleted_tools` (tools_base.py) permanently removes:
 
-CodeLens explicitly models profiles, tiers, preferred namespaces, and deferred bootstrap controls in the MCP runtime itself. See:
+```
+think_about_collected_information, think_about_whether_you_are_done,
+prepare_for_new_conversation, summarize_changes, switch_modes,
+check_onboarding_performed
+```
 
-- `crates/codelens-mcp/src/tool_defs/mod.rs`
-- `crates/codelens-mcp/src/server/transport_http.rs`
+All "meta/thinking" tools are gone. `check_onboarding_performed` was folded into the project-activation message (v1.5.0) — one less round-trip. The lesson is not "delete tools" but **"prompts and activation messages are cheaper than tools for meta-behavior."** CodeLens never shipped thinking tools; Serena deleting theirs validates that choice. But CodeLens carries the inverse problem: 87 `tools.toml` entries plus ~20 dispatch-only ghosts (§5).
 
-This matters because harnesses do not fail only on code intelligence quality. They also fail on bootstrap noise, oversized `tools/list`, and exposing the wrong mutation tools too early.
+### 2.2 Tool descriptions rewritten for the Tool Search era
 
-The design is visible in:
+v1.5.0 changelog: "Make tool descriptions more amenable to tool search mechanisms… avoid referencing other tools' names." With Claude Code's Tool Search GA (deferred loading by default), descriptions are retrieval documents now. CodeLens measures well here already — only 5/87 descriptions cross-reference another tool name, and chaining lives in `suggested_next_tools` (the right place). Keep it that way as a lint rule.
 
-- `preferred_namespaces` and `preferred_tiers`, which differ by profile (`planner-readonly`, `builder-minimal`, `reviewer-graph`, `refactor-full`)
-- `preferred_bootstrap_tools`, which keeps refactor flows preview-first
-- deferred loading support for `tools/list` and resource discovery
+### 2.3 Enforcement moved into hooks (the biggest novelty)
 
-This is a real architectural difference from Serena. Serena is configurable, but CodeLens is more explicitly optimized for harness token discipline at runtime.
+`src/serena/hooks.py` ships four hooks wired by `serena-hooks` CLI:
 
-### 2.2 Mutation safety is encoded as runtime policy, not just user guidance
+- **`PreToolUseRemindAboutSymbolicToolsHook`** — persists per-session counters; ≥3 consecutive grep-type calls, ≥3 read-type calls, or a mixed non-symbolic streak triggers a **deny** with a reminder to use symbolic tools. It heuristically parses Bash command strings (`grep|rg|ag|ack` → grep counter; `cat|head|tail|sed|less|bat` → read counter), so clients without dedicated grep/read tools are still covered. Counters reset on any Serena symbolic tool use.
+- **`PreToolUseAutoApproveSerenaHook`** — auto-approves Serena tools when the host reports `acceptEdits`/`auto` permission mode (friction removal for its own surface).
+- **`SessionStartActivateProjectHook` / `SessionEndCleanupHook`** — lifecycle.
 
-CodeLens blocks mutation tools in `refactor-full` unless fresh preflight evidence exists and matches the target path and symbol. See:
+This is a different layer than anything CodeLens does today: CodeLens routing pressure is *advisory inside responses*; Serena's is *deterministic in the host's permission pipeline*. Advisory text competes with the model's prior preference for native tools and loses often enough that Serena built a fence.
 
-- `crates/codelens-mcp/src/mutation_gate.rs`
+### 2.4 Host-context prompts that pre-empt rationalization
 
-That gate distinguishes:
+`contexts/claude-code.yml` excludes Serena's 6 file/shell tools (the host has its own), sets `single_project: true` (drops `activate_project` from the surface when a project is pinned), and ships a prompt with an explicit **"Disallowed reasoning"** list:
 
-- missing preflight
-- stale preflight
-- path mismatch
-- symbol-aware preflight required
-- verifier-blocked mutation
+> Do NOT use any of the following to justify Read/Edit on a code file: "I already know the path", "one Read call is faster than three Serena calls", "the built-in tool description says to use Read for known paths."
 
-This is a stronger "fail-closed" harness contract than a plain symbolic edit surface.
+v1.5.x goes further with `cc_system_prompt_override` — a **complete replacement Claude Code system prompt** containing a task→tool mapping table, a pre-call self-check ritual, and the statement that built-in tool descriptions are "SUPERSEDED here." Whatever one thinks of overriding a host's system prompt, the engineering insight stands: **the model's tool-selection prior is the bottleneck, and Serena attacks it at every layer it can reach** (system prompt, context prompt, tool descriptions, hooks).
 
-### 2.3 CodeLens has a genuine workflow layer above primitive tools
+### 2.5 Confidence engineering in editing prompts
 
-CodeLens is not just a toolbox. It has:
+The `editing` mode prompt asserts: "You can assume that all symbol editing tools are reliable, so you never need to verify the results if the tools return without error" and "You are extremely good at regex, so you never need to check whether the replacement produced the correct result." This deliberately suppresses the re-read-after-edit reflex that burns tokens. CodeLens's equivalent lever is different — post-mutation `suggested_next_tools` always includes `get_file_diagnostics` (verify via diagnostics, not via re-reading) — but tool descriptions could state the contract more confidently.
 
-- composite reports
-- artifact handles
-- durable jobs with progress/cancellation
-- session-scoped analysis reuse
+### 2.6 An honest disabled feature
 
-See:
+`EditingToolWithDiagnostics.ENABLE_DIAGNOSTICS = False` with rationale in-source: per-edit diagnostics are "questionable… individual edits often intentionally introduce diagnostics that are then resolved in subsequent edits." They built diagnostics-in-edit-response, observed mid-task noise, and turned it off by default. Direct design input for CodeLens D3 (§7): do **not** embed diagnostics in mutation responses; keep the diagnostics step a separate chained call at the agent's discretion.
 
-- `crates/codelens-mcp/src/tools/report_jobs.rs`
-- `crates/codelens-mcp/src/tools/reports/impact_reports.rs`
-- `crates/codelens-mcp/src/state.rs`
+### 2.7 Memory grew conventions, not just tools
 
-Serena has strong tools. CodeLens has stronger harness-oriented orchestration around those tools.
+- `mem:<name>` cross-references inside backticks; `rename_memory` **propagates references** automatically.
+- `edit_memory` with literal/regex modes and single-occurrence safety default.
+- Onboarding seeds a `memory_maintenance` memory describing memory style/conventions; the agent is instructed to read it before writing any other memory; a `global/memory_maintenance` overrides per-project.
+- `serena memories check` CLI reports referential integrity; `auto-prefix-references` rewrites bare names.
+- Hierarchical names via `/`, `global/` prefix for cross-project, security guard against `..`.
 
-### 2.4 Retrieval is hybrid and quantitatively tracked
+CodeLens has write/read/list/delete/rename/archive/restore memory plus `audit_memory_consistency`, but no reference convention and no rename propagation.
 
-CodeLens has a bundled ONNX embedding model and measured external quality results across eight datasets. See:
+### 2.8 New LSP read tools
 
-- `crates/codelens-engine/src/symbols/reader.rs`
-- `crates/codelens-engine/src/symbols/ranking.rs`
-- `benchmarks/embedding-quality-phase3-matrix.md`
-- `EVAL_CONTRACT.md`
+v1.3.0 added `find_declaration`, `find_implementations`, `get_diagnostics_for_file`, `get_diagnostics_for_symbol` (plus JetBrains-side type hierarchy, move, inline, safe-delete, inspections). The read-side symbolic vocabulary is now: overview → find → references → declaration → implementations → diagnostics — a complete navigation loop with no host-native fallback needed.
 
-The current matrix shows mixed but real external wins, including strong positives on `ripgrep`, `jest`, and `typescript`, with flat or negative behavior on some Python/JS app datasets. That is the right level of honesty: measurable upside, but not universal superiority.
+## 3. Where CodeLens Still Leads (unchanged or strengthened)
 
-## 3. Serena Advantages Today
+- **Runtime surface control**: presets/profiles as live tools, tier metadata, `_meta["anthropic/maxResultSizeChars"]`, MCP 2025-11-25 compliance, host-driven deferral cooperation. Serena's contexts are static per-process.
+- **Bounded analysis at scale**: 5-stage adaptive compression, truncation visibility (`truncation_warning`, `*_omitted_count`), artifact store with TTL/LRU, durable async jobs. Serena's only bounding is a per-tool char limit that errors and asks the model to narrow.
+- **Hybrid retrieval with receipts**: embeddings + BM25 + structural ranking, measured (self MRR 0.68, external 8-dataset matrix, lsp_boost +110% flask thick-caller MRR). Serena cannot answer "where is the error handler for invalid credentials?" without grep.
+- **Graph layer**: call graph, impact analysis, blast radius, module boundary reports, dead-code/duplicate detectors. Serena has references only.
+- **Multi-agent + audit**: advisory claims, principals/roles, append-only audit log (ADR-0009 direction). Serena added a read-only check server-side in v1.2.0 — table stakes, not parity.
+- **Eval discipline**: EVAL_CONTRACT, dataset lint, regression gates. This is the asset that makes every claim above falsifiable — keep funding it.
 
-These come from Serena's current public repo and docs:
+## 4. Where Serena Leads (and where the lead widened)
 
-- GitHub repo: [oraios/serena](https://github.com/oraios/serena)
-- Tools docs: [List of Tools](https://oraios.github.io/serena/01-about/035_tools.html)
-- Workflow docs: [The Project Workflow](https://oraios.github.io/serena/02-usage/040_workflow.html)
-- Memories docs: [Memories & Onboarding](https://oraios.github.io/serena/02-usage/045_memories.html)
-- JetBrains backend docs: [The Serena JetBrains Plugin](https://oraios.github.io/serena/02-usage/025_jetbrains_plugin.html)
+1. **Enforcement** (§2.3–2.4) — new since the last revision, and the most transferable.
+2. **Symbolic edit as the product's spine** (§5) — widened because CodeLens retreated.
+3. **LSP read precision** — declaration/implementations/symbol-diagnostics; CodeLens has the LSP substrate (union references, `search_workspace_symbols`, readiness states) but never surfaced these as first-class tools.
+4. **Memory conventions** (§2.7).
+5. **Host-context breadth** — 14 contexts incl. codex, copilot-cli, antigravity, desktop-app, each with tuned exclusions/prompts. CodeLens has `HostContext`/`TaskOverlay` overlay compilation (same concept, advisory output) but only a handful of host targets.
+6. **Language breadth** — ~60 vs 30; not the axis CodeLens should fight on.
 
-### 3.1 Serena has a broader semantic backend story
+## 5. The Mutation-Surface Divergence (new finding, verified 2026-06-10)
 
-Serena is built around LSP by default and can switch to a JetBrains-backed language intelligence backend. CodeLens has started closing this gap with opt-in LSP authority metadata and operation routing for rename, navigation targets, and safe-delete checks/apply, but Serena still lists capabilities that CodeLens does not yet match consistently:
+The single most important structural fact this revision surfaces:
 
-- type hierarchy
-- declaration lookup
-- implementation lookup
-- move refactor
-- inline symbol
-- dependency/library indexing through the IDE
+**CodeLens**: `tools/mod.rs` still dispatches `rename_symbol`, `replace_symbol_body`, `insert_content`, `insert_before/after_symbol`, `replace`, `replace_content`, `replace_lines`, `delete_lines`, `create_text_file`, `add_import`, `propagate_deletions`, and the four `refactor_*` tools — but **none of them exist in `tools.toml`**, so none have schemas, none appear in any `tools/list`, and schema pre-validation never runs for them. `BUILDER_MINIMAL_TOOLS` carries six of them under the comment *"Deprecated mutation tools (still in dispatch, will be removed in v2.0)."* Three workflow tools (`analyze_change_request`, `onboard_project`, `orchestrate_change`) are in the same ghost state while still being referenced by preset constants and by the routing blocks in CLAUDE.md/AGENTS.md. (`REFACTOR_FULL_TOOLS` itself was removed in the v1.13.27 diet; the profile now aliases BuilderMinimal.)
 
-At code level this is not just documentation. The repo has:
+**Serena**: went the opposite way — symbolic editing is the primary path, the host's native Edit is declared FORBIDDEN for code files in the claude-code context, LSP rename and reference-checked safe-delete landed as core tools, and hooks enforce the routing.
 
-- `src/solidlsp/language_servers/*`
-- `src/serena/tools/symbol_tools.py`
-- `src/serena/project_server.py`
+Both are coherent bets:
 
-That is a materially broader semantic-integration layer than CodeLens currently has.
+- CodeLens bet: *"the harness's native Edit is good enough; our value is read-side compression, verification gates, and orchestration"* — consistent with the repo's Claude=orchestration / Codex=implementation role split.
+- Serena bet: *"symbol-level edits are the token-efficiency and correctness moat; native Edit is the enemy."*
 
-### 3.2 Serena's memory layer is more mature
+But CodeLens's current state is not actually either bet — it is an **inconsistent middle**: deprecated-but-dispatched ghosts, preset constants referencing unlistable names, and public routing docs (`Mutation Gate Protocol` in CLAUDE.md) describing tools an agent can never discover. Whichever bet is chosen, the ghost state should be resolved. The design spec (§7) recommends re-listing a minimal 4-tool symbolic edit core behind the existing mutation gate, and deleting the rest.
 
-Serena has project and global memories, read-only and ignored patterns, onboarding, and explicit memory tools. See:
+## 6. The Real Architectural Difference (unchanged)
 
-- `src/serena/project.py`
-- `src/serena/tools/memory_tools.py`
+- **Serena** = thin orchestration (~6.6K LOC core Python) over IDE-grade LSP backends, plus aggressive prompt/config/hook engineering. It does not index, rank, embed, or persist analysis.
+- **CodeLens** = self-contained Rust engine (~105K LOC: tree-sitter, SQLite FTS5 + sqlite-vec, ONNX, call graph, SCIP) plus a harness-native MCP runtime (surfaces, envelopes, gates, jobs).
 
-CodeLens does have memory support in the repo, but memory is not yet as central to the public product shape as it is in Serena.
+Serena starts from IDE semantics and adds agent ergonomics. CodeLens starts from harness constraints and adds code intelligence. Neither subsumes the other; the overlap zone (symbolic read/edit core + routing pressure) is where both are now investing.
 
-### 3.3 Serena's current README-level feature comparison is stronger than the old CodeLens table admitted
+## 7. What CodeLens Should Adopt — pointer
 
-The old `README.md` "vs Serena" table in CodeLens understated Serena's editing/refactoring depth. Serena is no longer just "replace symbol body". It exposes rename, safe delete, insertion around symbols, and JetBrains-only advanced refactors.
+Concrete, phased design with acceptance criteria lives in:
 
-That discrepancy is exactly why this document exists.
+> `docs/superpowers/specs/2026-06-10-serena-pattern-harness-alignment-design.md`
 
-## 4. The Real Architectural Difference
+Summary of the recommendation:
 
-The cleanest way to describe the two systems is:
+- **P1 (read core + hygiene)**: surface `find_declaration` / `find_implementations` / `get_diagnostics_for_symbol` over the existing LSP substrate with tree-sitter/BM25 fallback hints; extend `audit_tool_surface_consistency` to a 3-way dispatch ∪ tools.toml ∪ preset_tags drift gate; resolve all ghost entries.
+- **P2 (edit core + enforcement)**: re-list a 4-tool symbolic edit core (`replace_symbol_body`, `insert_before_symbol`, `insert_after_symbol`, `rename_symbol`) behind the existing `verify_change_readiness` mutation gate — explicitly *keeping* the gate where Serena chose blind trust; ship an opt-in plugin hook (Serena hooks.py pattern, soft `additionalContext` reminder by default, strict deny opt-in) plus a task→tool mapping table in the plugin skills.
+- **P3 (memory conventions)**: `[[name]]`-style reference integrity + rename propagation in CodeLens memories, folded into `audit_memory_consistency`.
 
-- **Serena** = semantic backend for coding agents
-- **CodeLens** = harness optimization layer for coding agents
-
-Serena starts from IDE/LSP semantics and then exposes tools.
-CodeLens starts from MCP/harness constraints and then compresses code intelligence into bounded answers.
-
-Neither fully subsumes the other.
-
-## 5. What CodeLens Must Add To Become A True Superset
-
-### 5.1 Introduce a pluggable semantic backend interface
-
-CodeLens already mixes tree-sitter, optional LSP, graph, and embeddings. The abstraction boundary is now partially productized: `codelens://backend/capabilities` exposes an operation matrix, and `semantic_edit_backend=lsp` routes `rename_symbol` and `propagate_deletions` through LSP-backed authority paths. The missing move is completing that contract across the remaining edit operations without turning it into a single-implementation framework.
-
-The missing move is a single backend contract for:
-
-- symbol lookup
-- overview
-- references
-- declaration
-- implementation
-- type hierarchy
-- rename preview
-- workspace edit application
-- safe delete check and apply
-- move / inline / change signature
-
-Current shape:
-
-- tree-sitter remains the fast always-on fallback.
-- LSP is the authoritative edit substrate for `rename`, declaration/definition/implementation/type-definition resolution, `safe_delete_check`, and guarded `safe_delete_apply`.
-- SCIP remains cross-reference evidence, not an edit executor.
-- a future IDE bridge can be added only when it has a real second implementation and a measurable operation gate.
-
-Then tool capabilities become backend-derived rather than hard-coded product claims.
-
-### 5.2 Separate "retrieval backend" from "edit backend"
-
-Right now CodeLens is strongest when doing:
-
-- candidate collection
-- bounded ranking
-- graph-backed compression
-- semantic reranking
-
-It is weaker when asked to guarantee IDE-grade edits.
-
-Do not force one subsystem to be both.
-
-Recommended split:
-
-- `RetrievalOrchestrator`: tree-sitter + DB + graph + embeddings
-- `SemanticEditBackend`: LSP or IDE-backed workspace-edit engine
-- `WorkflowLayer`: reports, jobs, sections, policies, gating
-
-That keeps CodeLens fast by default and deep when needed.
-
-### 5.3 Add capability-driven routing per tool, per project, per language
-
-`get_capabilities` already exposes part of this story. Push it further so every high-level tool can answer:
-
-- which backend is active
-- whether the result is syntax-grade or semantic-grade
-- confidence and fallback reason
-- whether preview/apply are both supported
-
-Then the agent can choose:
-
-- fast approximate answer
-- slower semantic answer
-- block because no safe semantic backend exists
-
-That would be a real superset move, because it lets CodeLens keep its harness edge without bluffing about semantic completeness.
-
-### 5.4 Expand mutation gating into workspace-edit transactions
-
-The current mutation gate is good. The next step is transactionality:
-
-- preview edit set
-- deterministic apply
-- rollback metadata
-- post-apply diagnostics/references verification
-
-Serena wins today partly because IDE/LSP edits naturally come as structured workspace edits. CodeLens should adopt that as the semantic edit substrate instead of treating each mutation mostly as a separate tool call.
-
-### 5.5 Upgrade memory from utility to system layer
-
-To beat Serena cleanly, CodeLens needs a first-class long-lived knowledge layer:
-
-- project memory
-- global memory
-- read-only memory policies
-- ignored/archive patterns
-- artifact-linked memory entries
-- session-derived memory suggestions
-
-The important distinction is that CodeLens should connect memory to:
-
-- analysis handles
-- benchmark evidence
-- mutation audit
-- project activation
-
-That would make memory more than notes. It becomes harness state.
-
-### 5.6 Add a Serena-class semantic benchmark suite
-
-The current evaluation stack is good for retrieval and harness promotion, but not sufficient for a "better than Serena" claim.
-
-Add benchmark families for:
-
-- rename correctness
-- safe delete precision
-- declaration/implementation accuracy
-- type hierarchy coverage
-- multi-project query latency
-- dependency/library symbol retrieval
-- edit-preview/apply fidelity
-
-Until those exist, "strictly better than Serena" is not a scientific statement. It is only a preference.
-
-## 6. Concrete Roadmap
-
-### Phase A — Stop overstating
-
-- **Status: mostly complete.**
-- README comparison is honest about Serena still leading broad edit depth.
-- `codelens://backend/capabilities` reports operation-level capability.
-- LSP edit outputs include `edit_authority` and explicitly mark `embedding_used=false`.
-
-### Phase B — Superset substrate
-
-- **Status: partial.**
-- Passive backend capability reporting exists.
-- Active LSP routing exists for `rename`, declaration, definition, implementation, type definition, `safe_delete_check`, and guarded `safe_delete_apply`.
-- Remaining active routes: change signature, move, extract, inline, and code-action apply are conditional only; they must not be counted as product-green until concrete WorkspaceEdit fixtures and external matrix gates pass.
-- Tree-sitter remains the fast fallback.
-
-### Phase C — Transactional refactors
-
-- **Status: partial.**
-- Rename has dry-run/apply via LSP workspace edits.
-- Safe delete is intentionally check-only; apply remains a separate mutation-gated action.
-- There is not yet one unified transaction envelope with rollback metadata.
-
-### Phase D — Memory + project fabric
-
-- **Status: partial.**
-- Project memories and registry resources exist.
-- Memory is not yet a first-class policy surface tied to analysis handles, mutation audit, and release gates.
-- Cross-project querying remains a durable roadmap item.
-
-### Phase E — Prove it
-
-- **Status: partial.**
-- Retrieval and daemon latency evidence exists.
-- External smoke coverage exists for product/runtime paths.
-- Missing: semantic-refactor correctness matrix for rename, safe delete, declaration/implementation, move, inline, and change signature.
-
-## 7. Current Completion Estimate
-
-This is a product-readiness estimate, not a marketing score.
-
-| Area | Completion vs final goal | Current state |
-| --- | ---: | --- |
-| MCP transport/productization | 85-90% | MCP 2025-11-25, Streamable HTTP, HTTPS/JWKS, Anthropic tool-only, and OpenAI-compatible HTTP behavior are in place. |
-| Harness/runtime control plane | 80-85% | Profiles, deferred loading, mutation gate, jobs, reports, coordination, and audit are strong; some large files still need split. |
-| Retrieval and ranking | 75-80% | Hybrid/path-aware retrieval, query cache, freshness checks, and model fail-closed behavior are useful; pure semantic remains supporting evidence only. |
-| Release packaging | 70-75% | Model verification and release gates exist; final release artifact payload discipline still needs ongoing CI enforcement. |
-| Memory/project knowledge | 45-55% | Project memories exist, but memory is not yet a public system layer connected to handles, audits, and policies. |
-| Semantic edit substrate | 55-65% | LSP-authoritative rename/navigation/check paths exist, and a Roslyn sidecar boundary can return C# rename `WorkspaceEdit`. Extract/inline/move/change-signature are conditional WorkspaceEdit paths, not product-green claims. JetBrains-style IDE integration remains an opt-in CodeLens adapter boundary, and non-rename adapter refactors remain fail-closed gaps. |
-| External proof matrix | 65-75% | External smoke/eval matrix exists, and semantic-refactor matrix gate now covers pinned upstream LSP refactor dry-runs for nightly/release. |
-
-Overall: **roughly 65-70% toward the stated final product goal**. It is already useful as a harness-native MCP product and retrieval/control-plane substrate. It is not yet a full IDE-grade semantic edit platform.
+What **not** to adopt: thinking tools (Serena deleted theirs), per-edit diagnostics embedding (Serena disabled theirs), an LSP-everything pivot (tree-sitter-first remains the measured choice for an MCP coprocessor), and a 60-language LSP adapter race.
 
 ## 8. Bottom Line
 
-If the question is:
-
 > "Is CodeLens already clearly superior to Serena?"
 
-The answer is:
+- **for harness-native bounded analysis and retrieval**: yes, and the lead is measurable.
+- **for symbolic editing and routing enforcement**: no — Serena widened its lead while CodeLens retreated into ghost tools.
+- **as a strict overall superset**: no.
 
-- **for harness-native bounded workflows**: mostly yes
-- **for deep semantic IDE behavior**: no, though LSP rename/navigation/safe-delete are now real footholds
-- **as a strict overall superset**: no
+> "Can CodeLens become the better *symbolic* tool while keeping its harness edge?"
 
-If the question is:
-
-> "Can CodeLens be designed into a superior superset?"
-
-The answer is yes, but only if it stops treating tree-sitter, LSP, embeddings, memory, and refactoring as one flat tool pile and instead becomes:
-
-- a fast retrieval layer
-- a pluggable semantic backend layer with operation-level proof
-- a transactional workflow/policy layer
-- a persistent project knowledge layer
-
-That is the architecture that can actually surpass Serena instead of only beating it on one axis.
+Yes — the substrate already exists (LSP union references, edit transactions, mutation gate, semantic_edit_backend). What is missing is the decision to surface a small, gated, honest symbolic core and to add one deterministic enforcement layer at the plugin boundary. That is a P1+P2 engineering program, not a rewrite.

@@ -1,8 +1,8 @@
 use anyhow::Result;
 
+use super::super::EmbeddingEngine;
 use super::super::prompt::split_identifier;
 use super::super::runtime::configured_rerank_blend;
-use super::super::EmbeddingEngine;
 use crate::embedding_store::ScoredChunk;
 use crate::embedding_types::SemanticMatch;
 

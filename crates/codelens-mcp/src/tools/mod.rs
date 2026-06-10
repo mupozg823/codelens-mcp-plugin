@@ -78,25 +78,23 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "resolve_symbol_target"        => lsp::resolve_symbol_target,
         "plan_symbol_rename"           => lsp::plan_symbol_rename,
         "get_lsp_recipe"               => lsp::get_lsp_recipe,
+        // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
+        "find_declaration"             => lsp::find_declaration,
+        "find_implementations"         => lsp::find_implementations,
+        "get_diagnostics_for_symbol"   => lsp::get_diagnostics_for_symbol,
         // ── Analysis ──
         "get_changed_files"            => graph::get_changed_files_tool,
         "get_symbol_importance"        => graph::get_symbol_importance,
         "find_scoped_references"       => graph::find_scoped_references_tool,
         "get_callers"                  => graph::get_callers_tool,
         "get_callees"                  => graph::get_callees_tool,
-        // ── Edit (individual) — DEPRECATED, dispatch retained for backward compat ──
+        // ── Edit (symbolic core) — pending-D3 allowlist (#346): dispatch-only
+        // until ADR-0009/D3 decides the tools.toml re-listing. The line-edit
+        // family is tombstoned (see TOMBSTONED_TOOLS).
         "rename_symbol"                => mutation::rename_symbol,
-        "create_text_file"             => mutation::create_text_file_tool,
-        "delete_lines"                 => mutation::delete_lines_tool,
-        "insert_at_line"               => mutation::insert_at_line_tool,
-        "replace_lines"                => mutation::replace_lines_tool,
-        "replace_content"              => mutation::replace_content_tool,
         "replace_symbol_body"          => mutation::replace_symbol_body_tool,
         "insert_before_symbol"         => mutation::insert_before_symbol_tool,
         "insert_after_symbol"          => mutation::insert_after_symbol_tool,
-        "add_import"                   => mutation::add_import_tool,
-        "insert_content"               => mutation::insert_content_tool,
-        "replace"                      => mutation::replace_content_unified,
         // ── Memory ──
         "list_memories"                => memory::list_memories,
         "read_memory"                  => memory::read_memory,
@@ -133,7 +131,9 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "find_over_visible_apis"       => admin::find_over_visible_apis,
         "audit_memory_consistency"     => admin::audit_memory_consistency,
         "export_session_markdown"      => session::export_session_markdown,
-        // ── Composite — DEPRECATED, dispatch retained for backward compat ──
+        // ── Refactor substrate — pending-D3 allowlist (#346): these arms are
+        // the only callers keeping the semantic_edit substrate alive for the
+        // ADR-0009/D3 decision.
         "refactor_extract_function"    => composite::refactor_extract_function,
         "refactor_inline_function"     => composite::refactor_inline_function,
         "refactor_move_to_file"        => composite::refactor_move_to_file,
@@ -170,6 +170,72 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
     }
 }
 
+/// Tools removed from dispatch for good (surface hygiene, #346 / spec
+/// 2026-06-10 §D2). Serena `ToolRegistry._deleted_tools` pattern: the name
+/// stays here as a tombstone so re-introduction fails tests and the script
+/// drift gate, and callers of the old name get a replacement hint instead
+/// of a bare "Unknown tool".
+pub(crate) const TOMBSTONED_TOOLS: &[(&str, &str)] = &[
+    (
+        "create_text_file",
+        "removed (#346) — create files with the host-native Write tool",
+    ),
+    (
+        "delete_lines",
+        "removed (#346) — line edits belong to the host-native Edit tool",
+    ),
+    (
+        "insert_at_line",
+        "removed (#346) — line edits belong to the host-native Edit tool",
+    ),
+    (
+        "replace_lines",
+        "removed (#346) — line edits belong to the host-native Edit tool",
+    ),
+    (
+        "replace_content",
+        "removed (#346) — content replacement belongs to the host-native Edit tool",
+    ),
+    (
+        "insert_content",
+        "removed (#346) — content insertion belongs to the host-native Edit tool",
+    ),
+    (
+        "replace",
+        "removed (#346) — content replacement belongs to the host-native Edit tool",
+    ),
+    (
+        "add_import",
+        "removed (#346) — add imports with the host-native Edit tool",
+    ),
+];
+
+/// Pending ADR-0009/D3 (#346): the symbolic edit core + refactor
+/// substrate stay dispatch-only — callable but schemaless — until the
+/// re-listing decision. Must stay member-identical to
+/// `DISPATCH_ONLY_ALLOWLIST` in `scripts/regen-tool-defs.py`; the
+/// script enforces its side via `--enforce-drift`, the runtime
+/// `audit_tool_surface_consistency` consumes this side.
+pub(crate) const PENDING_D3_ALLOWLIST: &[&str] = &[
+    "replace_symbol_body",
+    "insert_before_symbol",
+    "insert_after_symbol",
+    "rename_symbol",
+    "refactor_extract_function",
+    "refactor_inline_function",
+    "refactor_move_to_file",
+    "refactor_change_signature",
+    "propagate_deletions",
+];
+
+/// Replacement hint for a tombstoned tool name, if any.
+pub(crate) fn tombstone_guidance(name: &str) -> Option<&'static str> {
+    TOMBSTONED_TOOLS
+        .iter()
+        .find(|(tombstoned, _)| *tombstoned == name)
+        .map(|(_, guidance)| *guidance)
+}
+
 /// Rough token count estimate: 1 token ≈ 4 bytes of UTF-8 text.
 /// Accuracy: ~±30% vs tiktoken cl100k_base. Sufficient for budget control,
 /// not for precise measurement. JSON-heavy output tends to undercount.
@@ -201,4 +267,31 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
         .iter()
         .map(|arg| (*arg).to_owned())
         .collect()
+}
+
+#[cfg(test)]
+mod tombstone_tests {
+    use super::{TOMBSTONED_TOOLS, dispatch_table, tombstone_guidance};
+
+    #[test]
+    fn tombstoned_tools_stay_out_of_dispatch() {
+        let table = dispatch_table();
+        for (name, _) in TOMBSTONED_TOOLS {
+            assert!(
+                !table.contains_key(name),
+                "{name} is tombstoned (#346) and must not be re-introduced to dispatch"
+            );
+        }
+    }
+
+    #[test]
+    fn tombstone_guidance_for_known_and_unknown_names() {
+        let guidance =
+            tombstone_guidance("insert_at_line").expect("insert_at_line must be tombstoned");
+        assert!(
+            guidance.contains("Edit"),
+            "guidance must name the replacement path: {guidance}"
+        );
+        assert!(tombstone_guidance("find_symbol").is_none());
+    }
 }

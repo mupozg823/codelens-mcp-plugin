@@ -76,11 +76,33 @@ pub(crate) fn extract_initialize_metadata(
         })
         .or_else(|| client_profile.and_then(|profile| profile.default_deferred_tool_loading()));
 
+    // #347: capture the caller's workspace at initialize so a shared
+    // daemon never silently serves its own default project. Two paths:
+    // `params.project` (programmatic clients) and the
+    // `x-codelens-project` header (host configs — e.g. a per-project
+    // `.mcp.json` emitted by `codelens-mcp attach`).
+    let project_path = params
+        .get("project")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            headers
+                .get("x-codelens-project")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        });
+    let project_path_explicit = project_path.is_some();
+
     if client_name.is_none()
         && client_version.is_none()
         && requested_profile.is_none()
         && trusted_client.is_none()
         && deferred_tool_loading.is_none()
+        && project_path.is_none()
     {
         return None;
     }
@@ -91,7 +113,8 @@ pub(crate) fn extract_initialize_metadata(
         requested_profile,
         trusted_client,
         deferred_tool_loading,
-        project_path: None,
+        project_path,
+        project_path_explicit,
         loaded_namespaces: Vec::new(),
         loaded_tiers: Vec::new(),
         full_tool_exposure: None,
@@ -141,7 +164,7 @@ pub(crate) fn create_initialize_session(
         session.set_token_budget(initial_budget);
     }
     if session.client_metadata().project_path.is_none() {
-        session.set_project_path(initial_project_path);
+        session.seed_default_project_path(initial_project_path);
     }
     Some(InitializeSession {
         id: session.id.clone(),

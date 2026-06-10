@@ -94,6 +94,14 @@ pub struct SessionClientMetadata {
     pub trusted_client: Option<bool>,
     pub deferred_tool_loading: Option<bool>,
     pub project_path: Option<String>,
+    /// `true` when the caller declared its workspace (initialize
+    /// `params.project`, `x-codelens-project` header, or a later
+    /// `activate_project`/`prepare_harness_session` with `project=`).
+    /// `false` means `project_path` was seeded from the daemon default —
+    /// the shared-daemon trap (#347) where tools silently target the
+    /// wrong repo. Dispatch surfaces a `project_binding` hint while this
+    /// stays `false`.
+    pub project_path_explicit: bool,
     pub loaded_namespaces: Vec<String>,
     pub loaded_tiers: Vec<String>,
     pub full_tool_exposure: Option<bool>,
@@ -208,16 +216,32 @@ impl SessionState {
     pub fn set_client_metadata(&self, metadata: SessionClientMetadata) {
         if let Ok(mut current) = self.client_metadata.write() {
             let preserved_project = current.project_path.clone();
+            let preserved_explicit = current.project_path_explicit;
             *current = metadata;
             if current.project_path.is_none() {
                 current.project_path = preserved_project;
+                current.project_path_explicit = preserved_explicit;
             }
         }
     }
 
+    /// Explicit workspace binding — the caller named its project
+    /// (initialize capture or `activate_project`). Clears the
+    /// shared-daemon `project_binding` hint (#347).
     pub fn set_project_path(&self, project_path: impl Into<String>) {
         if let Ok(mut current) = self.client_metadata.write() {
             current.project_path = Some(project_path.into());
+            current.project_path_explicit = true;
+        }
+    }
+
+    /// Daemon-default seeding at initialize — keeps `ensure_session_project`
+    /// deterministic but leaves the binding marked implicit so dispatch can
+    /// surface the `project_binding` hint (#347).
+    pub fn seed_default_project_path(&self, project_path: impl Into<String>) {
+        if let Ok(mut current) = self.client_metadata.write() {
+            current.project_path = Some(project_path.into());
+            current.project_path_explicit = false;
         }
     }
 

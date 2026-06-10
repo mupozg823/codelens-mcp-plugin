@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-This repo **is** the CodeLens MCP server. The routing/workflow blocks below are also consumed by `.cursor/rules/codelens-routing.mdc` (`alwaysApply: true`) and by `AGENTS.md` (Codex). The `<!-- CODELENS_HOST_ROUTING:BEGIN/END -->` markers are managed by `scripts/surface-manifest.py` — do not edit by hand.
+This repo **is** the CodeLens MCP server. The routing/workflow blocks below are also consumed by `.cursor/rules/codelens-routing.mdc` (`alwaysApply: true`) and by `AGENTS.md` (Codex). The `<!-- CODELENS_HOST_ROUTING:BEGIN/END -->` markers carry the canonical block printed by `codelens-mcp attach <host>` (claude-code here, codex in AGENTS.md) — sync from that output, do not edit by hand. `scripts/surface-manifest.py` manages the separate `SURFACE_MANIFEST_*` marker family.
 
 ## Repository Architecture
 
@@ -161,8 +161,9 @@ If `pgrep` shows nothing after restart, the binary is missing `--features http` 
 
 - Primary bootstrap sequence: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `explore_codebase` -> `review_architecture`
 - `planner-readonly` + `planning` [bias: `claude`]: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `explore_codebase` -> `review_architecture`
-- `reviewer-graph` + `review` [bias: `claude`]: `prepare_harness_session` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session`
+- `reviewer-graph` + `review` [bias: `claude`]: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session`
 - `planner-readonly` + `onboarding` [bias: `claude`]: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `onboard_project` -> `explore_codebase` -> `review_architecture`
+
 <!-- CODELENS_HOST_ROUTING:END -->
 
 ## Tool Routing — honest scenario matrix (updated 2026-04-19)
@@ -258,7 +259,7 @@ Instead of choosing from 90 individual tools, use these **workflow patterns**:
 
 ## Mutation Gate Protocol (Mode C)
 
-**Before CodeLens mutation tools** (`rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`, `delete_lines`, `add_import`, `refactor_*`), you SHOULD:
+**Before CodeLens mutation tools** (`rename_symbol`, `replace_symbol_body`, `insert_before_symbol`, `insert_after_symbol`, `refactor_*`), you SHOULD:
 
 1. Run `verify_change_readiness` with the target file path(s)
 2. Check `mutation_ready` field in the response:

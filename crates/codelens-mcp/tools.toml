@@ -42,7 +42,7 @@ schema_version = "v1"
 name = "get_current_config"
 category = "file_io"
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, call activate_project or prepare_harness_session with an absolute project path; do not abandon CodeLens because the active project is stale."
+description = "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, re-activate the session with an absolute project path; do not abandon CodeLens because the active project is stale."
 annotations = "ro_p"
 output_schema = "get_current_config_output_schema"
 
@@ -297,7 +297,7 @@ max_results = { type = "integer" }
 name = "search_workspace_symbols"
 category = "lsp"
 preset_tags = ["minimal"]
-description = "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); the handler returns a structured hint toward `bm25_symbol_search` when omitted."
+description = "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); when omitted, the handler returns a structured hint toward the BM25 fallback."
 annotations = "ro_p"
 
 [tool.input_schema]
@@ -351,6 +351,71 @@ line = { type = "integer", description = "1-based source line" }
 column = { type = "integer", description = "1-based byte column; converted to LSP UTF-16 internally" }
 target = { type = "string", enum = ["declaration", "definition", "implementation", "type_definition"], description = "Target kind (default: definition)" }
 semantic_backend = { type = "string", enum = ["lsp"], description = "Only lsp is authoritative for this tool" }
+command = { type = "string" }
+args = { type = "array", items = { type = "string" } }
+max_results = { type = "integer" }
+
+
+[[tool]]
+name = "find_declaration"
+category = "lsp"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Symbol] Jump to a symbol's declaration via LSP, resolving the position from the index by name. Degrades to an empty result with a fallback hint when no LSP server is available."
+annotations = "ro_p"
+output_schema = "lsp_navigation_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["path"]
+[tool.input_schema.properties]
+path = { type = "string" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+symbol_name = { type = "string", description = "Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given." }
+line = { type = "integer", description = "1-based source line (alternative to symbol_name)" }
+column = { type = "integer", description = "1-based byte column (alternative to symbol_name)" }
+command = { type = "string" }
+args = { type = "array", items = { type = "string" } }
+max_results = { type = "integer" }
+
+[[tool]]
+name = "find_implementations"
+category = "lsp"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Symbol] List implementations of a trait/interface/abstract symbol via LSP, resolving the position from the index by name. Degrades to an empty result with a fallback hint when no LSP server is available."
+annotations = "ro_p"
+output_schema = "lsp_navigation_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["path"]
+[tool.input_schema.properties]
+path = { type = "string" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+symbol_name = { type = "string", description = "Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given." }
+line = { type = "integer", description = "1-based source line (alternative to symbol_name)" }
+column = { type = "integer", description = "1-based byte column (alternative to symbol_name)" }
+command = { type = "string" }
+args = { type = "array", items = { type = "string" } }
+max_results = { type = "integer" }
+
+[[tool]]
+name = "get_diagnostics_for_symbol"
+category = "lsp"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Symbol] Type errors and lint issues narrowed to one symbol's span (definition line through body end). Degrades to an empty result with a fallback hint when no LSP server is available."
+annotations = "ro_p"
+output_schema = "symbol_diagnostics_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["path", "symbol_name"]
+[tool.input_schema.properties]
+path = { type = "string" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+symbol_name = { type = "string", description = "Symbol whose span filters the file diagnostics" }
 command = { type = "string" }
 args = { type = "array", items = { type = "string" } }
 max_results = { type = "integer" }
@@ -489,6 +554,57 @@ task = { type = "string" }
 changed_files = { type = "array", items = { type = "string" } }
 profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
 orchestration_run_id = { type = "string" }
+
+# ─────
+
+[[tool]]
+name = "onboard_project"
+category = "composite"
+preset_tags = ["planner-readonly"]
+description = "[CodeLens:Workflow] First-look project survey — directory structure, top-importance files, dependency cycles, and semantic-index status in one call. Use on first contact with an unfamiliar repository."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+properties = {}
+
+# ─────
+
+[[tool]]
+name = "analyze_change_request"
+category = "composite"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Workflow] Pre-change analysis for a natural-language task — ranked relevant symbols, changed files, and recommended target files. Use before planning a multi-file change."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+required = ["task"]
+[tool.input_schema.properties]
+task = { type = "string", description = "Natural-language description of the intended change" }
+changed_files = { type = "array", items = { type = "string" }, description = "Optional explicit changed-file paths (max 8); defaults to git status" }
+
+# ─────
+
+[[tool]]
+name = "orchestrate_change"
+category = "composite"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Workflow] Bounded change-orchestration run for a described task — preflight evidence, approval-gate state machine, and audit events. Returns run_id and final state (approval_required / executing / cancelled / failed)."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+required = ["task"]
+[tool.input_schema.properties]
+task = { type = "string" }
+mode = { type = "string", enum = ["solo", "planner_builder", "ci_audit"] }
+target_paths = { type = "array", items = { type = "string" }, description = "Scope paths (max 16)" }
+acceptance = { type = "array", items = { type = "string" }, description = "Acceptance criteria items (max 12)" }
+profile_hint = { type = "string" }
+approval = { type = "object", description = "Approval payload: { decision: granted|denied, actor?, reason?, actions? }" }
+worktree = { type = "string" }
+requester = { type = "string" }
 
 # ─────
 
@@ -847,7 +963,7 @@ symbol = { type = "string", description = "Symbol to check references for" }
 name = "activate_project"
 category = "session"
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Session] Activate/remap project — use when get_current_config reports a different active project than the intended workspace."
+description = "[CodeLens:Session] Activate/remap project — use when the session config reports a different active project than the intended workspace."
 annotations = "ro_p"
 output_schema = "activate_project_output_schema"
 
@@ -1198,7 +1314,7 @@ properties = { max_results = { type = "integer", minimum = 1, maximum = 500, des
 name = "find_redundant_definitions"
 category = "session"
 preset_tags = []
-description = "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Use before `dead_code_report` — wrappers obscure substrates."
+description = "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Run it before dead-code analysis — wrappers obscure substrates."
 annotations = "ro_a"
 
 [tool.input_schema]
@@ -1434,7 +1550,7 @@ properties = { query = { type = "string", description = "Natural language search
 name = "index_embeddings"
 category = "semantic"
 preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic_search."
+description = "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic search can serve results."
 annotations = "ro"
 feature_gate = "semantic"
 

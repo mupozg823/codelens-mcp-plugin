@@ -182,6 +182,29 @@ pub(crate) fn dispatch_tool(
         );
     }
 
+    // #347: shared-daemon project trap. An HTTP session that never
+    // declared its workspace is pinned to the daemon's default project —
+    // usually NOT the caller's repo. Attach a loud hint to every
+    // project-scoped success payload until the session binds explicitly
+    // (initialize `project`/`x-codelens-project` header, or
+    // prepare_harness_session / activate_project with `project=`).
+    #[cfg(feature = "http")]
+    if let Ok((payload, _)) = &mut result
+        && state.should_route_to_session(session)
+        && crate::tool_defs::tool_namespace(name) != "session"
+        && !state.session_project_binding_explicit(session.session_id.as_str())
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.insert(
+            "project_binding".to_owned(),
+            serde_json::json!({
+                "bound": false,
+                "active_project": state.current_project_scope(),
+                "hint": "This session never declared its workspace, so tools target the daemon's default project. Call prepare_harness_session with project=<absolute workspace root>, or attach with the x-codelens-project header to bind automatically.",
+            }),
+        );
+    }
+
     let elapsed_ms = start.elapsed().as_millis();
     record_span_fields(&span, name, &result, elapsed_ms, &ctx.active_surface);
 

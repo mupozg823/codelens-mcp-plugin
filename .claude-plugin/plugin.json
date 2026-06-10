@@ -1,0 +1,14 @@
+{
+  "name": "codelens",
+  "displayName": "CodeLens",
+  "description": "Compressed code-intelligence MCP for planner/reviewer/refactor harnesses — AST + call-graph + hybrid retrieval, mutation-gated refactoring.",
+  "version": "1.0.0",
+  "author": { "name": "mupozg823" },
+  "homepage": "https://github.com/mupozg823/codelens-mcp-plugin",
+  "repository": "https://github.com/mupozg823/codelens-mcp-plugin",
+  "license": "Apache-2.0",
+  "keywords": ["code-intelligence", "tree-sitter", "mcp", "ast", "refactoring"],
+  "mcpServers": { "codelens": { "command": "codelens-mcp" } },
+  "skills": "./skills/",
+  "agents": "./agents/"
+}

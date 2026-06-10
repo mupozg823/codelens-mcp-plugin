@@ -429,3 +429,77 @@ pub(crate) fn diagnostics_output_schema() -> serde_json::Value {
         }
     })
 }
+
+/// D1 (#346 Phase 4): shared shape for `find_declaration` /
+/// `find_implementations` — LSP-resolved locations plus the graceful
+/// degradation contract (`degraded_reason` + `fallback_hint`).
+pub(crate) fn lsp_navigation_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "operation": {"type": "string", "enum": ["declaration", "implementation"]},
+            "backend": {"type": "string", "enum": ["lsp"]},
+            "symbol_name": {"type": ["string", "null"]},
+            "language": {"type": "string"},
+            "position": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "line": {"type": "integer"},
+                    "column": {"type": "integer"}
+                }
+            },
+            "targets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "column": {"type": "integer"},
+                        "end_line": {"type": "integer"},
+                        "end_column": {"type": "integer"},
+                        "target": {"type": "string"},
+                        "method": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"},
+            "degraded_reason": {"type": "string"},
+            "fallback_hint": {"type": "array", "items": {"type": "string"}}
+        }
+    })
+}
+
+/// D1 (#346 Phase 4): `get_diagnostics_for_symbol` — the file
+/// diagnostics shape filtered to one symbol's span.
+pub(crate) fn symbol_diagnostics_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "symbol": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "kind": {"type": "string"},
+                    "file_path": {"type": "string"},
+                    "span": {
+                        "type": "object",
+                        "properties": {
+                            "start_line": {"type": "integer"},
+                            "end_line": {"type": "integer"}
+                        }
+                    }
+                }
+            },
+            "diagnostics": {"type": "array", "items": {"type": "object"}},
+            "count": {"type": "integer"},
+            "file_diagnostics_count": {"type": "integer"},
+            "backend": {"type": ["string", "null"]},
+            "degraded_reason": {"type": "string"},
+            "fallback_hint": {"type": "array", "items": {"type": "string"}}
+        }
+    })
+}

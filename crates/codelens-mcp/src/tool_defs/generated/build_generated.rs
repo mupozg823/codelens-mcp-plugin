@@ -53,6 +53,21 @@ pub fn composite_tools(
             json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"orchestration_run_id":{"type":"string"}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
         Tool::new(
+            "onboard_project",
+            "[CodeLens:Workflow] First-look project survey — directory structure, top-importance files, dependency cycles, and semantic-index status in one call. Use on first contact with an unfamiliar repository.",
+            json!({"type":"object","properties":{}}),
+        ).with_annotations(ro_w.clone()),
+        Tool::new(
+            "analyze_change_request",
+            "[CodeLens:Workflow] Pre-change analysis for a natural-language task — ranked relevant symbols, changed files, and recommended target files. Use before planning a multi-file change.",
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string","description":"Natural-language description of the intended change"},"changed_files":{"type":"array","items":{"type":"string"},"description":"Optional explicit changed-file paths (max 8); defaults to git status"}}}),
+        ).with_annotations(ro_w.clone()),
+        Tool::new(
+            "orchestrate_change",
+            "[CodeLens:Workflow] Bounded change-orchestration run for a described task — preflight evidence, approval-gate state machine, and audit events. Returns run_id and final state (approval_required / executing / cancelled / failed).",
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"mode":{"type":"string","enum":["solo","planner_builder","ci_audit"]},"target_paths":{"type":"array","items":{"type":"string"},"description":"Scope paths (max 16)"},"acceptance":{"type":"array","items":{"type":"string"},"description":"Acceptance criteria items (max 12)"},"profile_hint":{"type":"string"},"approval":{"type":"object","description":"Approval payload: { decision: granted|denied, actor?, reason?, actions? }"},"worktree":{"type":"string"},"requester":{"type":"string"}}}),
+        ).with_annotations(ro_w.clone()),
+        Tool::new(
             "module_boundary_report",
             "[CodeLens:Workflow] Summarize dependency boundaries, coupling, and cycle risk for a module or path.",
             json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"}}}),
@@ -129,7 +144,7 @@ pub fn file_io_tools(ro_p: &ToolAnnotations) -> Vec<Tool> {
     vec![
         Tool::new(
             "get_current_config",
-            "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, call activate_project or prepare_harness_session with an absolute project path; do not abandon CodeLens because the active project is stale.",
+            "[CodeLens:Session] Project config, index stats, and activation status. If project_root is not the intended workspace, re-activate the session with an absolute project path; do not abandon CodeLens because the active project is stale.",
             json!({"type":"object","properties":{}}),
         ).with_output_schema(get_current_config_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
@@ -174,7 +189,7 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
         ).with_output_schema(diagnostics_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "search_workspace_symbols",
-            "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); the handler returns a structured hint toward `bm25_symbol_search` when omitted.",
+            "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); when omitted, the handler returns a structured hint toward the BM25 fallback.",
             json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
         ).with_annotations(ro_p.clone()),
         Tool::new(
@@ -187,6 +202,21 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
             "[CodeLens:Symbol] Resolve declaration/definition/implementation/type target through LSP. Use when edit-grade navigation authority is required.",
             json!({"type":"object","required":["path","line","column"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"line":{"type":"integer","description":"1-based source line"},"column":{"type":"integer","description":"1-based byte column; converted to LSP UTF-16 internally"},"target":{"type":"string","enum":["declaration","definition","implementation","type_definition"],"description":"Target kind (default: definition)"},"semantic_backend":{"type":"string","enum":["lsp"],"description":"Only lsp is authoritative for this tool"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
         ).with_output_schema(resolve_symbol_target_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "find_declaration",
+            "[CodeLens:Symbol] Jump to a symbol's declaration via LSP, resolving the position from the index by name. Degrades to an empty result with a fallback hint when no LSP server is available.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"symbol_name":{"type":"string","description":"Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given."},"line":{"type":"integer","description":"1-based source line (alternative to symbol_name)"},"column":{"type":"integer","description":"1-based byte column (alternative to symbol_name)"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(lsp_navigation_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "find_implementations",
+            "[CodeLens:Symbol] List implementations of a trait/interface/abstract symbol via LSP, resolving the position from the index by name. Degrades to an empty result with a fallback hint when no LSP server is available.",
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"symbol_name":{"type":"string","description":"Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given."},"line":{"type":"integer","description":"1-based source line (alternative to symbol_name)"},"column":{"type":"integer","description":"1-based byte column (alternative to symbol_name)"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(lsp_navigation_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new(
+            "get_diagnostics_for_symbol",
+            "[CodeLens:Symbol] Type errors and lint issues narrowed to one symbol's span (definition line through body end). Degrades to an empty result with a fallback hint when no LSP server is available.",
+            json!({"type":"object","required":["path","symbol_name"],"properties":{"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"symbol_name":{"type":"string","description":"Symbol whose span filters the file diagnostics"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}}),
+        ).with_output_schema(symbol_diagnostics_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "plan_symbol_rename",
             "[CodeLens:Symbol] Preview rename refactoring via LSP — check before applying.",
@@ -289,7 +319,7 @@ pub fn semantic_tools(
         ).with_output_schema(semantic_search_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "index_embeddings",
-            "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic_search.",
+            "[CodeLens:Symbol] Build semantic embedding index and optionally prewarm query embeddings. Required before semantic search can serve results.",
             json!({"type":"object","properties":{"background":{"type":"boolean","description":"Run as a durable background job and poll with get_analysis_job"},"prewarm_queries":{"type":"array","items":{"type":"string"},"description":"Representative semantic_search queries to warm immediately after indexing"},"prewarm_limit":{"type":"integer","description":"Maximum prewarm query count (default 128, max 1024)"}}}),
         ).with_annotations(ro.clone()),
     ]
@@ -305,7 +335,7 @@ pub fn session_tools(
     vec![
         Tool::new(
             "activate_project",
-            "[CodeLens:Session] Activate/remap project — use when get_current_config reports a different active project than the intended workspace.",
+            "[CodeLens:Session] Activate/remap project — use when the session config reports a different active project than the intended workspace.",
             json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"}}}),
         ).with_output_schema(activate_project_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
@@ -415,7 +445,7 @@ pub fn session_tools(
         ).with_annotations(ro_a.clone()),
         Tool::new(
             "find_redundant_definitions",
-            "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Use before `dead_code_report` — wrappers obscure substrates.",
+            "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Run it before dead-code analysis — wrappers obscure substrates.",
             json!({"type":"object","properties":{"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on entries returned (default 50)"}}}),
         ).with_annotations(ro_a.clone()),
         Tool::new(

@@ -57,7 +57,7 @@ async fn mutation_enabled_daemon_rejects_untrusted_client_mutation() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_text_file","arguments":{"relative_path":"audit_http.py","content":"print('hi')","overwrite":true}}}"#,
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"insert_after_symbol","arguments":{"relative_path":"audit_http.py","symbol_name":"old","content":"\ndef new():\n    return 2\n"}}}"#,
                 ))
                 .unwrap(),
         )
@@ -158,6 +158,13 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
         .unwrap()
         .to_owned();
 
+    // Seed a symbol target so the symbolic edit core has something to mutate.
+    std::fs::write(
+        state.project().as_path().join("audit_http.py"),
+        "def old():\n    return 1\n",
+    )
+    .unwrap();
+
     // RefactorFull requires preflight before mutation
     let preflight = app
         .clone()
@@ -186,7 +193,7 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
                 .header("mcp-session-id", &sid)
                 .header("x-codelens-trusted-client", "true")
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_text_file","arguments":{"relative_path":"audit_http.py","content":"print('hi')","overwrite":true}}}"#,
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"insert_after_symbol","arguments":{"relative_path":"audit_http.py","symbol_name":"old","content":"\ndef new():\n    return 2\n"}}}"#,
                 ))
                 .unwrap(),
         )
@@ -204,8 +211,8 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
     let rows = sink.query(None, None, 100).expect("query");
     let row = rows
         .iter()
-        .find(|r| r.tool == "create_text_file")
-        .expect("create_text_file row in audit_sink");
+        .find(|r| r.tool == "insert_after_symbol")
+        .expect("insert_after_symbol row in audit_sink");
     let metadata = row
         .session_metadata
         .as_ref()

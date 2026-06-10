@@ -266,3 +266,100 @@ mod tests {
         );
     }
 }
+
+/// D1 (#346 Phase 4): `get_file_diagnostics` narrowed to one symbol's
+/// span. The span comes from the symbol index (definition line + body
+/// line count), the diagnostics from the same SCIP→LSP pipeline as the
+/// file-level tool — so classification/suppression behavior is
+/// identical, just filtered. LSP-absent degrades to a successful empty
+/// result with `degraded_reason` + `fallback_hint` (read-surface
+/// contract shared with the navigation pair).
+pub fn get_diagnostics_for_symbol(state: &AppState, arguments: &Value) -> ToolResult {
+    const KNOWN_ARGS: &[&str] = &[
+        "path",
+        "file_path",
+        "relative_path",
+        "symbol_name",
+        "command",
+        "args",
+        "max_results",
+    ];
+    let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let file_path = file_path_arg.to_owned();
+    let symbol_name = crate::tool_runtime::required_string(arguments, "symbol_name")?.to_owned();
+
+    let symbols = state
+        .symbol_index()
+        .find_symbol(&symbol_name, Some(&file_path), true, true, 1)
+        .map_err(|err| {
+            CodeLensError::Internal(err.context(
+                "get_diagnostics_for_symbol: symbol index lookup failed (is the file indexed in this project?)",
+            ))
+        })?;
+    let Some(symbol) = symbols.first() else {
+        return Err(CodeLensError::Validation(format!(
+            "symbol '{symbol_name}' not found in {file_path} — run refresh_symbol_index if it was just added"
+        )));
+    };
+    let start_line = symbol.line;
+    let end_line = symbol
+        .body
+        .as_ref()
+        .map(|body| start_line + body.lines().count().saturating_sub(1))
+        .unwrap_or(start_line);
+    let symbol_summary = json!({
+        "name": symbol.name,
+        "kind": symbol.kind.as_label(),
+        "file_path": symbol.file_path,
+        "span": {"start_line": start_line, "end_line": end_line},
+    });
+
+    match get_file_diagnostics(state, arguments) {
+        Ok((file_payload, _meta)) => {
+            let all = file_payload["diagnostics"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let file_count = all.len();
+            let diagnostics: Vec<Value> = all
+                .into_iter()
+                .filter(|diag| {
+                    diag["line"]
+                        .as_u64()
+                        .map(|line| {
+                            let line = line as usize;
+                            line >= start_line && line <= end_line
+                        })
+                        .unwrap_or(false)
+                })
+                .collect();
+            let mut payload = json!({
+                "success": true,
+                "symbol": symbol_summary,
+                "diagnostics": diagnostics,
+                "count": diagnostics.len(),
+                "file_diagnostics_count": file_count,
+                "backend": file_payload["backend"],
+            });
+            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+            Ok((payload, success_meta(BackendKind::Lsp, 0.9)))
+        }
+        Err(error) => {
+            let reason = format!("LSP unavailable for symbol diagnostics: {error}");
+            let mut payload = json!({
+                "success": true,
+                "symbol": symbol_summary,
+                "diagnostics": [],
+                "count": 0,
+                "degraded_reason": reason,
+                "fallback_hint": super::navigation::LSP_READ_FALLBACK_HINTS,
+            });
+            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+            Ok((
+                payload,
+                crate::tool_runtime::degraded_meta(BackendKind::Lsp, 0.3, &reason),
+            ))
+        }
+    }
+}

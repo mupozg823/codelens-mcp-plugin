@@ -22,11 +22,11 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 
 - Workspace version: `1.13.32`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
-- Registered tool definitions: `81`
-- Tool output schemas: `52 / 81`
+- Registered tool definitions: `87`
+- Tool output schemas: `55 / 87`
 - Supported language families: `30` across `49` extensions
-- Profiles: `planner-readonly` (29), `builder-minimal` (29), `reviewer-graph` (34), `evaluator-compact` (29), `refactor-full` (29), `ci-audit` (34), `workflow-first` (29)
-- Presets: `minimal` (20), `balanced` (68), `full` (81)
+- Profiles: `planner-readonly` (35), `builder-minimal` (34), `reviewer-graph` (39), `evaluator-compact` (35), `refactor-full` (34), `ci-audit` (39), `workflow-first` (35)
+- Presets: `minimal` (20), `balanced` (74), `full` (87)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
@@ -100,6 +100,50 @@ Important:
 - `CodeLens standalone` means the `codelens-mcp` binary itself. Basic stdio MCP use needs only that binary plus host MCP config.
 - `Shared HTTP + multi-agent coordination` still uses the same binary, but the binary must include the `http` feature and the clients must attach by URL.
 - If a feature is mentioned in this repository but not present in your installed binary, compare `codelens-mcp --version` with the latest GitHub release and your install channel before assuming a bug.
+
+## Claude Code Plugin
+
+CodeLens ships as a Claude Code plugin that wires the MCP server plus the
+CodeLens-specific skills and read-only explorer agent in one install.
+
+**Prerequisite — install the binary first.** The plugin connects to a
+`codelens-mcp` binary on your `PATH`; the plugin system does not build it.
+The recommended path is the installer or a GitHub Release tarball, which
+bundle the semantic model so `semantic_search` and hybrid retrieval work
+out of the box:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
+```
+
+A leaner `cargo install codelens-mcp` also works but provides BM25 + AST +
+call-graph only (no semantic model; `semantic_search` is gracefully absent
+until you add `--features semantic` and a model directory — see the
+[Install Channel Matrix](#install-channel-matrix)).
+
+**Install the plugin:**
+
+```text
+/plugin marketplace add mupozg823/codelens-mcp-plugin
+/plugin install codelens@codelens
+```
+
+**What you get:** the `mcp__codelens__*` tools, the `codelens-analyze`,
+`codelens-review`, and `codelens-onboard` skills, and the read-only
+`codelens-explorer` agent.
+
+**If the tools don't appear** after install, the binary isn't on your
+`PATH`. Verify the install with:
+
+```bash
+codelens-mcp doctor claude-code
+```
+
+**Optional — post-edit diagnostics.** The repo ships
+`hooks/post-edit-diagnostics.sh`, which runs CodeLens diagnostics on each
+edited file. It is **not** auto-installed by the plugin. To enable it, add a
+`PostToolUse` hook for the `Edit` matcher pointing at that script in your
+Claude Code settings.
 
 ## Setup
 

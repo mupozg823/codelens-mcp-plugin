@@ -1,7 +1,7 @@
-mod weights;
 mod priors;
 mod rank;
+mod weights;
 
+pub(crate) use rank::{prune_to_budget, rank_symbols};
 pub(crate) use weights::RankingContext;
-pub(crate) use rank::{rank_symbols, prune_to_budget};
 pub use weights::weights_for_query_type;

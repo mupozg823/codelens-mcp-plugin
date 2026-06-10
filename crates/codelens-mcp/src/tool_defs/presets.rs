@@ -157,7 +157,6 @@ pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     "read_file",
     "list_dir",
     "find_file",
-    "search_for_pattern",
     // Symbol (core)
     "get_symbols_overview",
     "find_symbol",
@@ -173,24 +172,14 @@ pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     // surface should `set_preset full` first.
     "get_file_diagnostics",
     "search_workspace_symbols",
-    // Mutation (safe)
+    // Mutation preflight (the symbolic edit core itself is dispatch-only
+    // pending the ADR-0009/D3 re-listing decision, #346)
     "plan_symbol_rename",
-    "rename_symbol",
-    "replace_symbol_body",
-    "insert_content",
-    "create_text_file",
-    "replace",
 ];
 
 pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     // ── Niche analysis (use Full preset for these) ──
-    "find_circular_dependencies",
     "get_symbol_importance",
-    "find_dead_code",
-    "refactor_extract_function",
-    "refactor_inline_function",
-    "refactor_move_to_file",
-    "refactor_change_signature",
     "get_complexity",
     "search_symbols_fuzzy",
     "get_lsp_recipe",
@@ -198,7 +187,6 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "read_file",
     "list_dir",
     "find_file",
-    "search_for_pattern",
     // ── Diagnostics / session (not needed for normal work) ──
     "get_watch_status",
     "prune_index_failures",
@@ -206,17 +194,6 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "audit_builder_session",
     "audit_planner_session",
     "export_session_markdown",
-    // ── Superseded by unified tools (insert_content, replace) ──
-    "insert_at_line",
-    "insert_before_symbol",
-    "insert_after_symbol",
-    "replace_lines",
-    // ── Superseded by onboard_project ──
-    "get_project_structure",
-    // ── Deprecated workflow aliases (keep direct-call compat only) ──
-    "audit_security_context",
-    "analyze_change_impact",
-    "assess_change_readiness",
 ];
 
 pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
@@ -245,6 +222,10 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "get_symbols_overview",
     "get_ranked_context",
     "find_referencing_symbols",
+    // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
+    "find_declaration",
+    "find_implementations",
+    "get_diagnostics_for_symbol",
     // Phase 4a §capability-reporting: semantic_search belongs in
     // planner surface. Planners are read-only/exploratory — natural-
     // language search is the primary use case, and the engine now
@@ -292,6 +273,10 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "get_ranked_context",
     "find_referencing_symbols",
     "get_file_diagnostics",
+    // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
+    "find_declaration",
+    "find_implementations",
+    "get_diagnostics_for_symbol",
     "find_tests",
     "refresh_symbol_index",
     "get_callers",
@@ -305,14 +290,14 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "semantic_search",
     "index_embeddings",
     "plan_symbol_rename",
-    // Deprecated mutation tools (still in dispatch, will be removed in v2.0)
+    // Pending-D3 symbolic edit core (#346): callable on builder surfaces
+    // but schemaless (not in tools.toml) until the ADR-0009/D3 re-listing
+    // decision — i.e. dispatchable yet absent from tools/list.
     "rename_symbol",
     "replace_symbol_body",
-    "insert_content",
-    "replace",
-    "create_text_file",
-    "add_import",
-    // Workflow orchestration (deprecated, kept for backward compat)
+    "insert_before_symbol",
+    "insert_after_symbol",
+    // Workflow orchestration
     "orchestrate_change",
     "analyze_change_request",
     "verify_change_readiness",
@@ -350,6 +335,10 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "index_embeddings",
     // Diagnostics
     "get_file_diagnostics",
+    // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
+    "find_declaration",
+    "find_implementations",
+    "get_diagnostics_for_symbol",
     // Graph / impact
     "get_callers",
     "get_callees",
