@@ -113,6 +113,19 @@ impl AppState {
         session_runtime::bind_project_to_session(self, session_id, project_path);
     }
 
+    /// #347: `true` when the HTTP session declared its workspace
+    /// (initialize capture or activate_project). `false` for seeded
+    /// defaults — dispatch then attaches a `project_binding` hint so
+    /// agents on a shared daemon notice they never picked a project.
+    #[cfg(feature = "http")]
+    pub(crate) fn session_project_binding_explicit(&self, session_id: &str) -> bool {
+        self.session_store
+            .as_ref()
+            .and_then(|store| store.get(session_id))
+            .map(|session| session.client_metadata().project_path_explicit)
+            .unwrap_or(true)
+    }
+
     /// Decide whether a write operation should target the per-session store
     /// or fall through to global AppState. Returns true only when:
     ///   (a) the request carries a real (non-"local") session id, AND

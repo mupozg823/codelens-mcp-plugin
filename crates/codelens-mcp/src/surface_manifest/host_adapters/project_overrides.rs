@@ -18,6 +18,29 @@ fn project_host_attach_url(project_root: &Path, host: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// #347: stamp the project's absolute path into the codelens server
+/// entry as an `x-codelens-project` header so every session the host
+/// opens binds to this workspace at initialize — no agent round trip.
+fn set_codelens_json_template_project_header(template: &mut Value, project_root: &Path) -> bool {
+    for pointer in ["/mcpServers/codelens", "/servers/codelens", "/codelens"] {
+        if let Some(server) = template.pointer_mut(pointer)
+            && let Some(object) = server.as_object_mut()
+        {
+            let headers = object
+                .entry("headers".to_owned())
+                .or_insert_with(|| json!({}));
+            if let Some(map) = headers.as_object_mut() {
+                map.insert(
+                    "x-codelens-project".to_owned(),
+                    json!(project_root.to_string_lossy()),
+                );
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn set_codelens_json_template_url(template: &mut Value, url: &str) -> bool {
     for pointer in ["/mcpServers/codelens", "/servers/codelens", "/codelens"] {
         if let Some(server) = template.pointer_mut(pointer)
@@ -72,9 +95,7 @@ pub(super) fn apply_host_attach_project_overrides(
     let Some(project_root) = project_root else {
         return;
     };
-    let Some(url) = project_host_attach_url(project_root, host) else {
-        return;
-    };
+    let url_override = project_host_attach_url(project_root, host);
 
     if let Some(native_files) = bundle.get_mut("native_files").and_then(Value::as_array_mut) {
         for file in native_files {
@@ -88,11 +109,17 @@ pub(super) fn apply_host_attach_project_overrides(
             };
             match format.as_str() {
                 "json" => {
-                    let _ = set_codelens_json_template_url(template, &url);
+                    if let Some(url) = url_override.as_deref() {
+                        let _ = set_codelens_json_template_url(template, url);
+                    }
+                    // #347: always bind the attach target's workspace.
+                    let _ = set_codelens_json_template_project_header(template, project_root);
                 }
                 "toml" => {
-                    if let Some(text) = template.as_str() {
-                        *template = Value::String(set_codelens_toml_template_url(text, &url));
+                    if let Some(url) = url_override.as_deref()
+                        && let Some(text) = template.as_str()
+                    {
+                        *template = Value::String(set_codelens_toml_template_url(text, url));
                     }
                 }
                 _ => {}
@@ -100,6 +127,9 @@ pub(super) fn apply_host_attach_project_overrides(
         }
     }
 
+    let Some(url) = url_override else {
+        return;
+    };
     if let Some(object) = bundle.as_object_mut() {
         object.insert("resolved_mcp_url".to_owned(), json!(url));
         object.insert(
@@ -107,6 +137,45 @@ pub(super) fn apply_host_attach_project_overrides(
             json!(format!(
                 ".codelens/config.json host_attach.per_host_urls.{host}"
             )),
+        );
+    }
+}
+
+#[cfg(test)]
+mod project_header_tests {
+    #[test]
+    fn attach_bundle_stamps_project_header_into_json_templates() {
+        let tmp = std::env::temp_dir().join(format!("codelens-attach-hdr-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let bundle =
+            crate::surface_manifest::host_adapter_bundle_for_project("claude-code", Some(&tmp))
+                .expect("claude-code bundle");
+        let native_files = bundle["native_files"].as_array().expect("native_files");
+        let mcp_json = native_files
+            .iter()
+            .find(|file| file["path"] == ".mcp.json")
+            .expect(".mcp.json template");
+        assert_eq!(
+            mcp_json["template"]["mcpServers"]["codelens"]["headers"]["x-codelens-project"],
+            serde_json::json!(tmp.to_string_lossy()),
+            "attach must stamp the workspace into the binding header: {mcp_json}"
+        );
+    }
+
+    #[test]
+    fn attach_bundle_without_project_root_leaves_templates_unstamped() {
+        let bundle = crate::surface_manifest::host_adapter_bundle_for_project("claude-code", None)
+            .expect("claude-code bundle");
+        let native_files = bundle["native_files"].as_array().expect("native_files");
+        let mcp_json = native_files
+            .iter()
+            .find(|file| file["path"] == ".mcp.json")
+            .expect(".mcp.json template");
+        assert!(
+            mcp_json["template"]["mcpServers"]["codelens"]
+                .get("headers")
+                .is_none(),
+            "no project root → no header stamp: {mcp_json}"
         );
     }
 }

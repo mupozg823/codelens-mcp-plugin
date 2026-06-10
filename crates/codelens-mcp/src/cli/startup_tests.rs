@@ -259,11 +259,18 @@ fn doctor_report_detects_machine_attachment_and_customized_policy_file() {
     let cwd = root.join("repo");
     std::fs::create_dir_all(cwd.join(".cursor/rules")).unwrap();
     std::fs::create_dir_all(cwd.join(".cursor")).unwrap();
+    // #347: canonical attach output now stamps the workspace binding
+    // header, so an "exact" fixture must carry it too. This direct
+    // render_doctor_report call stamps the `cwd` argument verbatim.
     std::fs::write(
         cwd.join(".cursor/mcp.json"),
         serde_json::to_string_pretty(&serde_json::json!({
             "mcpServers": {
-                "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" },
+                "codelens": {
+                    "type": "http",
+                    "url": "http://127.0.0.1:7837/mcp",
+                    "headers": { "x-codelens-project": cwd.to_string_lossy() }
+                },
                 "other": { "type": "http", "url": "http://127.0.0.1:9999/mcp" }
             }
         }))
@@ -420,11 +427,19 @@ fn run_doctor_command_renders_json_report() {
         std::env::set_var("HOME", &home);
     }
     std::fs::create_dir_all(cwd.join(".cursor")).unwrap();
+    // #347: run_doctor_command stamps std::env::current_dir() into the
+    // canonical template — on macOS that is the symlink-resolved
+    // (/private/...) form of `cwd`, so the fixture must match it.
+    let canonical_cwd = cwd.canonicalize().unwrap();
     std::fs::write(
         cwd.join(".cursor/mcp.json"),
         serde_json::to_string_pretty(&serde_json::json!({
             "mcpServers": {
-                "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" }
+                "codelens": {
+                    "type": "http",
+                    "url": "http://127.0.0.1:7837/mcp",
+                    "headers": { "x-codelens-project": canonical_cwd.to_string_lossy() }
+                }
             }
         }))
         .unwrap(),
@@ -539,11 +554,17 @@ fn run_status_command_honors_project_local_host_attach_override() {
         .unwrap(),
     )
     .unwrap();
+    // #347: same canonicalized-cwd binding header as the doctor JSON test.
+    let canonical_cwd = cwd.canonicalize().unwrap();
     std::fs::write(
         cwd.join(".cursor/mcp.json"),
         serde_json::to_string_pretty(&serde_json::json!({
             "mcpServers": {
-                "codelens": { "type": "http", "url": "http://127.0.0.1:7839/mcp" }
+                "codelens": {
+                    "type": "http",
+                    "url": "http://127.0.0.1:7839/mcp",
+                    "headers": { "x-codelens-project": canonical_cwd.to_string_lossy() }
+                }
             }
         }))
         .unwrap(),
