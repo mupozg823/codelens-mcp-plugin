@@ -116,6 +116,12 @@ pub struct SessionSeed {
     pub requested_profile: Option<String>,
     pub deferred_tool_loading: Option<bool>,
     pub client_name: Option<String>,
+    /// #351: workspace binding from `x-codelens-project`. Not
+    /// privilege-bearing (it only scopes reads/indexing to the caller's
+    /// own workspace), so unlike `trusted_client` it is safe to seed on
+    /// resurrection — dropping it instead silently rebinds the session
+    /// to the daemon's global scope.
+    pub project_path: Option<String>,
 }
 
 /// Guard #11 (#300/#301): how the POST gate handles an unknown session id.
@@ -260,6 +266,13 @@ impl SessionState {
             }
             if seed.client_name.is_some() {
                 metadata.client_name = seed.client_name.clone();
+            }
+            // #351: header-attached hosts re-assert their workspace on
+            // every request, so a resurrected session keeps its explicit
+            // binding instead of falling back to the daemon scope.
+            if seed.project_path.is_some() {
+                metadata.project_path = seed.project_path.clone();
+                metadata.project_path_explicit = true;
             }
         }
         if let Some(profile) = seed
@@ -681,6 +694,7 @@ mod tests {
             requested_profile: Some("reviewer-graph".into()),
             deferred_tool_loading: Some(true),
             client_name: Some("codex".into()),
+            project_path: Some("/tmp/seeded-workspace".into()),
         };
         let (s, _) = store.get_or_resurrect(&id, &seed).unwrap();
         let metadata = s.client_metadata();
@@ -690,6 +704,12 @@ mod tests {
         );
         assert_eq!(metadata.deferred_tool_loading, Some(true));
         assert_eq!(metadata.trusted_client, None); // guard #2 — never seeded
+        // #351: the workspace binding survives resurrection, explicitly.
+        assert_eq!(
+            metadata.project_path.as_deref(),
+            Some("/tmp/seeded-workspace")
+        );
+        assert!(metadata.project_path_explicit);
     }
 
     #[test]

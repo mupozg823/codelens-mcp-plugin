@@ -181,16 +181,20 @@ pub(crate) fn insert_symbols(
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
     )?;
     for sym in symbols {
+        // #349: the `name`/`name_path` columns hold NFC — extraction
+        // already normalizes, this keeps direct ingestion paths honest.
+        let name = crate::unicode::nfc_identifier(sym.name);
+        let name_path = crate::unicode::nfc_identifier(sym.name_path);
         stmt.execute(params![
             file_id,
-            sym.name,
+            name.as_ref(),
             sym.kind,
             sym.line,
             sym.column_num,
             sym.start_byte,
             sym.end_byte,
             sym.signature,
-            sym.name_path,
+            name_path.as_ref(),
             sym.parent_id,
         ])?;
         ids.push(conn.last_insert_rowid());
@@ -376,6 +380,10 @@ impl IndexDb {
         exact: bool,
         max_results: usize,
     ) -> Result<Vec<SymbolRow>> {
+        // #349: stored names are NFC (normalized at extraction) — match
+        // the query to the same form so NFD input still hits.
+        let name = crate::unicode::nfc_identifier(name);
+        let name = name.as_ref();
         let (sql, use_file_filter) = match (exact, file_path.is_some()) {
             (true, true) => (
                 "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num, s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id
@@ -441,6 +449,9 @@ impl IndexDb {
         exact: bool,
         max_results: usize,
     ) -> Result<Vec<(SymbolRow, String)>> {
+        // #349: same NFC query normalization as `find_symbols_by_name`.
+        let name = crate::unicode::nfc_identifier(name);
+        let name = name.as_ref();
         let sql = if exact {
             "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
                     s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,

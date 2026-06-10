@@ -68,7 +68,11 @@ pub(crate) fn parse_symbols(
 
         let def_node = def_capture.node;
         let name_node = name_capture.node;
-        let name = node_text(name_node, source_bytes).trim().to_owned();
+        // #349: one canonical form for identifier matching — NFD jamo in
+        // source (e.g. pasted from macOS filenames) must equal the NFC
+        // query an agent types. Signature/body stay byte-faithful.
+        let name =
+            crate::unicode::nfc_identifier(node_text(name_node, source_bytes).trim()).into_owned();
         if name.is_empty() {
             continue;
         }
@@ -243,4 +247,33 @@ fn node_text<'a>(node: Node<'_>, source_bytes: &'a [u8]) -> &'a str {
     let start = node.start_byte();
     let end = node.end_byte();
     std::str::from_utf8(&source_bytes[start..end]).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod nfc_extraction_tests {
+    use super::parse_symbols;
+    use crate::lang_config::language_for_path;
+    use std::path::Path;
+
+    /// #349: extraction is the canonical-form choke point — an NFD jamo
+    /// identifier in source comes out of the parser as NFC, so the
+    /// index, the overview payloads, and the BM25F corpus all agree
+    /// with the NFC queries agents type.
+    #[test]
+    fn nfd_identifier_extracts_as_nfc() {
+        let nfd_fn = "\u{1112}\u{116e}\u{110b}\u{116f}\u{11ab}\u{110c}\u{1161}_\u{1111}\u{1161}\u{1109}\u{1165}"; // "후원자_파서" decomposed
+        let source = format!("pub fn {nfd_fn}() -> i64 {{ 42 }}\n");
+        let config = language_for_path(Path::new("lib.rs")).expect("rust config");
+        let parsed = parse_symbols(&config, "lib.rs", &source, false).expect("parse");
+        let names: Vec<&str> = parsed.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["후원자_파서"],
+            "extracted name must be NFC (3+1+2 syllables), got codepoint counts {:?}",
+            parsed
+                .iter()
+                .map(|s| s.name.chars().count())
+                .collect::<Vec<_>>()
+        );
+    }
 }

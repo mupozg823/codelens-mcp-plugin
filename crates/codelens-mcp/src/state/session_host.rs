@@ -117,13 +117,19 @@ impl AppState {
     /// (initialize capture or activate_project). `false` for seeded
     /// defaults — dispatch then attaches a `project_binding` hint so
     /// agents on a shared daemon notice they never picked a project.
+    ///
+    /// #351: a session the store cannot find (evicted mid-request) is
+    /// NOT explicit — claiming `true` there suppressed the hint exactly
+    /// when the binding had just been lost. The only caller gates on
+    /// `should_route_to_session`, so a miss here is a real lost session,
+    /// not a stdio/local context.
     #[cfg(feature = "http")]
     pub(crate) fn session_project_binding_explicit(&self, session_id: &str) -> bool {
         self.session_store
             .as_ref()
             .and_then(|store| store.get(session_id))
             .map(|session| session.client_metadata().project_path_explicit)
-            .unwrap_or(true)
+            .unwrap_or(false)
     }
 
     /// Decide whether a write operation should target the per-session store

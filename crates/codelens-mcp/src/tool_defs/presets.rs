@@ -222,6 +222,9 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "get_symbols_overview",
     "get_ranked_context",
     "find_referencing_symbols",
+    // #350: target of find_symbol / D1-trio fallback hints — must be
+    // present wherever those emitters are, or the hint chain dead-ends.
+    "bm25_symbol_search",
     // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
     "find_declaration",
     "find_implementations",
@@ -272,6 +275,9 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "get_symbols_overview",
     "get_ranked_context",
     "find_referencing_symbols",
+    // #350: target of find_symbol / D1-trio fallback hints — must be
+    // present wherever those emitters are, or the hint chain dead-ends.
+    "bm25_symbol_search",
     "get_file_diagnostics",
     // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
     "find_declaration",
@@ -327,6 +333,9 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "get_symbols_overview",
     "get_ranked_context",
     "find_referencing_symbols",
+    // #350: target of find_symbol / D1-trio fallback hints — must be
+    // present wherever those emitters are, or the hint chain dead-ends.
+    "bm25_symbol_search",
     "find_scoped_references",
     // Reviewer sessions need NL retrieval for architecture and risk
     // evidence. Deferred loading still keeps it out of the initial
@@ -466,5 +475,29 @@ mod deprecation_tests {
             ToolProfile::from_str("workflow"),
             Some(ToolProfile::WorkflowFirst)
         );
+    }
+
+    /// #350: every read surface that exposes a fallback-hint emitter
+    /// (find_symbol miss hint, the D1 LSP read trio) must also expose
+    /// the hint targets, or the suggested recovery chain dead-ends on
+    /// "not available in active surface".
+    #[test]
+    fn fallback_hint_targets_are_present_wherever_their_emitters_are() {
+        const EMITTERS: &[&str] = &["find_symbol", "find_declaration", "find_implementations"];
+        const HINT_TARGETS: &[&str] = &["find_symbol", "bm25_symbol_search"];
+        for (label, surface) in [
+            ("planner-readonly", PLANNER_READONLY_TOOLS),
+            ("builder-minimal", BUILDER_MINIMAL_TOOLS),
+            ("reviewer-graph", REVIEWER_GRAPH_TOOLS),
+        ] {
+            let has_emitter = EMITTERS.iter().any(|tool| surface.contains(tool));
+            assert!(has_emitter, "{label} unexpectedly lost all hint emitters");
+            for target in HINT_TARGETS {
+                assert!(
+                    surface.contains(target),
+                    "{label} exposes a hint emitter but not its target `{target}` — the recovery chain dead-ends (#350)"
+                );
+            }
+        }
     }
 }

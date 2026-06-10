@@ -124,7 +124,8 @@ pub(crate) fn extract_initialize_metadata(
 impl SessionSeed {
     /// Guard #2/#8: build a resurrection seed from request headers. Reads only
     /// soft surface knobs (`x-codelens-profile`, `x-codelens-deferred-tool-loading`,
-    /// `x-codelens-client`). It deliberately does NOT read
+    /// `x-codelens-client`) plus the non-privileged `x-codelens-project`
+    /// workspace binding (#351). It deliberately does NOT read
     /// `x-codelens-trusted-client` — that privilege-bearing header is honored
     /// only on `initialize`, so a non-initialize resurrection can never assert
     /// trust and bypass the mutation gate.
@@ -142,8 +143,45 @@ impl SessionSeed {
                 .and_then(|value| value.to_str().ok())
                 .and_then(parse_bool_header),
             client_name: header("x-codelens-client"),
+            project_path: project_header_value(headers),
         }
     }
+}
+
+/// Trimmed, non-empty `x-codelens-project` header value.
+pub(crate) fn project_header_value(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-codelens-project")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+/// #351: re-assert the workspace binding on EVERY request that carries
+/// `x-codelens-project`, not only at `initialize`. This makes
+/// header-attached hosts immune to session eviction: even when the 30-min
+/// idle sweep dropped the session and the lenient gate resurrected it with
+/// default metadata, the very same request re-binds it before dispatch.
+/// Also covers clients that never declared a project at initialize but
+/// send the header later, and workspace switches mid-session.
+pub(crate) fn rebind_session_project_from_headers(
+    store: &SessionStore,
+    session_id: &str,
+    headers: &HeaderMap,
+) {
+    let Some(project) = project_header_value(headers) else {
+        return;
+    };
+    let Some(session) = store.get(session_id) else {
+        return;
+    };
+    let metadata = session.client_metadata();
+    if metadata.project_path_explicit && metadata.project_path.as_deref() == Some(project.as_str())
+    {
+        return; // already bound to this workspace — skip the write lock
+    }
+    session.set_project_path(project);
 }
 
 pub(crate) fn create_initialize_session(

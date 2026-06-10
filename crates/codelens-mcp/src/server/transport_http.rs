@@ -503,6 +503,16 @@ async fn mcp_post_handler(
         }
     }
 
+    // #351: per-request workspace re-capture. Runs after the resurrect
+    // gate (so the session exists) and before metadata injection (so the
+    // injected `_session_project_path` reflects this request's header).
+    if !is_initialize
+        && let Some(ref sid) = session_id
+        && let Some(store) = &state.session_store
+    {
+        super::transport_http_support::rebind_session_project_from_headers(store, sid, &headers);
+    }
+
     // L1: thread the authenticated principal id through to the
     //     dispatch path. Done before session metadata injection so the
     //     `_session_principal_id` key sits alongside the rest of the

@@ -317,3 +317,48 @@ fn quarantine_corrupt_sqlite_files_moves_sidecars_when_present() {
         "expected quarantined shm sidecar, found {backup_names:?}"
     );
 }
+
+/// #349: identifier matching is NFC-canonical end to end — an NFD-form
+/// Hangul name (decomposed jamo, e.g. pasted from a macOS filename)
+/// inserts as NFC and is found by the NFC query an agent types, and an
+/// NFD query still hits the NFC row.
+#[test]
+fn nfd_hangul_symbol_round_trips_via_nfc() {
+    let nfd_name = "\u{1112}\u{116e}\u{110b}\u{116f}\u{11ab}\u{110c}\u{1161}_\u{1107}\u{1167}\u{11ab}\u{1112}\u{1167}\u{11bc}"; // "후원자_변형" decomposed
+    let nfc_name = "후원자_변형";
+    assert_ne!(nfd_name.as_bytes(), nfc_name.as_bytes());
+
+    let db = IndexDb::open_memory().unwrap();
+    let fid = db
+        .upsert_file("src/lib.rs", 100, "h1", 10, Some("rs"))
+        .unwrap();
+    db.insert_symbols(
+        fid,
+        &[NewSymbol {
+            name: nfd_name,
+            kind: "function",
+            line: 2,
+            column_num: 8,
+            start_byte: 0,
+            end_byte: 50,
+            signature: "pub fn 후원자_변형()",
+            name_path: nfd_name,
+            parent_id: None,
+        }],
+    )
+    .unwrap();
+
+    // NFC query (what an agent types) finds the row.
+    let hits = db.find_symbols_by_name(nfc_name, None, true, 10).unwrap();
+    assert_eq!(hits.len(), 1, "NFC query must hit the NFD-source symbol");
+    assert_eq!(hits[0].name, nfc_name, "stored name is canonical NFC");
+
+    // NFD query (byte-faithful copy from source) also still hits.
+    let hits = db.find_symbols_by_name(nfd_name, None, true, 10).unwrap();
+    assert_eq!(hits.len(), 1, "NFD query must normalize and hit too");
+
+    // The JOINed variant follows the same contract.
+    let hits = db.find_symbols_with_path(nfc_name, true, 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].1, "src/lib.rs");
+}
