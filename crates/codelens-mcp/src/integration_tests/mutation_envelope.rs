@@ -34,6 +34,40 @@ fn assert_raw_fs_envelope(result: &serde_json::Value, expected_op: &str) {
 
 // Line-edit family tombstoned (#346); the raw_fs envelope contract is
 // carried by the remaining symbolic edit core.
+
+/// Phase 3 pin (#346, plan Test 3.2): calling a tombstoned name through
+/// the full dispatch path returns the replacement guidance, not a bare
+/// unknown-tool error (and certainly not a panic).
+#[test]
+fn tombstoned_tool_call_returns_replacement_guidance() {
+    let project = project_root();
+    let state = make_state(&project);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "insert_at_line",
+                "arguments": {"relative_path": "x.py", "line": 1, "content": "y"}
+            })),
+        },
+    )
+    .expect("tools/call returns a JSON-RPC response");
+    let value = serde_json::to_value(&response).expect("serialize");
+    assert_eq!(
+        value["error"]["code"],
+        json!(-32601),
+        "tombstoned names keep the unknown-tool JSON-RPC code"
+    );
+    let err = value["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        err.contains("insert_at_line") && err.contains("#346") && err.contains("Edit"),
+        "tombstone guidance must name the removed tool and replacement path, got {err:?}"
+    );
+}
+
 #[test]
 fn insert_after_symbol_reports_raw_fs_envelope() {
     let project = project_root();

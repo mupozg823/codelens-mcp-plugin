@@ -118,9 +118,13 @@ pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
 ///   bucket prevents the 27-entry deprecation cycle from showing up
 ///   as 27 false-positive violations.
 ///
-/// Three violation classes are reported plus the `intentional_deprecation`
-/// surface. Violations should be empty in a clean tree; the deprecation
-/// bucket is informational. The CI tolerance is `all_clean = true`.
+/// Four violation classes are reported (`missing_in_dispatch`,
+/// `missing_in_toml`, `orphan_in_preset`, `tombstone_reintroduced`) plus
+/// the informational `intentional_deprecation` / `pending_d3_allowlisted`
+/// buckets and a `surface_drift` section that mirrors the
+/// `three_way_report` vocabulary of `scripts/regen-tool-defs.py` for
+/// 1:1 CI↔runtime diffing (#346 Phase 3). Violations should be empty in
+/// a clean tree. The CI tolerance is `all_clean = true`.
 ///
 /// Earlier revisions (v1.13.9..v1.13.27) parsed `tools.toml` and the
 /// `dispatch_table()` macro body with regexes, which broke whenever
@@ -198,8 +202,19 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
         .into_iter()
         .collect();
 
-    let violation_count =
-        missing_in_dispatch.len() + missing_in_toml.len() + orphan_in_preset.len();
+    // Phase 3 (#346): tombstone re-introduction lock. A tombstoned name
+    // reappearing in dispatch or tools.toml is a hard violation — it
+    // bypasses the removal contract that `tombstone_guidance` advertises.
+    let tombstone_reintroduced: Vec<String> = crate::tools::TOMBSTONED_TOOLS
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .filter(|name| dispatched.contains(name) || toml_tools.contains(name))
+        .collect();
+
+    let violation_count = missing_in_dispatch.len()
+        + missing_in_toml.len()
+        + orphan_in_preset.len()
+        + tombstone_reintroduced.len();
     let all_clean = violation_count == 0;
 
     let mut next_actions: Vec<String> = Vec::new();
@@ -219,6 +234,12 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
         next_actions.push(format!(
             "{} tool(s) listed in a preset whitelist no longer exist in tools.toml (and are not on the deprecation allowlist) — prune the preset entries or restore the tool.",
             orphan_in_preset.len()
+        ));
+    }
+    if !tombstone_reintroduced.is_empty() {
+        next_actions.push(format!(
+            "{} tombstoned tool(s) (#346) re-appeared in dispatch or tools.toml — remove them again; the line-edit family is permanently retired in favour of host-native Edit/Write.",
+            tombstone_reintroduced.len()
         ));
     }
     if !pending_d3_allowlisted.is_empty() {
@@ -243,6 +264,28 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
         next_actions.push("Surface is consistent across all checked layers.".to_owned());
     }
 
+    // Phase 3 (#346): script-parity view. Same vocabulary as
+    // `three_way_report` in scripts/regen-tool-defs.py so the CI gate
+    // and a live daemon can be diffed key-for-key:
+    //   dispatch_only  ≙ missing_in_toml   (handler without schema)
+    //   schema_only    ≙ missing_in_dispatch (schema without handler)
+    //   preset_dead    ≙ orphan_in_preset  (preset member without schema)
+    // plus the allowlist carve-out and the tombstone re-introduction lock.
+    let mut surface_drift = serde_json::Map::new();
+    for (key, names) in [
+        ("dispatch_only", &missing_in_toml),
+        ("allowlisted_dispatch_only", &pending_d3_allowlisted),
+        ("schema_only", &missing_in_dispatch),
+        ("preset_dead", &orphan_in_preset),
+        ("tombstone_reintroduced", &tombstone_reintroduced),
+    ] {
+        let (bounded, omitted) = bounded_name_list(names, SURFACE_DRIFT_LIST_CAP);
+        surface_drift.insert(key.to_owned(), bounded);
+        if omitted > 0 {
+            surface_drift.insert(format!("{key}_omitted_count"), json!(omitted));
+        }
+    }
+
     Ok((
         json!({
             "all_clean": all_clean,
@@ -253,6 +296,7 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
                 "presets.{MINIMAL,PLANNER_READONLY,BUILDER_MINIMAL,REVIEWER_GRAPH}_TOOLS",
                 "tool_deprecation (v1.13.27 allowlist, surfaced separately)",
                 "PENDING_D3_ALLOWLIST (#346 dispatch-only carve-out, surfaced separately)",
+                "TOMBSTONED_TOOLS (#346 re-introduction lock)",
             ],
             "summary": {
                 "toml_tool_count": toml_tools.len(),
@@ -261,12 +305,15 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
                 "intentional_deprecation_count": intentional_deprecation.len(),
                 "intentional_feature_gated_count": intentional_feature_gated.len(),
                 "pending_d3_allowlisted_count": pending_d3_allowlisted.len(),
+                "tombstoned_count": crate::tools::TOMBSTONED_TOOLS.len(),
             },
             "violations": {
                 "missing_in_dispatch": missing_in_dispatch,
                 "missing_in_toml": missing_in_toml,
                 "orphan_in_preset": orphan_in_preset,
+                "tombstone_reintroduced": tombstone_reintroduced,
             },
+            "surface_drift": surface_drift,
             "intentional_deprecation": intentional_deprecation,
             "intentional_feature_gated": intentional_feature_gated,
             "pending_d3_allowlisted": pending_d3_allowlisted,
@@ -274,6 +321,17 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
         }),
         success_meta(BackendKind::Config, 1.0),
     ))
+}
+
+/// Cap for each `surface_drift` name list — keeps the audit response
+/// bounded if a refactor ever floods one bucket.
+const SURFACE_DRIFT_LIST_CAP: usize = 25;
+
+/// Bound a name list to `cap` entries, returning the JSON array and the
+/// omitted count (repo truncation convention: per-key `_omitted_count`).
+fn bounded_name_list(names: &[String], cap: usize) -> (Value, usize) {
+    let omitted = names.len().saturating_sub(cap);
+    (json!(names.iter().take(cap).collect::<Vec<_>>()), omitted)
 }
 
 /// Surface phantom `mod NAME;` declarations whose target name is never
