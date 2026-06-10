@@ -146,6 +146,7 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
         .collect();
 
     let is_deprecated = |name: &String| tool_deprecation(name).is_some();
+    let is_pending_d3 = |name: &String| crate::tools::PENDING_D3_ALLOWLIST.contains(&name.as_str());
     let is_feature_gated_out = |name: &String| {
         matches!(tool_feature_gate(name), Some("semantic")) && !cfg!(feature = "semantic")
     };
@@ -157,6 +158,8 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
     let missing_in_dispatch: Vec<String> = toml_tools.difference(&dispatched).cloned().collect();
 
     let raw_missing_in_toml: Vec<String> = dispatched.difference(&toml_tools).cloned().collect();
+    let (pending_d3_missing_toml, raw_missing_in_toml): (Vec<String>, Vec<String>) =
+        raw_missing_in_toml.into_iter().partition(is_pending_d3);
     let (intentional_missing_toml, maybe_missing_in_toml): (Vec<String>, Vec<String>) =
         raw_missing_in_toml.into_iter().partition(is_deprecated);
     let (feature_gated_missing_toml, missing_in_toml): (Vec<String>, Vec<String>) =
@@ -166,12 +169,21 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
 
     let raw_orphan_in_preset: Vec<String> =
         preset_members.difference(&toml_tools).cloned().collect();
+    let (pending_d3_orphan_preset, raw_orphan_in_preset): (Vec<String>, Vec<String>) =
+        raw_orphan_in_preset.into_iter().partition(is_pending_d3);
     let (intentional_orphan_preset, maybe_orphan_in_preset): (Vec<String>, Vec<String>) =
         raw_orphan_in_preset.into_iter().partition(is_deprecated);
     let (feature_gated_orphan_preset, orphan_in_preset): (Vec<String>, Vec<String>) =
         maybe_orphan_in_preset
             .into_iter()
             .partition(is_feature_gated_out);
+
+    let pending_d3_allowlisted: Vec<String> = pending_d3_missing_toml
+        .into_iter()
+        .chain(pending_d3_orphan_preset)
+        .collect::<BTreeSet<String>>()
+        .into_iter()
+        .collect();
 
     let intentional_deprecation: Vec<String> = intentional_missing_toml
         .into_iter()
@@ -209,6 +221,12 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
             orphan_in_preset.len()
         ));
     }
+    if !pending_d3_allowlisted.is_empty() {
+        next_actions.push(format!(
+            "{} tool(s) are on the pending-D3 allowlist (#346): dispatch-only symbolic edit core awaiting the ADR-0009/D3 re-listing decision — surfaced for visibility, not counted as violations.",
+            pending_d3_allowlisted.len()
+        ));
+    }
     if !intentional_deprecation.is_empty() {
         next_actions.push(format!(
             "{} tool(s) are on the v1.13.27 deprecation allowlist (kept in dispatch/preset for backward compat) — surfaced for visibility, not counted as violations.",
@@ -234,6 +252,7 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
                 "dispatch_table (runtime HashMap)",
                 "presets.{MINIMAL,PLANNER_READONLY,BUILDER_MINIMAL,REVIEWER_GRAPH}_TOOLS",
                 "tool_deprecation (v1.13.27 allowlist, surfaced separately)",
+                "PENDING_D3_ALLOWLIST (#346 dispatch-only carve-out, surfaced separately)",
             ],
             "summary": {
                 "toml_tool_count": toml_tools.len(),
@@ -241,6 +260,7 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
                 "preset_member_count": preset_members.len(),
                 "intentional_deprecation_count": intentional_deprecation.len(),
                 "intentional_feature_gated_count": intentional_feature_gated.len(),
+                "pending_d3_allowlisted_count": pending_d3_allowlisted.len(),
             },
             "violations": {
                 "missing_in_dispatch": missing_in_dispatch,
@@ -249,6 +269,7 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
             },
             "intentional_deprecation": intentional_deprecation,
             "intentional_feature_gated": intentional_feature_gated,
+            "pending_d3_allowlisted": pending_d3_allowlisted,
             "next_actions": next_actions,
         }),
         success_meta(BackendKind::Config, 1.0),

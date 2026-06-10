@@ -202,6 +202,27 @@ mod surface_audit_tests {
     }
 
     #[test]
+    fn audit_surfaces_pending_d3_allowlist_without_violations() {
+        // #346: the 9 dispatch-only symbolic-edit/refactor tools are an
+        // explicit carve-out, not drift. They must land in the
+        // `pending_d3_allowlisted` bucket (mirroring the script's
+        // DISPATCH_ONLY_ALLOWLIST) while `all_clean` stays true.
+        let state = make_state();
+        let (payload, _meta) = super::super::audit_tool_surface_consistency(&state, &json!({}))
+            .expect("audit succeeds");
+        let bucket = payload["pending_d3_allowlisted"]
+            .as_array()
+            .expect("pending_d3_allowlisted bucket present");
+        for name in crate::tools::PENDING_D3_ALLOWLIST {
+            assert!(
+                bucket.iter().any(|v| v == name),
+                "{name} must be surfaced in pending_d3_allowlisted, got {bucket:?}"
+            );
+        }
+        assert_eq!(payload["all_clean"].as_bool(), Some(true));
+    }
+
+    #[test]
     fn audit_self_includes_itself_in_dispatch() {
         // Once the dispatch_table arm + tools.toml entry land in the
         // same PR, calling the audit must see itself on both sides:

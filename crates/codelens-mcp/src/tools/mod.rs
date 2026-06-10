@@ -206,6 +206,24 @@ pub(crate) const TOMBSTONED_TOOLS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Pending ADR-0009/D3 (#346): the symbolic edit core + refactor
+/// substrate stay dispatch-only — callable but schemaless — until the
+/// re-listing decision. Must stay member-identical to
+/// `DISPATCH_ONLY_ALLOWLIST` in `scripts/regen-tool-defs.py`; the
+/// script enforces its side via `--enforce-drift`, the runtime
+/// `audit_tool_surface_consistency` consumes this side.
+pub(crate) const PENDING_D3_ALLOWLIST: &[&str] = &[
+    "replace_symbol_body",
+    "insert_before_symbol",
+    "insert_after_symbol",
+    "rename_symbol",
+    "refactor_extract_function",
+    "refactor_inline_function",
+    "refactor_move_to_file",
+    "refactor_change_signature",
+    "propagate_deletions",
+];
+
 /// Replacement hint for a tombstoned tool name, if any.
 pub(crate) fn tombstone_guidance(name: &str) -> Option<&'static str> {
     TOMBSTONED_TOOLS
