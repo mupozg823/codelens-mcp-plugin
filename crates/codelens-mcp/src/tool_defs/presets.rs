@@ -222,6 +222,10 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "get_symbols_overview",
     "get_ranked_context",
     "find_referencing_symbols",
+    // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
+    "find_declaration",
+    "find_implementations",
+    "get_diagnostics_for_symbol",
     // Phase 4a §capability-reporting: semantic_search belongs in
     // planner surface. Planners are read-only/exploratory — natural-
     // language search is the primary use case, and the engine now
@@ -269,6 +273,10 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "get_ranked_context",
     "find_referencing_symbols",
     "get_file_diagnostics",
+    // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
+    "find_declaration",
+    "find_implementations",
+    "get_diagnostics_for_symbol",
     "find_tests",
     "refresh_symbol_index",
     "get_callers",
@@ -327,6 +335,10 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "index_embeddings",
     // Diagnostics
     "get_file_diagnostics",
+    // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
+    "find_declaration",
+    "find_implementations",
+    "get_diagnostics_for_symbol",
     // Graph / impact
     "get_callers",
     "get_callees",

@@ -78,6 +78,10 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "resolve_symbol_target"        => lsp::resolve_symbol_target,
         "plan_symbol_rename"           => lsp::plan_symbol_rename,
         "get_lsp_recipe"               => lsp::get_lsp_recipe,
+        // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
+        "find_declaration"             => lsp::find_declaration,
+        "find_implementations"         => lsp::find_implementations,
+        "get_diagnostics_for_symbol"   => lsp::get_diagnostics_for_symbol,
         // ── Analysis ──
         "get_changed_files"            => graph::get_changed_files_tool,
         "get_symbol_importance"        => graph::get_symbol_importance,

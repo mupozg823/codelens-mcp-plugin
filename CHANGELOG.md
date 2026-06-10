@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **D1 LSP read trio: `find_declaration` / `find_implementations` / `get_diagnostics_for_symbol` (#346 Phase 4)** — Serena-parity read navigation surfaced on planner-readonly / builder-minimal / reviewer-graph. The navigation pair resolves the position from the symbol index by name (no manual line/column needed) and rides the existing `resolve_symbol_target` engine path; `get_diagnostics_for_symbol` filters the `get_file_diagnostics` pipeline (SCIP→LSP, classification/suppression intact) to one symbol's span (definition line through body end). All three honor the read-surface degradation contract: when no LSP server is reachable they return a successful empty result with `degraded_reason` + `fallback_hint` (`find_symbol`, `bm25_symbol_search`) instead of erroring. Live dogfood on the redeployed daemons: `find_implementations(PreciseBackend)` → `scip_backend/navigation.rs:16`, warm `find_declaration(make_symbol_id)` → `symbols/types.rs:198`, `get_diagnostics_for_symbol(resolve_symbol_position)` → span 14..24, 0 diagnostics on a clean file.
+
+### Changed
+
+- **Ghost-tool resolution (#346 Phases 1–3)** — the 20 dispatch-only ghosts split: 8 line-edit tools (`create_text_file`, `delete_lines`, `insert_at_line`, `replace_lines`, `replace_content`, `insert_content`, `replace`, `add_import`) are tombstoned with replacement guidance pointing at host-native Edit/Write; 9 symbolic-edit/refactor tools stay dispatch-only on a pending-D3 allowlist; `onboard_project` / `analyze_change_request` / `orchestrate_change` are promoted to first-class tools.toml entries and now actually list (they had been silently filtered by the v1.13.27 deprecation list). `regen-tool-defs.py --enforce-drift` gates CI on unexplained dispatch/schema/preset drift and tombstone re-introduction; `audit_tool_surface_consistency` reports the same vocabulary at runtime via a new `surface_drift` section plus a `tombstone_reintroduced` violation bucket.
+
 ### Documented
 
 - **Self-auditability cycle dogfood — first real-call audit of the resurrected detectors (2026-05-21)** — after daemon redeploy of `b07d577` activated the new schemas, calling each detector against this repo surfaced concrete findings instead of empty payloads. Notes recorded so the next operator has the audit-trail without re-running the daemon:

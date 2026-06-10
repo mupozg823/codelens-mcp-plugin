@@ -818,3 +818,266 @@ fn find_referencing_symbols_lsp_low_count_surfaces_ts_structural_evidence() {
         "LSP low-count + structural evidence must be downgraded from precise confidence: {payload}"
     );
 }
+
+// ── D1 (#346 Phase 4): LSP read trio — find_declaration /
+//    find_implementations / get_diagnostics_for_symbol ────────────────
+
+/// Mock LSP answering declaration with one location and implementation
+/// with two, echoing back the request's document URI so the engine's
+/// path conversion resolves to the fixture file.
+fn write_mock_navigation_lsp(project: &ProjectRoot, name: &str) -> std::path::PathBuf {
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'textDocumentSync':1,'declarationProvider':True,'implementationProvider':True}}})\n",
+        "    elif m == 'textDocument/declaration':\n",
+        "        uri = msg['params']['textDocument']['uri']\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':[{'uri':uri,'range':{'start':{'line':0,'character':4},'end':{'line':0,'character':9}}}]})\n",
+        "    elif m == 'textDocument/implementation':\n",
+        "        uri = msg['params']['textDocument']['uri']\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':[\n",
+        "            {'uri':uri,'range':{'start':{'line':0,'character':4},'end':{'line':0,'character':9}}},\n",
+        "            {'uri':uri,'range':{'start':{'line':4,'character':4},'end':{'line':4,'character':8}}}\n",
+        "        ]})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let mock_path = project.as_path().join(name);
+    fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    mock_path
+}
+
+#[test]
+fn find_declaration_returns_locations_via_mock_lsp() {
+    let project = project_root();
+    let mock_path = write_mock_navigation_lsp(&project, "mock_nav_lsp.py");
+    fs::write(
+        project.as_path().join("nav_decl.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_declaration",
+        json!({
+            "relative_path": "nav_decl.py",
+            "symbol_name": "alpha",
+            "command": "python3",
+            "args": [mock_path.to_string_lossy()]
+        }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(payload["data"]["operation"], json!("declaration"));
+    assert_eq!(payload["data"]["count"], json!(1), "{payload}");
+    let target = &payload["data"]["targets"][0];
+    assert!(
+        target["file_path"]
+            .as_str()
+            .unwrap_or("")
+            .contains("nav_decl.py"),
+        "{payload}"
+    );
+}
+
+#[test]
+fn find_implementations_returns_locations_via_mock_lsp() {
+    let project = project_root();
+    let mock_path = write_mock_navigation_lsp(&project, "mock_nav_impl_lsp.py");
+    fs::write(
+        project.as_path().join("nav_impl.py"),
+        "def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_implementations",
+        json!({
+            "relative_path": "nav_impl.py",
+            "symbol_name": "alpha",
+            "command": "python3",
+            "args": [mock_path.to_string_lossy()]
+        }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(payload["data"]["operation"], json!("implementation"));
+    assert_eq!(payload["data"]["count"], json!(2), "{payload}");
+}
+
+#[test]
+fn navigation_tools_degrade_gracefully_without_lsp() {
+    // D1 contract: LSP-absent is a degraded SUCCESS, not an error —
+    // the payload carries degraded_reason + fallback_hint steering the
+    // caller to index-backed tools.
+    let project = project_root();
+    fs::write(
+        project.as_path().join("nav_degraded.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    for tool in ["find_declaration", "find_implementations"] {
+        let payload = call_tool(
+            &state,
+            tool,
+            json!({
+                "relative_path": "nav_degraded.py",
+                "symbol_name": "alpha",
+                "command": "definitely-not-a-real-lsp-binary-xyz"
+            }),
+        );
+        assert_eq!(payload["success"], json!(true), "{tool}: {payload}");
+        assert_eq!(payload["data"]["count"], json!(0), "{tool}: {payload}");
+        assert!(
+            payload["data"]["degraded_reason"]
+                .as_str()
+                .map(|reason| !reason.is_empty())
+                .unwrap_or(false),
+            "{tool} must carry degraded_reason: {payload}"
+        );
+        let hints = payload["data"]["fallback_hint"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            hints.iter().any(|hint| hint == "find_symbol")
+                && hints.iter().any(|hint| hint == "bm25_symbol_search"),
+            "{tool} fallback_hint must steer to index-backed tools: {payload}"
+        );
+    }
+}
+
+#[test]
+fn get_diagnostics_for_symbol_filters_to_symbol_span() {
+    let project = project_root();
+    // Mock emits two diagnostics: line 2 (inside alpha) and line 6
+    // (inside beta), 1-based. Asking for beta must return only beta's.
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'textDocumentSync':1,'diagnosticProvider':{}}}})\n",
+        "    elif m == 'textDocument/diagnostic':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'kind':'full','items':[\n",
+        "            {'range':{'start':{'line':1,'character':4},'end':{'line':1,'character':9}},'severity':2,'message':'alpha warning'},\n",
+        "            {'range':{'start':{'line':5,'character':4},'end':{'line':5,'character':9}},'severity':2,'message':'beta warning'}\n",
+        "        ]}})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let mock_path = project.as_path().join("mock_symbol_diag_lsp.py");
+    fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    fs::write(
+        project.as_path().join("two_symbols.py"),
+        "def alpha():\n    x = 1\n    return x\n\ndef beta():\n    y = 2\n    return y\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_diagnostics_for_symbol",
+        json!({
+            "relative_path": "two_symbols.py",
+            "symbol_name": "beta",
+            "command": "python3",
+            "args": [mock_path.to_string_lossy()]
+        }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(payload["data"]["count"], json!(1), "{payload}");
+    assert_eq!(
+        payload["data"]["diagnostics"][0]["message"],
+        json!("beta warning"),
+        "{payload}"
+    );
+    assert_eq!(payload["data"]["symbol"]["name"], json!("beta"));
+    assert!(
+        payload["data"]["symbol"]["span"]["start_line"].is_u64(),
+        "symbol span must be reported: {payload}"
+    );
+}
+
+#[test]
+fn lsp_read_trio_visible_on_read_surfaces() {
+    use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
+    for name in [
+        "find_declaration",
+        "find_implementations",
+        "get_diagnostics_for_symbol",
+    ] {
+        assert!(
+            crate::tool_defs::tools().iter().any(|t| t.name == name),
+            "{name} must be registered in tools.toml"
+        );
+        for profile in [
+            ToolProfile::PlannerReadonly,
+            ToolProfile::ReviewerGraph,
+            ToolProfile::BuilderMinimal,
+        ] {
+            assert!(
+                is_tool_in_surface(name, ToolSurface::Profile(profile)),
+                "{name} must be visible on {profile:?}"
+            );
+        }
+    }
+}

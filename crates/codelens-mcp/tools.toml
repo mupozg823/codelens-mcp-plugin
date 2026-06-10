@@ -355,6 +355,71 @@ command = { type = "string" }
 args = { type = "array", items = { type = "string" } }
 max_results = { type = "integer" }
 
+
+[[tool]]
+name = "find_declaration"
+category = "lsp"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Symbol] Jump to a symbol's declaration via LSP, resolving the position from the index by name. Degrades to an empty result with a fallback hint when no LSP server is available."
+annotations = "ro_p"
+output_schema = "lsp_navigation_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["path"]
+[tool.input_schema.properties]
+path = { type = "string" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+symbol_name = { type = "string", description = "Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given." }
+line = { type = "integer", description = "1-based source line (alternative to symbol_name)" }
+column = { type = "integer", description = "1-based byte column (alternative to symbol_name)" }
+command = { type = "string" }
+args = { type = "array", items = { type = "string" } }
+max_results = { type = "integer" }
+
+[[tool]]
+name = "find_implementations"
+category = "lsp"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Symbol] List implementations of a trait/interface/abstract symbol via LSP, resolving the position from the index by name. Degrades to an empty result with a fallback hint when no LSP server is available."
+annotations = "ro_p"
+output_schema = "lsp_navigation_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["path"]
+[tool.input_schema.properties]
+path = { type = "string" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+symbol_name = { type = "string", description = "Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given." }
+line = { type = "integer", description = "1-based source line (alternative to symbol_name)" }
+column = { type = "integer", description = "1-based byte column (alternative to symbol_name)" }
+command = { type = "string" }
+args = { type = "array", items = { type = "string" } }
+max_results = { type = "integer" }
+
+[[tool]]
+name = "get_diagnostics_for_symbol"
+category = "lsp"
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Symbol] Type errors and lint issues narrowed to one symbol's span (definition line through body end). Degrades to an empty result with a fallback hint when no LSP server is available."
+annotations = "ro_p"
+output_schema = "symbol_diagnostics_output_schema"
+
+[tool.input_schema]
+type = "object"
+required = ["path", "symbol_name"]
+[tool.input_schema.properties]
+path = { type = "string" }
+file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
+symbol_name = { type = "string", description = "Symbol whose span filters the file diagnostics" }
+command = { type = "string" }
+args = { type = "array", items = { type = "string" } }
+max_results = { type = "integer" }
+
 # ─────
 
 [[tool]]

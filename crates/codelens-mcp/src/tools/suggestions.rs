@@ -377,8 +377,9 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "get_symbols_overview" => &["find_symbol", "impact_report", "get_ranked_context"],
         "find_symbol" => &[
             "find_referencing_symbols",
+            "find_declaration",
+            "find_implementations",
             "impact_report",
-            "replace_symbol_body",
         ],
         "get_ranked_context" => &["find_symbol", "replace_symbol_body", "semantic_search"],
         "refresh_symbol_index" => &["index_embeddings", "get_symbols_overview"],
@@ -388,6 +389,9 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
 
         // ── LSP ──────────────────────────────────────────────────────
         "find_referencing_symbols" => &["impact_report", "rename_symbol"],
+        "find_declaration" => &["find_referencing_symbols", "get_diagnostics_for_symbol"],
+        "find_implementations" => &["find_referencing_symbols", "get_type_hierarchy"],
+        "get_diagnostics_for_symbol" => &["get_file_diagnostics", "find_symbol"],
         "get_file_diagnostics" => &["find_symbol", "get_symbols_overview"],
         "search_workspace_symbols" => &["find_symbol", "get_symbols_overview"],
         "get_type_hierarchy" => &["find_referencing_symbols", "get_symbols_overview"],

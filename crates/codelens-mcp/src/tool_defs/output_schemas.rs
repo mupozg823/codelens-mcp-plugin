@@ -16,11 +16,13 @@ pub(super) use symbols::bm25_symbol_search_output_schema;
 pub(super) use symbols::diagnostics_output_schema;
 pub(super) use symbols::get_callees_output_schema;
 pub(super) use symbols::get_callers_output_schema;
+pub(super) use symbols::lsp_navigation_output_schema;
 pub(super) use symbols::ranked_context_output_schema;
 pub(super) use symbols::references_output_schema;
 pub(super) use symbols::resolve_symbol_target_output_schema;
 #[cfg(feature = "semantic")]
 pub(super) use symbols::semantic_search_output_schema;
+pub(super) use symbols::symbol_diagnostics_output_schema;
 pub(super) use symbols::symbol_output_schema;
 
 // Re-export jobs submodule.
