@@ -9,8 +9,8 @@
 
 - Workspace version: `1.13.32`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
-- Registered tool definitions in source: `81`
-- Tool output schemas in source: `52 / 81`
+- Registered tool definitions in source: `84`
+- Tool output schemas in source: `52 / 84`
 - Supported language families: `30` across `49` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 
