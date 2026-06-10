@@ -266,52 +266,52 @@ generated const (Task 3.3), see Notes
 **Goal**: `find_declaration`, `find_implementations`, `get_diagnostics_for_symbol` listed and
 working with graceful degradation; daemons redeployed; dogfood evidence recorded.
 **Estimated Time**: ~3–4h
-**Status**: ⏳ Pending
+**Status**: ✅ Complete (2026-06-10)
 
 #### Tasks
 
 **🔴 RED: Write Failing Tests First**
 
-- [ ] **Test 4.1**: contract tests ×3 tools — mock-LSP path (reuse the mock LSP harness from the
+- [x] **Test 4.1**: contract tests ×3 tools — mock-LSP path (reuse the mock LSP harness from the
       P0-2 union work): declaration/implementations return locations with `confidence:
       semantic_grade`; expected FAIL (handlers absent)
-- [ ] **Test 4.2**: LSP-absent path — response carries `degraded_reason` +
+- [x] **Test 4.2**: LSP-absent path — response carries `degraded_reason` +
       `fallback_hint` (→ `find_symbol` / `bm25_symbol_search`), exit success not error
-- [ ] **Test 4.3**: `get_diagnostics_for_symbol` filters `get_file_diagnostics` to the symbol's
+- [x] **Test 4.3**: `get_diagnostics_for_symbol` filters `get_file_diagnostics` to the symbol's
       span (fixture file with 2 symbols, diagnostics in both → only target symbol's returned)
-- [ ] **Test 4.4**: `protocol_tools_list` membership — all three visible under planner-readonly /
+- [x] **Test 4.4**: `protocol_tools_list` membership — all three visible under planner-readonly /
       reviewer-graph / builder-minimal
 
 **🟢 GREEN: Implement to Make Tests Pass**
 
-- [ ] **Task 4.5**: handlers in `tools/lsp/` (`navigation.rs` new or extend `symbols.rs`):
+- [x] **Task 4.5**: handlers in `tools/lsp/` (`navigation.rs` new or extend `symbols.rs`):
       `find_declaration` / `find_implementations` via engine `session_requests.rs` op names
       (`declaration`, `implementation`); resolve target position from index (`find_symbol`
       resolution path), convert locations with existing helpers
-- [ ] **Task 4.6**: `get_diagnostics_for_symbol` in `tools/lsp/diagnostics.rs` — symbol span from
+- [x] **Task 4.6**: `get_diagnostics_for_symbol` in `tools/lsp/diagnostics.rs` — symbol span from
       symbols index, filter diagnostics by range overlap
-- [ ] **Task 4.7**: `tools.toml` entries (D7-clean descriptions, `[CodeLens:Symbol]` prefix,
+- [x] **Task 4.7**: `tools.toml` entries (D7-clean descriptions, `[CodeLens:Symbol]` prefix,
       `preset_tags` ×3 surfaces, `annotations: ro_p`, `output_schema`s) + regen `--write`;
       `suggestions.rs` chains: `find_symbol` → `find_declaration`/`find_implementations`;
       post-tools include `get_file_diagnostics`
-- [ ] **Task 4.8**: redeploy daemons (`bash scripts/redeploy-daemons.sh --build --probe`) and run
+- [x] **Task 4.8**: redeploy daemons (`bash scripts/redeploy-daemons.sh --build --probe`) and run
       live dogfood: `find_implementations` on a repo trait (e.g. a tool handler trait),
       `find_declaration` on an engine symbol, `get_diagnostics_for_symbol` on a file with a known
       warning — record outputs in Notes
 
 **🔵 REFACTOR**
 
-- [ ] **Task 4.9**: extract shared "resolve symbol → LSP position" helper if duplicated across the
+- [x] **Task 4.9**: extract shared "resolve symbol → LSP position" helper if duplicated across the
       two navigation handlers; keep helpers file-private (repo seam rules)
 
 #### Quality Gate ✋
 
-- [ ] TDD evidence; all new contract tests green
-- [ ] Full matrix (same command set as Phase 2 gate) green
-- [ ] regen `--check --enforce-drift` · surface-manifest `--check` · lint-datasets green
-- [ ] Daemon redeploy verified: 7838/7839 LISTEN + `tools/list` probe includes the 3 tools +
+- [x] TDD evidence; all new contract tests green
+- [x] Full matrix (same command set as Phase 2 gate) green
+- [x] regen `--check --enforce-drift` · surface-manifest `--check` · lint-datasets green
+- [x] Daemon redeploy verified: 7838/7839 LISTEN + `tools/list` probe includes the 3 tools +
       `daemon-stale-check.sh` in-sync
-- [ ] Dogfood evidence recorded in Notes (commands + outputs)
+- [x] Dogfood evidence recorded in Notes (commands + outputs)
 
 ---
 
@@ -352,9 +352,9 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
 - **Phase 1 (script gate, warn)**: ✅ 100%
 - **Phase 2 (ghost resolution + enforce)**: ✅ 100%
 - **Phase 3 (runtime audit)**: ✅ 100%
-- **Phase 4 (3 LSP read tools)**: ⏳ 0%
+- **Phase 4 (3 LSP read tools)**: ✅ 100%
 
-**Overall Progress**: 75% (Phase 3/4)
+**Overall Progress**: 100% (Phase 4/4) — plan complete 2026-06-10
 
 ### Time Tracking
 
@@ -363,7 +363,7 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
 | Phase 1 | 2h | ~1.5h | -0.5h |
 | Phase 2 | 3–4h | ~4.5h | +0.5–1.5h |
 | Phase 3 | 2–3h | ~1h | -1–2h (Phase 2 후속에서 seam 선행 구축) |
-| Phase 4 | 3–4h | — | — |
+| Phase 4 | 3–4h | ~2.5h | -0.5–1.5h |
 | **Total** | 10–13h | — | — |
 
 ---
@@ -436,6 +436,30 @@ Each phase = one (or two: code + regenerated docs) commit on the feature branch;
 - Phase 3 — protocol detail pinned: tombstoned calls keep JSON-RPC `-32601` (unknown tool)
   with the guidance string in `error.message`; the tool-payload channel stays empty, so tests
   must assert on the raw response, not `call_tool`'s parsed payload.
+- Phase 4 (2026-06-10) — **dogfood evidence (live daemons, redeployed twice — dirty build then
+  clean `26cc49e`, `daemon-stale-check` in sync, 7838/7839 LISTEN + tools/list probes OK,
+  trio LISTED on :7839 reviewer-graph)**:
+  - `find_implementations(PreciseBackend @ engine/ir.rs)` → count 1:
+    `crates/codelens-engine/src/scip_backend/navigation.rs:16` (the ScipBackend impl) — real
+    rust-analyzer result on this workspace.
+  - `find_declaration(make_symbol_id @ engine/symbols/types.rs)` → cold call count 0 (success,
+    not degraded — rust-analyzer answered null while indexing), warm retry count 1 →
+    `symbols/types.rs:198`. Cold-LSP empty-success is expected behavior, worth knowing for
+    agent UX (suggest retry after prewarm).
+  - `get_diagnostics_for_symbol(resolve_symbol_position @ tools/lsp/rename.rs)` → success,
+    span `{start_line:14, end_line:24}` (matches source exactly), 0/0 diagnostics on a clean
+    file.
+  - Negative paths exercised live: wrong file → clear Validation message; worktree-only file
+    against the main-repo daemon → index lookup error (error context string improved
+    in-session to name the cause).
+- Phase 4 — **`relative_path` alias is a per-tool allowlist** in
+  `dispatch/envelope.rs::apply_path_alias_normalisation`, and schema pre-validation runs after
+  it: a new tool whose schema requires `path` rejects `relative_path` callers until the tool
+  joins that allowlist. Cost ~1 debug cycle; remember for every future tool that adopts the
+  path-alias convention.
+- Phase 4 — Test 4.1's "confidence: semantic_grade" sketch materialized as meta
+  confidence 0.95 (LSP) / 0.3 + `degraded_reason` (degraded) via the existing
+  `success_meta`/`degraded_meta` convention rather than a new payload field.
 
 ### Blockers Encountered
 
