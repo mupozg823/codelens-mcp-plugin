@@ -1,7 +1,7 @@
 //! Output schemas for harness capabilities, configuration, and session tools.
 
-use serde_json::json;
 use super::jobs::activate_project_output_schema;
+use serde_json::json;
 
 fn health_summary_output_schema() -> serde_json::Value {
     json!({

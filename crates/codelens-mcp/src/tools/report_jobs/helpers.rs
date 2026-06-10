@@ -9,19 +9,13 @@ pub(super) fn run_job_kind(state: &AppState, kind: &str, arguments: &Value) -> T
     match kind {
         "impact_report" => super::super::reports::impact_report(state, arguments),
         "dead_code_report" => super::super::reports::dead_code_report(state, arguments),
-        "refactor_safety_report" => {
-            super::super::reports::refactor_safety_report(state, arguments)
-        }
-        "module_boundary_report" => {
-            super::super::reports::module_boundary_report(state, arguments)
-        }
+        "refactor_safety_report" => super::super::reports::refactor_safety_report(state, arguments),
+        "module_boundary_report" => super::super::reports::module_boundary_report(state, arguments),
         "safe_rename_report" => super::super::reports::safe_rename_report(state, arguments),
         "diff_aware_references" => super::super::reports::diff_aware_references(state, arguments),
         "semantic_code_review" => super::super::reports::semantic_code_review(state, arguments),
         "orchestrate_change" => super::super::reports::orchestrate_change(state, arguments),
-        "analyze_change_request" => {
-            super::super::reports::analyze_change_request(state, arguments)
-        }
+        "analyze_change_request" => super::super::reports::analyze_change_request(state, arguments),
         "verify_change_readiness" => {
             super::super::reports::verify_change_readiness(state, arguments)
         }

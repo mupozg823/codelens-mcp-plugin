@@ -1,10 +1,10 @@
-use super::helpers::{estimated_sections_for_kind, job_handle_fields};
 use super::super::{AppState, ToolResult, required_string, success_meta};
+use super::helpers::{estimated_sections_for_kind, job_handle_fields};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
+use crate::resources::analysis_summary_resource;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use crate::resources::analysis_summary_resource;
 
 pub fn start_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
     let kind = required_string(arguments, "kind")?.to_owned();
@@ -281,8 +281,10 @@ pub fn retry_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
 
 #[cfg(test)]
 mod tests {
+    use super::super::helpers::{
+        debug_step_delay_ms, estimated_sections_for_kind, job_handle_fields,
+    };
     use super::*;
-    use super::super::helpers::{debug_step_delay_ms, estimated_sections_for_kind, job_handle_fields};
 
     #[test]
     fn debug_step_delay_ms_default_zero() {

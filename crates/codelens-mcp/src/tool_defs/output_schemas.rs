@@ -12,47 +12,47 @@ mod misc;
 mod symbols;
 
 // Re-export symbols submodule at the original pub(super) = tool_defs level.
-pub(super) use symbols::symbol_output_schema;
-pub(super) use symbols::ranked_context_output_schema;
 pub(super) use symbols::bm25_symbol_search_output_schema;
-#[cfg(feature = "semantic")]
-pub(super) use symbols::semantic_search_output_schema;
+pub(super) use symbols::diagnostics_output_schema;
+pub(super) use symbols::get_callees_output_schema;
+pub(super) use symbols::get_callers_output_schema;
+pub(super) use symbols::ranked_context_output_schema;
 pub(super) use symbols::references_output_schema;
 pub(super) use symbols::resolve_symbol_target_output_schema;
-pub(super) use symbols::get_callers_output_schema;
-pub(super) use symbols::get_callees_output_schema;
-pub(super) use symbols::diagnostics_output_schema;
+#[cfg(feature = "semantic")]
+pub(super) use symbols::semantic_search_output_schema;
+pub(super) use symbols::symbol_output_schema;
 
 // Re-export jobs submodule.
-pub(super) use jobs::analysis_handle_output_schema;
-pub(super) use jobs::workflow_alias_output_schema;
-pub(super) use jobs::analysis_section_output_schema;
-pub(super) use jobs::analysis_job_output_schema;
-pub(super) use jobs::analysis_job_list_output_schema;
-pub(super) use jobs::analysis_artifact_list_output_schema;
 pub(super) use jobs::activate_project_output_schema;
+pub(super) use jobs::analysis_artifact_list_output_schema;
+pub(super) use jobs::analysis_handle_output_schema;
+pub(super) use jobs::analysis_job_list_output_schema;
+pub(super) use jobs::analysis_job_output_schema;
+pub(super) use jobs::analysis_section_output_schema;
+pub(super) use jobs::workflow_alias_output_schema;
 
 // Re-export harness submodule.
-pub(super) use harness::prepare_harness_session_output_schema;
-pub(super) use harness::get_capabilities_output_schema;
-pub(super) use harness::get_current_config_output_schema;
 pub(super) use harness::find_annotations_output_schema;
 pub(super) use harness::find_tests_output_schema;
+pub(super) use harness::get_capabilities_output_schema;
+pub(super) use harness::get_current_config_output_schema;
 pub(super) use harness::get_type_hierarchy_output_schema;
+pub(super) use harness::prepare_harness_session_output_schema;
 
 // Re-export misc submodule (pub(super) items).
-pub(super) use misc::file_content_output_schema;
-pub(super) use misc::changed_files_output_schema;
-pub(super) use misc::prune_index_failures_output_schema;
-pub(super) use misc::watch_status_output_schema;
-pub(super) use misc::tool_metrics_output_schema;
 pub(super) use misc::builder_session_audit_output_schema;
-pub(super) use misc::planner_session_audit_output_schema;
-pub(super) use misc::session_markdown_output_schema;
+pub(super) use misc::changed_files_output_schema;
+pub(super) use misc::file_content_output_schema;
 pub(super) use misc::memory_list_output_schema;
+pub(super) use misc::planner_session_audit_output_schema;
+pub(super) use misc::prune_index_failures_output_schema;
+pub(super) use misc::session_markdown_output_schema;
+pub(super) use misc::tool_metrics_output_schema;
+pub(super) use misc::watch_status_output_schema;
 
 // Re-export the 4 pub fn items from misc at their original pub visibility.
-pub use misc::register_agent_work_output_schema;
-pub use misc::list_active_agents_output_schema;
 pub use misc::claim_files_output_schema;
+pub use misc::list_active_agents_output_schema;
+pub use misc::register_agent_work_output_schema;
 pub use misc::release_files_output_schema;
