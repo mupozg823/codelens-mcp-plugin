@@ -362,3 +362,49 @@ fn nfd_hangul_symbol_round_trips_via_nfc() {
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].1, "src/lib.rs");
 }
+
+/// #353: call-graph edges follow the same NFC contract as symbols —
+/// NFD-source caller/callee names insert as NFC and are found by NFC
+/// (and NFD) queries on both directions.
+#[test]
+fn nfd_hangul_call_edges_round_trip_via_nfc() {
+    let nfd_caller = "\u{1112}\u{116e}\u{110b}\u{116f}\u{11ab}\u{1111}\u{1161}\u{1109}\u{1165}"; // "후원파서"
+    let nfd_callee =
+        "\u{1100}\u{1173}\u{11b7}\u{110b}\u{1162}\u{11a8}_\u{110e}\u{116e}\u{110e}\u{116e}\u{11af}"; // "금액_추출"
+    let nfc_caller = "후원파서";
+    let nfc_callee = "금액_추출";
+    assert_ne!(nfd_caller.as_bytes(), nfc_caller.as_bytes());
+
+    let db = IndexDb::open_memory().unwrap();
+    let fid = db
+        .upsert_file("src/p.py", 100, "h1", 10, Some("py"))
+        .unwrap();
+    db.insert_calls(
+        fid,
+        &[NewCall {
+            caller_name: nfd_caller.to_owned(),
+            callee_name: nfd_callee.to_owned(),
+            line: 15,
+        }],
+    )
+    .unwrap();
+
+    let callers = db.get_callers_cached(nfc_callee, 10).unwrap();
+    assert_eq!(
+        callers.len(),
+        1,
+        "NFC callee query must hit the NFD-source edge"
+    );
+    assert_eq!(callers[0].1, nfc_caller, "stored caller is canonical NFC");
+
+    let callers_nfd = db.get_callers_cached(nfd_callee, 10).unwrap();
+    assert_eq!(
+        callers_nfd.len(),
+        1,
+        "NFD callee query normalizes and hits too"
+    );
+
+    let callees = db.get_callees_cached(nfc_caller, None, 10).unwrap();
+    assert_eq!(callees.len(), 1);
+    assert_eq!(callees[0].0, nfc_callee);
+}

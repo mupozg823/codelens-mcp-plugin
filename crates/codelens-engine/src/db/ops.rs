@@ -225,10 +225,15 @@ pub(crate) fn insert_calls(conn: &Connection, file_id: i64, calls: &[NewCall]) -
          VALUES (?1, ?2, ?3, ?4)",
     )?;
     for call in calls {
+        // #353: same NFC contract as the symbols table (#349) — the
+        // `caller_name`/`callee_name` columns hold NFC so byte-exact
+        // lookups match the NFC queries agents type.
+        let caller_name = crate::unicode::nfc_identifier(&call.caller_name);
+        let callee_name = crate::unicode::nfc_identifier(&call.callee_name);
         stmt.execute(params![
             file_id,
-            call.caller_name,
-            call.callee_name,
+            caller_name.as_ref(),
+            callee_name.as_ref(),
             call.line
         ])?;
     }
@@ -950,6 +955,9 @@ impl IndexDb {
         callee_name: &str,
         max_results: usize,
     ) -> Result<Vec<(String, String, i64)>> {
+        // #353: stored call-edge names are NFC — normalize the query side.
+        let callee_name = crate::unicode::nfc_identifier(callee_name);
+        let callee_name = callee_name.as_ref();
         let mut stmt = self.conn.prepare_cached(
             "SELECT f.relative_path, c.caller_name, c.line FROM calls c
              JOIN files f ON c.caller_file_id = f.id
@@ -972,6 +980,9 @@ impl IndexDb {
         file_path: Option<&str>,
         max_results: usize,
     ) -> Result<Vec<(String, i64)>> {
+        // #353: stored call-edge names are NFC — normalize the query side.
+        let caller_name = crate::unicode::nfc_identifier(caller_name);
+        let caller_name = caller_name.as_ref();
         let (sql, use_file) = match file_path {
             Some(_) => (
                 "SELECT c.callee_name, c.line FROM calls c
