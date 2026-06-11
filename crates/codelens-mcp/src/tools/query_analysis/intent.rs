@@ -137,7 +137,11 @@ fn semantic_identifier_query(alias: &str) -> String {
 }
 
 pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
-    let trimmed = query.trim();
+    // #353: the symbol corpus holds NFC identifiers (#349) — normalize the
+    // query once here so every retrieval lane this analysis feeds (BM25F
+    // sparse, ranked-context fusion) matches NFD-pasted Hangul queries.
+    let normalized = codelens_engine::unicode::nfc_identifier(query.trim());
+    let trimmed = normalized.as_ref();
     if trimmed.is_empty() {
         return RetrievalQueryAnalysis {
             original_query: String::new(),
@@ -207,4 +211,20 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
 
 pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
     analyze_retrieval_query(query).semantic_query
+}
+
+#[cfg(test)]
+mod nfc_query_tests {
+    use super::analyze_retrieval_query;
+
+    /// #353: retrieval queries normalize to NFC so they match the
+    /// NFC symbol corpus (#349) regardless of how the Hangul was pasted.
+    #[test]
+    fn nfd_hangul_query_normalizes_to_nfc() {
+        // "금액_추출" decomposed into jamo (NFD).
+        let nfd = "\u{1100}\u{1173}\u{11b7}\u{110b}\u{1162}\u{11a8}_\u{110e}\u{116e}\u{110e}\u{116e}\u{11af}";
+        let analysis = analyze_retrieval_query(nfd);
+        assert_eq!(analysis.original_query, "금액_추출");
+        assert!(analysis.expanded_query.contains("금액_추출"));
+    }
 }

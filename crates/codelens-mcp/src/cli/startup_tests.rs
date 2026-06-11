@@ -371,16 +371,23 @@ fn doctor_report_treats_matching_toml_section_as_exact_even_with_extra_sections(
     let cwd = root.join("repo");
     std::fs::create_dir_all(home.join(".codex")).unwrap();
     std::fs::create_dir_all(&cwd).unwrap();
+    // #353: the canonical codex template now stamps the workspace binding
+    // header, so an "exact" fixture carries it too. This direct
+    // render_doctor_report call stamps the `cwd` argument verbatim.
     std::fs::write(
         home.join(".codex/config.toml"),
-        r#"sandbox_mode = "workspace-write"
+        format!(
+            r#"sandbox_mode = "workspace-write"
 
 [mcp_servers.codelens]
 url = "http://127.0.0.1:7837/mcp"
+http_headers = {{ "x-codelens-project" = "{}" }}
 
 [mcp_servers.other]
 url = "http://127.0.0.1:9999/mcp"
 "#,
+            cwd.to_string_lossy()
+        ),
     )
     .unwrap();
 

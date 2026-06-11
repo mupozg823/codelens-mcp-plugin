@@ -13,7 +13,10 @@ use codelens_engine::search_symbols_hybrid_with_semantic;
 use serde_json::{Value, json};
 
 pub fn search_symbols_fuzzy(state: &AppState, arguments: &Value) -> ToolResult {
-    let query = required_string(arguments, "query")?;
+    // #353: corpus identifiers are NFC (#349) — normalize NFD-pasted
+    // Hangul queries so the fuzzy lane matches like the DB lanes do.
+    let query = codelens_engine::unicode::nfc_identifier(required_string(arguments, "query")?);
+    let query = query.as_ref();
     let max_results = optional_usize(arguments, "max_results", 30);
     let fuzzy_threshold = arguments
         .get("fuzzy_threshold")

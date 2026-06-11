@@ -87,6 +87,54 @@ fn set_codelens_toml_template_url(template: &str, url: &str) -> String {
     rewritten
 }
 
+/// #353: stamp the workspace into the codex TOML template as
+/// `http_headers = { "x-codelens-project" = ... }` — officially supported
+/// by codex `config.toml` for streamable-HTTP MCP servers — so codex
+/// sessions bind at initialize and survive eviction exactly like the
+/// JSON-template hosts (#347/#351). Replaces an existing `http_headers`
+/// line, otherwise inserts one right after `url = ` in the codelens
+/// section.
+fn set_codelens_toml_template_project_header(template: &str, project_root: &Path) -> String {
+    let escaped = project_root
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let header_line = format!(r#"http_headers = {{ "x-codelens-project" = "{escaped}" }}"#);
+
+    let mut in_codelens_section = false;
+    let mut stamped = false;
+    let mut lines = Vec::new();
+    for line in template.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_codelens_section = trimmed == "[mcp_servers.codelens]";
+            lines.push(line.to_owned());
+            continue;
+        }
+        if in_codelens_section && trimmed.starts_with("http_headers = ") {
+            let indent = &line[..line.len() - line.trim_start().len()];
+            lines.push(format!("{indent}{header_line}"));
+            stamped = true;
+            continue;
+        }
+        lines.push(line.to_owned());
+        if in_codelens_section && !stamped && line.trim().starts_with("url = ") {
+            let indent = &line[..line.len() - line.trim_start().len()];
+            lines.push(format!("{indent}{header_line}"));
+            stamped = true;
+        }
+    }
+
+    if !stamped {
+        return template.to_owned();
+    }
+    let mut rewritten = lines.join("\n");
+    if template.ends_with('\n') {
+        rewritten.push('\n');
+    }
+    rewritten
+}
+
 pub(super) fn apply_host_attach_project_overrides(
     host: &str,
     bundle: &mut Value,
@@ -120,6 +168,14 @@ pub(super) fn apply_host_attach_project_overrides(
                         && let Some(text) = template.as_str()
                     {
                         *template = Value::String(set_codelens_toml_template_url(text, url));
+                    }
+                    // #353: always bind the attach target's workspace —
+                    // same contract as the JSON templates above.
+                    if let Some(text) = template.as_str() {
+                        *template = Value::String(set_codelens_toml_template_project_header(
+                            text,
+                            project_root,
+                        ));
                     }
                 }
                 _ => {}
@@ -176,6 +232,54 @@ mod project_header_tests {
                 .get("headers")
                 .is_none(),
             "no project root → no header stamp: {mcp_json}"
+        );
+    }
+
+    /// #353: the codex TOML template carries the same workspace binding
+    /// as the JSON templates — via the officially supported
+    /// `http_headers` inline table.
+    #[test]
+    fn attach_bundle_stamps_project_header_into_codex_toml_template() {
+        let tmp = std::env::temp_dir().join(format!("codelens-attach-toml-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let bundle = crate::surface_manifest::host_adapter_bundle_for_project("codex", Some(&tmp))
+            .expect("codex bundle");
+        let native_files = bundle["native_files"].as_array().expect("native_files");
+        let config_toml = native_files
+            .iter()
+            .find(|file| file["format"] == "toml")
+            .expect("config.toml template");
+        let template = config_toml["template"].as_str().expect("toml text");
+        let expected = format!(
+            r#"http_headers = {{ "x-codelens-project" = "{}" }}"#,
+            tmp.to_string_lossy()
+        );
+        assert!(
+            template.contains(&expected),
+            "codex template must stamp the binding header: {template}"
+        );
+        assert!(
+            template.find("[mcp_servers.codelens]").unwrap()
+                < template.find("http_headers").unwrap(),
+            "header line belongs to the codelens section: {template}"
+        );
+    }
+
+    #[test]
+    fn attach_bundle_without_project_root_leaves_codex_toml_unstamped() {
+        let bundle = crate::surface_manifest::host_adapter_bundle_for_project("codex", None)
+            .expect("codex bundle");
+        let native_files = bundle["native_files"].as_array().expect("native_files");
+        let config_toml = native_files
+            .iter()
+            .find(|file| file["format"] == "toml")
+            .expect("config.toml template");
+        assert!(
+            !config_toml["template"]
+                .as_str()
+                .unwrap()
+                .contains("http_headers"),
+            "no project root → no header stamp"
         );
     }
 }
