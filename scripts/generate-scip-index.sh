@@ -62,6 +62,7 @@ log_text = log_path.read_text(encoding="utf-8", errors="replace")
 duplicate_files = collections.Counter()
 known_duplicate_files = collections.Counter()
 previous_source = None
+root = Path.cwd()
 for line in log_text.splitlines():
     source_match = re.match(r"([^\s].*\.rs):\d+:\d+-\d+:\d+$", line)
     if source_match:
@@ -84,21 +85,66 @@ for line in log_text.splitlines():
             duplicate_files[previous_source] += 1
         previous_source = None
 
-missing_files = collections.Counter(
-    re.findall(
-        r"Bug: definition at ([^:]+):\d+:\d+-\d+:\d+ should have been in an SCIP document",
-        log_text,
-    )
+missing_definition_pattern = re.compile(
+    r"Bug: definition at ([^:]+):(\d+):(\d+)-(\d+):(\d+) should have been in an SCIP document"
 )
+
+def in_derive_attribute(file_path: str, zero_based_line: int) -> bool:
+    try:
+        lines = (root / file_path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    # rust-analyzer SCIP log locations are zero-based. Probe adjacent rows too
+    # so the classifier remains stable if upstream flips this convention.
+    for candidate in (zero_based_line, zero_based_line - 1, zero_based_line + 1):
+        if not 0 <= candidate < len(lines):
+            continue
+        start = candidate
+        while start >= 0 and start >= candidate - 6:
+            if re.match(r"\s*#\s*\[\s*derive\s*\(", lines[start]):
+                end = start
+                while end < len(lines) and end <= start + 8:
+                    if candidate <= end and "]" in lines[end]:
+                        return True
+                    if "]" in lines[end]:
+                        break
+                    end += 1
+                break
+            if lines[start].strip() and not lines[start].lstrip().startswith("#"):
+                break
+            start -= 1
+    return False
+
+missing_files = collections.Counter()
+known_missing_files = collections.Counter()
+for match in missing_definition_pattern.finditer(log_text):
+    file_path = match.group(1)
+    zero_based_line = int(match.group(2))
+    if in_derive_attribute(file_path, zero_based_line):
+        known_missing_files[file_path] += 1
+    else:
+        missing_files[file_path] += 1
 unnamed_enclosing_definition_count = log_text.count(
     "Encountered enclosing definition with no name"
 )
 precision_risk_duplicate_symbol_count = sum(duplicate_files.values())
 known_duplicate_symbol_count = sum(known_duplicate_files.values())
 duplicate_symbol_count = precision_risk_duplicate_symbol_count + known_duplicate_symbol_count
-missing_document_definition_count = sum(missing_files.values())
-precision_risk_warning_count = precision_risk_duplicate_symbol_count + missing_document_definition_count
-known_generator_noise_count = unnamed_enclosing_definition_count + known_duplicate_symbol_count
+precision_risk_missing_document_definition_count = sum(missing_files.values())
+known_missing_document_definition_count = sum(known_missing_files.values())
+missing_document_definition_count = (
+    precision_risk_missing_document_definition_count
+    + known_missing_document_definition_count
+)
+precision_risk_warning_count = (
+    precision_risk_duplicate_symbol_count
+    + precision_risk_missing_document_definition_count
+)
+known_generator_noise_count = (
+    unnamed_enclosing_definition_count
+    + known_duplicate_symbol_count
+    + known_missing_document_definition_count
+)
 warning_count = precision_risk_warning_count + known_generator_noise_count
 
 all_files = sorted(
@@ -121,7 +167,7 @@ precision_risk_files = [
 ]
 
 summary = {
-    "schema_version": 4,
+    "schema_version": 5,
     "generator": "rust-analyzer scip",
     "log_path": ".codelens/scip-generation.log",
     "warning_count": warning_count,
@@ -134,6 +180,8 @@ summary = {
     "precision_risk_duplicate_symbol_count": precision_risk_duplicate_symbol_count,
     "known_duplicate_symbol_count": known_duplicate_symbol_count,
     "missing_document_definition_count": missing_document_definition_count,
+    "precision_risk_missing_document_definition_count": precision_risk_missing_document_definition_count,
+    "known_missing_document_definition_count": known_missing_document_definition_count,
     "unnamed_enclosing_definition_count": unnamed_enclosing_definition_count,
 }
 summary_path.write_text(json.dumps(summary, indent=2, sort_keys=False) + "\n", encoding="utf-8")

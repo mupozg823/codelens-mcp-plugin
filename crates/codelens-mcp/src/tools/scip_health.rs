@@ -48,6 +48,8 @@ pub(crate) struct ScipGeneratorWarnings {
     pub(crate) precision_risk_duplicate_symbol_count: usize,
     pub(crate) known_duplicate_symbol_count: usize,
     pub(crate) missing_document_definition_count: usize,
+    pub(crate) precision_risk_missing_document_definition_count: usize,
+    pub(crate) known_missing_document_definition_count: usize,
     pub(crate) unnamed_enclosing_definition_count: usize,
 }
 
@@ -123,6 +125,18 @@ pub(crate) fn detect_scip_generator_warnings(
         .get("missing_document_definition_count")
         .and_then(|value| value.as_u64())
         .unwrap_or(0) as usize;
+    let known_missing_document_definition_count = summary
+        .get("known_missing_document_definition_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    let precision_risk_missing_document_definition_count = summary
+        .get("precision_risk_missing_document_definition_count")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or_else(|| {
+            missing_document_definition_count
+                .saturating_sub(known_missing_document_definition_count)
+        });
     let unnamed_enclosing_definition_count = summary
         .get("unnamed_enclosing_definition_count")
         .and_then(|value| value.as_u64())
@@ -131,12 +145,19 @@ pub(crate) fn detect_scip_generator_warnings(
         .get("precision_risk_warning_count")
         .and_then(|value| value.as_u64())
         .map(|value| value as usize)
-        .unwrap_or(precision_risk_duplicate_symbol_count + missing_document_definition_count);
+        .unwrap_or(
+            precision_risk_duplicate_symbol_count
+                + precision_risk_missing_document_definition_count,
+        );
     let known_generator_noise_count = summary
         .get("known_generator_noise_count")
         .and_then(|value| value.as_u64())
         .map(|value| value as usize)
-        .unwrap_or(unnamed_enclosing_definition_count);
+        .unwrap_or(
+            unnamed_enclosing_definition_count
+                + known_duplicate_symbol_count
+                + known_missing_document_definition_count,
+        );
     let precision_risk_files = summary
         .get("precision_risk_files")
         .and_then(|value| value.as_array())
@@ -186,6 +207,8 @@ pub(crate) fn detect_scip_generator_warnings(
         precision_risk_duplicate_symbol_count,
         known_duplicate_symbol_count,
         missing_document_definition_count,
+        precision_risk_missing_document_definition_count,
+        known_missing_document_definition_count,
         unnamed_enclosing_definition_count,
     })
 }
@@ -272,6 +295,8 @@ pub(crate) fn scip_generator_warnings_payload(
         "precision_risk_duplicate_symbol_count": warnings.precision_risk_duplicate_symbol_count,
         "known_duplicate_symbol_count": warnings.known_duplicate_symbol_count,
         "missing_document_definition_count": warnings.missing_document_definition_count,
+        "precision_risk_missing_document_definition_count": warnings.precision_risk_missing_document_definition_count,
+        "known_missing_document_definition_count": warnings.known_missing_document_definition_count,
         "unnamed_enclosing_definition_count": warnings.unnamed_enclosing_definition_count,
     })
 }
@@ -365,6 +390,8 @@ mod tests {
                     "known_generator_noise_count": {known_generator_noise_count},
                     "duplicate_symbol_count": {duplicate_symbol_count},
                     "missing_document_definition_count": {missing_document_definition_count},
+                    "precision_risk_missing_document_definition_count": {missing_document_definition_count},
+                    "known_missing_document_definition_count": 0,
                     "unnamed_enclosing_definition_count": {unnamed_enclosing_definition_count}
                     {precision_risk_files}
                 }}"#
@@ -461,6 +488,11 @@ mod tests {
         );
         assert_eq!(warnings.duplicate_symbol_count, 17);
         assert_eq!(warnings.missing_document_definition_count, 24);
+        assert_eq!(
+            warnings.precision_risk_missing_document_definition_count,
+            24
+        );
+        assert_eq!(warnings.known_missing_document_definition_count, 0);
         assert_eq!(warnings.unnamed_enclosing_definition_count, 91);
         assert_eq!(warnings.log_path, ".codelens/scip-generation.log");
         assert_eq!(warnings.summary_path, summary_path.display().to_string());
@@ -479,6 +511,11 @@ mod tests {
             "src/dup.rs"
         );
         assert_eq!(payload["duplicate_symbol_count"], 17);
+        assert_eq!(
+            payload["precision_risk_missing_document_definition_count"],
+            24
+        );
+        assert_eq!(payload["known_missing_document_definition_count"], 0);
     }
 
     #[test]
@@ -491,6 +528,8 @@ mod tests {
         assert_eq!(warnings.known_generator_noise_count, 91);
         assert_eq!(warnings.precision_risk_file_count, 0);
         assert!(warnings.precision_risk_files.is_empty());
+        assert_eq!(warnings.precision_risk_missing_document_definition_count, 0);
+        assert_eq!(warnings.known_missing_document_definition_count, 0);
 
         let payload = scip_generator_warnings_payload(&warnings);
         assert_eq!(payload["severity"], "generator_noise_only");
@@ -499,6 +538,47 @@ mod tests {
         assert_eq!(payload["known_generator_noise_count"], 91);
         assert_eq!(payload["precision_risk_file_count"], 0);
         assert_eq!(payload["precision_risk_files"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn generator_warnings_payload_treats_known_missing_definitions_as_noise() {
+        let dir = build_fixture(60, 600, &["src/lib.rs"]);
+        let codelens_dir = dir.path().join(".codelens");
+        std::fs::create_dir_all(&codelens_dir).expect("mkdir .codelens");
+        std::fs::write(
+            codelens_dir.join("scip-generation-summary.json"),
+            r#"{
+                "schema_version": 5,
+                "generator": "rust-analyzer scip",
+                "log_path": ".codelens/scip-generation.log",
+                "warning_count": 7,
+                "precision_risk_warning_count": 0,
+                "known_generator_noise_count": 7,
+                "duplicate_symbol_count": 0,
+                "precision_risk_duplicate_symbol_count": 0,
+                "known_duplicate_symbol_count": 0,
+                "missing_document_definition_count": 7,
+                "precision_risk_missing_document_definition_count": 0,
+                "known_missing_document_definition_count": 7,
+                "unnamed_enclosing_definition_count": 0,
+                "precision_risk_file_count": 0,
+                "precision_risk_files_truncated": false,
+                "precision_risk_files": []
+            }"#,
+        )
+        .expect("write generation summary");
+
+        let warnings = detect_scip_generator_warnings(dir.path()).expect("warnings");
+        assert_eq!(warnings.precision_risk_warning_count, 0);
+        assert_eq!(warnings.known_generator_noise_count, 7);
+        assert_eq!(warnings.missing_document_definition_count, 7);
+        assert_eq!(warnings.precision_risk_missing_document_definition_count, 0);
+        assert_eq!(warnings.known_missing_document_definition_count, 7);
+
+        let payload = scip_generator_warnings_payload(&warnings);
+        assert_eq!(payload["severity"], "generator_noise_only");
+        assert_eq!(payload["recommended_action"], "no_action_required");
+        assert_eq!(payload["known_missing_document_definition_count"], 7);
     }
 
     #[test]
