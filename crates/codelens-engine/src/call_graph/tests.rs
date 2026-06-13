@@ -1203,6 +1203,148 @@ fn ts_external_namespace_reexport_calls_are_filtered_from_project_graph() {
 }
 
 #[test]
+fn tsx_namespace_component_resolves_and_callers_match_canonical_name() {
+    let dir = temp_dir("tsx-namespace-component");
+    let page_source =
+        "import * as UI from \"./index\";\nexport function Page() { return <UI.Button />; }\n";
+    let index_source = "export * from \"./components\";\n";
+    let components_source = "export function Button() { return null; }\n";
+    fs::write(dir.join("page.tsx"), page_source).expect("write page");
+    fs::write(dir.join("index.ts"), index_source).expect("write index");
+    fs::write(dir.join("components.tsx"), components_source).expect("write components");
+    let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+    let file_id = db
+        .upsert_file(
+            "components.tsx",
+            100,
+            "components",
+            components_source.len() as i64,
+            Some("tsx"),
+        )
+        .expect("components file");
+    db.insert_symbols(
+        file_id,
+        &[NewSymbol {
+            name: "Button",
+            kind: "function",
+            line: 1,
+            column_num: 0,
+            start_byte: 0,
+            end_byte: components_source.len() as i64,
+            signature: "export function Button() { return null; }",
+            name_path: "Button",
+            parent_id: None,
+        }],
+    )
+    .expect("component symbol");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let cache = GraphCache::new(0);
+    let callees =
+        get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+    let button = callees
+        .iter()
+        .find(|callee| callee.name == "Button")
+        .expect("namespace component callee");
+    assert_eq!(button.resolved_file.as_deref(), Some("components.tsx"));
+    assert_eq!(button.resolution, Some("import_reexport_map"));
+
+    let callers = get_callers(&project, "Button", None, 50, Some(&cache)).expect("callers");
+    let page = callers
+        .iter()
+        .find(|caller| caller.function == "Page")
+        .expect("Page caller");
+    assert_eq!(page.file, "page.tsx");
+}
+
+#[test]
+fn tsx_external_namespace_component_calls_are_filtered_from_project_graph() {
+    let dir = temp_dir("tsx-external-namespace-component-filter");
+    fs::write(
+        dir.join("page.tsx"),
+        "import * as React from \"react\";\nexport function Page() { return <React.Fragment />; }\n",
+    )
+    .expect("write page");
+    fs::write(
+        dir.join("components.tsx"),
+        "export function Fragment() { return null; }\n",
+    )
+    .expect("write components");
+    let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+    let file_id = db
+        .upsert_file("components.tsx", 100, "components", 42, Some("tsx"))
+        .expect("components file");
+    db.insert_symbols(
+        file_id,
+        &[NewSymbol {
+            name: "Fragment",
+            kind: "function",
+            line: 1,
+            column_num: 0,
+            start_byte: 0,
+            end_byte: 42,
+            signature: "export function Fragment() { return null; }",
+            name_path: "Fragment",
+            parent_id: None,
+        }],
+    )
+    .expect("component symbol");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let cache = GraphCache::new(0);
+    let callees =
+        get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+    assert!(
+        !callees.iter().any(|callee| callee.name == "Fragment"),
+        "external namespace JSX component calls should be filtered, got {callees:?}"
+    );
+}
+
+#[test]
+fn tsx_external_namespace_reexport_component_calls_are_filtered_from_project_graph() {
+    let dir = temp_dir("tsx-external-namespace-reexport-component-filter");
+    fs::write(
+        dir.join("page.tsx"),
+        "import { React } from \"./index\";\nexport function Page() { return <React.Fragment />; }\n",
+    )
+    .expect("write page");
+    fs::write(dir.join("index.ts"), "export * as React from \"react\";\n").expect("write index");
+    fs::write(
+        dir.join("components.tsx"),
+        "export function Fragment() { return null; }\n",
+    )
+    .expect("write components");
+    let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+    let file_id = db
+        .upsert_file("components.tsx", 100, "components", 42, Some("tsx"))
+        .expect("components file");
+    db.insert_symbols(
+        file_id,
+        &[NewSymbol {
+            name: "Fragment",
+            kind: "function",
+            line: 1,
+            column_num: 0,
+            start_byte: 0,
+            end_byte: 42,
+            signature: "export function Fragment() { return null; }",
+            name_path: "Fragment",
+            parent_id: None,
+        }],
+    )
+    .expect("component symbol");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let cache = GraphCache::new(0);
+    let callees =
+        get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+    assert!(
+        !callees.iter().any(|callee| callee.name == "Fragment"),
+        "external namespace re-export JSX component calls should be filtered, got {callees:?}"
+    );
+}
+
+#[test]
 fn ts_external_import_calls_are_filtered_from_project_graph() {
     let dir = temp_dir("ts-external-import-filter");
     fs::write(
