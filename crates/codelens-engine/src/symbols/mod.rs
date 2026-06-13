@@ -117,6 +117,13 @@ impl SymbolIndex {
         db.min_files_indexed_at()
     }
 
+    fn checkpoint_wal_passive(&self) -> Result<(i64, i64, i64)> {
+        if self.in_memory {
+            return Ok((0, 0, 0));
+        }
+        self.writer().checkpoint_wal_passive()
+    }
+
     pub fn stats(&self) -> Result<IndexStats> {
         let db = self.reader()?;
         let supported_files = collect_candidate_files(self.project.as_path())?;

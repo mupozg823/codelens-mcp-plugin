@@ -76,6 +76,21 @@ fn refresh_all_populates_stats() {
 }
 
 #[test]
+fn refresh_all_checkpoints_disk_wal() {
+    let root = fixture_root();
+    let project = ProjectRoot::new(&root).expect("project");
+    let index = SymbolIndex::new(project);
+
+    index.refresh_all().expect("refresh all");
+    let (busy, log_frames, checkpointed_frames) = index
+        .checkpoint_wal_passive()
+        .expect("checkpoint symbol WAL");
+
+    assert_eq!(busy, 0);
+    assert_eq!(log_frames, checkpointed_frames);
+}
+
+#[test]
 fn reloads_index_from_disk() {
     let root = fixture_root();
     let project = ProjectRoot::new(&root).expect("project");

@@ -336,6 +336,15 @@ impl IndexDb {
             }
         }
     }
+
+    pub(crate) fn checkpoint_wal_passive(&self) -> Result<(i64, i64, i64)> {
+        let summary = self
+            .conn
+            .query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+        Ok(summary)
+    }
 }
 
 pub(crate) fn open_derived_sqlite_with_recovery<T, F>(
