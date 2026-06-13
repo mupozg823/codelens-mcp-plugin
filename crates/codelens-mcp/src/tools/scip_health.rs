@@ -30,6 +30,8 @@ pub(crate) struct ScipGeneratorWarnings {
     pub(crate) summary_path: String,
     pub(crate) log_path: String,
     pub(crate) warning_count: usize,
+    pub(crate) precision_risk_warning_count: usize,
+    pub(crate) known_generator_noise_count: usize,
     pub(crate) duplicate_symbol_count: usize,
     pub(crate) missing_document_definition_count: usize,
     pub(crate) unnamed_enclosing_definition_count: usize,
@@ -90,22 +92,37 @@ pub(crate) fn detect_scip_generator_warnings(
         .and_then(|value| value.as_str())
         .unwrap_or(".codelens/scip-generation.log")
         .to_owned();
+    let duplicate_symbol_count = summary
+        .get("duplicate_symbol_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    let missing_document_definition_count = summary
+        .get("missing_document_definition_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    let unnamed_enclosing_definition_count = summary
+        .get("unnamed_enclosing_definition_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    let precision_risk_warning_count = summary
+        .get("precision_risk_warning_count")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(duplicate_symbol_count + missing_document_definition_count);
+    let known_generator_noise_count = summary
+        .get("known_generator_noise_count")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(unnamed_enclosing_definition_count);
     Some(ScipGeneratorWarnings {
         summary_path: summary_path.display().to_string(),
         log_path,
         warning_count,
-        duplicate_symbol_count: summary
-            .get("duplicate_symbol_count")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as usize,
-        missing_document_definition_count: summary
-            .get("missing_document_definition_count")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as usize,
-        unnamed_enclosing_definition_count: summary
-            .get("unnamed_enclosing_definition_count")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0) as usize,
+        precision_risk_warning_count,
+        known_generator_noise_count,
+        duplicate_symbol_count,
+        missing_document_definition_count,
+        unnamed_enclosing_definition_count,
     })
 }
 
@@ -147,15 +164,31 @@ pub(crate) fn scip_stale_warning_payload(stale: &ScipStaleness) -> serde_json::V
 pub(crate) fn scip_generator_warnings_payload(
     warnings: &ScipGeneratorWarnings,
 ) -> serde_json::Value {
+    let (severity, message, recommended_action) = if warnings.precision_risk_warning_count > 0 {
+        (
+            "degraded_precision",
+            "Last SCIP generation completed with file/symbol precision-risk warnings. The index is still usable, but duplicate or missing SCIP definitions may make precise-tier lookup ambiguous for affected symbols.",
+            "inspect_scip_generation_log",
+        )
+    } else {
+        (
+            "generator_noise_only",
+            "Last SCIP generation completed with known rust-analyzer generator noise only. The index is still usable and no file/symbol precision-risk warnings were reported.",
+            "no_action_required",
+        )
+    };
     json!({
         "code": "scip_generator_warnings",
-        "message": "Last SCIP generation completed, but rust-analyzer reported generator warnings. The index is still usable; duplicate SCIP symbols may make precise-tier lookup ambiguous for the affected symbols.",
-        "recommended_action": "inspect_scip_generation_log",
+        "severity": severity,
+        "message": message,
+        "recommended_action": recommended_action,
         "action_target": "scip_backend",
         "generator": "rust-analyzer scip",
         "summary_path": warnings.summary_path.as_str(),
         "log_path": warnings.log_path.as_str(),
         "warning_count": warnings.warning_count,
+        "precision_risk_warning_count": warnings.precision_risk_warning_count,
+        "known_generator_noise_count": warnings.known_generator_noise_count,
         "duplicate_symbol_count": warnings.duplicate_symbol_count,
         "missing_document_definition_count": warnings.missing_document_definition_count,
         "unnamed_enclosing_definition_count": warnings.unnamed_enclosing_definition_count,
@@ -202,21 +235,29 @@ mod tests {
     fn write_generation_summary(
         root: &std::path::Path,
         warning_count: usize,
+        duplicate_symbol_count: usize,
+        missing_document_definition_count: usize,
+        unnamed_enclosing_definition_count: usize,
     ) -> std::path::PathBuf {
         let codelens_dir = root.join(".codelens");
         std::fs::create_dir_all(&codelens_dir).expect("mkdir .codelens");
         let summary_path = codelens_dir.join("scip-generation-summary.json");
+        let precision_risk_warning_count =
+            duplicate_symbol_count + missing_document_definition_count;
+        let known_generator_noise_count = unnamed_enclosing_definition_count;
         std::fs::write(
             &summary_path,
             format!(
                 r#"{{
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "generator": "rust-analyzer scip",
                     "log_path": ".codelens/scip-generation.log",
                     "warning_count": {warning_count},
-                    "duplicate_symbol_count": 17,
-                    "missing_document_definition_count": 24,
-                    "unnamed_enclosing_definition_count": 91
+                    "precision_risk_warning_count": {precision_risk_warning_count},
+                    "known_generator_noise_count": {known_generator_noise_count},
+                    "duplicate_symbol_count": {duplicate_symbol_count},
+                    "missing_document_definition_count": {missing_document_definition_count},
+                    "unnamed_enclosing_definition_count": {unnamed_enclosing_definition_count}
                 }}"#
             ),
         )
@@ -294,10 +335,12 @@ mod tests {
     #[test]
     fn generator_warnings_summary_is_structured_when_current() {
         let dir = build_fixture(60, 600, &["src/lib.rs"]);
-        let summary_path = write_generation_summary(dir.path(), 132);
+        let summary_path = write_generation_summary(dir.path(), 132, 17, 24, 91);
 
         let warnings = detect_scip_generator_warnings(dir.path()).expect("warnings");
         assert_eq!(warnings.warning_count, 132);
+        assert_eq!(warnings.precision_risk_warning_count, 41);
+        assert_eq!(warnings.known_generator_noise_count, 91);
         assert_eq!(warnings.duplicate_symbol_count, 17);
         assert_eq!(warnings.missing_document_definition_count, 24);
         assert_eq!(warnings.unnamed_enclosing_definition_count, 91);
@@ -306,22 +349,41 @@ mod tests {
 
         let payload = scip_generator_warnings_payload(&warnings);
         assert_eq!(payload["code"], "scip_generator_warnings");
+        assert_eq!(payload["severity"], "degraded_precision");
         assert_eq!(payload["recommended_action"], "inspect_scip_generation_log");
         assert_eq!(payload["action_target"], "scip_backend");
+        assert_eq!(payload["precision_risk_warning_count"], 41);
+        assert_eq!(payload["known_generator_noise_count"], 91);
         assert_eq!(payload["duplicate_symbol_count"], 17);
+    }
+
+    #[test]
+    fn generator_warnings_payload_downgrades_noise_only_runs() {
+        let dir = build_fixture(60, 600, &["src/lib.rs"]);
+        write_generation_summary(dir.path(), 91, 0, 0, 91);
+
+        let warnings = detect_scip_generator_warnings(dir.path()).expect("warnings");
+        assert_eq!(warnings.precision_risk_warning_count, 0);
+        assert_eq!(warnings.known_generator_noise_count, 91);
+
+        let payload = scip_generator_warnings_payload(&warnings);
+        assert_eq!(payload["severity"], "generator_noise_only");
+        assert_eq!(payload["recommended_action"], "no_action_required");
+        assert_eq!(payload["precision_risk_warning_count"], 0);
+        assert_eq!(payload["known_generator_noise_count"], 91);
     }
 
     #[test]
     fn generator_warnings_summary_ignores_zero_warning_runs() {
         let dir = build_fixture(60, 600, &["src/lib.rs"]);
-        write_generation_summary(dir.path(), 0);
+        write_generation_summary(dir.path(), 0, 0, 0, 0);
         assert!(detect_scip_generator_warnings(dir.path()).is_none());
     }
 
     #[test]
     fn generator_warnings_summary_ignores_stale_summary() {
         let dir = build_fixture(60, 600, &["src/lib.rs"]);
-        let summary_path = write_generation_summary(dir.path(), 132);
+        let summary_path = write_generation_summary(dir.path(), 132, 17, 24, 91);
         let stale = SystemTime::now() - Duration::from_secs(600);
         filetime::set_file_mtime(&summary_path, filetime::FileTime::from_system_time(stale))
             .expect("backdate summary");

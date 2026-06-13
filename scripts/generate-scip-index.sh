@@ -52,13 +52,17 @@ duplicate_symbol_count=$(grep -c "Duplicate symbol:" "${LOG_PATH}" || true)
 missing_document_definition_count=$(grep -c "should have been in an SCIP document" "${LOG_PATH}" || true)
 unnamed_enclosing_definition_count=$(grep -c "Encountered enclosing definition with no name" "${LOG_PATH}" || true)
 warning_count=$((duplicate_symbol_count + missing_document_definition_count + unnamed_enclosing_definition_count))
+precision_risk_warning_count=$((duplicate_symbol_count + missing_document_definition_count))
+known_generator_noise_count=${unnamed_enclosing_definition_count}
 
 cat > "${SUMMARY_PATH}" <<JSON
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "generator": "rust-analyzer scip",
   "log_path": ".codelens/scip-generation.log",
   "warning_count": ${warning_count},
+  "precision_risk_warning_count": ${precision_risk_warning_count},
+  "known_generator_noise_count": ${known_generator_noise_count},
   "duplicate_symbol_count": ${duplicate_symbol_count},
   "missing_document_definition_count": ${missing_document_definition_count},
   "unnamed_enclosing_definition_count": ${unnamed_enclosing_definition_count}
@@ -69,6 +73,7 @@ echo
 echo "==> done in ${elapsed}s — ${mb}MB at ${OUTPUT}"
 if (( warning_count > 0 )); then
 	echo "==> generator warnings: ${warning_count} total (${duplicate_symbol_count} duplicate symbols, ${missing_document_definition_count} missing-document definitions, ${unnamed_enclosing_definition_count} unnamed enclosing definitions)"
+	echo "    precision-risk warnings: ${precision_risk_warning_count}; known generator noise: ${known_generator_noise_count}"
 	echo "    details: ${LOG_PATH}"
 fi
 echo
