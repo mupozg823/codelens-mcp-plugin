@@ -42,6 +42,26 @@ fn resolve_reexport_target(
     }
 }
 
+fn resolve_namespace_reexport_target(
+    import_bindings: Option<&JSImportBindingIndex>,
+    symbol_index: &HashMap<String, Vec<String>>,
+    resolved_file: &str,
+    namespace_name: &str,
+    callee_name: &str,
+) -> Option<(String, String)> {
+    let namespace_binding = import_bindings
+        .and_then(|index| index.get(resolved_file))
+        .and_then(|bindings| bindings.get(namespace_name))?;
+    if namespace_binding.imported_name.as_deref() != Some("*") {
+        return None;
+    }
+    let namespace_file = namespace_binding.resolved_file.as_ref()?;
+    if symbol_defined_in(symbol_index, callee_name, namespace_file) {
+        return Some((namespace_file.clone(), callee_name.to_owned()));
+    }
+    resolve_reexport_target(import_bindings, symbol_index, namespace_file, callee_name)
+}
+
 pub(crate) fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
     collect_files(root, |path| call_language_for_path(path).is_some())
 }
@@ -160,32 +180,50 @@ pub(crate) fn resolve_call_edges(
         }
 
         // Stage 2: Import map — imported target defines the callee (0.95)
-        if let Some(namespace_binding) = edge
-            .callee_qualifier
-            .as_deref()
-            .and_then(|qualifier| {
-                import_bindings
-                    .and_then(|index| index.get(caller_file))
-                    .and_then(|bindings| bindings.get(qualifier))
-            })
-            .filter(|binding| binding.imported_name.as_deref() == Some("*"))
-            && let Some(resolved_file) = namespace_binding.resolved_file.as_ref()
+        if let Some(namespace_binding) = edge.callee_qualifier.as_deref().and_then(|qualifier| {
+            import_bindings
+                .and_then(|index| index.get(caller_file))
+                .and_then(|bindings| bindings.get(qualifier))
+        }) && let Some(resolved_file) = namespace_binding.resolved_file.as_ref()
         {
-            if symbol_defined_in(&symbol_index, callee, resolved_file) {
-                edge.resolved_file = Some(resolved_file.clone());
-                edge.confidence = 0.95;
-                edge.resolution_strategy = Some("import_map");
-                edge.canonical_callee_name = Some(callee.clone());
-                continue;
-            }
-            if let Some((reexport_file, reexport_name)) =
-                resolve_reexport_target(import_bindings, &symbol_index, resolved_file, callee)
-            {
-                edge.resolved_file = Some(reexport_file);
-                edge.confidence = 0.93;
-                edge.resolution_strategy = Some("import_reexport_map");
-                edge.canonical_callee_name = Some(reexport_name);
-                continue;
+            match namespace_binding.imported_name.as_deref() {
+                Some("*") => {
+                    if symbol_defined_in(&symbol_index, callee, resolved_file) {
+                        edge.resolved_file = Some(resolved_file.clone());
+                        edge.confidence = 0.95;
+                        edge.resolution_strategy = Some("import_map");
+                        edge.canonical_callee_name = Some(callee.clone());
+                        continue;
+                    }
+                    if let Some((reexport_file, reexport_name)) = resolve_reexport_target(
+                        import_bindings,
+                        &symbol_index,
+                        resolved_file,
+                        callee,
+                    ) {
+                        edge.resolved_file = Some(reexport_file);
+                        edge.confidence = 0.93;
+                        edge.resolution_strategy = Some("import_reexport_map");
+                        edge.canonical_callee_name = Some(reexport_name);
+                        continue;
+                    }
+                }
+                Some(namespace_name) => {
+                    if let Some((reexport_file, reexport_name)) = resolve_namespace_reexport_target(
+                        import_bindings,
+                        &symbol_index,
+                        resolved_file,
+                        namespace_name,
+                        callee,
+                    ) {
+                        edge.resolved_file = Some(reexport_file);
+                        edge.confidence = 0.93;
+                        edge.resolution_strategy = Some("import_reexport_map");
+                        edge.canonical_callee_name = Some(reexport_name);
+                        continue;
+                    }
+                }
+                None => {}
             }
         }
 

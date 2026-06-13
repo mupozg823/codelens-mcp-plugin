@@ -1070,6 +1070,60 @@ fn ts_namespace_import_resolves_and_callers_match_canonical_name() {
 }
 
 #[test]
+fn ts_namespace_reexport_resolves_and_callers_match_canonical_name() {
+    let dir = temp_dir("ts-namespace-reexport");
+    let page_source = "import { Actions } from \"./index\";\nexport function Page() { Actions.handleSubmit(); }\n";
+    let index_source = "export * as Actions from \"./actions\";\n";
+    let actions_source = "export function handleSubmit() {}\n";
+    fs::write(dir.join("page.tsx"), page_source).expect("write page");
+    fs::write(dir.join("index.ts"), index_source).expect("write index");
+    fs::write(dir.join("actions.ts"), actions_source).expect("write actions");
+    let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+    let file_id = db
+        .upsert_file(
+            "actions.ts",
+            100,
+            "actions",
+            actions_source.len() as i64,
+            Some("ts"),
+        )
+        .expect("actions file");
+    db.insert_symbols(
+        file_id,
+        &[NewSymbol {
+            name: "handleSubmit",
+            kind: "function",
+            line: 1,
+            column_num: 0,
+            start_byte: 0,
+            end_byte: actions_source.len() as i64,
+            signature: "export function handleSubmit() {}",
+            name_path: "handleSubmit",
+            parent_id: None,
+        }],
+    )
+    .expect("action symbol");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let cache = GraphCache::new(0);
+    let callees =
+        get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+    let submit = callees
+        .iter()
+        .find(|callee| callee.name == "handleSubmit")
+        .expect("namespace re-export callee");
+    assert_eq!(submit.resolved_file.as_deref(), Some("actions.ts"));
+    assert_eq!(submit.resolution, Some("import_reexport_map"));
+
+    let callers = get_callers(&project, "handleSubmit", None, 50, Some(&cache)).expect("callers");
+    let page = callers
+        .iter()
+        .find(|caller| caller.function == "Page")
+        .expect("Page caller");
+    assert_eq!(page.file, "page.tsx");
+}
+
+#[test]
 fn ts_external_namespace_import_calls_are_filtered_from_project_graph() {
     let dir = temp_dir("ts-external-namespace-import-filter");
     fs::write(
@@ -1105,6 +1159,46 @@ fn ts_external_namespace_import_calls_are_filtered_from_project_graph() {
     assert!(
         !callees.iter().any(|callee| callee.name == "useState"),
         "external namespace member calls should be filtered, got {callees:?}"
+    );
+}
+
+#[test]
+fn ts_external_namespace_reexport_calls_are_filtered_from_project_graph() {
+    let dir = temp_dir("ts-external-namespace-reexport-filter");
+    fs::write(
+        dir.join("page.tsx"),
+        "import { React } from \"./index\";\nexport function Page() { React.useState(); }\n",
+    )
+    .expect("write page");
+    fs::write(dir.join("index.ts"), "export * as React from \"react\";\n").expect("write index");
+    fs::write(dir.join("hooks.ts"), "export function useState() {}\n").expect("write hooks");
+    let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+    let file_id = db
+        .upsert_file("hooks.ts", 100, "hooks", 30, Some("ts"))
+        .expect("hooks file");
+    db.insert_symbols(
+        file_id,
+        &[NewSymbol {
+            name: "useState",
+            kind: "function",
+            line: 1,
+            column_num: 0,
+            start_byte: 0,
+            end_byte: 30,
+            signature: "export function useState() {}",
+            name_path: "useState",
+            parent_id: None,
+        }],
+    )
+    .expect("hook symbol");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let cache = GraphCache::new(0);
+    let callees =
+        get_callees(&project, "Page", Some("page.tsx"), 50, Some(&cache)).expect("callees");
+    assert!(
+        !callees.iter().any(|callee| callee.name == "useState"),
+        "external namespace re-export member calls should be filtered, got {callees:?}"
     );
 }
 

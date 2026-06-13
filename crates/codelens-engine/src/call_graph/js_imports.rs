@@ -215,10 +215,24 @@ pub(crate) fn filter_external_import_edges(
             .callee_qualifier
             .as_deref()
             .unwrap_or(&edge.callee_name);
-        import_bindings
+        let binding = import_bindings
             .get(&edge.caller_file)
-            .and_then(|bindings| bindings.get(binding_name))
-            .map(|binding| !binding.external)
-            .unwrap_or(true)
+            .and_then(|bindings| bindings.get(binding_name));
+        let Some(binding) = binding else {
+            return true;
+        };
+        if binding.external {
+            return false;
+        }
+        if let (Some(resolved_file), Some(imported_name)) = (
+            binding.resolved_file.as_ref(),
+            binding.imported_name.as_deref(),
+        ) && let Some(reexport_binding) = import_bindings
+            .get(resolved_file)
+            .and_then(|bindings| bindings.get(imported_name))
+        {
+            return !reexport_binding.external;
+        }
+        true
     });
 }
