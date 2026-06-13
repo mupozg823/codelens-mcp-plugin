@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::{DirStats, FileRow, IndexDb, NewCall, NewImport, NewSymbol, SymbolRow, SymbolWithFile};
 
@@ -21,6 +21,22 @@ fn fts5_escape(query: &str) -> String {
         return format!("{escaped}*");
     }
     tokens.join(" OR ")
+}
+
+fn symbol_row_from_row(row: &Row<'_>) -> rusqlite::Result<SymbolRow> {
+    Ok(SymbolRow {
+        id: row.get(0)?,
+        file_id: row.get(1)?,
+        name: row.get(2)?,
+        kind: row.get(3)?,
+        line: row.get(4)?,
+        column_num: row.get(5)?,
+        start_byte: row.get(6)?,
+        end_byte: row.get(7)?,
+        signature: row.get(8)?,
+        name_path: row.get(9)?,
+        parent_id: row.get(10)?,
+    })
 }
 
 // ---- Transaction-compatible free functions ----
@@ -429,19 +445,31 @@ impl IndexDb {
 
         let mut results = Vec::new();
         while let Some(row) = rows.next()? {
-            results.push(SymbolRow {
-                id: row.get(0)?,
-                file_id: row.get(1)?,
-                name: row.get(2)?,
-                kind: row.get(3)?,
-                line: row.get(4)?,
-                column_num: row.get(5)?,
-                start_byte: row.get(6)?,
-                end_byte: row.get(7)?,
-                signature: row.get(8)?,
-                name_path: row.get(9)?,
-                parent_id: row.get(10)?,
-            });
+            results.push(symbol_row_from_row(row)?);
+        }
+        Ok(results)
+    }
+
+    /// Query symbols by exact `name_path` within one indexed file.
+    pub fn find_symbols_by_name_path(
+        &self,
+        file_path: &str,
+        name_path: &str,
+        max_results: usize,
+    ) -> Result<Vec<SymbolRow>> {
+        let name_path = crate::unicode::nfc_identifier(name_path);
+        let name_path = name_path.as_ref();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num, s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id
+             FROM symbols s JOIN files f ON s.file_id = f.id
+             WHERE s.name_path = ?1 AND f.relative_path = ?2
+             LIMIT ?3",
+        )?;
+        let mut rows = stmt.query(params![name_path, file_path, max_results as i64])?;
+
+        let mut results = Vec::new();
+        while let Some(row) = rows.next()? {
+            results.push(symbol_row_from_row(row)?);
         }
         Ok(results)
     }
@@ -477,22 +505,7 @@ impl IndexDb {
         let mut rows = stmt.query(params![name, max_results as i64])?;
         let mut results = Vec::new();
         while let Some(row) = rows.next()? {
-            results.push((
-                SymbolRow {
-                    id: row.get(0)?,
-                    file_id: row.get(1)?,
-                    name: row.get(2)?,
-                    kind: row.get(3)?,
-                    line: row.get(4)?,
-                    column_num: row.get(5)?,
-                    start_byte: row.get(6)?,
-                    end_byte: row.get(7)?,
-                    signature: row.get(8)?,
-                    name_path: row.get(9)?,
-                    parent_id: row.get(10)?,
-                },
-                row.get::<_, String>(11)?,
-            ));
+            results.push((symbol_row_from_row(row)?, row.get::<_, String>(11)?));
         }
         Ok(results)
     }
@@ -503,21 +516,7 @@ impl IndexDb {
             "SELECT id, file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id
              FROM symbols WHERE file_id = ?1 ORDER BY start_byte",
         )?;
-        let rows = stmt.query_map(params![file_id], |row| {
-            Ok(SymbolRow {
-                id: row.get(0)?,
-                file_id: row.get(1)?,
-                name: row.get(2)?,
-                kind: row.get(3)?,
-                line: row.get(4)?,
-                column_num: row.get(5)?,
-                start_byte: row.get(6)?,
-                end_byte: row.get(7)?,
-                signature: row.get(8)?,
-                name_path: row.get(9)?,
-                parent_id: row.get(10)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![file_id], symbol_row_from_row)?;
         let mut results = Vec::new();
         for row in rows {
             results.push(row?);
@@ -626,19 +625,7 @@ impl IndexDb {
         let mut results = Vec::new();
         while let Some(row) = rows.next()? {
             results.push((
-                SymbolRow {
-                    id: row.get(0)?,
-                    file_id: row.get(1)?,
-                    name: row.get(2)?,
-                    kind: row.get(3)?,
-                    line: row.get(4)?,
-                    column_num: row.get(5)?,
-                    start_byte: row.get(6)?,
-                    end_byte: row.get(7)?,
-                    signature: row.get(8)?,
-                    name_path: row.get(9)?,
-                    parent_id: row.get(10)?,
-                },
+                symbol_row_from_row(row)?,
                 row.get::<_, String>(11)?,
                 row.get::<_, f64>(12)?,
             ));
@@ -664,22 +651,7 @@ impl IndexDb {
              ORDER BY s.file_id, s.start_byte",
         )?;
         let rows = stmt.query_map(params![pattern], |row| {
-            Ok((
-                SymbolRow {
-                    id: row.get(0)?,
-                    file_id: row.get(1)?,
-                    name: row.get(2)?,
-                    kind: row.get(3)?,
-                    line: row.get(4)?,
-                    column_num: row.get(5)?,
-                    start_byte: row.get(6)?,
-                    end_byte: row.get(7)?,
-                    signature: row.get(8)?,
-                    name_path: row.get(9)?,
-                    parent_id: row.get(10)?,
-                },
-                row.get::<_, String>(11)?,
-            ))
+            Ok((symbol_row_from_row(row)?, row.get::<_, String>(11)?))
         })?;
 
         let mut groups: Vec<(String, Vec<SymbolRow>)> = Vec::new();

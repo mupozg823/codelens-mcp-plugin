@@ -377,15 +377,10 @@ impl SymbolIndex {
             let resolved = self.project.resolve(id_file)?;
             let relative = self.project.to_relative(&resolved);
             self.ensure_indexed(&resolved, &relative)?;
-            // Extract the leaf name from name_path (after last '/')
-            let leaf_name = id_name_path.rsplit('/').next().unwrap_or(id_name_path);
             let db = self.writer();
-            let db_rows = db.find_symbols_by_name(leaf_name, Some(id_file), true, max_matches)?;
+            let db_rows = db.find_symbols_by_name_path(&relative, id_name_path, max_matches)?;
             let mut results = Vec::new();
             for row in db_rows {
-                if row.name_path != id_name_path {
-                    continue;
-                }
                 let rel_path = db.get_file_path(row.file_id)?.unwrap_or_default();
                 let body = if include_body {
                     let abs = self.project.as_path().join(&rel_path);
@@ -539,8 +534,7 @@ pub fn find_symbol_range(
     let flat = flatten_symbols(parsed);
 
     let candidate = if let Some(np) = name_path {
-        flat.into_iter()
-            .find(|sym| sym.name_path == np || sym.name == symbol_name)
+        flat.into_iter().find(|sym| sym.name_path == np)
     } else {
         flat.into_iter().find(|sym| sym.name == symbol_name)
     };

@@ -139,8 +139,9 @@ impl SymbolIndex {
         let db = self.reader()?;
         // Stable ID fast path
         if let Some((id_file, _id_kind, id_name_path)) = parse_symbol_id(name) {
-            let leaf_name = id_name_path.rsplit('/').next().unwrap_or(id_name_path);
-            let db_rows = db.find_symbols_by_name(leaf_name, Some(id_file), true, max_matches)?;
+            let resolved = self.project.resolve(id_file)?;
+            let relative = self.project.to_relative(&resolved);
+            let db_rows = db.find_symbols_by_name_path(&relative, id_name_path, max_matches)?;
             return Self::rows_to_symbol_infos(&self.project, &db, db_rows, include_body);
         }
 

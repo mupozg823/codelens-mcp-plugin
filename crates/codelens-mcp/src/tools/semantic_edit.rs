@@ -53,6 +53,18 @@ pub(crate) fn selected_backend(
     }
 }
 
+fn lsp_command_and_args(
+    arguments: &serde_json::Value,
+    file_path: &str,
+) -> Result<(String, Vec<String>), CodeLensError> {
+    let command = optional_string(arguments, "command")
+        .map(ToOwned::to_owned)
+        .or_else(|| default_lsp_command_for_path(file_path))
+        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
+    let args = parse_lsp_args(arguments, &command);
+    Ok((command, args))
+}
+
 pub(crate) fn code_action_refactor_with_lsp_backend(
     state: &AppState,
     arguments: &serde_json::Value,
@@ -62,11 +74,7 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
     let file_path = required_string(arguments, "file_path")?.to_owned();
     let (start_line, start_column, end_line, end_column, position_source) =
         code_action_range(state, arguments, &file_path, operation)?;
-    let command = optional_string(arguments, "command")
-        .map(ToOwned::to_owned)
-        .or_else(|| default_lsp_command_for_path(&file_path))
-        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
-    let args = parse_lsp_args(arguments, &command);
+    let (command, args) = lsp_command_and_args(arguments, &file_path)?;
     let dry_run = arguments
         .get("dry_run")
         .and_then(|value| value.as_bool())
@@ -216,11 +224,7 @@ pub(crate) fn rename_symbol_with_lsp_backend(
     let name_path = arguments.get("name_path").and_then(|value| value.as_str());
     let position_source = position_source(arguments);
     let (line, column) = symbol_position(state, arguments, &file_path, &symbol_name, name_path)?;
-    let command = optional_string(arguments, "command")
-        .map(ToOwned::to_owned)
-        .or_else(|| default_lsp_command_for_path(&file_path))
-        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
-    let args = parse_lsp_args(arguments, &command);
+    let (command, args) = lsp_command_and_args(arguments, &file_path)?;
     let dry_run = arguments
         .get("dry_run")
         .and_then(|value| value.as_bool())
@@ -349,11 +353,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
     let name_path = arguments.get("name_path").and_then(|value| value.as_str());
     let position_source = position_source(arguments);
     let (line, column) = symbol_position(state, arguments, &file_path, &symbol_name, name_path)?;
-    let command = optional_string(arguments, "command")
-        .map(ToOwned::to_owned)
-        .or_else(|| default_lsp_command_for_path(&file_path))
-        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
-    let args = parse_lsp_args(arguments, &command);
+    let (command, args) = lsp_command_and_args(arguments, &file_path)?;
     let dry_run = arguments
         .get("dry_run")
         .and_then(|value| value.as_bool())

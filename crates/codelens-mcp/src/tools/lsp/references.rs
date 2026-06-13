@@ -74,6 +74,10 @@ fn classify_ts_type_reference(line: &str, symbol_name: &str) -> &'static str {
     }
 }
 
+fn is_structural_ts_reference_kind(kind: &str) -> bool {
+    kind != "text_name_match"
+}
+
 fn structural_ts_reference_evidence(
     state: &AppState,
     file_path: &str,
@@ -96,7 +100,14 @@ fn structural_ts_reference_evidence(
     let mut rows = Vec::new();
     let mut total_count = 0usize;
     for reference in refs {
+        if !is_js_ts_path(&reference.file_path) {
+            continue;
+        }
         if reference.is_declaration {
+            continue;
+        }
+        let evidence_kind = classify_ts_type_reference(&reference.line_content, symbol_name);
+        if !is_structural_ts_reference_kind(evidence_kind) {
             continue;
         }
         total_count += 1;
@@ -107,7 +118,7 @@ fn structural_ts_reference_evidence(
             "file_path": reference.file_path,
             "line": reference.line,
             "column": reference.column,
-            "evidence_kind": classify_ts_type_reference(&reference.line_content, symbol_name),
+            "evidence_kind": evidence_kind,
             "line_content": reference.line_content.trim(),
         }));
     }

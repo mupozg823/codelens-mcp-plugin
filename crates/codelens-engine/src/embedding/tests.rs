@@ -2090,6 +2090,7 @@ fn requested_embedding_model_override_accepts_alternative_model() {
 
 #[test]
 fn recommended_embed_threads_caps_macos_style_load() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let threads = recommended_embed_threads();
     assert!(threads >= 1);
     assert!(threads <= 8);
@@ -2151,8 +2152,93 @@ fn macos_runtime_preference_reports_coreml_when_coreml_is_compiled() {
 
 #[test]
 fn embed_batch_size_has_safe_default_floor() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     assert!(embed_batch_size() >= 1);
     if cfg!(target_os = "macos") {
         assert!(embed_batch_size() <= DEFAULT_MACOS_EMBED_BATCH_SIZE);
     }
+}
+
+#[test]
+fn low_power_embedding_profile_caps_default_threads_and_batch() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let previous_profile = std::env::var("CODELENS_EMBED_RESOURCE_PROFILE").ok();
+    let previous_threads = std::env::var("CODELENS_EMBED_THREADS").ok();
+    let previous_batch = std::env::var("CODELENS_EMBED_BATCH_SIZE").ok();
+    let previous_provider = std::env::var("CODELENS_EMBED_PROVIDER").ok();
+    unsafe {
+        std::env::set_var("CODELENS_EMBED_RESOURCE_PROFILE", "low_power");
+        std::env::remove_var("CODELENS_EMBED_THREADS");
+        std::env::remove_var("CODELENS_EMBED_BATCH_SIZE");
+        std::env::remove_var("CODELENS_EMBED_PROVIDER");
+    }
+
+    let threads = recommended_embed_threads();
+    let batch = embed_batch_size();
+    let provider = configured_embedding_runtime_preference();
+
+    unsafe {
+        match previous_profile {
+            Some(value) => std::env::set_var("CODELENS_EMBED_RESOURCE_PROFILE", value),
+            None => std::env::remove_var("CODELENS_EMBED_RESOURCE_PROFILE"),
+        }
+        match previous_threads {
+            Some(value) => std::env::set_var("CODELENS_EMBED_THREADS", value),
+            None => std::env::remove_var("CODELENS_EMBED_THREADS"),
+        }
+        match previous_batch {
+            Some(value) => std::env::set_var("CODELENS_EMBED_BATCH_SIZE", value),
+            None => std::env::remove_var("CODELENS_EMBED_BATCH_SIZE"),
+        }
+        match previous_provider {
+            Some(value) => std::env::set_var("CODELENS_EMBED_PROVIDER", value),
+            None => std::env::remove_var("CODELENS_EMBED_PROVIDER"),
+        }
+    }
+
+    assert!((1..=2).contains(&threads));
+    assert_eq!(batch, 32);
+    assert_eq!(provider, "cpu");
+}
+
+#[test]
+fn explicit_embedding_knobs_override_low_power_profile() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let previous_profile = std::env::var("CODELENS_EMBED_RESOURCE_PROFILE").ok();
+    let previous_threads = std::env::var("CODELENS_EMBED_THREADS").ok();
+    let previous_batch = std::env::var("CODELENS_EMBED_BATCH_SIZE").ok();
+    let previous_provider = std::env::var("CODELENS_EMBED_PROVIDER").ok();
+    unsafe {
+        std::env::set_var("CODELENS_EMBED_RESOURCE_PROFILE", "low_power");
+        std::env::set_var("CODELENS_EMBED_THREADS", "5");
+        std::env::set_var("CODELENS_EMBED_BATCH_SIZE", "64");
+        std::env::set_var("CODELENS_EMBED_PROVIDER", "cpu");
+    }
+
+    let threads = recommended_embed_threads();
+    let batch = embed_batch_size();
+    let provider = configured_embedding_runtime_preference();
+
+    unsafe {
+        match previous_profile {
+            Some(value) => std::env::set_var("CODELENS_EMBED_RESOURCE_PROFILE", value),
+            None => std::env::remove_var("CODELENS_EMBED_RESOURCE_PROFILE"),
+        }
+        match previous_threads {
+            Some(value) => std::env::set_var("CODELENS_EMBED_THREADS", value),
+            None => std::env::remove_var("CODELENS_EMBED_THREADS"),
+        }
+        match previous_batch {
+            Some(value) => std::env::set_var("CODELENS_EMBED_BATCH_SIZE", value),
+            None => std::env::remove_var("CODELENS_EMBED_BATCH_SIZE"),
+        }
+        match previous_provider {
+            Some(value) => std::env::set_var("CODELENS_EMBED_PROVIDER", value),
+            None => std::env::remove_var("CODELENS_EMBED_PROVIDER"),
+        }
+    }
+
+    assert_eq!(threads, 5);
+    assert_eq!(batch, 64);
+    assert_eq!(provider, "cpu");
 }

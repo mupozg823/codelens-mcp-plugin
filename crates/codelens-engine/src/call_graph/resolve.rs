@@ -132,6 +132,25 @@ pub(crate) fn resolve_call_edges(
                 edge.canonical_callee_name = Some(canonical_name.to_owned());
                 continue;
             }
+            if let Some(reexport_binding) = import_bindings
+                .and_then(|index| index.get(resolved_file))
+                .and_then(|bindings| bindings.get(canonical_name))
+                && let Some(reexport_file) = reexport_binding.resolved_file.as_ref()
+            {
+                let reexport_name = reexport_binding
+                    .imported_name
+                    .as_deref()
+                    .unwrap_or(canonical_name);
+                if let Some(defs) = symbol_index.get(reexport_name)
+                    && defs.iter().any(|f| f == reexport_file)
+                {
+                    edge.resolved_file = Some(reexport_file.clone());
+                    edge.confidence = 0.93;
+                    edge.resolution_strategy = Some("import_reexport_map");
+                    edge.canonical_callee_name = Some(reexport_name.to_owned());
+                    continue;
+                }
+            }
         }
 
         if let Some(graph) = import_graph

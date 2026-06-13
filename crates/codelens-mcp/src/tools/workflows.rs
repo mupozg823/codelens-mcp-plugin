@@ -22,30 +22,23 @@ struct DuplicateFilterOutcome {
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
     let deprecation = deprecated_workflow_alias(workflow);
-    match payload {
-        Value::Object(mut map) => {
-            map.insert("workflow".to_owned(), json!(workflow));
-            map.insert("delegated_tool".to_owned(), json!(delegated_tool));
-            if let Some((replacement_tool, removal_target)) = deprecation {
-                map.insert("deprecated".to_owned(), json!(true));
-                map.insert("replacement_tool".to_owned(), json!(replacement_tool));
-                map.insert("removal_target".to_owned(), json!(removal_target));
-            }
-            Value::Object(map)
-        }
+    let mut map = match payload {
+        Value::Object(map) => map,
         other => {
             let mut map = serde_json::Map::new();
-            map.insert("workflow".to_owned(), json!(workflow));
-            map.insert("delegated_tool".to_owned(), json!(delegated_tool));
-            if let Some((replacement_tool, removal_target)) = deprecation {
-                map.insert("deprecated".to_owned(), json!(true));
-                map.insert("replacement_tool".to_owned(), json!(replacement_tool));
-                map.insert("removal_target".to_owned(), json!(removal_target));
-            }
             map.insert("result".to_owned(), other);
-            Value::Object(map)
+            map
         }
+    };
+
+    map.insert("workflow".to_owned(), json!(workflow));
+    map.insert("delegated_tool".to_owned(), json!(delegated_tool));
+    if let Some((replacement_tool, removal_target)) = deprecation {
+        map.insert("deprecated".to_owned(), json!(true));
+        map.insert("replacement_tool".to_owned(), json!(replacement_tool));
+        map.insert("removal_target".to_owned(), json!(removal_target));
     }
+    Value::Object(map)
 }
 
 #[cfg(feature = "semantic")]

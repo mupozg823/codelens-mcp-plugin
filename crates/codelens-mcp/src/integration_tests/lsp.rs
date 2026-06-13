@@ -727,6 +727,68 @@ fn find_referencing_symbols_oxc_self_only_surfaces_ts_structural_evidence() {
     );
 }
 
+#[test]
+fn find_referencing_symbols_ts_structural_evidence_filters_plain_name_noise() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("filtered_request_types.ts"),
+        "export interface FilteredPlanRequest {\n  customName: string;\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("filtered_route.ts"),
+        "import type { FilteredPlanRequest } from './filtered_request_types';\nconst body = parsed.data as FilteredPlanRequest;\nexport function handleFiltered(input: FilteredPlanRequest) {\n  return input.customName;\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("plain_value_use.ts"),
+        "export const maybeRuntimeValue = FilteredPlanRequest;\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("python_noise.py"),
+        "print(FilteredPlanRequest)\n",
+    )
+    .unwrap();
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({
+            "file_path": "filtered_request_types.ts",
+            "symbol_name": "FilteredPlanRequest",
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(
+        payload["data"]["evidence"]["confidence_basis"],
+        json!("oxc_self_only_plus_ts_structural_evidence"),
+        "{payload}"
+    );
+    assert_eq!(
+        payload["data"]["structural_reference_evidence"]["count"],
+        json!(3),
+        "only import/cast/annotation evidence should be counted: {payload}"
+    );
+    let evidence_rows = payload["data"]["structural_reference_evidence"]["references"]
+        .as_array()
+        .expect("structural evidence rows");
+    assert!(
+        evidence_rows
+            .iter()
+            .all(|row| row["file_path"] == json!("filtered_route.ts")),
+        "plain TS value usage and non-TS files must not become structural evidence: {payload}"
+    );
+    assert!(
+        evidence_rows
+            .iter()
+            .all(|row| row["evidence_kind"] != json!("text_name_match")),
+        "plain name matches must be filtered out of TS structural evidence: {payload}"
+    );
+}
+
 /// Issue #268 regression for the explicit LSP path: when a TS language
 /// server returns zero/one references for a request interface, CodeLens
 /// must still attach structural/cast evidence and downgrade the verdict

@@ -1,6 +1,6 @@
 use crate::project::ProjectRoot;
 use regex::Regex;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -9,6 +9,9 @@ use super::types::CallEdge;
 
 static JS_IMPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?m)\bimport\s+([^;]+?)\s+from\s+["']([^"']+)["']"#).expect("import regex")
+});
+static JS_REEXPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)\bexport\s+([^;]+?)\s+from\s+["']([^"']+)["']"#).expect("re-export regex")
 });
 
 #[derive(Debug)]
@@ -103,17 +106,51 @@ fn parse_js_import_bindings(
     }
 }
 
+fn parse_js_reexport_bindings(
+    bindings: &mut HashMap<String, JSImportBinding>,
+    clause: &str,
+    resolved_file: Option<&String>,
+    module: &str,
+) {
+    let clause = clause.trim().trim_start_matches("type ").trim();
+    if !clause.starts_with('{') {
+        return;
+    }
+    let Some(end) = clause.find('}') else {
+        return;
+    };
+    let external = is_external_module_specifier(module, resolved_file);
+
+    for item in clause[1..end].split(',') {
+        let item = item.trim().trim_start_matches("type ").trim();
+        if item.is_empty() {
+            continue;
+        }
+        if let Some((imported, local)) = item.split_once(" as ") {
+            insert_js_binding(bindings, local, Some(imported), resolved_file, external);
+        } else {
+            insert_js_binding(bindings, item, Some(item), resolved_file, external);
+        }
+    }
+}
+
 pub(crate) fn build_js_import_binding_index(
     project: &ProjectRoot,
     files: &[PathBuf],
 ) -> JSImportBindingIndex {
     let mut index = HashMap::new();
-    for file in files {
-        let relative = project.to_relative(file);
+    let mut queue: VecDeque<(PathBuf, usize)> =
+        files.iter().cloned().map(|file| (file, 0)).collect();
+    let mut seen = HashSet::new();
+    while let Some((file, depth)) = queue.pop_front() {
+        let relative = project.to_relative(&file);
+        if !seen.insert(relative.clone()) {
+            continue;
+        }
         if !is_import_sensitive_path(&relative) {
             continue;
         }
-        let Ok(source) = fs::read_to_string(file) else {
+        let Ok(source) = fs::read_to_string(&file) else {
             continue;
         };
         let mut bindings = HashMap::new();
@@ -124,8 +161,32 @@ pub(crate) fn build_js_import_binding_index(
             let Some(module) = capture.get(2).map(|value| value.as_str()) else {
                 continue;
             };
-            let resolved_file = crate::import_graph::resolve_module_for_file(project, file, module);
+            let resolved_file =
+                crate::import_graph::resolve_module_for_file(project, &file, module);
+            if depth == 0
+                && let Some(resolved_file) = resolved_file.as_ref()
+                && let Ok(resolved_path) = project.resolve(resolved_file)
+            {
+                queue.push_back((resolved_path, 1));
+            }
             parse_js_import_bindings(&mut bindings, clause, resolved_file.as_ref(), module);
+        }
+        for capture in JS_REEXPORT_FROM_RE.captures_iter(&source) {
+            let Some(clause) = capture.get(1).map(|value| value.as_str()) else {
+                continue;
+            };
+            let Some(module) = capture.get(2).map(|value| value.as_str()) else {
+                continue;
+            };
+            let resolved_file =
+                crate::import_graph::resolve_module_for_file(project, &file, module);
+            if depth == 0
+                && let Some(resolved_file) = resolved_file.as_ref()
+                && let Ok(resolved_path) = project.resolve(resolved_file)
+            {
+                queue.push_back((resolved_path, 1));
+            }
+            parse_js_reexport_bindings(&mut bindings, clause, resolved_file.as_ref(), module);
         }
         if !bindings.is_empty() {
             index.insert(relative, bindings);

@@ -196,6 +196,20 @@ pub fn parse_bool_env(name: &str) -> Option<bool> {
     })
 }
 
+fn configured_embedding_resource_profile() -> String {
+    match std::env::var("CODELENS_EMBED_RESOURCE_PROFILE")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("low_power") | Some("low-power") | Some("low") | Some("eco") => {
+            "low_power".to_string()
+        }
+        Some("throughput") | Some("fast") => "throughput".to_string(),
+        _ => "balanced".to_string(),
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn apple_perf_cores() -> Option<usize> {
     ffi::sysctl_usize(b"hw.perflevel0.physicalcpu\0")
@@ -212,6 +226,7 @@ pub fn configured_embedding_runtime_preference() -> String {
     let requested = std::env::var("CODELENS_EMBED_PROVIDER")
         .ok()
         .map(|value| value.trim().to_ascii_lowercase());
+    let resource_profile = configured_embedding_resource_profile();
 
     match requested.as_deref() {
         Some("cpu") => "cpu".to_string(),
@@ -219,6 +234,7 @@ pub fn configured_embedding_runtime_preference() -> String {
             "coreml".to_string()
         }
         Some("coreml") => "cpu".to_string(),
+        _ if resource_profile == "low_power" => "cpu".to_string(),
         _ if cfg!(all(target_os = "macos", feature = "coreml")) => "coreml_preferred".to_string(),
         _ => "cpu".to_string(),
     }
@@ -315,19 +331,35 @@ pub fn recommended_embed_threads() -> usize {
     }
 
     let available = available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let resource_profile = configured_embedding_resource_profile();
+    if resource_profile == "low_power" {
+        return available.clamp(1, 2);
+    }
     if cfg!(target_os = "macos") {
-        apple_perf_cores()
+        let base = apple_perf_cores()
             .unwrap_or(available)
             .min(available)
-            .clamp(1, 8)
+            .clamp(1, 8);
+        if resource_profile == "throughput" {
+            base.max(available.min(8))
+        } else {
+            base
+        }
     } else {
-        available.div_ceil(2).clamp(1, 8)
+        let base = available.div_ceil(2).clamp(1, 8);
+        if resource_profile == "throughput" {
+            available.clamp(1, 8)
+        } else {
+            base
+        }
     }
 }
 
 pub fn embed_batch_size() -> usize {
-    parse_usize_env("CODELENS_EMBED_BATCH_SIZE").unwrap_or({
-        if cfg!(target_os = "macos") {
+    parse_usize_env("CODELENS_EMBED_BATCH_SIZE").unwrap_or_else(|| {
+        if configured_embedding_resource_profile() == "low_power" {
+            32
+        } else if cfg!(target_os = "macos") {
             DEFAULT_MACOS_EMBED_BATCH_SIZE
         } else {
             DEFAULT_EMBED_BATCH_SIZE
@@ -531,7 +563,6 @@ pub fn coreml_runtime_info(
 
 /// Load a fastembed built-in model by ID (auto-downloads from HuggingFace).
 /// Used for A/B model comparison via `CODELENS_EMBED_MODEL` env var.
-/// Load a fastembed built-in model by ID (auto-downloads from HuggingFace).
 /// Requires the `model-bakeoff` feature (enables fastembed's hf-hub support).
 #[cfg(feature = "model-bakeoff")]
 pub fn load_fastembed_builtin(
@@ -552,11 +583,14 @@ pub fn load_fastembed_builtin(
         "nomic-embed-text-v1.5" | "nomic-ai/nomic-embed-text-v1.5" => {
             (EmbeddingModel::NomicEmbedTextV15, 768)
         }
+        "jina-embeddings-v2-base-code" | "jinaai/jina-embeddings-v2-base-code" => {
+            (EmbeddingModel::JinaEmbeddingsV2BaseCode, 768)
+        }
         other => {
             anyhow::bail!(
                 "Unknown fastembed model: {other}. \
                  Supported: all-MiniLM-L6-v2, all-MiniLM-L12-v2, bge-small-en-v1.5, \
-                 bge-base-en-v1.5, nomic-embed-text-v1.5"
+                 bge-base-en-v1.5, nomic-embed-text-v1.5, jina-embeddings-v2-base-code"
             );
         }
     };

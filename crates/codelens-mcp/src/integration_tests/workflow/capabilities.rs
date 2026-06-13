@@ -61,6 +61,7 @@ fn get_capabilities_compact_returns_core_fields_only() {
         "scip_available",
         "scip_file_count",
         "scip_symbol_count",
+        "scip_generator_warnings",
     ] {
         assert!(
             data.get(excluded).is_none(),
@@ -116,6 +117,10 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"].get("embedding_indexed").is_some());
     assert!(payload["data"].get("embedding_indexed_symbols").is_some());
     assert!(payload["data"].get("index_fresh").is_some());
+    assert!(
+        payload["data"].get("scip_generator_warnings").is_some(),
+        "full capabilities payload must expose the nullable SCIP generator warning summary"
+    );
     assert!(payload["data"].get("supported_files").is_some());
     assert!(payload["data"].get("stale_files").is_some());
     assert!(payload["data"]["health_summary"].is_object());

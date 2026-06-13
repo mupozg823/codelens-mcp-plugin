@@ -1,6 +1,11 @@
-use super::{SymbolIndex, SymbolKind, SymbolProvenance, find_symbol, get_symbols_overview};
+use super::{
+    SymbolIndex, SymbolKind, SymbolProvenance, find_symbol, find_symbol_range, get_symbols_overview,
+};
 use crate::ProjectRoot;
 use std::fs;
+
+const DUPLICATE_METHODS_PATH: &str = "src/duplicate_methods.py";
+const BETA_RUN_ID: &str = "src/duplicate_methods.py#function:Beta/run";
 
 #[test]
 fn extracts_python_symbols() {
@@ -299,6 +304,76 @@ fn get_symbols_overview_includes_id() {
 }
 
 #[test]
+fn find_symbol_range_uses_exact_name_path_when_provided() {
+    let (root, project) = duplicate_methods_project();
+
+    let (start_byte, end_byte) =
+        find_symbol_range(&project, DUPLICATE_METHODS_PATH, "run", Some("Beta/run"))
+            .expect("range for nested Beta/run");
+    let source = fs::read_to_string(root.join(DUPLICATE_METHODS_PATH)).expect("read fixture");
+    let selected = std::str::from_utf8(&source.as_bytes()[start_byte..end_byte])
+        .expect("selected range should be valid UTF-8");
+
+    assert!(
+        selected.contains("return 'beta'"),
+        "name_path lookup selected the wrong duplicate method body: {selected}"
+    );
+    assert!(
+        !selected.contains("return 'alpha'"),
+        "name_path lookup must not fall back to the first matching leaf name"
+    );
+}
+
+#[test]
+fn cached_stable_id_lookup_filters_exact_name_path() {
+    let (_, project) = duplicate_methods_project();
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh all");
+
+    let matches = index
+        .find_symbol_cached(BETA_RUN_ID, None, true, true, 1)
+        .expect("cached stable id lookup");
+
+    assert_eq!(
+        matches.len(),
+        1,
+        "stable ID lookup must not return sibling symbols with the same leaf name"
+    );
+    assert_eq!(matches[0].name_path, "Beta/run");
+    assert!(
+        matches[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("return 'beta'")
+    );
+}
+
+#[test]
+fn stable_id_lookup_filters_exact_name_path_before_limit() {
+    let (_, project) = duplicate_methods_project();
+    let index = SymbolIndex::new_memory(project);
+
+    let matches = index
+        .find_symbol(BETA_RUN_ID, None, true, true, 1)
+        .expect("stable id lookup");
+
+    assert_eq!(
+        matches.len(),
+        1,
+        "stable ID lookup must apply the caller limit after exact name_path lookup"
+    );
+    assert_eq!(matches[0].name_path, "Beta/run");
+    assert!(
+        matches[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("return 'beta'")
+    );
+}
+
+#[test]
 fn cached_directory_children_preserve_file_identity_and_provenance() {
     let root = fixture_root();
     let project = ProjectRoot::new(&root).expect("project");
@@ -559,4 +634,19 @@ fn fixture_root() -> std::path::PathBuf {
     )
     .expect("write ts");
     dir
+}
+
+fn write_duplicate_methods_fixture(root: &std::path::Path) {
+    fs::write(
+        root.join(DUPLICATE_METHODS_PATH),
+        "class Alpha:\n    def run(self):\n        return 'alpha'\n\nclass Beta:\n    def run(self):\n        return 'beta'\n",
+    )
+    .expect("write duplicate method fixture");
+}
+
+fn duplicate_methods_project() -> (std::path::PathBuf, ProjectRoot) {
+    let root = fixture_root();
+    write_duplicate_methods_fixture(&root);
+    let project = ProjectRoot::new(&root).expect("project");
+    (root, project)
 }

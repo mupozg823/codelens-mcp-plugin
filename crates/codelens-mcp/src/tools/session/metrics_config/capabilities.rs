@@ -8,6 +8,8 @@ use super::semantic::SemanticSearchStatus;
 use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::tool_runtime::{ToolResult, success_meta};
+#[cfg(feature = "scip-backend")]
+use crate::tools::scip_health::{detect_scip_generator_warnings, scip_generator_warnings_payload};
 use serde_json::json;
 
 /// Response detail level. The default `full` preserves the historical
@@ -234,6 +236,11 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     // into `detail=full`.
     let (scip_status, scip_setup_hint) =
         scip_status_for_response(scip_available, project_root.as_path());
+    #[cfg(feature = "scip-backend")]
+    let scip_generator_warnings = detect_scip_generator_warnings(project_root.as_path())
+        .map(|warnings| scip_generator_warnings_payload(&warnings));
+    #[cfg(not(feature = "scip-backend"))]
+    let scip_generator_warnings: Option<serde_json::Value> = None;
 
     // P0-2 — explicit semantic model sidecar tri-state. Pre-this-PR
     // the only model signal in the compact response was the indirect
@@ -330,6 +337,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "model_setup_hint": model_setup_hint,
             "scip_status": scip_status,
             "scip_setup_hint": scip_setup_hint,
+            "scip_generator_warnings": scip_generator_warnings,
         }),
     };
 
