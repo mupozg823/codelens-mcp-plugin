@@ -85,6 +85,13 @@ Recommended daemon split:
 
 For this repository's local launchd workflow, use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh). It installs the repo-local dual-daemon shape from a current `--features http,semantic` build by default, writes `CODELENS_MODEL_DIR` into the plists when the repo-local model sidecar exists, and defaults to `7839` read-only plus `7838` mutation-enabled to match the local harness contract.
 
+The local launchd installer also defaults `CODELENS_EMBED_RESOURCE_PROFILE=low_power`.
+That caps semantic embedding work to the low-power runtime path (CPU provider,
+small batches, and at most two embedding threads) so always-on daemons do not
+compete aggressively with editor, browser, or model workloads. Use
+`--embed-resource-profile balanced` or `--embed-resource-profile throughput`
+only when measuring semantic indexing/search throughput.
+
 That installer also writes repo-local `host_attach.per_host_urls` overrides
 into `.codelens/config.json` so `codelens-mcp attach`, `status`, and `doctor`
 render and verify against the same local contract instead of the public

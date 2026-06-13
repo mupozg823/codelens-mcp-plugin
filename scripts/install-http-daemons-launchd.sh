@@ -29,6 +29,8 @@ Options:
   --mutation-log-level LEVEL  CODELENS_LOG for mutation daemon (default: warn)
   --effort-level LEVEL        CODELENS_EFFORT_LEVEL for both daemons (default: high)
   --rerank VALUE              CODELENS_RERANK for both daemons (default: 0)
+  --embed-resource-profile P  CODELENS_EMBED_RESOURCE_PROFILE for semantic runtime
+                              (default: low_power; use balanced/throughput to trade power for speed)
   --model-dir DIR             CODELENS_MODEL_DIR for semantic search model assets
                               (default: <repo>/crates/codelens-engine/models when present)
   --semantic                  build with http,semantic features (default)
@@ -59,6 +61,7 @@ READONLY_LOG_LEVEL="warn"
 MUTATION_LOG_LEVEL="warn"
 EFFORT_LEVEL="high"
 RERANK_VALUE="0"
+EMBED_RESOURCE_PROFILE="low_power"
 MODEL_DIR=""
 SEMANTIC=1
 RUN_AT_LOAD=1
@@ -131,6 +134,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--rerank)
 		RERANK_VALUE="${2:-}"
+		shift 2
+		;;
+	--embed-resource-profile)
+		EMBED_RESOURCE_PROFILE="${2:-}"
 		shift 2
 		;;
 	--model-dir)
@@ -310,12 +317,14 @@ create_plist() {
 	local repo_xml
 	local stdout_xml
 	local stderr_xml
+	local embed_resource_profile_xml
 	local model_dir_xml=""
 	label_xml="$(xml_escape "$label")"
 	bin_xml="$(xml_escape "$BIN_PATH")"
 	repo_xml="$(xml_escape "$REPO_ROOT")"
 	stdout_xml="$(xml_escape "$stdout_path")"
 	stderr_xml="$(xml_escape "$stderr_path")"
+	embed_resource_profile_xml="$(xml_escape "$EMBED_RESOURCE_PROFILE")"
 	if [[ "$SEMANTIC" == "1" && -n "$MODEL_DIR" ]]; then
 		model_dir_xml=$'    <key>CODELENS_MODEL_DIR</key>\n    <string>'"$(xml_escape "$MODEL_DIR")"$'</string>\n'
 	fi
@@ -351,6 +360,8 @@ create_plist() {
     <string>${EFFORT_LEVEL}</string>
     <key>CODELENS_RERANK</key>
     <string>${RERANK_VALUE}</string>
+    <key>CODELENS_EMBED_RESOURCE_PROFILE</key>
+    <string>${embed_resource_profile_xml}</string>
 ${model_dir_xml}  </dict>
   <key>KeepAlive</key>
   <dict>
