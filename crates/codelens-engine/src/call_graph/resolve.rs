@@ -134,13 +134,14 @@ pub(crate) fn resolve_call_edges(
             }
             if let Some(reexport_binding) = import_bindings
                 .and_then(|index| index.get(resolved_file))
-                .and_then(|bindings| bindings.get(canonical_name))
+                .and_then(|bindings| bindings.get(canonical_name).or_else(|| bindings.get("*")))
                 && let Some(reexport_file) = reexport_binding.resolved_file.as_ref()
             {
-                let reexport_name = reexport_binding
-                    .imported_name
-                    .as_deref()
-                    .unwrap_or(canonical_name);
+                let reexport_name = match reexport_binding.imported_name.as_deref() {
+                    Some("*") => canonical_name,
+                    Some(name) => name,
+                    None => canonical_name,
+                };
                 if let Some(defs) = symbol_index.get(reexport_name)
                     && defs.iter().any(|f| f == reexport_file)
                 {

@@ -113,13 +113,24 @@ fn parse_js_reexport_bindings(
     module: &str,
 ) {
     let clause = clause.trim().trim_start_matches("type ").trim();
+    let external = is_external_module_specifier(module, resolved_file);
+
+    if clause == "*" {
+        insert_js_binding(bindings, "*", Some("*"), resolved_file, external);
+        return;
+    }
+
+    if let Some(stripped) = clause.strip_prefix("* as ") {
+        insert_js_binding(bindings, stripped, Some("*"), resolved_file, external);
+        return;
+    }
+
     if !clause.starts_with('{') {
         return;
     }
     let Some(end) = clause.find('}') else {
         return;
     };
-    let external = is_external_module_specifier(module, resolved_file);
 
     for item in clause[1..end].split(',') {
         let item = item.trim().trim_start_matches("type ").trim();
