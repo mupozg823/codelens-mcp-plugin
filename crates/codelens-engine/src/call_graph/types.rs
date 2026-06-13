@@ -5,6 +5,8 @@ pub struct CallEdge {
     pub caller_file: String,
     pub caller_name: String,
     pub callee_name: String,
+    #[serde(skip_serializing)]
+    pub callee_qualifier: Option<String>,
     pub line: usize,
     /// Resolved file where the callee is defined (None if unresolved).
     #[serde(skip_serializing_if = "Option::is_none")]

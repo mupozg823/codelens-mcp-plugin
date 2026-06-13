@@ -211,9 +211,13 @@ pub(crate) fn filter_external_import_edges(
     import_bindings: &JSImportBindingIndex,
 ) {
     edges.retain(|edge| {
+        let binding_name = edge
+            .callee_qualifier
+            .as_deref()
+            .unwrap_or(&edge.callee_name);
         import_bindings
             .get(&edge.caller_file)
-            .and_then(|bindings| bindings.get(&edge.callee_name))
+            .and_then(|bindings| bindings.get(binding_name))
             .map(|binding| !binding.external)
             .unwrap_or(true)
     });

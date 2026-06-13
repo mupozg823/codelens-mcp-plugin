@@ -181,6 +181,19 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     let mut edges = Vec::new();
 
     while let Some(m) = call_matches.next() {
+        let callee_qualifier = m
+            .captures
+            .iter()
+            .find(|cap| call_query.capture_names()[cap.index as usize] == "callee.object")
+            .and_then(|cap| {
+                let start = cap.node.start_byte();
+                let end = cap.node.end_byte();
+                std::str::from_utf8(&source_bytes[start..end])
+                    .ok()
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned)
+            });
         for cap in m.captures.iter() {
             let cap_name = &call_query.capture_names()[cap.index as usize];
             if *cap_name != "callee" {
@@ -223,6 +236,7 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 caller_file: file_path.clone(),
                 caller_name,
                 callee_name,
+                callee_qualifier: callee_qualifier.clone(),
                 line,
                 resolved_file: None,
                 confidence: 0.0,

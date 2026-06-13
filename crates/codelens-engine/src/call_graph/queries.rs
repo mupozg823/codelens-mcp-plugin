@@ -36,7 +36,10 @@ pub(super) const JS_FUNC_QUERY: &str = r#"
 
 pub(super) const JS_CALL_QUERY: &str = r#"
 (call_expression function: (identifier) @callee)
-(call_expression function: (member_expression property: (property_identifier) @callee))
+(call_expression
+  function: (member_expression
+    object: (_) @callee.object
+    property: (property_identifier) @callee))
 ;; v1.11.1 (F1 follow-up): function-reference arguments. JS/TS frequently
 ;; pass functions as callbacks — `setTimeout(handler, 100)`,
 ;; `arr.map(parseLine)`, `bus.on("evt", onEvent)`, `.then(success)`.
@@ -45,7 +48,10 @@ pub(super) const JS_CALL_QUERY: &str = r#"
 ;; while genuine function references resolve via Stage 5
 ;; (`unique_name`) at confidence 0.5.
 (arguments (identifier) @callee)
-(arguments (member_expression property: (property_identifier) @callee))
+(arguments
+  (member_expression
+    object: (_) @callee.object
+    property: (property_identifier) @callee))
 "#;
 
 // JSX/TSX adds React-style component usage (`<Foo />`, `<Foo>`) as caller→callee
@@ -53,14 +59,26 @@ pub(super) const JS_CALL_QUERY: &str = r#"
 // path. tree-sitter-javascript also supports JSX, so .jsx files share this set.
 pub(super) const JS_JSX_CALL_QUERY: &str = r#"
 (call_expression function: (identifier) @callee)
-(call_expression function: (member_expression property: (property_identifier) @callee))
+(call_expression
+  function: (member_expression
+    object: (_) @callee.object
+    property: (property_identifier) @callee))
 (jsx_self_closing_element name: (identifier) @callee)
 (jsx_opening_element name: (identifier) @callee)
-(jsx_self_closing_element name: (member_expression property: (property_identifier) @callee))
-(jsx_opening_element name: (member_expression property: (property_identifier) @callee))
+(jsx_self_closing_element
+  name: (member_expression
+    object: (_) @callee.object
+    property: (property_identifier) @callee))
+(jsx_opening_element
+  name: (member_expression
+    object: (_) @callee.object
+    property: (property_identifier) @callee))
 ;; v1.11.1: same function-reference patterns as JS_CALL_QUERY.
 (arguments (identifier) @callee)
-(arguments (member_expression property: (property_identifier) @callee))
+(arguments
+  (member_expression
+    object: (_) @callee.object
+    property: (property_identifier) @callee))
 "#;
 
 pub(super) const GO_FUNC_QUERY: &str = r#"
