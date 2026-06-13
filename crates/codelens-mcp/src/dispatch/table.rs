@@ -54,14 +54,15 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
     // agent that sends the common alias is not silently dropped to the
     // default of 20. The canonical name still wins when both are
     // present.
-    const KNOWN_ARGS: &[&str] = &["query", "max_results", "limit", "top_k"];
+    const SEMANTIC_SEARCH_KNOWN_ARGS: &[&str] = &["query", "max_results", "limit", "top_k"];
     let max_results = crate::tool_runtime::optional_usize_with_aliases(
         arguments,
         "max_results",
         &["limit", "top_k"],
         20,
     );
-    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let unknown_args =
+        crate::tool_runtime::collect_unknown_args(arguments, SEMANTIC_SEARCH_KNOWN_ARGS);
 
     let project = state.project();
     let guard = state.embedding_engine();
@@ -199,7 +200,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
             json!(format!(
                 "ignored unknown argument(s): {}. valid args: {}",
                 unknown_args.join(", "),
-                KNOWN_ARGS.join(", ")
+                SEMANTIC_SEARCH_KNOWN_ARGS.join(", ")
             )),
         );
     }

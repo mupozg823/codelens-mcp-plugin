@@ -164,7 +164,7 @@ fn import_line_is_guarded_by_import_error(
 }
 
 pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    const KNOWN_ARGS: &[&str] = &[
+    const FILE_DIAGNOSTICS_KNOWN_ARGS: &[&str] = &[
         "path",
         "file_path",
         "relative_path",
@@ -175,7 +175,8 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
     let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
     let file_path = file_path_arg.to_owned();
     let max_results = optional_usize(arguments, "max_results", 200);
-    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let unknown_args =
+        crate::tool_runtime::collect_unknown_args(arguments, FILE_DIAGNOSTICS_KNOWN_ARGS);
 
     // Try SCIP diagnostics first (if available).
     #[cfg(feature = "scip-backend")]
@@ -275,7 +276,7 @@ mod tests {
 /// result with `degraded_reason` + `fallback_hint` (read-surface
 /// contract shared with the navigation pair).
 pub fn get_diagnostics_for_symbol(state: &AppState, arguments: &Value) -> ToolResult {
-    const KNOWN_ARGS: &[&str] = &[
+    const SYMBOL_DIAGNOSTICS_KNOWN_ARGS: &[&str] = &[
         "path",
         "file_path",
         "relative_path",
@@ -285,7 +286,8 @@ pub fn get_diagnostics_for_symbol(state: &AppState, arguments: &Value) -> ToolRe
         "max_results",
     ];
     let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
-    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let unknown_args =
+        crate::tool_runtime::collect_unknown_args(arguments, SYMBOL_DIAGNOSTICS_KNOWN_ARGS);
     let file_path = file_path_arg.to_owned();
     let symbol_name = crate::tool_runtime::required_string(arguments, "symbol_name")?.to_owned();
 

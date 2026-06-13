@@ -60,6 +60,7 @@ summary_path = Path(sys.argv[2])
 log_text = log_path.read_text(encoding="utf-8", errors="replace")
 
 duplicate_files = collections.Counter()
+known_duplicate_files = collections.Counter()
 previous_source = None
 for line in log_text.splitlines():
     source_match = re.match(r"([^\s].*\.rs):\d+:\d+-\d+:\d+$", line)
@@ -67,7 +68,20 @@ for line in log_text.splitlines():
         previous_source = source_match.group(1)
         continue
     if "Duplicate symbol:" in line and previous_source:
-        duplicate_files[previous_source] += 1
+        # rust-analyzer emits duplicate SCIP symbols for crate/test/bench
+        # entrypoints that do not map to user-authored call targets. Keep
+        # counting them, but do not mix them with file/symbol precision risk.
+        known_entrypoint_duplicate = (
+            line.rstrip().endswith(" crate/")
+            or line.rstrip().endswith(" main().")
+            or line.rstrip().endswith(" benches().")
+            or "/tests/" in previous_source
+            or "/benches/" in previous_source
+        )
+        if known_entrypoint_duplicate:
+            known_duplicate_files[previous_source] += 1
+        else:
+            duplicate_files[previous_source] += 1
         previous_source = None
 
 missing_files = collections.Counter(
@@ -79,10 +93,12 @@ missing_files = collections.Counter(
 unnamed_enclosing_definition_count = log_text.count(
     "Encountered enclosing definition with no name"
 )
-duplicate_symbol_count = sum(duplicate_files.values())
+precision_risk_duplicate_symbol_count = sum(duplicate_files.values())
+known_duplicate_symbol_count = sum(known_duplicate_files.values())
+duplicate_symbol_count = precision_risk_duplicate_symbol_count + known_duplicate_symbol_count
 missing_document_definition_count = sum(missing_files.values())
-precision_risk_warning_count = duplicate_symbol_count + missing_document_definition_count
-known_generator_noise_count = unnamed_enclosing_definition_count
+precision_risk_warning_count = precision_risk_duplicate_symbol_count + missing_document_definition_count
+known_generator_noise_count = unnamed_enclosing_definition_count + known_duplicate_symbol_count
 warning_count = precision_risk_warning_count + known_generator_noise_count
 
 all_files = sorted(
@@ -105,7 +121,7 @@ precision_risk_files = [
 ]
 
 summary = {
-    "schema_version": 3,
+    "schema_version": 4,
     "generator": "rust-analyzer scip",
     "log_path": ".codelens/scip-generation.log",
     "warning_count": warning_count,
@@ -115,6 +131,8 @@ summary = {
     "precision_risk_files_truncated": len(all_files) > file_limit,
     "precision_risk_files": precision_risk_files,
     "duplicate_symbol_count": duplicate_symbol_count,
+    "precision_risk_duplicate_symbol_count": precision_risk_duplicate_symbol_count,
+    "known_duplicate_symbol_count": known_duplicate_symbol_count,
     "missing_document_definition_count": missing_document_definition_count,
     "unnamed_enclosing_definition_count": unnamed_enclosing_definition_count,
 }

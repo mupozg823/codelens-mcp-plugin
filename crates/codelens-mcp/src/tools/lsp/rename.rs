@@ -24,7 +24,7 @@ pub(super) fn resolve_symbol_position(
 }
 
 pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    const KNOWN_ARGS: &[&str] = &[
+    const RENAME_PLAN_KNOWN_ARGS: &[&str] = &[
         "path",
         "file_path",
         "line",
@@ -34,7 +34,7 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
         "args",
     ];
     let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
-    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, RENAME_PLAN_KNOWN_ARGS);
     let file_path = file_path_arg.to_owned();
     let line = arguments
         .get("line")
@@ -71,7 +71,7 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
 }
 
 pub fn resolve_symbol_target(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    const KNOWN_ARGS: &[&str] = &[
+    const SYMBOL_TARGET_KNOWN_ARGS: &[&str] = &[
         "path",
         "file_path",
         "line",
@@ -83,7 +83,8 @@ pub fn resolve_symbol_target(state: &AppState, arguments: &serde_json::Value) ->
         "max_results",
     ];
     let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
-    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let unknown_args =
+        crate::tool_runtime::collect_unknown_args(arguments, SYMBOL_TARGET_KNOWN_ARGS);
     let file_path = file_path_arg.to_owned();
     let line = arguments
         .get("line")

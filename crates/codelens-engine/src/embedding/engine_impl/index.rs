@@ -23,6 +23,14 @@ use crate::embedding_store::EmbeddingChunk;
 use crate::project::ProjectRoot;
 use rusqlite::Connection;
 
+struct IndexingFlagGuard<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for IndexingFlagGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
 impl EmbeddingEngine {
     pub fn new(project: &ProjectRoot) -> Result<Self> {
         let (model, dimension, model_name, runtime_info) = load_codesearch_model()?;
@@ -74,14 +82,7 @@ impl EmbeddingEngine {
                 "Embedding indexing already in progress — wait for the current run to complete before retrying."
             );
         }
-        // RAII guard to reset the flag on any exit path
-        struct IndexGuard<'a>(&'a std::sync::atomic::AtomicBool);
-        impl Drop for IndexGuard<'_> {
-            fn drop(&mut self) {
-                self.0.store(false, std::sync::atomic::Ordering::Release);
-            }
-        }
-        let _guard = IndexGuard(&self.indexing);
+        let _guard = IndexingFlagGuard(&self.indexing);
 
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
@@ -176,13 +177,7 @@ impl EmbeddingEngine {
             );
         }
 
-        struct IndexGuard<'a>(&'a std::sync::atomic::AtomicBool);
-        impl Drop for IndexGuard<'_> {
-            fn drop(&mut self) {
-                self.0.store(false, std::sync::atomic::Ordering::Release);
-            }
-        }
-        let _guard = IndexGuard(&self.indexing);
+        let _guard = IndexingFlagGuard(&self.indexing);
 
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;

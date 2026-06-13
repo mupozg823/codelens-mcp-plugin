@@ -359,7 +359,7 @@ pub(crate) fn find_dead_code_v2_tool(
 }
 
 pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    const KNOWN_ARGS: &[&str] = &[
+    const SCOPED_REFERENCES_KNOWN_ARGS: &[&str] = &[
         "symbol_name",
         "path",
         "file_path",
@@ -375,7 +375,8 @@ pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Val
         &["limit", "top_k"],
         50,
     );
-    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let unknown_args =
+        crate::tool_runtime::collect_unknown_args(arguments, SCOPED_REFERENCES_KNOWN_ARGS);
     Ok(
         find_scoped_references(&state.project(), symbol_name, file_path, max_results).map(
             |refs| {
@@ -425,7 +426,7 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
     // unknown top-level keys so an agent that passes (e.g.) `threshold:
     // 0.5` to a tool that does not honor it sees the field was ignored.
     // See docs/design/arg-validation-policy.md.
-    const KNOWN_ARGS: &[&str] = &[
+    const CALLERS_TOOL_KNOWN_ARGS: &[&str] = &[
         "function_name",
         "file_path",
         "path",
@@ -443,7 +444,8 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         &["limit", "top_k"],
         50,
     );
-    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let unknown_args =
+        crate::tool_runtime::collect_unknown_args(arguments, CALLERS_TOOL_KNOWN_ARGS);
     let graph_cache = state.graph_cache();
     Ok(get_callers(
         &state.project(),
@@ -554,7 +556,7 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
 }
 
 pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    const KNOWN_ARGS: &[&str] = &[
+    const CALLEES_TOOL_KNOWN_ARGS: &[&str] = &[
         "function_name",
         "file_path",
         "path",
@@ -572,7 +574,8 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         &["limit", "top_k"],
         50,
     );
-    let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
+    let unknown_args =
+        crate::tool_runtime::collect_unknown_args(arguments, CALLEES_TOOL_KNOWN_ARGS);
     let graph_cache = state.graph_cache();
     Ok(get_callees(
         &state.project(),

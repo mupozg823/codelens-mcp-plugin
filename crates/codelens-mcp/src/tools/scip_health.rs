@@ -45,6 +45,8 @@ pub(crate) struct ScipGeneratorWarnings {
     pub(crate) precision_risk_files_truncated: bool,
     pub(crate) precision_risk_files: Vec<ScipPrecisionRiskFile>,
     pub(crate) duplicate_symbol_count: usize,
+    pub(crate) precision_risk_duplicate_symbol_count: usize,
+    pub(crate) known_duplicate_symbol_count: usize,
     pub(crate) missing_document_definition_count: usize,
     pub(crate) unnamed_enclosing_definition_count: usize,
 }
@@ -108,6 +110,15 @@ pub(crate) fn detect_scip_generator_warnings(
         .get("duplicate_symbol_count")
         .and_then(|value| value.as_u64())
         .unwrap_or(0) as usize;
+    let known_duplicate_symbol_count = summary
+        .get("known_duplicate_symbol_count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    let precision_risk_duplicate_symbol_count = summary
+        .get("precision_risk_duplicate_symbol_count")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or_else(|| duplicate_symbol_count.saturating_sub(known_duplicate_symbol_count));
     let missing_document_definition_count = summary
         .get("missing_document_definition_count")
         .and_then(|value| value.as_u64())
@@ -120,7 +131,7 @@ pub(crate) fn detect_scip_generator_warnings(
         .get("precision_risk_warning_count")
         .and_then(|value| value.as_u64())
         .map(|value| value as usize)
-        .unwrap_or(duplicate_symbol_count + missing_document_definition_count);
+        .unwrap_or(precision_risk_duplicate_symbol_count + missing_document_definition_count);
     let known_generator_noise_count = summary
         .get("known_generator_noise_count")
         .and_then(|value| value.as_u64())
@@ -172,6 +183,8 @@ pub(crate) fn detect_scip_generator_warnings(
         precision_risk_files_truncated,
         precision_risk_files,
         duplicate_symbol_count,
+        precision_risk_duplicate_symbol_count,
+        known_duplicate_symbol_count,
         missing_document_definition_count,
         unnamed_enclosing_definition_count,
     })
@@ -256,6 +269,8 @@ pub(crate) fn scip_generator_warnings_payload(
         "precision_risk_files_truncated": warnings.precision_risk_files_truncated,
         "precision_risk_files": precision_risk_files,
         "duplicate_symbol_count": warnings.duplicate_symbol_count,
+        "precision_risk_duplicate_symbol_count": warnings.precision_risk_duplicate_symbol_count,
+        "known_duplicate_symbol_count": warnings.known_duplicate_symbol_count,
         "missing_document_definition_count": warnings.missing_document_definition_count,
         "unnamed_enclosing_definition_count": warnings.unnamed_enclosing_definition_count,
     })
