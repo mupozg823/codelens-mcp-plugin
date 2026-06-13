@@ -26,12 +26,24 @@ pub(crate) struct ScipStaleness {
 
 #[cfg(feature = "scip-backend")]
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub(crate) struct ScipPrecisionRiskFile {
+    pub(crate) file_path: String,
+    pub(crate) duplicate_symbol_count: usize,
+    pub(crate) missing_document_definition_count: usize,
+    pub(crate) total_count: usize,
+}
+
+#[cfg(feature = "scip-backend")]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) struct ScipGeneratorWarnings {
     pub(crate) summary_path: String,
     pub(crate) log_path: String,
     pub(crate) warning_count: usize,
     pub(crate) precision_risk_warning_count: usize,
     pub(crate) known_generator_noise_count: usize,
+    pub(crate) precision_risk_file_count: usize,
+    pub(crate) precision_risk_files_truncated: bool,
+    pub(crate) precision_risk_files: Vec<ScipPrecisionRiskFile>,
     pub(crate) duplicate_symbol_count: usize,
     pub(crate) missing_document_definition_count: usize,
     pub(crate) unnamed_enclosing_definition_count: usize,
@@ -114,12 +126,51 @@ pub(crate) fn detect_scip_generator_warnings(
         .and_then(|value| value.as_u64())
         .map(|value| value as usize)
         .unwrap_or(unnamed_enclosing_definition_count);
+    let precision_risk_files = summary
+        .get("precision_risk_files")
+        .and_then(|value| value.as_array())
+        .map(|files| {
+            files
+                .iter()
+                .filter_map(|file| {
+                    Some(ScipPrecisionRiskFile {
+                        file_path: file.get("file_path")?.as_str()?.to_owned(),
+                        duplicate_symbol_count: file
+                            .get("duplicate_symbol_count")
+                            .and_then(|value| value.as_u64())
+                            .unwrap_or(0) as usize,
+                        missing_document_definition_count: file
+                            .get("missing_document_definition_count")
+                            .and_then(|value| value.as_u64())
+                            .unwrap_or(0)
+                            as usize,
+                        total_count: file
+                            .get("total_count")
+                            .and_then(|value| value.as_u64())
+                            .unwrap_or(0) as usize,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let precision_risk_file_count = summary
+        .get("precision_risk_file_count")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(precision_risk_files.len());
+    let precision_risk_files_truncated = summary
+        .get("precision_risk_files_truncated")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
     Some(ScipGeneratorWarnings {
         summary_path: summary_path.display().to_string(),
         log_path,
         warning_count,
         precision_risk_warning_count,
         known_generator_noise_count,
+        precision_risk_file_count,
+        precision_risk_files_truncated,
+        precision_risk_files,
         duplicate_symbol_count,
         missing_document_definition_count,
         unnamed_enclosing_definition_count,
@@ -177,6 +228,18 @@ pub(crate) fn scip_generator_warnings_payload(
             "no_action_required",
         )
     };
+    let precision_risk_files: Vec<serde_json::Value> = warnings
+        .precision_risk_files
+        .iter()
+        .map(|file| {
+            json!({
+                "file_path": file.file_path.as_str(),
+                "duplicate_symbol_count": file.duplicate_symbol_count,
+                "missing_document_definition_count": file.missing_document_definition_count,
+                "total_count": file.total_count,
+            })
+        })
+        .collect();
     json!({
         "code": "scip_generator_warnings",
         "severity": severity,
@@ -189,6 +252,9 @@ pub(crate) fn scip_generator_warnings_payload(
         "warning_count": warnings.warning_count,
         "precision_risk_warning_count": warnings.precision_risk_warning_count,
         "known_generator_noise_count": warnings.known_generator_noise_count,
+        "precision_risk_file_count": warnings.precision_risk_file_count,
+        "precision_risk_files_truncated": warnings.precision_risk_files_truncated,
+        "precision_risk_files": precision_risk_files,
         "duplicate_symbol_count": warnings.duplicate_symbol_count,
         "missing_document_definition_count": warnings.missing_document_definition_count,
         "unnamed_enclosing_definition_count": warnings.unnamed_enclosing_definition_count,
@@ -245,6 +311,33 @@ mod tests {
         let precision_risk_warning_count =
             duplicate_symbol_count + missing_document_definition_count;
         let known_generator_noise_count = unnamed_enclosing_definition_count;
+        let precision_risk_files = if precision_risk_warning_count > 0 {
+            format!(
+                r#",
+                    "precision_risk_file_count": 2,
+                    "precision_risk_files_truncated": false,
+                    "precision_risk_files": [
+                        {{
+                            "file_path": "src/dup.rs",
+                            "duplicate_symbol_count": {duplicate_symbol_count},
+                            "missing_document_definition_count": 0,
+                            "total_count": {duplicate_symbol_count}
+                        }},
+                        {{
+                            "file_path": "src/missing.rs",
+                            "duplicate_symbol_count": 0,
+                            "missing_document_definition_count": {missing_document_definition_count},
+                            "total_count": {missing_document_definition_count}
+                        }}
+                    ]"#
+            )
+        } else {
+            r#",
+                    "precision_risk_file_count": 0,
+                    "precision_risk_files_truncated": false,
+                    "precision_risk_files": []"#
+                .to_owned()
+        };
         std::fs::write(
             &summary_path,
             format!(
@@ -258,6 +351,7 @@ mod tests {
                     "duplicate_symbol_count": {duplicate_symbol_count},
                     "missing_document_definition_count": {missing_document_definition_count},
                     "unnamed_enclosing_definition_count": {unnamed_enclosing_definition_count}
+                    {precision_risk_files}
                 }}"#
             ),
         )
@@ -341,6 +435,15 @@ mod tests {
         assert_eq!(warnings.warning_count, 132);
         assert_eq!(warnings.precision_risk_warning_count, 41);
         assert_eq!(warnings.known_generator_noise_count, 91);
+        assert_eq!(warnings.precision_risk_file_count, 2);
+        assert!(!warnings.precision_risk_files_truncated);
+        assert_eq!(warnings.precision_risk_files[0].file_path, "src/dup.rs");
+        assert_eq!(warnings.precision_risk_files[0].duplicate_symbol_count, 17);
+        assert_eq!(warnings.precision_risk_files[1].file_path, "src/missing.rs");
+        assert_eq!(
+            warnings.precision_risk_files[1].missing_document_definition_count,
+            24
+        );
         assert_eq!(warnings.duplicate_symbol_count, 17);
         assert_eq!(warnings.missing_document_definition_count, 24);
         assert_eq!(warnings.unnamed_enclosing_definition_count, 91);
@@ -354,6 +457,12 @@ mod tests {
         assert_eq!(payload["action_target"], "scip_backend");
         assert_eq!(payload["precision_risk_warning_count"], 41);
         assert_eq!(payload["known_generator_noise_count"], 91);
+        assert_eq!(payload["precision_risk_file_count"], 2);
+        assert_eq!(payload["precision_risk_files_truncated"], false);
+        assert_eq!(
+            payload["precision_risk_files"][0]["file_path"],
+            "src/dup.rs"
+        );
         assert_eq!(payload["duplicate_symbol_count"], 17);
     }
 
@@ -365,12 +474,16 @@ mod tests {
         let warnings = detect_scip_generator_warnings(dir.path()).expect("warnings");
         assert_eq!(warnings.precision_risk_warning_count, 0);
         assert_eq!(warnings.known_generator_noise_count, 91);
+        assert_eq!(warnings.precision_risk_file_count, 0);
+        assert!(warnings.precision_risk_files.is_empty());
 
         let payload = scip_generator_warnings_payload(&warnings);
         assert_eq!(payload["severity"], "generator_noise_only");
         assert_eq!(payload["recommended_action"], "no_action_required");
         assert_eq!(payload["precision_risk_warning_count"], 0);
         assert_eq!(payload["known_generator_noise_count"], 91);
+        assert_eq!(payload["precision_risk_file_count"], 0);
+        assert_eq!(payload["precision_risk_files"], serde_json::json!([]));
     }
 
     #[test]

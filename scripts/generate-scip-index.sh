@@ -48,32 +48,107 @@ elapsed=$(($(date +%s) - start))
 
 bytes=$(stat -f%z "${OUTPUT}" 2>/dev/null || stat -c%s "${OUTPUT}")
 mb=$((bytes / 1024 / 1024))
-duplicate_symbol_count=$(grep -c "Duplicate symbol:" "${LOG_PATH}" || true)
-missing_document_definition_count=$(grep -c "should have been in an SCIP document" "${LOG_PATH}" || true)
-unnamed_enclosing_definition_count=$(grep -c "Encountered enclosing definition with no name" "${LOG_PATH}" || true)
-warning_count=$((duplicate_symbol_count + missing_document_definition_count + unnamed_enclosing_definition_count))
-precision_risk_warning_count=$((duplicate_symbol_count + missing_document_definition_count))
-known_generator_noise_count=${unnamed_enclosing_definition_count}
+summary_counts_tsv=$(python3 - "${LOG_PATH}" "${SUMMARY_PATH}" <<'PY'
+import collections
+import json
+import re
+import sys
+from pathlib import Path
 
-cat > "${SUMMARY_PATH}" <<JSON
-{
-  "schema_version": 2,
-  "generator": "rust-analyzer scip",
-  "log_path": ".codelens/scip-generation.log",
-  "warning_count": ${warning_count},
-  "precision_risk_warning_count": ${precision_risk_warning_count},
-  "known_generator_noise_count": ${known_generator_noise_count},
-  "duplicate_symbol_count": ${duplicate_symbol_count},
-  "missing_document_definition_count": ${missing_document_definition_count},
-  "unnamed_enclosing_definition_count": ${unnamed_enclosing_definition_count}
+log_path = Path(sys.argv[1])
+summary_path = Path(sys.argv[2])
+log_text = log_path.read_text(encoding="utf-8", errors="replace")
+
+duplicate_files = collections.Counter()
+previous_source = None
+for line in log_text.splitlines():
+    source_match = re.match(r"([^\s].*\.rs):\d+:\d+-\d+:\d+$", line)
+    if source_match:
+        previous_source = source_match.group(1)
+        continue
+    if "Duplicate symbol:" in line and previous_source:
+        duplicate_files[previous_source] += 1
+        previous_source = None
+
+missing_files = collections.Counter(
+    re.findall(
+        r"Bug: definition at ([^:]+):\d+:\d+-\d+:\d+ should have been in an SCIP document",
+        log_text,
+    )
+)
+unnamed_enclosing_definition_count = log_text.count(
+    "Encountered enclosing definition with no name"
+)
+duplicate_symbol_count = sum(duplicate_files.values())
+missing_document_definition_count = sum(missing_files.values())
+precision_risk_warning_count = duplicate_symbol_count + missing_document_definition_count
+known_generator_noise_count = unnamed_enclosing_definition_count
+warning_count = precision_risk_warning_count + known_generator_noise_count
+
+all_files = sorted(
+    set(duplicate_files) | set(missing_files),
+    key=lambda path: (
+        -(duplicate_files[path] + missing_files[path]),
+        -duplicate_files[path],
+        path,
+    ),
+)
+file_limit = 25
+precision_risk_files = [
+    {
+        "file_path": path,
+        "duplicate_symbol_count": duplicate_files[path],
+        "missing_document_definition_count": missing_files[path],
+        "total_count": duplicate_files[path] + missing_files[path],
+    }
+    for path in all_files[:file_limit]
+]
+
+summary = {
+    "schema_version": 3,
+    "generator": "rust-analyzer scip",
+    "log_path": ".codelens/scip-generation.log",
+    "warning_count": warning_count,
+    "precision_risk_warning_count": precision_risk_warning_count,
+    "known_generator_noise_count": known_generator_noise_count,
+    "precision_risk_file_count": len(all_files),
+    "precision_risk_files_truncated": len(all_files) > file_limit,
+    "precision_risk_files": precision_risk_files,
+    "duplicate_symbol_count": duplicate_symbol_count,
+    "missing_document_definition_count": missing_document_definition_count,
+    "unnamed_enclosing_definition_count": unnamed_enclosing_definition_count,
 }
-JSON
+summary_path.write_text(json.dumps(summary, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+print(
+    "\t".join(
+        str(value)
+        for value in (
+            warning_count,
+            precision_risk_warning_count,
+            known_generator_noise_count,
+            len(all_files),
+            duplicate_symbol_count,
+            missing_document_definition_count,
+            unnamed_enclosing_definition_count,
+        )
+    )
+)
+PY
+)
+IFS=$'\t' read -r \
+	warning_count \
+	precision_risk_warning_count \
+	known_generator_noise_count \
+	precision_risk_file_count \
+	duplicate_symbol_count \
+	missing_document_definition_count \
+	unnamed_enclosing_definition_count <<<"${summary_counts_tsv}"
 
 echo
 echo "==> done in ${elapsed}s — ${mb}MB at ${OUTPUT}"
 if (( warning_count > 0 )); then
 	echo "==> generator warnings: ${warning_count} total (${duplicate_symbol_count} duplicate symbols, ${missing_document_definition_count} missing-document definitions, ${unnamed_enclosing_definition_count} unnamed enclosing definitions)"
-	echo "    precision-risk warnings: ${precision_risk_warning_count}; known generator noise: ${known_generator_noise_count}"
+	echo "    precision-risk warnings: ${precision_risk_warning_count} across ${precision_risk_file_count} files; known generator noise: ${known_generator_noise_count}"
 	echo "    details: ${LOG_PATH}"
 fi
 echo
