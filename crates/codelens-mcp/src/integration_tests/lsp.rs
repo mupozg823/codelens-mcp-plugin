@@ -141,6 +141,38 @@ fn returns_lsp_diagnostics_via_tool_call() {
 }
 
 #[test]
+fn get_lsp_recipe_resolves_project_local_typescript_server() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::create_dir_all(project.as_path().join("node_modules/.bin")).unwrap();
+    fs::write(
+        project.as_path().join("src/App.tsx"),
+        "export function App() { return null }\n",
+    )
+    .unwrap();
+    let shim = project
+        .as_path()
+        .join("node_modules/.bin/typescript-language-server");
+    fs::write(&shim, "#!/bin/sh\nexit 0\n").unwrap();
+
+    let state = make_state(&project);
+    let payload = call_tool(&state, "get_lsp_recipe", json!({ "path": "src/App.tsx" }));
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["extension"], json!("tsx"));
+    assert_eq!(payload["data"]["language"], json!("typescript"));
+    assert_eq!(
+        payload["data"]["binary_name"],
+        json!("typescript-language-server")
+    );
+    assert_eq!(payload["data"]["installed"], json!(true), "{payload:#}");
+    assert_eq!(
+        payload["data"]["resolved_binary_path"],
+        json!(shim.display().to_string())
+    );
+}
+
+#[test]
 fn get_file_diagnostics_accepts_legacy_file_path_with_deprecation_warning() {
     let project = project_root();
     let mock_path = write_mock_diagnostics_lsp(&project, "mock_legacy_diag_lsp.py");

@@ -319,10 +319,7 @@ pub(crate) fn resolve_lsp_binary(command: &str) -> Option<PathBuf> {
 /// missing. This unblocks Node / TS projects that install LSP servers
 /// as devDependencies (the Next.js standard pattern), where the global
 /// PATH does not see the binary but the per-project shim does.
-pub(crate) fn resolve_lsp_binary_with_hint(
-    command: &str,
-    hint_dir: Option<&Path>,
-) -> Option<PathBuf> {
+pub fn resolve_lsp_binary_with_hint(command: &str, hint_dir: Option<&Path>) -> Option<PathBuf> {
     let command_path = Path::new(command);
     if command_path.components().count() > 1 {
         return if command_path.is_file() {
@@ -405,7 +402,7 @@ pub struct LspStatus {
 
 /// Get the recipe for a file extension.
 pub fn get_lsp_recipe(extension: &str) -> Option<&'static LspRecipe> {
-    let ext = extension.to_ascii_lowercase();
+    let ext = extension.trim_start_matches('.').to_ascii_lowercase();
     LSP_RECIPES
         .iter()
         .find(|r| r.extensions.contains(&ext.as_str()))
@@ -513,5 +510,12 @@ mod tests {
         // Since `tempdir` is not on PATH and is not a fallback dir, the
         // binary remains undiscovered.
         assert!(resolve_lsp_binary_with_hint(&unique, None).is_none());
+    }
+
+    #[test]
+    fn recipe_accepts_leading_dot_for_extensions() {
+        let recipe = get_lsp_recipe(".tsx").expect("tsx recipe");
+        assert_eq!(recipe.language, "typescript");
+        assert_eq!(recipe.binary_name, "typescript-language-server");
     }
 }

@@ -224,8 +224,8 @@ pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
         ).with_annotations(ro_a.clone()),
         Tool::new(
             "get_lsp_recipe",
-            "[CodeLens:Session] Get LSP server install instructions for a file extension.",
-            json!({"type":"object","required":["extension"],"properties":{"extension":{"type":"string","description":"File extension (e.g. 'py', 'rs')"}}}),
+            "[CodeLens:Session] Get LSP server install and resolution details for a file extension or path.",
+            json!({"type":"object","required":[],"properties":{"extension":{"type":"string","description":"File extension (e.g. 'py', '.tsx', 'rs')"},"path":{"type":"string","description":"Optional file path; enables project-local node_modules/.bin resolution for JS/TS LSP servers."},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"relative_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."}}}),
         ).with_annotations(ro_p.clone()),
     ]
 }
