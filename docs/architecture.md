@@ -3,7 +3,7 @@
 > Pure Rust MCP server and harness optimization tool for code intelligence
 > Harness optimization control plane with generated surface governance and tree-sitter-first retrieval
 
-## Current Snapshot (2026-04-25)
+## Current Snapshot (2026-06-15 local re-check)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
 
@@ -20,13 +20,34 @@
 - Current release notes: [latest GitHub release](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). For local release-quality comparisons, resolve the baseline tag with `git tag --sort=-v:refname | head -1`.
 - Current release verification guide: [docs/release-verification.md](release-verification.md)
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
-- Current audit and simplification report: [docs/architecture-audit-2026-04-24.md](architecture-audit-2026-04-24.md)
+- Current audit and simplification report: [docs/architecture-audit-2026-04-24.md](architecture-audit-2026-04-24.md). Runtime/script surface audits split pending-D3 ghosts into `pending_d3_symbolic_edit_core` and `pending_d3_refactor_substrate`.
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
 - Current enterprise productization decision record: [docs/adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
 - Current product direction: CodeLens is becoming a bounded code-work orchestrator over its existing code-intelligence substrate. See [docs/adr/ADR-0014-bounded-code-work-orchestrator.md](adr/ADR-0014-bounded-code-work-orchestrator.md).
 
 This document describes the product shape and the stable architectural layers.
 The audit document above captures the current overdesign, duplication, and drift findings against the latest code.
+
+---
+
+## Current Improvement Priorities (2026-06-15 follow-up)
+
+This pass cross-checked native LOC inventory, Serena symbol overview, and CodeLens `review_architecture`
+dogfood. It does not change runtime behavior.
+
+Evidence:
+
+- Serena live local check: active project `codelens-mcp-plugin`, context `codex`, Serena `1.5.4.dev0`, active tools limited to symbolic read/navigation plus `search_for_pattern`; edit tools such as `replace_symbol_body`, `rename_symbol`, and `safe_delete_symbol` are available but not active in this Codex context.
+- CodeLens dogfood: `review_architecture(path=crates/codelens-mcp/src/tools)` reported 55 importers, 63 impacted files, and 1 cycle hit; `review_architecture(path=crates/codelens-mcp/src/dispatch)` reported 10 importers, 15 impacted files, and 0 cycle hits; `review_architecture(path=crates/codelens-engine/src)` reported 82 importers, 91 impacted files, and 1 cycle hit.
+- Current large non-test production files include `crates/codelens-mcp/src/session_metrics_payload.rs` (875 LOC), `crates/codelens-mcp/src/dispatch/response.rs` (867 LOC), and `crates/codelens-engine/src/project.rs` (895 LOC). The prior `tools/workflows.rs` 956 LOC hotspot is now split: the workflow entrypoint file is 330 LOC, with duplicate-cleanup filtering and tests in `tools/workflows/duplicate_cleanup.rs`.
+
+Prioritized architecture moves:
+
+1. Finish pending-D3 policy before adding new symbolic-edit abstractions: either re-list the 4-tool `pending_d3_symbolic_edit_core` behind the existing mutation gate, or remove it; decide the 5-tool `pending_d3_refactor_substrate` separately as safe-delete/refactor surface or deletion.
+2. Completed: split `tools/workflows.rs` by real responsibility; duplicate-cleanup quality filters and tests now live in `tools/workflows/duplicate_cleanup.rs`, leaving workflow entrypoints as thin orchestration.
+3. Next: split `session_metrics_payload.rs` into KPI, token-bill, and session-classifier submodules. It is currently a mixed payload/KPI/cost-classification unit and does not map to Serena parity; this is plain maintainability work.
+4. Treat `dispatch/response.rs` as high-risk but second order: it is large, but the dispatch boundary has no cycle hit. Only extract cohesive delegate-hint or response-enrichment helpers when the diff removes real branching complexity.
+5. Keep Serena comparison honest: CodeLens should adopt Serena's deterministic routing pressure at the plugin/skill layer, not Serena's blind-trust editing prompt or LSP-adapter breadth race.
 
 ---
 
@@ -233,7 +254,7 @@ codelens-mcp-plugin/
 │           ├── error.rs                  # CodeLensError enum
 │           ├── telemetry.rs              # ToolMetricsRegistry (in-memory session)
 │           ├── mutation_gate.rs          # verify_change_readiness enforcement
-│           ├── mutation_audit.rs         # .codelens/audit/mutation-audit.jsonl
+│           ├── audit_sink.rs             # durable audit sink plumbing
 │           ├── preflight_store.rs        # Preflight TTL cache
 │           ├── analysis_queue.rs         # Durable analysis job queue
 │           ├── artifact_store.rs         # Analysis handle storage
@@ -242,11 +263,12 @@ codelens-mcp-plugin/
 │           ├── session_metrics_payload.rs
 │           ├── recent_buffer.rs          # Doom-loop detection
 │           ├── client_profile.rs         # Client identity heuristics
-│           ├── authority.rs              # Backend metadata helpers
-│           ├── resource_catalog.rs       # MCP resource registry
+│           ├── resources/                # MCP resource registry and URI aliases
+│           │   ├── catalog.rs
+│           │   ├── profiles.rs
+│           │   ├── analysis.rs
+│           │   └── tool_listing.rs
 │           ├── resource_context.rs       # Profile-scoped resource access
-│           ├── resource_profiles.rs
-│           ├── resource_analysis.rs
 │           ├── resources.rs              # MCP resource endpoints
 │           ├── prompts.rs                # MCP prompt templates
 │           ├── runtime_types.rs
@@ -256,8 +278,9 @@ codelens-mcp-plugin/
 │           ├── tool_defs/                # Tool registration
 │           │   ├── mod.rs
 │           │   ├── build.rs              # registered tool definitions (central registry)
-│           │   ├── output_schemas.rs     # 45 output schemas
-│           │   └── presets.rs            # FULL/BALANCED/MINIMAL + profiles
+│           │   ├── output_schemas.rs     # thin re-export layer
+│           │   ├── output_schemas/       # schema groups: symbols/jobs/harness/misc
+│           │   └── presets.rs            # presets/profiles + overlay metadata
 │           │
 │           ├── server/                   # Transport layer
 │           │   ├── mod.rs
@@ -278,7 +301,8 @@ codelens-mcp-plugin/
 │               ├── memory.rs             # Memory handlers
 │               ├── composite.rs          # Composite workflow handlers
 │               ├── report_contract.rs    # Analysis-handle contract
-│               ├── report_jobs.rs        # Job lifecycle handlers
+│               ├── report_jobs.rs        # thin re-export layer
+│               ├── report_jobs/          # job handlers/helpers/runners
 │               ├── report_payload.rs     # Report shaping
 │               ├── report_utils.rs
 │               ├── report_verifier.rs    # Verifier-first mutation gate

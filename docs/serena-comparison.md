@@ -4,9 +4,17 @@ This document answers a narrower question than marketing:
 
 > Is CodeLens already a strict superset of Serena?
 
-Current answer as of **2026-06-10**, measured against **Serena v1.5.3** (released 2026-05-26, source-audited from a tag checkout) and **CodeLens v1.13.32** (HEAD `bf2ecdf6`): **no — and the gap changed shape**.
+Current answer as of **2026-06-10**, measured against **Serena v1.5.3** (released 2026-05-26, source-audited from a tag checkout) and **CodeLens v1.13.32** (HEAD `bf2ecdf6`, D1 read-trio rechecked on 2026-06-15 against local HEAD `27b3a802`): **no — and the gap changed shape**.
 
 The 2026-04-25 revision of this document (archived at `docs/archive/serena-comparison-2026-04-25.md`) framed the gap as "semantic edit depth." That framing is now stale. Between v1.3.0 and v1.5.3 Serena executed a deliberate **agent-harness engineering program** — tool-surface diet, behavioral enforcement hooks, host-context prompt engineering, memory conventions — that overlaps exactly with the territory CodeLens claimed as its differentiator. Meanwhile CodeLens quietly **de-surfaced its own symbolic mutation tools** (they remain dispatchable but have no schema in `tools.toml`, hence never appear in `tools/list`). The two projects are converging on each other's strengths from opposite directions.
+
+Live local follow-up on 2026-06-15: Serena reports `1.5.4.dev0` in Codex context with active project
+`codelens-mcp-plugin`. In this context the active surface is read/navigation heavy
+(`find_declaration`, `find_implementations`, `find_referencing_symbols`, `find_symbol`,
+`get_diagnostics_for_file`, `get_symbols_overview`, `search_for_pattern`); symbolic edit tools are
+available but not active. That does not invalidate the v1.5.3 source-audit conclusion, but it does
+mean CodeLens should compare against Serena's host-context routing model, not only its global tool
+inventory.
 
 Sources for the Serena side (all verified in source, not docs):
 
@@ -25,7 +33,7 @@ Sources for the Serena side (all verified in source, not docs):
 | Harness surface shaping at runtime | CodeLens | presets/profiles switchable per session (`set_preset`/`set_profile`), tier metadata, deferred bootstrap, response-envelope compression. Serena's contexts/modes are start-time config, not runtime tools. |
 | Behavioral routing **enforcement** | **Serena** | PreToolUse hooks that **deny** after 3 consecutive grep/read calls and remind the agent of symbolic alternatives; auto-approve hook for its own tools; full Claude Code system-prompt override. CodeLens only advises (`suggested_next_tools`, doom-loop hints). |
 | Semantic retrieval for NL queries | CodeLens | Bundled ONNX embedding + hybrid BM25 ranking with measured external benchmarks. Serena has zero embedding/retrieval substrate. |
-| Symbolic **read** core | Serena (narrowly) | `find_declaration`, `find_implementations`, `get_diagnostics_for_symbol` (v1.3.0) have no listed CodeLens equivalents. CodeLens counters with `get_ranked_context`, call graph, BM25/fuzzy — different shape, broader but less LSP-precise. |
+| Symbolic **read** core | Split | CodeLens now lists `find_declaration`, `find_implementations`, and `get_diagnostics_for_symbol` in `tools.toml`, with graceful degradation and fallback hints. Serena still leads on LSP breadth and host enforcement; CodeLens counters with `get_ranked_context`, call graph, BM25/fuzzy, and response-envelope discipline. |
 | Symbolic **edit** core | **Serena (widened)** | Serena ships `replace_symbol_body`, `insert_before/after_symbol`, LSP `rename_symbol`, reference-checked `safe_delete_symbol` as the *primary* edit path and forbids the host's native Edit on code files. CodeLens mutation tools are deprecated ghosts (dispatch-only, no `tools.toml` schema, "will be removed in v2.0"). |
 | Memory layer | Serena | `mem:` cross-references with rename propagation, `edit_memory` (literal/regex), `memory_maintenance` seed memory, CLI referential-integrity check. CodeLens has memory tools + `audit_memory_consistency` but no reference convention. |
 | Offline setup / cold start | CodeLens | Single Rust binary; tree-sitter always-on; no per-language server requirement. |
@@ -108,7 +116,7 @@ v1.3.0 added `find_declaration`, `find_implementations`, `get_diagnostics_for_fi
 
 1. **Enforcement** (§2.3–2.4) — new since the last revision, and the most transferable.
 2. **Symbolic edit as the product's spine** (§5) — widened because CodeLens retreated.
-3. **LSP read precision** — declaration/implementations/symbol-diagnostics; CodeLens has the LSP substrate (union references, `search_workspace_symbols`, readiness states) but never surfaced these as first-class tools.
+3. **LSP read breadth and enforcement** — declaration/implementations/symbol-diagnostics now exist in CodeLens too, but Serena's LSP adapter breadth and hook-enforced routing remain stronger.
 4. **Memory conventions** (§2.7).
 5. **Host-context breadth** — 14 contexts incl. codex, copilot-cli, antigravity, desktop-app, each with tuned exclusions/prompts. CodeLens has `HostContext`/`TaskOverlay` overlay compilation (same concept, advisory output) but only a handful of host targets.
 6. **Language breadth** — ~60 vs 30; not the axis CodeLens should fight on.
@@ -117,7 +125,7 @@ v1.3.0 added `find_declaration`, `find_implementations`, `get_diagnostics_for_fi
 
 The single most important structural fact this revision surfaces:
 
-**CodeLens**: `tools/mod.rs` still dispatches `rename_symbol`, `replace_symbol_body`, `insert_content`, `insert_before/after_symbol`, `replace`, `replace_content`, `replace_lines`, `delete_lines`, `create_text_file`, `add_import`, `propagate_deletions`, and the four `refactor_*` tools — but **none of them exist in `tools.toml`**, so none have schemas, none appear in any `tools/list`, and schema pre-validation never runs for them. `BUILDER_MINIMAL_TOOLS` carries six of them under the comment *"Deprecated mutation tools (still in dispatch, will be removed in v2.0)."* Three workflow tools (`analyze_change_request`, `onboard_project`, `orchestrate_change`) are in the same ghost state while still being referenced by preset constants and by the routing blocks in CLAUDE.md/AGENTS.md. (`REFACTOR_FULL_TOOLS` itself was removed in the v1.13.27 diet; the profile now aliases BuilderMinimal.)
+**CodeLens**: `tools/mod.rs` still dispatches the symbolic edit core (`rename_symbol`, `replace_symbol_body`, `insert_before/after_symbol`) and refactor substrate (`propagate_deletions`, four `refactor_*` tools), but they remain **dispatch-only pending-D3 allowlist** entries: no `tools.toml` schema, no ordinary `tools/list` visibility, and no schema pre-validation. The older line-edit family (`create_text_file`, `delete_lines`, `insert_at_line`, `replace_lines`, `replace_content`, `insert_content`, `replace`, `add_import`) is now explicitly tombstoned with replacement guidance to host-native editing. Workflow-first tools are no longer the main ghost issue: `explore_codebase`, `trace_request_path`, `review_architecture`, `plan_safe_refactor`, `cleanup_duplicate_logic`, `review_changes`, and `diagnose_issues` are the preferred discoverable entrypoints; `analyze_change_request` and `orchestrate_change` remain backward-compat dispatch arms.
 
 **Serena**: went the opposite way — symbolic editing is the primary path, the host's native Edit is declared FORBIDDEN for code files in the claude-code context, LSP rename and reference-checked safe-delete landed as core tools, and hooks enforce the routing.
 
@@ -143,9 +151,10 @@ Concrete, phased design with acceptance criteria lives in:
 
 Summary of the recommendation:
 
-- **P1 (read core + hygiene)**: surface `find_declaration` / `find_implementations` / `get_diagnostics_for_symbol` over the existing LSP substrate with tree-sitter/BM25 fallback hints; extend `audit_tool_surface_consistency` to a 3-way dispatch ∪ tools.toml ∪ preset_tags drift gate; resolve all ghost entries.
+- **P1 (read core + hygiene)**: D1 read trio is now surfaced (`find_declaration` / `find_implementations` / `get_diagnostics_for_symbol`). Drift gates now report pending-D3 ghosts as `pending_d3_symbolic_edit_core` and `pending_d3_refactor_substrate`; remaining P1 hygiene is the final re-list/delete decision for those two classes.
 - **P2 (edit core + enforcement)**: re-list a 4-tool symbolic edit core (`replace_symbol_body`, `insert_before_symbol`, `insert_after_symbol`, `rename_symbol`) behind the existing `verify_change_readiness` mutation gate — explicitly *keeping* the gate where Serena chose blind trust; ship an opt-in plugin hook (Serena hooks.py pattern, soft `additionalContext` reminder by default, strict deny opt-in) plus a task→tool mapping table in the plugin skills.
 - **P3 (memory conventions)**: `[[name]]`-style reference integrity + rename propagation in CodeLens memories, folded into `audit_memory_consistency`.
+- **P4 (internal architecture hygiene)**: split large mixed-responsibility CodeLens modules only where the split removes real ownership friction. The `tools/workflows.rs` duplicate-cleanup filter split is complete; next candidates are `session_metrics_payload.rs` KPI/token-bill/classifier logic and eventually `project.rs` detection helpers. Do not start with `dispatch/response.rs`; it is large but the current boundary has no cycle hit.
 
 What **not** to adopt: thinking tools (Serena deleted theirs), per-edit diagnostics embedding (Serena disabled theirs), an LSP-everything pivot (tree-sitter-first remains the measured choice for an MCP coprocessor), and a 60-language LSP adapter race.
 
@@ -154,7 +163,7 @@ What **not** to adopt: thinking tools (Serena deleted theirs), per-edit diagnost
 > "Is CodeLens already clearly superior to Serena?"
 
 - **for harness-native bounded analysis and retrieval**: yes, and the lead is measurable.
-- **for symbolic editing and routing enforcement**: no — Serena widened its lead while CodeLens retreated into ghost tools.
+- **for symbolic editing and routing enforcement**: no — Serena still leads; CodeLens has recovered read-side parity but symbolic edit remains pending-D3 dispatch-only.
 - **as a strict overall superset**: no.
 
 > "Can CodeLens become the better *symbolic* tool while keeping its harness edge?"

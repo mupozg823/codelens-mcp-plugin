@@ -132,6 +132,14 @@ impl AppState {
             .unwrap_or(false)
     }
 
+    #[cfg(feature = "http")]
+    pub(crate) fn session_project_path(&self, session_id: &str) -> Option<String> {
+        self.session_store
+            .as_ref()
+            .and_then(|store| store.get(session_id))
+            .and_then(|session| session.client_metadata().project_path)
+    }
+
     /// Decide whether a write operation should target the per-session store
     /// or fall through to global AppState. Returns true only when:
     ///   (a) the request carries a real (non-"local") session id, AND

@@ -210,11 +210,28 @@ pub(crate) const TOMBSTONED_TOOLS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Pending ADR-0009/D3 (#346): the symbolic edit core + refactor
-/// substrate stay dispatch-only — callable but schemaless — until the
-/// re-listing decision. Must stay member-identical to
-/// `DISPATCH_ONLY_ALLOWLIST` in `scripts/regen-tool-defs.py`; the
-/// script enforces its side via `--enforce-drift`, the runtime
+/// Pending ADR-0009/D3 (#346): the symbolic edit core remains dispatch-only
+/// — callable but schemaless — until the re-listing decision.
+pub(crate) const PENDING_D3_SYMBOLIC_EDIT_CORE: &[&str] = &[
+    "replace_symbol_body",
+    "insert_before_symbol",
+    "insert_after_symbol",
+    "rename_symbol",
+];
+
+/// Pending ADR-0009/D3 (#346): substrate-preservation arms kept dispatch-only
+/// until the safe-delete/refactor-substrate decision.
+pub(crate) const PENDING_D3_REFACTOR_SUBSTRATE: &[&str] = &[
+    "refactor_extract_function",
+    "refactor_inline_function",
+    "refactor_move_to_file",
+    "refactor_change_signature",
+    "propagate_deletions",
+];
+
+/// Combined pending-D3 carve-out. Must stay member-identical to
+/// `DISPATCH_ONLY_ALLOWLIST` in `scripts/regen-tool-defs.py`; the script
+/// enforces its side via `--enforce-drift`, and
 /// `audit_tool_surface_consistency` consumes this side.
 pub(crate) const PENDING_D3_ALLOWLIST: &[&str] = &[
     "replace_symbol_body",

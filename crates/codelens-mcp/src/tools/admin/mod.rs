@@ -188,6 +188,16 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
         .collect::<BTreeSet<String>>()
         .into_iter()
         .collect();
+    let pending_d3_symbolic_edit_core: Vec<String> = pending_d3_allowlisted
+        .iter()
+        .filter(|name| crate::tools::PENDING_D3_SYMBOLIC_EDIT_CORE.contains(&name.as_str()))
+        .cloned()
+        .collect();
+    let pending_d3_refactor_substrate: Vec<String> = pending_d3_allowlisted
+        .iter()
+        .filter(|name| crate::tools::PENDING_D3_REFACTOR_SUBSTRATE.contains(&name.as_str()))
+        .cloned()
+        .collect();
 
     let intentional_deprecation: Vec<String> = intentional_missing_toml
         .into_iter()
@@ -244,8 +254,10 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
     }
     if !pending_d3_allowlisted.is_empty() {
         next_actions.push(format!(
-            "{} tool(s) are on the pending-D3 allowlist (#346): dispatch-only symbolic edit core awaiting the ADR-0009/D3 re-listing decision — surfaced for visibility, not counted as violations.",
-            pending_d3_allowlisted.len()
+            "{} tool(s) are on the pending-D3 allowlist (#346): {} symbolic-edit re-list candidate(s), {} refactor-substrate preservation candidate(s) — surfaced for visibility, not counted as violations.",
+            pending_d3_allowlisted.len(),
+            pending_d3_symbolic_edit_core.len(),
+            pending_d3_refactor_substrate.len()
         ));
     }
     if !intentional_deprecation.is_empty() {
@@ -275,6 +287,14 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
     for (key, names) in [
         ("dispatch_only", &missing_in_toml),
         ("allowlisted_dispatch_only", &pending_d3_allowlisted),
+        (
+            "pending_d3_symbolic_edit_core",
+            &pending_d3_symbolic_edit_core,
+        ),
+        (
+            "pending_d3_refactor_substrate",
+            &pending_d3_refactor_substrate,
+        ),
         ("schema_only", &missing_in_dispatch),
         ("preset_dead", &orphan_in_preset),
         ("tombstone_reintroduced", &tombstone_reintroduced),
@@ -305,6 +325,8 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
                 "intentional_deprecation_count": intentional_deprecation.len(),
                 "intentional_feature_gated_count": intentional_feature_gated.len(),
                 "pending_d3_allowlisted_count": pending_d3_allowlisted.len(),
+                "pending_d3_symbolic_edit_core_count": pending_d3_symbolic_edit_core.len(),
+                "pending_d3_refactor_substrate_count": pending_d3_refactor_substrate.len(),
                 "tombstoned_count": crate::tools::TOMBSTONED_TOOLS.len(),
             },
             "violations": {
@@ -317,6 +339,8 @@ pub fn audit_tool_surface_consistency(_state: &AppState, _arguments: &Value) -> 
             "intentional_deprecation": intentional_deprecation,
             "intentional_feature_gated": intentional_feature_gated,
             "pending_d3_allowlisted": pending_d3_allowlisted,
+            "pending_d3_symbolic_edit_core": pending_d3_symbolic_edit_core,
+            "pending_d3_refactor_substrate": pending_d3_refactor_substrate,
             "next_actions": next_actions,
         }),
         success_meta(BackendKind::Config, 1.0),

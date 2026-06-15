@@ -195,12 +195,19 @@ pub(crate) fn dispatch_tool(
         && !state.session_project_binding_explicit(session.session_id.as_str())
         && let Some(map) = payload.as_object_mut()
     {
+        let active_project = state.current_project_scope();
+        let session_project = state.session_project_path(session.session_id.as_str());
+        let active_project_matches_session_project =
+            session_project.as_deref() == Some(active_project.as_str());
         map.insert(
             "project_binding".to_owned(),
             serde_json::json!({
                 "bound": false,
-                "active_project": state.current_project_scope(),
-                "hint": "This session never declared its workspace, so tools target the daemon's default project. Call prepare_harness_session with project=<absolute workspace root>, or attach with the x-codelens-project header to bind automatically.",
+                "reason": "implicit_session_project_binding",
+                "active_project": active_project,
+                "session_project": session_project,
+                "active_project_matches_session_project": active_project_matches_session_project,
+                "hint": "This HTTP session has only an implicit project binding. The active project may be inherited from the daemon default or another session; call prepare_harness_session with project=<absolute workspace root>, or attach with the x-codelens-project header to bind automatically.",
             }),
         );
     }

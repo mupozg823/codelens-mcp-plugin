@@ -198,27 +198,34 @@ DISPATCH_SOURCES: tuple[Path, ...] = (
     REPO_ROOT / "crates" / "codelens-mcp" / "src" / "dispatch" / "table.rs",
 )
 
-# Dispatch-only names sanctioned while ADR-0009/D3 decides the symbolic
-# edit core (spec 2026-06-10 §D3). Visible in every drift report as
-# `allowlisted_dispatch_only`; everything else dispatch-only fails
-# enforce mode.
-DISPATCH_ONLY_ALLOWLIST: frozenset[str] = frozenset(
+# Dispatch-only names sanctioned while ADR-0009/D3 decides the symbolic edit
+# surface (spec 2026-06-10 §D3). The combined allowlist remains visible as
+# `allowlisted_dispatch_only`; the split buckets keep the re-list candidates
+# distinct from substrate-preservation candidates.
+PENDING_D3_SYMBOLIC_EDIT_CORE: frozenset[str] = frozenset(
     {
-        # pending-D3 symbolic edit core — re-list candidates
         "replace_symbol_body",
         "insert_before_symbol",
         "insert_after_symbol",
         "rename_symbol",
-        # pending-D3 refactor substrate — these dispatch arms are the only
-        # callers keeping the semantic_edit substrate alive; ADR-0009/D3
-        # decides re-list vs delete. Removing them now would dead-code the
-        # substrate that decision needs intact.
+    }
+)
+
+# These dispatch arms are the only callers keeping the semantic_edit substrate
+# alive; ADR-0009/D3 decides re-list vs delete. Removing them now would
+# dead-code the substrate that decision needs intact.
+PENDING_D3_REFACTOR_SUBSTRATE: frozenset[str] = frozenset(
+    {
         "refactor_extract_function",
         "refactor_inline_function",
         "refactor_move_to_file",
         "refactor_change_signature",
         "propagate_deletions",
     }
+)
+
+DISPATCH_ONLY_ALLOWLIST: frozenset[str] = (
+    PENDING_D3_SYMBOLIC_EDIT_CORE | PENDING_D3_REFACTOR_SUBSTRATE
 )
 
 # (tool, referenced_tool) description cross-references that are
@@ -266,6 +273,8 @@ def three_way_report(
 
     - dispatch_only: callable but schemaless — invisible to tools/list
     - allowlisted_dispatch_only: sanctioned pending-D3 exceptions
+    - pending_d3_symbolic_edit_core: re-list candidates within the allowlist
+    - pending_d3_refactor_substrate: substrate-preservation candidates
     - schema_only: listed but not dispatchable — dead schema
     - preset_dead: preset members without a tools.toml definition —
       strings the surface filter can never match
@@ -275,6 +284,12 @@ def three_way_report(
     return {
         "dispatch_only": sorted(dispatch_only - allow),
         "allowlisted_dispatch_only": sorted(dispatch_only & allow),
+        "pending_d3_symbolic_edit_core": sorted(
+            dispatch_only & PENDING_D3_SYMBOLIC_EDIT_CORE
+        ),
+        "pending_d3_refactor_substrate": sorted(
+            dispatch_only & PENDING_D3_REFACTOR_SUBSTRATE
+        ),
         "schema_only": sorted(schema - dispatch),
         # Allowlisted (pending-D3) names may legitimately sit in preset
         # constants — callable-but-unlisted on their surfaces.
@@ -479,6 +494,16 @@ def main() -> int:
             "allowlisted_dispatch_only (pending-D3): "
             + ", ".join(report["allowlisted_dispatch_only"])
         )
+        if report["pending_d3_symbolic_edit_core"]:
+            info_lines.append(
+                "pending_d3_symbolic_edit_core: "
+                + ", ".join(report["pending_d3_symbolic_edit_core"])
+            )
+        if report["pending_d3_refactor_substrate"]:
+            info_lines.append(
+                "pending_d3_refactor_substrate: "
+                + ", ".join(report["pending_d3_refactor_substrate"])
+            )
     if info_lines:
         label = "blocking" if (args.enforce_drift and blocking) else "info"
         print(f"surface drift ({label}, #346):", file=sys.stderr)

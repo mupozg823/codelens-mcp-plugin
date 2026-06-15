@@ -387,6 +387,90 @@ async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
     );
 }
 
+#[tokio::test]
+async fn prepare_harness_session_project_binding_suppresses_followup_hint() {
+    let daemon_default = temp_project_dir("prepare-bind-default");
+    let workspace = temp_project_dir("prepare-bind-workspace");
+    std::fs::write(
+        workspace.join("prepared_fixture.py"),
+        "def prepared_marker_symbol():\n    return 1\n",
+    )
+    .unwrap();
+
+    let project = ProjectRoot::new(daemon_default.to_str().unwrap()).unwrap();
+    let state = Arc::new(
+        AppState::new(project, crate::tool_defs::ToolPreset::Balanced).with_session_store(),
+    );
+    let app = build_router(state.clone());
+
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let bootstrap = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"prepare_harness_session","arguments":{{"project":"{}","detail":"compact"}}}}}}"#,
+                    workspace.display()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bootstrap.status(), StatusCode::OK);
+    assert!(
+        state.session_project_binding_explicit(&sid),
+        "prepare_harness_session(project=...) must mark the HTTP session binding explicit"
+    );
+
+    let find = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"find_symbol","arguments":{"name":"prepared_marker_symbol","include_body":false,"max_matches":5}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = body_string(find).await;
+    assert!(
+        body.contains("prepared_marker_symbol") && body.contains("prepared_fixture.py"),
+        "prepared session must target the explicitly prepared workspace: {body}"
+    );
+    assert!(
+        !body.contains("\"project_binding\""),
+        "prepare_harness_session(project=...) must suppress the unbound-session hint on later calls: {body}"
+    );
+}
+
 // ── Session project binding at initialize (#347: shared-daemon default
 //    project trap) ──────────────────────────────────────────────────────
 
@@ -586,6 +670,11 @@ async fn unbound_session_responses_carry_project_binding_hint() {
     assert!(
         body.contains("project_binding"),
         "unbound session must carry a project_binding hint: {body}"
+    );
+    assert!(
+        body.contains("implicit_session_project_binding")
+            && body.contains("active_project_matches_session_project"),
+        "hint must explain that this is an implicit binding, not necessarily a wrong active project: {body}"
     );
     assert!(
         body.contains("prepare_harness_session"),

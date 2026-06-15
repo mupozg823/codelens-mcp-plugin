@@ -221,10 +221,28 @@ mod surface_audit_tests {
         let allow = drift["allowlisted_dispatch_only"]
             .as_array()
             .expect("allowlisted_dispatch_only list");
+        let symbolic = drift["pending_d3_symbolic_edit_core"]
+            .as_array()
+            .expect("pending_d3_symbolic_edit_core list");
+        let substrate = drift["pending_d3_refactor_substrate"]
+            .as_array()
+            .expect("pending_d3_refactor_substrate list");
         for name in crate::tools::PENDING_D3_ALLOWLIST {
             assert!(
                 allow.iter().any(|v| v == name),
                 "{name} must appear in allowlisted_dispatch_only, got {allow:?}"
+            );
+        }
+        for name in crate::tools::PENDING_D3_SYMBOLIC_EDIT_CORE {
+            assert!(
+                symbolic.iter().any(|v| v == name),
+                "{name} must appear in pending_d3_symbolic_edit_core, got {symbolic:?}"
+            );
+        }
+        for name in crate::tools::PENDING_D3_REFACTOR_SUBSTRATE {
+            assert!(
+                substrate.iter().any(|v| v == name),
+                "{name} must appear in pending_d3_refactor_substrate, got {substrate:?}"
             );
         }
         assert_eq!(
@@ -246,12 +264,31 @@ mod surface_audit_tests {
         let bucket = payload["pending_d3_allowlisted"]
             .as_array()
             .expect("pending_d3_allowlisted bucket present");
+        let symbolic = payload["pending_d3_symbolic_edit_core"]
+            .as_array()
+            .expect("pending_d3_symbolic_edit_core bucket present");
+        let substrate = payload["pending_d3_refactor_substrate"]
+            .as_array()
+            .expect("pending_d3_refactor_substrate bucket present");
         for name in crate::tools::PENDING_D3_ALLOWLIST {
             assert!(
                 bucket.iter().any(|v| v == name),
                 "{name} must be surfaced in pending_d3_allowlisted, got {bucket:?}"
             );
         }
+        assert_eq!(
+            symbolic.len(),
+            crate::tools::PENDING_D3_SYMBOLIC_EDIT_CORE.len()
+        );
+        assert_eq!(
+            substrate.len(),
+            crate::tools::PENDING_D3_REFACTOR_SUBSTRATE.len()
+        );
+        assert_eq!(
+            symbolic.len() + substrate.len(),
+            bucket.len(),
+            "split pending-D3 buckets must cover the combined allowlist"
+        );
         assert_eq!(payload["all_clean"].as_bool(), Some(true));
     }
 

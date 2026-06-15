@@ -8,7 +8,8 @@ Covers:
     dispatch/table.rs), with `//` comments stripped so doc examples like
     `"tool_name" => module::handler_fn` are not counted.
   - three_way_report(): classifies dispatch_only / schema_only /
-    preset_dead, with a pending-D3 allowlist carve-out.
+    preset_dead, with a pending-D3 allowlist carve-out split into
+    symbolic-edit-core and refactor-substrate buckets.
   - lint_description_crossrefs(): flags tool descriptions that name
     other tools (D7), honoring an explicit allowlist and word
     boundaries.
@@ -108,13 +109,18 @@ def test_three_way_report_classifies() -> None:
 
 def test_three_way_report_allowlist_carveout() -> None:
     report = three_way_report(
-        dispatch={"a", "rename_symbol", "ghost"},
+        dispatch={"a", "rename_symbol", "refactor_extract_function", "ghost"},
         schema={"a"},
-        preset_members={"a", "rename_symbol"},
-        dispatch_only_allowlist={"rename_symbol"},
+        preset_members={"a", "rename_symbol", "refactor_extract_function"},
+        dispatch_only_allowlist={"rename_symbol", "refactor_extract_function"},
     )
     assert report["dispatch_only"] == ["ghost"]
-    assert report["allowlisted_dispatch_only"] == ["rename_symbol"]
+    assert report["allowlisted_dispatch_only"] == [
+        "refactor_extract_function",
+        "rename_symbol",
+    ]
+    assert report["pending_d3_symbolic_edit_core"] == ["rename_symbol"]
+    assert report["pending_d3_refactor_substrate"] == ["refactor_extract_function"]
     # pending-D3 names may sit in preset constants (callable-but-unlisted)
     assert report["preset_dead"] == []
 
@@ -174,6 +180,8 @@ extract_tombstones = getattr(_MOD, "extract_tombstones", None)
 EMPTY_REPORT = {
     "dispatch_only": [],
     "allowlisted_dispatch_only": [],
+    "pending_d3_symbolic_edit_core": [],
+    "pending_d3_refactor_substrate": [],
     "schema_only": [],
     "preset_dead": [],
 }
