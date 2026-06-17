@@ -70,7 +70,7 @@ pub(crate) fn prepare_harness_session_output_schema() -> serde_json::Value {
                 "type": "object",
                 "properties": {
                     "enabled": {"type": "boolean"},
-                    "threshold": {"type": "integer"},
+                    "threshold": {"type": ["integer", "null"]},
                     "status": {"type": "string"},
                     "reason": {"type": "string"},
                     "error": {"type": "string"},

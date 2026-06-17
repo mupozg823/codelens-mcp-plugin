@@ -2,7 +2,12 @@ use crate::AppState;
 use crate::tool_defs::{ToolSurface, is_tool_in_surface};
 use serde_json::{Value, json};
 
-pub(super) const DEFAULT_AUTO_REFRESH_STALE_THRESHOLD: usize = 32;
+fn auto_refresh_stale_threshold(arguments: &Value) -> Option<usize> {
+    arguments
+        .get("auto_refresh_stale_threshold")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RefreshSymbolIndexRemediation {
@@ -86,11 +91,7 @@ pub(super) fn prepare_harness_index_recovery(state: &AppState, arguments: &Value
         .get("auto_refresh_stale")
         .and_then(|value| value.as_bool())
         .unwrap_or(true);
-    let threshold = arguments
-        .get("auto_refresh_stale_threshold")
-        .and_then(|value| value.as_u64())
-        .map(|value| value as usize)
-        .unwrap_or(DEFAULT_AUTO_REFRESH_STALE_THRESHOLD);
+    let threshold = auto_refresh_stale_threshold(arguments);
 
     let before = match state.symbol_index().stats() {
         Ok(stats) => stats,
@@ -124,7 +125,7 @@ pub(super) fn prepare_harness_index_recovery(state: &AppState, arguments: &Value
         });
     }
 
-    if before.stale_files > threshold {
+    if threshold.is_some_and(|threshold| before.stale_files > threshold) {
         return json!({
             "enabled": true,
             "threshold": threshold,

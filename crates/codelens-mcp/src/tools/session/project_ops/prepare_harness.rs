@@ -13,8 +13,8 @@ use std::collections::HashSet;
 
 use super::activate::activate_project;
 use super::prep_recovery::{
-    DEFAULT_AUTO_REFRESH_STALE_THRESHOLD, RefreshSymbolIndexRemediation,
-    prepare_harness_index_recovery, refresh_symbol_index_recommended_action_for_surface,
+    RefreshSymbolIndexRemediation, prepare_harness_index_recovery,
+    refresh_symbol_index_recommended_action_for_surface,
     refresh_symbol_index_remediation_for_surface,
 };
 use super::prep_warnings::{
@@ -244,7 +244,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 let threshold = index_recovery
                     .get("threshold")
                     .and_then(|value| value.as_u64())
-                    .unwrap_or(DEFAULT_AUTO_REFRESH_STALE_THRESHOLD as u64);
+                    .unwrap_or(stale_files);
                 push_prepare_harness_warning_with_extras(
                     &mut warnings,
                     &mut warning_codes,

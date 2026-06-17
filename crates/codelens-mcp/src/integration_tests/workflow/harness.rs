@@ -396,6 +396,109 @@ fn prepare_harness_session_auto_refreshes_small_stale_index() {
 }
 
 #[test]
+fn prepare_harness_session_auto_refreshes_large_stale_index_by_default() {
+    let project = project_root();
+    let stale_count = 40usize;
+    for idx in 0..stale_count {
+        fs::write(
+            project.as_path().join(format!("large_stale_{idx}.py")),
+            format!("def stale_{idx}():\n    return 1\n"),
+        )
+        .unwrap();
+    }
+    let state = make_state(&project);
+
+    let future_mtime = std::time::SystemTime::now() + std::time::Duration::from_secs(10);
+    for idx in 0..stale_count {
+        let path = project.as_path().join(format!("large_stale_{idx}.py"));
+        fs::write(&path, format!("def stale_{idx}():\n    return 2\n")).unwrap();
+        filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(future_mtime))
+            .unwrap();
+    }
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "builder-minimal"}),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["index_recovery"]["threshold"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        payload["data"]["index_recovery"]["status"],
+        json!("refreshed")
+    );
+    assert_eq!(
+        payload["data"]["index_recovery"]["before"]["stale_files"],
+        json!(stale_count)
+    );
+    assert_eq!(
+        payload["data"]["index_recovery"]["after"]["stale_files"],
+        json!(0)
+    );
+    assert!(
+        !payload["data"]["warnings"]
+            .as_array()
+            .map(|warnings| warnings
+                .iter()
+                .any(|warning| warning["code"] == "index_refresh_skipped"))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn prepare_harness_session_respects_explicit_stale_threshold() {
+    let project = project_root();
+    for idx in 0..3 {
+        fs::write(
+            project.as_path().join(format!("threshold_stale_{idx}.py")),
+            format!("def threshold_stale_{idx}():\n    return 1\n"),
+        )
+        .unwrap();
+    }
+    let state = make_state(&project);
+
+    let future_mtime = std::time::SystemTime::now() + std::time::Duration::from_secs(10);
+    for idx in 0..3 {
+        let path = project.as_path().join(format!("threshold_stale_{idx}.py"));
+        fs::write(
+            &path,
+            format!("def threshold_stale_{idx}():\n    return 2\n"),
+        )
+        .unwrap();
+        filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(future_mtime))
+            .unwrap();
+    }
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "builder-minimal",
+            "auto_refresh_stale_threshold": 2,
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["index_recovery"]["status"],
+        json!("skipped")
+    );
+    assert_eq!(payload["data"]["index_recovery"]["threshold"], json!(2));
+    assert!(
+        payload["data"]["warnings"]
+            .as_array()
+            .map(|warnings| warnings
+                .iter()
+                .any(|warning| warning["code"] == "index_refresh_skipped"))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
 fn prepare_harness_session_schema_matches_payload_shape() {
     let schema = crate::tool_defs::tool_definition("prepare_harness_session")
         .and_then(|tool| tool.output_schema.as_ref())
