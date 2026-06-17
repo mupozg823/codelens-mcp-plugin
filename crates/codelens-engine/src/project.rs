@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use globset::{Glob, GlobMatcher};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -181,17 +182,97 @@ fn is_generated_or_lock_file(file_name: &str) -> bool {
 /// Walk `root` collecting files that pass `filter`, skipping excluded dirs.
 pub fn collect_files(root: &Path, filter: impl Fn(&Path) -> bool) -> Result<Vec<PathBuf>> {
     use walkdir::WalkDir;
+    let project_excludes = ProjectExcludeConfig::load(root);
     let mut files = Vec::new();
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|entry| !is_excluded(entry.path()))
-    {
+    for entry in WalkDir::new(root).into_iter().filter_entry(|entry| {
+        !is_excluded(entry.path()) && !project_excludes.is_excluded(root, entry.path())
+    }) {
         let entry = entry?;
         if entry.file_type().is_file() && filter(entry.path()) {
             files.push(entry.path().to_path_buf());
         }
     }
     Ok(files)
+}
+
+#[derive(Debug, Default)]
+struct ProjectExcludeConfig {
+    matchers: Vec<GlobMatcher>,
+}
+
+impl ProjectExcludeConfig {
+    fn load(root: &Path) -> Self {
+        let config_path = root.join(".codelens/config.json");
+        let Ok(content) = std::fs::read_to_string(config_path) else {
+            return Self::default();
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) else {
+            return Self::default();
+        };
+        let mut patterns = Vec::new();
+        collect_string_array(&json, &["index", "exclude_paths"], &mut patterns);
+        collect_string_array(&json, &["index", "exclude"], &mut patterns);
+        collect_string_array(&json, &["exclude_paths"], &mut patterns);
+
+        let mut matchers = Vec::new();
+        for pattern in patterns {
+            for candidate in expand_exclude_pattern(&pattern) {
+                if let Ok(glob) = Glob::new(&candidate) {
+                    matchers.push(glob.compile_matcher());
+                }
+            }
+        }
+        Self { matchers }
+    }
+
+    fn is_excluded(&self, root: &Path, path: &Path) -> bool {
+        if self.matchers.is_empty() {
+            return false;
+        }
+        let relative = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        self.matchers
+            .iter()
+            .any(|matcher| matcher.is_match(relative.as_str()))
+    }
+}
+
+fn collect_string_array(json: &serde_json::Value, path: &[&str], out: &mut Vec<String>) {
+    let mut current = json;
+    for segment in path {
+        let Some(next) = current.get(segment) else {
+            return;
+        };
+        current = next;
+    }
+    if let Some(values) = current.as_array() {
+        out.extend(
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && !value.starts_with('/'))
+                .map(ToOwned::to_owned),
+        );
+    }
+}
+
+fn expand_exclude_pattern(pattern: &str) -> Vec<String> {
+    let normalized = pattern.trim().trim_start_matches("./").replace('\\', "/");
+    if normalized.is_empty() || normalized.contains("..") {
+        return Vec::new();
+    }
+    let has_glob = normalized.contains('*')
+        || normalized.contains('?')
+        || normalized.contains('[')
+        || normalized.contains('{');
+    if has_glob || normalized.ends_with('/') {
+        return vec![normalized];
+    }
+    vec![normalized.clone(), format!("{normalized}/**")]
 }
 
 /// Walk `root` and return the canonical extension tag of the dominant
@@ -616,7 +697,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectRoot, is_excluded};
+    use super::{ProjectRoot, collect_files, is_excluded};
     use std::{fs, path::Path};
 
     #[test]
@@ -767,6 +848,49 @@ mod tests {
         assert!(!is_excluded(Path::new("src/background.ts")));
         assert!(!is_excluded(Path::new("src/bundle-controller.ts")));
         assert!(!is_excluded(Path::new("src/package-lock-handler.ts")));
+    }
+
+    #[test]
+    fn project_config_excludes_opt_in_vendor_paths() {
+        let (_td, temp) = tempfile_dir();
+        fs::create_dir_all(temp.join(".codelens")).expect("mkdir codelens");
+        fs::create_dir_all(temp.join("src")).expect("mkdir src");
+        fs::create_dir_all(temp.join("companion-core-v4.3.4/companion/lib")).expect("mkdir vendor");
+        fs::create_dir_all(temp.join("local-generated/nested")).expect("mkdir generated");
+        fs::write(
+            temp.join(".codelens/config.json"),
+            r#"{"index":{"exclude_paths":["companion-core-v4.3.4/**","local-generated"]}}"#,
+        )
+        .expect("write config");
+        fs::write(temp.join("src/service.ts"), "export const service = 1;\n").expect("write src");
+        fs::write(
+            temp.join("companion-core-v4.3.4/companion/lib/Registry.ts"),
+            "export const registry = 1;\n",
+        )
+        .expect("write vendor");
+        fs::write(
+            temp.join("local-generated/nested/output.ts"),
+            "export const generated = 1;\n",
+        )
+        .expect("write generated");
+
+        let files = collect_files(&temp, |path| {
+            path.extension().is_some_and(|ext| ext == "ts")
+        })
+        .expect("collect files");
+        let relative: Vec<String> = files
+            .iter()
+            .map(|path| {
+                path.strip_prefix(&temp)
+                    .expect("relative")
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert_eq!(relative, vec!["src/service.ts"]);
+        assert!(!is_excluded(Path::new(
+            "companion-core-v4.3.4/companion/lib/Registry.ts"
+        )));
     }
 
     #[test]
