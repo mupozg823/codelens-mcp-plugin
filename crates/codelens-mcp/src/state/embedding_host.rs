@@ -49,25 +49,47 @@ impl AppState {
         *guard = None;
     }
 
-    /// Lazy-loaded SCIP backend. Loads the SCIP index on first access
-    /// and caches it for subsequent calls. Returns None if no index found.
+    /// Lazy-loaded SCIP backend for the current project. A shared daemon can
+    /// serve multiple project-bound HTTP sessions, so the backend cache is keyed
+    /// by project root instead of process-global first access.
     #[cfg(feature = "scip-backend")]
-    pub(crate) fn scip(&self) -> Option<&codelens_engine::ScipBackend> {
-        self.scip_backend
-            .get_or_init(|| {
-                let project = self.project();
-                codelens_engine::ScipBackend::detect(project.as_path())
-                    .and_then(|path| {
-                        tracing::info!(path = %path.display(), "loading SCIP index");
-                        codelens_engine::ScipBackend::load(&path)
-                            .inspect_err(|e| {
-                                tracing::warn!(error = %e, "failed to load SCIP index");
-                            })
-                            .ok()
-                    })
-                    .map(Arc::new)
-            })
-            .as_ref()
-            .map(|arc| arc.as_ref())
+    pub(crate) fn scip(&self) -> Option<Arc<codelens_engine::ScipBackend>> {
+        let project = self.project();
+        let project_root = project.as_path().to_path_buf();
+        {
+            let cache = self.scip_backends.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(backend) = cache.get(&project_root) {
+                return Some(Arc::clone(backend));
+            }
+        }
+
+        let index_path = codelens_engine::ScipBackend::detect(project.as_path())?;
+        tracing::info!(
+            project_root = %project_root.display(),
+            path = %index_path.display(),
+            "loading SCIP index"
+        );
+        let backend = Arc::new(
+            codelens_engine::ScipBackend::load(&index_path)
+                .inspect_err(|e| {
+                    tracing::warn!(
+                        project_root = %project_root.display(),
+                        path = %index_path.display(),
+                        error = %e,
+                        "failed to load SCIP index"
+                    );
+                })
+                .ok()?,
+        );
+
+        let mut cache = self.scip_backends.lock().unwrap_or_else(|p| p.into_inner());
+        let entry = cache.entry(project_root).or_insert(backend);
+        Some(Arc::clone(entry))
+    }
+
+    #[cfg(feature = "scip-backend")]
+    pub(crate) fn drop_scip_backend_for_project(&self, project_root: &std::path::Path) {
+        let mut cache = self.scip_backends.lock().unwrap_or_else(|p| p.into_inner());
+        cache.remove(project_root);
     }
 }

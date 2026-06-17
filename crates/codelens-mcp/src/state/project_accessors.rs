@@ -139,6 +139,8 @@ impl AppState {
         };
 
         for ctx in evicted {
+            #[cfg(feature = "scip-backend")]
+            self.drop_scip_backend_for_project(ctx.project.as_path());
             ctx.shutdown_resources();
         }
 

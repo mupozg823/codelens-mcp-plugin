@@ -111,9 +111,12 @@ pub(crate) struct AppState {
     project_execution_lock: Mutex<()>,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::RwLock<Option<EmbeddingEngine>>,
-    /// Lazy-loaded SCIP precise backend, cached after first access.
+    /// Lazy-loaded SCIP precise backends, isolated per active project root.
+    /// A shared HTTP daemon may switch projects between sessions; keying this
+    /// cache by root prevents a SCIP index from the previous project from
+    /// leaking into the newly-bound project.
     #[cfg(feature = "scip-backend")]
-    scip_backend: OnceLock<Option<Arc<codelens_engine::ScipBackend>>>,
+    scip_backends: Mutex<HashMap<PathBuf, Arc<codelens_engine::ScipBackend>>>,
     /// Secondary (read-only) project indexes for cross-project queries.
     pub(crate) secondary_projects:
         Mutex<HashMap<String, crate::state::secondary_projects::SecondaryProject>>,
@@ -322,6 +325,52 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first_index, &reused_index));
         assert!(Arc::ptr_eq(&first_lsp_pool, &reused_lsp_pool));
+    }
+
+    #[cfg(feature = "scip-backend")]
+    fn write_scip_index(project: &codelens_engine::ProjectRoot, relative_path: &str) {
+        use protobuf::Message as _;
+
+        let mut index = scip::types::Index::new();
+        let mut document = scip::types::Document::new();
+        document.relative_path = relative_path.to_owned();
+        index.documents.push(document);
+
+        let index_dir = project.as_path().join(".codelens");
+        std::fs::create_dir_all(&index_dir).unwrap();
+        std::fs::write(
+            index_dir.join("index.scip"),
+            index.write_to_bytes().unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "scip-backend")]
+    fn switch_project_rebinds_scip_backend_to_active_project() {
+        use codelens_engine::PreciseBackend as _;
+
+        let project_a = temp_project_root("scip-a");
+        let project_b = temp_project_root("scip-b");
+        write_scip_index(&project_a, "a_only.rs");
+        write_scip_index(&project_b, "b_only.rs");
+        let state = AppState::new_minimal(project_a.clone(), ToolPreset::Balanced);
+
+        let backend_a = state.scip().expect("project A SCIP backend");
+        assert!(backend_a.has_index_for("a_only.rs"));
+        assert!(!backend_a.has_index_for("b_only.rs"));
+
+        state
+            .switch_project(project_b.as_path().to_str().unwrap())
+            .unwrap();
+
+        let backend_b = state.scip().expect("project B SCIP backend");
+        assert!(backend_b.has_index_for("b_only.rs"));
+        assert!(!backend_b.has_index_for("a_only.rs"));
+        assert!(
+            !Arc::ptr_eq(&backend_a, &backend_b),
+            "project switch must not reuse the previous project's SCIP backend"
+        );
     }
 
     #[test]

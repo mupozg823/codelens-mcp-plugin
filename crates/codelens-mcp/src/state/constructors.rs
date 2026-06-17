@@ -60,7 +60,7 @@ impl AppState {
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "scip-backend")]
-            scip_backend: OnceLock::new(),
+            scip_backends: Mutex::new(HashMap::new()),
             #[cfg(feature = "http")]
             session_store: None,
             #[cfg(feature = "http")]
@@ -149,7 +149,7 @@ impl AppState {
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "scip-backend")]
-            scip_backend: OnceLock::new(),
+            scip_backends: Mutex::new(HashMap::new()),
             #[cfg(feature = "http")]
             session_store: None,
             #[cfg(feature = "http")]

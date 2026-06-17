@@ -980,7 +980,7 @@ properties = { project = { type = "string", description = "Optional project name
 name = "prepare_harness_session"
 category = "session"
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — pass project=<absolute repo path> on first use to remap stale daemon state, then summarize surface, capabilities, visible tools, and optionally auto-recover a small stale index in one call."
+description = "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — pass project=<absolute repo path> on first use to bind the daemon to that project's symbol index, graph/LSP runtime, analysis cache, and SCIP precise index; then summarize surface, capabilities, visible tools, and optionally auto-recover a small stale index in one call."
 annotations = "mutating"
 output_schema = "prepare_harness_session_output_schema"
 
