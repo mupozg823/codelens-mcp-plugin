@@ -4,7 +4,7 @@ use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use crate::tools::semantic_retriever::{semantic_results_for_query, semantic_status};
 use codelens_engine::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
-use codelens_engine::{find_circular_dependencies, get_change_coupling};
+use codelens_engine::{CouplingEntry, find_circular_dependencies, get_change_coupling};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -26,7 +26,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         find_circular_dependencies(&state.project(), 20, &state.graph_cache()).unwrap_or_default();
     let cycles = json!({ "cycles": cycles, "count": cycles.len() });
     let coupling = get_change_coupling(&state.project(), 6, 0.3, 3, 20).unwrap_or_default();
-    let coupling = json!({ "coupling": coupling, "count": coupling.len() });
+    let total_couplings = coupling.len();
     let symbols =
         crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
             .map(|out| out.0)
@@ -41,19 +41,10 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         .filter(|cycle| cycle.to_string().contains(path))
         .take(5)
         .collect::<Vec<_>>();
-    let coupling_hits = coupling
-        .get("results")
-        .and_then(|v| v.as_array())
-        .or_else(|| coupling.get("couplings").and_then(|v| v.as_array()))
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|entry| entry.to_string().contains(path))
-        .take(5)
-        .collect::<Vec<_>>();
+    let coupling_hits = coupling_hits_for_path(&coupling, path, 5);
 
     let top_findings = vec![format!(
-        "{} importer(s), {} impacted file(s), {} cycle hit(s)",
+        "{} importer(s), {} impacted file(s), {} cycle hit(s), {} temporal coupling hit(s)",
         impact
             .get("direct_importers")
             .and_then(|v| v.as_array())
@@ -63,7 +54,8 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
             .get("total_affected_files")
             .and_then(|v| v.as_u64())
             .unwrap_or_default(),
-        cycle_hits.len()
+        cycle_hits.len(),
+        coupling_hits.len()
     )];
     let mut sections = BTreeMap::new();
     sections.insert("impact".to_owned(), impact);
@@ -73,7 +65,14 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
     );
     sections.insert(
         "coupling_hits".to_owned(),
-        json!({ "path": path, "couplings": coupling_hits }),
+        json!({
+            "path": path,
+            "source": "git_temporal_coupling",
+            "status": coupling_status(total_couplings, coupling_hits.len()),
+            "total_couplings": total_couplings,
+            "couplings": coupling_hits,
+            "note": "This section is temporal co-change evidence only. Empty couplings do not mean semantic analysis is unavailable; inspect semantic_coupling and semantic_status for embedding evidence.",
+        }),
     );
     // Extract symbol names BEFORE moving `symbols` into sections
     let symbol_names: Vec<String> = symbols
@@ -90,6 +89,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
 
     let module_query = build_module_semantic_query(path, &symbol_names);
     let sem_results = semantic_results_for_query(state, &module_query, 10, false, None);
+    let semantic_result_count = sem_results.len();
     let semantic_coupling: Vec<Value> = sem_results
         .into_iter()
         .filter(|r| r.score > SEMANTIC_COUPLING_THRESHOLD && !r.file_path.contains(path))
@@ -102,13 +102,15 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
             })
         })
         .collect();
-    if !semantic_coupling.is_empty() {
-        sections.insert(
-            "semantic_coupling".to_owned(),
-            json!({"hint": "Semantically similar symbols outside this module — potential hidden coupling", "matches": semantic_coupling}),
-        );
-    }
     let final_semantic_status = semantic_status(state);
+    sections.insert(
+        "semantic_coupling".to_owned(),
+        semantic_coupling_section(
+            &final_semantic_status,
+            semantic_result_count,
+            semantic_coupling,
+        ),
+    );
     insert_semantic_status(&mut sections, final_semantic_status.clone());
     let mut next_actions = vec!["Check cycle hits before moving ownership boundaries".to_owned()];
     if let Some(note) = semantic_degraded_note(&final_semantic_status) {
@@ -131,6 +133,57 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         None,
         Some(arguments),
     )
+}
+
+fn coupling_hits_for_path(entries: &[CouplingEntry], path: &str, limit: usize) -> Vec<Value> {
+    entries
+        .iter()
+        .filter(|entry| entry.file_a.contains(path) || entry.file_b.contains(path))
+        .take(limit)
+        .map(|entry| json!(entry))
+        .collect()
+}
+
+fn coupling_status(total_couplings: usize, hit_count: usize) -> &'static str {
+    if hit_count > 0 {
+        "matched"
+    } else if total_couplings > 0 {
+        "no_path_matches"
+    } else {
+        "empty_git_history"
+    }
+}
+
+fn semantic_status_name(status: &Value) -> &str {
+    status
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("unavailable")
+}
+
+fn semantic_coupling_section(
+    semantic_status: &Value,
+    semantic_result_count: usize,
+    matches: Vec<Value>,
+) -> Value {
+    let status_name = semantic_status_name(semantic_status);
+    let coupling_status = if status_name == "ready" {
+        if matches.is_empty() {
+            "ready_no_external_matches"
+        } else {
+            "ready_matches"
+        }
+    } else {
+        "semantic_unavailable"
+    };
+    json!({
+        "status": coupling_status,
+        "semantic_status": semantic_status,
+        "semantic_result_count": semantic_result_count,
+        "hint": "Semantically similar symbols outside this module — potential hidden coupling",
+        "matches": matches,
+        "note": "Empty matches means no external semantic coupling above the reporting threshold for this query, not that semantic analysis is impossible.",
+    })
 }
 
 #[allow(deprecated)]
@@ -242,4 +295,68 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         None,
         Some(arguments),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coupling_hits_for_path_reads_coupling_entries_directly() {
+        let entries = vec![
+            CouplingEntry {
+                file_a: "src/billing/service.rs".to_owned(),
+                file_b: "src/billing/repository.rs".to_owned(),
+                co_changes: 4,
+                total_changes_a: 5,
+                total_changes_b: 6,
+                strength: 0.66,
+            },
+            CouplingEntry {
+                file_a: "src/auth/session.rs".to_owned(),
+                file_b: "src/auth/token.rs".to_owned(),
+                co_changes: 3,
+                total_changes_a: 4,
+                total_changes_b: 4,
+                strength: 0.75,
+            },
+        ];
+
+        let hits = coupling_hits_for_path(&entries, "src/billing", 5);
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0]["file_a"], "src/billing/service.rs");
+        assert_eq!(hits[0]["file_b"], "src/billing/repository.rs");
+        assert_eq!(coupling_status(entries.len(), hits.len()), "matched");
+    }
+
+    #[test]
+    fn coupling_status_distinguishes_empty_history_from_no_path_match() {
+        assert_eq!(coupling_status(0, 0), "empty_git_history");
+        assert_eq!(coupling_status(3, 0), "no_path_matches");
+        assert_eq!(coupling_status(3, 1), "matched");
+    }
+
+    #[test]
+    fn semantic_coupling_section_keeps_ready_empty_matches_actionable() {
+        let section = semantic_coupling_section(
+            &json!({
+                "status": "ready",
+                "indexed_symbols": 42,
+                "loaded": false,
+            }),
+            7,
+            Vec::new(),
+        );
+
+        assert_eq!(section["status"], "ready_no_external_matches");
+        assert_eq!(section["semantic_result_count"], 7);
+        assert!(section["matches"].as_array().unwrap().is_empty());
+        assert!(
+            section["note"]
+                .as_str()
+                .unwrap()
+                .contains("not that semantic analysis is impossible")
+        );
+    }
 }

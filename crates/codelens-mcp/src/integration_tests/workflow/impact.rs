@@ -106,3 +106,73 @@ fn impact_report_uses_existing_embedding_index_for_semantic_status() {
         json!(indexed)
     );
 }
+
+#[cfg(feature = "semantic")]
+#[test]
+fn module_boundary_report_separates_temporal_and_semantic_coupling() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("boundary_semantic_missing.py"),
+        "def boundary_alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "module_boundary_report",
+        json!({"path": "boundary_semantic_missing.py"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let sections = payload["data"]["available_sections"]
+        .as_array()
+        .expect("available_sections should be present");
+    assert!(sections.iter().any(|section| section == "coupling_hits"));
+    assert!(
+        sections
+            .iter()
+            .any(|section| section == "semantic_coupling")
+    );
+    assert!(sections.iter().any(|section| section == "semantic_status"));
+    let analysis_id = payload["data"]["analysis_id"]
+        .as_str()
+        .expect("analysis_id should be present");
+
+    let coupling = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "coupling_hits"}),
+    );
+    assert_eq!(coupling["success"], json!(true));
+    assert_eq!(
+        coupling["data"]["content"]["source"],
+        json!("git_temporal_coupling")
+    );
+    assert_eq!(
+        coupling["data"]["content"]["status"],
+        json!("empty_git_history")
+    );
+    assert!(
+        coupling["data"]["content"]["note"]
+            .as_str()
+            .unwrap_or("")
+            .contains("do not mean semantic analysis is unavailable")
+    );
+
+    let semantic = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "semantic_coupling"}),
+    );
+    assert_eq!(semantic["success"], json!(true));
+    assert_eq!(
+        semantic["data"]["content"]["status"],
+        json!("semantic_unavailable")
+    );
+    assert!(
+        semantic["data"]["content"]["note"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not that semantic analysis is impossible")
+    );
+}
