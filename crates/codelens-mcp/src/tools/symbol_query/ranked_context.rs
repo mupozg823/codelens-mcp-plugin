@@ -30,6 +30,7 @@ use super::rank_fusion::{
     annotate_ranked_context_provenance, compact_semantic_evidence, compact_sparse_evidence,
     fuse_ranked_entries_weighted_rrf,
 };
+use super::retrieval_scope::normalize_path_scope;
 use super::sparse_retriever::{adapt_budget_to_context_window, sparse_symbol_hits_for_query};
 use crate::AppState;
 use crate::error::CodeLensError;
@@ -66,6 +67,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
     let query = required_string(arguments, "query")?;
     let query_analysis = analyze_retrieval_query(query);
     let path = optional_string(arguments, "path");
+    let normalized_path_scope = normalize_path_scope(state.project().as_path(), path);
     let session = SessionRequestContext::from_json(arguments);
     // v1.10.1 floor: when the user does not supply `max_tokens`, take the
     // larger of the surface token budget and 16K. The active surface budget
@@ -116,9 +118,23 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             && query_analysis.original_query.contains(char::is_whitespace));
     // Build semantic scores for hybrid ranking if embeddings are available.
     // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.
-    let semantic_results = semantic_results_for_query(state, query, 50, effective_disable_semantic);
+    let semantic_results = semantic_results_for_query(
+        state,
+        query,
+        50,
+        effective_disable_semantic,
+        normalized_path_scope.as_deref(),
+    );
     let sparse_results = if use_sparse_in_core {
-        sparse_symbol_hits_for_query(state, &query_analysis, 10, false, false, &session)?
+        sparse_symbol_hits_for_query(
+            state,
+            &query_analysis,
+            10,
+            false,
+            false,
+            &session,
+            normalized_path_scope.as_deref(),
+        )?
     } else {
         Vec::new()
     };
@@ -333,6 +349,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         "preferred_lane": preferred_lane,
         "sparse_lane_recommended": query_analysis.prefer_sparse_symbol_search,
         "query_type": query_type,
+        "path_scope": normalized_path_scope.as_deref(),
         "lexical_query": query_analysis.expanded_query,
         "semantic_query": query_analysis.semantic_query,
     });

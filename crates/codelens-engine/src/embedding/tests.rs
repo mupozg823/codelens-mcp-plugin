@@ -1602,6 +1602,61 @@ fn store_fetches_embeddings_for_specific_files() {
 }
 
 #[test]
+fn store_scoped_search_filters_with_vec_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = super::vec_store::SqliteVecStore::new(
+        dir.path().join("embeddings.db").as_path(),
+        2,
+        "test",
+    )
+    .unwrap();
+    let chunks = vec![
+        EmbeddingChunk {
+            file_path: "outside.py".to_owned(),
+            symbol_name: "outside".to_owned(),
+            kind: "function".to_owned(),
+            line: 1,
+            signature: "def outside():".to_owned(),
+            name_path: "outside".to_owned(),
+            text: "outside".to_owned(),
+            embedding: vec![1.0, 0.0],
+            doc_embedding: None,
+        },
+        EmbeddingChunk {
+            file_path: "crates/scoped.py".to_owned(),
+            symbol_name: "scoped".to_owned(),
+            kind: "function".to_owned(),
+            line: 1,
+            signature: "def scoped():".to_owned(),
+            name_path: "scoped".to_owned(),
+            text: "scoped".to_owned(),
+            embedding: vec![1.0, 0.0],
+            doc_embedding: None,
+        },
+        EmbeddingChunk {
+            file_path: "crates_nested/not_scoped.py".to_owned(),
+            symbol_name: "not_scoped".to_owned(),
+            kind: "function".to_owned(),
+            line: 1,
+            signature: "def not_scoped():".to_owned(),
+            name_path: "not_scoped".to_owned(),
+            text: "not_scoped".to_owned(),
+            embedding: vec![1.0, 0.0],
+            doc_embedding: None,
+        },
+    ];
+    store.insert(&chunks).unwrap();
+
+    let scoped = store
+        .search_scoped(&[1.0, 0.0], 10, Some("crates"))
+        .unwrap();
+
+    assert_eq!(scoped.len(), 1);
+    assert_eq!(scoped[0].file_path, "crates/scoped.py");
+    assert_eq!(scoped[0].symbol_name, "scoped");
+}
+
+#[test]
 fn store_fetches_embeddings_for_scored_chunks() {
     let _lock = MODEL_LOCK.lock().unwrap();
     skip_without_embedding_model!();

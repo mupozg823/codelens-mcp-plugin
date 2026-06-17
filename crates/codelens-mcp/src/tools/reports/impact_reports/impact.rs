@@ -150,7 +150,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
     let semantic_related: Vec<Value> = if combined_query.is_empty() {
         Vec::new()
     } else {
-        semantic_results_for_query(state, &combined_query, 15, false)
+        semantic_results_for_query(state, &combined_query, 15, false, None)
             .into_iter()
             .filter(|r| {
                 r.score > SEMANTIC_COUPLING_THRESHOLD

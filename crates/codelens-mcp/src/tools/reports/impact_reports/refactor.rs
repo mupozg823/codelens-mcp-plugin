@@ -179,7 +179,7 @@ pub fn semantic_code_review(state: &AppState, arguments: &Value) -> ToolResult {
             // Semantic: find related symbols via embedding
             let semantic_matches = if semantic_available {
                 let query = format!("{symbol_name} in {path}");
-                semantic_results_for_query(state, &query, 3, false)
+                semantic_results_for_query(state, &query, 3, false, None)
             } else {
                 Vec::new()
             };

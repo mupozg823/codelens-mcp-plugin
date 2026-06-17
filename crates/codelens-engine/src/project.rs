@@ -106,6 +106,8 @@ pub const EXCLUDED_DIRS: &[&str] = &[
     ".cursor",
     ".claude",
     ".claire",
+    ".serena",
+    ".superpowers",
     // Build output
     ".gradle",
     "build",
@@ -117,6 +119,7 @@ pub const EXCLUDED_DIRS: &[&str] = &[
     "__pycache__",
     "target",
     ".next",
+    "win-unpacked",
     // Virtual environments
     ".venv",
     "venv",
@@ -159,7 +162,12 @@ pub fn is_excluded(path: &Path) -> bool {
 fn is_generated_or_lock_file(file_name: &str) -> bool {
     matches!(
         file_name,
-        "package-lock.json" | "pnpm-lock.yaml" | "yarn.lock" | "bun.lock" | "bun.lockb"
+        "package-lock.json"
+            | "pnpm-lock.yaml"
+            | "yarn.lock"
+            | "bun.lock"
+            | "bun.lockb"
+            | "LICENSES.chromium.html"
     ) || file_name.ends_with(".min.js")
         || file_name.ends_with(".bundle.js")
         || file_name.ends_with(".bundle.iife.js")
@@ -715,6 +723,10 @@ mod tests {
             ".claude/worktrees/agent-xyz/main.rs"
         )));
         assert!(is_excluded(Path::new("project/.claire/anything.rs")));
+        assert!(is_excluded(Path::new("project/.serena/memories/index.md")));
+        assert!(is_excluded(Path::new(
+            "project/.superpowers/plans/phase-one.md"
+        )));
         // Top-level `.worktrees/` (git worktree add target) — discovered
         // during dogfooding where `find_referencing_symbols` returned only
         // worktree paths and missed the main tree entirely.
@@ -727,9 +739,13 @@ mod tests {
         // And the usual suspects stay excluded.
         assert!(is_excluded(Path::new("node_modules/foo/index.js")));
         assert!(is_excluded(Path::new("target/debug/build.rs")));
+        assert!(is_excluded(Path::new(
+            "app/release/win-unpacked/resources/app.asar.unpacked/index.js"
+        )));
         // Non-excluded paths should pass through.
         assert!(!is_excluded(Path::new("crates/codelens-engine/src/lib.rs")));
         assert!(!is_excluded(Path::new("src/claire_not_a_dir.rs")));
+        assert!(!is_excluded(Path::new("src/release_notes.ts")));
     }
 
     #[test]
@@ -739,6 +755,9 @@ mod tests {
         assert!(is_excluded(Path::new("extension/background-bundle.js")));
         assert!(is_excluded(Path::new("extension/shared.bundle.iife.js")));
         assert!(is_excluded(Path::new("web/assets/app.min.js")));
+        assert!(is_excluded(Path::new(
+            "app/release/win-unpacked/LICENSES.chromium.html"
+        )));
         assert!(is_excluded(Path::new("web/src/routeTree.gen.ts")));
         assert!(is_excluded(Path::new("web/generated/schema.ts")));
         assert!(is_excluded(Path::new(

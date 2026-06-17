@@ -12,6 +12,10 @@ use crate::symbol_retrieval::{ScoredSymbol, search_symbols_bm25f};
 use crate::tools::query_analysis::RetrievalQueryAnalysis;
 use codelens_engine::SymbolInfo;
 
+use super::retrieval_scope::{
+    file_matches_scope, markup_config_penalty_multiplier, normalize_path_scope,
+};
+
 pub(crate) fn sparse_symbol_hits_for_query(
     state: &AppState,
     query_analysis: &RetrievalQueryAnalysis,
@@ -19,9 +23,14 @@ pub(crate) fn sparse_symbol_hits_for_query(
     include_tests: bool,
     include_generated: bool,
     session: &crate::session_context::SessionRequestContext,
+    path_scope: Option<&str>,
 ) -> Result<Vec<ScoredSymbol>, CodeLensError> {
+    let normalized_path_scope = normalize_path_scope(state.project().as_path(), path_scope);
     let mut all_symbols = Vec::new();
     for path in state.symbol_index().indexed_file_paths()? {
+        if !file_matches_scope(&path, normalized_path_scope.as_deref()) {
+            continue;
+        }
         if let Ok(symbols) = state.symbol_index().get_symbols_overview_cached(&path, 3) {
             all_symbols.extend(flatten_symbols(&symbols));
         }
@@ -31,27 +40,29 @@ pub(crate) fn sparse_symbol_hits_for_query(
     let mut scored = search_symbols_bm25f(
         &corpus,
         &query_analysis.expanded_query,
-        max_results.saturating_mul(3).max(max_results),
+        max_results.saturating_mul(5).max(max_results),
         include_tests,
         include_generated,
     );
 
     let recent_files = state.recent_file_paths_for_session(session);
-    if !recent_files.is_empty() {
-        for hit in &mut scored {
-            if recent_files
-                .iter()
-                .any(|path| hit.document.file_path.starts_with(path))
-            {
-                hit.score *= 1.08;
-            }
+    for hit in &mut scored {
+        hit.score *= markup_config_penalty_multiplier(
+            &query_analysis.original_query,
+            &hit.document.file_path,
+        );
+        if recent_files
+            .iter()
+            .any(|path| hit.document.file_path.starts_with(path))
+        {
+            hit.score *= 1.08;
         }
-        scored.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
     }
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     scored.truncate(max_results);
     Ok(scored)
 }
@@ -84,7 +95,7 @@ pub fn flatten_symbols(symbols: &[SymbolInfo]) -> Vec<SymbolInfo> {
 
 #[cfg(test)]
 mod adapt_budget_tests {
-    use super::adapt_budget_to_context_window;
+    use super::{adapt_budget_to_context_window, markup_config_penalty_multiplier};
 
     #[test]
     fn small_window_halves_budget_capped_at_16k() {
@@ -118,5 +129,22 @@ mod adapt_budget_tests {
     #[test]
     fn boundary_at_200k_uses_large_tier() {
         assert_eq!(adapt_budget_to_context_window(16_384, 200_000), 32_768);
+    }
+
+    #[test]
+    fn markup_config_penalty_keeps_explicit_markup_queries_unpenalized() {
+        assert!(
+            markup_config_penalty_multiplier(
+                "block resolume advanced actions unless pro license feature enabled",
+                "tuanbo-controller/src/popup.css"
+            ) < 1.0
+        );
+        assert_eq!(
+            markup_config_penalty_multiplier(
+                "css popup advanced action styles",
+                "tuanbo-controller/src/popup.css"
+            ),
+            1.0
+        );
     }
 }

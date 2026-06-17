@@ -119,7 +119,7 @@ bash scripts/redeploy-daemons.sh --build --probe  # also runs cargo build --rele
 bash scripts/daemon-stale-check.sh                # read-only: compare daemon binary git sha to source HEAD (exit 1 if stale)
 ```
 
-What the script does: `cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http`, `xattr -dr com.apple.provenance ${target}` (otherwise macOS gatekeeper SIGKILLs the daemon with `OS_REASON_CODESIGNING`), `codesign --force --sign -` (ad-hoc resign so launchd accepts the new mach-o), `launchctl kickstart -k gui/$UID/dev.codelens.mcp-{readonly,mutation}`, wait for LISTEN on 7838/7839, and (with `--probe`) issue `tools/list` against both.
+What the script does: `cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http`, `xattr -dr com.apple.provenance ${target}` (otherwise macOS gatekeeper SIGKILLs the daemon with `OS_REASON_CODESIGNING`), `codesign --force --sign -` (ad-hoc resign so launchd accepts the new mach-o), `launchctl bootout/bootstrap` plus `kickstart -k gui/$UID/dev.codelens.mcp-{readonly,mutation}` to refresh launchd's cached code requirement, wait for LISTEN on 7838/7839, and (with `--probe`) issue `tools/list` against both.
 
 Manual fallback (if the script is unavailable):
 

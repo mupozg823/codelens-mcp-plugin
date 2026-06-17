@@ -89,7 +89,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
     sections.insert("symbols".to_owned(), symbols);
 
     let module_query = build_module_semantic_query(path, &symbol_names);
-    let sem_results = semantic_results_for_query(state, &module_query, 10, false);
+    let sem_results = semantic_results_for_query(state, &module_query, 10, false, None);
     let semantic_coupling: Vec<Value> = sem_results
         .into_iter()
         .filter(|r| r.score > SEMANTIC_COUPLING_THRESHOLD && !r.file_path.contains(path))
@@ -175,7 +175,7 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
                 .or_else(|| entry.get("file_path"))
                 .and_then(|v| v.as_str());
             let query = build_dead_code_semantic_query(name, file);
-            let results = semantic_results_for_query(state, &query, 3, false);
+            let results = semantic_results_for_query(state, &query, 3, false, None);
             if results.is_empty() {
                 return None;
             }

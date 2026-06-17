@@ -31,6 +31,7 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
         include_tests,
         include_generated,
         &session,
+        None,
     )?;
 
     let total_query_terms = unique_query_terms(&query_analysis.expanded_query).len();

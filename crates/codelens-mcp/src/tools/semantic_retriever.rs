@@ -25,6 +25,10 @@ use serde_json::{Value, json};
 
 #[cfg(feature = "semantic")]
 use super::query_analysis::{analyze_retrieval_query, semantic_query_for_embedding_search};
+#[cfg(feature = "semantic")]
+use super::symbol_query::retrieval_scope::{
+    file_matches_scope, markup_config_penalty_multiplier, normalize_path_scope,
+};
 
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_status(state: &AppState) -> Value {
@@ -102,12 +106,14 @@ pub(crate) fn semantic_results_for_query(
     query: &str,
     limit: usize,
     disable_semantic: bool,
+    path_scope: Option<&str>,
 ) -> Vec<SemanticMatch> {
     if disable_semantic {
         return Vec::new();
     }
 
     let query_analysis = analyze_retrieval_query(query);
+    let normalized_path_scope = normalize_path_scope(state.project().as_path(), path_scope);
 
     // Skip embedding lookup for short single-word identifiers where FTS is more accurate
     if query_analysis.prefer_lexical_only && query_analysis.original_query.len() <= 40 {
@@ -122,12 +128,30 @@ pub(crate) fn semantic_results_for_query(
     if let Some(engine) = guard.as_ref()
         && engine.is_indexed()
     {
-        let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
+        let candidate_limit = if normalized_path_scope.is_some() {
+            limit.saturating_mul(8).min(200).max(limit)
+        } else {
+            limit.saturating_mul(4).min(80).max(limit)
+        };
         let search_query =
             semantic_query_for_embedding_search(&query_analysis, Some(state.project().as_path()));
-        let results = engine
-            .search(&search_query, candidate_limit)
-            .unwrap_or_default();
+        let mut results: Vec<SemanticMatch> = engine
+            .search_scored_in_scope(
+                &search_query,
+                candidate_limit,
+                normalized_path_scope.as_deref(),
+            )
+            .unwrap_or_default()
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        results.retain(|result| {
+            file_matches_scope(&result.file_path, normalized_path_scope.as_deref())
+        });
+        for result in &mut results {
+            result.score *=
+                markup_config_penalty_multiplier(&query_analysis.original_query, &result.file_path);
+        }
         return super::query_analysis::rerank_semantic_matches(
             &query_analysis.semantic_query,
             results,
@@ -143,6 +167,7 @@ pub(crate) fn semantic_results_for_query(
     _query: &str,
     _limit: usize,
     _disable_semantic: bool,
+    _path_scope: Option<&str>,
 ) -> Vec<SemanticMatch> {
     Vec::new()
 }

@@ -15,6 +15,7 @@ pub(super) fn semantic_scores_for_query(
         query,
         limit,
         disable_semantic,
+        None,
     ) {
         if r.score > 0.05 {
             let key = format!("{}:{}", r.file_path, r.symbol_name);

@@ -13,7 +13,7 @@ use super::super::runtime::{
     configured_embedding_text_cache_size, embed_batch_size, load_codesearch_model,
     max_embed_symbols,
 };
-use super::super::vec_store::SqliteVecStore;
+use super::super::vec_store::{EMBEDDING_STORE_SCHEMA_VERSION, SqliteVecStore};
 use super::super::{
     CHANGED_FILE_QUERY_CHUNK, EmbeddingEngine, EmbeddingFreshnessReport, EmbeddingIndexInfo,
     EmbeddingRuntimeInfo,
@@ -600,6 +600,16 @@ impl EmbeddingEngine {
                 |row| row.get(0),
             )
             .ok();
+        let schema_version: Option<i64> = conn
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version' LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        if schema_version != Some(EMBEDDING_STORE_SCHEMA_VERSION) {
+            return Ok(None);
+        }
         let indexed_symbols: usize = conn
             .query_row("SELECT COUNT(*) FROM symbols", [], |row| {
                 row.get::<_, i64>(0)

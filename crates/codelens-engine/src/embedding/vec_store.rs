@@ -17,6 +17,7 @@ use std::sync::Mutex;
 
 use super::{embedding_to_bytes, ffi};
 
+pub(super) const EMBEDDING_STORE_SCHEMA_VERSION: i64 = 2;
 const MAX_SCORED_CHUNK_LOOKUP_BATCH: usize = 128;
 
 pub(super) struct SqliteVecStore {
@@ -44,7 +45,9 @@ impl SqliteVecStore {
                 "PRAGMA busy_timeout = 5000; PRAGMA page_size = 16384; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -16000; PRAGMA mmap_size = 67108864; PRAGMA wal_autocheckpoint = 4000; PRAGMA auto_vacuum = INCREMENTAL;",
             )?;
 
-            // Check if DB exists with a different model — if so, drop and recreate
+            // Check if DB exists with a different model/schema — if so, drop
+            // and recreate. The embedding DB is a derived index, so a clean
+            // rebuild is safer than in-place vec0 shadow-table surgery.
             let existing_model: Option<String> = conn
                 .query_row(
                     "SELECT value FROM meta WHERE key = 'model' LIMIT 1",
@@ -52,20 +55,24 @@ impl SqliteVecStore {
                     |row| row.get(0),
                 )
                 .ok();
+            let existing_schema_version: Option<i64> = conn
+                .query_row(
+                    "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version' LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .ok();
 
-            let needs_recreate = match &existing_model {
-                Some(m) => m != model_name,
-                None => {
-                    // meta table might not exist yet
-                    true
-                }
-            };
+            let needs_recreate = existing_model.as_deref() != Some(model_name)
+                || existing_schema_version != Some(EMBEDDING_STORE_SCHEMA_VERSION);
 
             if needs_recreate {
                 // Drop everything and start fresh
                 conn.execute_batch(
                     "DROP TABLE IF EXISTS vec_symbols;
                      DROP TABLE IF EXISTS symbols;
+                     DROP TABLE IF EXISTS vec_artifacts;
+                     DROP TABLE IF EXISTS artifacts;
                      DROP TABLE IF EXISTS query_embeddings;
                      DROP TABLE IF EXISTS meta;",
                 )?;
@@ -87,7 +94,9 @@ impl SqliteVecStore {
                     text TEXT NOT NULL
                 );
                 CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(
-                    embedding float[{dimension}]
+                    embedding float[{dimension}],
+                    file_scope text partition key,
+                    file_path text
                 );
                 CREATE TABLE IF NOT EXISTS query_embeddings (
                     cache_key TEXT PRIMARY KEY,
@@ -104,6 +113,10 @@ impl SqliteVecStore {
             conn.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('model', ?1)",
                 rusqlite::params![model_name],
+            )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?1)",
+                rusqlite::params![EMBEDDING_STORE_SCHEMA_VERSION.to_string()],
             )?;
 
             // Migration: artifact memory tables (Phase 1 — v0.15+)
@@ -136,8 +149,10 @@ impl SqliteVecStore {
             "INSERT OR REPLACE INTO symbols (id, file_path, symbol_name, kind, line, signature, name_path, text)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )?;
-        let mut vec_stmt =
-            db.prepare("INSERT OR REPLACE INTO vec_symbols (rowid, embedding) VALUES (?1, ?2)")?;
+        let mut vec_stmt = db.prepare(
+            "INSERT OR REPLACE INTO vec_symbols (rowid, embedding, file_scope, file_path)
+             VALUES (?1, ?2, ?3, ?4)",
+        )?;
 
         for (i, chunk) in chunks.iter().enumerate() {
             let id = start_id + i as i64;
@@ -152,7 +167,12 @@ impl SqliteVecStore {
                 chunk.text,
             ])?;
             let emb_bytes = embedding_to_bytes(&chunk.embedding);
-            vec_stmt.execute(rusqlite::params![id, emb_bytes])?;
+            vec_stmt.execute(rusqlite::params![
+                id,
+                emb_bytes,
+                file_scope_for_path(&chunk.file_path),
+                chunk.file_path,
+            ])?;
         }
         Ok(chunks.len())
     }
@@ -184,6 +204,45 @@ impl SqliteVecStore {
             doc_embedding: None,
         })
     }
+}
+
+fn normalize_scope(path_scope: Option<&str>) -> Option<String> {
+    let normalized = path_scope?
+        .trim()
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .trim_start_matches("./")
+        .trim_end_matches('/')
+        .to_owned();
+    if normalized.is_empty() || normalized == "." {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn file_scope_for_path(file_path: &str) -> String {
+    file_path
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .trim_start_matches("./")
+        .split('/')
+        .next()
+        .filter(|component| !component.is_empty())
+        .unwrap_or(".")
+        .to_owned()
+}
+
+fn prefix_upper_bound(prefix: &str) -> String {
+    let mut bytes = prefix.as_bytes().to_vec();
+    for idx in (0..bytes.len()).rev() {
+        if bytes[idx] < u8::MAX {
+            bytes[idx] += 1;
+            bytes.truncate(idx + 1);
+            return String::from_utf8(bytes).unwrap_or_else(|_| format!("{prefix}\u{10ffff}"));
+        }
+    }
+    format!("{prefix}\u{10ffff}")
 }
 
 impl SqliteVecStore {
@@ -310,6 +369,134 @@ impl SqliteVecStore {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
+        Ok(results)
+    }
+
+    pub(super) fn search_scoped(
+        &self,
+        query_vec: &[f32],
+        top_k: usize,
+        path_scope: Option<&str>,
+    ) -> Result<Vec<ScoredChunk>> {
+        let Some(scope) = normalize_scope(path_scope) else {
+            return self.search(query_vec, top_k);
+        };
+        if top_k == 0 {
+            return Ok(Vec::new());
+        }
+
+        let partition_scope = file_scope_for_path(&scope);
+        let query_bytes = embedding_to_bytes(query_vec);
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let mut scoped_results = Vec::new();
+
+        scoped_results.extend(Self::query_scoped_exact(
+            &db,
+            &query_bytes,
+            top_k,
+            &partition_scope,
+            &scope,
+        )?);
+
+        let scope_prefix = format!("{scope}/");
+        let scope_upper_bound = prefix_upper_bound(&scope_prefix);
+        scoped_results.extend(Self::query_scoped_prefix(
+            &db,
+            &query_bytes,
+            top_k,
+            &partition_scope,
+            &scope_prefix,
+            &scope_upper_bound,
+        )?);
+
+        let mut seen = HashSet::new();
+        scoped_results.retain(|chunk| {
+            seen.insert((
+                chunk.file_path.clone(),
+                chunk.symbol_name.clone(),
+                chunk.line,
+                chunk.signature.clone(),
+                chunk.name_path.clone(),
+            ))
+        });
+        scoped_results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        scoped_results.truncate(top_k);
+        Ok(scoped_results)
+    }
+
+    fn query_scoped_exact(
+        db: &Connection,
+        query_bytes: &[u8],
+        top_k: usize,
+        partition_scope: &str,
+        file_path: &str,
+    ) -> Result<Vec<ScoredChunk>> {
+        let mut stmt = db.prepare(
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, v.distance
+             FROM vec_symbols v
+             JOIN symbols s ON s.id = v.rowid
+             WHERE v.embedding MATCH ?1 AND k = ?2
+               AND v.file_scope = ?3
+               AND v.file_path = ?4
+             ORDER BY v.distance",
+        )?;
+        Self::collect_scored_chunks(
+            &mut stmt,
+            rusqlite::params![query_bytes, top_k as i64, partition_scope, file_path],
+        )
+    }
+
+    fn query_scoped_prefix(
+        db: &Connection,
+        query_bytes: &[u8],
+        top_k: usize,
+        partition_scope: &str,
+        scope_prefix: &str,
+        scope_upper_bound: &str,
+    ) -> Result<Vec<ScoredChunk>> {
+        let mut stmt = db.prepare(
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, v.distance
+             FROM vec_symbols v
+             JOIN symbols s ON s.id = v.rowid
+             WHERE v.embedding MATCH ?1 AND k = ?2
+               AND v.file_scope = ?3
+               AND v.file_path >= ?4
+               AND v.file_path < ?5
+             ORDER BY v.distance",
+        )?;
+        Self::collect_scored_chunks(
+            &mut stmt,
+            rusqlite::params![
+                query_bytes,
+                top_k as i64,
+                partition_scope,
+                scope_prefix,
+                scope_upper_bound
+            ],
+        )
+    }
+
+    fn collect_scored_chunks(
+        stmt: &mut rusqlite::Statement<'_>,
+        params: impl rusqlite::Params,
+    ) -> Result<Vec<ScoredChunk>> {
+        let results = stmt
+            .query_map(params, |row| {
+                Ok(ScoredChunk {
+                    file_path: row.get(0)?,
+                    symbol_name: row.get(1)?,
+                    kind: row.get(2)?,
+                    line: row.get::<_, i64>(3)? as usize,
+                    signature: row.get(4)?,
+                    name_path: row.get(5)?,
+                    score: 1.0 - row.get::<_, f64>(6)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(results)
     }
 

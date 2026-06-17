@@ -20,6 +20,30 @@ impl EmbeddingEngine {
     /// cosine similarity. This catches cases where embedding similarity is high
     /// but the actual text relevance is low (or vice versa).
     pub fn search_scored(&self, query: &str, max_results: usize) -> Result<Vec<ScoredChunk>> {
+        self.search_scored_inner(query, max_results, None)
+    }
+
+    /// Search raw chunks within an optional relative path scope.
+    ///
+    /// Scoped searches push the broad path partition and exact/prefix file
+    /// constraints into sqlite-vec before KNN candidate selection. This keeps
+    /// scoped ranked-context calls from spending candidate budget on unrelated
+    /// packages or generated artifacts.
+    pub fn search_scored_in_scope(
+        &self,
+        query: &str,
+        max_results: usize,
+        path_scope: Option<&str>,
+    ) -> Result<Vec<ScoredChunk>> {
+        self.search_scored_inner(query, max_results, path_scope)
+    }
+
+    fn search_scored_inner(
+        &self,
+        query: &str,
+        max_results: usize,
+        path_scope: Option<&str>,
+    ) -> Result<Vec<ScoredChunk>> {
         let query_embedding = self.embed_query_cached(query)?;
 
         // Fetch N× candidates for reranking headroom (default 5×, override via
@@ -30,7 +54,9 @@ impl EmbeddingEngine {
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(5);
         let candidate_count = max_results.saturating_mul(factor).max(max_results);
-        let mut candidates = self.store.search(&query_embedding, candidate_count)?;
+        let mut candidates =
+            self.store
+                .search_scoped(&query_embedding, candidate_count, path_scope)?;
 
         if candidates.len() <= max_results {
             return Ok(candidates);

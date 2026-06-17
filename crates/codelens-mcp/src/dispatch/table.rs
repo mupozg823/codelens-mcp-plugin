@@ -96,6 +96,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         query,
         candidate_limit,
         false,
+        None,
     );
 
     // Apply structural boost: +0.06 for results that also appear in structural candidates

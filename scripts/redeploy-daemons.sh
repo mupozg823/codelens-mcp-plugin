@@ -11,7 +11,7 @@ the friction discovered during the 2026-05-18 self-dogfood session:
   1. cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http
   2. xattr -dr com.apple.provenance ${TARGET}     # macOS gatekeeper
   3. codesign --force --sign - ${TARGET}          # ad-hoc resign
-  4. launchctl kickstart -k gui/$UID/${LABEL}     # both daemons
+  4. launchctl bootout/bootstrap + kickstart      # refresh launchd LWCR
   5. wait for LISTEN on the read-only + mutation ports
   6. (optional) tools/list health probe
 
@@ -137,6 +137,18 @@ if [[ ${#KICK_LABELS[@]} -eq 0 ]]; then
 fi
 
 for label in "${KICK_LABELS[@]}"; do
+	plist="${HOME}/Library/LaunchAgents/${label}.plist"
+	if [[ -f "${plist}" ]]; then
+		# launchd caches a lightweight code requirement (LWCR) for the target
+		# executable. After replacing and re-signing the Mach-O, kickstart alone
+		# can keep launching against the stale requirement and report
+		# OS_REASON_CODESIGNING. Reload the LaunchAgent so the new signature is
+		# accepted before the health probe.
+		log "launchctl bootout/bootstrap gui/${UID_VAL}/${label}"
+		launchctl bootout "gui/${UID_VAL}/${label}" 2>/dev/null || true
+		launchctl bootstrap "gui/${UID_VAL}" "${plist}"
+		launchctl enable "gui/${UID_VAL}/${label}" || true
+	fi
 	log "launchctl kickstart -k gui/${UID_VAL}/${label}"
 	launchctl kickstart -k "gui/${UID_VAL}/${label}"
 done
