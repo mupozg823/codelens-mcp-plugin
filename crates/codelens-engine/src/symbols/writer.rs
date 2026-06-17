@@ -10,6 +10,11 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+fn should_bulk_rebuild_symbol_index(before: &IndexStats, candidate_count: usize) -> bool {
+    before.indexed_files > candidate_count.saturating_add(512)
+        && before.stale_files > candidate_count.saturating_div(2).max(256)
+}
+
 /// Analyze a single file: read, hash, parse symbols/imports/calls.
 /// Returns None if the file cannot be read or has no supported language.
 fn analyze_file(project: &ProjectRoot, file: &Path) -> Option<AnalyzedFile> {
@@ -133,6 +138,10 @@ impl SymbolIndex {
         use rayon::prelude::*;
 
         let mut files = collect_candidate_files(self.project.as_path())?;
+        let before_stats = self.stats().ok();
+        let bulk_rebuild = before_stats
+            .as_ref()
+            .is_some_and(|before| should_bulk_rebuild_symbol_index(before, files.len()));
         files.sort_by(|a, b| {
             let sa = a.metadata().map(|m| m.len()).unwrap_or(0);
             let sb = b.metadata().map(|m| m.len()).unwrap_or(0);
@@ -148,16 +157,22 @@ impl SymbolIndex {
 
         // Phase 2: sequential DB commit
         self.writer().with_transaction(|conn| {
+            if bulk_rebuild {
+                db::clear_symbol_index(conn)?;
+            }
+
             let mut on_disk = HashSet::new();
             for af in &analyzed {
                 on_disk.insert(af.relative_path.clone());
                 commit_analyzed(conn, af)?;
             }
 
-            // Remove files that no longer exist on disk
-            for indexed_path in db::all_file_paths(conn)? {
-                if !on_disk.contains(&indexed_path) {
-                    db::delete_file(conn, &indexed_path)?;
+            if !bulk_rebuild {
+                // Remove files that no longer exist on disk.
+                for indexed_path in db::all_file_paths(conn)? {
+                    if !on_disk.contains(&indexed_path) {
+                        db::delete_file(conn, &indexed_path)?;
+                    }
                 }
             }
 
@@ -307,5 +322,32 @@ impl SymbolIndex {
         }
 
         Ok(symbols)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bulk_rebuild_triggers_for_large_stale_overhang() {
+        let before = IndexStats {
+            indexed_files: 3_854,
+            supported_files: 2_021,
+            stale_files: 3_147,
+        };
+
+        assert!(should_bulk_rebuild_symbol_index(&before, 1_978));
+    }
+
+    #[test]
+    fn bulk_rebuild_does_not_trigger_for_normal_stale_refresh() {
+        let before = IndexStats {
+            indexed_files: 1_978,
+            supported_files: 1_978,
+            stale_files: 40,
+        };
+
+        assert!(!should_bulk_rebuild_symbol_index(&before, 1_978));
     }
 }

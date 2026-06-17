@@ -112,6 +112,21 @@ pub(crate) fn delete_file(conn: &Connection, relative_path: &str) -> Result<()> 
     Ok(())
 }
 
+/// Clear all symbol-index content in bulk.
+///
+/// Used when an index has drifted so far from the current file tree that
+/// per-file cascade deletes are slower than rebuilding the current candidate
+/// set from scratch.
+pub(crate) fn clear_symbol_index(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "DELETE FROM symbols;
+         DELETE FROM imports;
+         DELETE FROM calls;
+         DELETE FROM files;",
+    )?;
+    Ok(())
+}
+
 /// Per-directory aggregate stats.
 pub(crate) fn dir_stats(conn: &Connection) -> Result<Vec<DirStats>> {
     // Fetch per-file symbol counts, then aggregate in Rust for accurate dir extraction
