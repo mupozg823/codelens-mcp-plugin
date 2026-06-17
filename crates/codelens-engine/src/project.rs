@@ -110,6 +110,7 @@ pub const EXCLUDED_DIRS: &[&str] = &[
     ".gradle",
     "build",
     "dist",
+    "generated",
     "out",
     "node_modules",
     "vendor",
@@ -143,10 +144,30 @@ pub const EXCLUDED_DIRS: &[&str] = &[
 
 /// Returns `true` if any component of `path` matches an excluded directory.
 pub fn is_excluded(path: &Path) -> bool {
-    path.components().any(|component| {
+    if path.components().any(|component| {
         let value = component.as_os_str().to_string_lossy();
-        EXCLUDED_DIRS.contains(&value.as_ref())
-    })
+        EXCLUDED_DIRS.contains(&value.as_ref()) || value.starts_with("backup-")
+    }) {
+        return true;
+    }
+
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .is_some_and(is_generated_or_lock_file)
+}
+
+fn is_generated_or_lock_file(file_name: &str) -> bool {
+    matches!(
+        file_name,
+        "package-lock.json" | "pnpm-lock.yaml" | "yarn.lock" | "bun.lock" | "bun.lockb"
+    ) || file_name.ends_with(".min.js")
+        || file_name.ends_with(".bundle.js")
+        || file_name.ends_with(".bundle.iife.js")
+        || file_name.ends_with("-bundle.js")
+        || file_name.ends_with(".gen.ts")
+        || file_name.ends_with(".gen.tsx")
+        || file_name.ends_with(".generated.ts")
+        || file_name.ends_with(".generated.tsx")
 }
 
 /// Walk `root` collecting files that pass `filter`, skipping excluded dirs.
@@ -709,6 +730,24 @@ mod tests {
         // Non-excluded paths should pass through.
         assert!(!is_excluded(Path::new("crates/codelens-engine/src/lib.rs")));
         assert!(!is_excluded(Path::new("src/claire_not_a_dir.rs")));
+    }
+
+    #[test]
+    fn excludes_generated_lock_and_backup_artifacts() {
+        assert!(is_excluded(Path::new("package-lock.json")));
+        assert!(is_excluded(Path::new("app/pnpm-lock.yaml")));
+        assert!(is_excluded(Path::new("extension/background-bundle.js")));
+        assert!(is_excluded(Path::new("extension/shared.bundle.iife.js")));
+        assert!(is_excluded(Path::new("web/assets/app.min.js")));
+        assert!(is_excluded(Path::new("web/src/routeTree.gen.ts")));
+        assert!(is_excluded(Path::new("web/generated/schema.ts")));
+        assert!(is_excluded(Path::new(
+            "app/backup-20260214_171635_arch-improve/src/main.ts"
+        )));
+
+        assert!(!is_excluded(Path::new("src/background.ts")));
+        assert!(!is_excluded(Path::new("src/bundle-controller.ts")));
+        assert!(!is_excluded(Path::new("src/package-lock-handler.ts")));
     }
 
     #[test]
