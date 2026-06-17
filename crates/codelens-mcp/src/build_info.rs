@@ -156,6 +156,46 @@ fn current_head_git_sha(project_root: &std::path::Path) -> Option<String> {
     }
 }
 
+fn git_root_for_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .arg("rev-parse")
+        .arg("--show-toplevel")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let trimmed = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        std::path::PathBuf::from(trimmed).canonicalize().ok()
+    }
+}
+
+fn should_compare_project_head(
+    project_root: &std::path::Path,
+    executable_path: &std::path::Path,
+) -> bool {
+    if std::env::var_os("CODELENS_HEAD_GIT_SHA_OVERRIDE").is_some() {
+        return true;
+    }
+    let Some(project_git_root) = git_root_for_path(project_root) else {
+        return false;
+    };
+    let executable_anchor = if executable_path.is_dir() {
+        executable_path
+    } else {
+        executable_path.parent().unwrap_or(executable_path)
+    };
+    let Some(executable_git_root) = git_root_for_path(executable_anchor) else {
+        return false;
+    };
+    project_git_root == executable_git_root
+}
+
 /// Combine mtime-staleness and HEAD git_sha mismatch into a single
 /// drift verdict. Two independent signals trigger `stale = true`:
 ///
@@ -321,9 +361,11 @@ pub(crate) fn daemon_binary_drift_payload(
     };
     let evidence = DriftEvidence {
         mtime_stale: modified_seconds > daemon_started_seconds,
+        head_git_sha: project_root
+            .filter(|root| should_compare_project_head(root, &executable_path))
+            .and_then(current_head_git_sha),
         executable_path,
         modified_seconds,
-        head_git_sha: project_root.and_then(current_head_git_sha),
     };
     build_drift_payload(&evidence, daemon_started_at)
 }
@@ -332,9 +374,10 @@ pub(crate) fn daemon_binary_drift_payload(
 mod tests {
     use super::{
         BUILD_GIT_SHA, DriftEvidence, build_drift_payload, classify_drift, format_rfc3339_utc,
-        parse_rfc3339_utc_seconds,
+        parse_rfc3339_utc_seconds, should_compare_project_head,
     };
     use serde_json::json;
+    use std::process::Command;
 
     #[test]
     fn rfc3339_utc_round_trips_known_epoch_values() {
@@ -347,6 +390,45 @@ mod tests {
             assert_eq!(format_rfc3339_utc(unix_seconds), expected);
             assert_eq!(parse_rfc3339_utc_seconds(expected), Some(unix_seconds));
         }
+    }
+
+    fn init_git_repo(path: &std::path::Path) {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .arg("init")
+            .arg("-q")
+            .output()
+            .expect("run git init");
+        assert!(
+            output.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn head_sha_compare_only_when_project_matches_executable_git_root() {
+        let binary_repo = tempfile::tempdir().expect("binary repo tempdir");
+        init_git_repo(binary_repo.path());
+        let executable_dir = binary_repo.path().join(".codelens/bin");
+        std::fs::create_dir_all(&executable_dir).expect("mkdir executable dir");
+        let executable_path = executable_dir.join("codelens-mcp-http");
+        std::fs::write(&executable_path, "test binary").expect("write executable placeholder");
+
+        let same_repo_project = binary_repo.path().join("crates/codelens-mcp");
+        std::fs::create_dir_all(&same_repo_project).expect("mkdir same repo project");
+        assert!(should_compare_project_head(
+            &same_repo_project,
+            &executable_path
+        ));
+
+        let target_repo = tempfile::tempdir().expect("target repo tempdir");
+        init_git_repo(target_repo.path());
+        assert!(!should_compare_project_head(
+            target_repo.path(),
+            &executable_path
+        ));
     }
 
     #[test]
