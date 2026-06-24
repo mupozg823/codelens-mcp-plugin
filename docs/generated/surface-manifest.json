@@ -244,7 +244,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 104
+        "estimated_tokens": 202
       },
       {
         "name": "get_changed_files",
@@ -532,7 +532,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 3571
+        "estimated_tokens": 3595
       },
       {
         "name": "register_agent_work",
