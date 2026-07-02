@@ -151,7 +151,7 @@ Concrete, phased design with acceptance criteria lives in:
 
 Summary of the recommendation:
 
-- **P1 (read core + hygiene)**: D1 read trio is now surfaced (`find_declaration` / `find_implementations` / `get_diagnostics_for_symbol`). Drift gates now report pending-D3 ghosts as `pending_d3_symbolic_edit_core` and `pending_d3_refactor_substrate`; remaining P1 hygiene is the final re-list/delete decision for those two classes.
+- **P1 (read core + hygiene)**: D1 read trio is now surfaced (`find_declaration` / `find_implementations` / `get_diagnostics_for_symbol`). Drift gates report the pending-D3 ghosts as `pending_d3_symbolic_edit_core` and `pending_d3_refactor_substrate`. The re-list/delete question for those two classes is **decided (2026-07-03): keep them dispatch-only (internal)** behind the mutation gate rather than re-listing, so P1 hygiene is closed; re-listing stays a conditional future (see docs/architecture.md for the rationale and conditions).
 - **P2 (edit core + enforcement)**: re-list a 4-tool symbolic edit core (`replace_symbol_body`, `insert_before_symbol`, `insert_after_symbol`, `rename_symbol`) behind the existing `verify_change_readiness` mutation gate — explicitly *keeping* the gate where Serena chose blind trust; ship an opt-in plugin hook (Serena hooks.py pattern, soft `additionalContext` reminder by default, strict deny opt-in) plus a task→tool mapping table in the plugin skills.
 - **P3 (memory conventions)**: `[[name]]`-style reference integrity + rename propagation in CodeLens memories, folded into `audit_memory_consistency`.
 - **P4 (internal architecture hygiene)**: split large mixed-responsibility CodeLens modules only where the split removes real ownership friction. The `tools/workflows.rs` duplicate-cleanup filter split is complete; next candidates are `session_metrics_payload.rs` KPI/token-bill/classifier logic and eventually `project.rs` detection helpers. Do not start with `dispatch/response.rs`; it is large but the current boundary has no cycle hit.
@@ -163,7 +163,7 @@ What **not** to adopt: thinking tools (Serena deleted theirs), per-edit diagnost
 > "Is CodeLens already clearly superior to Serena?"
 
 - **for harness-native bounded analysis and retrieval**: yes, and the lead is measurable.
-- **for symbolic editing and routing enforcement**: no — Serena still leads; CodeLens has recovered read-side parity but symbolic edit remains pending-D3 dispatch-only.
+- **for symbolic editing and routing enforcement**: no — Serena still leads; CodeLens has recovered read-side parity, but symbolic edit is, by decision (2026-07-03), kept pending-D3 dispatch-only (internal, unlisted) rather than surfaced.
 - **as a strict overall superset**: no.
 
 > "Can CodeLens become the better *symbolic* tool while keeping its harness edge?"

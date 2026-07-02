@@ -15,6 +15,7 @@
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:END -->
+- The registered-tool count in the snapshot above is measured against the default build surface; the absolute number of entries in `tools.toml` is higher because some tools are semantic-feature-gated and only compile in under their feature flags.
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
 - Current release notes: [latest GitHub release](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). For local release-quality comparisons, resolve the baseline tag with `git tag --sort=-v:refname | head -1`.
@@ -43,7 +44,7 @@ Evidence:
 
 Prioritized architecture moves:
 
-1. Finish pending-D3 policy before adding new symbolic-edit abstractions: either re-list the 4-tool `pending_d3_symbolic_edit_core` behind the existing mutation gate, or remove it; decide the 5-tool `pending_d3_refactor_substrate` separately as safe-delete/refactor surface or deletion.
+1. Resolved (2026-07-03): pending-D3 stays dispatch-only (internal) by decision — this is no longer an open TODO. The 4-tool `pending_d3_symbolic_edit_core` and the 5-tool `pending_d3_refactor_substrate` remain callable behind the mutation gate but unlisted (schemaless). Rationale: hosts route schema-exposed symbolic edits through a dedicated editor (Serena et al.), while the `:7838` mutation daemon must keep calling these behind the gate. Re-listing is conditioned on host demand with no symbolic editor plus a mature LSP authoritative-apply path. The `pending_d3_` identifiers are retained deliberately because CI drift gates and runtime report vocabulary key off them.
 2. Completed: split `tools/workflows.rs` by real responsibility; duplicate-cleanup quality filters and tests now live in `tools/workflows/duplicate_cleanup.rs`, leaving workflow entrypoints as thin orchestration.
 3. Next: split `session_metrics_payload.rs` into KPI, token-bill, and session-classifier submodules. It is currently a mixed payload/KPI/cost-classification unit and does not map to Serena parity; this is plain maintainability work.
 4. Treat `dispatch/response.rs` as high-risk but second order: it is large, but the dispatch boundary has no cycle hit. Only extract cohesive delegate-hint or response-enrichment helpers when the diff removes real branching complexity.

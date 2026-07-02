@@ -9,9 +9,26 @@ impl AppState {
     /// pulls the right `principals.toml` from the cache or discovers
     /// it on first access.
     ///
-    /// Discovery failures fall back to the permissive default (every
-    /// id maps to `Refactor`) so a malformed file does not block the
-    /// dispatch path — the parse error is logged at warn.
+    /// Discovery failures (a `principals.toml` that is present but
+    /// unreadable / unparseable) resolve by whether the runtime can
+    /// mutate at all:
+    /// - **any mutation-capable mode** (`mutation_allowed_in_runtime()`
+    ///   is true — i.e. `Standard`, which is the stdio and
+    ///   unspecified-`--daemon-mode` default, and `MutationEnabled`):
+    ///   fail closed to `strict_default` (every id maps to `ReadOnly`,
+    ///   so code-mutation tools are denied) and log at `error`. A
+    ///   runtime that can apply mutations must not silently open up when
+    ///   its RBAC file is broken.
+    /// - **read-only daemon** (`RuntimeDaemonMode::ReadOnly`): fall back
+    ///   to `permissive_default` (every id maps to `Refactor`) and log
+    ///   at `warn`. It cannot mutate anyway, so a malformed file need
+    ///   not block its read/analysis path.
+    ///
+    /// A *missing* file is not an error — `discover` returns the
+    /// env-selected default and never reaches this branch — so an
+    /// install that never deployed a `principals.toml` is unaffected in
+    /// every mode. Fail-closed only bites once an RBAC file exists and
+    /// is broken.
     pub(crate) fn principals(&self) -> Arc<crate::principals::Principals> {
         let dir = self.audit_dir();
         {
@@ -23,8 +40,26 @@ impl AppState {
                 return Arc::clone(existing);
             }
         }
+        // Any runtime that can apply mutations (Standard — the stdio /
+        // unspecified default — and MutationEnabled) must fail closed on
+        // a broken RBAC file; only a read-only daemon keeps the legacy
+        // permissive fallback.
+        let mutation_allowed = self.mutation_allowed_in_runtime();
+        let mut failed_closed = false;
         let resolved = match crate::principals::Principals::discover(&dir) {
             Ok(p) => p,
+            Err(error) if mutation_allowed => {
+                failed_closed = true;
+                tracing::error!(
+                    error = %error,
+                    audit_dir = %dir.display(),
+                    daemon_mode = self.daemon_mode().as_str(),
+                    "failed to load principals.toml in a mutation-capable runtime — \
+                     refusing permissive fallback and denying all code-mutation tools \
+                     (every principal mapped to ReadOnly); fix principals.toml"
+                );
+                crate::principals::Principals::strict_default()
+            }
             Err(error) => {
                 tracing::warn!(
                     error = %error,
@@ -35,7 +70,13 @@ impl AppState {
                 crate::principals::Principals::permissive_default()
             }
         };
-        if resolved.default_role() == crate::principals::Role::ReadOnly
+        // Only emit the "strict by env with no principals.toml" notice
+        // for the genuine env-selected-strict path. The fail-closed
+        // branch above also yields a ReadOnly/0-explicit result, but its
+        // cause (a present-but-broken file) is already logged at `error`,
+        // and this notice's wording ("no principals.toml") would be false.
+        if !failed_closed
+            && resolved.default_role() == crate::principals::Role::ReadOnly
             && resolved.explicit_count() == 0
         {
             tracing::warn!(
@@ -131,5 +172,81 @@ fn run_audit_retention_sweep(sink: &crate::audit_sink::AuditSink) {
                 "audit retention sweep failed — sink remains usable"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppState;
+    use crate::principals::Role;
+    use crate::state::RuntimeDaemonMode;
+    use codelens_engine::ProjectRoot;
+
+    /// Build a temp project whose `.codelens/principals.toml` is present
+    /// but unparseable (unknown role string → deserialize error), so
+    /// `Principals::discover` returns `Err` rather than a missing-file
+    /// default. Returns the project plus a keep-alive dir handle.
+    fn project_with_malformed_principals(label: &str) -> (ProjectRoot, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-audit-principals-{label}-{}-{:?}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            std::thread::current().id(),
+        ));
+        std::fs::create_dir_all(dir.join(".codelens")).unwrap();
+        std::fs::write(dir.join("lib.rs"), "fn sample() {}\n").unwrap();
+        std::fs::write(
+            dir.join(".codelens").join("principals.toml"),
+            "[default]\nrole = \"Superuser\"\n",
+        )
+        .unwrap();
+        let project = ProjectRoot::new_exact(&dir).unwrap();
+        (project, dir)
+    }
+
+    #[test]
+    fn mutation_daemon_fails_closed_on_malformed_principals() {
+        let (project, _dir) = project_with_malformed_principals("mutation");
+        let state = AppState::new_minimal(project, crate::tool_defs::ToolPreset::Full);
+        state.configure_daemon_mode(RuntimeDaemonMode::MutationEnabled);
+        let principals = state.principals();
+        assert_eq!(
+            principals.default_role(),
+            Role::ReadOnly,
+            "mutation-enabled daemon must fail closed (ReadOnly) on a malformed principals.toml"
+        );
+    }
+
+    #[test]
+    fn standard_mode_also_fails_closed_on_malformed_principals() {
+        let (project, _dir) = project_with_malformed_principals("standard");
+        let state = AppState::new_minimal(project, crate::tool_defs::ToolPreset::Full);
+        // Standard is the stdio / unspecified --daemon-mode default and is
+        // mutation-capable (mutation_allowed_in_runtime() == true), so it
+        // must fail closed just like MutationEnabled.
+        state.configure_daemon_mode(RuntimeDaemonMode::Standard);
+        let principals = state.principals();
+        assert_eq!(
+            principals.default_role(),
+            Role::ReadOnly,
+            "Standard (mutation-capable) mode must fail closed on a malformed principals.toml"
+        );
+    }
+
+    #[test]
+    fn read_path_keeps_permissive_fallback_on_malformed_principals() {
+        let (project, _dir) = project_with_malformed_principals("readpath");
+        let state = AppState::new_minimal(project, crate::tool_defs::ToolPreset::Full);
+        // Read-only daemon is a non-mutation mode: legacy permissive
+        // fallback (every principal → Refactor) is preserved.
+        state.configure_daemon_mode(RuntimeDaemonMode::ReadOnly);
+        let principals = state.principals();
+        assert_eq!(
+            principals.default_role(),
+            Role::Refactor,
+            "non-mutation modes must retain the permissive Refactor fallback"
+        );
     }
 }

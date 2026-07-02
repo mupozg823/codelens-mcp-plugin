@@ -49,7 +49,10 @@ fn registry_resources_report_projects_and_memory_scopes() {
     assert!(scopes_body.contains("\\\"scope\\\": \\\"project\\\""));
     assert!(scopes_body.contains("\\\"scope\\\": \\\"global\\\""));
     assert!(scopes_body.contains("mutation_wired"));
-    assert!(scopes_body.contains("Passive scaffold"));
+    // Note now describes the actual tiered scope support (write/delete/read/
+    // list accept a scope param; rename/archive/restore/list_archived are
+    // project-only) instead of the old "project scope only" scaffold text.
+    assert!(scopes_body.contains("project-scoped only"));
 }
 
 #[test]
