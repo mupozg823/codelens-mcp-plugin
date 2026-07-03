@@ -208,6 +208,37 @@ fn decide_warm_lsp_stage(
     }
 }
 
+/// P1.1b: readiness-aware confidence for LSP-backed reference results.
+///
+/// `quiescence` is the server's latest `experimental/serverStatus` state as
+/// harvested by the session read loop (P1.1a):
+/// - `Some(false)` — the server *itself* reports indexing in progress; its
+///   reference answers may be incomplete, so the precise-tier label is a lie.
+///   Degrade to 0.7 with an explicit reason (mirrors the SCIP-stale pattern).
+/// - `Some(true)` — verified quiescent: the 0.95 precise label is earned and
+///   the basis says so.
+/// - `None` — the server emits no readiness signal (e.g. pyright): keep the
+///   legacy 0.95 label; there is no evidence in either direction, and blanket
+///   distrust would permanently punish servers without the extension.
+///
+/// Returns `(confidence, degraded_reason, confidence_basis)`; kept pure so
+/// the signal→label mapping is unit-testable without a live server.
+fn lsp_confidence_for_quiescence(
+    quiescence: Option<bool>,
+    quiescent_basis: &'static str,
+    unknown_basis: &'static str,
+) -> (f64, Option<&'static str>, &'static str) {
+    match quiescence {
+        Some(false) => (
+            0.7,
+            Some("lsp_server_indexing_in_progress"),
+            "lsp_warm_indexing_in_progress",
+        ),
+        Some(true) => (0.95, None, quiescent_basis),
+        None => (0.95, None, unknown_basis),
+    }
+}
+
 /// Factual `routing_note` prose for the warm-LSP stage. The warmth probe and
 /// the reference request are separate lock acquisitions, so a warm server can
 /// die in between and be respawned mid-request; `cold_start_incurred` reflects
@@ -530,11 +561,27 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     && !refs.is_empty()
                 {
                     let precise_count = refs.len();
-                    let meta = meta_for_backend("lsp", 0.95);
+                    // P1.1b: the request's read loop just harvested any
+                    // pending serverStatus notifications, so the pool now
+                    // holds the freshest readiness state for this server.
+                    let quiescence = state
+                        .lsp_pool()
+                        .warm_session_quiescence(&command, &lsp_args)
+                        .flatten();
+                    let (confidence, degraded_reason, confidence_basis) =
+                        lsp_confidence_for_quiescence(
+                            quiescence,
+                            "lsp_precise_warm_quiescent",
+                            "lsp_precise_warm_routed",
+                        );
+                    let meta = match degraded_reason {
+                        Some(reason) => meta_degraded("lsp", confidence, reason),
+                        None => meta_for_backend("lsp", confidence),
+                    };
                     let evidence = crate::tool_evidence::tool_evidence(
                         "references",
                         &meta,
-                        "lsp_precise_warm_routed",
+                        confidence_basis,
                         crate::tool_evidence::precision_signals(
                             true,
                             true,
@@ -554,6 +601,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                             "stage": "warm_lsp_default_path",
                             "server": command,
                             "cold_start_incurred": cold_start_incurred,
+                            "server_quiescent": quiescence,
                             "rationale": warm_lsp_routing_rationale(cold_start_incurred),
                         },
                     });
@@ -648,7 +696,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             .lsp_pool()
             .find_referencing_symbols(&LspRequest {
                 command: command.clone(),
-                args,
+                args: args.clone(),
                 file_path: file_path.clone(),
                 line,
                 column,
@@ -672,15 +720,31 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     None
                 };
                 let structural_count = structural_evidence_count(&structural_evidence);
+                // P1.1b: same readiness calibration as the warm default path.
+                // The request above harvested any pending serverStatus
+                // notifications, so this is the freshest readiness state.
+                let quiescence = state
+                    .lsp_pool()
+                    .warm_session_quiescence(&command, &args)
+                    .flatten();
+                let (lsp_confidence, lsp_degraded_reason, lsp_basis) =
+                    lsp_confidence_for_quiescence(
+                        quiescence,
+                        "lsp_precise_quiescent",
+                        "lsp_precise",
+                    );
                 let meta = if structural_count > 0 && precise_count <= 1 {
                     meta_degraded("hybrid", 0.72, "lsp_low_count_plus_ts_structural_evidence")
                 } else {
-                    meta_for_backend("lsp", 0.95)
+                    match lsp_degraded_reason {
+                        Some(reason) => meta_degraded("lsp", lsp_confidence, reason),
+                        None => meta_for_backend("lsp", lsp_confidence),
+                    }
                 };
                 let confidence_basis = if structural_count > 0 && precise_count <= 1 {
                     "lsp_low_count_plus_ts_structural_evidence"
                 } else {
-                    "lsp_precise"
+                    lsp_basis
                 };
                 let evidence = crate::tool_evidence::tool_evidence(
                     "references",
@@ -804,6 +868,25 @@ mod warm_lsp_routing_tests {
                 command: "pyright-langserver".to_owned()
             }
         );
+    }
+
+    #[test]
+    fn quiescence_calibration_degrades_only_verified_indexing() {
+        use super::lsp_confidence_for_quiescence;
+        // Server explicitly reports indexing in progress → degraded label.
+        let (confidence, reason, basis) =
+            lsp_confidence_for_quiescence(Some(false), "quiescent_basis", "unknown_basis");
+        assert!(confidence < 0.95, "indexing-in-progress must not keep 0.95");
+        assert_eq!(reason, Some("lsp_server_indexing_in_progress"));
+        assert_eq!(basis, "lsp_warm_indexing_in_progress");
+        // Verified quiescent → full precise label with the quiescent basis.
+        let (confidence, reason, basis) =
+            lsp_confidence_for_quiescence(Some(true), "quiescent_basis", "unknown_basis");
+        assert_eq!((confidence, reason, basis), (0.95, None, "quiescent_basis"));
+        // No readiness signal (e.g. pyright) → legacy label, no false distrust.
+        let (confidence, reason, basis) =
+            lsp_confidence_for_quiescence(None, "quiescent_basis", "unknown_basis");
+        assert_eq!((confidence, reason, basis), (0.95, None, "unknown_basis"));
     }
 
     #[test]
