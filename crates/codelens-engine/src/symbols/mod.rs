@@ -117,6 +117,16 @@ impl SymbolIndex {
         db.min_files_indexed_at()
     }
 
+    /// Number of files currently present in the index. Paired with
+    /// [`Self::max_indexed_at`] this forms an index-generation
+    /// fingerprint: adds/modifies move `MAX(indexed_at)` while a pure
+    /// deletion only moves the count (MAX is unchanged when the newest
+    /// row survives), so both must be observed together.
+    pub fn file_count(&self) -> Result<usize> {
+        let db = self.reader()?;
+        db.file_count()
+    }
+
     /// Per-language (extension) indexed-file counts, descending — see
     /// `Database::language_file_counts`. Used by LSP pre-warm to decide
     /// which language servers this project actually needs.
