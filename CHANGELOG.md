@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **RBAC permissive default is now visible (P3.1)** — a mutation-capable daemon running on the no-`principals.toml` permissive fallback (every principal → `Refactor`) logs a startup `warn` and emits an `rbac_permissive_default` warning in `prepare_harness_session`. New `Principals::rbac_permissive_default_active` predicate: an operator-authored file, a strict fallback (env or #355 fail-closed), and read-only daemons never trigger. `install-http-daemons-launchd.sh --principals-scaffold` writes a commented starter `principals.toml` (planner=ReadOnly / builder=Refactor split; schema derived from the actual parser); existing files are never touched. Role-gate behavior unchanged — signals only.
 
+### Changed
+
+- **alwaysLoad set rebalanced for agent-native navigation (Fable/workflow consumption)** — the `_meta["anthropic/alwaysLoad"]` set now pre-loads the four highest-frequency mechanical navigation verbs (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`, `get_ranked_context`) alongside the five workflow entrypoints (`prepare_harness_session`, `explore_codebase`, `review_changes`, `review_architecture`, `verify_change_readiness`). Measured motivation: workflow subagents skipped CodeLens navigation entirely when it cost a ToolSearch round trip (1–2 calls vs 10–47 grep sweeps). `plan_safe_refactor` / `trace_request_path` move to deferred-discoverable (still reachable via `suggested_next_tools` chains). Set stays ≤10 — every entry is upfront schema tokens in every session.
+
+- **Repo `.mcp.json` ships the `x-codelens-project` auto-binding header** — sessions opened in this repo bind at initialize, which (verified live) removes the per-response `project_binding` hint (~35% smaller `find_symbol` data payload), the per-session `prepare_harness_session` binding tax, and the wrong-project read risk for every workflow subagent sharing the session connection.
+
 ### Added
 
 - **Per-server LSP `initializationOptions` (P1.1c)** — `initialize` now attaches a server-specific options table (pure `initialization_options_for_command`, basename-matched): sole entry `rust-analyzer → {"checkOnSave": false}` (we only read references/navigation; save-triggered `cargo check` runs are daemon CPU waste). Expansion policy pinned in the doc comment: officially documented options only, minimum per server. `initialize` params extraction is now a pure, unit-tested function; the no-options path reproduces the previous params byte-for-byte.

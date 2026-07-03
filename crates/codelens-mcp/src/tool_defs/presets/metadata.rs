@@ -205,21 +205,33 @@ pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
 /// Claude Code MCP tools are deferred by default. The always-load set
 /// is what gets `meta["anthropic/alwaysLoad"] = true` — schemas
 /// pre-loaded so the model can call them without a `ToolSearch` round
-/// trip. v1.10.1 widens this from 3 → 8 to cover the workflow-first
-/// surface that the product is positioned around. The remaining
-/// `DEFAULT_LISTED_TOOL_NAMES` entries stay deferred-discoverable but
-/// require explicit ToolSearch select before invocation, which keeps
-/// the initial tool prompt bounded.
+/// trip. The remaining `DEFAULT_LISTED_TOOL_NAMES` entries stay
+/// deferred-discoverable but require explicit ToolSearch select before
+/// invocation, which keeps the initial tool prompt bounded.
+///
+/// Composition (2026-07-03, Fable/agent-consumption rebalance): five
+/// workflow entrypoints (bootstrap, pre-merge review, mutation
+/// preflight, architecture audit, onboarding) PLUS the four
+/// highest-frequency mechanical navigation verbs (`find_symbol`,
+/// `find_referencing_symbols`, `get_symbols_overview`,
+/// `get_ranked_context`). Measured: workflow subagents skipped CodeLens
+/// navigation entirely when it cost a ToolSearch round trip (1–2 calls
+/// vs 10–47 grep sweeps), so the navigation core must be zero-setup.
+/// `plan_safe_refactor` / `trace_request_path` moved to deferred — both
+/// remain reachable via `suggested_next_tools` chains. Keep this set
+/// ≤10: every entry is upfront schema tokens in EVERY session.
 pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
     matches!(
         name,
         "prepare_harness_session"
             | "explore_codebase"
             | "review_changes"
-            | "plan_safe_refactor"
             | "review_architecture"
             | "verify_change_readiness"
-            | "trace_request_path"
+            | "find_symbol"
+            | "find_referencing_symbols"
+            | "get_symbols_overview"
+            | "get_ranked_context"
     )
 }
 
