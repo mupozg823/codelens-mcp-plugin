@@ -47,6 +47,11 @@ Options:
   --load                      bootstrap generated plists after writing
   --no-build                  reuse an existing http-capable binary at --bin-path
   --print-only                print both plists to stdout instead of writing them
+                              (with --principals-scaffold also previews the scaffold)
+  --principals-scaffold       write a commented RBAC starter to <repo>/.codelens/principals.toml
+                              when absent; no-op if the file already exists. The starter's
+                              active [default] role is ReadOnly — mutation tools stay denied
+                              until [principal."<id>"] entries grant Refactor/Admin.
   -h, --help                  show help
 
 Examples:
@@ -78,6 +83,7 @@ RUN_AT_LOAD=1
 LOAD_AFTER_WRITE=0
 NO_BUILD=0
 PRINT_ONLY=0
+PRINCIPALS_SCAFFOLD=0
 
 is_int_in_range() {
 	local value="$1"
@@ -184,6 +190,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--print-only)
 		PRINT_ONLY=1
+		shift
+		;;
+	--principals-scaffold)
+		PRINCIPALS_SCAFFOLD=1
 		shift
 		;;
 	-*)
@@ -443,6 +453,55 @@ PY
 	echo "==> Updated host attach overrides in $config_path"
 }
 
+# Starter content for <repo>/.codelens/principals.toml. Keys must stay
+# exactly what crates/codelens-mcp/src/principals.rs parses:
+# [default].role and [principal."<id>"].role, with the role strings
+# "ReadOnly" | "Refactor" | "Admin".
+principals_scaffold_content() {
+	cat <<'EOF'
+# CodeLens RBAC principals (parsed by crates/codelens-mcp/src/principals.rs).
+# Discovery order: <project>/.codelens/principals.toml, then
+# ~/.codelens/principals.toml (first existing file wins).
+# Roles: "ReadOnly" | "Refactor" | "Admin"; hierarchy Admin > Refactor > ReadOnly.
+# Principal ids come from the HTTP JWT `sub` claim (or the
+# X-Codelens-Principal header in dev mode); stdio falls back to the
+# CODELENS_PRINCIPAL env var.
+#
+# Without this file a mutation-capable daemon maps every principal to
+# Refactor (permissive default). This starter denies mutations by
+# default: keep [default] at ReadOnly and grant Refactor/Admin per id.
+
+# Role for any principal id not listed below, and for requests that
+# carry no principal id at all.
+[default]
+role = "ReadOnly"
+
+# Planner/reviewer sessions: navigation and analysis only.
+# [principal."planner"]
+# role = "ReadOnly"
+
+# Builder sessions: code-mutation tools allowed.
+# [principal."builder"]
+# role = "Refactor"
+
+# Operator access, including audit_log_query.
+# [principal."ops@example.com"]
+# role = "Admin"
+EOF
+}
+
+scaffold_principals_toml() {
+	local principals_path="$REPO_ROOT/.codelens/principals.toml"
+	if [[ -e "$principals_path" ]]; then
+		echo "==> principals.toml already exists, leaving untouched: $principals_path"
+		return 0
+	fi
+	mkdir -p "$(dirname "$principals_path")"
+	principals_scaffold_content >"$principals_path"
+	echo "==> Wrote RBAC principals scaffold to $principals_path"
+	echo "==> Scaffold default role is ReadOnly; add [principal.\"<id>\"] entries to grant Refactor/Admin"
+}
+
 readonly_stdout="$LOG_DIR/${readonly_label}.out.log"
 readonly_stderr="$LOG_DIR/${readonly_label}.err.log"
 mutation_stdout="$LOG_DIR/${mutation_label}.out.log"
@@ -458,12 +517,24 @@ if [[ "$PRINT_ONLY" == "1" ]]; then
 	echo
 	echo "== ${tmpdir}/mutation.plist =="
 	cat "$tmpdir/mutation.plist"
+	if [[ "$PRINCIPALS_SCAFFOLD" == "1" ]]; then
+		echo
+		echo "== ${REPO_ROOT}/.codelens/principals.toml (scaffold preview) =="
+		if [[ -e "$REPO_ROOT/.codelens/principals.toml" ]]; then
+			echo "# principals.toml already exists; scaffold would be a no-op"
+		else
+			principals_scaffold_content
+		fi
+	fi
 	exit 0
 fi
 
 create_plist "$readonly_label" "$READONLY_PROFILE" "read-only" "$READONLY_PORT" "$READONLY_LOG_LEVEL" "$readonly_stdout" "$readonly_stderr" "$readonly_plist"
 create_plist "$mutation_label" "$MUTATION_PROFILE" "mutation-enabled" "$MUTATION_PORT" "$MUTATION_LOG_LEVEL" "$mutation_stdout" "$mutation_stderr" "$mutation_plist"
 update_host_attach_config
+if [[ "$PRINCIPALS_SCAFFOLD" == "1" ]]; then
+	scaffold_principals_toml
+fi
 
 echo "==> Wrote $readonly_plist"
 echo "==> Wrote $mutation_plist"

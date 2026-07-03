@@ -112,6 +112,24 @@ pub(crate) fn validate_tool_access(
         )));
     }
 
+    // #347 hard gate — must stay the LAST check so trusted-client,
+    // daemon-mode, and read-only-surface errors keep precedence. A
+    // store-backed HTTP session without an explicit project binding may
+    // target the daemon's default project instead of the caller's repo,
+    // so content mutations are blocked pre-execution; read tools keep the
+    // advisory `project_binding` hint (dispatch/mod.rs). Escape hatch:
+    // CODELENS_ALLOW_UNBOUND_MUTATION=1 restores advisory-only behavior.
+    #[cfg(feature = "http")]
+    if is_content_mutation_tool(name)
+        && state.should_route_to_session(session)
+        && !state.session_project_binding_explicit(session.session_id.as_str())
+        && crate::env_compat::env_var_bool("CODELENS_ALLOW_UNBOUND_MUTATION") != Some(true)
+    {
+        return Err(CodeLensError::ProjectBindingRequired {
+            tool: name.to_owned(),
+        });
+    }
+
     Ok(())
 }
 
