@@ -19,6 +19,7 @@ use super::truncation::{
 pub(crate) fn text_payload_for_response(
     resp: &ToolCallResponse,
     structured_content: Option<&Value>,
+    lean: bool,
 ) -> String {
     if let Some(slim) = slim_text_payload_for_async_job(resp, structured_content) {
         return serde_json::to_string(&slim).unwrap_or_else(|_| {
@@ -34,18 +35,24 @@ pub(crate) fn text_payload_for_response(
     // Pretty-print the full response as structured JSON with readable formatting.
     // Agents get valid JSON (parseability preserved) but with indentation and
     // newlines instead of a single flat line.
-    format_structured_response(resp)
+    format_structured_response(resp, lean)
 }
 
 /// Format a ToolCallResponse as pretty-printed JSON.
 /// Preserves JSON validity for parsing while being much more readable than
 /// a single-line blob. Strips redundant metadata fields that waste tokens.
-fn format_structured_response(resp: &ToolCallResponse) -> String {
+///
+/// When `lean` is set (lean response contract), the constant `schema_version`
+/// marker is omitted — it repeats identically on every call and carries no
+/// per-response signal.
+fn format_structured_response(resp: &ToolCallResponse, lean: bool) -> String {
     // Build a clean output object with only the fields agents need.
     let mut out = serde_json::Map::new();
 
     out.insert("success".to_owned(), Value::Bool(resp.success));
-    out.insert("schema_version".to_owned(), Value::String("1.0".to_owned()));
+    if !lean {
+        out.insert("schema_version".to_owned(), Value::String("1.0".to_owned()));
+    }
 
     // Error message (if present)
     if let Some(ref err) = resp.error {
@@ -343,6 +350,36 @@ fn slim_text_payload_for_async_handle(
 mod text_channel_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn lean_text_channel_omits_constant_schema_version() {
+        use crate::protocol::BackendKind;
+        use crate::tool_runtime::success_meta;
+        let resp = ToolCallResponse::success(
+            json!({"symbol": "x"}),
+            success_meta(BackendKind::TreeSitter, 0.9),
+        );
+
+        let full = text_payload_for_response(&resp, None, false);
+        let full_json: Value = serde_json::from_str(&full).expect("valid json");
+        assert!(
+            full_json.get("schema_version").is_some(),
+            "full contract keeps schema_version"
+        );
+
+        let lean = text_payload_for_response(&resp, None, true);
+        let lean_json: Value = serde_json::from_str(&lean).expect("valid json");
+        assert!(
+            lean_json.get("schema_version").is_none(),
+            "lean contract omits the constant schema_version marker"
+        );
+        // The actual answer channel is untouched by the lean flag.
+        assert!(
+            lean_json.get("data").is_some(),
+            "data survives lean text render"
+        );
+        assert!(lean.len() < full.len(), "lean render is smaller");
+    }
 
     #[test]
     fn summarize_text_object_records_omitted_keys_when_capped() {

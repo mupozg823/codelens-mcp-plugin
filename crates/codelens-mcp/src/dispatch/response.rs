@@ -2,6 +2,7 @@ use super::response_support::{
     apply_contextual_guidance, bounded_result_payload, budget_hint, compact_response_payload,
     effective_budget_for_tool, enrich_recovery_hint_for_signals, max_result_size_chars_for_tool,
     routing_hint_for_payload, success_jsonrpc_response, text_payload_for_response,
+    trim_scaffold_for_lean,
 };
 use crate::AppState;
 use crate::error::CodeLensError;
@@ -28,6 +29,9 @@ pub(crate) struct SuccessResponseInput<'a> {
     pub recent_tools: Vec<String>,
     pub gate_allowance: Option<&'a MutationGateAllowance>,
     pub compact: bool,
+    /// Lean response contract (scaffold-only thrift) — independent of the
+    /// legacy `compact` data pruning.
+    pub lean: bool,
     pub harness_phase: Option<&'a str>,
     pub request_budget: usize,
     pub start: std::time::Instant,
@@ -51,6 +55,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         recent_tools,
         gate_allowance,
         compact,
+        lean,
         harness_phase,
         request_budget,
         start,
@@ -93,7 +98,19 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
             .get("refresh_recommended")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        obj.insert("index_freshness".to_owned(), freshness);
+        // Lean contract: a *fresh* index (<60s bucket) needs no per-response
+        // freshness object — its epoch/age fields change on every call
+        // (defeating response-level caching) and carry no actionable signal.
+        // Every other bucket (`recent`/`possibly_stale`/`stale`) IS answer-
+        // affecting signal (e.g. a silently dead file watcher) and stays
+        // attached under lean (adversarial review 2026-07-03 finding #2).
+        let staleness_is_fresh = freshness
+            .get("staleness_hint")
+            .and_then(|v| v.as_str())
+            .is_some_and(|hint| hint == "fresh");
+        if should_attach_index_freshness(lean, staleness_is_fresh) {
+            obj.insert("index_freshness".to_owned(), freshness);
+        }
     }
 
     if is_verifier_source_tool(name) {
@@ -258,9 +275,22 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     if compact {
         compact_response_payload(&mut resp);
     }
+    if lean {
+        // Lean scaffold thrift: drop low-signal envelope fields (prose reasons,
+        // telemetry, sync routing_hint, under-budget hints). Quality-neutral —
+        // no code/symbol data is touched. `suggested_next_tools`/`_calls` and
+        // any actionable budget_hint survive. Deliberately independent of the
+        // legacy `compact` data pruning above.
+        let budget_pct = if effective_budget == 0 {
+            100
+        } else {
+            (payload_estimate as u64).saturating_mul(100) / effective_budget as u64
+        };
+        trim_scaffold_for_lean(&mut resp, budget_pct, doom_loop_count, missing_preflight);
+    }
 
     let effort_offset = state.effort_level().compression_threshold_offset();
-    let text = text_payload_for_response(&resp, structured_content.as_ref());
+    let text = text_payload_for_response(&resp, structured_content.as_ref(), lean);
     let (text, mut structured_content, truncation_info) = bounded_result_payload(
         text,
         structured_content,
@@ -416,7 +446,7 @@ pub(crate) fn build_error_response(
             handoff_id,
         },
     );
-    let text = text_payload_for_response(&resp, None);
+    let text = text_payload_for_response(&resp, None, false);
     let mut body = json!({
         "content": [{ "type": "text", "text": text }],
         "isError": true,
@@ -426,6 +456,17 @@ pub(crate) fn build_error_response(
     });
     crate::tool_defs::apply_tool_deprecation_meta(&mut body["_meta"], name);
     JsonRpcResponse::result(id, body)
+}
+
+/// Whether to attach the volatile `index_freshness` object to a read-hot
+/// tool's payload. The full contract always attaches it (documented signal).
+/// The lean contract suppresses ONLY the `fresh` bucket — its epoch/age fields
+/// change every call and carry no actionable signal. All degraded buckets
+/// (`recent`/`possibly_stale`/`stale`) are answer-affecting and attach
+/// regardless of contract so a caller can detect a stale daemon (e.g. after a
+/// silent file-watcher death) before the 1-hour refresh cliff.
+fn should_attach_index_freshness(lean: bool, staleness_is_fresh: bool) -> bool {
+    !lean || !staleness_is_fresh
 }
 
 fn delegate_hint_telemetry_fields(
@@ -864,4 +905,25 @@ fn generate_delegate_handoff_id() -> String {
         .as_millis();
     let sequence = HANDOFF_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("codelens-handoff-{timestamp_ms:x}-{sequence:x}")
+}
+
+#[cfg(test)]
+mod lean_freshness_gate_tests {
+    use super::should_attach_index_freshness;
+
+    #[test]
+    fn full_contract_always_attaches_freshness() {
+        assert!(should_attach_index_freshness(false, true));
+        assert!(should_attach_index_freshness(false, false));
+    }
+
+    #[test]
+    fn lean_contract_suppresses_only_the_fresh_bucket() {
+        // Fresh index under lean: volatile freshness object is suppressed.
+        assert!(!should_attach_index_freshness(true, true));
+        // Any degraded bucket (recent/possibly_stale/stale) under lean:
+        // answer-affecting signal — must stay attached so a caller can
+        // detect a stale daemon (e.g. silent watcher death) early.
+        assert!(should_attach_index_freshness(true, false));
+    }
 }

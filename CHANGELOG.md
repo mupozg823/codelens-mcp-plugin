@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Lean response contract for token-expensive models (Fable)** — a quality-neutral, scaffold-only envelope thrift, grounded in Anthropic tool-response guidance (keep responses lean; Claude Code counts/injects the **text** channel and warns at 10K tokens). Activation: per-call `_lean: true` (an explicit `_lean: false` overrides the env — per-call escape hatch), or daemon-wide `CODELENS_RESPONSE_CONTRACT=lean`. Drops from the text envelope: `suggestion_reasons` (prose duplication of `suggested_next_tools`), `token_estimate`/`elapsed_ms` (volatile telemetry, cache-hostile), `routing_hint` when `sync`, constant `schema_version`, under-budget `budget_hint` (kept when >75% budget / doom loop / missing preflight), and the `index_freshness` object **only in the `fresh` bucket** (degraded buckets stay attached — answer-affecting signal). Never touches `data`, `suggested_next_tools`/`_calls`, `error`, `recovery_hint`, or `structuredContent` (spec-required with `outputSchema`). Deliberately decoupled from the legacy `_compact` data pruning (adversarial review finding). Measured: 17–18% smaller text channel on `find_symbol` + body, symbol data byte-identical.
+
+### Fixed
+
+- **`index_freshness` staleness signal was inert (unit mismatch)** — `files.indexed_at` is written in epoch **milliseconds** but the hint compared it against `now.as_secs()`, so the age always clamped to 0 and every response reported `"fresh"` / `refresh_recommended: false`; `recent`/`possibly_stale`/`stale` could never fire. Timestamps are now normalised (ms→s, legacy second-scale values pass through). Side effect: the previously-dormant stale-index contract activates — on a >1h-old index, `refresh_symbol_index` is prepended to `suggested_next_tools` as documented.
+
 ## [1.13.33] - 2026-07-03
 
 ### Security

@@ -108,6 +108,65 @@ pub fn optional_usize_with_aliases(
     default
 }
 
+/// Normalise a raw `files.indexed_at` value to epoch **seconds** and classify
+/// staleness relative to `now_secs`.
+///
+/// Correctness note: `files.indexed_at` is written in epoch *milliseconds*
+/// (`db::ops` upsert path), but `index_freshness_hint` historically compared it
+/// against `now.as_secs()`. That unit mismatch made `age_secs` a large negative
+/// number that clamped to `0`, so every response reported `staleness_hint:
+/// "fresh"` / `refresh_recommended: false` — the documented freshness signal
+/// could never fire. We normalise defensively here: values above ~1e12 are
+/// milliseconds and are divided down; smaller values are already seconds
+/// (legacy/mixed indexes). Returns `(epoch_secs, age_secs, hint, refresh)`.
+fn classify_index_freshness(now_secs: i64, raw_indexed_at: i64) -> (i64, i64, &'static str, bool) {
+    let max_at = if raw_indexed_at > 1_000_000_000_000 {
+        raw_indexed_at / 1000
+    } else {
+        raw_indexed_at
+    };
+    let age_secs = (now_secs - max_at).max(0);
+    let (hint, refresh_recommended) = if age_secs < 60 {
+        ("fresh", false)
+    } else if age_secs < 600 {
+        ("recent", false)
+    } else if age_secs < 3600 {
+        ("possibly_stale", false)
+    } else {
+        ("stale", true)
+    };
+    (max_at, age_secs, hint, refresh_recommended)
+}
+
+/// Freshness hint for tool responses that read from the on-disk symbol
+/// index. Compares the index's newest `indexed_at` against wall-clock
+/// time so callers can detect a stale daemon without having to diff
+/// results against the working tree.
+///
+/// Buckets:
+///   - `fresh`           — newest file indexed < 60s ago
+///   - `recent`          — 60s..600s
+///   - `possibly_stale`  — 600s..3600s
+///   - `stale`           — >= 3600s (sets `refresh_recommended: true`)
+///
+/// Returns `None` when the index is empty (callers omit the hint to
+/// avoid noise on a fresh project).
+pub fn index_freshness_hint(state: &AppState) -> Option<serde_json::Value> {
+    use serde_json::json;
+    let raw = state.symbol_index().max_indexed_at().ok().flatten()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    let (max_at, age_secs, hint, refresh_recommended) = classify_index_freshness(now, raw);
+    Some(json!({
+        "newest_indexed_at_epoch_secs": max_at,
+        "newest_indexed_age_secs": age_secs,
+        "staleness_hint": hint,
+        "refresh_recommended": refresh_recommended,
+    }))
+}
+
 /// Return the names of every top-level key in `value` that does not
 /// appear in `known` — both the canonical names AND any registered
 /// aliases. Tools surface this list in their response so an agent that
@@ -125,44 +184,6 @@ pub fn optional_usize_with_aliases(
 /// Returns an empty Vec for non-object values so non-object inputs
 /// fall through to the handler's existing argument parsing without
 /// spurious "unknown" claims.
-/// Freshness hint for tool responses that read from the on-disk symbol
-/// index. Compares the index's newest `indexed_at` against wall-clock
-/// time so callers can detect a stale daemon without having to diff
-/// results against the working tree.
-///
-/// Buckets:
-///   - `fresh`           — newest file indexed < 60s ago
-///   - `recent`          — 60s..600s
-///   - `possibly_stale`  — 600s..3600s
-///   - `stale`           — >= 3600s (sets `refresh_recommended: true`)
-///
-/// Returns `None` when the index is empty (callers omit the hint to
-/// avoid noise on a fresh project).
-pub fn index_freshness_hint(state: &AppState) -> Option<serde_json::Value> {
-    use serde_json::json;
-    let max_at = state.symbol_index().max_indexed_at().ok().flatten()?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_secs() as i64;
-    let age_secs = (now - max_at).max(0);
-    let (hint, refresh_recommended) = if age_secs < 60 {
-        ("fresh", false)
-    } else if age_secs < 600 {
-        ("recent", false)
-    } else if age_secs < 3600 {
-        ("possibly_stale", false)
-    } else {
-        ("stale", true)
-    };
-    Some(json!({
-        "newest_indexed_at_epoch_secs": max_at,
-        "newest_indexed_age_secs": age_secs,
-        "staleness_hint": hint,
-        "refresh_recommended": refresh_recommended,
-    }))
-}
-
 pub fn collect_unknown_args(value: &serde_json::Value, known: &[&str]) -> Vec<String> {
     let Some(map) = value.as_object() else {
         return Vec::new();
@@ -181,6 +202,51 @@ pub fn collect_unknown_args(value: &serde_json::Value, known: &[&str]) -> Vec<St
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn freshness_millisecond_timestamp_is_normalised_not_always_fresh() {
+        // Regression: `files.indexed_at` is written in epoch ms, but the hint
+        // compared it against `now.as_secs()`. A 2h-old index (ms timestamp)
+        // used to clamp to age 0 / "fresh". After the unit fix it must report
+        // "stale" and recommend a refresh.
+        let now_secs = 2_000_000_000; // arbitrary fixed "now" in seconds
+        let two_hours_ago_ms = (now_secs - 7_200) * 1000;
+        let (epoch_secs, age_secs, hint, refresh) =
+            classify_index_freshness(now_secs, two_hours_ago_ms);
+        assert_eq!(
+            epoch_secs,
+            now_secs - 7_200,
+            "ms input must normalise to secs"
+        );
+        assert_eq!(age_secs, 7_200);
+        assert_eq!(hint, "stale");
+        assert!(refresh, "a >1h-old index must recommend refresh");
+    }
+
+    #[test]
+    fn freshness_recent_millisecond_timestamp_reports_fresh() {
+        let now_secs = 2_000_000_000;
+        let ten_secs_ago_ms = (now_secs - 10) * 1000;
+        let (_epoch, age_secs, hint, refresh) = classify_index_freshness(now_secs, ten_secs_ago_ms);
+        assert_eq!(age_secs, 10);
+        assert_eq!(hint, "fresh");
+        assert!(!refresh);
+    }
+
+    #[test]
+    fn freshness_legacy_second_timestamp_still_classified() {
+        // Defensive: a value already in seconds (< 1e12) must not be divided.
+        let now_secs = 2_000_000_000;
+        let legacy_secs = now_secs - 700; // 700s ago, already seconds
+        let (epoch_secs, age_secs, hint, _refresh) =
+            classify_index_freshness(now_secs, legacy_secs);
+        assert_eq!(
+            epoch_secs, legacy_secs,
+            "second-scale input must pass through"
+        );
+        assert_eq!(age_secs, 700);
+        assert_eq!(hint, "possibly_stale");
+    }
 
     #[test]
     fn optional_usize_with_aliases_prefers_canonical() {

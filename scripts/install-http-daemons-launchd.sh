@@ -28,6 +28,10 @@ Options:
   --readonly-log-level LEVEL  CODELENS_LOG for read-only daemon (default: warn)
   --mutation-log-level LEVEL  CODELENS_LOG for mutation daemon (default: warn)
   --effort-level LEVEL        CODELENS_EFFORT_LEVEL for both daemons (default: high)
+  --response-contract MODE    CODELENS_RESPONSE_CONTRACT for both daemons
+                              (default: full; lean = scaffold-only token-frugal
+                              envelopes for token-expensive models, per-call
+                              override via _lean argument)
   --rerank VALUE              CODELENS_RERANK for both daemons (default: 0)
   --embed-resource-profile P  CODELENS_EMBED_RESOURCE_PROFILE for semantic runtime
                               (default: low_power; use balanced/throughput to trade power for speed)
@@ -60,6 +64,7 @@ MUTATION_PROFILE="refactor-full"
 READONLY_LOG_LEVEL="warn"
 MUTATION_LOG_LEVEL="warn"
 EFFORT_LEVEL="high"
+RESPONSE_CONTRACT="full"
 RERANK_VALUE="0"
 EMBED_RESOURCE_PROFILE="low_power"
 MODEL_DIR=""
@@ -130,6 +135,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--effort-level)
 		EFFORT_LEVEL="${2:-}"
+		shift 2
+		;;
+	--response-contract)
+		RESPONSE_CONTRACT="${2:-}"
 		shift 2
 		;;
 	--rerank)
@@ -358,6 +367,8 @@ create_plist() {
     <string>${log_level}</string>
     <key>CODELENS_EFFORT_LEVEL</key>
     <string>${EFFORT_LEVEL}</string>
+    <key>CODELENS_RESPONSE_CONTRACT</key>
+    <string>${RESPONSE_CONTRACT}</string>
     <key>CODELENS_RERANK</key>
     <string>${RERANK_VALUE}</string>
     <key>CODELENS_EMBED_RESOURCE_PROFILE</key>

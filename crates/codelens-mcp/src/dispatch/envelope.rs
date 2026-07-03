@@ -11,6 +11,9 @@ pub(crate) struct ToolCallEnvelope {
     pub session: crate::session_context::SessionRequestContext,
     pub budget: usize,
     pub compact: bool,
+    /// Lean response contract — scaffold-only thrift, deliberately decoupled
+    /// from the legacy `_compact` data pruning. See `parse` for activation.
+    pub lean: bool,
     pub harness_phase: Option<String>,
 }
 
@@ -66,10 +69,28 @@ impl ToolCallEnvelope {
                     })
             })
             .unwrap_or(default_budget);
+        // Legacy aggressive compaction — per-call `_compact: true` prunes a
+        // fixed set of data fields via `compact_response_payload`. Unchanged.
         let compact = arguments
             .get("_compact")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        // Lean response contract — scaffold-only thrift, deliberately a
+        // SEPARATE flag from `_compact` so it never inherits the legacy data
+        // pruning (adversarial review 2026-07-03 finding #1). Activation:
+        //   1. per-call `_lean: true`, or
+        //   2. `CODELENS_RESPONSE_CONTRACT=lean` on the daemon/session — the
+        //      frugal default for token-expensive deployments (e.g. a
+        //      Fable-dedicated daemon). An explicit per-call `_lean: false`
+        //      overrides the env (escape hatch on a lean daemon).
+        // Lean drops only low-signal envelope scaffold (telemetry, prose
+        // reasons, constant markers, fresh-bucket freshness) — never
+        // code/symbol data — so response quality is unchanged while per-call
+        // tokens shrink.
+        let lean = arguments
+            .get("_lean")
+            .and_then(|v| v.as_bool())
+            .unwrap_or_else(lean_response_contract_env);
         let harness_phase = arguments
             .get("_harness_phase")
             .and_then(|v| v.as_str())
@@ -80,9 +101,19 @@ impl ToolCallEnvelope {
             session,
             budget,
             compact,
+            lean,
             harness_phase,
         })
     }
+}
+
+/// True when `CODELENS_RESPONSE_CONTRACT=lean` selects the frugal envelope for
+/// every call on this daemon/session. Any other value (or unset) keeps the full
+/// contract. Case-insensitive, trimmed.
+fn lean_response_contract_env() -> bool {
+    std::env::var("CODELENS_RESPONSE_CONTRACT")
+        .ok()
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("lean"))
 }
 
 /// Check that all `required` fields from the tool's input_schema are present.
