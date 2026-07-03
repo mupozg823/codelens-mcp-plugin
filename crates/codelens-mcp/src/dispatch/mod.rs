@@ -56,6 +56,7 @@ pub(crate) fn dispatch_tool(
     let arguments = &envelope.arguments;
     let session = &envelope.session;
     let compact = envelope.compact;
+    let lean = envelope.lean;
     REQUEST_BUDGET.set(envelope.budget);
 
     let span = info_span!(
@@ -241,6 +242,7 @@ pub(crate) fn dispatch_tool(
             recent_tools: ctx.recent_tools,
             gate_allowance: gate_allowance.as_ref(),
             compact,
+            lean,
             harness_phase: harness_phase.as_deref(),
             request_budget: envelope.budget,
             start,

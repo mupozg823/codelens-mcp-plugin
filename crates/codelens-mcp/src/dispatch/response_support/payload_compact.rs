@@ -1,4 +1,4 @@
-use crate::protocol::ToolCallResponse;
+use crate::protocol::{RoutingHint, ToolCallResponse};
 use serde_json::{Map, Value, json};
 
 pub(crate) fn strip_empty_fields(value: &mut serde_json::Value) {
@@ -55,6 +55,38 @@ pub(crate) fn compact_response_payload(resp: &mut ToolCallResponse) {
                 }
             }
         }
+    }
+}
+
+/// Lean response contract: strip low-signal scaffold from the envelope after
+/// the payload/suggestions are built. Quality-neutral — this touches only
+/// telemetry, prose reasons, and default routing hints; it never removes
+/// `data`, `suggested_next_tools`, `suggested_next_calls`, `error`,
+/// `recovery_hint`, or any actionable state.
+///
+/// - `suggestion_reasons`: prose that restates the machine-readable
+///   `suggested_next_tools` names — pure duplication for a mechanical caller.
+/// - `token_estimate` / `elapsed_ms`: telemetry that changes every call
+///   (volatile, defeats response-level caching) and is not answer signal.
+/// - `routing_hint == Sync`: the overwhelming default carries no decision; the
+///   actionable `Async`/`Cached*` variants are preserved.
+/// - `budget_hint`: kept only when actionable (near/over budget, doom loop, or
+///   a missing preflight); the under-budget informational form is dropped.
+pub(crate) fn trim_scaffold_for_lean(
+    resp: &mut ToolCallResponse,
+    budget_pct: u64,
+    doom_loop_count: usize,
+    missing_preflight: bool,
+) {
+    resp.suggestion_reasons = None;
+    resp.token_estimate = None;
+    resp.elapsed_ms = None;
+    if matches!(resp.routing_hint, Some(RoutingHint::Sync)) {
+        resp.routing_hint = None;
+    }
+    let keep_hint = budget_pct > 75 || doom_loop_count >= 3 || missing_preflight;
+    if !keep_hint {
+        resp.budget_hint = None;
     }
 }
 
@@ -302,4 +334,78 @@ fn should_preserve_structured_array(key: &str, value: &Value) -> bool {
             | "preferred_entrypoints_omitted"
             | "preferred_entrypoints_with_executors"
     ) && value.is_array()
+}
+
+#[cfg(test)]
+mod lean_scaffold_tests {
+    use super::*;
+    use crate::protocol::BackendKind;
+    use crate::tool_runtime::success_meta;
+    use std::collections::HashMap;
+
+    fn sample_response() -> ToolCallResponse {
+        let mut r = ToolCallResponse::success(
+            json!({"symbol": "x"}),
+            success_meta(BackendKind::TreeSitter, 0.9),
+        );
+        r.suggested_next_tools = Some(vec!["find_referencing_symbols".to_owned()]);
+        let mut reasons = HashMap::new();
+        reasons.insert(
+            "find_referencing_symbols".to_owned(),
+            "Find all callers/users of this symbol".to_owned(),
+        );
+        r.suggestion_reasons = Some(reasons);
+        r.token_estimate = Some(733);
+        r.elapsed_ms = Some(27);
+        r.routing_hint = Some(RoutingHint::Sync);
+        r.budget_hint = Some("733 tokens (18% of 4000 budget)".to_owned());
+        r
+    }
+
+    #[test]
+    fn lean_trim_drops_low_signal_scaffold_keeps_data_and_suggestions() {
+        let mut r = sample_response();
+        trim_scaffold_for_lean(&mut r, 18, 0, false);
+        // Dropped: prose reasons + telemetry + sync routing + under-budget hint.
+        assert!(r.suggestion_reasons.is_none(), "prose reasons dropped");
+        assert!(r.token_estimate.is_none(), "token_estimate dropped");
+        assert!(r.elapsed_ms.is_none(), "elapsed_ms dropped");
+        assert!(r.routing_hint.is_none(), "sync routing_hint dropped");
+        assert!(r.budget_hint.is_none(), "under-budget hint dropped");
+        // Preserved: the answer + the machine-actionable next-step names.
+        assert!(r.data.is_some(), "data must never be dropped");
+        assert_eq!(
+            r.suggested_next_tools.as_deref(),
+            Some(&["find_referencing_symbols".to_owned()][..]),
+            "suggested_next_tools names must survive"
+        );
+    }
+
+    #[test]
+    fn lean_trim_keeps_budget_hint_when_near_limit() {
+        let mut r = sample_response();
+        trim_scaffold_for_lean(&mut r, 90, 0, false);
+        assert!(r.budget_hint.is_some(), "near-budget hint is actionable");
+    }
+
+    #[test]
+    fn lean_trim_keeps_budget_hint_on_doom_loop_or_missing_preflight() {
+        let mut a = sample_response();
+        trim_scaffold_for_lean(&mut a, 10, 3, false);
+        assert!(a.budget_hint.is_some(), "doom loop keeps hint");
+        let mut b = sample_response();
+        trim_scaffold_for_lean(&mut b, 10, 0, true);
+        assert!(b.budget_hint.is_some(), "missing preflight keeps hint");
+    }
+
+    #[test]
+    fn lean_trim_preserves_actionable_async_routing_hint() {
+        let mut r = sample_response();
+        r.routing_hint = Some(RoutingHint::Async);
+        trim_scaffold_for_lean(&mut r, 10, 0, false);
+        assert!(
+            matches!(r.routing_hint, Some(RoutingHint::Async)),
+            "async routing is an actionable decision — must survive"
+        );
+    }
 }
