@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **alwaysLoad set rebalanced for agent-native navigation (Fable/workflow consumption)** — the `_meta["anthropic/alwaysLoad"]` set now pre-loads the four highest-frequency mechanical navigation verbs (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`, `get_ranked_context`) alongside the five workflow entrypoints (`prepare_harness_session`, `explore_codebase`, `review_changes`, `review_architecture`, `verify_change_readiness`). Measured motivation: workflow subagents skipped CodeLens navigation entirely when it cost a ToolSearch round trip (1–2 calls vs 10–47 grep sweeps). `plan_safe_refactor` / `trace_request_path` move to deferred-discoverable (still reachable via `suggested_next_tools` chains). Set stays ≤10 — every entry is upfront schema tokens in every session.
+
+- **Repo `.mcp.json` ships the `x-codelens-project` auto-binding header** — sessions opened in this repo bind at initialize, which (verified live) removes the per-response `project_binding` hint (~35% smaller `find_symbol` data payload), the per-session `prepare_harness_session` binding tax, and the wrong-project read risk for every workflow subagent sharing the session connection.
+
 ### Added
 
 - **Opt-in LSP pre-warm pool (P1.3)** — `CODELENS_LSP_PREWARM` spawns the project's language servers in the background at daemon/project-activation time so the latency-sensitive default reference path finds them **warm** (never paying a 2–30s cold start on a request). `auto` derives servers from the index's per-extension file counts (≥10 files, deduped by server, capped at 3); a comma-separated list pins servers explicitly; default `off` (spawning servers costs memory — a deployment decision). Failures (missing binary, non-whitelisted command) log and skip — pre-warm is an optimization, never a correctness dependency. `install-http-daemons-launchd.sh --lsp-prewarm MODE` wires it into the daemon plists. New engine APIs: `SymbolIndex::language_counts`, `LspSessionPool::prewarm_session` (idempotent, whitelist-enforced). e2e: `auto` on this repo pre-warmed rust-analyzer and the default `find_referencing_symbols` path routed `backend: lsp` / `cold_start_incurred: false`. Together with the warm-LSP stage this closes the Python import/type-annotation recall gap on the default path whenever pyright is installed.

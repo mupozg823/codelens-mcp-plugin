@@ -870,7 +870,20 @@ fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
         review["_meta"]["anthropic/searchHint"],
         json!("review changed files and risk")
     );
-    assert!(symbol["_meta"].get("anthropic/alwaysLoad").is_none());
+    // 2026-07-03 rebalance: the mechanical navigation core is zero-setup
+    // (alwaysLoad) so agents stop skipping CodeLens over the ToolSearch
+    // round-trip cost; lower-frequency workflow reports stay deferred.
+    assert_eq!(symbol["_meta"]["anthropic/alwaysLoad"], json!(true));
+    let deferred_report = tools
+        .iter()
+        .find(|tool| tool["name"] == "plan_safe_refactor")
+        .expect("plan_safe_refactor present");
+    assert!(
+        deferred_report["_meta"]
+            .get("anthropic/alwaysLoad")
+            .is_none(),
+        "plan_safe_refactor must stay deferred-discoverable"
+    );
 }
 
 #[test]
