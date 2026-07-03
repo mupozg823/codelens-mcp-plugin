@@ -113,6 +113,51 @@ pub(super) fn append_prepare_harness_warning_from_guidance(
     );
 }
 
+/// Warning code for a file watcher that failed to start (P4.1).
+/// Shared between the payload builder and the bootstrap dedup set.
+pub(super) const WATCHER_UNAVAILABLE_CODE: &str = "watcher_unavailable";
+
+/// Pure builder for the `watcher_unavailable` bootstrap warning.
+/// `None` means the watcher is running or was intentionally not
+/// started (one-shot construction) — no warning in either case.
+pub(super) fn watcher_unavailable_warning(watcher_error: Option<&str>) -> Option<Value> {
+    let error = watcher_error?;
+    Some(json!({
+        "code": WATCHER_UNAVAILABLE_CODE,
+        "message": format!(
+            "file watcher failed to start — index will NOT auto-update on edits: {error}"
+        ),
+        "restart_recommended": true,
+        "recommended_action": "run refresh_symbol_index after edits, or restart the daemon",
+        "action_target": "file_watcher",
+    }))
+}
+
+/// P3.1 (RBAC secure-by-default): surface the no-principals
+/// permissive default as a bootstrap warning. Fires only when the
+/// runtime can apply mutations and the resolved mapping is the
+/// no-file fallback — the exact invariant lives in
+/// `Principals::rbac_permissive_default_active`.
+pub(super) fn push_rbac_permissive_default_warning(
+    warnings: &mut Vec<Value>,
+    warning_codes: &mut HashSet<String>,
+    principals: &crate::principals::Principals,
+    mutation_allowed: bool,
+) {
+    if !principals.rbac_permissive_default_active(mutation_allowed) {
+        return;
+    }
+    push_prepare_harness_warning(
+        warnings,
+        warning_codes,
+        "rbac_permissive_default",
+        "mutation-capable daemon without principals.toml — every principal gets Refactor; add principals.toml or CODELENS_AUTH_MODE=strict",
+        false,
+        "create_principals_toml",
+        "principals",
+    );
+}
+
 pub(super) fn collect_prepare_harness_warnings(
     capabilities_payload: &Value,
     include_diagnostics_warning: bool,
@@ -196,4 +241,53 @@ pub(super) fn collect_prepare_harness_warnings(
     }
 
     warnings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::principals::Principals;
+
+    #[test]
+    fn rbac_warning_fires_for_permissive_default_in_mutation_runtime() {
+        let mut warnings = Vec::new();
+        let mut codes = HashSet::new();
+        push_rbac_permissive_default_warning(
+            &mut warnings,
+            &mut codes,
+            &Principals::permissive_default(),
+            true,
+        );
+        assert_eq!(warnings.len(), 1);
+        let warning = &warnings[0];
+        assert_eq!(warning["code"], "rbac_permissive_default");
+        assert_eq!(warning["recommended_action"], "create_principals_toml");
+        assert_eq!(warning["action_target"], "principals");
+        assert_eq!(warning["restart_recommended"], json!(false));
+    }
+
+    #[test]
+    fn rbac_warning_suppressed_when_not_applicable() {
+        let mut warnings = Vec::new();
+        let mut codes = HashSet::new();
+        // Read-only runtime: the RBAC gap is not reachable.
+        push_rbac_permissive_default_warning(
+            &mut warnings,
+            &mut codes,
+            &Principals::permissive_default(),
+            false,
+        );
+        // Strict fallback: mutations are already denied.
+        push_rbac_permissive_default_warning(
+            &mut warnings,
+            &mut codes,
+            &Principals::strict_default(),
+            true,
+        );
+        // Operator-authored file: explicit choice even with a
+        // Refactor default.
+        let from_file = Principals::parse("[default]\nrole = \"Refactor\"\n").expect("parse ok");
+        push_rbac_permissive_default_warning(&mut warnings, &mut codes, &from_file, true);
+        assert!(warnings.is_empty());
+    }
 }
