@@ -2,7 +2,10 @@
   "mcpServers": {
     "codelens": {
       "type": "http",
-      "url": "http://127.0.0.1:7839/mcp"
+      "url": "http://127.0.0.1:7839/mcp",
+      "headers": {
+        "x-codelens-project": "/Users/bagjaeseog/codelens-mcp-plugin"
+      }
     }
   }
 }
