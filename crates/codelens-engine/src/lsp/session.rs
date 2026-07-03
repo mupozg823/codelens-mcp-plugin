@@ -54,6 +54,13 @@ pub(super) struct LspSession {
     documents: HashMap<String, OpenDocumentState>,
     #[allow(dead_code)] // retained for future stderr diagnostics
     stderr_buffer: std::sync::Arc<std::sync::Mutex<String>>,
+    /// Server-reported readiness (P1.1): `Some(true)` once the server has
+    /// signalled a quiescent state (rust-analyzer `experimental/serverStatus`
+    /// with `quiescent: true`), `Some(false)` while it reports active
+    /// indexing, `None` for servers that never emit a readiness signal.
+    /// Consumed by warm-routing/confidence calibration — a warm session is
+    /// not necessarily a *quiescent* one.
+    server_quiescent: Option<bool>,
 }
 
 fn ensure_session<'a>(
@@ -160,6 +167,27 @@ impl LspSessionPool {
                 }
             },
             None => false,
+        }
+    }
+
+    /// Readiness of a warm session (P1.1): outer `None` = no live session for
+    /// this server; `Some(None)` = live but the server never emitted a
+    /// readiness signal (unknown — do NOT assume ready); `Some(Some(q))` =
+    /// the server's latest `experimental/serverStatus` quiescence state.
+    /// Warm ≠ quiescent: confidence calibration must treat `Some(Some(false))`
+    /// (still indexing) as degraded evidence.
+    pub fn warm_session_quiescence(&self, command: &str, args: &[String]) -> Option<Option<bool>> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let key = SessionKey::new(command, args);
+        match sessions.get_mut(&key) {
+            Some(session) => match session.child.try_wait() {
+                Ok(None) => Some(session.server_quiescent()),
+                _ => {
+                    sessions.remove(&key);
+                    None
+                }
+            },
+            None => None,
         }
     }
 
@@ -385,6 +413,7 @@ impl LspSession {
             next_request_id: 1,
             documents: HashMap::new(),
             stderr_buffer,
+            server_quiescent: None,
         };
         session.initialize()?;
         if let Some(grace) = configured_startup_grace() {
@@ -431,7 +460,12 @@ impl LspSession {
                             },
                             "resolveSupport":{"properties":["edit","command"]}
                         }
-                    }
+                    },
+                    // P1.1: rust-analyzer only emits `experimental/serverStatus`
+                    // (the quiescence/readiness signal) when the client
+                    // advertises support for it. Servers that don't know the
+                    // extension ignore it.
+                    "experimental":{"serverStatusNotification":true}
                 },
                 "workspaceFolders":[
                     {
@@ -557,6 +591,28 @@ impl LspSession {
             }
 
             let message = read_message(&mut self.reader)?;
+            let method = message.get("method").and_then(Value::as_str);
+
+            // P1.1: server→client REQUEST (both `id` and `method` present).
+            // Historically these were discarded, which violates the protocol —
+            // a server blocked on `workspace/configuration` either stalls or
+            // falls back to defaults nondeterministically. Answer instead of
+            // discarding; unknown methods get a spec-correct MethodNotFound.
+            if let Some(method) = method {
+                if let Some(request_id) = message.get("id").filter(|id| !id.is_null()) {
+                    let request_id = request_id.clone();
+                    let reply = server_request_reply_payload(method, message.get("params"));
+                    self.answer_server_request(&request_id, reply)?;
+                } else {
+                    // Server notification: harvest readiness signals before
+                    // dropping. Counted against MAX_DISCARDED so a
+                    // notification-flooding server still trips the breaker.
+                    self.observe_server_notification(method, message.get("params"));
+                    discarded += 1;
+                }
+                continue;
+            }
+
             let matches_id = message
                 .get("id")
                 .and_then(Value::as_u64)
@@ -577,11 +633,81 @@ impl LspSession {
         }
     }
 
+    /// Send the prepared reply for a server→client request.
+    fn answer_server_request(
+        &mut self,
+        request_id: &Value,
+        reply: std::result::Result<Value, Value>,
+    ) -> Result<()> {
+        let body = match reply {
+            Ok(result) => json!({"jsonrpc":"2.0","id":request_id,"result":result}),
+            Err(error) => json!({"jsonrpc":"2.0","id":request_id,"error":error}),
+        };
+        send_message(&mut self.stdin, &body)
+    }
+
+    /// Harvest readiness state from server notifications (P1.1).
+    fn observe_server_notification(&mut self, method: &str, params: Option<&Value>) {
+        if method == "experimental/serverStatus"
+            && let Some(quiescent) = params
+                .and_then(|params| params.get("quiescent"))
+                .and_then(Value::as_bool)
+        {
+            self.server_quiescent = Some(quiescent);
+        }
+    }
+
+    /// True once the server has reported a quiescent (fully indexed) state.
+    /// `None` when the server never emitted a readiness signal — callers must
+    /// treat that as "unknown", not "ready".
+    pub(super) fn server_quiescent(&self) -> Option<bool> {
+        self.server_quiescent
+    }
+
     fn shutdown(&mut self) -> Result<()> {
         let id = self.next_id();
         self.send_request(id, "shutdown", Value::Null)?;
         let _ = self.read_response_for_id(id)?;
         self.send_notification("exit", Value::Null)
+    }
+}
+
+/// Pure decision table for server→client requests (P1.1): what to reply.
+/// `Ok` carries the `result` payload, `Err` carries the `error` payload.
+///
+/// - `workspace/configuration` — one `null` per requested item = "use your
+///   defaults". Deterministic, and unblocks servers that wait on the reply.
+/// - `client/registerCapability` / `client/unregisterCapability` /
+///   `window/workDoneProgress/create` — plain acknowledgement (`null`).
+/// - `workspace/applyEdit` — REFUSED (`applied: false`): the read path must
+///   never let a server mutate the workspace behind the caller's back; every
+///   CodeLens mutation flows through the verifier-gated edit transaction.
+/// - anything else — spec-correct `MethodNotFound` (-32601) instead of
+///   silence, so the server can degrade deterministically.
+fn server_request_reply_payload(
+    method: &str,
+    params: Option<&Value>,
+) -> std::result::Result<Value, Value> {
+    match method {
+        "workspace/configuration" => {
+            let item_count = params
+                .and_then(|params| params.get("items"))
+                .and_then(Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0);
+            Ok(Value::Array(vec![Value::Null; item_count]))
+        }
+        "client/registerCapability"
+        | "client/unregisterCapability"
+        | "window/workDoneProgress/create" => Ok(Value::Null),
+        "workspace/applyEdit" => Ok(json!({
+            "applied": false,
+            "failureReason": "codelens read sessions do not accept server-initiated edits"
+        })),
+        _ => Err(json!({
+            "code": -32601,
+            "message": format!("method not supported by codelens LSP client: {method}")
+        })),
     }
 }
 
@@ -635,5 +761,129 @@ mod warm_probe_tests {
         // ...and the probe must not have spawned anything: the pool stays
         // empty, preserving the default path's no-cold-start latency contract.
         assert_eq!(pool.session_count(), 0);
+    }
+
+    #[test]
+    fn warm_session_quiescence_is_none_and_non_spawning_when_cold() {
+        let pool = LspSessionPool::new(temp_project());
+        assert_eq!(
+            pool.warm_session_quiescence("pyright-langserver", &["--stdio".to_owned()]),
+            None,
+            "no live session must report outer None (not 'unknown readiness')"
+        );
+        assert_eq!(pool.session_count(), 0, "readiness probe must not spawn");
+    }
+}
+
+#[cfg(test)]
+mod server_request_reply_tests {
+    use super::*;
+
+    #[test]
+    fn workspace_configuration_returns_one_null_per_item() {
+        // "Use your defaults" — deterministic and unblocks servers that
+        // wait on the reply (the pre-P1.1 discard path stalled them).
+        let params = json!({"items": [{"section": "rust-analyzer"}, {"section": "python"}]});
+        let reply = server_request_reply_payload("workspace/configuration", Some(&params));
+        assert_eq!(reply, Ok(json!([null, null])));
+    }
+
+    #[test]
+    fn workspace_configuration_with_no_items_returns_empty_array() {
+        let reply = server_request_reply_payload("workspace/configuration", None);
+        assert_eq!(reply, Ok(json!([])));
+    }
+
+    #[test]
+    fn capability_registration_and_progress_create_are_acknowledged() {
+        for method in [
+            "client/registerCapability",
+            "client/unregisterCapability",
+            "window/workDoneProgress/create",
+        ] {
+            assert_eq!(
+                server_request_reply_payload(method, None),
+                Ok(Value::Null),
+                "{method} must be acknowledged, not discarded"
+            );
+        }
+    }
+
+    #[test]
+    fn server_initiated_apply_edit_is_refused() {
+        // Read sessions must never let a server mutate the workspace behind
+        // the caller's back — mutations flow through the verifier-gated
+        // edit transaction only.
+        let reply = server_request_reply_payload("workspace/applyEdit", Some(&json!({"edit": {}})))
+            .expect("applyEdit is answered, not errored");
+        assert_eq!(reply.get("applied"), Some(&json!(false)));
+    }
+
+    #[test]
+    fn unknown_server_request_gets_method_not_found() {
+        let err = server_request_reply_payload("window/showMessageRequest", None)
+            .expect_err("unknown requests must be rejected explicitly");
+        assert_eq!(err.get("code"), Some(&json!(-32601)));
+    }
+
+    /// Live proof that the quiescence signal is actually received (P1.1):
+    /// spawns a real rust-analyzer against a tiny fixture crate, issues
+    /// reference requests (whose read loops harvest `experimental/serverStatus`
+    /// notifications), and asserts the pool eventually reports
+    /// `Some(Some(true))`. Requires rust-analyzer on PATH and several seconds
+    /// of indexing — run manually:
+    /// `cargo test -p codelens-engine --lib quiescence_signal -- --ignored`
+    #[test]
+    #[ignore = "spawns a live rust-analyzer; run manually"]
+    fn quiescence_signal_is_harvested_from_live_rust_analyzer() {
+        use crate::lsp::types::LspRequest;
+
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-quiescence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"quiescence_fixture\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "pub fn target() -> u32 { 41 }\npub fn caller() -> u32 { target() + 1 }\n",
+        )
+        .unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        let pool = LspSessionPool::new(project);
+
+        let request = LspRequest {
+            command: "rust-analyzer".to_owned(),
+            args: Vec::new(),
+            file_path: "src/lib.rs".to_owned(),
+            line: 1,
+            column: 8,
+            max_results: 10,
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let mut quiescence = None;
+        while std::time::Instant::now() < deadline {
+            // Each request's read loop drains pending server notifications,
+            // harvesting the latest serverStatus before returning.
+            let _ = pool.find_referencing_symbols(&request);
+            quiescence = pool.warm_session_quiescence("rust-analyzer", &[]);
+            if quiescence == Some(Some(true)) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        assert_eq!(
+            quiescence,
+            Some(Some(true)),
+            "rust-analyzer must report quiescent=true within 60s (signal harvested)"
+        );
     }
 }
