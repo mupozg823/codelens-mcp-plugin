@@ -114,6 +114,27 @@ Serena v1.3→v1.5가 새로 연 비교 축 — 도구가 아니라 **라우팅 
 
 ---
 
+## 9. 5-렌즈 적대 아키텍처 평가 (2026-07-03)
+
+양쪽 소스를 독립 판정자 5명이 직접 읽고(**양방향 반박 강제** — "CodeLens 우위" 가설과
+"Serena 우위" 가설을 각자 공격 후 채점) 실시한 구조 평가. Serena 1.5.4.dev0
+(코어 18K + solidlsp 38K LOC) vs CodeLens (105.6K LOC Rust).
+
+| 렌즈 | Serena | CodeLens | 판정 |
+|---|---:|---:|---|
+| 의미 정밀도·정확성 | **8.5** | 6.5 | Serena — 단 대부분 구현 성숙도 갭(구조 상한 아님). LSP 프로토콜 패리티(P1.1a)·quiescence 보정(P1.1b)·pre-warm(P1.3)으로 수렴 중 |
+| 에이전트 소비 경제학 | 5.0 | **8.5** | CodeLens 구조 우위 — 토큰 예산이 파싱→캡→압축→lean contract까지 1급 관심사 |
+| 운영 강건성·스케일 | 5.5 | **8.5** | CodeLens 구조 우위 — 데몬+영속 WAL 인덱스+워처 vs per-session LS 워밍업 |
+| 안전·거버넌스 | 4.0 | **8.5** | CodeLens 구조 우위 — identity RBAC fail-closed·verifier-first·감사로그 vs 정적 deny 레이어 |
+| 확장성·진화 경제학 | **8.0** | 6.5 | Serena — LS 어댑터 외주화의 언어 한계비용. 단 품질 회귀 인프라(MRR floor·perf 게이트)는 CodeLens 압도 |
+
+정직 노트: 판정자들은 Serena 소스에서도 결함을 실측했다(자인한 Python 전용
+hack 주석, dry-run·old-text 검증 없는 rename 적용) — 변이 안전성만 보면
+CodeLens 트랜잭션 계층이 더 방어적이다. 종합: **에이전트-소비 백엔드
+(멀티세션·토큰·거버넌스) 정체성으로는 구조 우위, 범용 의미론 레이어로는
+Serena가 오늘 우위**이며 정밀도 갭은 로드맵
+([PLAN_precision-parity-gap-closure-2026-07](plans/PLAN_precision-parity-gap-closure-2026-07.md))으로 수렴 중.
+
 ## 결론 — 어떤 자리에 무엇을 쓰나
 
 **🎯 CodeLens 단독 우위** — 다른 어디서도 같은 답을 못 받는 영역:

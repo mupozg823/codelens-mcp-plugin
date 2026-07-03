@@ -81,6 +81,61 @@ Rules:
 
 ---
 
+## Agent-Consumption Envelope (Token Economics Layer, 2026-07)
+
+The response envelope treats frontier-model token cost as an architectural
+constraint, not a formatting detail. Layers, from request to wire:
+
+1. **Budget resolution** — per-request `max_tokens` → per-tool caps
+   (`effective_budget_for_tool`) → profile defaults; effort level
+   (`CODELENS_EFFORT_LEVEL`) scales budget ×0.6–×1.3.
+2. **Lean response contract** — `dispatch/envelope.rs` resolves
+   `lean = _lean arg || CODELENS_RESPONSE_CONTRACT=lean` (explicit
+   `_lean:false` overrides the env). Lean strips scaffold-only fields
+   (prose `suggestion_reasons`, `token_estimate`/`elapsed_ms` telemetry,
+   `sync` routing hints, constant `schema_version`, fresh-bucket
+   `index_freshness`) and never touches `data`, suggestions, errors, or
+   recovery hints — quality-neutral by construction, deliberately decoupled
+   from the legacy `_compact` data pruning. Measured −17-18% text channel.
+3. **5-stage adaptive compression** — over-budget payloads degrade through
+   summarization → skeleton with machine-readable `truncation_warning` +
+   `*_omitted_count` markers and expansion handles (`get_analysis_section`).
+4. **Session binding economics** — sessions bound via `x-codelens-project`
+   header / `initialize` `project` param omit the per-response
+   `project_binding` hint (−35% on `find_symbol` data); unbound store-backed
+   HTTP sessions are blocked from content mutations (#347) with a structured
+   `ProjectBindingRequired` recovery hint.
+5. **Surface economics** — of 93 registered tools, all but the alwaysLoad set stay deferred behind host tool search;
+   the `alwaysLoad` set pre-loads only the 5 workflow entrypoints + the
+   4 highest-frequency navigation verbs (≤10 budget rule pinned in code).
+
+## LSP Subsystem — Precision Tiers (P1.1, 2026-07)
+
+`crates/codelens-engine/src/lsp/` implements a bidirectional LSP client used
+as the *precision tier* above tree-sitter and beside SCIP:
+
+- **Protocol parity**: the response read loop answers server→client requests
+  (`workspace/configuration` → per-item nulls, capability registrations →
+  ack, `workspace/applyEdit` → refused — read sessions never accept
+  server-initiated edits) instead of discarding them; unknown methods get
+  spec-correct `MethodNotFound`.
+- **Readiness (warm ≠ quiescent)**: the client advertises
+  `experimental.serverStatusNotification` and harvests rust-analyzer's
+  quiescence signal per session (`warm_session_quiescence`). Reference
+  results are confidence-calibrated: a server that itself reports
+  indexing-in-progress degrades to 0.7 with a `degraded_reason`; verified
+  quiescence earns the 0.95 precise label.
+- **Pre-warm pool** (`CODELENS_LSP_PREWARM=off|auto|list`): language servers
+  spawn in the background at daemon/project-activation (auto = index
+  per-extension counts, ≥10 files, ≤3 servers, whitelist-enforced), so the
+  latency-sensitive default reference path upgrades to LSP answers with
+  `cold_start_incurred: false`. Pre-warm is an optimization, never a
+  correctness dependency — failures log and skip.
+- **Per-server `initializationOptions`** table (documented options only;
+  sole entry: rust-analyzer `checkOnSave: false`).
+
+---
+
 ## Distribution Surface
 
 CodeLens is currently packaged and deployed through four user-facing channels and one source path:

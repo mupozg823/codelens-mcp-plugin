@@ -347,14 +347,36 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ## Why CodeLens?
 
-|                       | CodeLens                             | Read/Grep baseline           |
-| --------------------- | ------------------------------------ | ---------------------------- |
-| **Token cost**        | 50-87% less                          | Full file content every time |
-| **Context quality**   | Ranked, bounded, structured          | Raw text, no prioritization  |
-| **Multi-file impact** | 1 tool call                          | 5-10 grep + read cycles      |
-| **Runtime**           | Single Rust binary, <12ms cold start | N/A                          |
-| **Language support**  | Generated from the surface manifest  | N/A                          |
-| **Agent awareness**   | Doom-loop detection, mutation gates  | None                         |
+|                         | CodeLens                                     | Read/Grep baseline           |
+| ----------------------- | -------------------------------------------- | ---------------------------- |
+| **Token cost**          | 50-87% less                                  | Full file content every time |
+| **Expensive-model fit** | Lean response contract: −17-18% text channel | N/A                          |
+| **Context quality**     | Ranked, bounded, structured                  | Raw text, no prioritization  |
+| **Multi-file impact**   | 1 tool call                                  | 5-10 grep + read cycles      |
+| **Runtime**             | Single Rust binary, <12ms cold start         | N/A                          |
+| **Language support**    | Generated from the surface manifest          | N/A                          |
+| **Agent awareness**     | Doom-loop detection, mutation gates          | None                         |
+
+## Token Economics for Fable-Class Models
+
+Frontier agent models (Claude Fable 5: $10/$50 per MTok) re-pay every persisted
+tool response as input on each subsequent turn — response bytes are a recurring
+cost, not a one-time one. CodeLens treats agent-consumption economics as a
+first-class architectural concern, grounded in Anthropic's official tool-design
+guidance (tool responses warn at 10K tokens; the text channel is what the host
+injects and counts):
+
+| Lever | What it does | Measured |
+| --- | --- | --- |
+| **Lean response contract** | `CODELENS_RESPONSE_CONTRACT=lean` (daemon-wide) or `_lean: true` per-call (`_lean: false` escapes) drops scaffold-only envelope fields — prose suggestion reasons, per-call telemetry, constant markers, fresh-bucket freshness. Never touches symbol data, next-step suggestions, errors, or recovery hints | **−17-18% text channel**, symbol data byte-identical |
+| **Deferred loading + alwaysLoad core** | of 93 registered tools, only 9 pre-load schemas (5 workflow entrypoints + 4 navigation verbs); the rest stay deferred behind host tool-search | Navigation is zero-setup — no ToolSearch round trip on the hot path |
+| **Session auto-binding** | `x-codelens-project` header (shipped in `.mcp.json`) binds sessions at initialize | Removes the per-response binding hint (**−35% data payload** on `find_symbol`) and the per-session bootstrap call |
+| **5-stage adaptive compression** | Budget-aware summarization with machine-readable truncation warnings and expansion handles | Responses stay under host limits without silent data loss |
+| **Warm-LSP precision, zero cold start** | `CODELENS_LSP_PREWARM=auto` pre-warms the project's language servers in the background; the default reference path upgrades to compiler-grade answers only when warm | `cold_start_incurred: false` on the hot path; readiness-calibrated confidence (a server still indexing degrades to 0.7 instead of lying at 0.95) |
+
+Result: mechanical high-frequency agent loops (dynamic workflows, subagent
+fan-outs, ultracode sessions) get compiler-adjacent precision at grep-class
+latency without paying frontier-model token overhead on envelope scaffold.
 
 ## Key Features
 
@@ -505,12 +527,24 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 | ---------------- | --------------------------------------------------------- | ------------------------------- |
 | Runtime          | Single Rust binary, <12ms cold start                      | Python + uv                     |
 | Intelligence     | tree-sitter + SQLite + optional LSP/SCIP                  | LSP by default                  |
-| Token efficiency | Bounded workflows, 50-87% savings                         | Standard tool responses         |
+| Token efficiency | Bounded workflows, 50-87% savings + lean contract −17-18% | Standard tool responses         |
 | Workflow layer   | Composite reports + analysis handles                      | Symbolic tools                  |
 | Semantic search  | Sidecar ONNX + hybrid ranking + NL bridging               | No bundled model                |
 | Refactoring      | Gated mutations + LSP rename/navigation/safe-delete apply | Stronger broad IDE-backed edits |
 | Enterprise       | Config policy, rate limit, OTel, SBOM                     | None                            |
 | Offline          | Works offline with a staged sidecar model                 | Depends on backend              |
+
+**Adversarial 5-lens architecture evaluation (2026-07-03, both codebases read
+by independent judges with forced two-way refutation):** CodeLens holds a
+structural advantage on 3 of 5 axes — agent-consumption economics (8.5 vs 5.0),
+operational robustness & scale (8.5 vs 5.5), and safety/governance (8.5 vs 4.0:
+identity-based RBAC with fail-closed policy loading, verifier-first mutation
+gates, and a principal-attributed audit trail vs. a static deny layer).
+Serena leads today on delivered semantic precision (8.5 vs 6.5 — largely a
+maturity gap, being closed by the LSP protocol-parity + quiescence-calibration +
+pre-warm work) and on language-coverage marginal cost (8.0 vs 6.5). Honest
+detail, including where Serena wins, in
+[docs/comparison.md](docs/comparison.md).
 
 See [docs/serena-comparison.md](docs/serena-comparison.md) for detailed gap analysis.
 

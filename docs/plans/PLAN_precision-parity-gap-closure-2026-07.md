@@ -101,3 +101,24 @@ confidence regression (P1.2), quiescence integration test (P1.1).
   should land inside existing workflow entrypoints, not as new top-level tools.
 - Re-litigating won axes: lean contract, budget/compression, RBAC design are done — only
   the closure items above remain.
+
+---
+
+## P6 — Evidence discipline & context hygiene (LazyCodex-referenced, 2026-07-03)
+
+Source: LazyCodex/omo 4.13.0 hook-layer audit (claims verified against
+`~/.codex/plugins/cache/sisyphuslabs/omo/4.13.0` source + CodeLens seams).
+Principle: adopt the **verification habits and context hygiene**, never the
+host-hook architecture (CodeLens is a cross-host MCP server, not a hook runner).
+
+| # | Item | Verdict | Design (adapted to MCP boundary) |
+|---|---|---|---|
+| P6.1 | **Artifact receipt layer** | ADOPT (adapted) | `export_session_markdown` response gains a receipt block: `{receipt_path, sha256, byte_size, session_id, project_scope, created_at}` — server verifies at creation (path inside project scope, realpath, non-empty; mirrors LazyCodex executor-verify checks). `audit_builder_session` gains an `artifact_receipt` check (warn when a mutating session exported nothing verifiable). **No new top-level tool** (tool-count non-goal): publishing sha256 lets any host re-verify with plain fs tools |
+| P6.2 | **`_context_pressure` request hint** | ADOPT | Arg `_context_pressure: true` (+ `x-codelens-context-pressure` header) ⇒ forces lean + tightens text-channel caps (array 3→2, string 240→160) + drops advisory payloads (`suggested_next_calls` args, composite guidance). Mirrors LazyCodex 8000→1200 clamp under pressure markers — but host-signaled, not transcript-parsed (portability) |
+| P6.3 | **Session-scoped advisory fingerprint dedup** | ADOPT (narrow) | Session store records fingerprints of already-emitted non-actionable advisories (deprecation warnings, composite guidance, binding hints); repeats within a session are suppressed. **Excluded**: recovery_hint / truncation_warning (agent may have compacted — actionable state must repeat) |
+| P6.4 | **Post-mutation immediate feedback** | PARTIAL | MCP cannot block like a PostToolUse hook. Extend the #357 diagnostic-delta pattern from `semantic_edit` to the symbolic-edit core (rename/insert/replace responses carry an immediate diagnostics snapshot or a prefilled `get_file_diagnostics` next-call), pulling verification from audit-time to response-time |
+| P6.5 | Team/worktree orchestration absorption | REJECT | Host owns branch/merge/dispatch policy (docs/multi-agent-integration.md boundary); CodeLens coordination substrate (claims/preflight/audit) is already MCP-native |
+
+Also rejected (boundary violations): transcript parsing (breaks cross-host
+portability), `.omo/boulder.json`-style external plan ledger as core contract
+(typed session state owns this), embedding a hook runner.
