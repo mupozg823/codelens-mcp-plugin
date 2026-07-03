@@ -1151,6 +1151,192 @@ fn get_diagnostics_for_symbol_filters_to_symbol_span() {
     );
 }
 
+/// Mock `pyright-langserver` speaking `textDocument/references`. Installed
+/// under `node_modules/.bin` so the LSP resolver's per-project fallback finds
+/// it (the daemon's PATH has no real pyright), keyed the same as the real
+/// server: command `pyright-langserver`, args `["--stdio"]`.
+fn write_mock_pyright_references_lsp(project: &ProjectRoot) -> std::path::PathBuf {
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'textDocumentSync':1,'referencesProvider':True}}})\n",
+        "    elif m == 'textDocument/references':\n",
+        "        uri = msg['params']['textDocument']['uri']\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':[\n",
+        "          {'uri':uri,'range':{'start':{'line':0,'character':6},'end':{'line':0,'character':12}}},\n",
+        "          {'uri':uri,'range':{'start':{'line':4,'character':14},'end':{'line':4,'character':20}}}\n",
+        "        ]})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let bin_dir = project.as_path().join("node_modules").join(".bin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    let mock_path = bin_dir.join("pyright-langserver");
+    fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    mock_path
+}
+
+/// The default reference path (symbol_name only, no `use_lsp`) must upgrade
+/// to precise LSP references once the file's language server is already warm
+/// in the pool — closing the tree-sitter gap on Python type-annotation refs.
+#[test]
+fn default_path_routes_through_warm_pyright_session() {
+    let project = project_root();
+    write_mock_pyright_references_lsp(&project);
+    fs::write(
+        project.as_path().join("widget.py"),
+        "class Widget:\n    pass\n\n\ndef render(w: Widget) -> None:\n    return None\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    // Warm the pool: an explicit use_lsp=true call spawns the pyright shim
+    // and leaves a live session keyed (pyright-langserver, ["--stdio"]).
+    let warm = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "file_path": "widget.py", "symbol_name": "Widget", "use_lsp": true }),
+    );
+    assert_eq!(warm["success"], json!(true), "warm-up call: {warm}");
+
+    // Default path: the warm-LSP stage must detect the resident session and
+    // route through precise LSP references instead of tree-sitter.
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "file_path": "widget.py", "symbol_name": "Widget" }),
+    );
+    assert_eq!(payload["success"], json!(true), "default call: {payload}");
+    assert_eq!(
+        payload["data"]["backend"],
+        json!("lsp"),
+        "warm session must route the default path through LSP: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["routing_note"]["stage"],
+        json!("warm_lsp_default_path"),
+        "routing note must mark the warm-LSP stage: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(true),
+        "warm-routed references are precise: {payload}"
+    );
+    assert!(
+        payload["data"]["count"].as_u64().unwrap_or(0) >= 1,
+        "warm pyright must return at least the annotation reference: {payload}"
+    );
+}
+
+/// Cold pyright (no warm session): the default path stays on tree-sitter but
+/// surfaces a hint steering Python callers toward `use_lsp=true` for
+/// annotation-aware precision. Deterministic — the warmth probe never spawns.
+#[test]
+fn default_path_emits_cold_lsp_hint_for_python_without_warm_server() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("cold.py"),
+        "class Gadget:\n    pass\n\n\ndef use(g: Gadget) -> None:\n    return None\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "file_path": "cold.py", "symbol_name": "Gadget" }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["fallback_source"],
+        json!("tree_sitter"),
+        "cold pyright must stay on tree-sitter: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["lsp_precision_hint"]["code"],
+        json!("lsp_server_cold"),
+        "cold Python default path must emit the annotation-aware hint: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["lsp_precision_hint"]["server"],
+        json!("pyright-langserver"),
+        "hint must name the pyright server: {payload}"
+    );
+}
+
+/// Real-pyright variant of the warm-routing test. Skips cleanly when the
+/// binary is absent so CI without pyright stays green; when installed, proves
+/// the type-annotation references tree-sitter misses land via the LSP path.
+#[test]
+fn default_path_routes_through_real_warm_pyright_when_installed() {
+    if !codelens_engine::lsp_binary_exists("pyright-langserver") {
+        eprintln!(
+            "skipping default_path_routes_through_real_warm_pyright_when_installed: pyright-langserver not installed"
+        );
+        return;
+    }
+    let project = project_root();
+    fs::write(
+        project.as_path().join("annotated.py"),
+        "class Service:\n    pass\n\n\ndef build(s: Service) -> Service:\n    return s\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let warm = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "file_path": "annotated.py", "symbol_name": "Service", "use_lsp": true }),
+    );
+    assert_eq!(warm["success"], json!(true), "real pyright warm-up: {warm}");
+
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "file_path": "annotated.py", "symbol_name": "Service" }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(
+        payload["data"]["backend"],
+        json!("lsp"),
+        "real warm pyright must route the default path through LSP: {payload}"
+    );
+    assert!(
+        payload["data"]["count"].as_u64().unwrap_or(0) >= 2,
+        "pyright must capture the annotation references tree-sitter misses: {payload}"
+    );
+}
+
 #[test]
 fn lsp_read_trio_visible_on_read_surfaces() {
     use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};

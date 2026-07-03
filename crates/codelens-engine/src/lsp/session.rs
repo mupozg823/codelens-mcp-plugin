@@ -141,6 +141,28 @@ impl LspSessionPool {
             .len()
     }
 
+    /// Non-spawning warmth probe for the latency-sensitive default reference
+    /// path. Returns `true` only when a live LSP session for `command`+`args`
+    /// is already resident (child process still running). It **never spawns**
+    /// a server — a cold or absent language returns `false` and leaves the
+    /// pool untouched, so callers can gate precise LSP routing on warmth
+    /// without risking a 2-30s cold start. Stale (exited) sessions are reaped
+    /// as a side effect, mirroring `ensure_session`.
+    pub fn has_warm_session(&self, command: &str, args: &[String]) -> bool {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let key = SessionKey::new(command, args);
+        match sessions.get_mut(&key) {
+            Some(session) => match session.child.try_wait() {
+                Ok(None) => true,
+                _ => {
+                    sessions.remove(&key);
+                    false
+                }
+            },
+            None => false,
+        }
+    }
+
     pub fn find_referencing_symbols(&self, request: &LspRequest) -> Result<Vec<LspReference>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let session = ensure_session(
@@ -555,5 +577,33 @@ impl Drop for LspSession {
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+#[cfg(test)]
+mod warm_probe_tests {
+    use super::*;
+
+    fn temp_project() -> ProjectRoot {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-warmprobe-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        ProjectRoot::new(dir.to_str().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn has_warm_session_is_false_and_non_spawning_when_cold() {
+        let pool = LspSessionPool::new(temp_project());
+        // A cold language must probe `false` — no session was ever started.
+        assert!(!pool.has_warm_session("pyright-langserver", &["--stdio".to_owned()]));
+        // ...and the probe must not have spawned anything: the pool stays
+        // empty, preserving the default path's no-cold-start latency contract.
+        assert_eq!(pool.session_count(), 0);
     }
 }

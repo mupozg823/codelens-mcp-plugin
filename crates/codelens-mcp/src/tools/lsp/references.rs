@@ -1,6 +1,6 @@
 use super::super::{
-    AppState, ToolResult, default_lsp_command_for_path, optional_bool, optional_string,
-    optional_usize, parse_lsp_args, success_meta,
+    AppState, ToolResult, default_lsp_args_for_command, default_lsp_command_for_path,
+    optional_bool, optional_string, optional_usize, parse_lsp_args, success_meta,
 };
 use super::rename::resolve_symbol_position;
 use super::shared::{enhance_lsp_error, insert_response_annotations, resolve_path_argument};
@@ -173,6 +173,39 @@ fn insert_structural_ts_evidence(
             "recommended_action": "inspect_structural_reference_evidence",
         }),
     );
+}
+
+/// Warm-LSP precision stage for the default reference path.
+///
+/// The default path (symbol_name only, no `use_lsp`) is latency-sensitive and
+/// must never trigger an LSP cold start (2-30s). This stage only upgrades to
+/// precise LSP references when the file's language server is **already** warm
+/// in the pool. For Python it closes the tree-sitter extractor gap on import
+/// and type-annotation references (CLAUDE.md "Known accuracy limits").
+#[derive(Debug, PartialEq, Eq)]
+enum WarmLspStage {
+    /// A warm server is resident — route through precise LSP references.
+    UseLsp { command: String },
+    /// The language has an LSP mapping but the server is cold — stay on
+    /// tree-sitter and surface a hint toward `use_lsp=true`.
+    ColdHint { command: String },
+    /// No LSP mapping for this language — plain tree-sitter, no hint.
+    NoMapping,
+}
+
+/// Pure routing decision, isolated from pool I/O so warmth can be injected in
+/// tests. `lsp_command` is the file's default LSP binary (if any); `is_warm`
+/// reports whether that binary already has a live pool session and is only
+/// consulted when a mapping exists.
+fn decide_warm_lsp_stage(
+    lsp_command: Option<String>,
+    is_warm: impl FnOnce(&str) -> bool,
+) -> WarmLspStage {
+    match lsp_command {
+        Some(command) if is_warm(&command) => WarmLspStage::UseLsp { command },
+        Some(command) => WarmLspStage::ColdHint { command },
+        None => WarmLspStage::NoMapping,
+    }
 }
 
 /// tree-sitter-first strategy:
@@ -446,6 +479,87 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             }
         }
 
+        // Warm-LSP precision stage: upgrade to precise LSP references *only*
+        // when the file's language server is already warm in the pool. Never
+        // cold-starts here — that would break the default path's latency
+        // contract. Closes the tree-sitter gap on Python (pyright) import and
+        // type-annotation references. oxc/SCIP stages above are unchanged.
+        let lsp_command = default_lsp_command_for_path(&file_path);
+        let lsp_args: Vec<String> = lsp_command
+            .as_deref()
+            .map(default_lsp_args_for_command)
+            .unwrap_or_default();
+        let mut cold_lsp_hint: Option<Value> = None;
+        match decide_warm_lsp_stage(lsp_command, |command| {
+            state.lsp_pool().has_warm_session(command, &lsp_args)
+        }) {
+            WarmLspStage::UseLsp { command } => {
+                // A non-spawning warmth probe just confirmed this server is
+                // resident, so `find_referencing_symbols` reuses the live
+                // session rather than cold-starting. If the symbol position
+                // cannot be resolved or the server returns nothing, fall
+                // through to tree-sitter (no hint — the server is warm).
+                if let Some((line, column)) = resolve_symbol_position(state, sym_name, &file_path)
+                    && let Ok(refs) = state.lsp_pool().find_referencing_symbols(&LspRequest {
+                        command: command.clone(),
+                        args: lsp_args.clone(),
+                        file_path: file_path.clone(),
+                        line,
+                        column,
+                        max_results,
+                    })
+                    && !refs.is_empty()
+                {
+                    let precise_count = refs.len();
+                    let meta = meta_for_backend("lsp", 0.95);
+                    let evidence = crate::tool_evidence::tool_evidence(
+                        "references",
+                        &meta,
+                        "lsp_precise_warm_routed",
+                        crate::tool_evidence::precision_signals(
+                            true,
+                            true,
+                            Some("lsp"),
+                            None,
+                            precise_count,
+                        ),
+                    );
+                    let mut payload = json!({
+                        "references": refs,
+                        "count": precise_count,
+                        "returned_count": precise_count,
+                        "sampled": false,
+                        "backend": "lsp",
+                        "evidence": evidence,
+                        "routing_note": {
+                            "stage": "warm_lsp_default_path",
+                            "server": command,
+                            "rationale": "A warm LSP server was already resident, so the default path routed through precise LSP references to capture import and type-annotation usages tree-sitter misses. No cold start was incurred.",
+                        },
+                    });
+                    if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
+                        insert_response_annotations(
+                            &mut payload,
+                            &unknown_args,
+                            &deprecation_warnings,
+                        );
+                    }
+                    return Ok((payload, meta));
+                }
+            }
+            WarmLspStage::ColdHint { command } => {
+                cold_lsp_hint = Some(json!({
+                    "code": "lsp_server_cold",
+                    "server": command,
+                    "message": format!(
+                        "tree-sitter references can miss import and type-annotation usages for this language. `{command}` is not warm, so the default path stayed on tree-sitter to preserve latency. Re-run with use_lsp=true for annotation-aware precise references."
+                    ),
+                    "recommended_action": "retry_with_use_lsp_true",
+                }));
+            }
+            WarmLspStage::NoMapping => {}
+        }
+
         return Ok(find_referencing_symbols_via_text(
             &state.project(),
             sym_name,
@@ -476,6 +590,11 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 "include_context": include_context,
                 "evidence": evidence,
             });
+            if let Some(hint) = cold_lsp_hint
+                && let Some(map) = payload.as_object_mut()
+            {
+                map.insert("lsp_precision_hint".to_owned(), hint);
+            }
             insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
             (payload, meta)
         })?);
@@ -610,4 +729,44 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             (payload, meta)
         })?,
     )
+}
+
+#[cfg(test)]
+mod warm_lsp_routing_tests {
+    use super::{WarmLspStage, decide_warm_lsp_stage};
+
+    #[test]
+    fn warm_server_routes_to_lsp() {
+        let decision = decide_warm_lsp_stage(Some("pyright-langserver".to_owned()), |cmd| {
+            assert_eq!(cmd, "pyright-langserver");
+            true
+        });
+        assert_eq!(
+            decision,
+            WarmLspStage::UseLsp {
+                command: "pyright-langserver".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn cold_server_falls_back_with_hint() {
+        let decision = decide_warm_lsp_stage(Some("pyright-langserver".to_owned()), |_| false);
+        assert_eq!(
+            decision,
+            WarmLspStage::ColdHint {
+                command: "pyright-langserver".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn unmapped_language_stays_plain_tree_sitter_without_probing() {
+        // Warmth must not be probed at all when there is no LSP mapping —
+        // the closure panics if consulted, proving the short-circuit.
+        let decision = decide_warm_lsp_stage(None, |_| {
+            panic!("warmth must not be probed without a mapping")
+        });
+        assert_eq!(decision, WarmLspStage::NoMapping);
+    }
 }
