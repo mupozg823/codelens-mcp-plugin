@@ -32,6 +32,10 @@ Options:
                               (default: full; lean = scaffold-only token-frugal
                               envelopes for token-expensive models, per-call
                               override via _lean argument)
+  --lsp-prewarm MODE          CODELENS_LSP_PREWARM for both daemons
+                              (default: off; auto = pre-warm servers for the
+                              project's dominant indexed languages, or a
+                              comma-separated server list)
   --rerank VALUE              CODELENS_RERANK for both daemons (default: 0)
   --embed-resource-profile P  CODELENS_EMBED_RESOURCE_PROFILE for semantic runtime
                               (default: low_power; use balanced/throughput to trade power for speed)
@@ -65,6 +69,7 @@ READONLY_LOG_LEVEL="warn"
 MUTATION_LOG_LEVEL="warn"
 EFFORT_LEVEL="high"
 RESPONSE_CONTRACT="full"
+LSP_PREWARM="off"
 RERANK_VALUE="0"
 EMBED_RESOURCE_PROFILE="low_power"
 MODEL_DIR=""
@@ -139,6 +144,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--response-contract)
 		RESPONSE_CONTRACT="${2:-}"
+		shift 2
+		;;
+	--lsp-prewarm)
+		LSP_PREWARM="${2:-}"
 		shift 2
 		;;
 	--rerank)
@@ -369,6 +378,8 @@ create_plist() {
     <string>${EFFORT_LEVEL}</string>
     <key>CODELENS_RESPONSE_CONTRACT</key>
     <string>${RESPONSE_CONTRACT}</string>
+    <key>CODELENS_LSP_PREWARM</key>
+    <string>${LSP_PREWARM}</string>
     <key>CODELENS_RERANK</key>
     <string>${RERANK_VALUE}</string>
     <key>CODELENS_EMBED_RESOURCE_PROFILE</key>

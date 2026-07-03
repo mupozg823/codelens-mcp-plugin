@@ -377,6 +377,25 @@ impl IndexDb {
         Ok(row)
     }
 
+    /// Per-language indexed-file counts, descending. `files.language` stores
+    /// the file extension at index time (e.g. `rs`, `py`, `ts`), so callers
+    /// can map an entry straight back to an extension-keyed lookup. Rows with
+    /// a NULL language are skipped.
+    pub fn language_file_counts(&self) -> Result<Vec<(String, usize)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT language, COUNT(*) FROM files \
+             WHERE language IS NOT NULL GROUP BY language ORDER BY COUNT(*) DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+        })?;
+        let mut counts = Vec::new();
+        for row in rows {
+            counts.push(row?);
+        }
+        Ok(counts)
+    }
+
     /// Oldest `indexed_at` epoch (seconds) across all files in the index,
     /// or `None` when the table is empty.
     pub fn min_files_indexed_at(&self) -> Result<Option<i64>> {

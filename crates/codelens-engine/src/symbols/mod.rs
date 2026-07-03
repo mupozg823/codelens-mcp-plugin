@@ -117,6 +117,14 @@ impl SymbolIndex {
         db.min_files_indexed_at()
     }
 
+    /// Per-language (extension) indexed-file counts, descending — see
+    /// `Database::language_file_counts`. Used by LSP pre-warm to decide
+    /// which language servers this project actually needs.
+    pub fn language_counts(&self) -> Result<Vec<(String, usize)>> {
+        let db = self.reader()?;
+        db.language_file_counts()
+    }
+
     fn checkpoint_wal_passive(&self) -> Result<(i64, i64, i64)> {
         if self.in_memory {
             return Ok((0, 0, 0));
