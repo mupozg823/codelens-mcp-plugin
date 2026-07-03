@@ -64,7 +64,7 @@ pub fn composite_tools(
         ).with_annotations(ro_w.clone()),
         Tool::new(
             "orchestrate_change",
-            "[CodeLens:Workflow] Bounded change-orchestration run for a described task — preflight evidence, approval-gate state machine, and audit events. Returns run_id and final state (approval_required / executing / cancelled / failed).",
+            "[CodeLens:Workflow] Advisory dry-run change-orchestration plan for a described task — preflight evidence, a session-scoped in-memory approval gate, and audit events. Performs no file mutation itself; the plan is enforced only when a later mutation call passes the returned orchestration_run_id. Returns run_id and final state (approval_required / executing / cancelled / failed).",
             json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"mode":{"type":"string","enum":["solo","planner_builder","ci_audit"]},"target_paths":{"type":"array","items":{"type":"string"},"description":"Scope paths (max 16)"},"acceptance":{"type":"array","items":{"type":"string"},"description":"Acceptance criteria items (max 12)"},"profile_hint":{"type":"string"},"approval":{"type":"object","description":"Approval payload: { decision: granted|denied, actor?, reason?, actions? }"},"worktree":{"type":"string"},"requester":{"type":"string"}}}),
         ).with_annotations(ro_w.clone()),
         Tool::new(
@@ -239,23 +239,23 @@ pub fn memory_tools(
     vec![
         Tool::new(
             "list_memories",
-            "[CodeLens:Memory] List project memory files under .codelens/memories.",
-            json!({"type":"object","properties":{"topic":{"type":"string","description":"Optional topic to filter"}}}),
+            "[CodeLens:Memory] List project or global memory files under .codelens/memories.",
+            json!({"type":"object","properties":{"topic":{"type":"string","description":"Optional topic to filter"},"scope":{"type":"string","enum":["project","global","both"],"description":"Memory tier to list (default project)"}}}),
         ).with_output_schema(memory_list_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "read_memory",
-            "[CodeLens:Memory] Read a named project memory file.",
-            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string"}}}),
+            "[CodeLens:Memory] Read a named project or global memory file.",
+            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string"},"scope":{"type":"string","enum":["auto","project","global"],"description":"Memory tier to read (default auto: project then global)"}}}),
         ).with_annotations(ro_p.clone()),
         Tool::new(
             "write_memory",
-            "[CodeLens:Memory] Create or overwrite a project memory file.",
-            json!({"type":"object","required":["memory_name","content"],"properties":{"memory_name":{"type":"string"},"content":{"type":"string"}}}),
+            "[CodeLens:Memory] Create or overwrite a project or global memory file.",
+            json!({"type":"object","required":["memory_name","content"],"properties":{"memory_name":{"type":"string"},"content":{"type":"string"},"scope":{"type":"string","enum":["project","global"],"description":"Memory tier to write (default project)"}}}),
         ).with_annotations(mutating.clone()),
         Tool::new(
             "delete_memory",
-            "[CodeLens:Memory] Delete a project memory file.",
-            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string"}}}),
+            "[CodeLens:Memory] Delete a project or global memory file.",
+            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string"},"scope":{"type":"string","enum":["project","global"],"description":"Memory tier to delete from (default project)"}}}),
         ).with_annotations(destructive.clone()),
         Tool::new(
             "rename_memory",

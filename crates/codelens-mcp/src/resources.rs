@@ -129,7 +129,7 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                 uri,
                 json!({
                     "scopes": scopes,
-                    "note": "Passive scaffold (P3). Mutation tools (write_memory / read_memory) currently operate on project scope only. Global scope path is declared so the contract is visible before wiring the active half of P3.",
+                    "note": "write_memory / delete_memory / read_memory / list_memories accept a `scope` parameter and resolve to either tier (write/delete default `project`, read defaults `auto`, list defaults `project`; read also accepts `auto`, list also accepts `both`). rename_memory / archive_memory / restore_memory / list_archived are project-scoped only. The global tier resolves to $HOME/.codelens/memories/.",
                 }),
             )
         }

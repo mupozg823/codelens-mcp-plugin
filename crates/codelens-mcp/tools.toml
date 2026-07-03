@@ -593,7 +593,7 @@ changed_files = { type = "array", items = { type = "string" }, description = "Op
 name = "orchestrate_change"
 category = "composite"
 preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Workflow] Bounded change-orchestration run for a described task — preflight evidence, approval-gate state machine, and audit events. Returns run_id and final state (approval_required / executing / cancelled / failed)."
+description = "[CodeLens:Workflow] Advisory dry-run change-orchestration plan for a described task — preflight evidence, a session-scoped in-memory approval gate, and audit events. Performs no file mutation itself; the plan is enforced only when a later mutation call passes the returned orchestration_run_id. Returns run_id and final state (approval_required / executing / cancelled / failed)."
 annotations = "ro_w"
 
 [tool.input_schema]
@@ -1413,13 +1413,13 @@ properties = { threshold_days = { type = "integer", minimum = 1, maximum = 3650,
 name = "list_memories"
 category = "memory"
 preset_tags = []
-description = "[CodeLens:Memory] List project memory files under .codelens/memories."
+description = "[CodeLens:Memory] List project or global memory files under .codelens/memories."
 annotations = "ro_p"
 output_schema = "memory_list_output_schema"
 
 [tool.input_schema]
 type = "object"
-properties = { topic = { type = "string", description = "Optional topic to filter" } }
+properties = { topic = { type = "string", description = "Optional topic to filter" }, scope = { type = "string", enum = ["project", "global", "both"], description = "Memory tier to list (default project)" } }
 
 # ─────
 
@@ -1427,13 +1427,13 @@ properties = { topic = { type = "string", description = "Optional topic to filte
 name = "read_memory"
 category = "memory"
 preset_tags = []
-description = "[CodeLens:Memory] Read a named project memory file."
+description = "[CodeLens:Memory] Read a named project or global memory file."
 annotations = "ro_p"
 
 [tool.input_schema]
 type = "object"
 required = ["memory_name"]
-properties = { memory_name = { type = "string" } }
+properties = { memory_name = { type = "string" }, scope = { type = "string", enum = ["auto", "project", "global"], description = "Memory tier to read (default auto: project then global)" } }
 
 # ─────
 
@@ -1441,13 +1441,13 @@ properties = { memory_name = { type = "string" } }
 name = "write_memory"
 category = "memory"
 preset_tags = []
-description = "[CodeLens:Memory] Create or overwrite a project memory file."
+description = "[CodeLens:Memory] Create or overwrite a project or global memory file."
 annotations = "mutating"
 
 [tool.input_schema]
 type = "object"
 required = ["memory_name", "content"]
-properties = { memory_name = { type = "string" }, content = { type = "string" } }
+properties = { memory_name = { type = "string" }, content = { type = "string" }, scope = { type = "string", enum = ["project", "global"], description = "Memory tier to write (default project)" } }
 
 # ─────
 
@@ -1455,13 +1455,13 @@ properties = { memory_name = { type = "string" }, content = { type = "string" } 
 name = "delete_memory"
 category = "memory"
 preset_tags = []
-description = "[CodeLens:Memory] Delete a project memory file."
+description = "[CodeLens:Memory] Delete a project or global memory file."
 annotations = "destructive"
 
 [tool.input_schema]
 type = "object"
 required = ["memory_name"]
-properties = { memory_name = { type = "string" } }
+properties = { memory_name = { type = "string" }, scope = { type = "string", enum = ["project", "global"], description = "Memory tier to delete from (default project)" } }
 
 # ─────
 

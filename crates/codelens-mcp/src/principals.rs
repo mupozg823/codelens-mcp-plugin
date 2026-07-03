@@ -94,8 +94,12 @@ impl Principals {
     /// - `strict` → [`Self::strict_default`] (every unknown id is
     ///   `ReadOnly`, so mutation tools are denied)
     ///
-    /// Parse errors propagate so misconfiguration is surfaced loudly
-    /// at startup instead of silently falling back.
+    /// Parse errors propagate to the caller (they are never swallowed
+    /// here). The caller's policy is mode-dependent — see
+    /// [`crate::state::AppState::principals`]: a read path (stdio,
+    /// read-only daemon) logs at `warn` and falls back to
+    /// [`Self::permissive_default`], while a mutation-enabled daemon
+    /// fails closed to [`Self::strict_default`] and logs at `error`.
     pub fn discover(project_audit_dir: &Path) -> Result<Self> {
         // project audit dir is `<project>/.codelens/audit/`; principals.toml
         // lives one directory up at `<project>/.codelens/principals.toml`.
@@ -170,20 +174,23 @@ impl Principals {
 /// Tier mapping:
 /// - `Admin` — `audit_log_query` and other administrative queries
 ///   that touch the durable audit log or principals registry.
-/// - `Refactor` — code-mutation tools (every entry in
-///   [`crate::tool_defs::is_content_mutation_tool`] except the
-///   memory carve-out).
-/// - `ReadOnly` — everything else, including memory tools.
+/// - `Refactor` — every code-mutation tool in
+///   [`crate::tool_defs::is_content_mutation_tool`], *including* the
+///   memory-mutation tools (`write_memory` / `delete_memory` /
+///   `rename_memory`).
+/// - `ReadOnly` — everything else (queries and navigation).
 ///
-/// Memory tools (`write_memory`/`delete_memory`/`rename_memory`)
-/// are a deliberate exception: they mutate agent-side context, not
-/// the project's source tree, so the role gate treats them as
-/// `ReadOnly`. They remain in `is_content_mutation_tool` so the
-/// audit sink still records each memory change.
+/// Memory-mutation tools were previously carved out to `ReadOnly` on
+/// the theory that they only touch agent-side context. That carve-out
+/// is removed: an agent's long-term memory is a trust surface whose
+/// corruption is comparable in blast radius to a source mutation
+/// (poisoned recall silently steers future work), so memory writes
+/// now require the same `Refactor` tier as any other content
+/// mutation. They keep falling through `is_content_mutation_tool`, so
+/// the audit sink still records each memory change.
 pub fn required_role_for(tool: &str) -> Role {
     match tool {
         "audit_log_query" => Role::Admin,
-        "write_memory" | "delete_memory" | "rename_memory" => Role::ReadOnly,
         other if crate::tool_defs::is_content_mutation_tool(other) => Role::Refactor,
         _ => Role::ReadOnly,
     }
@@ -250,9 +257,10 @@ mod tests {
             "strict default must deny code-mutation tools"
         );
         assert!(
-            p.resolve(Some("anyone"))
+            !p.resolve(Some("anyone"))
                 .satisfies(required_role_for("write_memory")),
-            "strict default must still allow memory-tier tools (M6)"
+            "strict default must now also deny memory-mutation tools \
+             (Refactor tier, no longer a ReadOnly carve-out)"
         );
     }
 
@@ -386,15 +394,20 @@ role = "Admin"
     }
 
     #[test]
-    fn memory_tools_are_readonly_despite_being_mutation_tools() {
-        // Memory writes are agent-context, not codebase mutation.
-        // The role gate must let read-only principals call them, but
-        // the audit sink still tracks them via is_content_mutation_tool.
+    fn memory_tools_require_refactor_like_other_mutations() {
+        // Memory writes are a trust surface on par with source
+        // mutation: the role gate now requires the Refactor tier (the
+        // old ReadOnly carve-out is gone), and the audit sink still
+        // tracks them via is_content_mutation_tool.
         for tool in ["write_memory", "delete_memory", "rename_memory"] {
             assert_eq!(
                 required_role_for(tool),
-                Role::ReadOnly,
-                "{tool} should be ReadOnly for the role gate"
+                Role::Refactor,
+                "{tool} should require Refactor for the role gate"
+            );
+            assert!(
+                !Role::ReadOnly.satisfies(required_role_for(tool)),
+                "{tool} must NOT be callable by a ReadOnly principal"
             );
             assert!(
                 crate::tool_defs::is_content_mutation_tool(tool),

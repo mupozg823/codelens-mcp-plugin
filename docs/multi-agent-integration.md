@@ -26,12 +26,24 @@ The host or harness still provides:
 - branch policy, merge policy, and release policy
 - any Claude-specific or Codex-specific custom agent wrapper
 
-CodeLens is moving from shared coordination/verification into a bounded
-code-work orchestrator, per
-[ADR-0014](adr/ADR-0014-bounded-code-work-orchestrator.md). The boundary is
-deliberate: CodeLens may own a typed code-work run state machine, audit trail,
-preflight, approval, dispatch, and verification flow; the host still owns the
-general chat/runtime loop and any host-specific agent wrapper.
+CodeLens is exploring a move from shared coordination/verification toward a
+bounded code-work orchestrator, per
+[ADR-0014](adr/ADR-0014-bounded-code-work-orchestrator.md). Separate what ships
+today from where that ADR points:
+
+- **Today (shipped).** `orchestrate_change` produces an *advisory dry-run*
+  orchestration plan. It emits a `dry_run: true` artifact and performs no file
+  mutation of its own. Approval is session-scoped and held in memory only, so
+  it is lost when the daemon restarts. The plan is never self-enforcing; it is
+  enforced opt-in, only when a subsequent mutation call passes the matching
+  `orchestration_run_id` through the mutation gate.
+- **Direction (ADR-0014, not yet built).** A durable, typed code-work run
+  state machine — with a persistent audit trail, preflight, approval, dispatch,
+  and verification flow that survives restarts — is a future candidate, not
+  current behavior.
+
+Either way, the host still owns the general chat/runtime loop and any
+host-specific agent wrapper.
 
 ## Delegate Scaffold Correlation
 

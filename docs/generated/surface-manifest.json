@@ -325,7 +325,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 252
+        "estimated_tokens": 290
       },
       {
         "name": "module_boundary_report",
@@ -748,7 +748,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 125
+        "estimated_tokens": 156
       },
       {
         "name": "read_memory",
@@ -757,7 +757,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 86
+        "estimated_tokens": 122
       },
       {
         "name": "write_memory",
@@ -766,7 +766,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 94
+        "estimated_tokens": 124
       },
       {
         "name": "delete_memory",
@@ -775,7 +775,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 89
+        "estimated_tokens": 120
       },
       {
         "name": "rename_memory",

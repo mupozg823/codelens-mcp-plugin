@@ -210,8 +210,15 @@ pub(crate) const TOMBSTONED_TOOLS: &[(&str, &str)] = &[
     ),
 ];
 
-/// Pending ADR-0009/D3 (#346): the symbolic edit core remains dispatch-only
-/// — callable but schemaless — until the re-listing decision.
+/// ADR-0009/D3 (#346) — **Decided 2026-07-03: keep dispatch-only (internal).**
+/// The symbolic edit core stays callable-but-schemaless rather than being
+/// re-listed. Rationale: host harnesses route schema-exposed symbolic edits
+/// through a dedicated editor (Serena et al.), while the `:7838` mutation
+/// daemon must keep calling these tools behind the mutation gate. Re-exposure
+/// is conditioned on evidence of host demand with no symbolic editor **and**
+/// a mature authoritative-apply path in the LSP backend. (The `PENDING_D3_`
+/// prefix is retained because CI drift gates and runtime report vocabulary
+/// key off these identifiers — see [`PENDING_D3_ALLOWLIST`].)
 pub(crate) const PENDING_D3_SYMBOLIC_EDIT_CORE: &[&str] = &[
     "replace_symbol_body",
     "insert_before_symbol",
@@ -219,8 +226,10 @@ pub(crate) const PENDING_D3_SYMBOLIC_EDIT_CORE: &[&str] = &[
     "rename_symbol",
 ];
 
-/// Pending ADR-0009/D3 (#346): substrate-preservation arms kept dispatch-only
-/// until the safe-delete/refactor-substrate decision.
+/// ADR-0009/D3 (#346) — **Decided 2026-07-03: keep dispatch-only (internal).**
+/// The substrate-preservation arms follow the same decision as
+/// [`PENDING_D3_SYMBOLIC_EDIT_CORE`]: retained dispatch-only behind the
+/// mutation gate, re-exposure gated on the same conditions.
 pub(crate) const PENDING_D3_REFACTOR_SUBSTRATE: &[&str] = &[
     "refactor_extract_function",
     "refactor_inline_function",
