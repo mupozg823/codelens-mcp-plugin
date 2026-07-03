@@ -28,7 +28,7 @@
 
 use super::rank_fusion::{
     annotate_ranked_context_provenance, compact_semantic_evidence, compact_sparse_evidence,
-    fuse_ranked_entries_weighted_rrf,
+    fuse_ranked_entries_weighted_rrf, resolve_rrf_channel_weights,
 };
 use super::retrieval_scope::normalize_path_scope;
 use super::sparse_retriever::{adapt_budget_to_context_window, sparse_symbol_hits_for_query};
@@ -44,6 +44,49 @@ use crate::tool_runtime::{
 use crate::tools::query_analysis::analyze_retrieval_query;
 use crate::tools::semantic_retriever::semantic_results_for_query;
 use serde_json::{Value, json};
+use std::path::Path;
+
+/// Weight given to working-set anchor files in the user-context RRF lane.
+/// The recency lane tops out at 1.0, so a value above that guarantees
+/// anchored files sort into the lane's top slots.
+const ANCHOR_CONTEXT_SCORE: f64 = 2.0;
+
+/// Parse the optional `anchor_files` argument into de-duplicated,
+/// repo-relative paths. Reuses `normalize_path_scope` so absolute paths,
+/// `./` prefixes, and trailing slashes normalize the same way the `path`
+/// scope does. Non-string / empty entries are dropped.
+fn parse_anchor_files(arguments: &Value, project_root: &Path) -> Vec<String> {
+    let Some(items) = arguments.get("anchor_files").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut anchors: Vec<String> = Vec::new();
+    for item in items {
+        let Some(raw) = item.as_str() else {
+            continue;
+        };
+        if let Some(normalized) = normalize_path_scope(project_root, Some(raw))
+            && !anchors.contains(&normalized)
+        {
+            anchors.push(normalized);
+        }
+    }
+    anchors
+}
+
+/// Fold anchor files into the user-context lane scores. Anchors are lifted
+/// to at least [`ANCHOR_CONTEXT_SCORE`]; an existing (recency) score for
+/// the same file is raised, never lowered.
+fn merge_anchor_context_scores(
+    scores: &mut std::collections::HashMap<String, f64>,
+    anchor_files: &[String],
+) {
+    for file in anchor_files {
+        scores
+            .entry(file.clone())
+            .and_modify(|s| *s = s.max(ANCHOR_CONTEXT_SCORE))
+            .or_insert(ANCHOR_CONTEXT_SCORE);
+    }
+}
 
 pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     // P1-B — surface unknown_args. No `limit`/`top_k` alias here:
@@ -63,6 +106,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         "logical_session_id",
         "harness_phase",
         "lsp_boost",
+        "anchor_files",
     ];
     let query = required_string(arguments, "query")?;
     let query_analysis = analyze_retrieval_query(query);
@@ -170,7 +214,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             .map(|(idx, file)| (file.clone(), 1.0_f64 - (idx as f64 * 0.15)))
             .collect::<std::collections::HashMap<String, f64>>()
     };
-    let user_context_scores: std::collections::HashMap<String, f64> = {
+    let mut user_context_scores: std::collections::HashMap<String, f64> = {
         #[cfg(feature = "semantic")]
         {
             if use_semantic_in_core {
@@ -216,6 +260,15 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         }
     };
 
+    // Working-set anchors: repo-relative files the session is actively
+    // editing. We fold them into the user-context lane at a weight above
+    // the recency ceiling so their symbols surface, reusing the existing
+    // lane's file-membership weighting instead of recomputing centrality.
+    let anchor_files = parse_anchor_files(arguments, state.project().as_path());
+    if !anchor_files.is_empty() {
+        merge_anchor_context_scores(&mut user_context_scores, &anchor_files);
+    }
+
     // v1.10.1: when `expand_query=false`, use the user's literal query
     // for retrieval. The default keeps the n-gram expansion path so
     // partial-identifier queries still match across snake_case /
@@ -245,6 +298,18 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         .map(|entry| format!("{}:{}", entry.file, entry.name))
         .collect::<std::collections::HashSet<_>>();
 
+    // CODELENS_RRF_ADAPTIVE=1 (experimental, default off): shift the
+    // semantic/sparse channel weights by query shape. Flag off keeps the
+    // shipped static weights, so default ranking is untouched.
+    let rrf_adaptive = std::env::var("CODELENS_RRF_ADAPTIVE")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let channel_weights = resolve_rrf_channel_weights(
+        rrf_adaptive,
+        query_analysis.prefer_lexical_only,
+        query_analysis.natural_language,
+    );
+
     // Weighted RRF를 적용해 네 검색 차선(Structural, Semantic, Sparse, UserContext)을 통합적으로 융합합니다.
     fuse_ranked_entries_weighted_rrf(
         query,
@@ -262,6 +327,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         8,
         6,
         Some(&user_context_scores),
+        channel_weights,
     );
 
     // Phase 3: adaptive granularity based on token budget
@@ -400,6 +466,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
 
 #[cfg(test)]
 mod tests {
+    use super::super::rank_fusion::RrfChannelWeights;
     use super::*;
     use crate::symbol_corpus::SymbolDocument;
     use crate::symbol_retrieval::ScoredSymbol;
@@ -596,6 +663,7 @@ mod tests {
             8,
             6,
             Some(&std::collections::HashMap::new()),
+            RrfChannelWeights::DEFAULT,
         );
 
         assert_eq!(result.symbols[0].name, "symbol_b");
@@ -606,5 +674,101 @@ mod tests {
 
         assert_eq!(result.symbols[2].name, "symbol_c");
         assert_eq!(result.symbols[2].relevance_score, 1);
+    }
+
+    #[test]
+    fn parse_anchor_files_normalizes_dedups_and_drops_invalid() {
+        let root = std::path::Path::new("/workspace/project");
+        let arguments = json!({
+            "anchor_files": [
+                "./src/a.rs",
+                "/workspace/project/src/a.rs", // same file, absolute form
+                "src/b.rs",
+                "   ",                          // blank → dropped
+                42,                             // non-string → dropped
+            ]
+        });
+        let anchors = parse_anchor_files(&arguments, root);
+        assert_eq!(anchors, vec!["src/a.rs".to_owned(), "src/b.rs".to_owned()]);
+    }
+
+    #[test]
+    fn merge_anchor_context_scores_lifts_but_never_lowers() {
+        let mut scores = std::collections::HashMap::from([
+            ("src/recent.rs".to_owned(), 0.85_f64),
+            ("src/a.rs".to_owned(), 3.0_f64), // already above the anchor floor
+        ]);
+        merge_anchor_context_scores(&mut scores, &["src/a.rs".to_owned(), "src/b.rs".to_owned()]);
+        // New anchor injected at the floor.
+        assert_eq!(scores.get("src/b.rs"), Some(&ANCHOR_CONTEXT_SCORE));
+        // Existing higher score is preserved, not lowered.
+        assert_eq!(scores.get("src/a.rs"), Some(&3.0));
+        // Untouched recency entry survives.
+        assert_eq!(scores.get("src/recent.rs"), Some(&0.85));
+    }
+
+    fn anchor_fixture_result() -> RankedContextResult {
+        RankedContextResult {
+            query: "shared name".to_owned(),
+            count: 2,
+            token_budget: 1200,
+            chars_used: 128,
+            symbols: vec![
+                // Higher structural rank (listed first) but NOT anchored.
+                RankedContextEntry {
+                    name: "symbol_other".to_owned(),
+                    kind: "function".to_owned(),
+                    file: "src/other.rs".to_owned(),
+                    line: 1,
+                    signature: "fn symbol_other".to_owned(),
+                    body: None,
+                    relevance_score: 90,
+                },
+                // Lower structural rank, lives in the anchored file.
+                RankedContextEntry {
+                    name: "symbol_anchor".to_owned(),
+                    kind: "function".to_owned(),
+                    file: "src/anchor.rs".to_owned(),
+                    line: 10,
+                    signature: "fn symbol_anchor".to_owned(),
+                    body: None,
+                    relevance_score: 80,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn anchor_files_promote_anchored_symbol_above_non_anchored() {
+        // Baseline: no anchors → the higher-structural symbol wins.
+        let mut baseline = anchor_fixture_result();
+        fuse_ranked_entries_weighted_rrf(
+            "shared name",
+            &mut baseline,
+            Vec::new(),
+            Vec::new(),
+            8,
+            6,
+            Some(&std::collections::HashMap::new()),
+            RrfChannelWeights::DEFAULT,
+        );
+        assert_eq!(baseline.symbols[0].name, "symbol_other");
+
+        // With src/anchor.rs anchored, its symbol is boosted above the
+        // otherwise higher-ranked symbol from a non-anchored file.
+        let mut anchored = anchor_fixture_result();
+        let mut user_context_scores = std::collections::HashMap::new();
+        merge_anchor_context_scores(&mut user_context_scores, &["src/anchor.rs".to_owned()]);
+        fuse_ranked_entries_weighted_rrf(
+            "shared name",
+            &mut anchored,
+            Vec::new(),
+            Vec::new(),
+            8,
+            6,
+            Some(&user_context_scores),
+            RrfChannelWeights::DEFAULT,
+        );
+        assert_eq!(anchored.symbols[0].name, "symbol_anchor");
     }
 }

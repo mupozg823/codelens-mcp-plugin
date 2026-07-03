@@ -118,7 +118,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 871
+        "estimated_tokens": 946
       },
       {
         "name": "bm25_symbol_search",

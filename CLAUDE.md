@@ -298,7 +298,7 @@ The four read-hot symbol tools (`find_referencing_symbols`, `find_symbol`, `get_
 
 Buckets (newest `files.indexed_at` vs wall-clock): `fresh` < 60s · `recent` 60s..600s · `possibly_stale` 600s..3600s · `stale` ≥ 3600s. When `refresh_recommended: true`, the response also prepends `refresh_symbol_index` to `suggested_next_tools` so an agent doesn't need to know the recovery path — just follow the chain.
 
-If you're driving the harness manually, call `refresh_symbol_index` once after a large file move/rename burst (e.g. multi-file refactor) — the daemon does not auto-watch for changes.
+The daemon auto-watches the project: `FileWatcher` (300ms debounce, incremental per-file re-index, rename/tombstone handling) is started on the standard daemon and project-activation paths (`state/constructors.rs`, `state/project_accessors.rs` → `build_project_runtime_context(project, true)`). `refresh_symbol_index` remains useful as a forced full reconciliation — after a large move/rename burst you want reflected immediately, or in minimal/one-shot constructions where the watcher is not started (watcher start failure degrades silently to no watcher).
 
 ## Schema Pre-Validation
 

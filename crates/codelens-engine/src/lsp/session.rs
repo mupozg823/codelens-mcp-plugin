@@ -141,6 +141,28 @@ impl LspSessionPool {
             .len()
     }
 
+    /// Non-spawning warmth probe for the latency-sensitive default reference
+    /// path. Returns `true` only when a live LSP session for `command`+`args`
+    /// is already resident (child process still running). It **never spawns**
+    /// a server — a cold or absent language returns `false` and leaves the
+    /// pool untouched, so callers can gate precise LSP routing on warmth
+    /// without risking a 2-30s cold start. Stale (exited) sessions are reaped
+    /// as a side effect, mirroring `ensure_session`.
+    pub fn has_warm_session(&self, command: &str, args: &[String]) -> bool {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let key = SessionKey::new(command, args);
+        match sessions.get_mut(&key) {
+            Some(session) => match session.child.try_wait() {
+                Ok(None) => true,
+                _ => {
+                    sessions.remove(&key);
+                    false
+                }
+            },
+            None => false,
+        }
+    }
+
     pub fn find_referencing_symbols(&self, request: &LspRequest) -> Result<Vec<LspReference>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let session = ensure_session(
@@ -150,6 +172,36 @@ impl LspSessionPool {
             &request.args,
         )?;
         session.find_references(request)
+    }
+
+    /// Same as [`find_referencing_symbols`], but also reports whether *this*
+    /// call had to spawn the LSP server (a cold start). `false` means an
+    /// already-resident warm session was reused. The warmth check and the
+    /// spawn decision happen under the same lock, so the flag is race-free for
+    /// this call: a caller that gated on an earlier `has_warm_session` probe
+    /// can use it to detect the rare TOCTOU case where the server died between
+    /// the probe and this request and had to be respawned mid-flight. Routing
+    /// is unchanged — the flag only lets the caller describe what happened.
+    pub fn find_referencing_symbols_tracking_spawn(
+        &self,
+        request: &LspRequest,
+    ) -> Result<(Vec<LspReference>, bool)> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let key = SessionKey::new(&request.command, &request.args);
+        // A live child for this key means `ensure_session` reuses it (no
+        // spawn); its absence or a dead child means it will spawn below.
+        let was_warm = sessions
+            .get_mut(&key)
+            .map(|session| matches!(session.child.try_wait(), Ok(None)))
+            .unwrap_or(false);
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
+        let references = session.find_references(request)?;
+        Ok((references, !was_warm))
     }
 
     pub fn get_diagnostics(&self, request: &LspDiagnosticRequest) -> Result<Vec<LspDiagnostic>> {
@@ -555,5 +607,33 @@ impl Drop for LspSession {
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+#[cfg(test)]
+mod warm_probe_tests {
+    use super::*;
+
+    fn temp_project() -> ProjectRoot {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-warmprobe-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        ProjectRoot::new(dir.to_str().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn has_warm_session_is_false_and_non_spawning_when_cold() {
+        let pool = LspSessionPool::new(temp_project());
+        // A cold language must probe `false` — no session was ever started.
+        assert!(!pool.has_warm_session("pyright-langserver", &["--stdio".to_owned()]));
+        // ...and the probe must not have spawned anything: the pool stays
+        // empty, preserving the default path's no-cold-start latency contract.
+        assert_eq!(pool.session_count(), 0);
     }
 }
