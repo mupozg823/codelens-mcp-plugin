@@ -2,11 +2,15 @@
 """Per-tool response token profiler (MCP Interviewer prescription).
 
 Fires a fixed suite of read-only probe calls at the already-running daemon
-(default http://127.0.0.1:7839), measures the actual response size of each tool
-(chars, approx tokens = chars / 4), and compares against the declared
-``estimated_tokens`` in docs/generated/surface-manifest.json. Tools whose
-measured tokens exceed their estimate by more than the threshold (default 2x)
-are flagged.
+(default http://127.0.0.1:7839) and measures the actual response size of each
+tool (chars, approx tokens = chars / 4). Tools whose measured response exceeds
+an absolute budget (default 1500 tokens) are flagged as heavy.
+
+The manifest's ``estimated_tokens`` is reported as a side column named
+``schema_tokens`` for context only: that field measures the serialized size of
+the TOOL DEFINITION (its context-window cost in tools/list), not an expected
+response size — comparing response tokens against it as a ratio is a category
+error (an earlier revision of this script did exactly that).
 
 - read-only probes only; never calls a mutation tool.
 - probes are intersected with the daemon's active surface (tools/list), so
@@ -61,10 +65,10 @@ def parse_args():
     p.add_argument("--manifest", default=DEFAULT_MANIFEST)
     p.add_argument("--chars-per-token", type=float, default=4.0)
     p.add_argument(
-        "--threshold",
+        "--response-budget",
         type=float,
-        default=2.0,
-        help="Flag tools whose actual tokens exceed estimate by this factor",
+        default=1500.0,
+        help="Flag tools whose measured response exceeds this many tokens",
     )
     p.add_argument("--output", default=None, help="Optional JSON output path")
     return p.parse_args()
@@ -156,23 +160,21 @@ def profile(args) -> dict:
             continue
         chars = response_chars(raw)
         actual_tokens = round(chars / args.chars_per_token)
-        estimate = estimates.get(tool)
-        ratio = (actual_tokens / estimate) if estimate else None
-        flagged = bool(estimate and actual_tokens > estimate * args.threshold)
+        schema_tokens = estimates.get(tool)
+        flagged = actual_tokens > args.response_budget
         records.append(
             {
                 "tool": tool,
                 "status": "measured",
                 "actual_chars": chars,
                 "actual_tokens": actual_tokens,
-                "estimated_tokens": estimate,
-                "ratio": ratio,
+                "schema_tokens": schema_tokens,
                 "flagged": flagged,
             }
         )
     return {
         "skipped": False,
-        "threshold": args.threshold,
+        "response_budget": args.response_budget,
         "chars_per_token": args.chars_per_token,
         "records": records,
         "flagged": [r["tool"] for r in records if r.get("flagged")],
@@ -183,26 +185,30 @@ def render(report: dict) -> str:
     if report.get("skipped"):
         return f"Profiler skipped: {report.get('reason')}\n"
     lines = ["# Tool Response Token Profile", ""]
-    lines.append(f"- Flag threshold: actual > estimate x {report['threshold']}")
+    lines.append(f"- Flag: measured response > {report['response_budget']:.0f} tokens")
     lines.append(f"- chars/token: {report['chars_per_token']}")
+    lines.append(
+        "- schema_tokens = serialized tool-DEFINITION cost in tools/list "
+        "(context cost), shown for reference only — not a response estimate"
+    )
     lines.append("")
-    lines.append("| Tool | Actual tokens | Estimated | Ratio | Flag |")
-    lines.append("| --- | --- | --- | --- | --- |")
+    lines.append("| Tool | Response tokens | Schema tokens | Flag |")
+    lines.append("| --- | --- | --- | --- |")
     for r in report["records"]:
         if r["status"] != "measured":
-            lines.append(f"| {r['tool']} | — | — | — | {r['status']} |")
+            lines.append(f"| {r['tool']} | — | — | {r['status']} |")
             continue
-        ratio = f"{r['ratio']:.2f}x" if r["ratio"] is not None else "n/a"
-        flag = "OVER" if r["flagged"] else ""
+        flag = "HEAVY" if r["flagged"] else ""
         lines.append(
-            f"| {r['tool']} | {r['actual_tokens']} | {r['estimated_tokens']} | {ratio} | {flag} |"
+            f"| {r['tool']} | {r['actual_tokens']} | {r['schema_tokens']} | {flag} |"
         )
     lines.append("")
     if report["flagged"]:
-        lines.append(f"**Flagged (actual > {report['threshold']}x estimate):** "
-                     + ", ".join(report["flagged"]))
+        lines.append(
+            f"**Heavy responses (> {report['response_budget']:.0f} tokens):** "
+            + ", ".join(report["flagged"]))
     else:
-        lines.append("No tools exceeded the threshold.")
+        lines.append("No tool exceeded the response budget.")
     return "\n".join(lines) + "\n"
 
 

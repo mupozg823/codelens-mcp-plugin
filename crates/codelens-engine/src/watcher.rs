@@ -50,6 +50,9 @@ impl FileWatcher {
         let events_clone = events_processed.clone();
         let files_clone = files_reindexed.clone();
         let contention_clone = lock_contention_batches.clone();
+        // Owned copy for the move-closure: exclusion is evaluated relative to
+        // the watched root so dot-directory ancestors don't drop events (#358).
+        let watch_root = root.to_path_buf();
 
         let mut debouncer = new_debouncer(
             Duration::from_millis(300),
@@ -87,7 +90,7 @@ impl FileWatcher {
                 events_clone.fetch_add(events.len() as u64, Ordering::Relaxed);
 
                 // Normalize through VFS layer (filters, deduplicates, detects renames)
-                let file_events = vfs::normalize_events(&raw_changed, &raw_removed);
+                let file_events = vfs::normalize_events(&watch_root, &raw_changed, &raw_removed);
                 let (changed, removed, renamed) = vfs::partition_events(&file_events);
 
                 debug!(

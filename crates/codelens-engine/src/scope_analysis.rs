@@ -4,7 +4,7 @@
 
 use crate::db::{IndexDb, index_db_path};
 use crate::project::ProjectRoot;
-use crate::project::is_excluded;
+use crate::project::is_excluded_within;
 use crate::symbols::language_for_path;
 use anyhow::Result;
 use serde::Serialize;
@@ -207,7 +207,7 @@ pub fn find_scoped_references(
         // Fallback: full walk
         for entry in WalkDir::new(project.as_path())
             .into_iter()
-            .filter_entry(|e| !is_excluded(e.path()))
+            .filter_entry(|e| !is_excluded_within(project.as_path(), e.path()))
         {
             let entry = entry?;
             if !entry.file_type().is_file() {

@@ -82,10 +82,18 @@ echo -e "Project : $PROJECT_PATH"
 echo -e "Binary  : $BINARY"
 echo
 
-echo -e "${CYAN}[1/2] Building release binary...${RESET}"
-cargo build --release --manifest-path "$(dirname "$(dirname "$BINARY")")/Cargo.toml" 2>&1 ||
-	cargo build --release 2>&1 ||
-	die "cargo build --release failed"
+echo -e "${CYAN}[1/2] Preparing binary...${RESET}"
+# Never rebuild over an existing binary: a bare `cargo build --release`
+# clobbers feature-rich builds (http/semantic/coreml) with a default-feature
+# binary, silently disabling semantic tools for every later consumer of
+# target/release (daemon redeploys, MRR harnesses). Only build when missing.
+if [[ -x "$BINARY" ]]; then
+	echo "  using existing binary (skipping rebuild to preserve its feature set)"
+else
+	cargo build --release --manifest-path "$(dirname "$(dirname "$BINARY")")/Cargo.toml" 2>&1 ||
+		cargo build --release 2>&1 ||
+		die "cargo build --release failed"
+fi
 
 [[ -x "$BINARY" ]] || die "Binary not found: $BINARY"
 echo -e "${GREEN}Build OK${RESET}"

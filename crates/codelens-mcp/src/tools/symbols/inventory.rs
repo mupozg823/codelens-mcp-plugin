@@ -23,7 +23,7 @@ pub fn refresh_symbol_index(state: &AppState, _arguments: &Value) -> ToolResult 
     #[cfg(feature = "semantic")]
     let mut payload = json!(stats);
     #[cfg(not(feature = "semantic"))]
-    let payload = json!(stats);
+    let mut payload = json!(stats);
     #[cfg(feature = "semantic")]
     {
         let project = state.project();
@@ -50,6 +50,27 @@ pub fn refresh_symbol_index(state: &AppState, _arguments: &Value) -> ToolResult 
                 }
             }
         }
+    }
+    // #358 defense-in-depth: a zero-file refresh is almost always a
+    // misconfiguration (wrong project binding, over-broad excludes) or a
+    // discovery defect — flag it instead of returning a bare success the
+    // caller mistakes for a healthy empty index.
+    if let Some(map) = payload.as_object_mut()
+        && map
+            .get("supported_files")
+            .and_then(Value::as_u64)
+            .is_some_and(|count| count == 0)
+    {
+        map.insert(
+            "warning".to_owned(),
+            json!({
+                "code": "zero_supported_files",
+                "message": "No supported files were discovered under the project root. \
+                            Verify the project binding points at the intended workspace \
+                            and check .codelens/config.json exclude patterns — a wrong \
+                            root or over-broad excludes silently yield an empty index.",
+            }),
+        );
     }
     Ok((payload, success_meta(BackendKind::TreeSitter, 0.95)))
 }
