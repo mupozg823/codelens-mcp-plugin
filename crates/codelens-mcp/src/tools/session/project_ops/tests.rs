@@ -4,6 +4,7 @@ use super::prep_recovery::{
 };
 use super::prep_warnings::{
     append_prepare_harness_warning_from_guidance, push_prepare_harness_warning_with_extras,
+    watcher_unavailable_warning,
 };
 use super::util::is_anonymized_agent_project_name;
 use crate::tool_defs::{ToolProfile, ToolSurface};
@@ -230,4 +231,37 @@ fn anonymized_agent_project_name_handles_edge_cases() {
     assert!(!is_anonymized_agent_project_name("agent-"));
     assert!(!is_anonymized_agent_project_name("foo-agent-aaaaaaaaaaaa"));
     assert!(!is_anonymized_agent_project_name("AGENT-aaaaaaaaaaaa")); // case sensitive
+}
+
+/// P4.1: a failed watcher start must surface as a `watcher_unavailable`
+/// bootstrap warning carrying the underlying error string, so the
+/// caller knows the index will not auto-update on edits.
+#[test]
+fn watcher_unavailable_warning_includes_error_string() {
+    let warning = watcher_unavailable_warning(Some("too many open files (os error 24)"))
+        .expect("error must produce a warning");
+    let warning = warning.as_object().expect("warning is object");
+    assert_eq!(warning["code"], json!("watcher_unavailable"));
+    let message = warning["message"].as_str().expect("message is string");
+    assert!(
+        message.contains("too many open files (os error 24)"),
+        "message must carry the underlying error: {message}"
+    );
+    assert!(
+        message.contains("will NOT auto-update"),
+        "message must state the staleness consequence: {message}"
+    );
+    assert_eq!(warning["restart_recommended"], json!(true));
+    assert_eq!(
+        warning["recommended_action"],
+        json!("run refresh_symbol_index after edits, or restart the daemon")
+    );
+    assert_eq!(warning["action_target"], json!("file_watcher"));
+}
+
+/// P4.1: no watcher error (running watcher, or intentionally
+/// watcher-less one-shot construction) must emit no warning.
+#[test]
+fn watcher_unavailable_warning_absent_without_error() {
+    assert!(watcher_unavailable_warning(None).is_none());
 }

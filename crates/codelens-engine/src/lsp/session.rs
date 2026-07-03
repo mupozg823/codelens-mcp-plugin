@@ -425,65 +425,33 @@ impl LspSession {
             stderr_buffer,
             server_quiescent: None,
         };
-        session.initialize()?;
+        session.initialize(command)?;
         if let Some(grace) = configured_startup_grace() {
             thread::sleep(grace);
         }
         Ok(session)
     }
 
-    fn initialize(&mut self) -> Result<()> {
+    fn initialize(&mut self, command: &str) -> Result<()> {
         let id = self.next_id();
         let root_uri = Url::from_directory_path(self.project.as_path())
             .ok()
             .map(|url| url.to_string());
+        let workspace_name = self
+            .project
+            .as_path()
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("workspace")
+            .to_owned();
         self.send_request(
             id,
             "initialize",
-            json!({
-                "processId":null,
-                "rootUri": root_uri,
-                "capabilities":{
-                    "workspace":{
-                        "workspaceEdit":{
-                            "documentChanges":true,
-                            "resourceOperations":["create","rename","delete"],
-                            "failureHandling":"textOnlyTransactional"
-                        },
-                        "symbol":{"dynamicRegistration":false}
-                    },
-                    "textDocument":{
-                        "declaration":{"dynamicRegistration":false},
-                        "definition":{"dynamicRegistration":false},
-                        "implementation":{"dynamicRegistration":false},
-                        "typeDefinition":{"dynamicRegistration":false},
-                        "references":{"dynamicRegistration":false},
-                        "rename":{"dynamicRegistration":false,"prepareSupport":true},
-                        "diagnostic":{"dynamicRegistration":false},
-                        "typeHierarchy":{"dynamicRegistration":false},
-                        "codeAction":{
-                            "dynamicRegistration":false,
-                            "codeActionLiteralSupport":{
-                                "codeActionKind":{
-                                    "valueSet":["quickfix","refactor","refactor.extract","refactor.inline","refactor.rewrite"]
-                                }
-                            },
-                            "resolveSupport":{"properties":["edit","command"]}
-                        }
-                    },
-                    // P1.1: rust-analyzer only emits `experimental/serverStatus`
-                    // (the quiescence/readiness signal) when the client
-                    // advertises support for it. Servers that don't know the
-                    // extension ignore it.
-                    "experimental":{"serverStatusNotification":true}
-                },
-                "workspaceFolders":[
-                    {
-                        "uri": Url::from_directory_path(self.project.as_path()).ok().map(|url| url.to_string()),
-                        "name": self.project.as_path().file_name().and_then(|n| n.to_str()).unwrap_or("workspace")
-                    }
-                ]
-            }),
+            initialize_params(
+                root_uri,
+                &workspace_name,
+                initialization_options_for_command(command),
+            ),
         )?;
         let _ = self.read_response_for_id(id)?;
         self.send_notification("initialized", json!({}))?;
@@ -721,6 +689,86 @@ fn server_request_reply_payload(
     }
 }
 
+/// Server-specific `initializationOptions` table (P1.1c).
+///
+/// Extension policy: officially documented options only, and the minimum
+/// set per server — an unknown or unlisted server MUST get `None`, which
+/// sends `initialize` without an `initializationOptions` field at all.
+/// Matching is on the binary file name (mirroring `is_allowed_lsp_command`)
+/// so path-qualified commands hit the same entry.
+fn initialization_options_for_command(command: &str) -> Option<Value> {
+    let binary = Path::new(command)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(command);
+    match binary {
+        // rust-analyzer (documented option): this client only drives
+        // references/navigation, never reads save-time diagnostics, so
+        // `cargo check` on save is pure daemon CPU cost.
+        "rust-analyzer" => Some(json!({"checkOnSave": false})),
+        _ => None,
+    }
+}
+
+/// Build the `initialize` request params. The capabilities payload is
+/// invariant across servers; `initialization_options` is attached as the
+/// `initializationOptions` field only when `Some` — a `None` entry must
+/// produce the exact pre-P1.1c params shape (no empty/null field).
+fn initialize_params(
+    root_uri: Option<String>,
+    workspace_name: &str,
+    initialization_options: Option<Value>,
+) -> Value {
+    let mut params = json!({
+        "processId":null,
+        "rootUri": root_uri.clone(),
+        "capabilities":{
+            "workspace":{
+                "workspaceEdit":{
+                    "documentChanges":true,
+                    "resourceOperations":["create","rename","delete"],
+                    "failureHandling":"textOnlyTransactional"
+                },
+                "symbol":{"dynamicRegistration":false}
+            },
+            "textDocument":{
+                "declaration":{"dynamicRegistration":false},
+                "definition":{"dynamicRegistration":false},
+                "implementation":{"dynamicRegistration":false},
+                "typeDefinition":{"dynamicRegistration":false},
+                "references":{"dynamicRegistration":false},
+                "rename":{"dynamicRegistration":false,"prepareSupport":true},
+                "diagnostic":{"dynamicRegistration":false},
+                "typeHierarchy":{"dynamicRegistration":false},
+                "codeAction":{
+                    "dynamicRegistration":false,
+                    "codeActionLiteralSupport":{
+                        "codeActionKind":{
+                            "valueSet":["quickfix","refactor","refactor.extract","refactor.inline","refactor.rewrite"]
+                        }
+                    },
+                    "resolveSupport":{"properties":["edit","command"]}
+                }
+            },
+            // P1.1: rust-analyzer only emits `experimental/serverStatus`
+            // (the quiescence/readiness signal) when the client
+            // advertises support for it. Servers that don't know the
+            // extension ignore it.
+            "experimental":{"serverStatusNotification":true}
+        },
+        "workspaceFolders":[
+            {
+                "uri": root_uri,
+                "name": workspace_name
+            }
+        ]
+    });
+    if let Some(options) = initialization_options {
+        params["initializationOptions"] = options;
+    }
+    params
+}
+
 fn configured_startup_grace() -> Option<Duration> {
     let millis = std::env::var("CODELENS_LSP_STARTUP_GRACE_MS")
         .ok()
@@ -782,6 +830,81 @@ mod warm_probe_tests {
             "no live session must report outer None (not 'unknown readiness')"
         );
         assert_eq!(pool.session_count(), 0, "readiness probe must not spawn");
+    }
+}
+
+#[cfg(test)]
+mod initialization_options_tests {
+    use super::*;
+
+    #[test]
+    fn rust_analyzer_disables_check_on_save() {
+        assert_eq!(
+            initialization_options_for_command("rust-analyzer"),
+            Some(json!({"checkOnSave": false}))
+        );
+    }
+
+    #[test]
+    fn path_qualified_rust_analyzer_hits_the_same_entry() {
+        // Matching mirrors `is_allowed_lsp_command`: basename, not raw string.
+        assert_eq!(
+            initialization_options_for_command("/opt/homebrew/bin/rust-analyzer"),
+            Some(json!({"checkOnSave": false}))
+        );
+    }
+
+    #[test]
+    fn unknown_servers_get_none() {
+        for command in [
+            "pyright-langserver",
+            "typescript-language-server",
+            "gopls",
+            "clangd",
+            "not-an-lsp",
+        ] {
+            assert_eq!(
+                initialization_options_for_command(command),
+                None,
+                "{command} must not receive initializationOptions"
+            );
+        }
+    }
+
+    #[test]
+    fn initialize_params_omits_options_field_when_none() {
+        let params = initialize_params(Some("file:///tmp/proj/".to_owned()), "proj", None);
+        assert!(
+            params.get("initializationOptions").is_none(),
+            "None must omit the field entirely (no null/empty placeholder)"
+        );
+    }
+
+    #[test]
+    fn initialize_params_attaches_options_when_some() {
+        let options = json!({"checkOnSave": false});
+        let params = initialize_params(
+            Some("file:///tmp/proj/".to_owned()),
+            "proj",
+            Some(options.clone()),
+        );
+        assert_eq!(params.get("initializationOptions"), Some(&options));
+    }
+
+    #[test]
+    fn options_do_not_alter_the_rest_of_the_params() {
+        // Capabilities/rootUri/workspaceFolders must be invariant across
+        // servers — the table only ever adds the one extra field.
+        let root_uri = Some("file:///tmp/proj/".to_owned());
+        let without = initialize_params(root_uri.clone(), "proj", None);
+        let mut with = initialize_params(root_uri, "proj", Some(json!({"checkOnSave": false})));
+        assert!(
+            with.as_object_mut()
+                .expect("params is an object")
+                .remove("initializationOptions")
+                .is_some()
+        );
+        assert_eq!(with, without);
     }
 }
 

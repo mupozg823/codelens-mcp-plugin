@@ -76,6 +76,16 @@ impl AppState {
             .or_else(|| self.default_watcher.as_ref().map(FileWatcher::stats))
     }
 
+    /// Start-failure error of the active context's watcher, if any.
+    /// `None` means the watcher is running or was intentionally not
+    /// started. An explicit active context is authoritative — it never
+    /// falls through to the daemon default's error.
+    pub(crate) fn watcher_error(&self) -> Option<String> {
+        self.active_project_context()
+            .map(|context| context.watcher_error.clone())
+            .unwrap_or_else(|| self.default_watcher_error.clone())
+    }
+
     pub(crate) fn watcher_running(&self) -> bool {
         self.watcher_stats()
             .map(|stats| stats.running)

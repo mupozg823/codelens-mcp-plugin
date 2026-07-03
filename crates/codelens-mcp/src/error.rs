@@ -21,6 +21,15 @@ pub enum CodeLensError {
     #[error("Validation error: {0}")]
     Validation(String),
 
+    /// #347: content mutation on a shared-daemon HTTP session with no
+    /// explicit project binding — the write could land in the daemon's
+    /// default project instead of the caller's repository.
+    #[cfg(feature = "http")]
+    #[error(
+        "project_binding_required: tool `{tool}` is blocked because this HTTP session has no explicit project binding, so the mutation may target the wrong repository. Bind first via `prepare_harness_session` with project=<absolute workspace root>, `activate_project`, the `x-codelens-project` header, or initialize `params.project`. Operator override: CODELENS_ALLOW_UNBOUND_MUTATION=1."
+    )]
+    ProjectBindingRequired { tool: String },
+
     // ── Capability errors ─────────────────────────────────────────────
     /// Feature not available (e.g., semantic search without embeddings).
     #[cfg(feature = "semantic")]
@@ -92,6 +101,8 @@ impl CodeLensError {
             // User errors
             Self::NotFound(_) => -32000,
             Self::Validation(_) => -32003,
+            #[cfg(feature = "http")]
+            Self::ProjectBindingRequired { .. } => -32003,
             // Capability errors
             #[cfg(feature = "semantic")]
             Self::FeatureUnavailable(_) => -32002,
@@ -138,6 +149,11 @@ impl CodeLensError {
                 reason: "tree-sitter index satisfies most symbol lookups without LSP".to_owned(),
             }),
             Self::IndexNotReady(_) => Some(RecoveryHint::RetryAfterSeconds { seconds: 5 }),
+            #[cfg(feature = "http")]
+            Self::ProjectBindingRequired { .. } => Some(RecoveryHint::FallbackTool {
+                tool: "prepare_harness_session".to_owned(),
+                reason: "bind this session to a workspace: pass project=<absolute workspace root> (or attach the x-codelens-project header), then retry the mutation".to_owned(),
+            }),
             Self::Timeout { .. } => Some(RecoveryHint::FallbackTool {
                 tool: "start_analysis_job".to_owned(),
                 reason: "move heavy work to the durable job queue".to_owned(),
@@ -286,6 +302,36 @@ mod tests {
             })
         );
         assert_eq!(CodeLensError::Validation("x".into()).recovery_hint(), None);
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn project_binding_required_carries_code_and_recovery_hint() {
+        let err = CodeLensError::ProjectBindingRequired {
+            tool: "write_memory".into(),
+        };
+        assert_eq!(err.jsonrpc_code(), -32003);
+        let message = err.to_string();
+        assert!(
+            message.starts_with("project_binding_required:"),
+            "{message}"
+        );
+        assert!(message.contains("write_memory"), "{message}");
+        assert!(
+            message.contains("CODELENS_ALLOW_UNBOUND_MUTATION"),
+            "{message}"
+        );
+        match err.recovery_hint() {
+            Some(RecoveryHint::FallbackTool { tool, reason }) => {
+                assert_eq!(tool, "prepare_harness_session");
+                assert!(
+                    reason.contains("project=<absolute workspace root>"),
+                    "{reason}"
+                );
+                assert!(reason.contains("x-codelens-project"), "{reason}");
+            }
+            other => panic!("expected FallbackTool recovery hint, got {other:?}"),
+        }
     }
 
     #[cfg(feature = "semantic")]

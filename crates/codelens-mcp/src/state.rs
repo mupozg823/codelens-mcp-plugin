@@ -79,6 +79,9 @@ pub(crate) struct AppState {
     default_analysis_dir: PathBuf,
     default_audit_dir: PathBuf,
     default_watcher: Option<FileWatcher>,
+    /// `Some` only when the default project's watcher failed to start
+    /// (see `ProjectRuntimeContext::watcher_error`).
+    default_watcher_error: Option<String>,
     // Runtime project override (set by activate_project)
     project_override: std::sync::RwLock<Option<Arc<ProjectRuntimeContext>>>,
     project_context_cache: Mutex<ProjectContextCache>,
