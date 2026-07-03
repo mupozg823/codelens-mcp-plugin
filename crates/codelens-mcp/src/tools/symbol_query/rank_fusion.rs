@@ -21,6 +21,60 @@ pub(super) struct RankFusionPolicy {
     pub(super) sparse_limit: usize,
 }
 
+/// Per-lane weights applied inside weighted RRF. All tunable channel
+/// weights live here so the fusion loop never hard-codes them and the
+/// query-adaptive experiment (below) has a single source of truth.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct RrfChannelWeights {
+    pub(super) w_struct: f64,
+    pub(super) w_sem: f64,
+    pub(super) w_sparse: f64,
+    pub(super) w_user: f64,
+}
+
+impl RrfChannelWeights {
+    /// Default static weights. The flag-off ranking behaviour depends on
+    /// these being byte-for-byte the historical constants — do not retune
+    /// without an MRR regression pass.
+    pub(super) const DEFAULT: RrfChannelWeights = RrfChannelWeights {
+        w_struct: 1.0,
+        w_sem: 1.0,
+        w_sparse: 0.8,
+        w_user: 0.6,
+    };
+}
+
+/// Experimental (`CODELENS_RRF_ADAPTIVE=1`): shift the semantic/sparse
+/// channel weights by query shape. Exact-identifier queries lean on the
+/// sparse (BM25F) lane; natural-language queries lean on the dense
+/// semantic lane. When `adaptive` is false — the default — this returns
+/// [`RrfChannelWeights::DEFAULT`] unchanged so the shipped ranking is
+/// untouched.
+pub(super) fn resolve_rrf_channel_weights(
+    adaptive: bool,
+    exact_identifier: bool,
+    natural_language: bool,
+) -> RrfChannelWeights {
+    if !adaptive {
+        return RrfChannelWeights::DEFAULT;
+    }
+    if exact_identifier {
+        RrfChannelWeights {
+            w_sem: 0.6,
+            w_sparse: 1.0,
+            ..RrfChannelWeights::DEFAULT
+        }
+    } else if natural_language {
+        RrfChannelWeights {
+            w_sem: 1.2,
+            w_sparse: 0.6,
+            ..RrfChannelWeights::DEFAULT
+        }
+    } else {
+        RrfChannelWeights::DEFAULT
+    }
+}
+
 pub(super) fn rank_fusion_policy(
     query: &str,
     max_semantic: usize,
@@ -84,6 +138,7 @@ struct RankEntry {
     user_context_rank: Option<usize>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn fuse_ranked_entries_weighted_rrf(
     query: &str,
     result: &mut RankedContextResult,
@@ -92,6 +147,7 @@ pub(super) fn fuse_ranked_entries_weighted_rrf(
     max_semantic_entries: usize,
     max_sparse_entries: usize,
     user_context_scores: Option<&std::collections::HashMap<String, f64>>,
+    weights: RrfChannelWeights,
 ) {
     let policy = rank_fusion_policy(query, max_semantic_entries, max_sparse_entries);
     let mut entries_map = std::collections::HashMap::new();
@@ -184,10 +240,12 @@ pub(super) fn fuse_ranked_entries_weighted_rrf(
 
     // Weighted reciprocal-rank fusion.
     let k = 60.0;
-    let w_struct = 1.0;
-    let w_sem = 1.0;
-    let w_sparse = 0.8;
-    let w_user = 0.6;
+    let RrfChannelWeights {
+        w_struct,
+        w_sem,
+        w_sparse,
+        w_user,
+    } = weights;
 
     let mut scored_entries = Vec::new();
     for (_, entry) in entries_map {
@@ -350,6 +408,58 @@ pub(super) fn annotate_ranked_context_provenance(
                 "semantic_score": semantic_score,
                 "sparse_score": sparse_score,
             }),
+        );
+    }
+}
+
+#[cfg(test)]
+mod adaptive_weight_tests {
+    use super::{RrfChannelWeights, resolve_rrf_channel_weights};
+
+    #[test]
+    fn flag_off_always_returns_default_regardless_of_query_shape() {
+        // Default (flag off) must never diverge from the shipped weights,
+        // whatever the query classifier reports.
+        assert_eq!(
+            resolve_rrf_channel_weights(false, true, false),
+            RrfChannelWeights::DEFAULT
+        );
+        assert_eq!(
+            resolve_rrf_channel_weights(false, false, true),
+            RrfChannelWeights::DEFAULT
+        );
+        assert_eq!(
+            resolve_rrf_channel_weights(false, false, false),
+            RrfChannelWeights::DEFAULT
+        );
+    }
+
+    #[test]
+    fn flag_on_exact_identifier_leans_sparse() {
+        let w = resolve_rrf_channel_weights(true, true, false);
+        assert!(w.w_sparse > w.w_sem);
+        assert_eq!(w.w_sparse, 1.0);
+        assert_eq!(w.w_sem, 0.6);
+        // Structural / user lanes stay at their defaults.
+        assert_eq!(w.w_struct, RrfChannelWeights::DEFAULT.w_struct);
+        assert_eq!(w.w_user, RrfChannelWeights::DEFAULT.w_user);
+    }
+
+    #[test]
+    fn flag_on_natural_language_leans_dense() {
+        let w = resolve_rrf_channel_weights(true, false, true);
+        assert!(w.w_sem > w.w_sparse);
+        assert_eq!(w.w_sem, 1.2);
+        assert_eq!(w.w_sparse, 0.6);
+    }
+
+    #[test]
+    fn flag_on_ambiguous_shape_falls_back_to_default() {
+        // Neither exact-identifier nor natural-language (e.g. a 2-word
+        // short phrase): keep the default channel mix.
+        assert_eq!(
+            resolve_rrf_channel_weights(true, false, false),
+            RrfChannelWeights::DEFAULT
         );
     }
 }

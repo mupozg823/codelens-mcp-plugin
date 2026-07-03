@@ -180,6 +180,7 @@ include_body = { type = "boolean" }
 depth = { type = "integer" }
 disable_semantic = { type = "boolean", description = "Disable semantic/hybrid ranking and use structural signals only" }
 expand_query = { type = "boolean", description = "When true (default), expand the query with snake_case / camelCase / cartesian-token derivatives. Set to false for natural-language queries that don't benefit from expansion." }
+anchor_files = { type = "array", items = { type = "string" }, description = "Optional working-set anchors: repo-relative file paths (e.g. files being actively edited) whose symbols are boosted in the user-context ranking lane. Reuses the recency lane's file-membership weighting — no graph recompute." }
 
 # ─────
 
