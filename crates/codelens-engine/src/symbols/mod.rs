@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
-use crate::project::{collect_files, is_excluded};
+use crate::project::{collect_files, is_excluded_within};
 
 // Types (SymbolKind, SymbolInfo, ParsedSymbol, IndexStats, RankedContextEntry,
 // RankedContextResult, ReadDb) are in types.rs, re-exported above.
@@ -326,7 +326,7 @@ impl SymbolIndex {
             let mut symbols = Vec::new();
             for file in WalkDir::new(&resolved)
                 .into_iter()
-                .filter_entry(|entry| !is_excluded(entry.path()))
+                .filter_entry(|entry| !is_excluded_within(&resolved, entry.path()))
             {
                 let file = file?;
                 if !file.file_type().is_file() || language_for_path(file.path()).is_none() {
@@ -629,7 +629,7 @@ fn get_directory_symbols(
     let mut symbols = Vec::new();
     for entry in WalkDir::new(dir)
         .into_iter()
-        .filter_entry(|entry| !is_excluded(entry.path()))
+        .filter_entry(|entry| !is_excluded_within(dir, entry.path()))
     {
         let entry = entry?;
         if !entry.file_type().is_file() {

@@ -5,11 +5,11 @@
 //! - Detects rename via delete+create with same content hash
 //! - Filters unsupported file types and excluded paths
 
-use crate::project::is_excluded;
+use crate::project::is_excluded_within;
 use crate::symbols::language_for_path;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Semantic file event after normalization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -22,17 +22,20 @@ pub enum FileEvent {
 
 /// Normalize raw watcher events into semantic FileEvents.
 ///
-/// Takes lists of changed (created/modified) and removed paths,
-/// and produces a deduplicated list of FileEvents with rename detection.
-pub fn normalize_events(changed: &[PathBuf], removed: &[PathBuf]) -> Vec<FileEvent> {
+/// Takes the project root plus lists of changed (created/modified) and
+/// removed paths, and produces a deduplicated list of FileEvents with
+/// rename detection. Exclusion is evaluated root-relative so watcher
+/// events for a project rooted under an excluded-name ancestor (e.g.
+/// `~/.claude/...`) are not silently dropped (#358).
+pub fn normalize_events(root: &Path, changed: &[PathBuf], removed: &[PathBuf]) -> Vec<FileEvent> {
     // Filter to supported files only
     let changed: Vec<&PathBuf> = changed
         .iter()
-        .filter(|p| !is_excluded(p) && language_for_path(p).is_some())
+        .filter(|p| !is_excluded_within(root, p) && language_for_path(p).is_some())
         .collect();
     let removed: Vec<&PathBuf> = removed
         .iter()
-        .filter(|p| !is_excluded(p) && language_for_path(p).is_some())
+        .filter(|p| !is_excluded_within(root, p) && language_for_path(p).is_some())
         .collect();
 
     if removed.is_empty() && changed.is_empty() {
@@ -136,15 +139,34 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn dot_directory_rooted_project_events_are_not_dropped() {
+        // #358 regression: watcher events for a project rooted under an
+        // excluded-name ancestor must survive normalization.
+        let root = Path::new("/Users/u/.claude/worktrees/proj");
+        let changed = vec![PathBuf::from("/Users/u/.claude/worktrees/proj/src/main.py")];
+        let events = normalize_events(root, &changed, &[]);
+        assert_eq!(
+            events.len(),
+            1,
+            "event under dot-dir root must not be filtered"
+        );
+        // In-project exclusions still apply.
+        let nm = vec![PathBuf::from(
+            "/Users/u/.claude/worktrees/proj/node_modules/dep/x.py",
+        )];
+        assert!(normalize_events(root, &nm, &[]).is_empty());
+    }
+
+    #[test]
     fn empty_events() {
-        let events = normalize_events(&[], &[]);
+        let events = normalize_events(Path::new("/project"), &[], &[]);
         assert!(events.is_empty());
     }
 
     #[test]
     fn simple_modified() {
         let changed = vec![PathBuf::from("/project/src/main.py")];
-        let events = normalize_events(&changed, &[]);
+        let events = normalize_events(Path::new("/project"), &changed, &[]);
         assert_eq!(events.len(), 1);
         assert!(
             matches!(&events[0], FileEvent::Modified(p) if p.to_str().unwrap().contains("main.py"))
@@ -154,7 +176,7 @@ mod tests {
     #[test]
     fn simple_deleted() {
         let removed = vec![PathBuf::from("/project/src/old.py")];
-        let events = normalize_events(&[], &removed);
+        let events = normalize_events(Path::new("/project"), &[], &removed);
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], FileEvent::Deleted(_)));
     }
@@ -163,7 +185,7 @@ mod tests {
     fn rename_detection_same_basename() {
         let removed = vec![PathBuf::from("/project/src/service.py")];
         let changed = vec![PathBuf::from("/project/lib/service.py")];
-        let events = normalize_events(&changed, &removed);
+        let events = normalize_events(Path::new("/project"), &changed, &removed);
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], FileEvent::Renamed { from, to }
             if from.to_str().unwrap().contains("src/service.py")

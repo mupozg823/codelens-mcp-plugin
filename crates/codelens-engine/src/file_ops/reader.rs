@@ -1,4 +1,4 @@
-use crate::project::{ProjectRoot, is_excluded};
+use crate::project::{ProjectRoot, is_excluded_within};
 use anyhow::{Context, Result, bail};
 use regex::Regex;
 use std::fs;
@@ -58,7 +58,7 @@ pub fn list_dir(project: &ProjectRoot, path: &str, recursive: bool) -> Result<Ve
         for entry in WalkDir::new(&resolved)
             .min_depth(1)
             .into_iter()
-            .filter_entry(|entry| !is_excluded(entry.path()))
+            .filter_entry(|entry| !is_excluded_within(&resolved, entry.path()))
         {
             let entry = entry?;
             entries.push(to_directory_entry(project, entry.path())?);
@@ -92,7 +92,7 @@ pub fn find_files(
 
     for entry in WalkDir::new(&base)
         .into_iter()
-        .filter_entry(|entry| !is_excluded(entry.path()))
+        .filter_entry(|entry| !is_excluded_within(&base, entry.path()))
     {
         let entry = entry?;
         if entry.file_type().is_file() {
@@ -129,7 +129,7 @@ pub fn search_for_pattern(
     let mut files: Vec<PathBuf> = Vec::new();
     for entry in WalkDir::new(project.as_path())
         .into_iter()
-        .filter_entry(|entry| !is_excluded(entry.path()))
+        .filter_entry(|entry| !is_excluded_within(project.as_path(), entry.path()))
     {
         let entry = entry?;
         if !entry.file_type().is_file() {

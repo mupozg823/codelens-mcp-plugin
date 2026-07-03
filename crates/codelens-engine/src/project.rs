@@ -160,6 +160,23 @@ pub fn is_excluded(path: &Path) -> bool {
         .is_some_and(is_generated_or_lock_file)
 }
 
+/// Root-relative variant of [`is_excluded`]: only the components *below*
+/// `root` are matched against [`EXCLUDED_DIRS`], so a project legitimately
+/// rooted under an excluded-name ancestor (`~/.claude/worktrees/...`,
+/// `~/Library/...`, `~/dev/build/...`) is not silently emptied to zero
+/// files (#358). Walkers must pass the same `root` they hand to `WalkDir`
+/// so the prefix strips textually without canonicalization cost.
+///
+/// A `path` outside `root` falls back to whole-path matching — the
+/// fail-safe direction: the fallback can only exclude more, never leak an
+/// excluded directory back in.
+pub fn is_excluded_within(root: &Path, path: &Path) -> bool {
+    match path.strip_prefix(root) {
+        Ok(relative) => is_excluded(relative),
+        Err(_) => is_excluded(path),
+    }
+}
+
 fn is_generated_or_lock_file(file_name: &str) -> bool {
     matches!(
         file_name,
@@ -185,7 +202,7 @@ pub fn collect_files(root: &Path, filter: impl Fn(&Path) -> bool) -> Result<Vec<
     let project_excludes = ProjectExcludeConfig::load(root);
     let mut files = Vec::new();
     for entry in WalkDir::new(root).into_iter().filter_entry(|entry| {
-        !is_excluded(entry.path()) && !project_excludes.is_excluded(root, entry.path())
+        !is_excluded_within(root, entry.path()) && !project_excludes.is_excluded(root, entry.path())
     }) {
         let entry = entry?;
         if entry.file_type().is_file() && filter(entry.path()) {
@@ -308,7 +325,7 @@ pub fn compute_dominant_language(root: &Path) -> Option<String> {
 
     for entry in WalkDir::new(root)
         .into_iter()
-        .filter_entry(|entry| !is_excluded(entry.path()))
+        .filter_entry(|entry| !is_excluded_within(root, entry.path()))
     {
         let Ok(entry) = entry else {
             continue;
@@ -697,7 +714,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectRoot, collect_files, is_excluded};
+    use super::{ProjectRoot, collect_files, is_excluded, is_excluded_within};
     use std::{fs, path::Path};
 
     #[test]
@@ -827,6 +844,76 @@ mod tests {
         assert!(!is_excluded(Path::new("crates/codelens-engine/src/lib.rs")));
         assert!(!is_excluded(Path::new("src/claire_not_a_dir.rs")));
         assert!(!is_excluded(Path::new("src/release_notes.ts")));
+    }
+
+    #[test]
+    fn root_relative_exclusion_ignores_excluded_name_ancestors() {
+        // #358 regression: a project legitimately rooted under an
+        // excluded-name ancestor (`~/.claude/...`, `~/Library/...`,
+        // `~/dev/build/...`) must not have its entire tree filtered.
+        let root = Path::new("/Users/u/.claude/jobs/abc/tmp/external-repos/django");
+        assert!(!is_excluded_within(root, &root.join("django/shortcuts.py")));
+        let lib_root = Path::new("/Users/u/Library/Mobile Documents/proj");
+        assert!(!is_excluded_within(lib_root, &lib_root.join("src/main.rs")));
+        let build_root = Path::new("/home/u/dev/build/service");
+        assert!(!is_excluded_within(
+            build_root,
+            &build_root.join("api/handler.go")
+        ));
+
+        // Exclusions BELOW the root still apply unchanged.
+        assert!(is_excluded_within(
+            root,
+            &root.join("node_modules/pkg/index.js")
+        ));
+        assert!(is_excluded_within(root, &root.join(".git/config")));
+        assert!(is_excluded_within(
+            lib_root,
+            &lib_root.join("target/debug/main.rs")
+        ));
+
+        // A path outside the root falls back to whole-path matching
+        // (fail-safe: excludes more, never less).
+        assert!(is_excluded_within(
+            root,
+            Path::new("/somewhere/else/node_modules/x.js")
+        ));
+        // The root itself (empty relative path) is never excluded.
+        assert!(!is_excluded_within(root, root));
+    }
+
+    #[test]
+    fn collect_files_indexes_project_rooted_under_dot_directory() {
+        // #358 end-to-end: collect_files on a temp project whose ancestors
+        // include a `.claude` component must still discover source files.
+        let temp = std::env::temp_dir().join(format!(
+            "codelens-358-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let root = temp.join(".claude").join("worktrees").join("proj");
+        std::fs::create_dir_all(root.join("src")).expect("mkdir");
+        std::fs::create_dir_all(root.join("node_modules/dep")).expect("mkdir nm");
+        std::fs::write(root.join("src/lib.rs"), "pub fn f() {}\n").expect("write");
+        std::fs::write(root.join("node_modules/dep/x.js"), "x\n").expect("write nm");
+
+        let files = collect_files(&root, |p| {
+            p.extension().is_some_and(|e| e == "rs" || e == "js")
+        })
+        .expect("collect");
+        let rels: Vec<String> = files
+            .iter()
+            .map(|f| f.strip_prefix(&root).unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            rels.contains(&"src/lib.rs".to_string()),
+            "source file under dot-dir-rooted project must be collected, got {rels:?}"
+        );
+        assert!(
+            !rels.iter().any(|r| r.contains("node_modules")),
+            "in-project exclusions must still apply, got {rels:?}"
+        );
+        let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]
