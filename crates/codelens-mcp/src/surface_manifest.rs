@@ -403,6 +403,10 @@ impl LanguageFamily {
             "toml" => "TOML",
             "yaml" => "YAML",
             "clj" => "Clojure/ClojureScript",
+            "mk" => "Make",
+            "dockerfile" => "Dockerfile/Containerfile",
+            "vim" => "Vim script",
+            "fs" => "F#",
             _ => "Unknown",
         }
     }

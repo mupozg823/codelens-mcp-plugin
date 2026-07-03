@@ -74,7 +74,11 @@ tree-sitter-html.workspace = true
 tree-sitter-toml-updated.workspace = true
 tree-sitter-yaml.workspace = true
 tree-sitter-clojure = { workspace = true, optional = true }
-# make/dockerfile/vim/fsharp/perl need tree-sitter 0.26
+tree-sitter-make = { workspace = true, optional = true }
+tree-sitter-containerfile = { workspace = true, optional = true }
+tree-sitter-vim = { workspace = true, optional = true }
+tree-sitter-fsharp = { workspace = true, optional = true }
+# perl needs tree-sitter 0.26 (mutually exclusive with tree-sitter-clojure 0.1.0 on core 0.25)
 notify.workspace = true
 notify-debouncer-mini.workspace = true
 url.workspace = true
@@ -102,20 +106,24 @@ scip-backend = ["dep:scip", "dep:protobuf"]
 lang-extra = [
     "dep:tree-sitter-c-sharp",
     "dep:tree-sitter-clojure",
+    "dep:tree-sitter-containerfile",
     "dep:tree-sitter-dart",
     "dep:tree-sitter-elixir",
     "dep:tree-sitter-erlang",
+    "dep:tree-sitter-fsharp",
     "dep:tree-sitter-go",
     "dep:tree-sitter-haskell",
     "dep:tree-sitter-java",
     "dep:tree-sitter-julia",
     "dep:tree-sitter-kotlin",
+    "dep:tree-sitter-make",
     "dep:tree-sitter-ocaml",
     "dep:tree-sitter-php",
     "dep:tree-sitter-r",
     "dep:tree-sitter-ruby",
     "dep:tree-sitter-scala",
     "dep:tree-sitter-swift",
+    "dep:tree-sitter-vim",
     "dep:tree-sitter-zig",
 ]
 ## Enable fastembed built-in model loading (auto-download from HuggingFace).

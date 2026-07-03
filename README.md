@@ -24,7 +24,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
 - Registered tool definitions: `87`
 - Tool output schemas: `55 / 87`
-- Supported language families: `30` across `49` extensions
+- Supported language families: `34` across `56` extensions
 - Profiles: `planner-readonly` (36), `builder-minimal` (35), `reviewer-graph` (40), `evaluator-compact` (36), `refactor-full` (35), `ci-audit` (40), `workflow-first` (36)
 - Presets: `minimal` (20), `balanced` (74), `full` (87)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
@@ -428,7 +428,7 @@ this?" gap.
 
 <!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
 
-Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
+Canonical parser families (34): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Dockerfile/Containerfile, Erlang, Elixir, F#, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, Make, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, Vim script, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 

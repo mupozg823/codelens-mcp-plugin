@@ -12,9 +12,14 @@ pub(crate) struct LanguageConfig {
 }
 
 /// Resolve tree-sitter config for a file path via the unified language registry.
+/// Extension-less well-known files (Makefile, Dockerfile, Containerfile) resolve
+/// by lowercased file name; everything else by lowercased extension.
 pub(crate) fn language_for_path(path: &Path) -> Option<LanguageConfig> {
-    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-    let entry = lang_registry::for_extension(&ext)?;
+    let key = match path.extension() {
+        Some(ext) => ext.to_str()?.to_ascii_lowercase(),
+        None => path.file_name()?.to_str()?.to_ascii_lowercase(),
+    };
+    let entry = lang_registry::for_extension(&key)?;
     config_for_canonical(entry.canonical)
 }
 
@@ -82,7 +87,27 @@ fn config_for_canonical(canonical: &str) -> Option<LanguageConfig> {
         "yaml" => ("yaml", tree_sitter_yaml::LANGUAGE.into(), YAML_QUERY),
         #[cfg(feature = "lang-extra")]
         "clj" => ("clj", tree_sitter_clojure::LANGUAGE.into(), CLOJURE_QUERY),
-        // make/dockerfile/vim/fsharp/perl — all blocked by tree-sitter 0.25→0.26 LanguageFn conflict
+        // P2.2 Stage 1: make/dockerfile/vim/fsharp run on tree-sitter 0.25
+        // (grammar crates depend on tree-sitter-language ^0.1, core-agnostic).
+        #[cfg(feature = "lang-extra")]
+        "mk" => ("mk", tree_sitter_make::LANGUAGE.into(), MAKE_QUERY),
+        #[cfg(feature = "lang-extra")]
+        "dockerfile" => (
+            "dockerfile",
+            tree_sitter_containerfile::LANGUAGE.into(),
+            DOCKERFILE_QUERY,
+        ),
+        #[cfg(feature = "lang-extra")]
+        "vim" => ("vim", tree_sitter_vim::language(), VIM_QUERY),
+        #[cfg(feature = "lang-extra")]
+        "fs" => (
+            "fs",
+            tree_sitter_fsharp::LANGUAGE_FSHARP.into(),
+            FSHARP_QUERY,
+        ),
+        // Perl blocked: tree-sitter-perl requires core ^0.26.3, mutually
+        // exclusive with tree-sitter-clojure 0.1.0 (core ^0.25.6) under the
+        // `links = "tree-sitter"` single-version constraint.
         _ => return None,
     };
     Some(LanguageConfig {
@@ -364,6 +389,18 @@ mod tests {
             ("r", tree_sitter_r::LANGUAGE.into(), R_QUERY),
             ("bash", tree_sitter_bash::LANGUAGE.into(), BASH_QUERY),
             ("julia", tree_sitter_julia::LANGUAGE.into(), JULIA_QUERY),
+            ("make", tree_sitter_make::LANGUAGE.into(), MAKE_QUERY),
+            (
+                "dockerfile",
+                tree_sitter_containerfile::LANGUAGE.into(),
+                DOCKERFILE_QUERY,
+            ),
+            ("vim", tree_sitter_vim::language(), VIM_QUERY),
+            (
+                "fsharp",
+                tree_sitter_fsharp::LANGUAGE_FSHARP.into(),
+                FSHARP_QUERY,
+            ),
         ];
         for (name, lang, query_str) in cases {
             let result = Query::new(&lang, query_str);
@@ -443,6 +480,64 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// P2.2 Stage 1 smoke: make/dockerfile/vim/fsharp symbol extraction.
+    #[test]
+    fn stage1_langs_extract_symbols() {
+        super::assert_extracts(
+            "make",
+            tree_sitter_make::LANGUAGE.into(),
+            MAKE_QUERY,
+            "CC := gcc\n\nbuild:\n\t$(CC) -o app main.c\n\nclean:\n\trm -f app\n",
+            &["CC", "build", "clean"],
+        );
+        super::assert_extracts(
+            "dockerfile",
+            tree_sitter_containerfile::LANGUAGE.into(),
+            DOCKERFILE_QUERY,
+            "FROM rust:1.79 AS builder\nARG VERSION=1\nENV APP_HOME=/app\nRUN cargo build\n",
+            &["builder", "VERSION", "APP_HOME"],
+        );
+        super::assert_extracts(
+            "vim",
+            tree_sitter_vim::language(),
+            VIM_QUERY,
+            "function! MyFunc(arg)\n  return a:arg\nendfunction\n\nfunction s:helper()\n  return 1\nendfunction\n",
+            &["MyFunc", "s:helper"],
+        );
+        super::assert_extracts(
+            "fsharp",
+            tree_sitter_fsharp::LANGUAGE_FSHARP.into(),
+            FSHARP_QUERY,
+            "module MyApp\n\nlet add x y = x + y\n\ntype Point = { X: int; Y: int }\n",
+            &["MyApp", "add", "Point"],
+        );
+    }
+
+    /// Extension-less build files must resolve through the filename fallback.
+    #[test]
+    fn extensionless_build_files_resolve_by_filename() {
+        for name in ["Makefile", "makefile", "Dockerfile", "Containerfile"] {
+            assert!(
+                language_for_path(Path::new(name)).is_some(),
+                "{name} should resolve via filename fallback"
+            );
+        }
+        for name in [
+            "build.mk",
+            "deploy.dockerfile",
+            "app.containerfile",
+            "plugin.vim",
+            "Library.fs",
+            "script.fsx",
+        ] {
+            assert!(
+                language_for_path(Path::new(name)).is_some(),
+                "{name} should resolve via extension"
+            );
+        }
+        assert!(language_for_path(Path::new("README")).is_none());
     }
 
     /// Quality benchmark: original 16 languages symbol extraction.
@@ -580,4 +675,33 @@ const CLOJURE_QUERY: &str = r#"
     (list_lit (sym_lit) @func.name) @func.def
 "#;
 
-// Makefile/Dockerfile/Vim/F# queries ready — blocked by tree-sitter 0.25→0.26 upgrade
+// ── P2.2 Stage 1: make/dockerfile/vim/fsharp ─────────────────────────────
+
+#[cfg(feature = "lang-extra")]
+const MAKE_QUERY: &str = r#"
+    (rule (targets (word) @function.name)) @function.def
+    (variable_assignment name: (word) @variable.name) @variable.def
+    (define_directive name: (word) @variable.name) @variable.def
+"#;
+
+// Node names come from tree-sitter-containerfile (Dockerfile-syntax compatible);
+// tree-sitter-dockerfile itself pins core ^0.20 and cannot resolve in this workspace.
+#[cfg(feature = "lang-extra")]
+const DOCKERFILE_QUERY: &str = r#"
+    (from_instruction as: (image_alias) @class.name) @class.def
+    (arg_instruction (arg_pair name: (unquoted_string) @variable.name)) @variable.def
+    (env_instruction (env_pair name: (unquoted_string) @variable.name)) @variable.def
+"#;
+
+#[cfg(feature = "lang-extra")]
+const VIM_QUERY: &str = r#"
+    (function_definition (function_declaration name: [(identifier) (scoped_identifier)] @function.name)) @function.def
+"#;
+
+#[cfg(feature = "lang-extra")]
+const FSHARP_QUERY: &str = r#"
+    (named_module name: (long_identifier) @module.name) @module.def
+    (module_defn (identifier) @module.name) @module.def
+    (function_or_value_defn (function_declaration_left (identifier) @function.name)) @function.def
+    (type_definition (_ (type_name type_name: (identifier) @class.name))) @class.def
+"#;

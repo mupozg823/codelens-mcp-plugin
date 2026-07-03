@@ -317,8 +317,53 @@ static EXTENSIONS: &[ExtEntry] = &[
         supports_imports: false,
         canonical: "clj",
     },
-    // dockerfile, make, vim, fsharp — deferred: tree-sitter version conflict
-    // Perl deferred until tree-sitter 0.26 upgrade
+    // P2.2 Stage 1: make/dockerfile/vim/fsharp on tree-sitter 0.25.
+    // Extension-less keys ("makefile", "dockerfile", "containerfile") are matched
+    // against the lowercased file name by `lang_config::language_for_path`.
+    ExtEntry {
+        ext: "mk",
+        language_id: "makefile",
+        supports_imports: false,
+        canonical: "mk",
+    },
+    ExtEntry {
+        ext: "makefile",
+        language_id: "makefile",
+        supports_imports: false,
+        canonical: "mk",
+    },
+    ExtEntry {
+        ext: "dockerfile",
+        language_id: "dockerfile",
+        supports_imports: false,
+        canonical: "dockerfile",
+    },
+    ExtEntry {
+        ext: "containerfile",
+        language_id: "dockerfile",
+        supports_imports: false,
+        canonical: "dockerfile",
+    },
+    ExtEntry {
+        ext: "vim",
+        language_id: "vim",
+        supports_imports: false,
+        canonical: "vim",
+    },
+    ExtEntry {
+        ext: "fs",
+        language_id: "fsharp",
+        supports_imports: false,
+        canonical: "fs",
+    },
+    ExtEntry {
+        ext: "fsx",
+        language_id: "fsharp",
+        supports_imports: false,
+        canonical: "fs",
+    },
+    // Perl deferred: tree-sitter-perl requires core ^0.26.3, mutually exclusive
+    // with tree-sitter-clojure 0.1.0 (core ^0.25.6) under `links = "tree-sitter"`.
 ];
 
 /// Look up an extension entry by lowercase extension string.
