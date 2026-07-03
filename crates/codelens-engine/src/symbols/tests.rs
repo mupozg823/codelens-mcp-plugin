@@ -665,3 +665,50 @@ fn duplicate_methods_project() -> (std::path::PathBuf, ProjectRoot) {
     let project = ProjectRoot::new(&root).expect("project");
     (root, project)
 }
+
+#[test]
+#[cfg(feature = "lang-extra")] // make/containerfile grammars are lang-extra-gated
+fn refresh_all_indexes_extensionless_wellknown_files() {
+    // Regression (P2.2 follow-up): Makefile/Dockerfile have no extension —
+    // `language_for_path` accepts them by lowercased file name, but
+    // `analyze_file` used `file.extension()?` and silently dropped them
+    // after candidate collection had already said yes. The most common
+    // real-world shape for these languages is exactly the extension-less
+    // file at the project root.
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-extless-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("Makefile"),
+        "build:\n\tcargo build\n\ntest_target:\n\techo hi\n",
+    )
+    .unwrap();
+    fs::write(dir.join("Dockerfile"), "FROM rust:1.75\nRUN cargo build\n").unwrap();
+    // A root marker so ProjectRoot::new stops here instead of walking up.
+    fs::write(dir.join(".git"), "gitdir: fake\n").unwrap();
+
+    let project = ProjectRoot::new(dir.to_str().unwrap()).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    let stats = index.refresh_all().expect("refresh all");
+    assert!(
+        stats.indexed_files >= 2,
+        "Makefile + Dockerfile must be indexed, got {}",
+        stats.indexed_files
+    );
+    let make_symbols = index
+        .find_symbol("build", None, false, true, 10)
+        .expect("find make target");
+    assert!(
+        make_symbols
+            .iter()
+            .any(|s| s.file_path.ends_with("Makefile")),
+        "Makefile `build` target must be extracted, got {make_symbols:?}"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
