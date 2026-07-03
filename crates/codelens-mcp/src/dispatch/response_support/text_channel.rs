@@ -59,6 +59,14 @@ fn format_structured_response(resp: &ToolCallResponse, lean: bool) -> String {
         out.insert("error".to_owned(), Value::String(err.clone()));
     }
 
+    // Structured recovery hint — actionable state, kept in both the full
+    // and lean contracts (agents parse it instead of the error string).
+    if let Some(ref hint) = resp.recovery_hint
+        && let Ok(value) = serde_json::to_value(hint)
+    {
+        out.insert("recovery_hint".to_owned(), value);
+    }
+
     // Header: compact metadata on key fields only
     if let Some(ref backend) = resp.backend_used {
         out.insert("backend_used".to_owned(), Value::String(backend.clone()));
