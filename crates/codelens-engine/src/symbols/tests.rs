@@ -667,6 +667,7 @@ fn duplicate_methods_project() -> (std::path::PathBuf, ProjectRoot) {
 }
 
 #[test]
+#[cfg(feature = "lang-extra")] // make/containerfile grammars are lang-extra-gated
 fn refresh_all_indexes_extensionless_wellknown_files() {
     // Regression (P2.2 follow-up): Makefile/Dockerfile have no extension —
     // `language_for_path` accepts them by lowercased file name, but
