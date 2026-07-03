@@ -409,9 +409,14 @@ If a Cursor foreground or background agent forwards work into a builder lane, pr
 ```toml
 [mcp_servers.codelens]
 url = "http://127.0.0.1:7837/mcp"
+http_headers = { "x-codelens-project" = "/absolute/path/to/your/workspace" }
 ```
 
-**Or via CLI:**
+Prefer `codelens-mcp attach codex` for a copy-ready template: it stamps the
+workspace path into `http_headers` so each Codex session binds at initialize
+instead of inheriting the daemon's default project.
+
+**Ad hoc read-only smoke via CLI:**
 
 ```bash
 codex --mcp-server "http://127.0.0.1:7837/mcp"

@@ -23,6 +23,29 @@ All token counts use **tiktoken `cl100k_base`** — the same tokenizer used by C
 
 ---
 
+## 1b. Fable-Class Consumption Measurements (2026-07-03)
+
+Live measurements against the running HTTP daemon (stdio JSON-RPC and HTTP
+sessions, `find_symbol` + body on this repo). Motivation: frontier agent models
+(Claude Fable 5, $10/$50 per MTok) re-pay every persisted response as input on
+each later turn, so envelope bytes are a recurring cost.
+
+| Claim | Value | How measured |
+| --- | --- | --- |
+| Lean response contract, text channel | **−17-18%** (e.g. 2,942 → 2,405 B) | full vs `_lean:true` on the same call; symbol `data` byte-identical (quality-neutral by construction) |
+| Bound session vs unbound, `find_symbol` data payload | **−35%** (984 B bound) | `x-codelens-project` header session omits the per-response `project_binding` hint entirely |
+| Warm-LSP default reference path | `cold_start_incurred: false` | `CODELENS_LSP_PREWARM=auto` pre-warmed rust-analyzer; default path routed `backend: lsp` with 0 request-time cold start |
+| Readiness signal harvest (rust-analyzer `experimental/serverStatus`) | quiescent=true in **~2.2 s** | live integration test (`quiescence_signal` ignored test, run manually) |
+| Confidence honesty under staleness | stale SCIP / indexing LSP ⇒ ≤0.7 with `degraded_reason` | regression-tested; verified-quiescent answers earn `lsp_precise_warm_quiescent` 0.95 |
+
+Measured-motivation footnote: workflow subagents given only a soft "use
+CodeLens if available" hint made 1–2 CodeLens calls vs 10–47 grep/Bash sweeps
+per agent — which is why the navigation core (`find_symbol`,
+`find_referencing_symbols`, `get_symbols_overview`, `get_ranked_context`) is
+now in the `alwaysLoad` schema set (zero-setup on the hot path).
+
+---
+
 ## 2. Token Efficiency — CodeLens vs Read/Grep
 
 **What we measure**: six representative agent tasks, each executed two ways — a native `rg + cat + wc` baseline and a single CodeLens MCP tool call. We compare token counts of the response each approach would hand back to the model.
