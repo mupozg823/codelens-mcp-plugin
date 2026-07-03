@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.34] - 2026-07-04
+
 ### Security
 
 - **Unbound shared-daemon sessions can no longer mutate (#347)** — a store-backed HTTP session without an explicit project binding (no `initialize` `project` param, no `x-codelens-project` header, no bound `prepare_harness_session`) may target the daemon's *default* project instead of the caller's repo. Content-mutation tools are now blocked pre-execution with a structured `ProjectBindingRequired` error carrying a machine-readable `recovery_hint` (bind via `prepare_harness_session project=<abs path>` or the attach header). Read tools keep the advisory `project_binding` hint; stdio sessions are structurally exempt; `CODELENS_ALLOW_UNBOUND_MUTATION=1` restores the advisory-only behavior. The gate runs LAST in `validate_tool_access` so trusted-client / daemon-mode / read-only-surface errors keep precedence.

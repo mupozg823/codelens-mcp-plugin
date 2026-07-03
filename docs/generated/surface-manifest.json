@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-surface-manifest-v2",
   "workspace": {
-    "version": "1.13.33",
+    "version": "1.13.34",
     "description": "Harness-native Rust MCP server for code intelligence \u2014 hybrid retrieval, mutation-gated workflows, and a token-lean response contract tuned for frontier agent models (Claude Fable-class)",
     "members": [
       "crates/codelens-engine",
@@ -3032,7 +3032,7 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.13.33",
+    "version": "1.13.34",
     "transport": [
       "stdio",
       "streamable-http"
@@ -3068,7 +3068,7 @@
     ]
   },
   "summary": {
-    "workspace_version": "1.13.33",
+    "workspace_version": "1.13.34",
     "workspace_member_count": 2,
     "registered_tool_definitions": 87,
     "tool_output_schemas": {
