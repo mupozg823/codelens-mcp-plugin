@@ -19,7 +19,7 @@ use super::prep_recovery::{
 };
 use super::prep_warnings::{
     collect_prepare_harness_warnings, push_prepare_harness_warning,
-    push_prepare_harness_warning_with_extras,
+    push_prepare_harness_warning_with_extras, push_rbac_permissive_default_warning,
 };
 use super::util::{client_tool_schema_fingerprint, is_anonymized_agent_project_name};
 
@@ -385,6 +385,16 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 }),
             );
         }
+        // P3.1: mutation-capable runtime resolving principals to the
+        // no-file permissive fallback — every principal gets Refactor
+        // until an operator adds principals.toml or
+        // CODELENS_AUTH_MODE=strict.
+        push_rbac_permissive_default_warning(
+            &mut warnings,
+            &mut warning_codes,
+            &state.principals(),
+            state.mutation_allowed_in_runtime(),
+        );
         warnings
     };
 
