@@ -37,12 +37,14 @@ pub fn claim_files(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         .metrics()
         .record_coordination_claim_for_session(Some(session.session_id.as_str()));
     let claimed_paths = claim.paths.clone();
+    let overlapping_claims = state.overlapping_claims_for_arguments(arguments, &claimed_paths);
     let session_id = claim.session_id.clone();
     Ok((
         json!({
             "status": "claimed",
             "session_id": session_id,
             "claimed_paths": claimed_paths,
+            "overlapping_claims": overlapping_claims,
             "claim": claim,
         }),
         success_meta(BackendKind::Session, 0.92),

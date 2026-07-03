@@ -82,16 +82,8 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     );
 }
 
-// TODO: phase2 canonicalization (RefactorFull → BuilderMinimal in `is_tool_in_profile`)
-// drops `review_changes` from the deferred preview list. Test still expects the
-// legacy RefactorFull bootstrap ordering. Decide whether to migrate the missing
-// tools (`review_changes`, `review_architecture`, ...) into `BUILDER_MINIMAL_TOOLS`
-// or to update the test to match the canonicalized behaviour; either way needs
-// a separate alignment pass coordinated with the overlay routing matrix
-// (see prepare_harness_session_overlay_can_override_bootstrap_routing).
-#[ignore = "phase2-canonicalization-misaligned-with-refactor-full-bootstrap"]
 #[tokio::test]
-async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
+async fn refactor_deferred_tools_list_uses_canonical_builder_preview_for_session() {
     let state = test_state();
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
         crate::tool_defs::ToolProfile::RefactorFull,
@@ -140,7 +132,6 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
     assert!(body.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
     assert!(body.contains("\"tool_count\":"));
     assert!(body.contains("\"plan_safe_refactor\""));
-    assert!(body.contains("\"review_changes\""));
     assert!(body.contains("\"trace_request_path\""));
     assert!(!body.contains("\"analyze_change_impact\""));
     assert!(body.contains("\"activate_project\""));
@@ -167,8 +158,8 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
         tool_names.iter().take(3).cloned().collect::<Vec<_>>(),
         vec![
             "plan_safe_refactor".to_owned(),
-            "review_changes".to_owned(),
             "trace_request_path".to_owned(),
+            "prepare_harness_session".to_owned(),
         ]
     );
 }
