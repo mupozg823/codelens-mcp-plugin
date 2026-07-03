@@ -208,6 +208,19 @@ fn decide_warm_lsp_stage(
     }
 }
 
+/// Factual `routing_note` prose for the warm-LSP stage. The warmth probe and
+/// the reference request are separate lock acquisitions, so a warm server can
+/// die in between and be respawned mid-request; `cold_start_incurred` reflects
+/// what actually happened for this call so the note never over-claims "no cold
+/// start". Kept pure so the flag→prose mapping is unit-testable.
+fn warm_lsp_routing_rationale(cold_start_incurred: bool) -> &'static str {
+    if cold_start_incurred {
+        "The warmth probe passed but the LSP session had died and was respawned mid-request, so a cold start was incurred before precise references were returned."
+    } else {
+        "A warm LSP server was already resident, so the default path routed through precise LSP references to capture import and type-annotation usages tree-sitter misses. No cold start was incurred."
+    }
+}
+
 /// tree-sitter-first strategy:
 ///
 /// Default (symbol_name only):
@@ -494,20 +507,26 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             state.lsp_pool().has_warm_session(command, &lsp_args)
         }) {
             WarmLspStage::UseLsp { command } => {
-                // A non-spawning warmth probe just confirmed this server is
-                // resident, so `find_referencing_symbols` reuses the live
-                // session rather than cold-starting. If the symbol position
-                // cannot be resolved or the server returns nothing, fall
-                // through to tree-sitter (no hint — the server is warm).
+                // The warmth probe above just confirmed this server was
+                // resident, so the request below almost always reuses the live
+                // session. `find_referencing_symbols_tracking_spawn` also
+                // reports whether it actually had to spawn — covering the rare
+                // TOCTOU case where the server died between the probe and this
+                // call and was respawned mid-request — so the routing_note can
+                // state truthfully whether a cold start occurred. If the
+                // symbol position cannot be resolved or the server returns
+                // nothing, fall through to tree-sitter (no hint — it is warm).
                 if let Some((line, column)) = resolve_symbol_position(state, sym_name, &file_path)
-                    && let Ok(refs) = state.lsp_pool().find_referencing_symbols(&LspRequest {
-                        command: command.clone(),
-                        args: lsp_args.clone(),
-                        file_path: file_path.clone(),
-                        line,
-                        column,
-                        max_results,
-                    })
+                    && let Ok((refs, cold_start_incurred)) = state
+                        .lsp_pool()
+                        .find_referencing_symbols_tracking_spawn(&LspRequest {
+                            command: command.clone(),
+                            args: lsp_args.clone(),
+                            file_path: file_path.clone(),
+                            line,
+                            column,
+                            max_results,
+                        })
                     && !refs.is_empty()
                 {
                     let precise_count = refs.len();
@@ -534,7 +553,8 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         "routing_note": {
                             "stage": "warm_lsp_default_path",
                             "server": command,
-                            "rationale": "A warm LSP server was already resident, so the default path routed through precise LSP references to capture import and type-annotation usages tree-sitter misses. No cold start was incurred.",
+                            "cold_start_incurred": cold_start_incurred,
+                            "rationale": warm_lsp_routing_rationale(cold_start_incurred),
                         },
                     });
                     if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
@@ -733,7 +753,33 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
 
 #[cfg(test)]
 mod warm_lsp_routing_tests {
-    use super::{WarmLspStage, decide_warm_lsp_stage};
+    use super::{WarmLspStage, decide_warm_lsp_stage, warm_lsp_routing_rationale};
+
+    #[test]
+    fn rationale_claims_no_cold_start_only_when_session_was_reused() {
+        let reused = warm_lsp_routing_rationale(false);
+        assert!(
+            reused.contains("No cold start was incurred"),
+            "reused-session note must state no cold start: {reused}"
+        );
+        assert!(
+            !reused.to_ascii_lowercase().contains("respawn"),
+            "reused-session note must not mention a respawn: {reused}"
+        );
+    }
+
+    #[test]
+    fn rationale_admits_cold_start_when_session_respawned() {
+        let respawned = warm_lsp_routing_rationale(true);
+        assert!(
+            respawned.contains("cold start was incurred"),
+            "respawn note must admit the cold start: {respawned}"
+        );
+        assert!(
+            !respawned.contains("No cold start was incurred"),
+            "respawn note must not falsely claim no cold start: {respawned}"
+        );
+    }
 
     #[test]
     fn warm_server_routes_to_lsp() {

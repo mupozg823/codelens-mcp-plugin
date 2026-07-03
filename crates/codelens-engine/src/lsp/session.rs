@@ -174,6 +174,36 @@ impl LspSessionPool {
         session.find_references(request)
     }
 
+    /// Same as [`find_referencing_symbols`], but also reports whether *this*
+    /// call had to spawn the LSP server (a cold start). `false` means an
+    /// already-resident warm session was reused. The warmth check and the
+    /// spawn decision happen under the same lock, so the flag is race-free for
+    /// this call: a caller that gated on an earlier `has_warm_session` probe
+    /// can use it to detect the rare TOCTOU case where the server died between
+    /// the probe and this request and had to be respawned mid-flight. Routing
+    /// is unchanged — the flag only lets the caller describe what happened.
+    pub fn find_referencing_symbols_tracking_spawn(
+        &self,
+        request: &LspRequest,
+    ) -> Result<(Vec<LspReference>, bool)> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let key = SessionKey::new(&request.command, &request.args);
+        // A live child for this key means `ensure_session` reuses it (no
+        // spawn); its absence or a dead child means it will spawn below.
+        let was_warm = sessions
+            .get_mut(&key)
+            .map(|session| matches!(session.child.try_wait(), Ok(None)))
+            .unwrap_or(false);
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
+        let references = session.find_references(request)?;
+        Ok((references, !was_warm))
+    }
+
     pub fn get_diagnostics(&self, request: &LspDiagnosticRequest) -> Result<Vec<LspDiagnostic>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let result = {
