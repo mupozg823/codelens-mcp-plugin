@@ -113,6 +113,26 @@ pub(super) fn append_prepare_harness_warning_from_guidance(
     );
 }
 
+/// Warning code for a file watcher that failed to start (P4.1).
+/// Shared between the payload builder and the bootstrap dedup set.
+pub(super) const WATCHER_UNAVAILABLE_CODE: &str = "watcher_unavailable";
+
+/// Pure builder for the `watcher_unavailable` bootstrap warning.
+/// `None` means the watcher is running or was intentionally not
+/// started (one-shot construction) — no warning in either case.
+pub(super) fn watcher_unavailable_warning(watcher_error: Option<&str>) -> Option<Value> {
+    let error = watcher_error?;
+    Some(json!({
+        "code": WATCHER_UNAVAILABLE_CODE,
+        "message": format!(
+            "file watcher failed to start — index will NOT auto-update on edits: {error}"
+        ),
+        "restart_recommended": true,
+        "recommended_action": "run refresh_symbol_index after edits, or restart the daemon",
+        "action_target": "file_watcher",
+    }))
+}
+
 pub(super) fn collect_prepare_harness_warnings(
     capabilities_payload: &Value,
     include_diagnostics_warning: bool,
