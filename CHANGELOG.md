@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Analysis cache no longer serves stale reports after content changes (#342)** — args-only cache keys let `review_architecture` (and every report-family tool) return cached analyses after file moves or daemon redeploys. `make_handle_response` now appends a symbol-index generation fingerprint (`|idx:{MAX(indexed_at)}:{file_count}`) to every report cache key at the single shared seam, covering all 15 report-family tools at once; fingerprint mismatch = recompute. Backward compatible: pre-fingerprint disk artifacts simply miss. New `SymbolIndex::file_count()` reader (mirrors `max_indexed_at`).
+
+### Added
+
+- **`generate-scip-index.sh` goes multi-language (P2.1 first increment)** — the script now detects project languages by file count (rust / python / typescript via `git ls-files`, pruned `find` fallback) and runs every detected language whose indexer is installed: `rust-analyzer scip` (existing) plus conditional `scip-python` / `scip-typescript`; missing indexers are skipped with install hints. Zero engine change — output stays a single root `index.scip` honoring the existing `ScipBackend::detect` contract and the generation-summary JSON schema.
+
 ### Changed
 
 - **alwaysLoad set rebalanced for agent-native navigation (Fable/workflow consumption)** — the `_meta["anthropic/alwaysLoad"]` set now pre-loads the four highest-frequency mechanical navigation verbs (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`, `get_ranked_context`) alongside the five workflow entrypoints (`prepare_harness_session`, `explore_codebase`, `review_changes`, `review_architecture`, `verify_change_readiness`). Measured motivation: workflow subagents skipped CodeLens navigation entirely when it cost a ToolSearch round trip (1–2 calls vs 10–47 grep sweeps). `plan_safe_refactor` / `trace_request_path` move to deferred-discoverable (still reachable via `suggested_next_tools` chains). Set stays ≤10 — every entry is upfront schema tokens in every session.
