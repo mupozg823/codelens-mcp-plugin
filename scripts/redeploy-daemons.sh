@@ -146,7 +146,28 @@ for label in "${KICK_LABELS[@]}"; do
 		# accepted before the health probe.
 		log "launchctl bootout/bootstrap gui/${UID_VAL}/${label}"
 		launchctl bootout "gui/${UID_VAL}/${label}" 2>/dev/null || true
-		launchctl bootstrap "gui/${UID_VAL}" "${plist}"
+		# #356: bootout is asynchronous — launchd may still be tearing the
+		# service down when bootstrap runs, failing with 'Bootstrap failed:
+		# 5: Input/output error'. Wait for the label to disappear (max 5s),
+		# then retry bootstrap with backoff before letting set -e abort.
+		for _ in 1 2 3 4 5; do
+			launchctl print "gui/${UID_VAL}/${label}" >/dev/null 2>&1 || break
+			sleep 1
+		done
+		bootstrap_ok=0
+		for attempt in 1 2 3; do
+			if launchctl bootstrap "gui/${UID_VAL}" "${plist}" 2>/dev/null; then
+				bootstrap_ok=1
+				break
+			fi
+			log "bootstrap attempt ${attempt} failed for ${label}; retrying in ${attempt}s"
+			sleep "${attempt}"
+		done
+		if [[ ${bootstrap_ok} -eq 0 ]]; then
+			# Final attempt without stderr suppression so the real launchd
+			# error surfaces if the retries could not recover.
+			launchctl bootstrap "gui/${UID_VAL}" "${plist}"
+		fi
 		launchctl enable "gui/${UID_VAL}/${label}" || true
 	fi
 	log "launchctl kickstart -k gui/${UID_VAL}/${label}"
