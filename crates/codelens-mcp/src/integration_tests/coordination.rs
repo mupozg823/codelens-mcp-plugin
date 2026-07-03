@@ -270,6 +270,46 @@ fn verify_change_readiness_reports_overlapping_claims_without_blocking_mutation(
 }
 
 #[test]
+fn claim_files_response_reports_overlapping_claims() {
+    let project = temp_project_root("coordination-claim-overlap");
+    fs::write(
+        project.as_path().join("coord.py"),
+        "def sample():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "claim_files",
+        json!({
+            "paths": ["coord.py"],
+            "reason": "first editor"
+        }),
+        "session-a",
+    );
+
+    let claimed = call_tool_with_session(
+        &state,
+        "claim_files",
+        json!({
+            "paths": ["coord.py"],
+            "reason": "second editor"
+        }),
+        "session-b",
+    );
+    assert_eq!(claimed["success"], json!(true));
+    assert_eq!(
+        claimed["data"]["overlapping_claims"][0]["session_id"],
+        json!("session-a")
+    );
+    assert_eq!(
+        claimed["data"]["overlapping_claims"][0]["paths"][0],
+        json!("coord.py")
+    );
+}
+
+#[test]
 fn prepare_harness_session_surfaces_coordination_counts() {
     let project = temp_project_root("coordination-bootstrap");
     fs::write(

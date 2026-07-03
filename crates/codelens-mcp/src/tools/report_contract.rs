@@ -30,6 +30,19 @@ fn overlapping_claims_from_artifact(state: &AppState, analysis_id: &str) -> Vec<
         .unwrap_or_default()
 }
 
+/// Issue #342: bind an args-only cache key to the symbol-index generation
+/// so a cached report artifact and a fresh recomputation always describe
+/// the same index state — the fingerprint is derived from the same source
+/// the analysis reads. `None` must stay `None`: generic artifacts keep
+/// their `cache_key = None` warm/cold-tier semantics (G2).
+fn fingerprint_cache_key(
+    cache_key: Option<String>,
+    max_indexed_at: Option<i64>,
+    file_count: usize,
+) -> Option<String> {
+    cache_key.map(|key| format!("{key}|idx:{}:{file_count}", max_indexed_at.unwrap_or(0)))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_handle_response(
     state: &AppState,
@@ -44,6 +57,16 @@ pub(super) fn make_handle_response(
     symbol_hint: Option<String>,
     arguments: Option<&Value>,
 ) -> ToolResult {
+    // Both the reuse lookup and the store below must see the same
+    // fingerprinted key, so the transform happens once, up front.
+    let cache_key = {
+        let index = state.symbol_index();
+        fingerprint_cache_key(
+            cache_key,
+            index.max_indexed_at().ok().flatten(),
+            index.file_count().unwrap_or(0),
+        )
+    };
     let logical_session_id = arguments
         .map(SessionRequestContext::from_json)
         .map(|session| session.session_id);
@@ -187,4 +210,175 @@ pub(super) fn make_handle_response(
         }
     }
     Ok((data, success_meta(BackendKind::Hybrid, confidence)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::fixtures::temp_project_root;
+    use crate::tool_defs::ToolPreset;
+    use serde_json::json;
+
+    fn issue_report(state: &AppState, cache_key: Option<String>) -> Value {
+        make_handle_response(
+            state,
+            "module_boundary_report",
+            cache_key,
+            "boundary summary".to_owned(),
+            vec!["finding".to_owned()],
+            0.9,
+            vec!["action".to_owned()],
+            BTreeMap::new(),
+            Vec::new(),
+            None,
+            None,
+        )
+        .expect("handle response")
+        .0
+    }
+
+    fn args_only_key() -> Option<String> {
+        // Shape produced by `stable_cache_key` — args only, no content signal.
+        Some(r#"{"fields":{"path":"lib.rs"},"tool":"module_boundary_report"}"#.to_owned())
+    }
+
+    /// G2 invariant: generic artifacts (`cache_key = None`) must keep
+    /// their warm/cold-tier semantics — the fingerprint never conjures
+    /// a key out of `None`.
+    #[test]
+    fn fingerprint_preserves_none_key() {
+        assert_eq!(fingerprint_cache_key(None, Some(1_000), 42), None);
+    }
+
+    #[test]
+    fn fingerprint_stable_for_same_index_generation() {
+        let key = || Some("k".to_owned());
+        assert_eq!(
+            fingerprint_cache_key(key(), Some(1_000), 42),
+            fingerprint_cache_key(key(), Some(1_000), 42),
+        );
+    }
+
+    /// Add/modify/move signal: `MAX(indexed_at)` moved → different key.
+    #[test]
+    fn fingerprint_changes_when_max_indexed_at_moves() {
+        let key = || Some("k".to_owned());
+        assert_ne!(
+            fingerprint_cache_key(key(), Some(1_000), 42),
+            fingerprint_cache_key(key(), Some(2_000), 42),
+        );
+    }
+
+    /// Pure-deletion signal: MAX unchanged, count moved → different key.
+    #[test]
+    fn fingerprint_changes_when_file_count_moves() {
+        let key = || Some("k".to_owned());
+        assert_ne!(
+            fingerprint_cache_key(key(), Some(1_000), 42),
+            fingerprint_cache_key(key(), Some(1_000), 41),
+        );
+    }
+
+    /// Disk-format compatibility: a pre-#342 artifact persisted with the
+    /// raw args-only key must never match the fingerprinted key — old
+    /// entries degrade to misses, no migration required.
+    #[test]
+    fn fingerprinted_key_never_matches_legacy_key() {
+        let legacy = args_only_key();
+        let fingerprinted = fingerprint_cache_key(args_only_key(), Some(1_000), 42);
+        assert_ne!(legacy, fingerprinted);
+    }
+
+    /// Invariant: same arguments + unchanged index generation must keep
+    /// hitting the exact cache tier — the #342 fix may only add misses
+    /// when the index actually changed.
+    #[test]
+    fn exact_cache_hit_preserved_when_index_unchanged() {
+        let project = temp_project_root("cache-fp-stable");
+        let state = AppState::new_minimal(project, ToolPreset::Full);
+        state
+            .symbol_index()
+            .get_symbols_overview("lib.rs", 1)
+            .expect("index lib.rs");
+
+        let first = issue_report(&state, args_only_key());
+        assert_eq!(first["reused"], json!(false));
+        let second = issue_report(&state, args_only_key());
+        assert_eq!(second["reused"], json!(true));
+        assert_eq!(second["cache_hit_tier"], json!("exact"));
+    }
+
+    /// Issue #342 regression: a file added to the index after an artifact
+    /// was cached must invalidate the exact-tier reuse for the same
+    /// arguments — the cached analysis no longer reflects the index.
+    #[test]
+    fn index_file_add_invalidates_exact_cache() {
+        let project = temp_project_root("cache-fp-add");
+        let state = AppState::new_minimal(project.clone(), ToolPreset::Full);
+        state
+            .symbol_index()
+            .get_symbols_overview("lib.rs", 1)
+            .expect("index lib.rs");
+
+        issue_report(&state, args_only_key());
+        let warm = issue_report(&state, args_only_key());
+        assert_eq!(warm["reused"], json!(true));
+
+        std::fs::write(project.as_path().join("extra.rs"), "fn extra() {}\n")
+            .expect("write extra.rs");
+        state
+            .symbol_index()
+            .get_symbols_overview("extra.rs", 1)
+            .expect("index extra.rs");
+
+        let after_add = issue_report(&state, args_only_key());
+        assert_eq!(
+            after_add["reused"],
+            json!(false),
+            "index generation changed (file added) — cached artifact must not be reused"
+        );
+    }
+
+    /// Issue #342 regression (move = delete + add, file count unchanged):
+    /// the fresh `indexed_at` of the re-added path must flip the
+    /// fingerprint even though the count stays identical.
+    #[test]
+    fn index_file_move_invalidates_exact_cache() {
+        let project = temp_project_root("cache-fp-move");
+        let state = AppState::new_minimal(project.clone(), ToolPreset::Full);
+        state
+            .symbol_index()
+            .get_symbols_overview("lib.rs", 1)
+            .expect("index lib.rs");
+
+        issue_report(&state, args_only_key());
+        let warm = issue_report(&state, args_only_key());
+        assert_eq!(warm["reused"], json!(true));
+
+        // Simulate the watcher's rename handling: tombstone the old path,
+        // index the new one. `indexed_at` has millisecond granularity, so
+        // tick past the original generation before re-indexing.
+        std::fs::rename(
+            project.as_path().join("lib.rs"),
+            project.as_path().join("moved.rs"),
+        )
+        .expect("rename lib.rs");
+        state
+            .symbol_index()
+            .db()
+            .delete_file("lib.rs")
+            .expect("tombstone old path");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        state
+            .symbol_index()
+            .get_symbols_overview("moved.rs", 1)
+            .expect("index moved.rs");
+
+        let after_move = issue_report(&state, args_only_key());
+        assert_eq!(
+            after_move["reused"],
+            json!(false),
+            "index generation changed (file moved) — cached artifact must not be reused"
+        );
+    }
 }
