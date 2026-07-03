@@ -16,6 +16,10 @@ pub(super) struct ProjectRuntimeContext {
     pub(super) audit_dir: PathBuf,
     /// Keeps the watcher alive so it continues to receive file-system events.
     pub(super) watcher: Option<FileWatcher>,
+    /// `Some` only when a requested watcher failed to start — the index
+    /// will NOT auto-update on edits while this is set. Always `None`
+    /// for intentionally watcher-less (one-shot) constructions.
+    pub(super) watcher_error: Option<String>,
 }
 
 impl ProjectRuntimeContext {
@@ -117,13 +121,24 @@ pub(super) fn build_project_runtime_context(
     if start_watcher {
         maybe_prewarm_lsp_sessions(&symbol_index, &lsp_pool);
     }
+    let mut watcher_error = None;
     let watcher = if start_watcher {
-        FileWatcher::start(
+        match FileWatcher::start(
             project.as_path(),
             Arc::clone(&symbol_index),
             Arc::clone(&graph_cache),
-        )
-        .ok()
+        ) {
+            Ok(watcher) => Some(watcher),
+            Err(error) => {
+                tracing::warn!(
+                    project = %project.as_path().display(),
+                    %error,
+                    "file watcher failed to start; index will not auto-update on edits"
+                );
+                watcher_error = Some(error.to_string());
+                None
+            }
+        }
     } else {
         None
     };
@@ -136,6 +151,7 @@ pub(super) fn build_project_runtime_context(
         analysis_dir,
         audit_dir,
         watcher,
+        watcher_error,
     })
 }
 
