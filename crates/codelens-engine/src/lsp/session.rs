@@ -170,6 +170,16 @@ impl LspSessionPool {
         }
     }
 
+    /// Spawn-and-initialize a session so later default-path calls find it
+    /// warm (P1.3 pre-warm pool). Idempotent: an already-live session is a
+    /// no-op. Runs the full spawn+initialize handshake, so callers should
+    /// invoke this from a background thread — never on a bind/request hot
+    /// path. Command whitelisting is enforced by `ensure_session`.
+    pub fn prewarm_session(&self, command: &str, args: &[String]) -> Result<()> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        ensure_session(&mut sessions, &self.project, command, args).map(|_| ())
+    }
+
     /// Readiness of a warm session (P1.1): outer `None` = no live session for
     /// this server; `Some(None)` = live but the server never emitted a
     /// readiness signal (unknown — do NOT assume ready); `Some(Some(q))` =

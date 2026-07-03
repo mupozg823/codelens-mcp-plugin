@@ -109,6 +109,14 @@ pub(super) fn build_project_runtime_context(
     let _ = fs::create_dir_all(analysis_dir.join("jobs"));
     let _ = fs::create_dir_all(&audit_dir);
     let lsp_pool = Arc::new(LspSessionPool::new(project.clone()));
+    // P1.3: opt-in LSP pre-warm — spawn the project's language servers in the
+    // background so the latency-sensitive default reference path finds them
+    // warm (closing e.g. the Python import/type-annotation recall gap without
+    // ever paying a cold start on a request). Gated to the same full-runtime
+    // constructions that start the watcher; one-shot CLI stays untouched.
+    if start_watcher {
+        maybe_prewarm_lsp_sessions(&symbol_index, &lsp_pool);
+    }
     let watcher = if start_watcher {
         FileWatcher::start(
             project.as_path(),
@@ -129,6 +137,82 @@ pub(super) fn build_project_runtime_context(
         audit_dir,
         watcher,
     })
+}
+
+/// P1.3: decide which LSP servers to pre-warm.
+///
+/// `mode` is `CODELENS_LSP_PREWARM`:
+/// - unset / empty / `off` — disabled (opt-in feature; spawning language
+///   servers costs memory and must be a deployment decision).
+/// - `auto` — derive from the index's per-extension file counts: the top
+///   extensions (≥ `AUTO_MIN_FILES` files) that map to a default LSP server,
+///   deduplicated by server command, capped at `AUTO_MAX_SERVERS`.
+/// - anything else — comma-separated explicit server commands
+///   (e.g. `pyright-langserver,rust-analyzer`), passed through verbatim with
+///   their default args. Whitelisting happens at spawn time in the pool.
+///
+/// Pure — no I/O, no env reads — so the policy is unit-testable.
+fn prewarm_commands(mode: &str, language_counts: &[(String, usize)]) -> Vec<String> {
+    const AUTO_MIN_FILES: usize = 10;
+    const AUTO_MAX_SERVERS: usize = 3;
+
+    let mode = mode.trim();
+    if mode.is_empty() || mode.eq_ignore_ascii_case("off") {
+        return Vec::new();
+    }
+    let mut commands: Vec<String> = Vec::new();
+    if mode.eq_ignore_ascii_case("auto") {
+        for (extension, count) in language_counts {
+            if *count < AUTO_MIN_FILES {
+                continue;
+            }
+            if commands.len() >= AUTO_MAX_SERVERS {
+                break;
+            }
+            let probe = format!("probe.{extension}");
+            if let Some(command) = crate::tools::default_lsp_command_for_path(&probe)
+                && !commands.contains(&command)
+            {
+                commands.push(command);
+            }
+        }
+    } else {
+        for raw in mode.split(',') {
+            let command = raw.trim();
+            if !command.is_empty() && !commands.iter().any(|existing| existing == command) {
+                commands.push(command.to_owned());
+            }
+        }
+    }
+    commands
+}
+
+/// Read the pre-warm policy from the environment and warm the chosen servers
+/// on a background thread. Never blocks the bind path; failures (missing
+/// binary, non-whitelisted command) are logged and skipped — pre-warm is an
+/// optimization, not a correctness dependency.
+fn maybe_prewarm_lsp_sessions(symbol_index: &Arc<SymbolIndex>, lsp_pool: &Arc<LspSessionPool>) {
+    let mode = std::env::var("CODELENS_LSP_PREWARM").unwrap_or_default();
+    if mode.trim().is_empty() || mode.trim().eq_ignore_ascii_case("off") {
+        return;
+    }
+    let language_counts = symbol_index.language_counts().unwrap_or_default();
+    let commands = prewarm_commands(&mode, &language_counts);
+    if commands.is_empty() {
+        return;
+    }
+    let pool = Arc::clone(lsp_pool);
+    std::thread::spawn(move || {
+        for command in commands {
+            let args = crate::tools::default_lsp_args_for_command(&command);
+            match pool.prewarm_session(&command, &args) {
+                Ok(()) => tracing::info!(server = %command, "lsp prewarm: session warm"),
+                Err(error) => {
+                    tracing::warn!(server = %command, %error, "lsp prewarm: skipped");
+                }
+            }
+        }
+    });
 }
 
 pub(super) fn activate_project_context(
@@ -158,4 +242,55 @@ pub(super) fn activate_project_context(
     state
         .job_store
         .cleanup_stale_files(crate::util::now_ms(), Some(&scope));
+}
+
+#[cfg(test)]
+mod prewarm_tests {
+    use super::prewarm_commands;
+
+    fn counts(entries: &[(&str, usize)]) -> Vec<(String, usize)> {
+        entries
+            .iter()
+            .map(|(ext, count)| ((*ext).to_owned(), *count))
+            .collect()
+    }
+
+    #[test]
+    fn off_and_empty_modes_prewarm_nothing() {
+        let language_counts = counts(&[("py", 100)]);
+        assert!(prewarm_commands("", &language_counts).is_empty());
+        assert!(prewarm_commands("off", &language_counts).is_empty());
+        assert!(prewarm_commands("  OFF  ", &language_counts).is_empty());
+    }
+
+    #[test]
+    fn auto_maps_dominant_extensions_to_servers_and_dedupes() {
+        // ts+tsx map to the same server — must appear once. `h` has no
+        // default LSP mapping and is skipped without consuming a slot.
+        let language_counts = counts(&[("ts", 300), ("h", 200), ("tsx", 150), ("py", 90)]);
+        let commands = prewarm_commands("auto", &language_counts);
+        assert!(
+            !commands.is_empty(),
+            "dominant mapped languages must yield servers"
+        );
+        let unique: std::collections::HashSet<_> = commands.iter().collect();
+        assert_eq!(unique.len(), commands.len(), "no duplicate servers");
+        assert!(commands.len() <= 3, "auto is capped at 3 servers");
+    }
+
+    #[test]
+    fn auto_ignores_trace_languages_below_min_files() {
+        // 3 stray Python files must not spawn a pyright for the whole daemon.
+        let language_counts = counts(&[("py", 3)]);
+        assert!(prewarm_commands("auto", &language_counts).is_empty());
+    }
+
+    #[test]
+    fn explicit_list_passes_through_verbatim_deduped() {
+        let commands = prewarm_commands(
+            "pyright-langserver, rust-analyzer,pyright-langserver, ",
+            &[],
+        );
+        assert_eq!(commands, vec!["pyright-langserver", "rust-analyzer"]);
+    }
 }
