@@ -83,6 +83,7 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
     let action_id = optional_string(arguments, "action_id").map(ToOwned::to_owned);
 
     let command_ref = command.clone();
+    let diag_args = args.clone();
     let plan = state
         .lsp_pool()
         .code_action_refactor_plan(&LspCodeActionRequest {
@@ -109,6 +110,8 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
         .map(|edit| edit.file_path.clone())
         .collect::<Vec<_>>();
     let backend_id = format!("lsp:{command_ref}");
+    let pre_diagnostics =
+        (!dry_run).then(|| capture_file_diagnostics(state, &file_path, &command_ref, &diag_args));
     let apply_evidence: Option<codelens_engine::ApplyEvidence> = if !dry_run {
         Some(
             codelens_engine::lsp::apply_workspace_edit_transaction(
@@ -120,6 +123,10 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
     } else {
         None
     };
+    let edit_applied = edit_applied_from_evidence(apply_evidence.as_ref());
+    let post_diagnostics =
+        edit_applied.then(|| capture_file_diagnostics(state, &file_path, &command_ref, &diag_args));
+    let diagnostics_delta = build_diagnostics_delta(pre_diagnostics, post_diagnostics);
     let rollback_available_derived = apply_evidence
         .as_ref()
         .map(|ev| {
@@ -144,6 +151,8 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
         apply_status: if dry_run { "preview_only" } else { "applied" },
         references_checked: false,
         conflicts: json!([]),
+        diagnostics_before: Value::Array(diagnostics_delta.pre.clone()),
+        diagnostics_after: Value::Array(diagnostics_delta.post.clone()),
         evidence: apply_evidence.as_ref(),
     });
     let message = format!(
@@ -197,12 +206,16 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
             },
             "workspace_edit": transaction,
             "verification": {
-                "pre_diagnostics": [],
-                "post_diagnostics": [],
+                "pre_diagnostics": diagnostics_delta.pre,
+                "post_diagnostics": diagnostics_delta.post,
+                "introduced_diagnostics": diagnostics_delta.introduced,
+                "diagnostics_status": diagnostics_delta.status,
+                "diagnostics_status_reason": diagnostics_delta.reason,
                 "references_checked": false,
                 "conflicts": []
             },
             "applied": !dry_run,
+            "edit_applied": edit_applied,
             "message": message,
         }),
         success_meta(BackendKind::Lsp, 0.93),
@@ -231,6 +244,7 @@ pub(crate) fn rename_symbol_with_lsp_backend(
         .unwrap_or(false);
 
     let command_ref = command.clone();
+    let diag_args = args.clone();
     let transaction = state
         .lsp_pool()
         .rename_symbol_transaction(&LspRenameRequest {
@@ -253,6 +267,8 @@ pub(crate) fn rename_symbol_with_lsp_backend(
     let transaction_value =
         serde_json::to_value(&transaction).unwrap_or_else(|_| json!({"serialization_error": true}));
     let backend_id = format!("lsp:{command_ref}");
+    let pre_diagnostics =
+        (!dry_run).then(|| capture_file_diagnostics(state, &file_path, &command_ref, &diag_args));
     let apply_evidence: Option<codelens_engine::ApplyEvidence> = if !dry_run {
         Some(
             codelens_engine::lsp::apply_workspace_edit_transaction(&state.project(), &transaction)
@@ -261,6 +277,10 @@ pub(crate) fn rename_symbol_with_lsp_backend(
     } else {
         None
     };
+    let edit_applied = edit_applied_from_evidence(apply_evidence.as_ref());
+    let post_diagnostics =
+        edit_applied.then(|| capture_file_diagnostics(state, &file_path, &command_ref, &diag_args));
+    let diagnostics_delta = build_diagnostics_delta(pre_diagnostics, post_diagnostics);
     let rollback_available_derived = apply_evidence
         .as_ref()
         .map(|ev| {
@@ -285,6 +305,8 @@ pub(crate) fn rename_symbol_with_lsp_backend(
         apply_status: if dry_run { "preview_only" } else { "applied" },
         references_checked: false,
         conflicts: json!([]),
+        diagnostics_before: Value::Array(diagnostics_delta.pre.clone()),
+        diagnostics_after: Value::Array(diagnostics_delta.post.clone()),
         evidence: apply_evidence.as_ref(),
     });
     let message = format!(
@@ -321,6 +343,7 @@ pub(crate) fn rename_symbol_with_lsp_backend(
             "position": {"line": line, "column": column},
             "result": result,
             "success": true,
+            "edit_applied": edit_applied,
             "message": message,
             "modified_files": modified_files,
             "total_replacements": total_replacements,
@@ -334,8 +357,11 @@ pub(crate) fn rename_symbol_with_lsp_backend(
                 "contract": transaction_contract
             },
             "verification": {
-                "pre_diagnostics": [],
-                "post_diagnostics": [],
+                "pre_diagnostics": diagnostics_delta.pre,
+                "post_diagnostics": diagnostics_delta.post,
+                "introduced_diagnostics": diagnostics_delta.introduced,
+                "diagnostics_status": diagnostics_delta.status,
+                "diagnostics_status_reason": diagnostics_delta.reason,
                 "references_checked": false,
                 "conflicts": []
             },
@@ -364,6 +390,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
         .unwrap_or(200) as usize;
 
     let command_ref = command.clone();
+    let diag_args = args.clone();
     let references = state
         .lsp_pool()
         .find_referencing_symbols(&LspRequest {
@@ -402,6 +429,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
     let mut apply_evidence: Option<codelens_engine::ApplyEvidence> = None;
     let mut apply_status_for_contract: &str = if dry_run { "preview_only" } else { "applied" };
     let mut apply_failure_message: Option<String> = None;
+    let mut diagnostics_delta = DiagnosticsDelta::not_captured();
 
     if !dry_run {
         if !safe_to_delete {
@@ -449,6 +477,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
             old_text: delete_text,
             new_text: String::new(),
         }];
+        let pre_diagnostics = capture_file_diagnostics(state, &file_path, &command_ref, &diag_args);
         let tx = codelens_engine::WorkspaceEditTransaction::new(edits, Vec::new());
         match tx.apply_with_evidence(&state.project()) {
             Ok(evidence) => {
@@ -472,6 +501,9 @@ pub(crate) fn safe_delete_with_lsp_backend(
                 )));
             }
         }
+        let post_diagnostics = (safe_delete_action == "applied")
+            .then(|| capture_file_diagnostics(state, &file_path, &command_ref, &diag_args));
+        diagnostics_delta = build_diagnostics_delta(Some(pre_diagnostics), post_diagnostics);
     }
 
     let rollback_available = apply_evidence
@@ -484,6 +516,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
         })
         .unwrap_or(false);
 
+    let edit_applied = edit_applied_from_evidence(apply_evidence.as_ref());
     let message = if safe_to_delete {
         format!(
             "LSP found no non-declaration references for `{symbol_name}` in `{file_path}`. Deletion can proceed through the mutation gate."
@@ -516,6 +549,8 @@ pub(crate) fn safe_delete_with_lsp_backend(
                     } else {
                         serde_json::Value::Array(affected_references.clone())
                     },
+                    diagnostics_before: Value::Array(diagnostics_delta.pre.clone()),
+                    diagnostics_after: Value::Array(diagnostics_delta.post.clone()),
                     evidence: apply_evidence.as_ref(),
                 });
             json!({
@@ -554,6 +589,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
                 "dry_run": dry_run,
                 "message": message,
                 "safe_delete_action": safe_delete_action,
+                "edit_applied": edit_applied,
                 "error_message": apply_failure_message,
                 "transaction": {
                     "dry_run": dry_run,
@@ -564,8 +600,11 @@ pub(crate) fn safe_delete_with_lsp_backend(
                     "contract": transaction_contract
                 },
                 "verification": {
-                    "pre_diagnostics": [],
-                    "post_diagnostics": [],
+                    "pre_diagnostics": diagnostics_delta.pre,
+                    "post_diagnostics": diagnostics_delta.post,
+                    "introduced_diagnostics": diagnostics_delta.introduced,
+                    "diagnostics_status": diagnostics_delta.status,
+                    "diagnostics_status_reason": diagnostics_delta.reason,
                     "references_checked": true,
                     "conflicts": if safe_to_delete {
                         json!([])
@@ -599,6 +638,11 @@ pub(crate) struct SemanticTransactionContractInput<'a> {
     pub(crate) apply_status: &'a str,
     pub(crate) references_checked: bool,
     pub(crate) conflicts: Value,
+    /// Diagnostics captured on the edited file before/after the edit landed.
+    /// Empty arrays when the snapshot was skipped or unavailable — the response
+    /// `verification.diagnostics_status` carries the distinction.
+    pub(crate) diagnostics_before: Value,
+    pub(crate) diagnostics_after: Value,
     /// When `Some`, evidence is single source of truth for file_hashes_before/
     /// file_hashes_after / rollback_report / apply_status / modified_files /
     /// edit_count / rollback_available. When `None` (preview/dry_run), the
@@ -689,8 +733,8 @@ pub(crate) fn semantic_transaction_contract(input: SemanticTransactionContractIn
                 "rollback evidence is unavailable for this operation path"
             }
         },
-        "diagnostics_before": [],
-        "diagnostics_after": [],
+        "diagnostics_before": input.diagnostics_before,
+        "diagnostics_after": input.diagnostics_after,
         "verification_result": {
             "references_checked": input.references_checked,
             "conflicts": input.conflicts,
@@ -700,6 +744,175 @@ pub(crate) fn semantic_transaction_contract(input: SemanticTransactionContractIn
             "reason": "inline tool response only; session audit remains the durable audit channel"
         }
     })
+}
+
+/// Outcome of a single-file diagnostics snapshot taken through the shared
+/// `get_file_diagnostics` path. `Unavailable` keeps the reason so the response
+/// can distinguish "the file has no diagnostics" from "diagnostics could not
+/// be checked".
+pub(crate) enum DiagnosticsCapture {
+    Captured(Vec<Value>),
+    Unavailable(String),
+}
+
+/// Snapshot diagnostics for one file, reusing the exact LSP `command`/`args`
+/// the edit already warmed. The session pool is keyed by (command, args), so
+/// passing the same pair reuses the warm session instead of cold-starting a
+/// language server on the edit hot path. `get_file_diagnostics` tries the
+/// local SCIP index first and only falls back to that warm LSP session.
+pub(crate) fn capture_file_diagnostics(
+    state: &AppState,
+    file_path: &str,
+    command: &str,
+    args: &[String],
+) -> DiagnosticsCapture {
+    let arguments = json!({
+        "file_path": file_path,
+        "command": command,
+        "args": args,
+    });
+    match super::lsp::get_file_diagnostics(state, &arguments) {
+        Ok((payload, _meta)) => {
+            let diagnostics = payload
+                .get("diagnostics")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            DiagnosticsCapture::Captured(diagnostics)
+        }
+        Err(error) => DiagnosticsCapture::Unavailable(error.to_string()),
+    }
+}
+
+/// Response-facing before/after diagnostics plus the edit-introduced subset and
+/// a status that keeps "empty" distinct from "clean".
+pub(crate) struct DiagnosticsDelta {
+    pub(crate) pre: Vec<Value>,
+    pub(crate) post: Vec<Value>,
+    pub(crate) introduced: Vec<Value>,
+    pub(crate) status: &'static str,
+    pub(crate) reason: Option<String>,
+}
+
+impl DiagnosticsDelta {
+    /// The snapshot was intentionally skipped — dry-run preview, or an edit
+    /// that never landed on disk. Distinct from `unavailable` (a snapshot was
+    /// attempted but the server could not answer).
+    pub(crate) fn not_captured() -> Self {
+        Self {
+            pre: Vec::new(),
+            post: Vec::new(),
+            introduced: Vec::new(),
+            status: "not_captured",
+            reason: None,
+        }
+    }
+}
+
+/// Fold a pre/post capture pair into the response delta. `None` inputs mean the
+/// snapshot was skipped (`not_captured`); an `Unavailable` capture means it was
+/// attempted but failed (`unavailable`); two captured snapshots yield `clean`
+/// (no diagnostics after the edit), `introduced` (the edit added at least one),
+/// or `preexisting` (diagnostics remain but none are new).
+pub(crate) fn build_diagnostics_delta(
+    pre: Option<DiagnosticsCapture>,
+    post: Option<DiagnosticsCapture>,
+) -> DiagnosticsDelta {
+    match (pre, post) {
+        (Some(DiagnosticsCapture::Captured(pre)), Some(DiagnosticsCapture::Captured(post))) => {
+            let introduced = scope_introduced_diagnostics(&pre, &post);
+            let status = if !introduced.is_empty() {
+                "introduced"
+            } else if post.is_empty() {
+                "clean"
+            } else {
+                "preexisting"
+            };
+            DiagnosticsDelta {
+                pre,
+                post,
+                introduced,
+                status,
+                reason: None,
+            }
+        }
+        (Some(DiagnosticsCapture::Unavailable(reason)), _)
+        | (_, Some(DiagnosticsCapture::Unavailable(reason))) => DiagnosticsDelta {
+            pre: Vec::new(),
+            post: Vec::new(),
+            introduced: Vec::new(),
+            status: "unavailable",
+            reason: Some(reason),
+        },
+        _ => DiagnosticsDelta::not_captured(),
+    }
+}
+
+/// Diagnostics present after the edit that have no counterpart from before it.
+/// Matching is deliberately conservative: a post diagnostic is only reported as
+/// introduced when no pre diagnostic shares its `(code, message)` identity, and
+/// when several pre diagnostics share that identity the nearest line is consumed
+/// first so a diagnostic that merely shifted lines is not counted as new.
+/// Under-reporting is intentional — the field guards against agents misreading
+/// pre-existing diagnostics as an edit failure, so it must never invent new
+/// ones.
+pub(crate) fn scope_introduced_diagnostics(pre: &[Value], post: &[Value]) -> Vec<Value> {
+    let mut consumed = vec![false; pre.len()];
+    let mut introduced = Vec::new();
+    for post_diag in post {
+        let post_identity = diagnostic_identity(post_diag);
+        let post_line = diagnostic_line(post_diag);
+        let mut best: Option<(usize, u64)> = None;
+        for (index, pre_diag) in pre.iter().enumerate() {
+            if consumed[index] || diagnostic_identity(pre_diag) != post_identity {
+                continue;
+            }
+            let distance = match (post_line, diagnostic_line(pre_diag)) {
+                (Some(a), Some(b)) => a.abs_diff(b),
+                _ => u64::MAX,
+            };
+            if best.is_none_or(|(_, best_distance)| distance < best_distance) {
+                best = Some((index, distance));
+            }
+        }
+        match best {
+            Some((index, _)) => consumed[index] = true,
+            None => introduced.push(post_diag.clone()),
+        }
+    }
+    introduced
+}
+
+fn diagnostic_identity(diagnostic: &Value) -> (String, String) {
+    let code = diagnostic
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let message = diagnostic
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    (code, message)
+}
+
+fn diagnostic_line(diagnostic: &Value) -> Option<u64> {
+    diagnostic.get("line").and_then(Value::as_u64)
+}
+
+/// Whether the transaction actually landed on disk. `Applied` is the only
+/// status that mutated files; `RolledBack` / `NoOp` / absent (dry-run) all
+/// leave the working tree unchanged. Surfaced as `edit_applied` so an agent
+/// that sees post-edit diagnostics does not misread them as a failed edit and
+/// retry (opencode#9102).
+pub(crate) fn edit_applied_from_evidence(
+    evidence: Option<&codelens_engine::ApplyEvidence>,
+) -> bool {
+    matches!(
+        evidence.map(|ev| ev.status),
+        Some(codelens_engine::ApplyStatus::Applied)
+    )
 }
 
 pub(crate) fn file_hashes_before(state: &AppState, file_paths: &[String]) -> Value {
@@ -836,5 +1049,142 @@ mod selected_backend_tests {
             msg.contains("auto"),
             "error message must list `auto` as a valid choice (got: {msg})",
         );
+    }
+}
+
+#[cfg(test)]
+mod diagnostics_delta_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn diag(code: &str, message: &str, line: u64) -> Value {
+        json!({ "code": code, "message": message, "line": line })
+    }
+
+    fn evidence(status: codelens_engine::ApplyStatus) -> codelens_engine::ApplyEvidence {
+        codelens_engine::ApplyEvidence {
+            status,
+            file_hashes_before: std::collections::BTreeMap::new(),
+            file_hashes_after: std::collections::BTreeMap::new(),
+            rollback_report: Vec::new(),
+            modified_files: 1,
+            edit_count: 1,
+        }
+    }
+
+    // (a) A synthetic edit that introduces an error surfaces only that error,
+    // even when a pre-existing diagnostic (of a different identity) is still
+    // present after the edit.
+    #[test]
+    fn introduced_scoping_flags_only_the_new_error() {
+        let pre = vec![diag("E0308", "mismatched types", 5)];
+        let post = vec![
+            diag("E0308", "mismatched types", 5),
+            diag("E0412", "cannot find type `Foo`", 42),
+        ];
+        let introduced = scope_introduced_diagnostics(&pre, &post);
+        assert_eq!(
+            introduced,
+            vec![diag("E0412", "cannot find type `Foo`", 42)]
+        );
+    }
+
+    // A diagnostic whose line merely shifted (same code+message) is matched to
+    // its pre counterpart and is NOT reported as introduced.
+    #[test]
+    fn introduced_scoping_ignores_shifted_but_unchanged_diagnostics() {
+        let pre = vec![diag("E0308", "mismatched types", 10)];
+        let post = vec![diag("E0308", "mismatched types", 13)];
+        assert!(scope_introduced_diagnostics(&pre, &post).is_empty());
+    }
+
+    // Two occurrences of the same identity where pre had one: the extra one is
+    // introduced (multiset accounting via count).
+    #[test]
+    fn introduced_scoping_counts_duplicate_identities() {
+        let pre = vec![diag("W0", "unused variable", 3)];
+        let post = vec![
+            diag("W0", "unused variable", 3),
+            diag("W0", "unused variable", 90),
+        ];
+        let introduced = scope_introduced_diagnostics(&pre, &post);
+        assert_eq!(introduced, vec![diag("W0", "unused variable", 90)]);
+    }
+
+    // (c) The status distinguishes captured-clean, captured-with-new,
+    // captured-preexisting, skipped, and unavailable.
+    #[test]
+    fn status_clean_when_no_diagnostics_after_edit() {
+        let delta = build_diagnostics_delta(
+            Some(DiagnosticsCapture::Captured(vec![diag("E0308", "boom", 1)])),
+            Some(DiagnosticsCapture::Captured(Vec::new())),
+        );
+        assert_eq!(delta.status, "clean");
+        assert!(delta.introduced.is_empty());
+        assert_eq!(delta.reason, None);
+    }
+
+    #[test]
+    fn status_introduced_when_edit_adds_a_diagnostic() {
+        let delta = build_diagnostics_delta(
+            Some(DiagnosticsCapture::Captured(Vec::new())),
+            Some(DiagnosticsCapture::Captured(vec![diag(
+                "E0412", "no type", 7,
+            )])),
+        );
+        assert_eq!(delta.status, "introduced");
+        assert_eq!(delta.introduced, vec![diag("E0412", "no type", 7)]);
+    }
+
+    #[test]
+    fn status_preexisting_when_diagnostics_remain_but_none_new() {
+        let delta = build_diagnostics_delta(
+            Some(DiagnosticsCapture::Captured(vec![diag("E0308", "boom", 1)])),
+            Some(DiagnosticsCapture::Captured(vec![diag("E0308", "boom", 1)])),
+        );
+        assert_eq!(delta.status, "preexisting");
+        assert!(delta.introduced.is_empty());
+    }
+
+    #[test]
+    fn status_not_captured_when_snapshot_skipped() {
+        let delta = build_diagnostics_delta(None, None);
+        assert_eq!(delta.status, "not_captured");
+        assert!(delta.pre.is_empty() && delta.post.is_empty());
+    }
+
+    // Diagnostics unavailable (server could not answer) is distinct from empty:
+    // status is "unavailable" and the reason is carried through, whether the
+    // failure was on the pre or post snapshot.
+    #[test]
+    fn status_unavailable_distinguished_from_empty() {
+        let pre_fail = build_diagnostics_delta(
+            Some(DiagnosticsCapture::Unavailable("no lsp mapping".into())),
+            None,
+        );
+        assert_eq!(pre_fail.status, "unavailable");
+        assert_eq!(pre_fail.reason.as_deref(), Some("no lsp mapping"));
+
+        let post_fail = build_diagnostics_delta(
+            Some(DiagnosticsCapture::Captured(Vec::new())),
+            Some(DiagnosticsCapture::Unavailable("server crashed".into())),
+        );
+        assert_eq!(post_fail.status, "unavailable");
+        assert_eq!(post_fail.reason.as_deref(), Some("server crashed"));
+    }
+
+    // (b) edit_applied is true only for an actually-landed edit.
+    #[test]
+    fn edit_applied_true_only_for_applied_status() {
+        assert!(edit_applied_from_evidence(Some(&evidence(
+            codelens_engine::ApplyStatus::Applied
+        ))));
+        assert!(!edit_applied_from_evidence(Some(&evidence(
+            codelens_engine::ApplyStatus::RolledBack
+        ))));
+        assert!(!edit_applied_from_evidence(Some(&evidence(
+            codelens_engine::ApplyStatus::NoOp
+        ))));
+        assert!(!edit_applied_from_evidence(None));
     }
 }
