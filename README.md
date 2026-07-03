@@ -20,7 +20,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 
 ## Surface Snapshot
 
-- Workspace version: `1.13.32`
+- Workspace version: `1.13.33`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
 - Registered tool definitions: `87`
 - Tool output schemas: `55 / 87`

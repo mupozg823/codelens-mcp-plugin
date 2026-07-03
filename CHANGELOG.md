@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.33] - 2026-07-03
+
+### Security
+
+- **RBAC fails closed on malformed principals in mutation-capable runtimes (#355)** — a present-but-broken `principals.toml` used to fall back to the permissive default (every principal → `Refactor`), silently disarming RBAC exactly when it was misconfigured. Discovery errors now resolve to `strict_default` (every principal → `ReadOnly`, all code-mutation tools denied, logged at `error`) in any mutation-capable mode — `MutationEnabled` **and** `Standard`, the stdio/unspecified `--daemon-mode` default (adversarial review caught the Standard gap). Read-only daemons keep the legacy permissive fallback; a *missing* file still selects the env default in every mode, so installs that never deployed RBAC are unaffected. The env-strict "no principals.toml" warning is suppressed on the fail-closed path (it was factually wrong there).
+
+- **Memory mutation now requires the `Refactor` tier (#355)** — the `write_memory`/`delete_memory`/`rename_memory` ReadOnly carve-out is removed: agent long-term memory is a trust surface whose poisoning is comparable to a source mutation, so the role gate treats it like every other content mutation (consistent with `archive_memory`/`restore_memory`, which already required `Refactor`).
+
+### Added
+
+- **Diagnostic-delta verification on semantic edits (#357)** — `semantic_edit` captures pre/post diagnostics across **all** edited files (including move destinations, capped by `MAX_DIAGNOSTIC_CAPTURE_FILES`; the adversarial review caught the single-file version reporting destination breakage as clean), scopes `introduced_diagnostics` to newly-introduced entries only, distinguishes `clean / introduced / preexisting / not_captured / unavailable` so an empty list is never mistaken for a clean verify, and states `edit_applied` explicitly so agents stop misreading post-edit diagnostics as a failed edit.
+
+- **Working-set anchor ranking (#357)** — `get_ranked_context` accepts an optional `anchor_files` array (active/recently-edited working set) that feeds the existing user_context/recency RRF lane, giving Aider-style task-relative ranking without new PageRank machinery.
+
+- **Warm-LSP precision stage on the default `find_referencing_symbols` path (#357)** — between SCIP and the tree-sitter fallback, the default path now routes through an already-warm LSP session (non-spawning probe, asserted by test — no cold start is ever incurred by routing); cold sessions fall back with a hint toward `use_lsp=true`. Closes the known Python import/type-annotation reference gap whenever pyright is warm. The `routing_note` reports honestly when a rare probe-to-call race forces a respawn.
+
+- **Query-adaptive RRF channel weights, experiment-gated (#357)** — `CODELENS_RRF_ADAPTIVE=1` shifts fusion channel weights by query shape (identifier→sparse, NL→dense) reusing the existing intent classifier. Default **off**: measured on the canonical harness (n=96), hybrid MRR moved 0.6031 → 0.6057 (Δ+0.0026, below the +0.01 adoption threshold); flag-off invariance is pinned by test.
+
+- **Evaluation: F-β(0.5) retrieval metrics + per-tool token profiler (#357)** — `benchmarks/retrieval-fbeta.py` adds SWE-grep-style precision-weighted F-β(0.5) at file and line granularity over the existing labeled datasets; `benchmarks/tool-token-profile.py` probes a live daemon and compares actual response tokens against the manifest's `estimated_tokens` (first run flagged `get_symbols_overview` at 2.23× and `bm25_symbol_search` at 2.77× over estimate).
+
+### Changed
+
+- **`orchestrate_change` is described as what it is (#355)** — an advisory dry-run orchestration plan: session-scoped in-memory approval, enforced opt-in only when a mutation call passes `orchestration_run_id`. Tool description and `docs/multi-agent-integration.md` now separate shipped behavior from the ADR-0014 durable-state direction. pending-D3 is recorded as **decided (2026-07-03): stays dispatch-only** — identifiers and drift-gate vocabulary unchanged. Memory tools expose their real `scope` parameter (`project`/`global`; `read` also `auto`, `list` also `both`) in tools.toml, and the memory-scopes resource note matches the runtime tiers.
+
+### Documented
+
+- **Landscape deep-research report (#357)** — `docs/research/landscape-deep-research-2026-07-03.md`: 8-axis adversarially-verified survey (Serena, LSP bridges, SCIP ecosystem, semantic-indexing MCPs, Aider repo-map, editor indexing, benchmark methodology, mutation-safety patterns) with 12 repo-grounded improvement candidates and an "already implemented — do not re-propose" corrections list. Also fixed the stale CLAUDE.md claim that the daemon "does not auto-watch" (the `FileWatcher` is default-on).
+
 ### Fixed
 
 - **NFC follow-ups: query lanes, call graph, and codex workspace binding (#353)** — completes the grill-me triage of the #349/#351 residuals. (1) *Query lanes*: `analyze_retrieval_query` (feeds BM25F sparse + ranked-context fusion) and `search_symbols_fuzzy` normalize NFD-pasted Hangul queries to NFC, matching the NFC corpus — the NFC end-to-end invariant now holds on the query side of every lane. (2) *Call graph*: `insert_calls` and `get_callers_cached` / `get_callees_cached` join the same 3-boundary NFC contract as the symbols table. (3) *Codex binding*: `codelens-mcp attach codex` stamps `http_headers = { "x-codelens-project" = … }` into the `config.toml` template — officially supported by codex for streamable-HTTP MCP servers — so codex sessions bind at initialize and survive the 30-min eviction exactly like JSON-template hosts (#347/#351). Deliberately deferred, recorded on #349: NFD filename path emission (freshness/watcher path-key risk) and pre-existing NFD index rows (refresh re-normalizes).
