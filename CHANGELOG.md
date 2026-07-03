@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Four new tree-sitter languages without a core bump (P2.2 Stage 1): Make, Dockerfile/Containerfile, Vimscript, F#** — the repo comments claiming all five blocked languages needed tree-sitter 0.26 were empirically stale: `tree-sitter-make` 1.1.1, `tree-sitter-containerfile` 0.8.1 (replacing the dead-ended `tree-sitter-dockerfile`), `tree-sitter-vim` 0.4.0, and `tree-sitter-fsharp` 0.3.1 all resolve against the current 0.25.10 core (verified by build + extraction smoke tests per language). Extensions registered: `mk`/`Makefile`, `Dockerfile`/`Containerfile`, `vim`, `fs`/`fsx`. Only `perl` genuinely requires core 0.26 and is mutually exclusive with `tree-sitter-clojure` 0.1.0 — deferred to Stage 2 (comments corrected with the real constraint).
+
 ### Changed
 
 - **alwaysLoad set rebalanced for agent-native navigation (Fable/workflow consumption)** — the `_meta["anthropic/alwaysLoad"]` set now pre-loads the four highest-frequency mechanical navigation verbs (`find_symbol`, `find_referencing_symbols`, `get_symbols_overview`, `get_ranked_context`) alongside the five workflow entrypoints (`prepare_harness_session`, `explore_codebase`, `review_changes`, `review_architecture`, `verify_change_readiness`). Measured motivation: workflow subagents skipped CodeLens navigation entirely when it cost a ToolSearch round trip (1–2 calls vs 10–47 grep sweeps). `plan_safe_refactor` / `trace_request_path` move to deferred-discoverable (still reachable via `suggested_next_tools` chains). Set stays ≤10 — every entry is upfront schema tokens in every session.
