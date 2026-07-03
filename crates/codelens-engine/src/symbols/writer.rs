@@ -23,7 +23,14 @@ fn analyze_file(project: &ProjectRoot, file: &Path) -> Option<AnalyzedFile> {
     let mtime = file_modified_ms(file).ok()? as i64;
     let hash = content_hash(&content);
     let source = String::from_utf8_lossy(&content);
-    let ext = file.extension()?.to_str()?.to_ascii_lowercase();
+    // Mirror `language_for_path`: extension-less well-known files
+    // (Makefile, Dockerfile, Containerfile) key by lowercased file name.
+    // The old `file.extension()?` dropped them here even though candidate
+    // collection had already accepted them via `language_for_path`.
+    let ext = match file.extension().and_then(|e| e.to_str()) {
+        Some(e) => e.to_ascii_lowercase(),
+        None => file.file_name()?.to_str()?.to_ascii_lowercase(),
+    };
 
     let symbols = language_for_path(file)
         .and_then(|config| parse_symbols(&config, &relative, &source, false).ok())
@@ -270,10 +277,19 @@ impl SymbolIndex {
             Vec::new()
         };
 
+        // Same filename-key fallback as `analyze_file`, gated on the language
+        // registry so arbitrary extension-less files (LICENSE, …) don't leak
+        // their names into the `language` column.
         let ext = file
             .extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase());
+            .map(|e| e.to_ascii_lowercase())
+            .or_else(|| {
+                language_for_path(file)?;
+                file.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.to_ascii_lowercase())
+            });
 
         let file_id =
             db.upsert_file(relative, mtime, &hash, content.len() as i64, ext.as_deref())?;
