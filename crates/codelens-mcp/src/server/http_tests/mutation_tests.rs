@@ -134,6 +134,8 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
         crate::tool_defs::ToolProfile::RefactorFull,
     ));
+    // #347: mutations require an explicit project binding — bind at initialize.
+    let project_path = state.project().as_path().to_string_lossy().into_owned();
     let app = build_router(state.clone());
     let init = app
         .clone()
@@ -143,6 +145,7 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
                 .uri("/mcp")
                 .header("content-type", "application/json")
                 .header("x-codelens-trusted-client", "true")
+                .header("x-codelens-project", project_path.as_str())
                 .body(axum::body::Body::from(
                     r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA","version":"2.2.0"},"profile":"refactor-full"}}"#,
                 ))
@@ -223,4 +226,132 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
         serde_json::json!("refactor-full")
     );
     assert_eq!(metadata["client_name"], serde_json::json!("HarnessQA"));
+}
+
+// ── #347 hard gate: unbound shared-daemon sessions cannot mutate ─────
+
+async fn init_session(app: &axum::Router, project_header: Option<&str>) -> String {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json");
+    if let Some(project) = project_header {
+        builder = builder.header("x-codelens-project", project);
+    }
+    let init = app
+        .clone()
+        .oneshot(
+            builder
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"binding-gate-qa"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    init.headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned()
+}
+
+async fn call_write_memory(app: &axum::Router, sid: &str, memory_name: &str) -> String {
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", sid)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"write_memory","arguments":{{"memory_name":"{memory_name}","content":"gate probe"}}}}}}"#,
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    body_string(resp).await
+}
+
+#[tokio::test]
+async fn unbound_session_mutation_blocked_with_recovery_hint() {
+    // The gate reads CODELENS_ALLOW_UNBOUND_MUTATION per call — hold the
+    // env lock so the escape-hatch test cannot interleave.
+    let _env_guard = crate::env_compat::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let state = test_state();
+    let app = build_router(state.clone());
+
+    let sid = init_session(&app, None).await;
+    let body = call_write_memory(&app, &sid, "unbound_gate_probe").await;
+    let payload = first_tool_payload(&body);
+    assert_eq!(payload["success"], json!(false), "{body}");
+    let error = payload["error"].as_str().unwrap_or_default();
+    assert!(error.contains("project_binding_required"), "{body}");
+    assert_eq!(payload["recovery_hint"]["kind"], json!("fallback_tool"));
+    assert_eq!(
+        payload["recovery_hint"]["tool"],
+        json!("prepare_harness_session")
+    );
+    // Pre-execution block: the memory file must never be created.
+    assert!(
+        !state
+            .project()
+            .as_path()
+            .join(".codelens/memories/unbound_gate_probe.md")
+            .exists(),
+        "blocked mutation must not touch the filesystem"
+    );
+}
+
+#[tokio::test]
+async fn bound_session_mutation_passes() {
+    let state = test_state();
+    let project_path = state.project().as_path().to_string_lossy().into_owned();
+    let app = build_router(state.clone());
+
+    let sid = init_session(&app, Some(project_path.as_str())).await;
+    let body = call_write_memory(&app, &sid, "bound_gate_probe").await;
+    let payload = first_tool_payload(&body);
+    assert_eq!(payload["success"], json!(true), "{body}");
+    assert!(!body.contains("project_binding_required"), "{body}");
+}
+
+#[tokio::test]
+async fn allow_unbound_mutation_env_restores_advisory_behavior() {
+    let _env_guard = crate::env_compat::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let previous = std::env::var("CODELENS_ALLOW_UNBOUND_MUTATION").ok();
+    // SAFETY: env mutation serialized under TEST_ENV_LOCK.
+    unsafe {
+        std::env::set_var("CODELENS_ALLOW_UNBOUND_MUTATION", "1");
+    }
+
+    let state = test_state();
+    let app = build_router(state.clone());
+    let sid = init_session(&app, None).await;
+    let body = call_write_memory(&app, &sid, "override_gate_probe").await;
+
+    // SAFETY: env mutation serialized under TEST_ENV_LOCK.
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_ALLOW_UNBOUND_MUTATION", value),
+            None => std::env::remove_var("CODELENS_ALLOW_UNBOUND_MUTATION"),
+        }
+    }
+
+    let payload = first_tool_payload(&body);
+    assert_eq!(payload["success"], json!(true), "{body}");
+    // Advisory behavior restored: the mutation succeeds but the unbound
+    // `project_binding` hint still nags on the success payload.
+    assert_eq!(
+        payload["data"]["project_binding"]["reason"],
+        json!("implicit_session_project_binding"),
+        "{body}"
+    );
 }

@@ -33,6 +33,9 @@ impl AppState {
             default_analysis_dir: analysis_dir.clone(),
             default_audit_dir: audit_dir,
             default_watcher: None,
+            // Worker clones never own a watcher; propagate the active
+            // context's error state so observability survives the clone.
+            default_watcher_error: self.watcher_error(),
             project_override: std::sync::RwLock::new(None),
             project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(self.transport_mode()),
@@ -109,6 +112,7 @@ impl AppState {
         let default_analysis_dir = context.analysis_dir.clone();
         let default_audit_dir = context.audit_dir.clone();
         let default_watcher = context.watcher;
+        let default_watcher_error = context.watcher_error;
         Self {
             default_project,
             default_symbol_index,
@@ -118,6 +122,7 @@ impl AppState {
             default_analysis_dir: default_analysis_dir.clone(),
             default_audit_dir,
             default_watcher,
+            default_watcher_error,
             project_override: std::sync::RwLock::new(None),
             project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),

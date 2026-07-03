@@ -30,6 +30,16 @@ impl Role {
     }
 }
 
+/// Where a resolved [`Principals`] mapping came from. `Fallback`
+/// covers every mapping that was *not* read from a `principals.toml`
+/// (missing file, or a caller-chosen fallback after a parse failure);
+/// `File` means an operator-authored file was parsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrincipalsSource {
+    File,
+    Fallback,
+}
+
 /// Resolved role mapping. Built once at AppState init from a
 /// `principals.toml` (if any) and consulted by the role gate on every
 /// dispatch.
@@ -37,6 +47,7 @@ impl Role {
 pub struct Principals {
     default_role: Role,
     by_id: HashMap<String, Role>,
+    source: PrincipalsSource,
 }
 
 impl Principals {
@@ -47,6 +58,7 @@ impl Principals {
         Self {
             default_role: Role::Refactor,
             by_id: HashMap::new(),
+            source: PrincipalsSource::Fallback,
         }
     }
 
@@ -61,6 +73,7 @@ impl Principals {
         Self {
             default_role: Role::ReadOnly,
             by_id: HashMap::new(),
+            source: PrincipalsSource::Fallback,
         }
     }
 
@@ -80,6 +93,26 @@ impl Principals {
 
     pub fn default_role(&self) -> Role {
         self.default_role
+    }
+
+    pub fn source(&self) -> PrincipalsSource {
+        self.source
+    }
+
+    /// P3.1 (RBAC secure-by-default): true when this mapping is the
+    /// no-file permissive fallback inside a runtime that can apply
+    /// mutations — every principal (known or unknown) resolves to
+    /// `Refactor`, so any caller may invoke code-mutation tools with
+    /// no RBAC boundary. Invariants: never true when an
+    /// operator-authored `principals.toml` was parsed
+    /// (`source == File`, an explicit choice even with a `Refactor`
+    /// default), never true for the strict fallback (`ReadOnly`
+    /// default already denies mutations), and never true in a runtime
+    /// that cannot mutate.
+    pub fn rbac_permissive_default_active(&self, mutation_allowed: bool) -> bool {
+        mutation_allowed
+            && self.source == PrincipalsSource::Fallback
+            && self.default_role == Role::Refactor
     }
 
     /// Discover a `principals.toml` and parse it.
@@ -165,6 +198,7 @@ impl Principals {
         Ok(Self {
             default_role,
             by_id,
+            source: PrincipalsSource::File,
         })
     }
 }
@@ -241,6 +275,25 @@ mod tests {
         assert_eq!(p.resolve(None), Role::Refactor);
         assert_eq!(p.resolve(Some("alice")), Role::Refactor);
         assert_eq!(p.explicit_count(), 0);
+    }
+
+    #[test]
+    fn rbac_permissive_default_active_only_for_no_file_mutation_capable() {
+        // No-file permissive fallback + mutation-capable runtime is the
+        // one configuration with no reachable RBAC boundary.
+        assert!(Principals::permissive_default().rbac_permissive_default_active(true));
+        // A runtime that cannot mutate has no bypassable boundary.
+        assert!(!Principals::permissive_default().rbac_permissive_default_active(false));
+        // Strict fallback (CODELENS_AUTH_MODE=strict, or the
+        // fail-closed path on a malformed file) already denies
+        // mutations.
+        assert!(!Principals::strict_default().rbac_permissive_default_active(true));
+        // An operator-authored file is an explicit choice even when
+        // its default role is Refactor.
+        let from_file = Principals::parse("[default]\nrole = \"Refactor\"\n").expect("parse ok");
+        assert_eq!(from_file.source(), PrincipalsSource::File);
+        assert_eq!(from_file.default_role(), Role::Refactor);
+        assert!(!from_file.rbac_permissive_default_active(true));
     }
 
     #[test]

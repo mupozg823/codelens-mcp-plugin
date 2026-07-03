@@ -18,8 +18,9 @@ use super::prep_recovery::{
     refresh_symbol_index_remediation_for_surface,
 };
 use super::prep_warnings::{
-    collect_prepare_harness_warnings, push_prepare_harness_warning,
-    push_prepare_harness_warning_with_extras,
+    WATCHER_UNAVAILABLE_CODE, collect_prepare_harness_warnings, push_prepare_harness_warning,
+    push_prepare_harness_warning_with_extras, push_rbac_permissive_default_warning,
+    watcher_unavailable_warning,
 };
 use super::util::{client_tool_schema_fingerprint, is_anonymized_agent_project_name};
 
@@ -267,6 +268,14 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             }
             _ => {}
         }
+        // P4.1: a watcher that failed to start means the index silently
+        // goes stale on every edit — surface it instead of degrading.
+        let watcher_error = state.watcher_error();
+        if let Some(warning) = watcher_unavailable_warning(watcher_error.as_deref())
+            && warning_codes.insert(WATCHER_UNAVAILABLE_CODE.to_owned())
+        {
+            warnings.push(warning);
+        }
         if requested_host_context.is_some() && host_context.is_none() {
             push_prepare_harness_warning(
                 &mut warnings,
@@ -385,6 +394,16 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 }),
             );
         }
+        // P3.1: mutation-capable runtime resolving principals to the
+        // no-file permissive fallback — every principal gets Refactor
+        // until an operator adds principals.toml or
+        // CODELENS_AUTH_MODE=strict.
+        push_rbac_permissive_default_warning(
+            &mut warnings,
+            &mut warning_codes,
+            &state.principals(),
+            state.mutation_allowed_in_runtime(),
+        );
         warnings
     };
 

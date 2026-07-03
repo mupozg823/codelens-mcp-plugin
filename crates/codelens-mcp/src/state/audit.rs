@@ -85,6 +85,18 @@ impl AppState {
                  every principal is ReadOnly and code-mutation tools will be denied"
             );
         }
+        // P3.1: a mutation-capable runtime resolving to the no-file
+        // permissive fallback runs with no RBAC boundary — every
+        // principal gets Refactor. This sits on the cache-miss path,
+        // so it fires once per audit dir per AppState lifetime.
+        if resolved.rbac_permissive_default_active(mutation_allowed) {
+            tracing::warn!(
+                audit_dir = %dir.display(),
+                daemon_mode = self.daemon_mode().as_str(),
+                "mutation-capable daemon without principals.toml — every principal gets \
+                 Refactor; add principals.toml or CODELENS_AUTH_MODE=strict"
+            );
+        }
         let arc = Arc::new(resolved);
         let mut cache = self
             .principals_by_audit_dir
