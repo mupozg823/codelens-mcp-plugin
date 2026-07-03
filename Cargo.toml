@@ -73,7 +73,13 @@ tree-sitter-html = "0.23"
 tree-sitter-toml-updated = "0.20"
 tree-sitter-yaml = "0.7"
 tree-sitter-clojure = "0.1"
-# make/dockerfile/vim/fsharp/perl — all need tree-sitter 0.26 (LanguageFn conflict with 0.25)
+tree-sitter-make = "1.1"
+# dockerfile: tree-sitter-dockerfile pins core ^0.20 (unresolvable at 0.25+); containerfile parses the same syntax
+tree-sitter-containerfile = "0.8"
+tree-sitter-vim = "0.4"
+tree-sitter-fsharp = "0.3"
+# perl deferred: tree-sitter-perl needs core ^0.26.3, mutually exclusive with
+# tree-sitter-clojure 0.1.0 (core ^0.25.6) under the `links = "tree-sitter"` single-version rule
 fastembed = { version = "5", default-features = false, features = ["ort-download-binaries-native-tls"] }
 sqlite-vec = "0.1.8-alpha.1"
 criterion = { version = "0.5", features = ["html_reports"] }
