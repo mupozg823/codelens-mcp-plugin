@@ -2626,8 +2626,8 @@
     ]
   },
   "languages": {
-    "language_family_count": 30,
-    "extension_count": 49,
+    "language_family_count": 34,
+    "extension_count": 56,
     "import_capable_extension_count": 28,
     "families": [
       {
@@ -2705,6 +2705,18 @@
         "supports_imports": true
       },
       {
+        "canonical": "dockerfile",
+        "display_name": "Dockerfile/Containerfile",
+        "extensions": [
+          "containerfile",
+          "dockerfile"
+        ],
+        "language_ids": [
+          "dockerfile"
+        ],
+        "supports_imports": false
+      },
+      {
         "canonical": "erl",
         "display_name": "Erlang",
         "extensions": [
@@ -2725,6 +2737,18 @@
         ],
         "language_ids": [
           "elixir"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "fs",
+        "display_name": "F#",
+        "extensions": [
+          "fs",
+          "fsx"
+        ],
+        "language_ids": [
+          "fsharp"
         ],
         "supports_imports": false
       },
@@ -2817,6 +2841,18 @@
         ],
         "language_ids": [
           "lua"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "mk",
+        "display_name": "Make",
+        "extensions": [
+          "makefile",
+          "mk"
+        ],
+        "language_ids": [
+          "makefile"
         ],
         "supports_imports": false
       },
@@ -2959,6 +2995,17 @@
         "supports_imports": true
       },
       {
+        "canonical": "vim",
+        "display_name": "Vim script",
+        "extensions": [
+          "vim"
+        ],
+        "language_ids": [
+          "vim"
+        ],
+        "supports_imports": false
+      },
+      {
         "canonical": "yaml",
         "display_name": "YAML",
         "extensions": [
@@ -3033,7 +3080,7 @@
     "host_adapter_count": 5,
     "agent_experience_resource_count": 1,
     "harness_artifact_schema_count": 1,
-    "supported_language_families": 30,
-    "supported_extensions": 49
+    "supported_language_families": 34,
+    "supported_extensions": 56
   }
 }
