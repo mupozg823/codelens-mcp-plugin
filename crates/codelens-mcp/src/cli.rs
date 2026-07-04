@@ -96,7 +96,8 @@ pub(crate) fn render_help() -> String {
         "  --cmd <tool>                 Run one MCP tool and exit".to_owned(),
         "  --args <json>                JSON arguments for --cmd".to_owned(),
         "  --preset minimal|balanced|full".to_owned(),
-        "  --profile planner-readonly|builder-minimal|reviewer-graph|refactor-full|ci-audit"
+        "  --profile planner-readonly|builder-minimal|reviewer-graph".to_owned(),
+        "      compatibility aliases: refactor-full, ci-audit, evaluator-compact, workflow-first"
             .to_owned(),
         "  --daemon-mode standard|read-only|mutation-enabled".to_owned(),
         "  --compat default|anthropic-remote".to_owned(),

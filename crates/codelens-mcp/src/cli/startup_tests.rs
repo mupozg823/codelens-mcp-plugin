@@ -1,7 +1,7 @@
 use super::{
     StartupProjectSource, canonical_attach_host, inspect_text_policy_file,
     inspect_text_policy_file_json, parse_cli_project_arg, parse_detach_hosts, parse_doctor_hosts,
-    render_attach_instructions, render_detach_report, render_doctor_report,
+    render_attach_instructions, render_detach_report, render_doctor_report, render_help,
     resolve_startup_project, run_doctor_command,
 };
 
@@ -98,6 +98,17 @@ fn render_attach_instructions_for_codex_emits_copy_ready_targets() {
     assert!(rendered.contains("builder-minimal / editing"));
     assert!(rendered.contains("builder-minimal"));
     assert!(rendered.contains("refactor-full"));
+}
+
+#[test]
+fn render_help_separates_active_profiles_from_compatibility_aliases() {
+    let rendered = render_help();
+
+    assert!(rendered.contains("--profile planner-readonly|builder-minimal|reviewer-graph"));
+    assert!(rendered.contains(
+        "compatibility aliases: refactor-full, ci-audit, evaluator-compact, workflow-first"
+    ));
+    assert!(!rendered.contains("reviewer-graph|refactor-full"));
 }
 
 #[test]
