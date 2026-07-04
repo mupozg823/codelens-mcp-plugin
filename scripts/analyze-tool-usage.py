@@ -1,21 +1,38 @@
 #!/usr/bin/env python3
 """
-Analyze get_tool_metrics JSON to identify zero-call (dead) tools and usage patterns.
+Analyze CodeLens tool usage from get_tool_metrics JSON, telemetry JSONL, or Codex rollout JSONL.
 
 Usage:
     python3 scripts/analyze-tool-usage.py < metrics.json
     python3 scripts/analyze-tool-usage.py metrics.json
+    python3 scripts/analyze-tool-usage.py .codelens/telemetry/tool_usage.jsonl
+    python3 scripts/analyze-tool-usage.py --telemetry-path .codelens/telemetry/tool_usage.jsonl
+    python3 scripts/analyze-tool-usage.py --codex-rollout-path ~/.codex/memories/rollout_summaries
+    python3 scripts/analyze-tool-usage.py --format json --output /tmp/codelens-telemetry.json
 
 Outputs:
     - Zero-call tools (candidates for removal)
     - Call coverage ratio
     - Hot vs cold tool distribution
+    - Suggested-next-tool follow-through and missed-route labels for telemetry/rollouts
     - Recommendations for surface diet
 """
 
+import argparse
 import json
 import sys
 from collections import Counter
+from pathlib import Path
+
+from analyze_tool_usage_lib import (
+    DEFAULT_MANIFEST_PATH,
+    DEFAULT_TELEMETRY_PATH,
+    analyze_telemetry,
+    load_telemetry,
+    str_value,
+)
+from analyze_tool_usage_render import render_telemetry_report
+from codex_rollout_usage import load_codex_rollout_events, rollout_files
 
 
 def analyze(data: dict) -> None:
@@ -90,24 +107,94 @@ def analyze(data: dict) -> None:
     print(f"{'=' * 60}\n")
 
 
-def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] not in ("-h", "--help"):
-        with open(sys.argv[1]) as f:
-            data = json.load(f)
-    else:
-        data = json.load(sys.stdin)
-
-    # Handle nested JSON-RPC result wrapper if present
+def unwrap_mcp_data(data: dict) -> dict:
     if "result" in data and isinstance(data["result"], dict):
         data = data["result"]
     if "content" in data and isinstance(data["content"], list):
-        # MCP resource/textContent wrapper
         for item in data["content"]:
-            if item.get("type") == "text":
-                data = json.loads(item["text"])
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = str_value(item.get("text"))
+                if text is not None:
+                    parsed = json.loads(text)
+                    if isinstance(parsed, dict):
+                        data = parsed
                 break
+    return data
 
-    analyze(data)
+
+def read_metrics_json(path: Path | None) -> dict | None:
+    if path is not None:
+        with path.open(encoding="utf-8") as handle:
+            parsed = json.load(handle)
+    else:
+        raw_input = sys.stdin.read()
+        if not raw_input.strip():
+            return None
+        parsed = json.loads(raw_input)
+    if not isinstance(parsed, dict):
+        raise SystemExit("metrics input must be a JSON object")
+    return unwrap_mcp_data(parsed)
+
+
+def write_or_print(payload: str, output: Path | None) -> None:
+    if output is not None:
+        output.write_text(payload, encoding="utf-8")
+    else:
+        print(payload)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("input", nargs="?")
+    parser.add_argument("--telemetry-path", type=Path)
+    parser.add_argument("--codex-rollout-path", type=Path, action="append")
+    parser.add_argument("--manifest-path", type=Path, default=DEFAULT_MANIFEST_PATH)
+    parser.add_argument("--format", choices=["text", "json"], default="text")
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+
+    if args.codex_rollout_path:
+        rollout_paths: list[Path] = []
+        for path in args.codex_rollout_path:
+            rollout_paths.extend(rollout_files(path))
+        report = analyze_telemetry(
+            load_codex_rollout_events(rollout_paths),
+            args.manifest_path,
+        )
+        if args.format == "json":
+            write_or_print(json.dumps(report, indent=2, sort_keys=True), args.output)
+        else:
+            render_telemetry_report(report)
+        return
+
+    telemetry_path = args.telemetry_path
+    input_path = Path(args.input) if args.input else None
+    if telemetry_path is None and input_path is not None and input_path.suffix == ".jsonl":
+        telemetry_path = input_path
+        input_path = None
+    if telemetry_path is None and input_path is None and DEFAULT_TELEMETRY_PATH.exists():
+        telemetry_path = DEFAULT_TELEMETRY_PATH
+
+    if telemetry_path is not None:
+        report = analyze_telemetry(load_telemetry(telemetry_path), args.manifest_path)
+        if args.format == "json":
+            write_or_print(json.dumps(report, indent=2, sort_keys=True), args.output)
+        else:
+            render_telemetry_report(report)
+        return
+
+    data = read_metrics_json(input_path)
+    if data is None:
+        report = analyze_telemetry([], args.manifest_path)
+        if args.format == "json":
+            write_or_print(json.dumps(report, indent=2, sort_keys=True), args.output)
+        else:
+            render_telemetry_report(report)
+        return
+    if args.format == "json":
+        write_or_print(json.dumps(data, indent=2, sort_keys=True), args.output)
+    else:
+        analyze(data)
 
 
 if __name__ == "__main__":

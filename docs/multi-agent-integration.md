@@ -95,6 +95,10 @@ Operational rule:
 
 - one mutation-enabled agent per worktree
 - additional agents stay read-only
+- keep small slices inline when they fit within about 30 net LOC or one obvious file
+- use subagents for independent read-only scans, large docs audits, or high-accuracy reviews
+- never accept subagent self-report as completion evidence; the parent session reruns the targeted test, package test, lint/check, and daemon probe that match the slice
+- before ending a slice, inspect `git diff --name-status`, `git diff --cached --name-status`, and `git status --short --untracked-files=all` so unrelated WIP is not staged or reported as done
 
 ## Fixed Preflight Order
 

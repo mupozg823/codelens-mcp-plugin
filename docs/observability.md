@@ -86,6 +86,9 @@ CODELENS_TELEMETRY_ENABLED=1 \
   ./target/debug/codelens-mcp /path/to/project --transport http --port 7837
 
 scripts/analyze-tool-usage.py
+scripts/analyze-tool-usage.py --telemetry-path .codelens/telemetry/tool_usage.jsonl
+scripts/analyze-tool-usage.py .codelens/telemetry/tool_usage.jsonl
+scripts/analyze-tool-usage.py --codex-rollout-path ~/.codex/memories/rollout_summaries
 scripts/analyze-tool-usage.py --format json --output /tmp/codelens-telemetry.json
 ```
 
@@ -94,6 +97,7 @@ The analyzer reads:
 - `.codelens/telemetry/tool_usage.jsonl` for append-only execution traces
 - `docs/generated/surface-manifest.json` for `preferred_executor` / `phase`
   metadata
+- Codex rollout JSONL files when passed with `--codex-rollout-path`
 - `crates/codelens-mcp/src/telemetry.rs` for the current workflow-tool
   classification used by runtime low-level-chain metrics
 - latest `.codelens/analysis-cache/*/session_rows.json` when present for
