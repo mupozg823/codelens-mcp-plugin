@@ -25,7 +25,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 - Registered tool definitions: `87`
 - Tool output schemas: `55 / 87`
 - Supported language families: `34` across `56` extensions
-- Profiles: `planner-readonly` (36), `builder-minimal` (35), `reviewer-graph` (40), `evaluator-compact` (36), `refactor-full` (35), `ci-audit` (40), `workflow-first` (36)
+- Profiles: active `planner-readonly` (36), `builder-minimal` (35), `reviewer-graph` (40); compatibility aliases `evaluator-compact` (36, v2.0 removal), `refactor-full` (35, v2.0 removal), `ci-audit` (40, v2.0 removal), `workflow-first` (36, v2.0 removal)
 - Presets: `minimal` (20), `balanced` (74), `full` (87)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 
@@ -369,7 +369,7 @@ injects and counts):
 | Lever | What it does | Measured |
 | --- | --- | --- |
 | **Lean response contract** | `CODELENS_RESPONSE_CONTRACT=lean` (daemon-wide) or `_lean: true` per-call (`_lean: false` escapes) drops scaffold-only envelope fields — prose suggestion reasons, per-call telemetry, constant markers, fresh-bucket freshness. Never touches symbol data, next-step suggestions, errors, or recovery hints | **−17-18% text channel**, symbol data byte-identical |
-| **Deferred loading + alwaysLoad core** | of 93 registered tools, only 9 pre-load schemas (5 workflow entrypoints + 4 navigation verbs); the rest stay deferred behind host tool-search | Navigation is zero-setup — no ToolSearch round trip on the hot path |
+| **Deferred loading + alwaysLoad core** | of 87 registered tools, only 9 pre-load schemas (5 workflow entrypoints + 4 navigation verbs); the rest stay deferred behind host tool-search | Navigation is zero-setup — no ToolSearch round trip on the hot path |
 | **Session auto-binding** | `x-codelens-project` header (shipped in `.mcp.json`) binds sessions at initialize | Removes the per-response binding hint (**−35% data payload** on `find_symbol`) and the per-session bootstrap call |
 | **5-stage adaptive compression** | Budget-aware summarization with machine-readable truncation warnings and expansion handles | Responses stay under host limits without silent data loss |
 | **Warm-LSP precision, zero cold start** | `CODELENS_LSP_PREWARM=auto` pre-warms the project's language servers in the background; the default reference path upgrades to compiler-grade answers only when warm | `cold_start_incurred: false` on the hot path; readiness-calibrated confidence (a server still indexing degrades to 0.7 instead of lying at 0.95) |
@@ -401,8 +401,8 @@ Instead of starting from the full raw tool registry, begin with the workflow-fir
 | `planner-readonly` | Workflow-first                 | Planner/architect context compression           |
 | `builder-minimal`  | Workflow-first                 | Implementation with focused Codex/agent surface |
 | `reviewer-graph`   | Review-heavy                   | Graph-aware review and risk analysis            |
-| `refactor-full`    | Preview-first + gated mutation | Safe refactors                                  |
-| `ci-audit`         | Machine-oriented               | CI/CD review and report emission                |
+
+Compatibility aliases (`refactor-full`, `ci-audit`, `evaluator-compact`, `workflow-first`) remain parseable through the v1.13 deprecation window, carry `v2.0` removal metadata in the manifest, and canonicalize to the core trio for profile filtering.
 
 ### Adaptive Token Compression
 
@@ -596,12 +596,12 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 │                    │  │  Profiles    │  │ planner-readonly       │
 │                    │  │  Workflows   │  │ builder-minimal        │
 │                    │  │  Handles     │  │ reviewer-graph         │
-│                    │  │  Gates       │  │ refactor-full          │
+│                    │  │  Gates       │  │ compat aliases -> core │
 │                    │  └──────┬───────┘  │                        │
 │                    │         │          │                        │
 │                    │  ┌──────▼───────┐  │                        │
 │                    │  │codelens-engine│  │ tree-sitter + SQLite  │
-│                    │  │  25 langs    │  │ + embedding + graphs  │
+│                    │  │34 fam / 56 ext│  │ + embedding + graphs  │
 │                    │  └──────────────┘  │                        │
 │                    └────────────────────┘                        │
 └──────────────────────────────────────────────────────────────────┘

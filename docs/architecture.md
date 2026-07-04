@@ -105,7 +105,7 @@ constraint, not a formatting detail. Layers, from request to wire:
    `project_binding` hint (−35% on `find_symbol` data); unbound store-backed
    HTTP sessions are blocked from content mutations (#347) with a structured
    `ProjectBindingRequired` recovery hint.
-5. **Surface economics** — of 93 registered tools, all but the alwaysLoad set stay deferred behind host tool search;
+5. **Surface economics** — of 87 registered tools, all but the alwaysLoad set stay deferred behind host tool search;
    the `alwaysLoad` set pre-loads only the 5 workflow entrypoints + the
    4 highest-frequency navigation verbs (≤10 budget rule pinned in code).
 
@@ -656,29 +656,20 @@ All mutation tools are gated:
 
 ## 8. Historical Metrics Snapshot (2026-04-11)
 
-These metrics are a historical benchmark snapshot, not the canonical current-state inventory.
-Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurements.
+The original 2026-04-11 benchmark table is intentionally no longer repeated here:
+its tool, schema, and language counts drifted from the generated surface
+manifest. Use the **Current Snapshot** above for inventory counts and
+`docs/benchmarks.md` for performance measurements.
 
-| Metric                            | Value                                                                                  |
-| --------------------------------- | -------------------------------------------------------------------------------------- |
-| Total LOC                         | 46,045 (38,820 prod + 7,225 test)                                                      |
-| Rust source files                 | 115                                                                                    |
-| Tools (FULL / BALANCED / MINIMAL) | 89 / 55 / 20                                                                           |
-| Tool categories (base)            | File 7 · Symbol 7 · LSP 7 · Analysis 7 · Edit 17 · Workflow 17 · Memory 5 · Session 16 |
-| Semantic tools (cfg-gated)        | 6                                                                                      |
-| Output schemas                    | historical snapshot, superseded by current `65 / 101` snapshot above                   |
-| Languages                         | 25 (+ Perl deferred)                                                                   |
-| Tests                             | historical snapshot, superseded by current gate totals                                 |
-| Clippy                            | 0 warnings (default + http feature)                                                    |
-| DB schema version                 | v4 (FTS5 + sqlite-vec + self-heal)                                                     |
-| tree-sitter grammars              | 25 (statically linked)                                                                 |
-| LSP recipes                       | 22 servers                                                                             |
-| Ranking signals                   | 4 (text + pagerank + recency + semantic)                                               |
-| Import resolvers                  | 11 languages (tsconfig.json, go.mod, src/)                                             |
-| Transport                         | stdio, Streamable HTTP + SSE, CLI oneshot                                              |
-| Preset/Profile budgets            | planner / builder / reviewer / refactor / ci-audit                                     |
-| Binary size (release, default)    | ~76 MB (bundled ONNX embedding model)                                                  |
-| Binary size (release, minimal)    | ~23 MB (`--no-default-features`)                                                       |
+Stable substrate facts that still match the current architecture:
+
+| Metric | Current source of truth |
+| --- | --- |
+| Tool, schema, preset, and profile counts | `docs/generated/surface-manifest.json` |
+| Language family and extension inventory | `codelens_engine::lang_registry` via `docs/generated/surface-manifest.json` |
+| DB substrate | SQLite schema v4 with FTS5, sqlite-vec, and self-heal paths |
+| Retrieval substrate | tree-sitter registry, hybrid lexical/semantic search, import/call graphs, optional LSP precision tier |
+| Transport | stdio, Streamable HTTP + SSE, CLI oneshot |
 
 ### Performance Snapshot
 

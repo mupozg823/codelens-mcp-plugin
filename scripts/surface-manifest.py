@@ -164,8 +164,23 @@ def canonical_truth_violations() -> list[str]:
 
 def profile_counts(manifest: dict) -> str:
     profiles = manifest["surfaces"]["profiles"]
-    return ", ".join(
-        f"`{profile['name']}` ({profile['tool_count']})" for profile in profiles
+    active = [
+        f"`{profile['name']}` ({profile['tool_count']})"
+        for profile in profiles
+        if not profile.get("deprecated")
+    ]
+    compatibility = [
+        f"`{profile['name']}` ({profile['tool_count']}, {profile['deprecation_target']} removal)"
+        for profile in profiles
+        if profile.get("deprecated")
+    ]
+    if not compatibility:
+        return ", ".join(active)
+    return (
+        "active "
+        + ", ".join(active)
+        + "; compatibility aliases "
+        + ", ".join(compatibility)
     )
 
 
@@ -219,8 +234,7 @@ def render_platform_surfaces(manifest: dict) -> str:
             f"- Workspace version: `{workspace['version']}`",
             "- Presets: "
             + ", ".join(f"`{p['name']}` ({p['tool_count']})" for p in presets),
-            "- Profiles: "
-            + ", ".join(f"`{p['name']}` ({p['tool_count']})" for p in profiles),
+            f"- Profiles: {profile_counts(manifest)}",
             "- Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)",
         ]
     )
