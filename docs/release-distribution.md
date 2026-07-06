@@ -151,7 +151,11 @@ secret was missing (clean skip) or the step actually failed.
 | Binary download          | `gh release download <tag> -R mupozg823/codelens-mcp-plugin`                                    |
 | Cargo from git           | `cargo install --git https://github.com/mupozg823/codelens-mcp-plugin --tag <tag> codelens-mcp` |
 
-`cargo install codelens-mcp` bundles the CodeSearchNet semantic model
-via the default `semantic` feature; expect the first build to take
-several minutes for `fastembed` and `ort`. For the lighter tree-sitter
-only build, use `cargo install codelens-mcp --no-default-features`.
+`cargo install codelens-mcp` installs the lean BM25 + AST + call-graph
+binary by default. For semantic retrieval from crates.io, install with
+`--features semantic` and point `CODELENS_MODEL_DIR` at a model sidecar
+from a release archive. GitHub Release, installer, and Homebrew channels
+are the release-tarball-equivalent paths that bundle or stage the
+CodeSearchNet model payload. The Homebrew formula installs the `models/`
+directory into the package prefix, and the clean quickstart smoke covers that
+Cellar-style layout with `scripts/smoke-clean-quickstart.py --homebrew-layout`.

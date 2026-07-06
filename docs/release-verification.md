@@ -2,6 +2,17 @@
 
 This document is the operational reference for what the current release pipeline is configured to produce, how to verify a published release, and what still needs to land before CodeLens can claim supply-chain-grade packaging.
 
+For the runtime quickstart path after a binary is available, see
+[`docs/quickstart-transcript.md`](quickstart-transcript.md). That transcript
+captures install -> doctor/status -> index -> coverage -> retrieve from an
+isolated temp prefix. CI replays the same flow against the extracted Linux
+release archive and native build-matrix archives with
+`scripts/smoke-clean-quickstart.py --archive`; the Homebrew formula layout is
+covered by the same script with `--homebrew-layout`, which proves prefix-sidecar
+model discovery without `CODELENS_MODEL_DIR`. The remaining public-channel
+proof is a post-tag live transcript for the published installer URL and tapped
+Homebrew formula.
+
 **See also**: [`docs/release-distribution.md`](release-distribution.md)
 for the producer-side playbook — tag-push flow, manual fallback commands,
 post-release verification script, user install cheatsheet. That file covers

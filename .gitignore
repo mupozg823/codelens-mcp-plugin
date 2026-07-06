@@ -26,6 +26,9 @@ __pycache__/
 # Codex CLI local config (per-developer: MCP url, hooks, agent defs)
 .codex/
 
+# OMO local review artifacts
+.omo/evidence/*.md
+
 # Serena runtime
 **/.serena/
 
