@@ -2,374 +2,34 @@ use anyhow::{Context, Result};
 #[cfg(all(target_os = "macos", feature = "coreml"))]
 use fastembed::ExecutionProviderDispatch;
 use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
-use serde::Deserialize;
 use std::sync::Once;
-use std::thread::available_parallelism;
 use tracing::debug;
 
 use super::EmbeddingRuntimeInfo;
-#[cfg(target_os = "macos")]
-use super::ffi;
+use super::model_assets::{
+    CODESEARCH_MODEL_NAME, configured_model_name_for_dir, model_asset_path, resolve_model_dir,
+};
+#[cfg(feature = "model-bakeoff")]
+use super::model_bakeoff::load_fastembed_builtin;
+#[cfg(all(target_os = "macos", feature = "coreml"))]
+use super::runtime_info::coreml_runtime_info;
+use super::runtime_info::cpu_runtime_info;
+#[cfg(all(target_os = "macos", feature = "coreml"))]
+use super::runtime_settings::{
+    configured_coreml_compute_units_name, configured_coreml_model_cache_dir,
+    configured_coreml_model_format_name, configured_coreml_profile_compute_plan,
+    configured_coreml_specialization_strategy_name, configured_coreml_static_input_shapes,
+};
+use super::runtime_settings::{
+    configured_embedding_max_length, configured_embedding_runtime_preference,
+    recommended_embed_threads,
+};
 
 pub static ORT_ENV_INIT: Once = Once::new();
 
-pub const DEFAULT_EMBED_BATCH_SIZE: usize = 128;
-pub const DEFAULT_MACOS_EMBED_BATCH_SIZE: usize = 128;
-pub const DEFAULT_TEXT_EMBED_CACHE_SIZE: usize = 256;
-pub const DEFAULT_MACOS_TEXT_EMBED_CACHE_SIZE: usize = 1024;
 pub const CODESEARCH_DIMENSION: usize = 384;
-pub const DEFAULT_MAX_EMBED_SYMBOLS: usize = 50_000;
 pub const CHANGED_FILE_QUERY_CHUNK: usize = 128;
 pub const DEFAULT_DUPLICATE_SCAN_BATCH_SIZE: usize = 128;
-
-/// Default: CodeSearchNet (MiniLM-L12 fine-tuned on code, bundled ONNX INT8).
-/// Override via `CODELENS_EMBED_MODEL` env var to use fastembed built-in models.
-pub const CODESEARCH_MODEL_NAME: &str = "MiniLM-L12-CodeSearchNet-INT8";
-const REQUIRED_MODEL_ASSETS: &[&str] = &[
-    "model.onnx",
-    "tokenizer.json",
-    "config.json",
-    "special_tokens_map.json",
-    "tokenizer_config.json",
-];
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct EmbeddingModelManifest {
-    model_name: Option<String>,
-    #[allow(dead_code)]
-    base_model: Option<String>,
-    #[allow(dead_code)]
-    fine_tuned_from: Option<String>,
-    #[allow(dead_code)]
-    adapter_type: Option<String>,
-    #[allow(dead_code)]
-    lora_merged_from: Option<String>,
-    #[allow(dead_code)]
-    export_backend: Option<String>,
-    #[allow(dead_code)]
-    export_revision: Option<String>,
-}
-
-fn preferred_export_variant() -> &'static str {
-    if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "avx2"
-    }
-}
-
-fn model_dir_candidates(base: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let variant = preferred_export_variant();
-    let mut candidates = vec![
-        base.to_path_buf(),
-        base.join("codesearch"),
-        base.join("onnx"),
-        base.join(variant),
-        base.join("codelens-code-search"),
-        base.join("codelens-code-search").join(variant),
-    ];
-    candidates.dedup();
-    candidates
-}
-
-fn model_dir_has_assets(dir: &std::path::Path) -> bool {
-    REQUIRED_MODEL_ASSETS
-        .iter()
-        .all(|name| model_asset_path(dir, name).exists())
-}
-
-fn model_asset_path(model_dir: &std::path::Path, asset: &str) -> std::path::PathBuf {
-    let direct = model_dir.join(asset);
-    if direct.exists() {
-        return direct;
-    }
-    if asset == "model.onnx" {
-        let split_onnx = model_dir.join("onnx").join(asset);
-        if split_onnx.exists() {
-            return split_onnx;
-        }
-    }
-    direct
-}
-
-fn first_model_dir_with_assets(base: &std::path::Path) -> Option<std::path::PathBuf> {
-    model_dir_candidates(base)
-        .into_iter()
-        .find(|dir| model_dir_has_assets(dir))
-}
-
-pub(crate) fn executable_model_roots(exe_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let mut roots = vec![exe_dir.join("models")];
-    if let Some(prefix) = exe_dir.parent() {
-        roots.push(prefix.join("models"));
-        roots.push(prefix.join("share").join("codelens").join("models"));
-    }
-    roots.dedup();
-    roots
-}
-
-fn read_model_manifest(model_dir: &std::path::Path) -> Option<EmbeddingModelManifest> {
-    let manifest_path = model_dir.join("model-manifest.json");
-    let content = std::fs::read_to_string(manifest_path).ok()?;
-    serde_json::from_str::<EmbeddingModelManifest>(&content).ok()
-}
-
-fn configured_model_name_for_dir(model_dir: &std::path::Path) -> String {
-    read_model_manifest(model_dir)
-        .and_then(|manifest| manifest.model_name)
-        .unwrap_or_else(|| CODESEARCH_MODEL_NAME.to_string())
-}
-
-/// Resolve the sidecar model directory.
-///
-/// Search order:
-/// 1. `$CODELENS_MODEL_DIR` env var (direct model dir or root containing variants)
-/// 2. Next to the executable: `<exe_dir>/models/...`
-/// 3. User cache: `~/.cache/codelens/models/...`
-/// 4. Compile-time relative path (for development): `models/...` from crate root
-pub fn resolve_model_dir() -> Result<std::path::PathBuf> {
-    // Explicit override
-    if let Ok(dir) = std::env::var("CODELENS_MODEL_DIR") {
-        let base = std::path::PathBuf::from(dir);
-        if let Some(found) = first_model_dir_with_assets(&base) {
-            return Ok(found);
-        }
-    }
-
-    // Next to executable
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(exe_dir) = exe.parent()
-    {
-        for base in executable_model_roots(exe_dir) {
-            if let Some(found) = first_model_dir_with_assets(&base) {
-                return Ok(found);
-            }
-        }
-    }
-
-    // User cache
-    if let Some(home) = dirs_fallback() {
-        let base = home.join(".cache").join("codelens").join("models");
-        if let Some(found) = first_model_dir_with_assets(&base) {
-            return Ok(found);
-        }
-    }
-
-    // Development: crate-relative path
-    let dev_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("models");
-    if let Some(found) = first_model_dir_with_assets(&dev_root) {
-        return Ok(found);
-    }
-
-    anyhow::bail!(
-        "CodeSearchNet model not found. Place model files in one of these directories or variant subdirectories:\n\
-         - $CODELENS_MODEL_DIR/\n\
-         - $CODELENS_MODEL_DIR/codesearch/\n\
-         - $CODELENS_MODEL_DIR/onnx/\n\
-         - $CODELENS_MODEL_DIR/arm64/ or $CODELENS_MODEL_DIR/avx2/\n\
-         - $CODELENS_MODEL_DIR/codelens-code-search/<arch>/ with onnx/model.onnx\n\
-         - <executable>/models/...\n\
-         - ~/.cache/codelens/models/...\n\
-         Required files: model.onnx, tokenizer.json, config.json, special_tokens_map.json, tokenizer_config.json"
-    )
-}
-
-pub fn dirs_fallback() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME").map(std::path::PathBuf::from)
-}
-
-pub fn parse_usize_env(name: &str) -> Option<usize> {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| v.trim().parse::<usize>().ok())
-        .filter(|v| *v > 0)
-}
-
-pub fn parse_bool_env(name: &str) -> Option<bool> {
-    std::env::var(name).ok().and_then(|value| {
-        let normalized = value.trim().to_ascii_lowercase();
-        match normalized.as_str() {
-            "1" | "true" | "yes" | "on" => Some(true),
-            "0" | "false" | "no" | "off" => Some(false),
-            _ => None,
-        }
-    })
-}
-
-fn configured_embedding_resource_profile() -> String {
-    match std::env::var("CODELENS_EMBED_RESOURCE_PROFILE")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("low_power") | Some("low-power") | Some("low") | Some("eco") => {
-            "low_power".to_string()
-        }
-        Some("throughput") | Some("fast") => "throughput".to_string(),
-        _ => "balanced".to_string(),
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub fn apple_perf_cores() -> Option<usize> {
-    ffi::sysctl_usize(b"hw.perflevel0.physicalcpu\0")
-        .filter(|value| *value > 0)
-        .or_else(|| ffi::sysctl_usize(b"hw.physicalcpu\0").filter(|value| *value > 0))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn apple_perf_cores() -> Option<usize> {
-    None
-}
-
-pub fn configured_embedding_runtime_preference() -> String {
-    let requested = std::env::var("CODELENS_EMBED_PROVIDER")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase());
-    let resource_profile = configured_embedding_resource_profile();
-
-    match requested.as_deref() {
-        Some("cpu") => "cpu".to_string(),
-        Some("coreml") if cfg!(all(target_os = "macos", feature = "coreml")) => {
-            "coreml".to_string()
-        }
-        Some("coreml") => "cpu".to_string(),
-        _ if resource_profile == "low_power" => "cpu".to_string(),
-        _ if cfg!(all(target_os = "macos", feature = "coreml")) => "coreml_preferred".to_string(),
-        _ => "cpu".to_string(),
-    }
-}
-
-pub fn configured_embedding_threads() -> usize {
-    recommended_embed_threads()
-}
-
-pub fn configured_embedding_max_length() -> usize {
-    parse_usize_env("CODELENS_EMBED_MAX_LENGTH")
-        .unwrap_or(256)
-        .clamp(32, 512)
-}
-
-pub fn configured_embedding_text_cache_size() -> usize {
-    std::env::var("CODELENS_EMBED_TEXT_CACHE_SIZE")
-        .ok()
-        .and_then(|value| value.trim().parse::<usize>().ok())
-        .unwrap_or({
-            if cfg!(target_os = "macos") {
-                DEFAULT_MACOS_TEXT_EMBED_CACHE_SIZE
-            } else {
-                DEFAULT_TEXT_EMBED_CACHE_SIZE
-            }
-        })
-        .min(8192)
-}
-
-#[cfg(target_os = "macos")]
-pub fn configured_coreml_compute_units_name() -> String {
-    match std::env::var("CODELENS_EMBED_COREML_COMPUTE_UNITS")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("all") => "all".to_string(),
-        Some("cpu") | Some("cpu_only") => "cpu_only".to_string(),
-        Some("gpu") | Some("cpu_and_gpu") => "cpu_and_gpu".to_string(),
-        Some("ane") | Some("neural_engine") | Some("cpu_and_neural_engine") => {
-            "cpu_and_neural_engine".to_string()
-        }
-        _ => "cpu_and_neural_engine".to_string(),
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub fn configured_coreml_model_format_name() -> String {
-    match std::env::var("CODELENS_EMBED_COREML_MODEL_FORMAT")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("neuralnetwork") | Some("neural_network") => "neural_network".to_string(),
-        _ => "mlprogram".to_string(),
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub fn configured_coreml_profile_compute_plan() -> bool {
-    parse_bool_env("CODELENS_EMBED_COREML_PROFILE_PLAN").unwrap_or(false)
-}
-
-#[cfg(target_os = "macos")]
-pub fn configured_coreml_static_input_shapes() -> bool {
-    parse_bool_env("CODELENS_EMBED_COREML_STATIC_INPUT_SHAPES").unwrap_or(true)
-}
-
-#[cfg(target_os = "macos")]
-pub fn configured_coreml_specialization_strategy_name() -> String {
-    match std::env::var("CODELENS_EMBED_COREML_SPECIALIZATION")
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("default") => "default".to_string(),
-        _ => "fast_prediction".to_string(),
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub fn configured_coreml_model_cache_dir() -> std::path::PathBuf {
-    dirs_fallback()
-        .unwrap_or_else(std::env::temp_dir)
-        .join(".cache")
-        .join("codelens")
-        .join("coreml-cache")
-        .join("codesearch")
-}
-
-pub fn recommended_embed_threads() -> usize {
-    if let Some(explicit) = parse_usize_env("CODELENS_EMBED_THREADS") {
-        return explicit.max(1);
-    }
-
-    let available = available_parallelism().map(|n| n.get()).unwrap_or(1);
-    let resource_profile = configured_embedding_resource_profile();
-    if resource_profile == "low_power" {
-        return available.clamp(1, 2);
-    }
-    if cfg!(target_os = "macos") {
-        let base = apple_perf_cores()
-            .unwrap_or(available)
-            .min(available)
-            .clamp(1, 8);
-        if resource_profile == "throughput" {
-            base.max(available.min(8))
-        } else {
-            base
-        }
-    } else {
-        let base = available.div_ceil(2).clamp(1, 8);
-        if resource_profile == "throughput" {
-            available.clamp(1, 8)
-        } else {
-            base
-        }
-    }
-}
-
-pub fn embed_batch_size() -> usize {
-    parse_usize_env("CODELENS_EMBED_BATCH_SIZE").unwrap_or_else(|| {
-        if configured_embedding_resource_profile() == "low_power" {
-            32
-        } else if cfg!(target_os = "macos") {
-            DEFAULT_MACOS_EMBED_BATCH_SIZE
-        } else {
-            DEFAULT_EMBED_BATCH_SIZE
-        }
-    })
-}
-
-pub fn max_embed_symbols() -> usize {
-    parse_usize_env("CODELENS_MAX_EMBED_SYMBOLS").unwrap_or(DEFAULT_MAX_EMBED_SYMBOLS)
-}
 
 fn set_env_if_unset(name: &str, value: impl Into<String>) {
     if std::env::var_os(name).is_none() {
@@ -428,7 +88,7 @@ pub fn requested_embedding_model_override() -> Result<Option<String>> {
 
     #[cfg(feature = "model-bakeoff")]
     {
-        return Ok(Some(model_id));
+        Ok(Some(model_id))
     }
 
     #[cfg(not(feature = "model-bakeoff"))]
@@ -437,49 +97,6 @@ pub fn requested_embedding_model_override() -> Result<Option<String>> {
             "CODELENS_EMBED_MODEL={model_id} requires the `model-bakeoff` feature; \
              rebuild the binary with `--features model-bakeoff` to run alternative model bake-offs"
         );
-    }
-}
-
-pub fn configured_embedding_runtime_info() -> EmbeddingRuntimeInfo {
-    let runtime_preference = configured_embedding_runtime_preference();
-    let threads = configured_embedding_threads();
-
-    #[cfg(target_os = "macos")]
-    {
-        let coreml_enabled = runtime_preference != "cpu";
-        EmbeddingRuntimeInfo {
-            runtime_preference,
-            backend: "not_loaded".to_string(),
-            threads,
-            max_length: configured_embedding_max_length(),
-            coreml_model_format: coreml_enabled.then(configured_coreml_model_format_name),
-            coreml_compute_units: coreml_enabled.then(configured_coreml_compute_units_name),
-            coreml_static_input_shapes: coreml_enabled.then(configured_coreml_static_input_shapes),
-            coreml_profile_compute_plan: coreml_enabled
-                .then(configured_coreml_profile_compute_plan),
-            coreml_specialization_strategy: coreml_enabled
-                .then(configured_coreml_specialization_strategy_name),
-            coreml_model_cache_dir: coreml_enabled
-                .then(|| configured_coreml_model_cache_dir().display().to_string()),
-            fallback_reason: None,
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        EmbeddingRuntimeInfo {
-            runtime_preference,
-            backend: "not_loaded".to_string(),
-            threads,
-            max_length: configured_embedding_max_length(),
-            coreml_model_format: None,
-            coreml_compute_units: None,
-            coreml_static_input_shapes: None,
-            coreml_profile_compute_plan: None,
-            coreml_specialization_strategy: None,
-            coreml_model_cache_dir: None,
-            fallback_reason: None,
-        }
     }
 }
 
@@ -518,101 +135,6 @@ pub fn build_coreml_execution_provider() -> ExecutionProviderDispatch {
         .error_on_failure()
 }
 
-pub fn cpu_runtime_info(
-    runtime_preference: String,
-    fallback_reason: Option<String>,
-) -> EmbeddingRuntimeInfo {
-    EmbeddingRuntimeInfo {
-        runtime_preference,
-        backend: "cpu".to_string(),
-        threads: configured_embedding_threads(),
-        max_length: configured_embedding_max_length(),
-        coreml_model_format: None,
-        coreml_compute_units: None,
-        coreml_static_input_shapes: None,
-        coreml_profile_compute_plan: None,
-        coreml_specialization_strategy: None,
-        coreml_model_cache_dir: None,
-        fallback_reason,
-    }
-}
-
-#[cfg(all(target_os = "macos", feature = "coreml"))]
-pub fn coreml_runtime_info(
-    runtime_preference: String,
-    fallback_reason: Option<String>,
-) -> EmbeddingRuntimeInfo {
-    EmbeddingRuntimeInfo {
-        runtime_preference,
-        backend: if fallback_reason.is_some() {
-            "cpu".to_string()
-        } else {
-            "coreml".to_string()
-        },
-        threads: configured_embedding_threads(),
-        max_length: configured_embedding_max_length(),
-        coreml_model_format: Some(configured_coreml_model_format_name()),
-        coreml_compute_units: Some(configured_coreml_compute_units_name()),
-        coreml_static_input_shapes: Some(configured_coreml_static_input_shapes()),
-        coreml_profile_compute_plan: Some(configured_coreml_profile_compute_plan()),
-        coreml_specialization_strategy: Some(configured_coreml_specialization_strategy_name()),
-        coreml_model_cache_dir: Some(configured_coreml_model_cache_dir().display().to_string()),
-        fallback_reason,
-    }
-}
-
-/// Load a fastembed built-in model by ID (auto-downloads from HuggingFace).
-/// Used for A/B model comparison via `CODELENS_EMBED_MODEL` env var.
-/// Requires the `model-bakeoff` feature (enables fastembed's hf-hub support).
-#[cfg(feature = "model-bakeoff")]
-pub fn load_fastembed_builtin(
-    model_id: &str,
-) -> Result<(TextEmbedding, usize, String, EmbeddingRuntimeInfo)> {
-    use fastembed::EmbeddingModel;
-
-    // Match known fastembed model IDs to their enum variants
-    let (model_enum, expected_dim) = match model_id {
-        "all-MiniLM-L6-v2" | "sentence-transformers/all-MiniLM-L6-v2" => {
-            (EmbeddingModel::AllMiniLML6V2, 384)
-        }
-        "all-MiniLM-L12-v2" | "sentence-transformers/all-MiniLM-L12-v2" => {
-            (EmbeddingModel::AllMiniLML12V2, 384)
-        }
-        "bge-small-en-v1.5" | "BAAI/bge-small-en-v1.5" => (EmbeddingModel::BGESmallENV15, 384),
-        "bge-base-en-v1.5" | "BAAI/bge-base-en-v1.5" => (EmbeddingModel::BGEBaseENV15, 768),
-        "nomic-embed-text-v1.5" | "nomic-ai/nomic-embed-text-v1.5" => {
-            (EmbeddingModel::NomicEmbedTextV15, 768)
-        }
-        "jina-embeddings-v2-base-code" | "jinaai/jina-embeddings-v2-base-code" => {
-            (EmbeddingModel::JinaEmbeddingsV2BaseCode, 768)
-        }
-        other => {
-            anyhow::bail!(
-                "Unknown fastembed model: {other}. \
-                 Supported: all-MiniLM-L6-v2, all-MiniLM-L12-v2, bge-small-en-v1.5, \
-                 bge-base-en-v1.5, nomic-embed-text-v1.5, jina-embeddings-v2-base-code"
-            );
-        }
-    };
-
-    let init = fastembed::InitOptionsWithLength::new(model_enum)
-        .with_max_length(configured_embedding_max_length())
-        .with_cache_dir(std::env::temp_dir().join("codelens-fastembed-cache"))
-        .with_show_download_progress(true);
-    let model =
-        TextEmbedding::try_new(init).with_context(|| format!("failed to load {model_id}"))?;
-
-    let runtime_info = cpu_runtime_info("cpu".to_string(), None);
-
-    tracing::info!(
-        model = model_id,
-        dimension = expected_dim,
-        "loaded fastembed built-in model for A/B comparison"
-    );
-
-    Ok((model, expected_dim, model_id.to_string(), runtime_info))
-}
-
 /// Load the CodeSearchNet model from sidecar files (MiniLM-L12 fine-tuned, ONNX INT8).
 pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, EmbeddingRuntimeInfo)> {
     configure_embedding_runtime();
@@ -626,8 +148,7 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
 
         #[cfg(not(feature = "model-bakeoff"))]
         {
-            let _ = model_id;
-            unreachable!("alternative embedding model override should have errored");
+            anyhow::bail!("CODELENS_EMBED_MODEL={model_id} requires the `model-bakeoff` feature");
         }
     }
 
@@ -746,22 +267,4 @@ pub fn configured_embedding_model_name() -> String {
         return configured_model_name_for_dir(&model_dir);
     }
     CODESEARCH_MODEL_NAME.to_string()
-}
-
-pub fn configured_rerank_blend() -> f64 {
-    std::env::var("CODELENS_RERANK_BLEND")
-        .ok()
-        .and_then(|v| v.parse::<f64>().ok())
-        .and_then(|v| {
-            if (0.0..=1.0).contains(&v) {
-                Some(v)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(0.75) // default: 75% bi-encoder, 25% text overlap (sweep: self +0.006 MRR, role neutral)
-}
-
-pub fn embedding_model_assets_available() -> bool {
-    resolve_model_dir().is_ok()
 }

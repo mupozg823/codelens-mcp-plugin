@@ -35,16 +35,15 @@ DEFAULT_TIMEOUT_SECONDS: Final = 120
 
 
 class CoverageReportError(RuntimeError):
-    """Raised when embedding_coverage_report is missing required evidence."""
+    pass
 
 
 @dataclass(frozen=True, slots=True)
 class CoverageSummary:
-    """Operator-facing coverage fields printed by the smoke gate."""
-
     status: str
     compiled: bool
     model_assets_available: bool
+    model_sha256: str
     indexed_symbols: int
     readiness_percent: int
     stale_files: int
@@ -55,13 +54,13 @@ class CoverageSummary:
     last_index_sha: str | None
 
     def render(self) -> str:
-        """Render the compact line CI logs need."""
         last_sha = self.last_index_sha if self.last_index_sha else "null"
         return (
             "embedding_coverage_report: "
             f"status={self.status} "
             f"compiled={self.compiled} "
             f"model_assets.available={self.model_assets_available} "
+            f"model_assets.sha256={self.model_sha256[:12]} "
             f"indexed_symbols={self.indexed_symbols} "
             f"readiness_percent={self.readiness_percent}% "
             f"stale_files={self.stale_files} "
@@ -235,6 +234,9 @@ def validate_report(report: Mapping[str, JsonValue]) -> CoverageSummary:
     assets_available = require_bool(
         model_assets, "available", "data.model_assets", expected=True
     )
+    model_sha256 = require_str(model_assets, "sha256", "data.model_assets")
+    if len(model_sha256) != 64:
+        raise CoverageReportError("data.model_assets.sha256 must be 64 hex characters")
 
     index = as_object(require_key(report, "index", "data"), "data.index")
     _schema_version = require_int(index, "schema_version", "data.index", minimum=0)
@@ -261,21 +263,18 @@ def validate_report(report: Mapping[str, JsonValue]) -> CoverageSummary:
             f"data.index.freshness.{dimension}",
         )
 
-    query_cache = as_object(
-        require_key(report, "query_cache", "data"), "data.query_cache"
-    )
+    query_cache = as_object(require_key(report, "query_cache", "data"), "data.query_cache")
     query_cache_entries = require_int(
         query_cache, "entries", "data.query_cache", minimum=0
     )
-    remediation = as_object(
-        require_key(report, "remediation", "data"), "data.remediation"
-    )
+    remediation = as_object(require_key(report, "remediation", "data"), "data.remediation")
     remediation_action = require_str(remediation, "action", "data.remediation")
 
     return CoverageSummary(
         status=status,
         compiled=compiled,
         model_assets_available=assets_available,
+        model_sha256=model_sha256,
         indexed_symbols=indexed_symbols,
         readiness_percent=readiness_percent,
         stale_files=stale_files,

@@ -50,6 +50,7 @@ pub(super) fn host_environment_output_schema() -> serde_json::Value {
             "client_profile": {"type": "string"},
             "client_name": {"type": ["string", "null"]},
             "client_version": {"type": ["string", "null"]},
+            "host_context": {"type": ["string", "null"]},
             "snapshot_source": {"type": "string", "enum": ["explicit_host_snapshot", "session_defaults"]},
             "requested_profile": {"type": ["string", "null"]},
             "harness_profile": {"type": ["string", "null"]},

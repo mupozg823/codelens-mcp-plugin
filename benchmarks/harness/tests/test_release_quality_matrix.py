@@ -83,6 +83,23 @@ class ReleaseQualityMatrixTests(unittest.TestCase):
         self.assertIn("evidence-contract.py", command_specs[0]["argv"][1])
         self.assertIn("--binary", command_specs[0]["argv"])
 
+    def test_embedding_quality_suite_uses_compact_stdout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            command_specs, compare_spec = RELEASE_MATRIX.suite_commands(
+                "embedding_quality",
+                project=Path("/repo"),
+                baseline_binary=Path("/tmp/base"),
+                candidate_binary=Path("/tmp/candidate"),
+                output_dir=Path(tmpdir),
+                preset="balanced",
+                http_iterations=1,
+            )
+
+        self.assertEqual(compare_spec, {"type": "pair", "compare": "methods"})
+        for spec in command_specs:
+            stdout_index = spec["argv"].index("--stdout")
+            self.assertEqual(spec["argv"][stdout_index + 1], "summary")
+
     def test_gate_fails_on_evidence_contract_or_default_tool_count_growth(self):
         failures = RELEASE_MATRIX.gate_results(
             {

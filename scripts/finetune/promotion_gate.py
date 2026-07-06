@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# noqa: SIZE_OK - standalone promotion gate CLI orchestrates multiple benchmark artifacts.
 """Fail-closed promotion gate for embedding model candidates."""
 
 from __future__ import annotations
@@ -231,6 +232,8 @@ def run_retrieval_benchmark(
         "--isolated-copy",
         "--output",
         str(output_json),
+        "--stdout",
+        "summary",
         "--markdown-output",
         str(output_md),
     ]

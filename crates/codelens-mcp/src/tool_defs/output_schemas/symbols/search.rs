@@ -196,7 +196,8 @@ pub(crate) fn semantic_search_output_schema() -> serde_json::Value {
                 "properties": {
                     "semantic_enabled": {"type": "boolean"},
                     "requested_query": {"type": "string"},
-                    "semantic_query": {"type": "string"}
+                    "semantic_query": {"type": "string"},
+                    "path_hint": {"type": ["string", "null"]}
                 }
             }
         }

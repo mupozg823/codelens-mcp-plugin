@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# noqa: SIZE_OK - standalone model bakeoff CLI builds per-candidate benchmark reports.
 """Run embedding-quality.py across locally available ONNX model directories."""
 
 from __future__ import annotations
@@ -118,6 +119,8 @@ def embedding_quality_command(
         str(args.ranked_context_max_tokens),
         "--output",
         str(report_dir / "embedding-quality.json"),
+        "--stdout",
+        "summary",
         "--markdown-output",
         str(report_dir / "embedding-quality.md"),
     ]

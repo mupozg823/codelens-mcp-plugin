@@ -17,6 +17,17 @@ fn result_signatures(response: &Value) -> Vec<String> {
         .collect()
 }
 
+fn result_files(response: &Value) -> Vec<String> {
+    tool_data(response)
+        .get("results")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("file_path").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
+}
+
 fn git_stdout(project: &codelens_engine::ProjectRoot, args: &[&str]) -> String {
     let output = Command::new("git")
         .args(args)
@@ -93,6 +104,46 @@ fn refresh_symbol_index_reconciles_embedding_freshness() {
 }
 
 #[test]
+fn semantic_search_respects_path_hint_scope() -> std::io::Result<()> {
+    if !embedding_model_available_for_test() {
+        return Ok(());
+    }
+
+    let project = project_root();
+    std::fs::create_dir_all(project.as_path().join("src"))?;
+    std::fs::create_dir_all(project.as_path().join("tests"))?;
+    std::fs::write(
+        project.as_path().join("src/main.py"),
+        "def target_alpha():\n    return 'src'\n",
+    )?;
+    std::fs::write(
+        project.as_path().join("tests/main.py"),
+        "def target_alpha():\n    return 'tests'\n",
+    )?;
+
+    let state = make_state(&project);
+    let _ = call_tool(&state, "refresh_symbol_index", json!({}));
+    let _ = call_tool(&state, "index_embeddings", json!({}));
+
+    let search = call_tool(
+        &state,
+        "semantic_search",
+        json!({"query": "target alpha function", "path_hint": "src", "max_results": 5}),
+    );
+    let data = tool_data(&search);
+    let files = result_files(&search);
+
+    assert_eq!(data["retrieval"]["path_hint"].as_str(), Some("src"));
+    assert!(data.get("unknown_args").is_none(), "{search:#?}");
+    assert!(!files.is_empty(), "{search:#?}");
+    assert!(
+        files.iter().all(|file| file.starts_with("src/")),
+        "semantic_search path_hint should restrict results to src/: {search:#?}"
+    );
+    Ok(())
+}
+
+#[test]
 fn embedding_coverage_report_infers_sha_for_clean_legacy_index() {
     if !embedding_model_available_for_test() {
         return;
@@ -130,6 +181,8 @@ fn embedding_coverage_report_infers_sha_for_clean_legacy_index() {
         Some(true),
         "semantic test helper only runs when model assets are available"
     );
+    let model_sha = data["model_assets"]["sha256"].as_str().unwrap_or_default();
+    assert_eq!(model_sha.len(), 64);
     assert_eq!(index["model_mismatch"].as_bool(), Some(false));
     assert!(index["indexed_symbols"].as_u64().unwrap_or(0) >= 2);
     assert_eq!(index["stale_files"].as_u64(), Some(0));

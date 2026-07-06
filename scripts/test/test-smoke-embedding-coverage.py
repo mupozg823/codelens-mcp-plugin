@@ -43,6 +43,7 @@ def valid_data() -> dict[str, object]:
         "model_assets": {
             "available": True,
             "configured_model": "MiniLM-L12-CodeSearchNet-INT8",
+            "sha256": "a" * 64,
         },
         "index": {
             "model": "MiniLM-L12-CodeSearchNet-INT8",
@@ -132,6 +133,7 @@ def test_extract_report_accepts_oneshot_envelope() -> None:
     assert summary.status == "stale"
     assert summary.compiled is True
     assert summary.model_assets_available is True
+    assert summary.model_sha256 == "a" * 64
     assert summary.indexed_symbols == 42
     assert summary.readiness_percent == 66
     assert summary.stale_files == 1
@@ -143,6 +145,7 @@ def test_extract_report_accepts_oneshot_envelope() -> None:
     assert "stale_reason=src/main.rs:embedding_keys_changed" in summary.render()
     assert "remediation.action=refresh_embedding_index" in summary.render()
     assert "last_index_sha=null" in summary.render()
+    assert "model_assets.sha256=aaaaaaaaaaaa" in summary.render()
 
 
 def test_validate_report_rejects_semantic_feature_off() -> None:

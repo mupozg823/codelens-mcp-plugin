@@ -532,7 +532,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 4657
+        "estimated_tokens": 4668
       },
       {
         "name": "register_agent_work",
@@ -865,7 +865,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 304
+        "estimated_tokens": 337
       },
       {
         "name": "embedding_coverage_report",
@@ -874,7 +874,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 564
+        "estimated_tokens": 594
       },
       {
         "name": "index_embeddings",

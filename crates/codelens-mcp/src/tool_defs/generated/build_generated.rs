@@ -315,7 +315,7 @@ pub fn semantic_tools(
         Tool::new(
             "semantic_search",
             "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning.",
-            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string","description":"Natural language search query"},"max_results":{"type":"integer","description":"Max results (default 20)"}}}),
+            json!({"type":"object","required":["query"],"properties":{"query":{"type":"string","description":"Natural language search query"},"max_results":{"type":"integer","description":"Max results (default 20)"},"path_hint":{"type":"string","description":"Optional repo-relative file or directory scope"}}}),
         ).with_output_schema(semantic_search_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "embedding_coverage_report",

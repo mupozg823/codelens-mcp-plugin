@@ -1,4 +1,4 @@
-use super::runtime::executable_model_roots;
+use super::model_assets::{CODESEARCH_MODEL_NAME, executable_model_roots, resolve_model_dir};
 use super::*;
 use crate::db::{IndexDb, NewSymbol};
 use crate::embedding_store::{EmbeddingChunk, ScoredChunk};

@@ -116,9 +116,14 @@ python3 benchmarks/external-project-smoke.py \
 - `refresh_symbol_index`
 - `index_embeddings(prewarm_queries)`
 - `semantic_search` with `path_hint`
+- optional `expected_search` top-k file/symbol assertion, so the smoke fails
+  when retrieval returns a successful response but misses the intended symbol
 - `rename_symbol(dry_run=true)`
 
-기본 CI matrix는 빠른 fixture project를 사용한다. Nightly/release 검증에서는 같은 matrix schema에
+기본 CI matrix는 Python, TypeScript, Rust call-graph fixture project를 사용한다. 이 gate는
+빠른 실행 성공만 보지 않고 `semantic_search(path_hint)`가 repo-relative scope를 실제 적용하는지와
+`expected_search.{file_path,symbol_name,max_rank}`로 semantic hit가 top-k 안에 있는지도 확인한다.
+Nightly/release 검증에서는 같은 matrix schema에
 `git_url` 또는 `repo_url`과 `revision`을 넣어 pinned upstream repository를 materialize할 수 있다.
 이 경로는 네트워크와 upstream clone 비용이 있으므로 PR fast gate와 분리한다.
 
@@ -126,7 +131,10 @@ Nightly/release upstream gate는
 `benchmarks/external-project-smoke-upstream-matrix.json`을 사용한다. 현재 pinned upstream set은
 Next.js tutorial, Flask, serde_json, Spring Petclinic이며, 각 항목은 `refresh_symbol_index`,
 `index_embeddings(prewarm_queries)`, `semantic_search(path_hint)`, `rename_symbol(dry_run=true)`를
-동일하게 통과해야 한다.
+동일하게 통과해야 한다. `--check` 모드에서는 모든 matrix 항목에 `expected_search` label이
+필수다. 이 label은 rename dry-run target과 같을 필요가 없고, query가 실제로 찾으려는
+semantic target을 top-k 안에서 검증한다. 이 gate는 scoped smoke이지 MRR-equivalent
+quality benchmark가 아니므로 self retrieval gate와 함께 해석한다.
 
 ### 1-1-4. Semantic refactor matrix (semantic-refactor-matrix.py)
 
@@ -182,7 +190,7 @@ python3 benchmarks/embedding-index-lifecycle.py . \
 
 - isolated project copy에서 cold `index_embeddings` 경과 시간
 - 같은 copy에서 warm `index_embeddings` 경과 시간
-- cold/warm 직후 `embedding_coverage_report`의 `readiness_percent`, `stale_files`, `last_index_sha`, `remediation_action`
+- cold/warm 직후 `embedding_coverage_report`의 `model_sha256`, `readiness_percent`, `stale_files`, `last_index_sha`, `remediation_action`
 - warm vs cold elapsed ratio와 saved ms
 - artifact schema: `codelens-index-lifecycle-benchmark-v1`
 
@@ -200,6 +208,7 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 python3 benchmarks/embedding-quality.py . \
   --isolated-copy \
   --output benchmarks/embedding-quality-results.json \
+  --stdout summary \
   --markdown-output benchmarks/embedding-quality-summary.md \
   --triage-output /tmp/codelens-embedding-quality-triage.json \
   --max-hybrid-p95-response-tokens 20000
@@ -212,6 +221,7 @@ python3 benchmarks/embedding-quality.py . \
 - `get_ranked_context disable_semantic=true` 대비 hybrid uplift
 - query별 miss / wrong-top-hit
 - `--triage-output` JSON의 `candidate_missing`, `semantic_hit_dropped_by_hybrid`, `hybrid_demoted_semantic_hit`, p95 response tokens, query-cache hit evidence
+- CI/agent 실행은 `--stdout summary`를 사용해 full JSON은 파일 artifact로 남기고 대화/로그 토큰을 줄인다.
 - `--max-hybrid-p95-response-tokens`로 retrieval payload token 폭증을 `--check` 단계에서 fail-close
 
 현재 재현 가능한 로컬 기준선 (`embedding-quality-results.json`, sequential + `--isolated-copy`):

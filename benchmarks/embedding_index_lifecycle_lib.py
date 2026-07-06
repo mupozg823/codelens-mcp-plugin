@@ -150,12 +150,14 @@ def run_tool(
 
 
 def compact_coverage(report: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    model_assets = as_mapping(report.get("model_assets"), "coverage.model_assets")
     index = as_mapping(report.get("index"), "coverage.index")
     query_cache = as_mapping(report.get("query_cache"), "coverage.query_cache")
     remediation = as_mapping(report.get("remediation"), "coverage.remediation")
     return {
         "status": report.get("status"),
         "compiled": report.get("compiled"),
+        "model_sha256": model_assets.get("sha256"),
         "schema_version": index.get("schema_version"),
         "expected_schema_version": index.get("expected_schema_version"),
         "schema_mismatch": index.get("schema_mismatch"),

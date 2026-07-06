@@ -19,6 +19,10 @@ DEFAULT_MATRIX = ROOT / "benchmarks" / "external-project-smoke-matrix.json"
 DEFAULT_BINARY = ROOT / "target" / "debug" / "codelens-mcp"
 
 
+class MatrixItemError(ValueError):
+    pass
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--matrix", default=str(DEFAULT_MATRIX))
@@ -26,11 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default=None)
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--check", action="store_true")
-    parser.add_argument(
-        "--keep-workdirs",
-        action="store_true",
-        help="Keep copied projects for debugging",
-    )
+    parser.add_argument("--keep-workdirs", action="store_true", help="Keep copied projects for debugging")
     return parser.parse_args()
 
 
@@ -40,6 +40,14 @@ def load_matrix(path: Path) -> list[dict[str, Any]]:
     if not isinstance(projects, list) or not projects:
         raise SystemExit(f"matrix has no projects: {path}")
     return projects
+
+
+def projects_missing_expected_search(projects: list[dict[str, Any]]) -> list[str]:
+    return [
+        str(item.get("name", item.get("git_url", item.get("path", "unknown"))))
+        for item in projects
+        if not isinstance(item.get("expected_search"), dict)
+    ]
 
 
 def copy_project(source: Path, keep: bool) -> tuple[Path, tempfile.TemporaryDirectory[str] | None]:
@@ -66,7 +74,7 @@ def materialize_project(
 
     git_url = item.get("git_url") or item.get("repo_url")
     if not git_url:
-        raise ValueError("matrix item must set either path or git_url")
+        raise MatrixItemError("matrix item must set either path or git_url")
 
     tmp = None if keep else tempfile.TemporaryDirectory(prefix="codelens-external-smoke-")
     work_root = Path(tempfile.mkdtemp(prefix="codelens-external-smoke-")) if keep else Path(tmp.name)
@@ -151,6 +159,37 @@ def payload_success(payload: Any) -> bool:
     return True
 
 
+def expected_search_error(
+    search_step: dict[str, Any],
+    expected: dict[str, Any],
+) -> str | None:
+    stdout = search_step.get("stdout")
+    data = stdout.get("data") if isinstance(stdout, dict) else None
+    results = data.get("results") if isinstance(data, dict) else None
+    if not isinstance(results, list):
+        return "semantic_search response did not include a results list"
+
+    expected_symbol = expected.get("symbol_name")
+    expected_file = expected.get("file_path")
+    if expected_symbol is None and expected_file is None:
+        return "expected_search must set symbol_name or file_path"
+
+    max_rank_raw = expected.get("max_rank", len(results))
+    max_rank = max_rank_raw if isinstance(max_rank_raw, int) and max_rank_raw > 0 else len(results)
+    for rank, hit in enumerate(results[:max_rank], start=1):
+        if not isinstance(hit, dict):
+            continue
+        symbol_matches = expected_symbol is None or hit.get("symbol_name") == expected_symbol
+        file_matches = expected_file is None or hit.get("file_path") == expected_file
+        if symbol_matches and file_matches:
+            return None
+
+    return (
+        "expected semantic_search hit not found within "
+        f"top {max_rank}: symbol_name={expected_symbol!r}, file_path={expected_file!r}"
+    )
+
+
 def default_env() -> dict[str, str]:
     env = os.environ.copy()
     env.setdefault("CODELENS_LOG", "warn")
@@ -169,7 +208,7 @@ def smoke_project(
 ) -> dict[str, Any]:
     try:
         project, tmp = materialize_project(item, keep_workdirs, timeout)
-    except (FileNotFoundError, ValueError, subprocess.SubprocessError) as error:
+    except (FileNotFoundError, MatrixItemError, subprocess.SubprocessError) as error:
         return {
             "name": item.get("name", item.get("git_url", item.get("path", "unknown"))),
             "kind": item.get("kind"),
@@ -179,37 +218,40 @@ def smoke_project(
         }
 
     try:
-        steps = [
-            run_tool(binary, project, "refresh_symbol_index", {}, timeout, env),
-            run_tool(
-                binary,
-                project,
-                "index_embeddings",
-                {"prewarm_queries": item.get("prewarm_queries", [item["query"]])},
-                timeout,
-                env,
-            ),
-            run_tool(
-                binary,
-                project,
-                "semantic_search",
-                {
-                    "query": item["query"],
-                    "max_results": item.get("max_results", 8),
-                    "path_hint": item.get("path_hint"),
-                },
-                timeout,
-                env,
-            ),
-            run_tool(
-                binary,
-                project,
-                "rename_symbol",
-                {**item["mutation"], "dry_run": True},
-                timeout,
-                env,
-            ),
-        ]
+        refresh_step = run_tool(binary, project, "refresh_symbol_index", {}, timeout, env)
+        index_step = run_tool(
+            binary,
+            project,
+            "index_embeddings",
+            {"prewarm_queries": item.get("prewarm_queries", [item["query"]])},
+            timeout,
+            env,
+        )
+        search_step = run_tool(
+            binary,
+            project,
+            "semantic_search",
+            {
+                "query": item["query"],
+                "max_results": item.get("max_results", 8),
+                "path_hint": item.get("path_hint"),
+            },
+            timeout,
+            env,
+        )
+        if isinstance(item.get("expected_search"), dict):
+            quality_error = expected_search_error(search_step, item["expected_search"])
+            if quality_error is not None:
+                search_step = {**search_step, "ok": False, "quality_error": quality_error}
+        rename_step = run_tool(
+            binary,
+            project,
+            "rename_symbol",
+            {**item["mutation"], "dry_run": True},
+            timeout,
+            env,
+        )
+        steps = [refresh_step, index_step, search_step, rename_step]
         return {
             "name": item["name"],
             "kind": item.get("kind"),
@@ -229,9 +271,18 @@ def main() -> None:
     if not binary.is_file():
         raise SystemExit(f"binary not found: {binary}; run cargo build -p codelens-mcp first")
 
+    projects = load_matrix(matrix_path)
+    if args.check:
+        missing_expected = projects_missing_expected_search(projects)
+        if missing_expected:
+            raise SystemExit(
+                "--check requires expected_search for every project: "
+                + ", ".join(missing_expected)
+            )
+
     results = [
         smoke_project(item, binary, args.timeout, args.keep_workdirs, default_env())
-        for item in load_matrix(matrix_path)
+        for item in projects
     ]
     report = {
         "schema_version": "codelens-external-project-smoke-v1",

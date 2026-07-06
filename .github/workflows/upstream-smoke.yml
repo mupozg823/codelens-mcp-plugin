@@ -69,6 +69,35 @@ jobs:
             --output benchmarks/codelens-index-lifecycle.json \
             --timeout 420
 
+      - name: Run self retrieval quality gate
+        env:
+          CODELENS_MODEL_DIR: ${{ github.workspace }}/crates/codelens-engine/models
+        run: |
+          python3 benchmarks/embedding-quality.py . \
+            --binary target/release/codelens-mcp \
+            --output benchmarks/codelens-self-retrieval-quality.json \
+            --stdout summary \
+            --markdown-output benchmarks/codelens-self-retrieval-quality.md \
+            --triage-output benchmarks/codelens-self-retrieval-triage.json \
+            --check \
+            --min-hybrid-mrr 0.70 \
+            --min-lexical-mrr 0.50 \
+            --min-hybrid-mrr-by-query-type natural_language=0.55 \
+            --min-hybrid-recall-by-query-type issue_to_edit=0.80 \
+            --max-hybrid-candidate-missing-rate 0.10 \
+            --max-hybrid-p95-response-tokens 20000
+
+      - name: Run fast fixture project smoke matrix
+        env:
+          CODELENS_MODEL_DIR: ${{ github.workspace }}/crates/codelens-engine/models
+        run: |
+          python3 benchmarks/external-project-smoke.py \
+            --binary target/release/codelens-mcp \
+            --matrix benchmarks/external-project-smoke-matrix.json \
+            --output benchmarks/external-project-smoke-results.json \
+            --timeout 180 \
+            --check
+
       - name: Run upstream project smoke matrix
         env:
           CODELENS_MODEL_DIR: ${{ github.workspace }}/crates/codelens-engine/models
@@ -88,4 +117,8 @@ jobs:
           path: |
             benchmarks/embedding-coverage-smoke.txt
             benchmarks/codelens-index-lifecycle.json
+            benchmarks/codelens-self-retrieval-quality.json
+            benchmarks/codelens-self-retrieval-quality.md
+            benchmarks/codelens-self-retrieval-triage.json
+            benchmarks/external-project-smoke-results.json
             benchmarks/external-project-smoke-upstream-results.json

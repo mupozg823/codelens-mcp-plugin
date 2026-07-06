@@ -1,4 +1,4 @@
-use super::super::runtime::parse_bool_env;
+use super::super::runtime_settings::parse_bool_env;
 
 pub(super) fn symbol_card_enabled() -> bool {
     parse_bool_env("CODELENS_EMBED_SYMBOL_CARD").unwrap_or(true)

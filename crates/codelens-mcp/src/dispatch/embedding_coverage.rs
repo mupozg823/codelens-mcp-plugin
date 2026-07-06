@@ -17,11 +17,15 @@ pub(super) fn embedding_coverage_report_handler(
 ) -> tools::ToolResult {
     let configured_model = codelens_engine::configured_embedding_model_name();
     let model_assets_available = codelens_engine::embedding_model_assets_available();
+    let model_asset_identity = model_asset_identity_payload();
     let mut payload = json!({
         "compiled": true,
         "model_assets": {
             "available": model_assets_available,
             "configured_model": configured_model,
+            "model_path": model_asset_identity.get("model_path").cloned().unwrap_or(Value::Null),
+            "sha256": model_asset_identity.get("sha256").cloned().unwrap_or(Value::Null),
+            "size_bytes": model_asset_identity.get("size_bytes").cloned().unwrap_or(Value::Null),
         },
     });
 
@@ -80,6 +84,18 @@ pub(super) fn embedding_coverage_report_handler(
     payload["recommended_action"] = json!(recommended_action(status));
     payload["remediation"] = remediation_payload(status);
     Ok((payload, tools::success_meta(BackendKind::Semantic, 0.92)))
+}
+
+fn model_asset_identity_payload() -> Value {
+    codelens_engine::configured_model_asset_identity()
+        .map(|identity| {
+            json!({
+                "model_path": identity.model_path,
+                "sha256": identity.sha256,
+                "size_bytes": identity.size_bytes,
+            })
+        })
+        .unwrap_or(Value::Null)
 }
 
 fn last_index_sha(

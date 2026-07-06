@@ -53,3 +53,10 @@ pub struct EmbeddingRuntimeInfo {
     pub coreml_model_cache_dir: Option<String>,
     pub fallback_reason: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct EmbeddingModelAssetIdentity {
+    pub model_path: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+}

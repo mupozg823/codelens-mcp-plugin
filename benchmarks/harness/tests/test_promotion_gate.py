@@ -42,6 +42,33 @@ class PromotionGateTests(unittest.TestCase):
             finally:
                 shutil.rmtree(cleanup_root, ignore_errors=True)
 
+    def test_retrieval_benchmark_uses_compact_stdout(self):
+        module = load_script_module()
+        captured = {}
+
+        def fake_run(cmd, *, env):
+            captured["cmd"] = cmd
+            captured["env"] = env
+            return object()
+
+        def fake_require_success(result, label):
+            captured["label"] = label
+
+        module.run = fake_run
+        module.require_success = fake_require_success
+
+        module.run_retrieval_benchmark(
+            ".",
+            "target/debug/codelens-mcp",
+            Path("/tmp/report.json"),
+            Path("/tmp/report.md"),
+            env={"CODELENS_MODEL_DIR": "/tmp/model"},
+        )
+
+        stdout_index = captured["cmd"].index("--stdout")
+        self.assertEqual(captured["cmd"][stdout_index + 1], "summary")
+        self.assertEqual(captured["label"], "embedding-quality.py")
+
 
 if __name__ == "__main__":
     unittest.main()

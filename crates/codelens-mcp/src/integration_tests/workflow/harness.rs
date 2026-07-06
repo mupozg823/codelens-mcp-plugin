@@ -568,6 +568,10 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     assert!(properties.contains_key("visible_tools"));
     assert!(properties.contains_key("routing"));
     assert!(properties.contains_key("harness"));
+    let host_environment = schema["properties"]["host_environment"]["properties"]
+        .as_object()
+        .expect("host_environment properties");
+    assert!(host_environment.contains_key("host_context"));
     let http_session = schema["properties"]["http_session"]["properties"]
         .as_object()
         .expect("http_session properties");

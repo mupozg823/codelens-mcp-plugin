@@ -31,6 +31,7 @@ echo "=== Baseline (CodeSearchNet-INT8) ==="
 python3 "$BENCH" "$ROOT" \
 	--binary "$BIN" \
 	--output /tmp/codelens-baseline.json \
+	--stdout summary \
 	--markdown-output /tmp/codelens-baseline.md
 
 echo ""
@@ -40,6 +41,7 @@ CODELENS_MODEL_DIR="$FINETUNED_DIR" \
 	python3 "$BENCH" "$ROOT" \
 	--binary "$BIN" \
 	--output /tmp/codelens-finetuned.json \
+	--stdout summary \
 	--markdown-output /tmp/codelens-finetuned.md
 
 echo ""

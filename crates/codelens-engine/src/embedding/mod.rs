@@ -12,8 +12,14 @@ mod chunk_ops;
 mod duplicates;
 mod engine_impl;
 pub(super) mod ffi;
+mod model_assets;
+#[cfg(feature = "model-bakeoff")]
+mod model_bakeoff;
 mod prompt;
+mod ranker_settings;
 mod runtime;
+mod runtime_info;
+mod runtime_settings;
 mod vec_store;
 
 use cache::TextEmbeddingCache;
@@ -21,12 +27,11 @@ use vec_store::SqliteVecStore;
 
 // ── Public re-exports ─────────────────────────────────────────────────
 pub use chunk_ops::{CategoryScore, DuplicatePair, OutlierSymbol, cosine_similarity};
+pub use model_assets::{configured_model_asset_identity, embedding_model_assets_available};
 pub use prompt::auto_sparse_should_enable;
-pub use runtime::{
-    configured_embedding_model_name, configured_embedding_runtime_info,
-    configured_embedding_runtime_preference, configured_embedding_threads,
-    embedding_model_assets_available,
-};
+pub use runtime::configured_embedding_model_name;
+pub use runtime_info::configured_embedding_runtime_info;
+pub use runtime_settings::{configured_embedding_runtime_preference, configured_embedding_threads};
 
 pub const fn embedding_store_schema_version() -> i64 {
     vec_store::EMBEDDING_STORE_SCHEMA_VERSION
@@ -54,9 +59,10 @@ pub(super) use prompt::{
     strict_comments_enabled, strict_literal_filter_enabled,
 };
 #[cfg(test)]
-pub(super) use runtime::{
-    CODESEARCH_MODEL_NAME, DEFAULT_MACOS_EMBED_BATCH_SIZE, embed_batch_size,
-    recommended_embed_threads, requested_embedding_model_override, resolve_model_dir,
+pub(super) use runtime::requested_embedding_model_override;
+#[cfg(test)]
+pub(super) use runtime_settings::{
+    DEFAULT_MACOS_EMBED_BATCH_SIZE, embed_batch_size, recommended_embed_threads,
 };
 
 // ── Core engine struct ───────────────────────────────────────────────────

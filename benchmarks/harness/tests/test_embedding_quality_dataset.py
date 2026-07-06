@@ -12,6 +12,33 @@ ROLE_DATASET = REPO_ROOT / "benchmarks" / "role-retrieval-dataset.json"
 SCRIPT = REPO_ROOT / "benchmarks" / "embedding-quality.py"
 
 
+def write_single_row_dataset(path, query="target query", expected_symbol="target_symbol"):
+    path.write_text(
+        json.dumps(
+            [{"query": query, "query_type": "natural_language", "expected_symbol": expected_symbol}]
+        ),
+        encoding="utf-8",
+    )
+
+
+def write_success_fake_binary(path):
+    path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "cmd = sys.argv[sys.argv.index('--cmd') + 1]\n"
+        "payloads = {\n"
+        "  'get_capabilities': {'success': True, 'data': {'embedding_model': 'fake'}},\n"
+        "  'index_embeddings': {'success': True, 'data': {'indexed': True}},\n"
+        "  'semantic_search': {'success': True, 'data': {'results': [{'symbol_name': 'target_symbol', 'file_path': 'target.rs'}]}},\n"
+        "  'get_ranked_context': {'success': True, 'data': {'symbols': [{'name': 'target_symbol', 'file': 'target.rs'}], 'retrieval': {'cache_hit_tier': 'exact'}}},\n"
+        "  'bm25_symbol_search': {'success': True, 'data': {'results': [{'name': 'target_symbol', 'file_path': 'target.rs'}]}},\n"
+        "}\n"
+        "print(json.dumps(payloads.get(cmd, {'success': False, 'error': cmd})))\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
 class EmbeddingQualityDatasetTests(unittest.TestCase):
     def test_self_dataset_expected_files_exist(self):
         rows = json.loads(DATASET.read_text(encoding="utf-8"))
@@ -61,6 +88,7 @@ class EmbeddingQualityDatasetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--max-hybrid-candidate-missing-rate", result.stdout)
         self.assertIn("--triage-output", result.stdout)
+        self.assertIn("--stdout", result.stdout)
 
     def test_embedding_quality_reports_tool_timeout(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -163,40 +191,9 @@ class EmbeddingQualityDatasetTests(unittest.TestCase):
             dataset = temp_path / "dataset.json"
             output = temp_path / "results.json"
             triage_output = temp_path / "triage.json"
-            dataset.write_text(
-                json.dumps(
-                    [
-                        {
-                            "query": "target query",
-                            "query_type": "natural_language",
-                            "expected_symbol": "target_symbol",
-                        }
-                    ]
-                ),
-                encoding="utf-8",
-            )
+            write_single_row_dataset(dataset)
             fake_binary = temp_path / "codelens-fake"
-            fake_binary.write_text(
-                "#!/usr/bin/env python3\n"
-                "import json\n"
-                "import sys\n"
-                "cmd = sys.argv[sys.argv.index('--cmd') + 1]\n"
-                "if cmd == 'get_capabilities':\n"
-                "    payload = {'success': True, 'data': {'embedding_model': 'fake'}}\n"
-                "elif cmd == 'index_embeddings':\n"
-                "    payload = {'success': True, 'data': {'indexed': True}}\n"
-                "elif cmd == 'semantic_search':\n"
-                "    payload = {'success': True, 'data': {'results': [{'symbol_name': 'target_symbol', 'file_path': 'target.rs'}]}}\n"
-                "elif cmd == 'get_ranked_context':\n"
-                "    payload = {'success': True, 'data': {'symbols': [{'name': 'target_symbol', 'file': 'target.rs'}], 'retrieval': {'cache_hit_tier': 'exact'}}}\n"
-                "elif cmd == 'bm25_symbol_search':\n"
-                "    payload = {'success': True, 'data': {'results': [{'name': 'target_symbol', 'file_path': 'target.rs'}]}}\n"
-                "else:\n"
-                "    payload = {'success': False, 'error': cmd}\n"
-                "print(json.dumps(payload))\n",
-                encoding="utf-8",
-            )
-            fake_binary.chmod(0o755)
+            write_success_fake_binary(fake_binary)
             result = subprocess.run(
                 [
                     sys.executable,

@@ -11,17 +11,23 @@ pub(in crate::dispatch) fn semantic_search_handler(
     arguments: &serde_json::Value,
 ) -> ToolResult {
     let query = tools::required_string(arguments, "query")?;
-    const SEMANTIC_SEARCH_KNOWN_ARGS: &[&str] = &["query", "max_results", "limit", "top_k"];
+    const SEMANTIC_SEARCH_KNOWN_ARGS: &[&str] =
+        &["query", "max_results", "limit", "top_k", "path_hint"];
     let max_results = crate::tool_runtime::optional_usize_with_aliases(
         arguments,
         "max_results",
         &["limit", "top_k"],
         20,
     );
+    let path_hint = tools::optional_string(arguments, "path_hint");
     let unknown_args =
         crate::tool_runtime::collect_unknown_args(arguments, SEMANTIC_SEARCH_KNOWN_ARGS);
 
     let project = state.project();
+    let normalized_path_hint = crate::tools::symbol_query::retrieval_scope::normalize_path_scope(
+        project.as_path(),
+        path_hint,
+    );
     let guard = state.embedding_engine();
     let engine = guard.as_ref().ok_or_else(|| {
         anyhow::anyhow!("Embedding engine not available. Build with --features semantic")
@@ -35,14 +41,24 @@ pub(in crate::dispatch) fn semantic_search_handler(
     }
 
     let query_analysis = crate::tools::query_analysis::analyze_retrieval_query(query);
-    let candidate_limit = max_results.saturating_mul(4).clamp(max_results, 80);
-    let lexical_candidates = codelens_engine::search::search_symbols_hybrid(
+    let candidate_limit = if normalized_path_hint.is_some() {
+        max_results.saturating_mul(8).clamp(max_results, 200)
+    } else {
+        max_results.saturating_mul(4).clamp(max_results, 80)
+    };
+    let mut lexical_candidates = codelens_engine::search::search_symbols_hybrid(
         &project,
         &query_analysis.expanded_query,
         candidate_limit,
         0.7,
     )
     .unwrap_or_default();
+    lexical_candidates.retain(|result| {
+        crate::tools::symbol_query::retrieval_scope::file_matches_scope(
+            &result.file,
+            normalized_path_hint.as_deref(),
+        )
+    });
     let structural_names: std::collections::HashSet<String> = lexical_candidates
         .iter()
         .map(|result| format!("{}:{}", result.file, result.name))
@@ -52,7 +68,7 @@ pub(in crate::dispatch) fn semantic_search_handler(
         query,
         candidate_limit,
         false,
-        None,
+        normalized_path_hint.as_deref(),
     );
 
     for result in &mut results {
@@ -103,6 +119,7 @@ pub(in crate::dispatch) fn semantic_search_handler(
             "semantic_enabled": true,
             "requested_query": query,
             "semantic_query": query_analysis.semantic_query,
+            "path_hint": normalized_path_hint,
         }
     });
     annotate_provenance(&mut payload, &result_scores);

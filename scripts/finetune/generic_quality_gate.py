@@ -86,6 +86,8 @@ def main():
         args.binary,
         "--output",
         str(embedding_output),
+        "--stdout",
+        "summary",
     ]
     multi_repo_cmd = [
         "python3",

@@ -88,6 +88,11 @@ def coverage_data() -> dict[str, JsonValue]:
     return {
         "status": "ready",
         "compiled": True,
+        "model_assets": {
+            "available": True,
+            "configured_model": "MiniLM-L12-CodeSearchNet-INT8",
+            "sha256": "b" * 64,
+        },
         "index": {
             "schema_version": 3,
             "expected_schema_version": 3,
@@ -150,6 +155,7 @@ def test_compact_coverage_keeps_lifecycle_fields() -> None:
 
     assert summary["status"] == "ready"
     assert summary["schema_version"] == 3
+    assert summary["model_sha256"] == "b" * 64
     assert summary["schema_mismatch"] is False
     assert summary["indexed_symbols"] == 42
     assert summary["readiness_percent"] == 100

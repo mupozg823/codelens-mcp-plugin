@@ -33,6 +33,66 @@ EXTERNAL_SMOKE = load_script_module(
 
 
 class ExternalProjectSmokeTests(unittest.TestCase):
+    def test_expected_search_error_accepts_ranked_symbol(self):
+        search_step = {
+            "stdout": {
+                "data": {
+                    "results": [
+                        {
+                            "file_path": "registry.py",
+                            "symbol_name": "parse_line",
+                        }
+                    ]
+                }
+            }
+        }
+
+        error = EXTERNAL_SMOKE.expected_search_error(
+            search_step,
+            {
+                "file_path": "registry.py",
+                "symbol_name": "parse_line",
+                "max_rank": 1,
+            },
+        )
+
+        self.assertIsNone(error)
+
+    def test_expected_search_error_reports_missing_symbol(self):
+        search_step = {
+            "stdout": {
+                "data": {
+                    "results": [
+                        {
+                            "file_path": "registry.py",
+                            "symbol_name": "on_event",
+                        }
+                    ]
+                }
+            }
+        }
+
+        error = EXTERNAL_SMOKE.expected_search_error(
+            search_step,
+            {
+                "file_path": "registry.py",
+                "symbol_name": "parse_line",
+                "max_rank": 1,
+            },
+        )
+
+        self.assertIn("parse_line", error)
+
+    def test_check_mode_requires_expected_search_labels(self):
+        missing = EXTERNAL_SMOKE.projects_missing_expected_search(
+            [
+                {"name": "labeled", "expected_search": {"symbol_name": "parse_line"}},
+                {"name": "unlabeled"},
+            ]
+        )
+
+        self.assertEqual(missing, ["unlabeled"])
+
     def test_materialize_project_clones_pinned_git_revision(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             source = Path(tmpdir) / "source"

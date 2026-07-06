@@ -115,6 +115,8 @@ class ExistingModelBakeoffTests(unittest.TestCase):
         )
 
         self.assertNotIn("--embed-model", cmd)
+        stdout_index = cmd.index("--stdout")
+        self.assertEqual(cmd[stdout_index + 1], "summary")
 
     def test_parse_args_isolates_project_by_default(self):
         module = load_script_module()

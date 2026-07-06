@@ -11,7 +11,10 @@ pub(crate) fn embedding_coverage_report_output_schema() -> serde_json::Value {
                 "type": "object",
                 "properties": {
                     "available": {"type": "boolean"},
-                    "configured_model": {"type": "string"}
+                    "configured_model": {"type": "string"},
+                    "model_path": {"type": ["string", "null"]},
+                    "sha256": {"type": ["string", "null"]},
+                    "size_bytes": {"type": ["integer", "null"]}
                 }
             },
             "index": {

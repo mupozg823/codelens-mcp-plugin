@@ -43,6 +43,12 @@ def parse_args():
     )
     parser.add_argument("--preset", default="balanced")
     parser.add_argument("--output", default="benchmarks/embedding-quality-results.json")
+    parser.add_argument(
+        "--stdout",
+        choices=("json", "summary", "none"),
+        default="json",
+        help="Control benchmark stdout. Use 'summary' in CI/agent runs to avoid emitting the full JSON artifact.",
+    )
     parser.add_argument("--markdown-output", default="")
     parser.add_argument(
         "--triage-output",
@@ -324,6 +330,39 @@ def require_tool_success(name, result, context=""):
     if stderr:
         message.append(f"stderr={stderr}")
     raise SystemExit(" | ".join(message))
+
+
+def render_stdout_summary(result):
+    methods = {method["method"]: method for method in result["methods"]}
+    hybrid = methods["get_ranked_context"]
+    lexical = methods["get_ranked_context_no_semantic"]
+    semantic = methods["semantic_search"]
+    diagnostics = result["ranker_diagnostics"]
+    missing_rate = hybrid_candidate_missing_rate(diagnostics)
+    demoted_hits = hybrid_demoted_semantic_hits(diagnostics)
+    cache_probe = result["query_cache_probe"]
+    lines = [
+        "Embedding-quality summary:",
+        f"dataset_size={result['dataset_size']}",
+        f"hybrid_mrr={hybrid['mrr']:.6f}",
+        f"hybrid_recall={hybrid['recall_at_cutoff']:.6f}",
+        f"hybrid_acc1={hybrid['acc1']:.6f}",
+        f"hybrid_avg_tokens={hybrid['avg_estimated_response_tokens']:.2f}",
+        f"hybrid_p95_tokens={hybrid['p95_estimated_response_tokens']}",
+        f"lexical_mrr={lexical['mrr']:.6f}",
+        f"semantic_mrr={semantic['mrr']:.6f}",
+        f"candidate_missing_rate={missing_rate:.6f}",
+        f"hybrid_demoted_semantic_hits={demoted_hits}",
+        "query_cache="
+        f"{cache_probe.get('first_cache_hit_tier')}->{cache_probe.get('second_cache_hit_tier')}",
+    ]
+    if ARGS.output:
+        lines.append(f"json_output={ARGS.output}")
+    if ARGS.markdown_output:
+        lines.append(f"markdown_output={ARGS.markdown_output}")
+    if ARGS.triage_output:
+        lines.append(f"triage_output={ARGS.triage_output}")
+    return "\n".join(lines)
 
 
 _IGNORE_PATTERNS = shutil.ignore_patterns(
@@ -1051,7 +1090,13 @@ def main():
     }
 
     output_text = json.dumps(result, ensure_ascii=False, indent=2)
-    print(output_text)
+    match ARGS.stdout:
+        case "json":
+            print(output_text)
+        case "summary":
+            print(render_stdout_summary(result))
+        case "none":
+            pass
     if ARGS.output:
         Path(ARGS.output).write_text(output_text + "\n", encoding="utf-8")
     if ARGS.markdown_output:
