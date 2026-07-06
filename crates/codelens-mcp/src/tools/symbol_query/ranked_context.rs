@@ -214,7 +214,10 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             .map(|(idx, file)| (file.clone(), 1.0_f64 - (idx as f64 * 0.15)))
             .collect::<std::collections::HashMap<String, f64>>()
     };
+    #[cfg(feature = "semantic")]
     let mut query_cache_hit_tier: Option<&'static str> = None;
+    #[cfg(not(feature = "semantic"))]
+    let query_cache_hit_tier: Option<&'static str> = None;
     let mut user_context_scores: std::collections::HashMap<String, f64> = {
         #[cfg(feature = "semantic")]
         {

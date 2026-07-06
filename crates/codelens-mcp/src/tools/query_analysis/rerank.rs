@@ -14,6 +14,7 @@ fn is_natural_language_semantic_query(query_lower: &str) -> bool {
     query_lower.split_whitespace().count() >= 4 || prefers_semantic_entrypoint_prior(query_lower)
 }
 
+#[cfg(feature = "semantic")]
 fn contains_any(query_lower: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| query_lower.contains(needle))
 }
