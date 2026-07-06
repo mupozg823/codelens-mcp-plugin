@@ -458,35 +458,34 @@ mod surface_audit_tests {
     #[test]
     fn file_has_stable_marker_detects_only_within_first_four_lines() {
         use std::io::Write;
-        let tmp = tempfile::tempdir().expect("tempdir for marker test");
 
-        let early = tmp.path().join("early.md");
-        let mut f = std::fs::File::create(&early).unwrap();
-        writeln!(f, "# Title").unwrap();
-        writeln!(f, "<!-- audit-skip: stable -->").unwrap();
-        writeln!(f, "body").unwrap();
-        drop(f);
-        assert!(file_has_stable_marker(&early), "marker on line 2 detected");
-
-        let late = tmp.path().join("late.md");
-        let mut f = std::fs::File::create(&late).unwrap();
-        writeln!(f, "# line 1").unwrap();
-        writeln!(f, "body line 2").unwrap();
-        writeln!(f, "body line 3").unwrap();
-        writeln!(f, "body line 4").unwrap();
-        writeln!(f, "<!-- audit-skip: stable -->").unwrap();
-        drop(f);
+        let mut early = tempfile::NamedTempFile::new().expect("early marker file");
+        writeln!(early, "# Title").unwrap();
+        writeln!(early, "<!-- audit-skip: stable -->").unwrap();
+        writeln!(early, "body").unwrap();
+        early.flush().unwrap();
         assert!(
-            !file_has_stable_marker(&late),
+            file_has_stable_marker(early.path()),
+            "marker on line 2 detected"
+        );
+
+        let mut late = tempfile::NamedTempFile::new().expect("late marker file");
+        writeln!(late, "# line 1").unwrap();
+        writeln!(late, "body line 2").unwrap();
+        writeln!(late, "body line 3").unwrap();
+        writeln!(late, "body line 4").unwrap();
+        writeln!(late, "<!-- audit-skip: stable -->").unwrap();
+        late.flush().unwrap();
+        assert!(
+            !file_has_stable_marker(late.path()),
             "marker beyond line 4 must not be detected — keeps the IO window bounded"
         );
 
-        let missing = tmp.path().join("missing.md");
-        let mut f = std::fs::File::create(&missing).unwrap();
-        writeln!(f, "# Title").unwrap();
-        writeln!(f, "no marker here").unwrap();
-        drop(f);
-        assert!(!file_has_stable_marker(&missing));
+        let mut missing = tempfile::NamedTempFile::new().expect("missing marker file");
+        writeln!(missing, "# Title").unwrap();
+        writeln!(missing, "no marker here").unwrap();
+        missing.flush().unwrap();
+        assert!(!file_has_stable_marker(missing.path()));
     }
 
     #[test]
