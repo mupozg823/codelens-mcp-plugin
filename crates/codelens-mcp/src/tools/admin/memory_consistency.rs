@@ -351,7 +351,7 @@ mod surface_audit_tests {
             super::super::find_phantom_modules(&state, &json!({})).expect("call succeeds");
         assert_eq!(payload["count"].as_u64().unwrap_or(99), 0);
         assert!(payload["phantom_modules"].as_array().unwrap().is_empty());
-        assert_eq!(payload["truncated"].as_bool().unwrap_or(true), false);
+        assert!(!payload["truncated"].as_bool().unwrap_or(true));
         assert_eq!(payload["max_results"].as_u64().unwrap_or(0), 50);
     }
 
@@ -439,7 +439,7 @@ mod surface_audit_tests {
         assert_eq!(payload["threshold_days"].as_u64().unwrap_or(0), 30);
         assert!(payload["memories_dir"].is_string());
         assert!(payload["stale_entries"].is_array());
-        assert!(payload["next_actions"].as_array().unwrap().len() >= 1);
+        assert!(!payload["next_actions"].as_array().unwrap().is_empty());
     }
 
     #[test]
@@ -550,7 +550,7 @@ mod surface_audit_tests {
             "policy.approval_required_true documented",
         );
         assert!(
-            payload["next_actions"].as_array().unwrap().len() >= 1,
+            !payload["next_actions"].as_array().unwrap().is_empty(),
             "at least one next_action surfaced",
         );
         // Every violation entry must carry tool + surface + reasons.
@@ -577,7 +577,7 @@ mod surface_audit_tests {
                 .unwrap()
                 .is_empty()
         );
-        assert_eq!(payload["truncated"].as_bool().unwrap_or(true), false);
+        assert!(!payload["truncated"].as_bool().unwrap_or(true));
         assert_eq!(payload["max_results"].as_u64().unwrap_or(0), 50);
     }
 }

@@ -245,11 +245,11 @@ For a local copy-ready version of the same host bundle, run `codelens-mcp attach
 
 To preview cleanup without touching files, run `codelens-mcp detach <host> --dry-run`. To actually remove machine-editable host config, run `codelens-mcp detach <host>` or `codelens-mcp detach --all`. The installer also exposes the same cleanup entrypoint via `bash install.sh detach`.
 
-To verify that the host-native config is really attached after editing files, run `codelens-mcp doctor <host>` or `codelens-mcp status <host>`. Use `--all` to inspect every supported host contract at once, or `--json` when a host-side script needs a machine-readable status payload.
+To verify that the host-native config is really attached after editing files, run `codelens-mcp doctor <host>` or `codelens-mcp status <host>`. Use `--all` to inspect every supported host contract at once, `--strict` to probe HTTP-daemon `embedding_coverage_report` and fail non-zero when attached semantic coverage is not ready or cannot be verified, or `--json` when a host-side script needs a machine-readable status payload.
 
 If your PATH still resolves to an older cargo-installed binary that does not know newer subcommands like `doctor` / `status`, run `bash scripts/sync-local-bin.sh .` to rebuild and re-link `~/.local/bin/codelens-mcp` to the current checkout.
 
-For a stricter repo-local health check, run `bash scripts/mcp-doctor.sh . --strict`. That script reuses `status --json --all`, ignores non-machine policy files, and fails when a configured transport is unreachable or its machine-readable attach is malformed.
+For the repo-local aggregate gate, run `bash scripts/mcp-doctor.sh . --strict`. That script reuses host status data across supported clients, ignores non-machine policy files, fails when a configured transport is unreachable or its machine-readable attach is malformed, and calls `embedding_coverage_report` against HTTP daemons so model assets, index freshness, query cache, model mismatch, and last index SHA are visible in the same smoke. CI and release smoke also run `scripts/smoke-embedding-coverage.py` against the packaged binary so a semantic-off build, missing model assets, model mismatch, or missing coverage fields fails before the heavier retrieval matrices run.
 
 If you are preparing for the future public rename rather than changing runtime behavior today, use [Migrate from CodeLens to Symbiote](migrate-from-codelens.md) for host-by-host config diffs and the cutover checklist.
 
@@ -603,8 +603,8 @@ agent = client.agents.create(
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:BEGIN -->
 
 - Workspace version: `1.13.34`
-- Presets: `minimal` (20), `balanced` (74), `full` (87)
-- Profiles: active `planner-readonly` (36), `builder-minimal` (35), `reviewer-graph` (40); compatibility aliases `evaluator-compact` (36, v2.0 removal), `refactor-full` (35, v2.0 removal), `ci-audit` (40, v2.0 removal), `workflow-first` (36, v2.0 removal)
+- Presets: `minimal` (20), `balanced` (81), `full` (94)
+- Profiles: active `planner-readonly` (39), `builder-minimal` (38), `reviewer-graph` (43); compatibility aliases `evaluator-compact` (39, v2.0 removal), `refactor-full` (38, v2.0 removal), `ci-audit` (43, v2.0 removal), `workflow-first` (39, v2.0 removal)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:END -->

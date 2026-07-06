@@ -76,10 +76,25 @@ pub(crate) fn build_host_adapters_for_project(project_root: Option<&Path>) -> Va
             "routing_outputs": [
                 "recommended harness mode",
                 "recommended CodeLens profile",
+                "recommended agent role",
                 "preferred native config targets",
                 "whether handoff artifacts are required",
                 "whether analysis jobs should replace direct long reports"
             ]
+        },
+        "host_environment_contract": {
+            "prepare_harness_session_fields": [
+                "agent_role",
+                "available_mcp_servers",
+                "available_mcp_tools",
+                "skill_roots",
+                "memory_roots",
+                "host_setting_keys",
+                "harness_profile"
+            ],
+            "privacy_rule": "Send names, roots, and setting keys only; do not send secret values or full personal config files.",
+            "adaptation_rule": "Explicit host-observed snapshots override generic Claude/Codex assumptions for bootstrap hints, skill binding, and token-pressure warnings.",
+            "skill_binding_rule": "Codex skill hints scan only SKILL.md metadata under supplied skill_roots, then recommend 1-3 files for the agent to read explicitly."
         },
         "delegate_scaffold_contract": {
             "synthetic_action": "delegate_to_codex_builder",
@@ -114,18 +129,21 @@ pub(crate) fn build_host_adapters_for_project(project_root: Option<&Path>) -> Va
                     "preferred_profiles": bundle["preferred_profiles"],
                     "default_profile": bundle["default_profile"],
                     "default_task_overlay": bundle["default_task_overlay"],
+                    "default_agent_role": bundle["default_agent_role"],
                     "primary_bootstrap_sequence": bundle["primary_bootstrap_sequence"],
                     "native_primitives": bundle["native_primitives"],
                     "preferred_codelens_use": bundle["preferred_codelens_use"],
                     "routing_defaults": bundle["routing_defaults"],
                     "avoid": bundle["avoid"],
                     "compiler_targets": bundle["compiler_targets"],
+                    "skill_binding": bundle.get("skill_binding").cloned().unwrap_or(Value::Null),
                 })
             })
             .collect::<Vec<_>>()
     })
 }
 
+mod overlay_specs;
 mod overlays;
 mod project_overrides;
 mod templates;
@@ -195,6 +213,8 @@ pub(crate) fn harness_host_compat_bundle_for_project(
         "guardrails": guardrails,
         "default_profile": adapter.get("default_profile").cloned().unwrap_or(Value::Null),
         "default_task_overlay": adapter.get("default_task_overlay").cloned().unwrap_or(Value::Null),
+        "default_agent_role": adapter.get("default_agent_role").cloned().unwrap_or(Value::Null),
+        "skill_binding": adapter.get("skill_binding").cloned().unwrap_or(Value::Null),
         "overlay_previews": adapter.get("overlay_previews").cloned().unwrap_or_else(|| json!([])),
         "detected_host": {
             "host_id": host,

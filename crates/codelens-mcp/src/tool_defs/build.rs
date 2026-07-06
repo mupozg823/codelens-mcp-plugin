@@ -124,6 +124,10 @@ fn build_tools() -> Vec<Tool> {
     tools.extend(super::generated::semantic_tools(&ro, &ro_a, &ro_p));
 
     for tool in &mut tools {
+        debug_assert!(
+            super::generated::tool_annotation_key(tool.name).is_some(),
+            "tool annotations must be generated from tools.toml"
+        );
         let annotations = tool
             .annotations
             .take()

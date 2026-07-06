@@ -194,3 +194,70 @@ fn host_adapter_bundle_uses_project_local_toml_url_override() {
 
     assert!(toml_template.contains("url = \"http://127.0.0.1:7838/mcp\""));
 }
+
+#[test]
+fn codex_host_adapter_exposes_skill_binding_contract() {
+    let bundle = host_adapter_bundle_for_project("codex", None).expect("codex bundle");
+
+    assert_eq!(bundle["skill_binding"]["target_host"], json!("codex"));
+    assert_eq!(
+        bundle["skill_binding"]["resource_uri"],
+        json!(crate::skill_catalog::CODEX_SKILL_CATALOG_RESOURCE_URI)
+    );
+    assert!(
+        bundle["native_files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|file| file["template"]
+                .as_str()
+                .is_some_and(|template| template.contains("skill-catalog")))
+    );
+}
+
+#[test]
+fn host_adapters_expose_agent_role_overlay_contract() {
+    let manifest = build_surface_manifest(
+        ToolSurface::Profile(ToolProfile::PlannerReadonly),
+        RuntimeDaemonMode::ReadOnly,
+    );
+
+    assert_eq!(
+        manifest["host_adapters"]["host_environment_contract"]["prepare_harness_session_fields"],
+        json!([
+            "agent_role",
+            "available_mcp_servers",
+            "available_mcp_tools",
+            "skill_roots",
+            "memory_roots",
+            "host_setting_keys",
+            "harness_profile"
+        ])
+    );
+
+    let codex = host_adapter_bundle_for_project("codex", None).expect("codex bundle");
+    assert_eq!(codex["default_agent_role"], json!("main"));
+    let previews = codex["overlay_previews"]
+        .as_array()
+        .expect("codex overlay previews");
+    assert!(
+        previews
+            .iter()
+            .any(|preview| preview["agent_role"] == json!("subagent")
+                && preview["preferred_entrypoints"]
+                    .as_array()
+                    .is_some_and(|items| items.iter().any(|item| item == "get_ranked_context"))),
+        "codex host adapter must include a subagent worker overlay"
+    );
+
+    let claude = host_adapter_bundle_for_project("claude-code", None).expect("claude bundle");
+    assert_eq!(claude["default_agent_role"], json!("main"));
+    assert!(
+        claude["overlay_previews"]
+            .as_array()
+            .expect("claude overlay previews")
+            .iter()
+            .any(|preview| preview["agent_role"] == json!("subagent")),
+        "claude host adapter must distinguish delegated subagent overlays"
+    );
+}

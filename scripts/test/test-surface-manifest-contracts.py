@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import subprocess
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -67,6 +69,28 @@ def run_contract_check(matrix: dict) -> subprocess.CompletedProcess:
         )
     finally:
         Path(matrix_path).unlink(missing_ok=True)
+
+
+def load_surface_manifest_module() -> types.ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "surface_manifest_script", SURFACE_MANIFEST
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_manifest_command_preserves_semantic_feature_for_followup_gates() -> None:
+    module = load_surface_manifest_module()
+    cmd = module.surface_manifest_command()
+    features = cmd[cmd.index("--features") + 1]
+    assert "http" in features.split(","), f"surface manifest command missing http: {cmd}"
+    assert "semantic" in features.split(","), (
+        f"surface manifest command must not clobber target/debug/codelens-mcp "
+        f"into a non-semantic binary before embedding gates: {cmd}"
+    )
 
 
 def test_valid_matrix_passes() -> None:
@@ -147,6 +171,10 @@ def test_contract_b_authoritative_apply_implies_can_apply_true() -> None:
 def main() -> int:
     failures: list[str] = []
     for name, fn in [
+        (
+            "manifest_command_preserves_semantic_feature",
+            test_manifest_command_preserves_semantic_feature_for_followup_gates,
+        ),
         ("valid_matrix_passes", test_valid_matrix_passes),
         (
             "contract_a_violation_rejected",

@@ -225,6 +225,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(encoded.contains("codelens://design/agent-experience"));
     assert!(encoded.contains("codelens://host-adapters/claude-code"));
     assert!(encoded.contains("codelens://host-adapters/codex"));
+    assert!(encoded.contains("codelens://host-adapters/codex/skill-catalog"));
     assert!(encoded.contains("codelens://host-adapters/cursor"));
     assert!(encoded.contains("codelens://host-adapters/windsurf"));
     assert!(encoded.contains("codelens://schemas/handoff-artifact/v1"));
@@ -501,11 +502,28 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(codex_host_adapter_body.contains("AGENTS.md"));
     assert!(codex_host_adapter_body.contains("delegate_to_codex_builder"));
     assert!(codex_host_adapter_body.contains("handoff_id"));
+    assert!(codex_host_adapter_body.contains("skill_binding"));
+    assert!(codex_host_adapter_body.contains("codelens://host-adapters/codex/skill-catalog"));
     assert!(codex_host_adapter_body.contains("overlay_previews"));
     assert!(codex_host_adapter_body.contains("primary_bootstrap_sequence"));
     assert!(codex_host_adapter_body.contains("default_task_overlay"));
     assert!(codex_host_adapter_body.contains("editing"));
     assert!(codex_host_adapter_body.contains("## Compiled Routing Overlays"));
+
+    let codex_skill_catalog = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(242221)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://host-adapters/codex/skill-catalog"})),
+        },
+    )
+    .unwrap();
+    let codex_skill_catalog_body = serde_json::to_string(&codex_skill_catalog).unwrap();
+    assert!(codex_skill_catalog_body.contains("codelens-codex-skill-catalog-v1"));
+    assert!(codex_skill_catalog_body.contains("total_skill_count"));
+    assert!(codex_skill_catalog_body.contains("sample_skill_paths"));
 
     let cursor_host_adapter = handle_request(
         &state,

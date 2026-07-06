@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 use super::super::cache::{
     ReusableEmbeddingKey, reusable_embedding_key_for_chunk, reusable_embedding_key_for_symbol,
 };
-use super::super::ffi;
 use super::super::prompt::{
     build_embedding_text, extract_leading_doc, is_test_only_symbol, split_identifier,
 };
@@ -13,15 +12,14 @@ use super::super::runtime::{
     configured_embedding_text_cache_size, embed_batch_size, load_codesearch_model,
     max_embed_symbols,
 };
-use super::super::vec_store::{EMBEDDING_STORE_SCHEMA_VERSION, SqliteVecStore};
+use super::super::vec_store::SqliteVecStore;
 use super::super::{
-    CHANGED_FILE_QUERY_CHUNK, EmbeddingEngine, EmbeddingFreshnessReport, EmbeddingIndexInfo,
-    EmbeddingRuntimeInfo,
+    CHANGED_FILE_QUERY_CHUNK, EmbeddingEngine, EmbeddingFreshnessReport, EmbeddingRuntimeInfo,
 };
+use super::git_sha::current_git_sha;
 use crate::db::IndexDb;
 use crate::embedding_store::EmbeddingChunk;
 use crate::project::ProjectRoot;
-use rusqlite::Connection;
 
 struct IndexingFlagGuard<'a>(&'a std::sync::atomic::AtomicBool);
 
@@ -155,6 +153,8 @@ impl EmbeddingEngine {
             self.store.delete_by_file(&removed_refs)?;
         }
 
+        self.record_index_git_sha(project)?;
+
         Ok(total_indexed)
     }
 
@@ -262,6 +262,9 @@ impl EmbeddingEngine {
         if !removed_files.is_empty() {
             let removed_refs: Vec<&str> = removed_files.iter().map(String::as_str).collect();
             report.removed_files = self.store.delete_by_file(&removed_refs)?;
+        }
+        if report.refreshed_files > 0 || report.removed_files > 0 {
+            self.record_index_git_sha(project)?;
         }
 
         Ok(report)
@@ -552,74 +555,22 @@ impl EmbeddingEngine {
             )?;
         }
 
+        if total_indexed > 0 {
+            self.record_index_git_sha(project)?;
+        }
+
         Ok(total_indexed)
+    }
+
+    fn record_index_git_sha(&self, project: &ProjectRoot) -> Result<()> {
+        if let Some(sha) = current_git_sha(project) {
+            self.store.set_meta_value("last_index_sha", &sha)?;
+        }
+        Ok(())
     }
 
     /// Whether the embedding index has been populated.
     pub fn is_indexed(&self) -> bool {
         self.store.count().unwrap_or(0) > 0
-    }
-
-    pub fn index_info(&self) -> EmbeddingIndexInfo {
-        EmbeddingIndexInfo {
-            model_name: self.model_name.clone(),
-            indexed_symbols: self.store.count().unwrap_or(0),
-        }
-    }
-
-    pub fn inspect_existing_index(project: &ProjectRoot) -> Result<Option<EmbeddingIndexInfo>> {
-        let db_path = project.as_path().join(".codelens/index/embeddings.db");
-        if !db_path.exists() {
-            return Ok(None);
-        }
-
-        let conn = crate::db::open_derived_sqlite_with_recovery(
-            &db_path,
-            "embedding index",
-            || {
-                ffi::register_sqlite_vec()?;
-                let conn = Connection::open(&db_path)?;
-                // Read-only metadata probe (model name + symbol count); aligns
-                // mmap_size / cache_size with `vec_store.rs` so this transient
-                // connection benefits from the same OS page cache state. WAL /
-                // synchronous / wal_autocheckpoint deliberately omitted — this
-                // path never writes, and grabbing the schema-level lock for a
-                // mode change would race with a live store connection.
-                conn.execute_batch(
-                    "PRAGMA busy_timeout = 5000; PRAGMA mmap_size = 67108864; PRAGMA cache_size = -16000;",
-                )?;
-                conn.query_row("PRAGMA schema_version", [], |_row| Ok(()))?;
-                Ok(conn)
-            },
-        )?;
-
-        let model_name: Option<String> = conn
-            .query_row(
-                "SELECT value FROM meta WHERE key = 'model' LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .ok();
-        let schema_version: Option<i64> = conn
-            .query_row(
-                "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version' LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .ok();
-        if schema_version != Some(EMBEDDING_STORE_SCHEMA_VERSION) {
-            return Ok(None);
-        }
-        let indexed_symbols: usize = conn
-            .query_row("SELECT COUNT(*) FROM symbols", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .map(|count| count.max(0) as usize)
-            .unwrap_or(0);
-
-        Ok(model_name.map(|model_name| EmbeddingIndexInfo {
-            model_name,
-            indexed_symbols,
-        }))
     }
 }

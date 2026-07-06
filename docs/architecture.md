@@ -9,8 +9,8 @@
 
 - Workspace version: `1.13.34`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
-- Registered tool definitions in source: `87`
-- Tool output schemas in source: `55 / 87`
+- Registered tool definitions in source: `94`
+- Tool output schemas in source: `57 / 94`
 - Supported language families: `34` across `56` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 
@@ -107,9 +107,9 @@ constraint, not a formatting detail. Layers, from request to wire:
    `project_binding` hint (−35% on `find_symbol` data); unbound store-backed
    HTTP sessions are blocked from content mutations (#347) with a structured
    `ProjectBindingRequired` recovery hint.
-5. **Surface economics** — of 87 registered tools, all but the alwaysLoad set stay deferred behind host tool search;
-   the `alwaysLoad` set pre-loads only the 5 workflow entrypoints + the
-   4 highest-frequency navigation verbs (≤10 budget rule pinned in code).
+5. **Surface economics** — of 94 `tools.toml` tool records, the default / alwaysLoad
+   slice stays capped at 9 control-plane tools; everything else expands by
+   phase, namespace, tier, preferred entrypoint, or host tool search.
 
 ## LSP Subsystem — Precision Tiers (P1.1, 2026-07)
 
@@ -379,10 +379,10 @@ codelens-mcp-plugin/
 │
 ├── benchmarks/
 │   ├── token-efficiency.py               # MCP vs Read/Grep A/B (tiktoken cl100k_base)
-│   ├── embedding-quality.py              # MRR / Acc@k
+│   ├── embedding-quality.py              # MRR / Recall / Acc@k / payload bytes
 │   ├── embedding-runtime.py              # latency/throughput
 │   ├── daemon-latency-gate.py            # daemon hot-path p95 gate
-│   ├── embedding-quality-dataset-self.json  # 89 self-matching queries
+│   ├── embedding-quality-dataset-self.json  # 96 self-regression queries
 │   └── *.json                            # result snapshots
 │
 ├── models/                               # ONNX model assets, INT8

@@ -1,57 +1,25 @@
 //! Host routing overlay compilation for host adapter bundles.
 
+use super::overlay_specs::{host_context_for_adapter, overlay_specs_for_host};
 use crate::tool_defs::{
-    HostContext, TaskOverlay, ToolProfile, ToolSurface, compile_surface_overlay,
+    AgentRole, HostContext, TaskOverlay, ToolProfile, ToolSurface,
+    compile_surface_overlay_for_agent,
 };
 use serde_json::{Value, json};
-
-fn host_context_for_adapter(host: &str) -> Option<HostContext> {
-    match host {
-        "claude-code" => Some(HostContext::ClaudeCode),
-        "codex" => Some(HostContext::Codex),
-        "cursor" => Some(HostContext::Cursor),
-        "cline" => Some(HostContext::Cline),
-        "windsurf" => Some(HostContext::Windsurf),
-        _ => None,
-    }
-}
-
-fn overlay_specs_for_host(host: &str) -> Vec<(ToolProfile, TaskOverlay)> {
-    match host {
-        "claude-code" => vec![
-            (ToolProfile::PlannerReadonly, TaskOverlay::Planning),
-            (ToolProfile::ReviewerGraph, TaskOverlay::Review),
-            (ToolProfile::PlannerReadonly, TaskOverlay::Onboarding),
-        ],
-        "codex" => vec![
-            (ToolProfile::BuilderMinimal, TaskOverlay::Editing),
-            (ToolProfile::BuilderMinimal, TaskOverlay::Review),
-            (ToolProfile::ReviewerGraph, TaskOverlay::BatchAnalysis),
-        ],
-        "cursor" => vec![
-            (ToolProfile::ReviewerGraph, TaskOverlay::Review),
-            (ToolProfile::PlannerReadonly, TaskOverlay::Planning),
-            (ToolProfile::ReviewerGraph, TaskOverlay::BatchAnalysis),
-        ],
-        "cline" => vec![
-            (ToolProfile::BuilderMinimal, TaskOverlay::Editing),
-            (ToolProfile::ReviewerGraph, TaskOverlay::Review),
-        ],
-        "windsurf" => vec![
-            (ToolProfile::BuilderMinimal, TaskOverlay::Editing),
-            (ToolProfile::PlannerReadonly, TaskOverlay::Interactive),
-        ],
-        _ => Vec::new(),
-    }
-}
 
 fn compiled_overlay_preview(
     profile: ToolProfile,
     host_context: HostContext,
     task_overlay: TaskOverlay,
+    agent_role: AgentRole,
 ) -> Value {
     let surface = ToolSurface::Profile(profile);
-    let plan = compile_surface_overlay(surface, Some(host_context), Some(task_overlay));
+    let plan = compile_surface_overlay_for_agent(
+        surface,
+        Some(host_context),
+        Some(task_overlay),
+        Some(agent_role),
+    );
     let mut bootstrap_sequence = vec!["prepare_harness_session".to_owned()];
     for tool in &plan.preferred_entrypoints {
         if !bootstrap_sequence.iter().any(|item| item == tool) {
@@ -64,6 +32,7 @@ fn compiled_overlay_preview(
         "profile": profile.as_str(),
         "surface": surface.as_label(),
         "task_overlay": task_overlay.as_str(),
+        "agent_role": agent_role.as_str(),
         "preferred_executor_bias": plan.preferred_executor_bias,
         "bootstrap_sequence": bootstrap_sequence,
         "preferred_entrypoints": plan.preferred_entrypoints,
@@ -79,8 +48,13 @@ fn overlay_previews_for_host(host: &str) -> Vec<Value> {
     };
     overlay_specs_for_host(host)
         .into_iter()
-        .map(|(profile, task_overlay)| {
-            compiled_overlay_preview(profile, host_context, task_overlay)
+        .map(|spec| {
+            compiled_overlay_preview(
+                spec.profile,
+                host_context,
+                spec.task_overlay,
+                spec.agent_role,
+            )
         })
         .collect()
 }
@@ -130,6 +104,10 @@ fn compiled_overlay_markdown_section(host: &str) -> String {
             .get("preferred_executor_bias")
             .and_then(|value| value.as_str())
             .unwrap_or("any");
+        let agent_role = preview
+            .get("agent_role")
+            .and_then(|value| value.as_str())
+            .unwrap_or("main");
         let bootstrap_sequence = preview
             .get("bootstrap_sequence")
             .and_then(|value| value.as_array())
@@ -146,7 +124,7 @@ fn compiled_overlay_markdown_section(host: &str) -> String {
             .collect::<Vec<_>>();
 
         let mut line = format!(
-            "- `{profile}` + `{task_overlay}` [bias: `{preferred_executor_bias}`]: `{}`",
+            "- `{profile}` + `{task_overlay}` + `{agent_role}` [bias: `{preferred_executor_bias}`]: `{}`",
             bootstrap_sequence.join("` -> `")
         );
         if !avoid_tools.is_empty() {
@@ -207,6 +185,14 @@ pub(super) fn augment_host_adapter_bundle(host: &str, bundle: &mut Value) {
             primary_preview
                 .as_ref()
                 .and_then(|value| value.get("task_overlay"))
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        object.insert(
+            "default_agent_role".to_owned(),
+            primary_preview
+                .as_ref()
+                .and_then(|value| value.get("agent_role"))
                 .cloned()
                 .unwrap_or(Value::Null),
         );

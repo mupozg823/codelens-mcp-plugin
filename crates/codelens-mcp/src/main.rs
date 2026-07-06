@@ -37,6 +37,7 @@ mod runtime_types;
 mod server;
 mod session_context;
 mod session_metrics_payload;
+mod skill_catalog;
 mod state;
 
 mod surface_manifest;

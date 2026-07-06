@@ -537,6 +537,37 @@ impl SqliteVecStore {
         Ok(count as usize)
     }
 
+    pub(super) fn file_count(&self) -> Result<usize> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let count: i64 =
+            db.query_row("SELECT COUNT(DISTINCT file_path) FROM symbols", [], |row| {
+                row.get(0)
+            })?;
+        Ok(count.max(0) as usize)
+    }
+
+    pub(super) fn meta_value(&self, key: &str) -> Result<Option<String>> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        match db.query_row(
+            "SELECT value FROM meta WHERE key = ?1 LIMIT 1",
+            rusqlite::params![key],
+            |row| row.get(0),
+        ) {
+            Ok(value) => Ok(Some(value)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(super) fn set_meta_value(&self, key: &str, value: &str) -> Result<()> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        db.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )?;
+        Ok(())
+    }
+
     pub(super) fn get_embedding(
         &self,
         file_path: &str,

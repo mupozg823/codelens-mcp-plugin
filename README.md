@@ -22,11 +22,11 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 
 - Workspace version: `1.13.34`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
-- Registered tool definitions: `87`
-- Tool output schemas: `55 / 87`
+- Registered tool definitions: `94`
+- Tool output schemas: `57 / 94`
 - Supported language families: `34` across `56` extensions
-- Profiles: active `planner-readonly` (36), `builder-minimal` (35), `reviewer-graph` (40); compatibility aliases `evaluator-compact` (36, v2.0 removal), `refactor-full` (35, v2.0 removal), `ci-audit` (40, v2.0 removal), `workflow-first` (36, v2.0 removal)
-- Presets: `minimal` (20), `balanced` (74), `full` (87)
+- Profiles: active `planner-readonly` (39), `builder-minimal` (38), `reviewer-graph` (43); compatibility aliases `evaluator-compact` (39, v2.0 removal), `refactor-full` (38, v2.0 removal), `ci-audit` (43, v2.0 removal), `workflow-first` (39, v2.0 removal)
+- Presets: `minimal` (20), `balanced` (81), `full` (94)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
@@ -84,6 +84,8 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 > The default `cargo install codelens-mcp` build was switched to `default = []` in 1.10.0 (ADR-0012) so a fresh install boots without the ~80 MB ONNX sidecar. Existing users running `cargo install --force` will see the change in the startup banner.
 
 Latest release: [GitHub Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). For local release comparisons, use `git tag --sort=-v:refname | head -1` instead of copying a fixed tag into docs.
+
+Runtime smoke proof: [`docs/quickstart-transcript.md`](docs/quickstart-transcript.md) captures install -> doctor/status -> index -> coverage -> retrieve from an isolated temp prefix.
 
 ### Install Channel Matrix
 
@@ -234,7 +236,7 @@ Recommended operating policy:
 
 - **`Failed to reconnect` on the client** — the daemon likely exited or the configured URL/port is wrong. Verify with `curl <configured-mcp-url>`; for this repository's local launchd workflow that is usually `http://127.0.0.1:7839/mcp` for read-only and `http://127.0.0.1:7838/mcp` for mutation.
 - **Stale index warning on first attach** — expected when the watcher hasn't caught up after a daemon restart. Call `refresh_symbol_index` via MCP once, or restart the daemon with the project root as its CWD.
-- **Host config sanity check** — `codelens-mcp doctor <host>` (or `codelens-mcp status <host>`) inspects the host-native files and tells you whether the CodeLens entry is attached exactly, customized, missing, or needs manual review. Add `--json` when another script or host automation needs a machine-readable report.
+- **Host config sanity check** — `codelens-mcp doctor <host>` (or `codelens-mcp status <host>`) inspects the host-native files and tells you whether the CodeLens entry is attached exactly, customized, missing, or needs manual review. Add `--strict` to probe HTTP-daemon `embedding_coverage_report`; the command exits non-zero when semantic coverage is attached but not ready or cannot be verified. Add `--json` when another script or host automation needs a machine-readable report.
 - **Broken or stale `~/.local/bin/codelens-mcp`** — if `cargo clean` removed the repo build a symlink points at, or if PATH still resolves to an older cargo-installed binary that does not know newer subcommands like `doctor` / `status`, run `bash scripts/sync-local-bin.sh .` to rebuild and re-link the local checkout, or `cargo install --path crates/codelens-mcp --force` to install a fresh standalone binary under `~/.cargo/bin/`.
 - **Multiple daemons listening on the same port** — only one will actually bind; the rest exit immediately. Check the actual configured port, for example `lsof -iTCP:7839 -sTCP:LISTEN` or `lsof -iTCP:7838 -sTCP:LISTEN` in this repository's local launchd workflow.
 - **Health check** — `scripts/mcp-doctor.sh . --strict` verifies that the configured transport matches an actual attach.
@@ -579,6 +581,9 @@ cargo test -p codelens-mcp --no-default-features   # semantic=off path
 ## Harness Architecture
 
 CodeLens is designed as a **harness coprocessor** — it doesn't replace your agent, it makes your agent's harness smarter.
+
+For the current production-readiness contract, evidence gates, and known gaps,
+see [`docs/product-readiness.md`](docs/product-readiness.md).
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐

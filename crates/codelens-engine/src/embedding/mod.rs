@@ -28,6 +28,10 @@ pub use runtime::{
     embedding_model_assets_available,
 };
 
+pub const fn embedding_store_schema_version() -> i64 {
+    vec_store::EMBEDDING_STORE_SCHEMA_VERSION
+}
+
 // ── Internal re-exports used by sibling sub-modules ───────────────────
 // vec_store.rs uses embedding_to_bytes via `super::`
 pub(super) use chunk_ops::embedding_to_bytes;
@@ -73,6 +77,30 @@ pub struct QueryEmbeddingCacheStats {
     pub max_entries: usize,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryEmbeddingCacheHitTier {
+    Disabled,
+    Cold,
+    Exact,
+}
+
+impl QueryEmbeddingCacheHitTier {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Cold => "cold",
+            Self::Exact => "exact",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueryEmbeddingCacheResult {
+    pub embedding: Vec<f32>,
+    pub cache_hit_tier: QueryEmbeddingCacheHitTier,
+}
+
 #[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct EmbeddingFreshnessReport {
     pub checked_files: usize,
@@ -81,6 +109,39 @@ pub struct EmbeddingFreshnessReport {
     pub removed_files: usize,
     pub skipped_new_files: usize,
     pub indexed_symbols: usize,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbeddingStaleReason {
+    MissingEmbeddings,
+    EmbeddingKeysChanged,
+    OrphanedEmbeddings,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct EmbeddingStaleFileReason {
+    pub file_path: String,
+    pub reason: EmbeddingStaleReason,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct EmbeddingCoverageReport {
+    pub model_name: String,
+    pub indexed_symbols: usize,
+    pub indexed_files: usize,
+    pub checked_files: usize,
+    pub ready_files: usize,
+    pub readiness_percent: u8,
+    pub unchanged_files: usize,
+    pub stale_files: usize,
+    pub missing_files: usize,
+    pub extra_files: usize,
+    pub skipped_new_files: usize,
+    pub stale_file_reasons: Vec<EmbeddingStaleFileReason>,
+    pub stale_file_reasons_omitted: usize,
+    pub current_git_sha: Option<String>,
+    pub last_index_sha: Option<String>,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────

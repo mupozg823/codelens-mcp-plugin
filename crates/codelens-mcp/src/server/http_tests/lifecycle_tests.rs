@@ -230,7 +230,7 @@ async fn initialize_profile_sets_http_session_surface_and_tools_list() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"full":true}}"#,
                 ))
                 .unwrap(),
         )

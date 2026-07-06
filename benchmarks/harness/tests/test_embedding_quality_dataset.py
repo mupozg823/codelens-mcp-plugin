@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -46,6 +47,208 @@ class EmbeddingQualityDatasetTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--ranked-context-max-tokens", result.stdout)
+
+    def test_embedding_quality_exposes_candidate_missing_gate(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--help"],
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--max-hybrid-candidate-missing-rate", result.stdout)
+        self.assertIn("--triage-output", result.stdout)
+
+    def test_embedding_quality_reports_tool_timeout(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            fake_binary = Path(tempdir) / "codelens-fake"
+            fake_binary.write_text(
+                "#!/usr/bin/env python3\n"
+                "import time\n"
+                "time.sleep(5)\n",
+                encoding="utf-8",
+            )
+            fake_binary.chmod(0o755)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(REPO_ROOT),
+                    "--binary",
+                    str(fake_binary),
+                    "--tool-timeout",
+                    "1",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        combined = f"{result.stdout}\n{result.stderr}"
+        self.assertIn("get_capabilities failed", combined)
+        self.assertIn("tool_timeout", combined)
+        self.assertIn("timeout_seconds", combined)
+
+    def test_embedding_quality_applies_timeout_to_query_tools(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            dataset = temp_path / "dataset.json"
+            dataset.write_text(
+                json.dumps(
+                    [
+                        {
+                            "query": "slow semantic query",
+                            "query_type": "natural_language",
+                            "expected_symbol": "slow_symbol",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            fake_binary = temp_path / "codelens-fake"
+            fake_binary.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "import subprocess\n"
+                "import sys\n"
+                "import time\n"
+                "cmd = sys.argv[sys.argv.index('--cmd') + 1]\n"
+                "if cmd == 'get_capabilities':\n"
+                "    print(json.dumps({'success': True, 'data': {'embedding_model': 'fake'}}))\n"
+                "elif cmd == 'index_embeddings':\n"
+                "    print(json.dumps({'success': True, 'data': {'indexed': True}}))\n"
+                "else:\n"
+                "    subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+                "    time.sleep(30)\n",
+                encoding="utf-8",
+            )
+            fake_binary.chmod(0o755)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(REPO_ROOT),
+                    "--binary",
+                    str(fake_binary),
+                    "--dataset",
+                    str(dataset),
+                    "--tool-timeout",
+                    "1",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=4,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        combined = f"{result.stdout}\n{result.stderr}"
+        self.assertIn("semantic_search failed", combined)
+        self.assertIn("context=slow semantic query", combined)
+        self.assertIn("tool_timeout", combined)
+        self.assertIn("timeout_seconds", combined)
+
+    def test_embedding_quality_reports_p95_tokens_and_query_cache_probe(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            dataset = temp_path / "dataset.json"
+            output = temp_path / "results.json"
+            triage_output = temp_path / "triage.json"
+            dataset.write_text(
+                json.dumps(
+                    [
+                        {
+                            "query": "target query",
+                            "query_type": "natural_language",
+                            "expected_symbol": "target_symbol",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            fake_binary = temp_path / "codelens-fake"
+            fake_binary.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "import sys\n"
+                "cmd = sys.argv[sys.argv.index('--cmd') + 1]\n"
+                "if cmd == 'get_capabilities':\n"
+                "    payload = {'success': True, 'data': {'embedding_model': 'fake'}}\n"
+                "elif cmd == 'index_embeddings':\n"
+                "    payload = {'success': True, 'data': {'indexed': True}}\n"
+                "elif cmd == 'semantic_search':\n"
+                "    payload = {'success': True, 'data': {'results': [{'symbol_name': 'target_symbol', 'file_path': 'target.rs'}]}}\n"
+                "elif cmd == 'get_ranked_context':\n"
+                "    payload = {'success': True, 'data': {'symbols': [{'name': 'target_symbol', 'file': 'target.rs'}], 'retrieval': {'cache_hit_tier': 'exact'}}}\n"
+                "elif cmd == 'bm25_symbol_search':\n"
+                "    payload = {'success': True, 'data': {'results': [{'name': 'target_symbol', 'file_path': 'target.rs'}]}}\n"
+                "else:\n"
+                "    payload = {'success': False, 'error': cmd}\n"
+                "print(json.dumps(payload))\n",
+                encoding="utf-8",
+            )
+            fake_binary.chmod(0o755)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(REPO_ROOT),
+                    "--binary",
+                    str(fake_binary),
+                    "--dataset",
+                    str(dataset),
+                    "--output",
+                    str(output),
+                    "--triage-output",
+                    str(triage_output),
+                    "--tool-timeout",
+                    "5",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            hybrid = next(
+                method
+                for method in payload["methods"]
+                if method["method"] == "get_ranked_context"
+            )
+            self.assertIn("p95_estimated_response_tokens", hybrid)
+            self.assertIn(
+                "p95_estimated_response_tokens",
+                hybrid["by_query_type"]["natural_language"],
+            )
+            self.assertEqual(
+                payload["query_cache_probe"]["second_cache_hit_tier"],
+                "exact",
+            )
+            self.assertTrue(payload["query_cache_probe"]["cache_hit_observed"])
+            triage = json.loads(triage_output.read_text(encoding="utf-8"))
+            self.assertEqual(triage["schema_version"], 1)
+            self.assertEqual(triage["dataset_size"], 1)
+            self.assertEqual(triage["candidate_missing"]["count"], 0)
+            self.assertEqual(
+                triage["semantic_hit_dropped_by_hybrid"]["count"],
+                0,
+            )
+            self.assertEqual(triage["hybrid_demoted_semantic_hit"]["count"], 0)
+            self.assertIn("p95_response_tokens", triage["token_budget"])
+            self.assertTrue(triage["query_cache_probe"]["cache_hit_observed"])
 
     def test_promotion_retrieval_scripts_expose_ranked_context_token_budget(self):
         for script_name in ("external-retrieval.py", "role-retrieval.py"):

@@ -170,6 +170,29 @@ python3 benchmarks/embedding-runtime.py . --isolated-copy --output benchmarks/em
 - 재현 가능한 Codex 평가용 런은 `--isolated-copy`를 권장한다. 이 모드는 `.codelens/index` 충돌을 피하기 위해 임시 워크스페이스에서 인덱싱한다.
 - `index_embeddings` 또는 측정 대상 tool call이 실패하면 즉시 종료한다. 부분 결과를 정상 벤치로 취급하지 않는다.
 
+### 1-2-1. 임베드 인덱스 lifecycle benchmark (embedding-index-lifecycle.py)
+
+```bash
+python3 benchmarks/embedding-index-lifecycle.py . \
+  --binary target/debug/codelens-mcp \
+  --output /tmp/codelens-index-lifecycle.json
+```
+
+측정 항목:
+
+- isolated project copy에서 cold `index_embeddings` 경과 시간
+- 같은 copy에서 warm `index_embeddings` 경과 시간
+- cold/warm 직후 `embedding_coverage_report`의 `readiness_percent`, `stale_files`, `last_index_sha`, `remediation_action`
+- warm vs cold elapsed ratio와 saved ms
+- artifact schema: `codelens-index-lifecycle-benchmark-v1`
+
+주의:
+
+- 기본 output은 `/tmp/codelens-index-lifecycle-<timestamp>.json`이다.
+- 스크립트는 `.git`, `.codelens`, `target`, `.worktrees`, cache, ONNX 파일을 isolated copy에서 제외한다.
+- isolated copy가 model ONNX를 포함하지 않아도 원본 repo의 `crates/codelens-engine/models`를 `CODELENS_MODEL_DIR` 기본값으로 사용한다.
+- 이 benchmark는 retrieval 품질을 판단하지 않는다. 품질 승격은 `embedding-quality.py`의 query-type gate를 통과해야 한다.
+
 ### 1-3. 임베드 품질 benchmark (embedding-quality.py)
 
 ```bash
@@ -177,7 +200,8 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 python3 benchmarks/embedding-quality.py . \
   --isolated-copy \
   --output benchmarks/embedding-quality-results.json \
-  --markdown-output benchmarks/embedding-quality-summary.md
+  --markdown-output benchmarks/embedding-quality-summary.md \
+  --triage-output /tmp/codelens-embedding-quality-triage.json
 ```
 
 측정 항목:
@@ -186,6 +210,7 @@ python3 benchmarks/embedding-quality.py . \
 - `get_ranked_context` hybrid MRR / Acc@k
 - `get_ranked_context disable_semantic=true` 대비 hybrid uplift
 - query별 miss / wrong-top-hit
+- `--triage-output` JSON의 `candidate_missing`, `semantic_hit_dropped_by_hybrid`, `hybrid_demoted_semantic_hit`, p95 response tokens, query-cache hit evidence
 
 현재 재현 가능한 로컬 기준선 (`embedding-quality-results.json`, sequential + `--isolated-copy`):
 
@@ -202,6 +227,7 @@ python3 benchmarks/embedding-quality.py . \
   - `identifier`
   - `short_phrase`
   - `natural_language`
+  - `issue_to_edit`
 
 외부 저장소 follow-up 데이터셋 (v1.5 / v1.6 phase 측정용):
 
@@ -236,6 +262,12 @@ python3 benchmarks/embedding-quality-matrix.py \
 - exploratory phase artefact까지 포함해 보려면 `--include-unregistered` 추가
 
 리포트는 전체 평균 외에 질의 유형별 MRR / Acc@k와 hybrid uplift도 같이 보여준다.
+`--check`에서는 `--min-hybrid-mrr-by-query-type natural_language=0.45`,
+`--min-hybrid-recall-by-query-type issue_to_edit=0.70`,
+`--min-hybrid-acc1-by-query-type short_phrase=0.30`, 그리고
+`--max-hybrid-demoted-semantic-hits 0` 같은 query-type/ranker gate도
+걸 수 있다. 이 값들은 기본 off라서 실험 실행 비용을 늘리지 않고, ranker가
+semantic hit를 떨어뜨리는지 볼 때만 켠다.
 
 현재 정책:
 

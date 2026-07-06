@@ -85,6 +85,24 @@ impl ClientProfile {
         }
     }
 
+    pub(crate) fn from_host_context(host_context: &str) -> Option<Self> {
+        match host_context.to_ascii_lowercase().as_str() {
+            "codex" => Some(Self::Codex),
+            "claude-code" | "claude" => Some(Self::Claude),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn detect_request(client_name: Option<&str>, host_context: Option<&str>) -> Self {
+        match client_name.map(|name| Self::detect(Some(name))) {
+            Some(Self::Codex) => Self::Codex,
+            Some(Self::Claude) => Self::Claude,
+            Some(Self::Generic) | None => host_context
+                .and_then(Self::from_host_context)
+                .unwrap_or(Self::Generic),
+        }
+    }
+
     pub(crate) fn default_budget(&self) -> usize {
         match self {
             Self::Codex => 6000,
@@ -122,5 +140,38 @@ impl ClientProfile {
             Self::Codex => "codex",
             Self::Generic => "generic",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_request_uses_host_context_when_client_name_is_absent() {
+        assert_eq!(
+            ClientProfile::detect_request(None, Some("codex")),
+            ClientProfile::Codex
+        );
+        assert_eq!(
+            ClientProfile::detect_request(None, Some("claude-code")),
+            ClientProfile::Claude
+        );
+    }
+
+    #[test]
+    fn detect_request_keeps_client_name_authoritative() {
+        assert_eq!(
+            ClientProfile::detect_request(Some("Claude Code"), Some("codex")),
+            ClientProfile::Claude
+        );
+    }
+
+    #[test]
+    fn detect_request_uses_host_context_when_client_name_is_generic() {
+        assert_eq!(
+            ClientProfile::detect_request(Some("integration-test"), Some("codex")),
+            ClientProfile::Codex
+        );
     }
 }

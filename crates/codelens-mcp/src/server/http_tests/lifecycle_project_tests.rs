@@ -376,7 +376,7 @@ async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
         payload["data"]["routing"]["recommended_entrypoint"],
         serde_json::json!("explore_codebase")
     );
-    let tool_names = payload["data"]["visible_tools"]["tool_names"]
+    let tool_names = payload["data"]["visible_tools"]["default_listed_tool_names"]
         .as_array()
         .cloned()
         .unwrap_or_default();

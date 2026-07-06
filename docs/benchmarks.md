@@ -40,9 +40,9 @@ each later turn, so envelope bytes are a recurring cost.
 
 Measured-motivation footnote: workflow subagents given only a soft "use
 CodeLens if available" hint made 1–2 CodeLens calls vs 10–47 grep/Bash sweeps
-per agent — which is why the navigation core (`find_symbol`,
-`find_referencing_symbols`, `get_symbols_overview`, `get_ranked_context`) is
-now in the `alwaysLoad` schema set (zero-setup on the hot path).
+per agent. The current alwaysLoad contract keeps only the 9-tool bootstrap
+surface resident; broader navigation expands by phase, namespace, tier, or
+preferred entrypoint.
 
 ---
 
@@ -115,6 +115,7 @@ The compression ratio grows when agents would otherwise expand raw graph data (i
 
 - **MRR** (Mean Reciprocal Rank) — `1/rank` of the correct answer, averaged. Higher is better. `1.0` means always rank-1.
 - **Accuracy@k** — fraction of queries where the correct symbol lands in the top-k results.
+- **Average response bytes / estimated response tokens** — compact JSON payload size per query, with the same rough `4 bytes ~= 1 token` estimate used by the MCP response budget layer. This keeps retrieval changes honest about agent consumption cost, not only ranking quality.
 
 ### Current promoted regression baselines
 
@@ -181,6 +182,17 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 ```
 
 Use `--isolated-copy` to avoid index pollution when the script mutates the working directory (it runs `refresh_symbol_index` between runs).
+
+For candidate ranker or symbol-card changes, run `--check` with explicit quality and consumption floors, for example:
+
+```bash
+python3 benchmarks/embedding-quality.py . --isolated-copy --check \
+  --min-hybrid-mrr 0.65 \
+  --min-hybrid-recall 0.70 \
+  --min-hybrid-acc1 0.45 \
+  --max-hybrid-avg-ms 250 \
+  --max-hybrid-avg-response-bytes 120000
+```
 
 ---
 

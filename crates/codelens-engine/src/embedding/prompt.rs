@@ -1,5 +1,9 @@
 use super::runtime::parse_bool_env;
 
+mod symbol_card;
+
+use symbol_card::{build_symbol_card, symbol_card_enabled};
+
 /// Split CamelCase/snake_case into space-separated words for embedding matching.
 /// "getDonationRankings" → "get Donation Rankings"
 /// "build_non_code_ranges" → "build non code ranges"
@@ -225,7 +229,6 @@ pub fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str
             sym.kind, name_with_split, parent_ctx, module_ctx, file_ctx, sym.signature
         )
     };
-
     // Docstring inclusion: v2 model improved NL understanding (+45%), enabling
     // docstrings by default. Measured: ranked_context +0.020, semantic -0.003 (neutral).
     // Disable via CODELENS_EMBED_DOCSTRINGS=0 if needed.
@@ -233,22 +236,37 @@ pub fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str
         .map(|v| v == "0" || v == "false")
         .unwrap_or(false);
 
+    let docstring = source
+        .filter(|_| !docstrings_disabled)
+        .and_then(|src| extract_leading_doc(src, sym.start_byte as usize, sym.end_byte as usize))
+        .unwrap_or_default();
+    let body_hint = if docstrings_disabled || !docstring.is_empty() {
+        String::new()
+    } else {
+        source
+            .and_then(|src| extract_body_hint(src, sym.start_byte as usize, sym.end_byte as usize))
+            .unwrap_or_default()
+    };
+
+    let base = if symbol_card_enabled() {
+        format!(
+            "{} | {}",
+            base,
+            build_symbol_card(sym, source, !docstring.is_empty(), !body_hint.is_empty())
+        )
+    } else {
+        base
+    };
+
     if docstrings_disabled {
         return base;
     }
-
-    let docstring = source
-        .and_then(|src| extract_leading_doc(src, sym.start_byte as usize, sym.end_byte as usize))
-        .unwrap_or_default();
 
     let mut text = if docstring.is_empty() {
         // Fallback: extract the first few meaningful lines from the function
         // body. This captures key API calls (e.g. "tree_sitter::Parser",
         // "stdin()") that help the embedding model match NL queries to
         // symbols without docs.
-        let body_hint = source
-            .and_then(|src| extract_body_hint(src, sym.start_byte as usize, sym.end_byte as usize))
-            .unwrap_or_default();
         if body_hint.is_empty() {
             base
         } else {

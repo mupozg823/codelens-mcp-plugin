@@ -11,6 +11,7 @@ fn empty_inputs_produce_non_applied_plan() {
     assert!(!plan.applied());
     assert!(plan.host_context.is_none());
     assert!(plan.task_overlay.is_none());
+    assert!(plan.agent_role.is_none());
     assert!(plan.preferred_executor_bias.is_none());
     assert!(plan.preferred_entrypoints.is_empty());
     assert!(plan.emphasized_tools.is_empty());
@@ -35,6 +36,27 @@ fn codex_host_biases_toward_codex_builder() {
     let plan = compile_surface_overlay(full_surface(), Some(HostContext::Codex), None);
     assert_eq!(plan.preferred_executor_bias, Some("codex-builder"));
     assert!(plan.preferred_entrypoints.contains(&"plan_safe_refactor"));
+}
+
+#[test]
+fn main_agent_role_prioritizes_orchestration_entrypoints() {
+    let plan = compile_surface_overlay_for_agent(full_surface(), None, None, Some(AgentRole::Main));
+    assert!(plan.applied());
+    assert_eq!(plan.agent_role, Some(AgentRole::Main));
+    assert!(plan.preferred_entrypoints.contains(&"review_architecture"));
+    assert!(plan.preferred_entrypoints.contains(&"start_analysis_job"));
+    assert!(!plan.routing_notes.is_empty());
+}
+
+#[test]
+fn subagent_role_prioritizes_bounded_worker_entrypoints() {
+    let plan =
+        compile_surface_overlay_for_agent(full_surface(), None, None, Some(AgentRole::Subagent));
+    assert!(plan.applied());
+    assert_eq!(plan.agent_role, Some(AgentRole::Subagent));
+    assert!(plan.preferred_entrypoints.contains(&"get_ranked_context"));
+    assert!(plan.preferred_entrypoints.contains(&"get_file_diagnostics"));
+    assert!(!plan.preferred_entrypoints.contains(&"review_architecture"));
 }
 
 #[test]
@@ -171,11 +193,13 @@ fn surface_compiler_input_builder_matches_free_function() {
     let by_builder = SurfaceCompilerInput::new(surface)
         .with_host(HostContext::Codex)
         .with_task(TaskOverlay::Editing)
+        .with_agent_role(AgentRole::Subagent)
         .compile();
-    let by_free_fn = compile_surface_overlay(
+    let by_free_fn = compile_surface_overlay_for_agent(
         surface,
         Some(HostContext::Codex),
         Some(TaskOverlay::Editing),
+        Some(AgentRole::Subagent),
     );
     assert_eq!(by_builder, by_free_fn);
 }
@@ -185,6 +209,7 @@ fn surface_compiler_input_default_only_carries_surface() {
     let input = SurfaceCompilerInput::new(ToolSurface::Preset(ToolPreset::Full));
     assert!(input.host_context.is_none());
     assert!(input.task_overlay.is_none());
+    assert!(input.agent_role.is_none());
     let plan = input.compile();
     assert!(!plan.applied());
 }
@@ -204,6 +229,18 @@ fn every_task_overlay_produces_routing_notes() {
             !plan.routing_notes.is_empty(),
             "task {} produced empty routing_notes",
             task.as_str()
+        );
+    }
+}
+
+#[test]
+fn every_agent_role_produces_routing_notes() {
+    for role in [AgentRole::Main, AgentRole::Subagent] {
+        let plan = compile_surface_overlay_for_agent(full_surface(), None, None, Some(role));
+        assert!(
+            !plan.routing_notes.is_empty(),
+            "role {} produced empty routing_notes",
+            role.as_str()
         );
     }
 }

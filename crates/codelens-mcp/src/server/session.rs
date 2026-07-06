@@ -91,6 +91,7 @@ pub struct SessionClientMetadata {
     pub client_name: Option<String>,
     pub client_version: Option<String>,
     pub requested_profile: Option<String>,
+    pub host_context: Option<String>,
     pub trusted_client: Option<bool>,
     pub deferred_tool_loading: Option<bool>,
     pub project_path: Option<String>,
@@ -105,6 +106,12 @@ pub struct SessionClientMetadata {
     pub loaded_namespaces: Vec<String>,
     pub loaded_tiers: Vec<String>,
     pub full_tool_exposure: Option<bool>,
+    pub available_mcp_servers: Vec<String>,
+    pub available_mcp_tools: Vec<String>,
+    pub skill_roots: Vec<String>,
+    pub memory_roots: Vec<String>,
+    pub host_setting_keys: Vec<String>,
+    pub harness_profile: Option<String>,
 }
 
 /// Guard #2/#8 (#300/#301): soft surface state seeded onto a resurrected
@@ -116,12 +123,19 @@ pub struct SessionSeed {
     pub requested_profile: Option<String>,
     pub deferred_tool_loading: Option<bool>,
     pub client_name: Option<String>,
+    pub host_context: Option<String>,
     /// #351: workspace binding from `x-codelens-project`. Not
     /// privilege-bearing (it only scopes reads/indexing to the caller's
     /// own workspace), so unlike `trusted_client` it is safe to seed on
     /// resurrection — dropping it instead silently rebinds the session
     /// to the daemon's global scope.
     pub project_path: Option<String>,
+    pub available_mcp_servers: Vec<String>,
+    pub available_mcp_tools: Vec<String>,
+    pub skill_roots: Vec<String>,
+    pub memory_roots: Vec<String>,
+    pub host_setting_keys: Vec<String>,
+    pub harness_profile: Option<String>,
 }
 
 /// Guard #11 (#300/#301): how the POST gate handles an unknown session id.
@@ -267,12 +281,33 @@ impl SessionState {
             if seed.client_name.is_some() {
                 metadata.client_name = seed.client_name.clone();
             }
+            if seed.host_context.is_some() {
+                metadata.host_context = seed.host_context.clone();
+            }
             // #351: header-attached hosts re-assert their workspace on
             // every request, so a resurrected session keeps its explicit
             // binding instead of falling back to the daemon scope.
             if seed.project_path.is_some() {
                 metadata.project_path = seed.project_path.clone();
                 metadata.project_path_explicit = true;
+            }
+            if !seed.available_mcp_servers.is_empty() {
+                metadata.available_mcp_servers = seed.available_mcp_servers.clone();
+            }
+            if !seed.available_mcp_tools.is_empty() {
+                metadata.available_mcp_tools = seed.available_mcp_tools.clone();
+            }
+            if !seed.skill_roots.is_empty() {
+                metadata.skill_roots = seed.skill_roots.clone();
+            }
+            if !seed.memory_roots.is_empty() {
+                metadata.memory_roots = seed.memory_roots.clone();
+            }
+            if !seed.host_setting_keys.is_empty() {
+                metadata.host_setting_keys = seed.host_setting_keys.clone();
+            }
+            if seed.harness_profile.is_some() {
+                metadata.harness_profile = seed.harness_profile.clone();
             }
         }
         if let Some(profile) = seed
@@ -695,6 +730,7 @@ mod tests {
             deferred_tool_loading: Some(true),
             client_name: Some("codex".into()),
             project_path: Some("/tmp/seeded-workspace".into()),
+            ..Default::default()
         };
         let (s, _) = store.get_or_resurrect(&id, &seed).unwrap();
         let metadata = s.client_metadata();

@@ -2,10 +2,13 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
-use super::super::{EmbeddingEngine, QueryEmbeddingCacheStats};
+use super::super::{
+    EmbeddingEngine, QueryEmbeddingCacheHitTier, QueryEmbeddingCacheResult,
+    QueryEmbeddingCacheStats,
+};
 
 impl EmbeddingEngine {
-    pub(crate) fn configured_query_embed_cache_size() -> usize {
+    pub fn configured_query_embed_cache_size() -> usize {
         std::env::var("CODELENS_QUERY_EMBED_CACHE_SIZE")
             .ok()
             .and_then(|value| value.trim().parse::<usize>().ok())
@@ -88,18 +91,29 @@ impl EmbeddingEngine {
     }
 
     pub fn embed_query_cached(&self, query: &str) -> Result<Vec<f32>> {
+        Ok(self.embed_query_cached_with_tier(query)?.embedding)
+    }
+
+    pub fn embed_query_cached_with_tier(&self, query: &str) -> Result<QueryEmbeddingCacheResult> {
         let max_entries = Self::configured_query_embed_cache_size();
         if max_entries == 0 {
-            return self
+            let embedding = self
                 .embed_texts_cached(&[query])?
                 .into_iter()
                 .next()
-                .ok_or_else(|| anyhow::anyhow!("missing query embedding"));
+                .ok_or_else(|| anyhow::anyhow!("missing query embedding"))?;
+            return Ok(QueryEmbeddingCacheResult {
+                embedding,
+                cache_hit_tier: QueryEmbeddingCacheHitTier::Disabled,
+            });
         }
         let normalized = Self::normalize_query_for_cache(query);
         let cache_key = self.query_cache_key(&normalized);
         if let Some(embedding) = self.store.get_query_embedding(&cache_key)? {
-            return Ok(embedding);
+            return Ok(QueryEmbeddingCacheResult {
+                embedding,
+                cache_hit_tier: QueryEmbeddingCacheHitTier::Exact,
+            });
         }
         let embedding = self
             .embed_texts_cached(&[normalized.as_str()])?
@@ -109,7 +123,10 @@ impl EmbeddingEngine {
         self.store
             .put_query_embedding(&cache_key, &normalized, &embedding)?;
         let _ = self.store.prune_query_embeddings(max_entries)?;
-        Ok(embedding)
+        Ok(QueryEmbeddingCacheResult {
+            embedding,
+            cache_hit_tier: QueryEmbeddingCacheHitTier::Cold,
+        })
     }
 
     pub fn prewarm_queries(&self, queries: &[String]) -> Result<usize> {

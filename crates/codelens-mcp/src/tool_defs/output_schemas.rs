@@ -14,6 +14,8 @@ mod symbols;
 // Re-export symbols submodule at the original pub(super) = tool_defs level.
 pub(super) use symbols::bm25_symbol_search_output_schema;
 pub(super) use symbols::diagnostics_output_schema;
+#[cfg(feature = "semantic")]
+pub(super) use symbols::embedding_coverage_report_output_schema;
 pub(super) use symbols::get_callees_output_schema;
 pub(super) use symbols::get_callers_output_schema;
 pub(super) use symbols::lsp_navigation_output_schema;

@@ -1,7 +1,7 @@
 [
   {
     "query": "rename a variable or function across the project",
-    "query_type": "natural_language",
+    "query_type": "issue_to_edit",
     "expected_symbol": "rename_symbol",
     "expected_file_suffix": "crates/codelens-engine/src/rename.rs"
   },
@@ -21,11 +21,11 @@
     "query": "search code by natural language query",
     "query_type": "natural_language",
     "expected_symbol": "search",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/engine_impl/search.rs"
   },
   {
     "query": "inline a function and remove its definition",
-    "query_type": "natural_language",
+    "query_type": "issue_to_edit",
     "expected_symbol": "inline_function",
     "expected_file_suffix": "crates/codelens-engine/src/inline.rs"
   },
@@ -69,19 +69,19 @@
     "query": "build embedding vectors for all symbols",
     "query_type": "natural_language",
     "expected_symbol": "index_from_project",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/engine_impl/index.rs"
   },
   {
     "query": "find near-duplicate code in the codebase",
     "query_type": "natural_language",
     "expected_symbol": "find_duplicates",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/duplicates.rs"
   },
   {
     "query": "categorize a function by its purpose",
     "query_type": "natural_language",
     "expected_symbol": "classify_symbol",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/engine_impl/analysis.rs"
   },
   {
     "query": "get project structure and key files on first load",
@@ -97,7 +97,7 @@
   },
   {
     "query": "extract lines of code into a new function",
-    "query_type": "natural_language",
+    "query_type": "issue_to_edit",
     "expected_symbol": "refactor_extract_function",
     "expected_file_suffix": "crates/codelens-mcp/src/tools/composite.rs"
   },
@@ -111,7 +111,7 @@
     "query": "compute similarity between two vectors",
     "query_type": "short_phrase",
     "expected_symbol": "cosine_similarity",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/chunk_ops.rs"
   },
   {
     "query": "route an incoming tool request to the right handler",
@@ -135,7 +135,7 @@
     "query": "cosine_similarity",
     "query_type": "identifier",
     "expected_symbol": "cosine_similarity",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/chunk_ops.rs"
   },
   {
     "query": "find_circular_dependencies",
@@ -147,11 +147,11 @@
     "query": "how to build embedding text from a symbol",
     "query_type": "natural_language",
     "expected_symbol": "build_embedding_text",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/prompt.rs"
   },
   {
     "query": "mutation gate preflight check before editing",
-    "query_type": "natural_language",
+    "query_type": "issue_to_edit",
     "expected_symbol": "evaluate_mutation_gate",
     "expected_file_suffix": "crates/codelens-mcp/src/mutation_gate.rs"
   },
@@ -165,7 +165,7 @@
     "query": "exclude directories from indexing",
     "query_type": "short_phrase",
     "expected_symbol": "is_excluded",
-    "expected_file_suffix": "crates/codelens-engine/src/project.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/project/exclusions.rs"
   },
   {
     "query": "truncate response when too large",
@@ -177,7 +177,7 @@
     "query": "record which files were recently accessed",
     "query_type": "natural_language",
     "expected_symbol": "record_file_access",
-    "expected_file_suffix": "crates/codelens-mcp/src/state.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/state/metrics_host.rs"
   },
   {
     "query": "AppState",
@@ -194,8 +194,8 @@
   {
     "query": "find all functions that call a given function",
     "query_type": "natural_language",
-    "expected_symbol": "extract_calls",
-    "expected_file_suffix": "crates/codelens-engine/src/call_graph/extract.rs"
+    "expected_symbol": "find_callers",
+    "expected_file_suffix": "crates/codelens-engine/src/scip_backend/call_graph.rs"
   },
   {
     "query": "filter out standard library noise from call graph",
@@ -225,7 +225,7 @@
     "query": "register sqlite vector extension for similarity search",
     "query_type": "natural_language",
     "expected_symbol": "register_sqlite_vec",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/ffi.rs"
   },
   {
     "query": "store embedding vectors in sqlite database",
@@ -237,13 +237,13 @@
     "query": "split camelCase or snake_case identifier into words",
     "query_type": "natural_language",
     "expected_symbol": "split_identifier",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/prompt.rs"
   },
   {
     "query": "SemanticMatch",
     "query_type": "identifier",
     "expected_symbol": "SemanticMatch",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding_types.rs"
   },
   {
     "query": "SqliteVecStore",
@@ -265,7 +265,7 @@
   },
   {
     "query": "collect rename edits scoped to a single file",
-    "query_type": "natural_language",
+    "query_type": "issue_to_edit",
     "expected_symbol": "collect_file_scope_edits",
     "expected_file_suffix": "crates/codelens-engine/src/rename.rs"
   },
@@ -290,8 +290,8 @@
   {
     "query": "search for a symbol by name",
     "query_type": "short_phrase",
-    "expected_symbol": "find_symbol",
-    "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs"
+    "expected_symbol": "find_symbols_by_name",
+    "expected_file_suffix": "crates/codelens-engine/src/db/ops/symbol_lookup.rs"
   },
   {
     "query": "get project directory tree structure",
@@ -315,13 +315,13 @@
     "query": "handle semantic search tool request",
     "query_type": "natural_language",
     "expected_symbol": "semantic_search_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/table.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/semantic/search.rs"
   },
   {
     "query": "build embedding index for all project symbols",
     "query_type": "natural_language",
-    "expected_symbol": "index_embeddings_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/table.rs"
+    "expected_symbol": "index_from_project",
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/engine_impl/index.rs"
   },
   {
     "query": "rerank semantic search results by relevance",
@@ -375,19 +375,19 @@
     "query": "build a success response with suggested next tools",
     "query_type": "natural_language",
     "expected_symbol": "build_success_response",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response/success.rs"
   },
   {
     "query": "build an error response with failure kind",
     "query_type": "natural_language",
     "expected_symbol": "build_error_response",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response/error.rs"
   },
   {
     "query": "SuccessResponseInput",
     "query_type": "identifier",
     "expected_symbol": "SuccessResponseInput",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response/success.rs"
   },
   {
     "query": "EmbeddingEngine initialization and model loading",
@@ -405,7 +405,7 @@
     "query": "doom loop detection and prevention",
     "query_type": "short_phrase",
     "expected_symbol": "doom_loop_count",
-    "expected_file_suffix": "crates/codelens-mcp/src/state.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/state/metrics_host.rs"
   },
   {
     "query": "select the most relevant symbols for a query",
@@ -417,13 +417,13 @@
     "query": "find similar code snippets using embeddings",
     "query_type": "natural_language",
     "expected_symbol": "find_similar_code_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/table.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/semantic/analysis.rs"
   },
   {
     "query": "classify what kind of symbol this is",
     "query_type": "natural_language",
     "expected_symbol": "classify_symbol_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/table.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/semantic/analysis.rs"
   },
   {
     "query": "check if a tool is a symbol-aware mutation",
@@ -433,7 +433,7 @@
   },
   {
     "query": "collect rename edits across the entire project",
-    "query_type": "natural_language",
+    "query_type": "issue_to_edit",
     "expected_symbol": "collect_project_scope_edits",
     "expected_file_suffix": "crates/codelens-engine/src/rename.rs"
   },
@@ -453,7 +453,7 @@
     "query": "get current timestamp in milliseconds",
     "query_type": "short_phrase",
     "expected_symbol": "now_ms",
-    "expected_file_suffix": "crates/codelens-mcp/src/state.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/util.rs"
   },
   {
     "query": "parse incoming MCP tool call JSON",
@@ -465,7 +465,7 @@
     "query": "SecondaryProject",
     "query_type": "identifier",
     "expected_symbol": "SecondaryProject",
-    "expected_file_suffix": "crates/codelens-mcp/src/state.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/state/secondary_projects.rs"
   },
   {
     "query": "RenameResult",
@@ -534,10 +534,10 @@
     "expected_file_suffix": "crates/codelens-mcp/src/tools/workflows.rs"
   },
   {
-    "query": "assess mutation readiness before code changes",
-    "query_type": "natural_language",
-    "expected_symbol": "assess_change_readiness",
-    "expected_file_suffix": "crates/codelens-mcp/src/tools/workflows.rs"
+    "query": "verify mutation readiness before code changes",
+    "query_type": "issue_to_edit",
+    "expected_symbol": "verify_change_readiness",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/reports/verifier_reports.rs"
   },
   {
     "query": "diagnose file issues and unresolved references",
@@ -561,18 +561,18 @@
     "query": "suggestion_reasons_for",
     "query_type": "identifier",
     "expected_symbol": "suggestion_reasons_for",
-    "expected_file_suffix": "crates/codelens-mcp/src/tools/mod.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/suggestions.rs"
   },
   {
-    "query": "WORKFLOW_FIRST_TOOLS",
+    "query": "WORKFLOW_TOOLS",
     "query_type": "identifier",
-    "expected_symbol": "WORKFLOW_FIRST_TOOLS",
-    "expected_file_suffix": "crates/codelens-mcp/src/tool_defs/presets.rs"
+    "expected_symbol": "WORKFLOW_TOOLS",
+    "expected_file_suffix": "scripts/analyze_tool_usage_routes.py"
   },
   {
     "query": "WorkflowFirst profile for agents",
     "query_type": "natural_language",
-    "expected_symbol": "WorkflowFirst",
+    "expected_symbol": "ToolProfile",
     "expected_file_suffix": "crates/codelens-mcp/src/tool_defs/presets.rs"
   }
 ]

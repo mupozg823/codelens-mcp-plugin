@@ -10,31 +10,31 @@
     "member_count": 2
   },
   "tool_registry": {
-    "definition_count": 87,
-    "output_schema_count": 55,
+    "definition_count": 94,
+    "output_schema_count": 57,
     "namespaces": {
       "filesystem": 5,
-      "graph": 6,
+      "graph": 10,
       "lsp": 2,
       "memory": 5,
       "reports": 20,
       "session": 40,
-      "symbols": 9
+      "symbols": 12
     },
     "tiers": {
-      "analysis": 21,
-      "primitive": 44,
+      "analysis": 25,
+      "primitive": 47,
       "workflow": 22
     },
     "phases": {
       "agnostic": 47,
       "build": 1,
       "eval": 8,
-      "plan": 19,
-      "review": 12
+      "plan": 23,
+      "review": 15
     },
     "preferred_executors": {
-      "any": 82,
+      "any": 89,
       "claude": 4,
       "codex-builder": 1
     },
@@ -118,7 +118,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 946
+        "estimated_tokens": 1038
       },
       {
         "name": "bm25_symbol_search",
@@ -532,7 +532,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 3595
+        "estimated_tokens": 4657
       },
       {
         "name": "register_agent_work",
@@ -821,6 +821,69 @@
         "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 102
+      },
+      {
+        "name": "find_misplaced_code",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "review",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 246
+      },
+      {
+        "name": "find_similar_code",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 290
+      },
+      {
+        "name": "find_code_duplicates",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "review",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 212
+      },
+      {
+        "name": "classify_symbol",
+        "namespace": "graph",
+        "tier": "analysis",
+        "phase": "review",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 273
+      },
+      {
+        "name": "semantic_search",
+        "namespace": "symbols",
+        "tier": "primitive",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": true,
+        "estimated_tokens": 304
+      },
+      {
+        "name": "embedding_coverage_report",
+        "namespace": "symbols",
+        "tier": "primitive",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": true,
+        "estimated_tokens": 564
+      },
+      {
+        "name": "index_embeddings",
+        "namespace": "symbols",
+        "tier": "primitive",
+        "phase": "plan",
+        "preferred_executor": null,
+        "has_output_schema": false,
+        "estimated_tokens": 183
       }
     ]
   },
@@ -828,7 +891,7 @@
     "profiles": [
       {
         "name": "planner-readonly",
-        "tool_count": 36,
+        "tool_count": 39,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -863,6 +926,9 @@
           "get_ranked_context",
           "bm25_symbol_search",
           "find_referencing_symbols",
+          "semantic_search",
+          "embedding_coverage_report",
+          "index_embeddings",
           "get_changed_files",
           "get_current_config",
           "find_declaration",
@@ -884,7 +950,7 @@
       },
       {
         "name": "builder-minimal",
-        "tool_count": 35,
+        "tool_count": 38,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -921,6 +987,9 @@
           "get_symbols_overview",
           "find_symbol",
           "find_referencing_symbols",
+          "semantic_search",
+          "embedding_coverage_report",
+          "index_embeddings",
           "find_tests",
           "get_current_config",
           "find_declaration",
@@ -941,7 +1010,7 @@
       },
       {
         "name": "reviewer-graph",
-        "tool_count": 40,
+        "tool_count": 43,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -981,6 +1050,9 @@
           "get_ranked_context",
           "bm25_symbol_search",
           "find_referencing_symbols",
+          "semantic_search",
+          "embedding_coverage_report",
+          "index_embeddings",
           "get_current_config",
           "find_declaration",
           "find_implementations",
@@ -1001,7 +1073,7 @@
       },
       {
         "name": "evaluator-compact",
-        "tool_count": 36,
+        "tool_count": 39,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1022,6 +1094,9 @@
           "get_symbols_overview",
           "find_symbol",
           "find_referencing_symbols",
+          "semantic_search",
+          "embedding_coverage_report",
+          "index_embeddings",
           "get_current_config",
           "find_declaration",
           "find_implementations",
@@ -1059,7 +1134,7 @@
       },
       {
         "name": "refactor-full",
-        "tool_count": 35,
+        "tool_count": 38,
         "preferred_namespaces": [
           "reports",
           "session"
@@ -1106,14 +1181,17 @@
           "get_file_diagnostics",
           "plan_symbol_rename",
           "get_callers",
-          "get_callees"
+          "get_callees",
+          "semantic_search",
+          "embedding_coverage_report",
+          "index_embeddings"
         ],
         "deprecated": true,
         "deprecation_target": "v2.0"
       },
       {
         "name": "ci-audit",
-        "tool_count": 40,
+        "tool_count": 43,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1166,14 +1244,17 @@
           "get_ranked_context",
           "bm25_symbol_search",
           "find_referencing_symbols",
-          "get_file_diagnostics"
+          "get_file_diagnostics",
+          "semantic_search",
+          "embedding_coverage_report",
+          "index_embeddings"
         ],
         "deprecated": true,
         "deprecation_target": "v2.0"
       },
       {
         "name": "workflow-first",
-        "tool_count": 36,
+        "tool_count": 39,
         "preferred_namespaces": [
           "workflow",
           "session"
@@ -1221,7 +1302,10 @@
           "find_referencing_symbols",
           "get_changed_files",
           "get_analysis_job",
-          "get_analysis_section"
+          "get_analysis_section",
+          "semantic_search",
+          "embedding_coverage_report",
+          "index_embeddings"
         ],
         "deprecated": true,
         "deprecation_target": "v2.0"
@@ -1265,7 +1349,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 74,
+        "tool_count": 81,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1308,6 +1392,10 @@
           "get_callers",
           "get_callees",
           "find_scoped_references",
+          "find_misplaced_code",
+          "find_similar_code",
+          "find_code_duplicates",
+          "classify_symbol",
           "resolve_symbol_target",
           "query_project",
           "get_capabilities",
@@ -1323,6 +1411,9 @@
           "find_symbol",
           "find_referencing_symbols",
           "search_workspace_symbols",
+          "semantic_search",
+          "embedding_coverage_report",
+          "index_embeddings",
           "get_changed_files",
           "find_annotations",
           "find_tests",
@@ -1356,7 +1447,7 @@
       },
       {
         "name": "full",
-        "tool_count": 87,
+        "tool_count": 94,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1400,6 +1491,10 @@
           "get_callees",
           "find_scoped_references",
           "get_symbol_importance",
+          "find_misplaced_code",
+          "find_similar_code",
+          "find_code_duplicates",
+          "classify_symbol",
           "resolve_symbol_target",
           "query_project",
           "get_capabilities",
@@ -1458,7 +1553,10 @@
           "get_symbols_overview",
           "find_symbol",
           "find_referencing_symbols",
-          "search_workspace_symbols"
+          "search_workspace_symbols",
+          "semantic_search",
+          "embedding_coverage_report",
+          "index_embeddings"
         ]
       }
     ]
@@ -1492,11 +1590,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 36
+                "tool_count": 39
               },
               {
                 "name": "builder-minimal",
-                "tool_count": 35
+                "tool_count": 38
               }
             ]
           }
@@ -1534,11 +1632,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 36
+                "tool_count": 39
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 40
+                "tool_count": 43
               }
             ]
           },
@@ -1549,11 +1647,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 35
+                "tool_count": 38
               },
               {
                 "name": "refactor-full",
-                "tool_count": 35
+                "tool_count": 38
               }
             ]
           }
@@ -1596,11 +1694,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 40
+                "tool_count": 43
               },
               {
                 "name": "ci-audit",
-                "tool_count": 40
+                "tool_count": 43
               }
             ]
           }
@@ -1638,15 +1736,15 @@
             "profiles": [
               {
                 "name": "workflow-first",
-                "tool_count": 36
+                "tool_count": 39
               },
               {
                 "name": "evaluator-compact",
-                "tool_count": 36
+                "tool_count": 39
               },
               {
                 "name": "ci-audit",
-                "tool_count": 40
+                "tool_count": 43
               }
             ]
           }
@@ -1699,11 +1797,11 @@
             "profiles": [
               {
                 "name": "planner-readonly",
-                "tool_count": 36
+                "tool_count": 39
               },
               {
                 "name": "reviewer-graph",
-                "tool_count": 40
+                "tool_count": 43
               }
             ]
           },
@@ -1714,11 +1812,11 @@
             "profiles": [
               {
                 "name": "builder-minimal",
-                "tool_count": 35
+                "tool_count": 38
               },
               {
                 "name": "refactor-full",
-                "tool_count": 35
+                "tool_count": 38
               }
             ]
           }
@@ -1877,11 +1975,11 @@
             "profiles": [
               {
                 "name": "reviewer-graph",
-                "tool_count": 40
+                "tool_count": 43
               },
               {
                 "name": "ci-audit",
-                "tool_count": 40
+                "tool_count": 43
               }
             ]
           }
@@ -1975,15 +2073,15 @@
             "profiles": [
               {
                 "name": "workflow-first",
-                "tool_count": 36
+                "tool_count": 39
               },
               {
                 "name": "evaluator-compact",
-                "tool_count": 36
+                "tool_count": 39
               },
               {
                 "name": "ci-audit",
-                "tool_count": 40
+                "tool_count": 43
               }
             ]
           }
@@ -2122,10 +2220,25 @@
       "routing_outputs": [
         "recommended harness mode",
         "recommended CodeLens profile",
+        "recommended agent role",
         "preferred native config targets",
         "whether handoff artifacts are required",
         "whether analysis jobs should replace direct long reports"
       ]
+    },
+    "host_environment_contract": {
+      "prepare_harness_session_fields": [
+        "agent_role",
+        "available_mcp_servers",
+        "available_mcp_tools",
+        "skill_roots",
+        "memory_roots",
+        "host_setting_keys",
+        "harness_profile"
+      ],
+      "privacy_rule": "Send names, roots, and setting keys only; do not send secret values or full personal config files.",
+      "adaptation_rule": "Explicit host-observed snapshots override generic Claude/Codex assumptions for bootstrap hints, skill binding, and token-pressure warnings.",
+      "skill_binding_rule": "Codex skill hints scan only SKILL.md metadata under supplied skill_roots, then recommend 1-3 files for the agent to read explicitly."
     },
     "delegate_scaffold_contract": {
       "synthetic_action": "delegate_to_codex_builder",
@@ -2167,13 +2280,17 @@
         ],
         "default_profile": "planner-readonly",
         "default_task_overlay": "planning",
+        "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
           "analyze_change_request",
           "review_changes",
           "impact_report",
           "explore_codebase",
-          "review_architecture"
+          "review_architecture",
+          "plan_safe_refactor",
+          "start_analysis_job",
+          "get_analysis_section"
         ],
         "native_primitives": [
           "CLAUDE.md",
@@ -2202,7 +2319,8 @@
           ".mcp.json",
           "managed-mcp.json",
           "subagent definitions"
-        ]
+        ],
+        "skill_binding": null
       },
       {
         "name": "codex",
@@ -2220,6 +2338,7 @@
         ],
         "default_profile": "builder-minimal",
         "default_task_overlay": "editing",
+        "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
           "explore_codebase",
@@ -2258,7 +2377,42 @@
           "AGENTS.md",
           "~/.codex/config.toml",
           "repo-local skill files"
-        ]
+        ],
+        "skill_binding": {
+          "schema_version": "codelens-codex-skill-catalog-v1",
+          "resource_uri": "codelens://host-adapters/codex/skill-catalog",
+          "target_host": "codex",
+          "purpose": "Bind Codex to the user's installed skills without injecting every SKILL.md into the startup prompt.",
+          "default_roots": [
+            "$HOME/.codex/skills",
+            "$HOME/.agents/skills",
+            "$HOME/.codex/plugins/cache"
+          ],
+          "index_policy": {
+            "bootstrap": "metadata_only",
+            "metadata_fields": [
+              "name",
+              "description",
+              "path",
+              "source_root",
+              "mtime_epoch_secs",
+              "content_hash"
+            ],
+            "body_loading": "load only the selected SKILL.md after task matching",
+            "reference_loading": "follow the selected skill's own progressive-disclosure instructions"
+          },
+          "binding_policy": [
+            "Use the runtime skill catalog to shortlist 1-3 candidate skills for non-trivial Codex tasks.",
+            "Prefer repo-local and user-authored skills over broad plugin-cache skills when confidence is similar.",
+            "Do not inject full skill bodies into AGENTS.md or prepare_harness_session; emit compact hints and paths.",
+            "Treat strict enforcement as opt-in; default Codex binding is advisory."
+          ],
+          "codex_native_targets": [
+            "AGENTS.md",
+            "~/.codex/config.toml",
+            "repo-local skill files"
+          ]
+        }
       },
       {
         "name": "cursor",
@@ -2276,12 +2430,16 @@
         ],
         "default_profile": "reviewer-graph",
         "default_task_overlay": "review",
+        "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
           "review_changes",
           "impact_report",
           "diff_aware_references",
-          "audit_planner_session"
+          "audit_planner_session",
+          "review_architecture",
+          "start_analysis_job",
+          "get_analysis_section"
         ],
         "native_primitives": [
           ".cursor/rules",
@@ -2310,7 +2468,8 @@
           "AGENTS.md",
           ".cursor/mcp.json",
           "background-agent environment.json"
-        ]
+        ],
+        "skill_binding": null
       },
       {
         "name": "cline",
@@ -2326,6 +2485,7 @@
         ],
         "default_profile": "builder-minimal",
         "default_task_overlay": "editing",
+        "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
           "get_file_diagnostics",
@@ -2335,7 +2495,8 @@
           "rename_symbol",
           "replace_symbol_body",
           "insert_before_symbol",
-          "insert_after_symbol"
+          "insert_after_symbol",
+          "explore_codebase"
         ],
         "native_primitives": [
           "interactive permissioned terminal execution",
@@ -2360,7 +2521,8 @@
           "mcp_servers.json",
           ".clinerules",
           "repo instructions"
-        ]
+        ],
+        "skill_binding": null
       },
       {
         "name": "windsurf",
@@ -2376,6 +2538,7 @@
         ],
         "default_profile": "builder-minimal",
         "default_task_overlay": "editing",
+        "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
           "explore_codebase",
@@ -2410,7 +2573,8 @@
         ],
         "compiler_targets": [
           "~/.codeium/windsurf/mcp_config.json"
-        ]
+        ],
+        "skill_binding": null
       }
     ]
   },
@@ -3038,10 +3202,10 @@
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 74,
+    "visible_tool_count": 81,
     "daemon_mode": "standard",
     "supports_http": true,
-    "supports_semantic": false,
+    "supports_semantic": true,
     "supports_scip_backend": true,
     "supports_otel": false,
     "server_card_features": [
@@ -3063,6 +3227,7 @@
       "host-adapter-spec",
       "agent-experience-spec",
       "handoff-artifact-schema",
+      "semantic-search",
       "streamable-http",
       "scip-precise-backend"
     ]
@@ -3070,10 +3235,10 @@
   "summary": {
     "workspace_version": "1.13.34",
     "workspace_member_count": 2,
-    "registered_tool_definitions": 87,
+    "registered_tool_definitions": 94,
     "tool_output_schemas": {
-      "declared": 55,
-      "total": 87
+      "declared": 57,
+      "total": 94
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,

@@ -34,6 +34,9 @@ impl From<ScoredChunk> for SemanticMatch {
 pub struct EmbeddingIndexInfo {
     pub model_name: String,
     pub indexed_symbols: usize,
+    pub indexed_files: usize,
+    pub query_cache_entries: usize,
+    pub last_index_sha: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

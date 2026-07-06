@@ -250,24 +250,6 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn disabled_pyright_rules_on_line_parses_multiple_rules() {
-        assert_eq!(
-            disabled_pyright_rules_on_line(
-                "# pyright: reportMissingImports=false, reportCallIssue=false"
-            ),
-            vec![
-                "reportMissingImports".to_owned(),
-                "reportCallIssue".to_owned()
-            ]
-        );
-    }
-}
-
 /// D1 (#346 Phase 4): `get_file_diagnostics` narrowed to one symbol's
 /// span. The span comes from the symbol index (definition line + body
 /// line count), the diagnostics from the same SCIP→LSP pipeline as the
@@ -363,5 +345,23 @@ pub fn get_diagnostics_for_symbol(state: &AppState, arguments: &Value) -> ToolRe
                 crate::tool_runtime::degraded_meta(BackendKind::Lsp, 0.3, &reason),
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disabled_pyright_rules_on_line_parses_multiple_rules() {
+        assert_eq!(
+            disabled_pyright_rules_on_line(
+                "# pyright: reportMissingImports=false, reportCallIssue=false"
+            ),
+            vec![
+                "reportMissingImports".to_owned(),
+                "reportCallIssue".to_owned()
+            ]
+        );
     }
 }

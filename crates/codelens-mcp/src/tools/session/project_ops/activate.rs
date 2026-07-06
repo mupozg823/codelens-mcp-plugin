@@ -97,10 +97,7 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         state.set_token_budget(auto_budget);
     }
 
-    #[cfg(feature = "semantic")]
-    let embedding_ready = state.embedding_ref().is_some();
-    #[cfg(not(feature = "semantic"))]
-    let embedding_ready = false;
+    let embedding_ready = semantic_embedding_ready(state);
 
     Ok((
         json!({
@@ -120,4 +117,24 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
+}
+
+#[cfg(feature = "semantic")]
+fn semantic_embedding_ready(state: &AppState) -> bool {
+    if !codelens_engine::embedding_model_assets_available() {
+        return false;
+    }
+    if let Some(engine) = state.embedding_ref().as_ref() {
+        return engine.index_info().indexed_symbols > 0;
+    }
+    codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
+        .ok()
+        .flatten()
+        .map(|info| info.indexed_symbols > 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(feature = "semantic"))]
+fn semantic_embedding_ready(_state: &AppState) -> bool {
+    false
 }

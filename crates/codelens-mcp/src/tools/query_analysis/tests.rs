@@ -137,9 +137,9 @@ fn embedding_search_query_bridges_sparse_and_rerank_terms() {
 #[test]
 fn embedding_search_query_does_not_apply_project_specific_bridge_without_project_root() {
     let _lock = super::TEST_ENV_LOCK.lock().unwrap();
-    let analysis = analyze_retrieval_query("record which files were recently accessed");
+    let analysis = analyze_retrieval_query("render template please");
     let framed = semantic_query_for_embedding_search(&analysis, None);
-    assert!(!framed.contains("record_file_access"));
+    assert!(!framed.contains("render_template"));
 }
 
 #[cfg(feature = "semantic")]
@@ -159,14 +159,14 @@ fn embedding_search_query_applies_project_specific_bridge_from_project_file() {
     fs::create_dir_all(dir.join(".codelens")).expect("bridge dir");
     fs::write(
         dir.join(".codelens/bridges.json"),
-        r#"[{"nl":"recently accessed","code":"record_file_access recency"}]"#,
+        r#"[{"nl":"render template","code":"render_template template_renderer"}]"#,
     )
     .expect("bridge file");
 
-    let analysis = analyze_retrieval_query("record which files were recently accessed");
+    let analysis = analyze_retrieval_query("render template please");
     let framed = semantic_query_for_embedding_search(&analysis, Some(dir.as_path()));
-    assert!(framed.contains("record_file_access"));
-    assert!(framed.contains("recency"));
+    assert!(framed.contains("render_template"));
+    assert!(framed.contains("template_renderer"));
 
     unsafe { std::env::remove_var("CODELENS_PROJECT_BRIDGES_ON") };
     let _ = fs::remove_dir_all(dir);

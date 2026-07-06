@@ -42,7 +42,7 @@ jobs:
             ${{ runner.os }}-cargo-target-upstream-v1-
 
       - name: Build release binary
-        run: cargo build --release --features http -p codelens-mcp
+        run: cargo build --release --features http,semantic -p codelens-mcp
 
       - name: Stage release model assets
         run: bash scripts/stage-release-model-assets.sh
@@ -50,9 +50,28 @@ jobs:
       - name: Verify bundled model assets
         run: python3 scripts/verify-model-assets.py --root crates/codelens-engine/models --check
 
+      - name: Smoke embedding coverage report
+        env:
+          CODELENS_MODEL_DIR: ${{ github.workspace }}/crates/codelens-engine/models
+        run: |
+          set -o pipefail
+          python3 scripts/smoke-embedding-coverage.py \
+            --binary target/release/codelens-mcp \
+            --project . \
+            | tee benchmarks/embedding-coverage-smoke.txt
+
+      - name: Run semantic index lifecycle benchmark
+        env:
+          CODELENS_MODEL_DIR: ${{ github.workspace }}/crates/codelens-engine/models
+        run: |
+          python3 benchmarks/embedding-index-lifecycle.py . \
+            --binary target/release/codelens-mcp \
+            --output benchmarks/codelens-index-lifecycle.json \
+            --timeout 420
+
       - name: Run upstream project smoke matrix
         env:
-          CODELENS_MODEL_DIR: crates/codelens-engine/models
+          CODELENS_MODEL_DIR: ${{ github.workspace }}/crates/codelens-engine/models
         run: |
           python3 benchmarks/external-project-smoke.py \
             --binary target/release/codelens-mcp \
@@ -66,4 +85,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: upstream-smoke-results
-          path: benchmarks/external-project-smoke-upstream-results.json
+          path: |
+            benchmarks/embedding-coverage-smoke.txt
+            benchmarks/codelens-index-lifecycle.json
+            benchmarks/external-project-smoke-upstream-results.json
