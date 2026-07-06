@@ -94,12 +94,12 @@ is_int_in_range() {
 }
 
 xml_escape() {
-	python3 - "$1" <<'PY'
+	python3 -c '
 import html
 import sys
 
 print(html.escape(sys.argv[1], quote=True))
-PY
+' "$1"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -358,57 +358,63 @@ create_plist() {
 	fi
 
 	mkdir -p "$(dirname "$plist_path")"
-	cat >"$plist_path" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${label_xml}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${bin_xml}</string>
-    <string>${repo_xml}</string>
-    <string>--transport</string>
-    <string>http</string>
-    <string>--profile</string>
-    <string>${profile}</string>
-    <string>--daemon-mode</string>
-    <string>${daemon_mode}</string>
-    <string>--port</string>
-    <string>${port}</string>
-  </array>
-  <key>WorkingDirectory</key>
-  <string>${repo_xml}</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>CODELENS_LOG</key>
-    <string>${log_level}</string>
-    <key>CODELENS_EFFORT_LEVEL</key>
-    <string>${EFFORT_LEVEL}</string>
-    <key>CODELENS_RESPONSE_CONTRACT</key>
-    <string>${RESPONSE_CONTRACT}</string>
-    <key>CODELENS_LSP_PREWARM</key>
-    <string>${LSP_PREWARM}</string>
-    <key>CODELENS_RERANK</key>
-    <string>${RERANK_VALUE}</string>
-    <key>CODELENS_EMBED_RESOURCE_PROFILE</key>
-    <string>${embed_resource_profile_xml}</string>
-${model_dir_xml}  </dict>
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <true/>
-    <key>Crashed</key>
-    <true/>
-  </dict>
-${run_at_load_xml}  <key>StandardOutPath</key>
-  <string>${stdout_xml}</string>
-  <key>StandardErrorPath</key>
-  <string>${stderr_xml}</string>
-</dict>
-</plist>
-EOF
+	{
+		printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>'
+		printf '%s\n' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+		printf '%s\n' '<plist version="1.0">'
+		printf '%s\n' '<dict>'
+		printf '%s\n' '  <key>Label</key>'
+		printf '  <string>%s</string>\n' "$label_xml"
+		printf '%s\n' '  <key>ProgramArguments</key>'
+		printf '%s\n' '  <array>'
+		printf '    <string>%s</string>\n' "$bin_xml"
+		printf '    <string>%s</string>\n' "$repo_xml"
+		printf '%s\n' '    <string>--transport</string>'
+		printf '%s\n' '    <string>http</string>'
+		printf '%s\n' '    <string>--profile</string>'
+		printf '    <string>%s</string>\n' "$profile"
+		printf '%s\n' '    <string>--daemon-mode</string>'
+		printf '    <string>%s</string>\n' "$daemon_mode"
+		printf '%s\n' '    <string>--port</string>'
+		printf '    <string>%s</string>\n' "$port"
+		printf '%s\n' '  </array>'
+		printf '%s\n' '  <key>WorkingDirectory</key>'
+		printf '  <string>%s</string>\n' "$repo_xml"
+		printf '%s\n' '  <key>EnvironmentVariables</key>'
+		printf '%s\n' '  <dict>'
+		printf '%s\n' '    <key>CODELENS_LOG</key>'
+		printf '    <string>%s</string>\n' "$log_level"
+		printf '%s\n' '    <key>CODELENS_EFFORT_LEVEL</key>'
+		printf '    <string>%s</string>\n' "$EFFORT_LEVEL"
+		printf '%s\n' '    <key>CODELENS_RESPONSE_CONTRACT</key>'
+		printf '    <string>%s</string>\n' "$RESPONSE_CONTRACT"
+		printf '%s\n' '    <key>CODELENS_LSP_PREWARM</key>'
+		printf '    <string>%s</string>\n' "$LSP_PREWARM"
+		printf '%s\n' '    <key>CODELENS_RERANK</key>'
+		printf '    <string>%s</string>\n' "$RERANK_VALUE"
+		printf '%s\n' '    <key>CODELENS_EMBED_RESOURCE_PROFILE</key>'
+		printf '    <string>%s</string>\n' "$embed_resource_profile_xml"
+		if [[ -n "$model_dir_xml" ]]; then
+			printf '%s' "$model_dir_xml"
+		fi
+		printf '%s\n' '  </dict>'
+		printf '%s\n' '  <key>KeepAlive</key>'
+		printf '%s\n' '  <dict>'
+		printf '%s\n' '    <key>SuccessfulExit</key>'
+		printf '%s\n' '    <true/>'
+		printf '%s\n' '    <key>Crashed</key>'
+		printf '%s\n' '    <true/>'
+		printf '%s\n' '  </dict>'
+		if [[ -n "$run_at_load_xml" ]]; then
+			printf '%s' "$run_at_load_xml"
+		fi
+		printf '%s\n' '  <key>StandardOutPath</key>'
+		printf '  <string>%s</string>\n' "$stdout_xml"
+		printf '%s\n' '  <key>StandardErrorPath</key>'
+		printf '  <string>%s</string>\n' "$stderr_xml"
+		printf '%s\n' '</dict>'
+		printf '%s\n' '</plist>'
+	} >"$plist_path"
 
 	if command -v plutil >/dev/null 2>&1; then
 		plutil -lint "$plist_path" >/dev/null
@@ -419,9 +425,10 @@ update_host_attach_config() {
 	local config_path="$REPO_ROOT/.codelens/config.json"
 	local readonly_url="http://127.0.0.1:${READONLY_PORT}/mcp"
 	local mutation_url="http://127.0.0.1:${MUTATION_PORT}/mcp"
+	local update_config_py
 
 	mkdir -p "$(dirname "$config_path")"
-	python3 - "$config_path" "$readonly_url" "$mutation_url" <<'PY'
+	update_config_py='
 import json
 import pathlib
 import sys
@@ -449,7 +456,8 @@ per_host_urls["cursor"] = readonly_url
 per_host_urls["codex"] = mutation_url
 
 config_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-PY
+'
+	python3 -c "$update_config_py" "$config_path" "$readonly_url" "$mutation_url"
 	echo "==> Updated host attach overrides in $config_path"
 }
 
