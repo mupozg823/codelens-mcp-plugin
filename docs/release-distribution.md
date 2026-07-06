@@ -135,11 +135,21 @@ done
 # Homebrew tap
 curl -fsSL "https://raw.githubusercontent.com/mupozg823/homebrew-tap/main/Formula/codelens-mcp.rb" \
   | grep '^  version '
+
+# Public installer/Homebrew transcript plan and live metadata smoke
+python3 scripts/public_release_channel_smoke.py --version "${VERSION}"
+python3 scripts/public_release_channel_smoke.py --version "${VERSION}" --mode metadata
 ```
 
 All four commands should report the new `VERSION`. If any reports an
 older version, the workflow log for that job will show whether the
 secret was missing (clean skip) or the step actually failed.
+
+For the publish-evidence transcript, also run `--mode installer` on a disposable
+machine or CI runner. That mode isolates `HOME` and `CODELENS_INSTALL_DIR`, then
+reuses the clean quickstart smoke against the installed binary and model sidecar.
+Use `--mode homebrew-info` to verify the tapped formula version without
+installing into the user's Homebrew prefix.
 
 ## User install cheatsheet
 
