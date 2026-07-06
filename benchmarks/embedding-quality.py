@@ -577,6 +577,40 @@ def row_key(row):
     )
 
 
+def candidate_name(candidate):
+    if isinstance(candidate, dict):
+        return candidate.get("name")
+    return None
+
+
+def ranker_diagnostic_cause_candidates(row):
+    status = row.get("status")
+    causes = []
+    match status:
+        case "candidate_missing":
+            causes.append("expected_symbol_absent_from_semantic_and_hybrid_candidates")
+        case "semantic_hit_dropped_by_hybrid":
+            causes.append("semantic_candidate_not_preserved_by_hybrid")
+            if row.get("lexical_rank") is None:
+                causes.append("lexical_lane_also_missed_expected_symbol")
+        case "hybrid_demoted_semantic_hit":
+            causes.append("hybrid_rank_lower_than_semantic_rank")
+            lexical_rank = row.get("lexical_rank")
+            semantic_rank = row.get("semantic_rank")
+            if lexical_rank is not None and semantic_rank is not None:
+                if lexical_rank <= semantic_rank:
+                    causes.append("lexical_lane_outranked_semantic_hit")
+            if candidate_name(row.get("hybrid_top_candidate")) == candidate_name(
+                row.get("lexical_top_candidate")
+            ):
+                causes.append("hybrid_top_candidate_matches_lexical_top_candidate")
+        case _:
+            pass
+    if not causes and status not in {"rank_preserved", "hybrid_improved_semantic_hit"}:
+        causes.append("ranker_status_requires_manual_review")
+    return causes
+
+
 def ranker_diagnostics(methods):
     by_method = {
         method["method"]: {row_key(row): row for row in method["rows"]}
@@ -608,20 +642,20 @@ def ranker_diagnostics(methods):
         query_type = hybrid["query_type"]
         grouped[query_type][status] += 1
         grouped["all"][status] += 1
-        rows.append(
-            {
-                "query": hybrid["query"],
-                "query_type": query_type,
-                "expected_symbol": hybrid["expected_symbol"],
-                "semantic_rank": semantic_rank,
-                "lexical_rank": lexical_rank,
-                "hybrid_rank": hybrid_rank,
-                "semantic_top_candidate": semantic["top_candidate"] if semantic else None,
-                "lexical_top_candidate": lexical["top_candidate"] if lexical else None,
-                "hybrid_top_candidate": hybrid["top_candidate"],
-                "status": status,
-            }
-        )
+        row = {
+            "query": hybrid["query"],
+            "query_type": query_type,
+            "expected_symbol": hybrid["expected_symbol"],
+            "semantic_rank": semantic_rank,
+            "lexical_rank": lexical_rank,
+            "hybrid_rank": hybrid_rank,
+            "semantic_top_candidate": semantic["top_candidate"] if semantic else None,
+            "lexical_top_candidate": lexical["top_candidate"] if lexical else None,
+            "hybrid_top_candidate": hybrid["top_candidate"],
+            "status": status,
+        }
+        row["cause_candidates"] = ranker_diagnostic_cause_candidates(row)
+        rows.append(row)
     return {
         "by_query_type": {
             query_type: dict(counter) for query_type, counter in sorted(grouped.items())
@@ -853,16 +887,17 @@ def render_markdown(result):
             a("## Ranker Diagnostic Details")
             a("")
             a(
-                "| Query type | Status | Query | Expected | Semantic rank | Hybrid rank | Hybrid top candidate |"
+                "| Query type | Status | Query | Expected | Semantic rank | Hybrid rank | Hybrid top candidate | Cause candidates |"
             )
-            a("|---|---|---|---|---:|---:|---|")
+            a("|---|---|---|---|---:|---:|---|---|")
             for row in detailed_rows:
                 top = row.get("hybrid_top_candidate") or {}
                 top_label = ""
                 if top:
                     top_label = f"{top.get('name')} ({top.get('file')})"
+                causes = ", ".join(row.get("cause_candidates") or [])
                 a(
-                    f"| {row['query_type']} | {row['status']} | {row['query']} | {row['expected_symbol']} | {row['semantic_rank'] if row['semantic_rank'] is not None else 'miss'} | {row['hybrid_rank'] if row['hybrid_rank'] is not None else 'miss'} | {top_label} |"
+                    f"| {row['query_type']} | {row['status']} | {row['query']} | {row['expected_symbol']} | {row['semantic_rank'] if row['semantic_rank'] is not None else 'miss'} | {row['hybrid_rank'] if row['hybrid_rank'] is not None else 'miss'} | {top_label} | {causes} |"
                 )
     a("")
     a("## Misses")
