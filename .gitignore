@@ -28,6 +28,7 @@ __pycache__/
 
 # OMO local review artifacts
 .omo/evidence/*.md
+!.omo/evidence/codelens-codex-facing-mcp-code-review.md
 
 # Serena runtime
 **/.serena/
