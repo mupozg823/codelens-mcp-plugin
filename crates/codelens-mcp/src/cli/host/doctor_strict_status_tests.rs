@@ -207,6 +207,7 @@ fn spawn_embedding_coverage_server(
                     Err(err) => return Err(err.into()),
                 }
             };
+            stream.set_nonblocking(false)?;
             let mut request = [0_u8; 4096];
             let _ = stream.read(&mut request)?;
             stream.write_all(response.as_bytes())?;
