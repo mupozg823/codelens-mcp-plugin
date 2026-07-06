@@ -201,7 +201,8 @@ python3 benchmarks/embedding-quality.py . \
   --isolated-copy \
   --output benchmarks/embedding-quality-results.json \
   --markdown-output benchmarks/embedding-quality-summary.md \
-  --triage-output /tmp/codelens-embedding-quality-triage.json
+  --triage-output /tmp/codelens-embedding-quality-triage.json \
+  --max-hybrid-p95-response-tokens 20000
 ```
 
 측정 항목:
@@ -211,6 +212,7 @@ python3 benchmarks/embedding-quality.py . \
 - `get_ranked_context disable_semantic=true` 대비 hybrid uplift
 - query별 miss / wrong-top-hit
 - `--triage-output` JSON의 `candidate_missing`, `semantic_hit_dropped_by_hybrid`, `hybrid_demoted_semantic_hit`, p95 response tokens, query-cache hit evidence
+- `--max-hybrid-p95-response-tokens`로 retrieval payload token 폭증을 `--check` 단계에서 fail-close
 
 현재 재현 가능한 로컬 기준선 (`embedding-quality-results.json`, sequential + `--isolated-copy`):
 

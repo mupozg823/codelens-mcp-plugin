@@ -143,6 +143,12 @@ def parse_args():
         default=0,
         help="Optional ceiling for hybrid average compact JSON payload bytes under --check; 0 disables",
     )
+    parser.add_argument(
+        "--max-hybrid-p95-response-tokens",
+        type=int,
+        default=0,
+        help="Optional ceiling for hybrid p95 estimated response tokens under --check; 0 disables",
+    )
     return parser.parse_args()
 
 
@@ -696,6 +702,16 @@ def add_query_type_floor_failures(failures, method, floors, metric_key, metric_l
             )
 
 
+def add_numeric_ceiling_failure(failures, method, metric_key, metric_label, ceiling):
+    if ceiling <= 0:
+        return
+    value = method[metric_key]
+    if value > ceiling:
+        failures.append(
+            f"hybrid {metric_label} {value:.0f} > ceiling {ceiling:.0f}"
+        )
+
+
 def hybrid_demoted_semantic_hits(diagnostics):
     counts = (diagnostics.get("by_query_type") or {}).get("all") or {}
     return counts.get("semantic_hit_dropped_by_hybrid", 0) + counts.get(
@@ -1098,20 +1114,27 @@ def main():
                     "hybrid candidate_missing rate "
                     f"{missing_rate:.3f} > ceiling {ARGS.max_hybrid_candidate_missing_rate:.3f}"
                 )
-        if (
-            ARGS.max_hybrid_avg_ms > 0
-            and hybrid["avg_elapsed_ms"] > ARGS.max_hybrid_avg_ms
-        ):
-            failures.append(
-                f"hybrid avg latency {hybrid['avg_elapsed_ms']:.1f}ms > ceiling {ARGS.max_hybrid_avg_ms:.1f}ms"
-            )
-        if (
-            ARGS.max_hybrid_avg_response_bytes > 0
-            and hybrid["avg_response_bytes"] > ARGS.max_hybrid_avg_response_bytes
-        ):
-            failures.append(
-                f"hybrid avg response bytes {hybrid['avg_response_bytes']:.0f} > ceiling {ARGS.max_hybrid_avg_response_bytes}"
-            )
+        add_numeric_ceiling_failure(
+            failures,
+            hybrid,
+            "avg_elapsed_ms",
+            "avg latency ms",
+            ARGS.max_hybrid_avg_ms,
+        )
+        add_numeric_ceiling_failure(
+            failures,
+            hybrid,
+            "avg_response_bytes",
+            "avg response bytes",
+            ARGS.max_hybrid_avg_response_bytes,
+        )
+        add_numeric_ceiling_failure(
+            failures,
+            hybrid,
+            "p95_estimated_response_tokens",
+            "P95 estimated response tokens",
+            ARGS.max_hybrid_p95_response_tokens,
+        )
         if failures:
             print("\nEmbedding-quality gate failed:")
             for failure in failures:

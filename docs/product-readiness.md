@@ -174,7 +174,8 @@ python3 benchmarks/embedding-quality.py . \
   --min-lexical-mrr 0.50 \
   --min-hybrid-mrr-by-query-type natural_language=0.55 \
   --min-hybrid-recall-by-query-type issue_to_edit=0.80 \
-  --max-hybrid-candidate-missing-rate 0.10
+  --max-hybrid-candidate-missing-rate 0.10 \
+  --max-hybrid-p95-response-tokens 20000
 ```
 
 ## Known Readiness Gaps

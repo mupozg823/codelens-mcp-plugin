@@ -191,7 +191,8 @@ python3 benchmarks/embedding-quality.py . --isolated-copy --check \
   --min-hybrid-recall 0.70 \
   --min-hybrid-acc1 0.45 \
   --max-hybrid-avg-ms 250 \
-  --max-hybrid-avg-response-bytes 120000
+  --max-hybrid-avg-response-bytes 120000 \
+  --max-hybrid-p95-response-tokens 20000
 ```
 
 ---

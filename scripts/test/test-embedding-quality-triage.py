@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -182,12 +183,70 @@ def test_markdown_summary_renders_diagnostic_cause_candidates() -> None:
     assert "semantic_candidate_not_preserved_by_hybrid" in summary
 
 
+def test_gate_records_p95_response_token_ceiling_failures() -> None:
+    module = load_embedding_quality_module()
+    failures: list[str] = []
+    hybrid = next(
+        method_row
+        for method_row in sample_methods()
+        if method_row["method"] == "get_ranked_context"
+    )
+
+    module.add_numeric_ceiling_failure(
+        failures,
+        hybrid,
+        "p95_estimated_response_tokens",
+        "P95 estimated response tokens",
+        200,
+    )
+
+    assert failures == [
+        "hybrid P95 estimated response tokens 250 > ceiling 200"
+    ]
+
+
+def test_gate_ignores_disabled_p95_response_token_ceiling() -> None:
+    module = load_embedding_quality_module()
+    failures: list[str] = []
+    hybrid = next(
+        method_row
+        for method_row in sample_methods()
+        if method_row["method"] == "get_ranked_context"
+    )
+
+    module.add_numeric_ceiling_failure(
+        failures,
+        hybrid,
+        "p95_estimated_response_tokens",
+        "P95 estimated response tokens",
+        0,
+    )
+
+    assert failures == []
+
+
+def test_embedding_quality_help_exposes_p95_response_token_ceiling() -> None:
+    proc = subprocess.run(
+        [sys.executable, str(BENCHMARK_SCRIPT), "--help"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert proc.returncode == 0
+    assert "--max-hybrid-p95-response-tokens" in proc.stdout
+
+
 def main() -> int:
     failures: list[str] = []
     for test in [
         test_ranker_diagnostics_records_cause_candidates,
         test_triage_artifact_preserves_diagnostic_cause_candidates,
         test_markdown_summary_renders_diagnostic_cause_candidates,
+        test_gate_records_p95_response_token_ceiling_failures,
+        test_gate_ignores_disabled_p95_response_token_ceiling,
+        test_embedding_quality_help_exposes_p95_response_token_ceiling,
     ]:
         try:
             test()
