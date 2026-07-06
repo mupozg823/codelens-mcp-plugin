@@ -83,6 +83,7 @@ For local runtime testing, point CodeLens at the generated ONNX directory:
 CODELENS_MODEL_DIR=/tmp/codelens-lora/onnx \
 CODELENS_EMBED_MODEL=MiniLM-L12-CodeLens-LoRA-INT8 \
 python3 benchmarks/embedding-quality.py . \
+  --stdout summary \
   --ranked-context-max-tokens 50000
 ```
 

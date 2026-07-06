@@ -63,11 +63,15 @@ pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> To
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let surface = state.execution_surface(&session);
     let token_budget = state.execution_token_budget(&session);
-    let client_profile = session
-        .client_name
-        .as_deref()
-        .map(|name| ClientProfile::detect(Some(name)))
-        .unwrap_or_else(|| state.client_profile());
+    let client_profile = ClientProfile::detect_request(
+        session.client_name.as_deref(),
+        optional_string(arguments, "host_context"),
+    );
+    let client_profile = if client_profile == ClientProfile::Generic {
+        state.client_profile()
+    } else {
+        client_profile
+    };
     let frameworks = detect_frameworks(state.project().as_path());
     let workspace_packages = detect_workspace_packages(state.project().as_path());
 

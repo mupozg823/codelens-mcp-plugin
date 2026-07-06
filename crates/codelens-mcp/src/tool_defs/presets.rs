@@ -6,11 +6,13 @@ mod overlay;
 
 pub(crate) use budgets::{default_budget_for_preset, default_budget_for_profile};
 pub(crate) use metadata::{
-    apply_tool_deprecation_meta, deprecated_workflow_alias, tool_anthropic_always_load,
-    tool_anthropic_search_hint, tool_deprecation, tool_feature_gate, tool_namespace,
-    tool_phase_label, tool_preferred_executor, tool_preferred_executor_label,
+    apply_tool_deprecation_meta, default_listed_tool_names, deprecated_workflow_alias,
+    tool_anthropic_always_load, tool_anthropic_search_hint, tool_deprecation, tool_feature_gate,
+    tool_namespace, tool_phase_label, tool_preferred_executor, tool_preferred_executor_label,
 };
-pub(crate) use overlay::{HostContext, SurfaceCompilerInput, TaskOverlay, compile_surface_overlay};
+pub(crate) use overlay::{
+    AgentRole, HostContext, SurfaceCompilerInput, TaskOverlay, compile_surface_overlay_for_agent,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolPreset {
@@ -236,6 +238,7 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     // `index_embeddings` is exposed alongside so planners whose
     // project lacks an on-disk index can remediate directly.
     "semantic_search",
+    "embedding_coverage_report",
     "index_embeddings",
     // Graph / impact
     "get_changed_files",
@@ -294,6 +297,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     // surface aligned with planner surface and removes the
     // "surface policy blocks a healthy feature" reporting mismatch.
     "semantic_search",
+    "embedding_coverage_report",
     "index_embeddings",
     "plan_symbol_rename",
     // Pending-D3 symbolic edit core (#346): callable on builder surfaces
@@ -341,6 +345,7 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     // evidence. Deferred loading still keeps it out of the initial
     // tool prompt unless the host loads the symbols namespace/tier.
     "semantic_search",
+    "embedding_coverage_report",
     "index_embeddings",
     // Diagnostics
     "get_file_diagnostics",

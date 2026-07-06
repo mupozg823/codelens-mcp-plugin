@@ -5,7 +5,7 @@
     {
       "name": "codelens",
       "source": "./",
-      "description": "CodeLens MCP + analyze/review/onboard skills + read-only explorer agent."
+      "description": "CodeLens MCP + host-adaptive analyze/review/onboard skills, semantic retrieval, and read-only explorer agent."
     }
   ]
 }

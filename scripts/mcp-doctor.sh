@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# allow: SIZE_OK - repo-local aggregate doctor wrapper keeps shell entrypoint and embedded Python probe together for host smoke portability.
 set -euo pipefail
 
 usage() {
@@ -150,10 +151,16 @@ def parse_transport(path: Path, file_format: str):
 
     if not isinstance(entry, dict):
         return None, "CodeLens entry not found in config"
+    headers = {}
+    for key in ("headers", "http_headers"):
+        raw_headers = entry.get(key)
+        if isinstance(raw_headers, dict):
+            headers.update({str(k): str(v) for k, v in raw_headers.items()})
     if isinstance(entry.get("url"), str) and entry["url"].strip():
         return {
             "kind": "http",
             "value": entry["url"].strip(),
+            "headers": headers,
         }, None
     if isinstance(entry.get("command"), str) and entry["command"].strip():
         args = entry.get("args")
@@ -177,6 +184,132 @@ def check_http(url: str):
         return True, f"HTTP {exc.code}"
     except Exception as exc:
         return False, f"{type(exc).__name__}: {exc}"
+
+
+def post_json_rpc(url: str, body: dict, headers: dict[str, str], session_id: str | None = None):
+    request_headers = {"content-type": "application/json", **headers}
+    if session_id:
+        request_headers["mcp-session-id"] = session_id
+    data = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(url, data=data, headers=request_headers, method="POST")
+    with urllib.request.urlopen(request, timeout=2.5) as response:
+        response_body = response.read().decode("utf-8")
+        return json.loads(response_body), response.headers.get("mcp-session-id")
+
+
+def extract_tool_payload(call_payload: dict):
+    if call_payload.get("error"):
+        return None, call_payload["error"].get("message", "JSON-RPC error")
+    result = call_payload.get("result")
+    if not isinstance(result, dict):
+        return None, "missing JSON-RPC result"
+    if result.get("isError"):
+        content = result.get("content") or []
+        text = content[0].get("text") if content and isinstance(content[0], dict) else ""
+        return None, text or "tool returned isError=true"
+    structured = result.get("structuredContent")
+    if isinstance(structured, dict):
+        return structured, None
+    content = result.get("content") or []
+    if not content or not isinstance(content[0], dict):
+        return None, "missing tool content"
+    text = content[0].get("text")
+    if not isinstance(text, str):
+        return None, "tool content text missing"
+    try:
+        decoded = json.loads(text)
+    except Exception as exc:
+        return None, f"tool content was not JSON: {type(exc).__name__}"
+    data = decoded.get("data") if isinstance(decoded, dict) else None
+    return data if isinstance(data, dict) else decoded, None
+
+
+def check_embedding_coverage(url: str, headers: dict[str, str]):
+    try:
+        _, session_id = post_json_rpc(
+            url,
+            {
+                "jsonrpc": "2.0",
+                "id": 9001,
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "mcp-doctor", "version": "0"},
+                    "project": str(repo_root),
+                    "profile": "reviewer-graph",
+                    "deferredToolLoading": True,
+                },
+            },
+            headers,
+        )
+        list_payload, _ = post_json_rpc(
+            url,
+            {
+                "jsonrpc": "2.0",
+                "id": 9002,
+                "method": "tools/list",
+                "params": {
+                    "namespace": "symbols",
+                    "includeOutputSchema": False,
+                    "includeAnnotations": False,
+                },
+            },
+            headers,
+            session_id,
+        )
+        if list_payload.get("error"):
+            return False, "tools/list namespace=symbols failed: " + list_payload["error"].get(
+                "message", "JSON-RPC error"
+            )
+        call_payload, _ = post_json_rpc(
+            url,
+            {
+                "jsonrpc": "2.0",
+                "id": 9003,
+                "method": "tools/call",
+                "params": {"name": "embedding_coverage_report", "arguments": {}},
+            },
+            headers,
+            session_id,
+        )
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+    data, error = extract_tool_payload(call_payload)
+    if error:
+        return False, error
+    if not isinstance(data, dict):
+        return False, "embedding_coverage_report returned non-object data"
+
+    status = data.get("status", "unknown")
+    compiled = data.get("compiled")
+    model_assets = data.get("model_assets") if isinstance(data.get("model_assets"), dict) else {}
+    index = data.get("index") if isinstance(data.get("index"), dict) else {}
+    query_cache = data.get("query_cache") if isinstance(data.get("query_cache"), dict) else {}
+    remediation = data.get("remediation") if isinstance(data.get("remediation"), dict) else {}
+    action = remediation.get("action", data.get("recommended_action", "unknown"))
+    detail = (
+        f"status={status}, compiled={compiled}, "
+        f"model_assets.available={model_assets.get('available')}, "
+        f"indexed_symbols={index.get('indexed_symbols')}, "
+        f"readiness_percent={index.get('readiness_percent')}%, "
+        f"stale_files={index.get('stale_files')}, "
+        f"stale_reason={first_stale_reason(index)}, "
+        f"model_mismatch={index.get('model_mismatch')}, "
+        f"remediation.action={action}, "
+        f"query_cache.entries={query_cache.get('entries')}, "
+        f"last_index_sha={index.get('last_index_sha')}"
+    )
+    return status == "ready", detail
+
+
+def first_stale_reason(index: dict):
+    reasons = index.get("stale_file_reasons")
+    if not isinstance(reasons, list) or not reasons:
+        return "none"
+    first = reasons[0]
+    if not isinstance(first, dict):
+        return "unknown"
+    return f"{first.get('file_path', 'unknown')}:{first.get('reason', 'unknown')}"
 
 
 def resolve_command(command: str, config_path: str):
@@ -270,18 +403,28 @@ for host in payload.get("hosts", []):
         if transport["kind"] == "http":
             ok, detail = check_http(transport["value"])
             transport_desc = f"http {transport['value']}"
+            coverage_ok, coverage_detail = check_embedding_coverage(
+                transport["value"], transport.get("headers", {})
+            )
         else:
             ok, detail = check_stdio(host_name, transport)
             transport_desc = f"stdio {transport['value']}"
+            coverage_ok, coverage_detail = None, "not applicable for stdio attach"
 
         verdict = "OK" if ok else "FAIL"
         if not ok:
             issue_count += 1
             issues.append(f"{host_name}: {transport_desc} -> {detail}")
+        if coverage_ok is False:
+            issue_count += 1
+            issues.append(f"{host_name}: embedding_coverage_report -> {coverage_detail}")
 
         print(f"- {host_name}: ATTACHED via {config_path} [{active['status']}]")
         print(f"  transport: {transport_desc}")
         print(f"  smoke: {verdict} ({detail})")
+        if coverage_ok is not None:
+            coverage_verdict = "OK" if coverage_ok else "FAIL"
+            print(f"  embedding_coverage_report: {coverage_verdict} ({coverage_detail})")
         continue
 
     if bad_files:

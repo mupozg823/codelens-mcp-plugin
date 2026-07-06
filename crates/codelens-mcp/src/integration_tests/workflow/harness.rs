@@ -194,6 +194,50 @@ fn prepare_harness_session_reviewer_graph_does_not_report_semantic_surface_gap()
     );
 }
 
+#[cfg(feature = "semantic")]
+#[test]
+fn prepare_harness_session_reports_existing_embedding_index_as_ready() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
+    let project = project_root();
+    if let Err(err) = fs::write(
+        project.as_path().join("semantic_ready.py"),
+        "def alpha():\n    return 1\n",
+    ) {
+        panic!("failed to write semantic fixture: {err}");
+    }
+    let _bootstrap = make_state(&project);
+    let engine = match codelens_engine::EmbeddingEngine::new(&project) {
+        Ok(engine) => engine,
+        Err(err) => panic!("failed to create embedding engine: {err}"),
+    };
+    let indexed = match engine.index_from_project(&project) {
+        Ok(indexed) => indexed,
+        Err(err) => panic!("failed to index semantic fixture: {err}"),
+    };
+    assert!(indexed > 0);
+    drop(engine);
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "full"}),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["project"]["embedding_ready"],
+        json!(true),
+        "prepare_harness_session should not report semantic embeddings missing when a usable on-disk embedding index exists"
+    );
+    assert_eq!(
+        payload["data"]["capabilities"]["embedding_indexed"],
+        json!(true)
+    );
+}
+
 #[test]
 fn prepare_harness_session_warning_codes_are_unique() {
     let project = project_root();
@@ -500,8 +544,15 @@ fn prepare_harness_session_respects_explicit_stale_threshold() {
 
 #[test]
 fn prepare_harness_session_schema_matches_payload_shape() {
-    let schema = crate::tool_defs::tool_definition("prepare_harness_session")
-        .and_then(|tool| tool.output_schema.as_ref())
+    let tool =
+        crate::tool_defs::tool_definition("prepare_harness_session").expect("prepare_harness tool");
+    let input_properties = tool.input_schema["properties"]
+        .as_object()
+        .expect("input schema properties");
+    assert!(input_properties.contains_key("agent_role"));
+    let schema = tool
+        .output_schema
+        .as_ref()
         .expect("prepare_harness_session schema");
 
     let properties = schema["properties"].as_object().expect("schema properties");
@@ -509,12 +560,18 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     assert!(properties.contains_key("capabilities"));
     assert!(properties.contains_key("health_summary"));
     assert!(properties.contains_key("warnings"));
+    assert!(properties.contains_key("skill_hints"));
     assert!(properties.contains_key("surface_generation"));
+    assert!(properties.contains_key("host_environment"));
     assert!(properties.contains_key("overlay"));
     assert!(properties.contains_key("index_recovery"));
     assert!(properties.contains_key("visible_tools"));
     assert!(properties.contains_key("routing"));
     assert!(properties.contains_key("harness"));
+    let host_environment = schema["properties"]["host_environment"]["properties"]
+        .as_object()
+        .expect("host_environment properties");
+    assert!(host_environment.contains_key("host_context"));
     let http_session = schema["properties"]["http_session"]["properties"]
         .as_object()
         .expect("http_session properties");
@@ -527,13 +584,121 @@ fn prepare_harness_session_schema_matches_payload_shape() {
         .expect("overlay properties");
     assert!(overlay.contains_key("host_context"));
     assert!(overlay.contains_key("task_overlay"));
+    assert!(overlay.contains_key("agent_role"));
     assert!(overlay.contains_key("preferred_entrypoints_visible"));
     let routing = schema["properties"]["routing"]["properties"]
         .as_object()
         .expect("routing properties");
     assert!(routing.contains_key("preferred_entrypoints_omitted"));
     assert!(routing.contains_key("preferred_entrypoints_with_executors"));
+    assert!(routing.contains_key("agent_role"));
     assert!(routing.contains_key("recommended_entrypoint_preferred_executor"));
+    assert!(input_properties.contains_key("available_mcp_servers"));
+    assert!(input_properties.contains_key("available_mcp_tools"));
+    assert!(input_properties.contains_key("skill_roots"));
+    assert!(input_properties.contains_key("memory_roots"));
+    assert!(input_properties.contains_key("host_setting_keys"));
+}
+
+#[test]
+fn prepare_harness_session_codex_context_exposes_skill_hints() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("codex_skill_hint.rs"),
+        "fn alpha() -> i32 { 1 }\n",
+    )
+    .unwrap();
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "project": project.as_path(),
+            "host_context": "codex",
+            "task_overlay": "editing",
+            "task": "러스트 MCP semantic embedding 문제 해결",
+            "detail": "compact"
+        }),
+    );
+
+    assert_eq!(
+        payload["data"]["skill_hints"]["target_host"],
+        json!("codex")
+    );
+    assert_eq!(
+        payload["data"]["skill_hints"]["catalog_resource"],
+        json!(crate::skill_catalog::CODEX_SKILL_CATALOG_RESOURCE_URI)
+    );
+    assert_eq!(payload["data"]["skill_hints"]["selection_limit"], json!(3));
+    assert!(payload["data"]["skill_hints"]["roots"].is_array());
+    assert!(payload["data"]["skill_hints"]["candidate_skills"].is_array());
+}
+
+#[test]
+fn prepare_harness_session_uses_host_observed_skill_roots() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("codex_host_skill_hint.rs"),
+        "fn alpha() -> i32 { 1 }\n",
+    )
+    .unwrap();
+    let skill_root = project.as_path().join("host-skills");
+    let skill_path = skill_root.join("rust/SKILL.md");
+    fs::create_dir_all(skill_path.parent().unwrap()).unwrap();
+    fs::write(
+        &skill_path,
+        r#"---
+name: rust-host-skill
+description: Use for Rust MCP semantic embedding and CodeLens harness debugging.
+---
+"#,
+    )
+    .unwrap();
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "project": project.as_path(),
+            "host_context": "codex",
+            "task_overlay": "editing",
+            "task": "러스트 MCP semantic embedding 문제",
+            "file_path": "crates/codelens-mcp/src/main.rs",
+            "skill_roots": [skill_root.to_string_lossy().to_string()],
+            "available_mcp_servers": ["codelens", "context7", "github"],
+            "available_mcp_tools": ["mcp__codelens__prepare_harness_session", "mcp__context7__query-docs"],
+            "memory_roots": [project.as_path().join("memory").to_string_lossy().to_string()],
+            "host_setting_keys": ["sandbox_mode", "approval_policy"],
+            "detail": "compact"
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["host_environment"]["snapshot_source"],
+        json!("explicit_host_snapshot")
+    );
+    assert_eq!(
+        payload["data"]["host_environment"]["skill_root_count"],
+        json!(1)
+    );
+    assert_eq!(
+        payload["data"]["host_environment"]["available_mcp_tool_count"],
+        json!(2)
+    );
+    assert_eq!(
+        payload["data"]["skill_hints"]["total_skill_count"],
+        json!(1)
+    );
+    assert!(
+        payload["data"]["skill_hints"]["candidate_skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|skill| skill["name"] == "rust-host-skill")
+    );
 }
 
 #[test]
@@ -624,6 +789,55 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
     );
 }
 
+#[test]
+fn prepare_harness_session_agent_role_compiles_worker_routing() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("worker_overlay.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "builder-minimal",
+            "agent_role": "subagent"
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["overlay"]["applied"], json!(true));
+    assert_eq!(payload["data"]["overlay"]["agent_role"], json!("subagent"));
+    assert_eq!(payload["data"]["routing"]["agent_role"], json!("subagent"));
+    assert_eq!(
+        payload["data"]["routing"]["preferred_entrypoints_source"],
+        json!("overlay")
+    );
+    assert_eq!(
+        payload["data"]["routing"]["recommended_entrypoint"],
+        json!("trace_request_path")
+    );
+    assert!(
+        payload["data"]["routing"]["preferred_entrypoints"]
+            .as_array()
+            .map(|items| items.iter().any(|value| value == "get_ranked_context"))
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["data"]["overlay"]["routing_notes"]
+            .as_array()
+            .map(|items| items.iter().any(|value| {
+                value
+                    .as_str()
+                    .map(|text| text.contains("Subagent role"))
+                    .unwrap_or(false)
+            }))
+            .unwrap_or(false)
+    );
+}
+
 // Issue #199-B-1: compact-mode response trims `tool_names` to the first 5
 // and `preferred_entrypoints_visible` to whatever the routing layer can see,
 // but historically gave the caller no signal of how much was dropped. Both
@@ -650,6 +864,25 @@ fn prepare_harness_session_compact_exposes_visible_tools_omitted_count() {
     let tool_count = visible_tools["tool_count"]
         .as_u64()
         .expect("tool_count present in compact response");
+    let default_listed_tool_count = visible_tools["default_listed_tool_count"]
+        .as_u64()
+        .expect("default_listed_tool_count present in compact response");
+    assert!(
+        (5..=9).contains(&default_listed_tool_count),
+        "default tools/list slice should stay in the 5-9 range, got {default_listed_tool_count}"
+    );
+    let default_listed_names = visible_tools["default_listed_tool_names"]
+        .as_array()
+        .expect("default_listed_tool_names present in compact response")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>();
+    for name in &default_listed_names {
+        assert!(
+            crate::tool_defs::default_listed_tool_names().contains(name),
+            "{name} must come from tools.toml default_visible_rank"
+        );
+    }
     let trimmed_names = visible_tools["tool_names"]
         .as_array()
         .expect("tool_names array present in compact response");

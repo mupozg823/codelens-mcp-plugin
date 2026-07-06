@@ -9,11 +9,15 @@
 //! - [`access`] / [`response`] / [`response_support`]: surface checks and response shaping.
 
 mod access;
+#[cfg(feature = "semantic")]
+mod embedding_coverage;
 mod envelope;
 mod query_engine;
 mod rate_limit;
 mod response;
 mod response_support;
+#[cfg(feature = "semantic")]
+mod semantic;
 mod session;
 mod table;
 

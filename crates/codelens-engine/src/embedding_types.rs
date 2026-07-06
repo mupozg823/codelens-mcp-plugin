@@ -34,6 +34,9 @@ impl From<ScoredChunk> for SemanticMatch {
 pub struct EmbeddingIndexInfo {
     pub model_name: String,
     pub indexed_symbols: usize,
+    pub indexed_files: usize,
+    pub query_cache_entries: usize,
+    pub last_index_sha: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -49,4 +52,11 @@ pub struct EmbeddingRuntimeInfo {
     pub coreml_specialization_strategy: Option<String>,
     pub coreml_model_cache_dir: Option<String>,
     pub fallback_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct EmbeddingModelAssetIdentity {
+    pub model_path: String,
+    pub sha256: String,
+    pub size_bytes: u64,
 }

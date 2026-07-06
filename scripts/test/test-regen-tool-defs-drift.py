@@ -33,6 +33,7 @@ parse_dispatch_names = _MOD.parse_dispatch_names
 three_way_report = _MOD.three_way_report
 lint_description_crossrefs = _MOD.lint_description_crossrefs
 collect_dispatch_names = _MOD.collect_dispatch_names
+collect_default_listed_tools = _MOD.collect_default_listed_tools
 
 
 MATCH_ARM_FIXTURE = """
@@ -224,6 +225,53 @@ def test_extract_tombstones_parses_tuple_list() -> None:
     assert names == {"replace", "insert_at_line"}, f"unexpected: {sorted(names)}"
 
 
+def test_default_visible_rank_orders_default_surface() -> None:
+    tools = [
+        {"name": "third", "default_visible_rank": 30},
+        {"name": "hidden"},
+        {"name": "first", "default_visible_rank": 10},
+        {"name": "fifth", "default_visible_rank": 50},
+        {"name": "second", "default_visible_rank": 20},
+        {"name": "fourth", "default_visible_rank": 40},
+    ]
+    assert collect_default_listed_tools(tools) == [
+        "first",
+        "second",
+        "third",
+        "fourth",
+        "fifth",
+    ]
+
+
+def test_default_visible_rank_rejects_duplicate_rank() -> None:
+    tools = [
+        {"name": "one", "default_visible_rank": 10},
+        {"name": "two", "default_visible_rank": 20},
+        {"name": "duplicate", "default_visible_rank": 20},
+        {"name": "four", "default_visible_rank": 40},
+        {"name": "five", "default_visible_rank": 50},
+    ]
+    try:
+        collect_default_listed_tools(tools)
+    except SystemExit as exc:
+        assert "duplicates two" in str(exc), str(exc)
+        return
+    raise AssertionError("duplicate default_visible_rank should fail")
+
+
+def test_default_visible_rank_rejects_overwide_surface() -> None:
+    tools = [
+        {"name": f"tool_{idx}", "default_visible_rank": idx}
+        for idx in range(1, 11)
+    ]
+    try:
+        collect_default_listed_tools(tools)
+    except SystemExit as exc:
+        assert "5-9 tools" in str(exc), str(exc)
+        return
+    raise AssertionError("overwide default visible surface should fail")
+
+
 def main() -> int:
     failures: list[str] = []
     tests = [
@@ -238,6 +286,9 @@ def main() -> int:
         test_enforce_allows_allowlisted_only,
         test_enforce_blocks_lint_and_tombstone_hits,
         test_extract_tombstones_parses_tuple_list,
+        test_default_visible_rank_orders_default_surface,
+        test_default_visible_rank_rejects_duplicate_rank,
+        test_default_visible_rank_rejects_overwide_surface,
     ]
     for t in tests:
         try:

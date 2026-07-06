@@ -13,6 +13,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_SCRIPT = REPO_ROOT / "scripts" / "package-release-artifact.sh"
 VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify-release-artifacts.sh"
+FORMULA = REPO_ROOT / "Formula" / "codelens-mcp.rb"
 REQUIRED_MODEL_ASSETS = (
     "model.onnx",
     "tokenizer.json",
@@ -188,6 +189,13 @@ def test_package_script_emits_standard_windows_zip_payload_only() -> None:
         ]
 
 
+def test_homebrew_formula_installs_model_sidecar() -> None:
+    formula = FORMULA.read_text(encoding="utf-8")
+
+    assert 'bin.install "codelens-mcp"' in formula
+    assert 'prefix.install "models" if File.directory?("models")' in formula
+
+
 def main() -> int:
     failures: list[str] = []
     for name, fn in [
@@ -202,6 +210,10 @@ def main() -> int:
         (
             "package_script_emits_standard_windows_zip_payload_only",
             test_package_script_emits_standard_windows_zip_payload_only,
+        ),
+        (
+            "homebrew_formula_installs_model_sidecar",
+            test_homebrew_formula_installs_model_sidecar,
         ),
     ]:
         try:

@@ -36,7 +36,7 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
         json!({
             "uri": "codelens://surface/overlay",
             "name": "Surface Overlay Preview",
-            "description": "Runtime preview of the (profile × host_context × task_overlay) compiled plan — query with ?host=<id>&task=<id>",
+            "description": "Runtime preview of the (profile × host_context × task_overlay × agent_role) compiled plan — query with ?host=<id>&task=<id>&role=<id>",
             "mimeType": "application/json"
         }),
         json!({
@@ -103,6 +103,12 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "uri": "codelens://design/agent-experience",
             "name": "Agent Experience Spec",
             "description": "Portable UX, user-flow, agent-flow, tool-flow, and harness-flow contract",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": crate::skill_catalog::CODEX_SKILL_CATALOG_RESOURCE_URI,
+            "name": "Codex Skill Catalog",
+            "description": "Runtime scan of Codex-relevant user skill roots, exposing paths and counts without loading skill bodies",
             "mimeType": "application/json"
         }),
         json!({

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# noqa: SIZE_OK - standalone release matrix CLI coordinates multiple benchmark suites.
 """Thin release quality matrix for baseline-vs-candidate CodeLens binaries."""
 
 from __future__ import annotations
@@ -342,6 +343,8 @@ def suite_commands(
                 str(SCRIPT_DIR / "embedding-quality-dataset-self.json"),
                 "--preset",
                 preset,
+                "--stdout",
+                "summary",
                 "--isolated-copy",
             ],
         )

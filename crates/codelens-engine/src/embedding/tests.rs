@@ -1,4 +1,4 @@
-use super::runtime::executable_model_roots;
+use super::model_assets::{CODESEARCH_MODEL_NAME, executable_model_roots, resolve_model_dir};
 use super::*;
 use crate::db::{IndexDb, NewSymbol};
 use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
@@ -120,8 +120,11 @@ fn write_minimal_model_assets(model_dir: &std::path::Path) {
     }
 }
 
+mod coverage_report_tests;
+
 #[test]
 fn build_embedding_text_with_signature() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let sym = crate::db::SymbolWithFile {
         name: "hello".into(),
         kind: "function".into(),
@@ -133,11 +136,15 @@ fn build_embedding_text_with_signature() {
         end_byte: 10,
     };
     let text = build_embedding_text(&sym, Some("def hello(): pass"));
-    assert_eq!(text, "function hello in main.py: def hello():");
+    assert_eq!(
+        text,
+        "function hello in main.py: def hello(): | card kind=function symbol=hello parent=- neighbor=file:main file=main.py line=1 scope=production signature=present doc=absent body=absent test_fact=production_symbol"
+    );
 }
 
 #[test]
 fn build_embedding_text_without_source() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let sym = crate::db::SymbolWithFile {
         name: "MyClass".into(),
         kind: "class".into(),
@@ -149,11 +156,15 @@ fn build_embedding_text_without_source() {
         end_byte: 50,
     };
     let text = build_embedding_text(&sym, None);
-    assert_eq!(text, "class MyClass (My Class) in app.py: class MyClass:");
+    assert_eq!(
+        text,
+        "class MyClass (My Class) in app.py: class MyClass: | card kind=class symbol=MyClass parent=- neighbor=file:app file=app.py line=5 scope=production signature=present doc=absent body=absent test_fact=production_symbol"
+    );
 }
 
 #[test]
 fn build_embedding_text_empty_signature() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let sym = crate::db::SymbolWithFile {
         name: "CONFIG".into(),
         kind: "variable".into(),
@@ -165,7 +176,62 @@ fn build_embedding_text_empty_signature() {
         end_byte: 0,
     };
     let text = build_embedding_text(&sym, None);
-    assert_eq!(text, "variable CONFIG in config.py");
+    assert_eq!(
+        text,
+        "variable CONFIG in config.py | card kind=variable symbol=CONFIG parent=- neighbor=file:config file=config.py line=1 scope=production signature=absent doc=absent body=absent test_fact=production_symbol"
+    );
+}
+
+#[test]
+fn build_embedding_text_symbol_card_includes_neighbor_and_test_facts() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let source = "#[test]\nfn test_round_trip() {\n    assert!(true);\n}\n";
+    let sym = crate::db::SymbolWithFile {
+        name: "test_round_trip".into(),
+        kind: "function".into(),
+        file_path: "src/parser/tests.rs".into(),
+        line: 2,
+        signature: "fn test_round_trip()".into(),
+        name_path: "parser::tests::test_round_trip".into(),
+        start_byte: source.find("fn test_round_trip").unwrap() as i64,
+        end_byte: source.len() as i64,
+    };
+
+    let text = build_embedding_text(&sym, Some(source));
+
+    assert!(text.contains("parent=parser::tests"), "{text}");
+    assert!(text.contains("neighbor=module:parser"), "{text}");
+    assert!(text.contains("scope=test"), "{text}");
+    assert!(text.contains("signature=present"), "{text}");
+    assert!(text.contains("body=present"), "{text}");
+    assert!(text.contains("test_fact=test_symbol"), "{text}");
+}
+
+#[test]
+fn build_embedding_text_can_disable_symbol_card_for_ablation() {
+    let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let previous = std::env::var("CODELENS_EMBED_SYMBOL_CARD").ok();
+    unsafe {
+        std::env::set_var("CODELENS_EMBED_SYMBOL_CARD", "0");
+    }
+    let sym = crate::db::SymbolWithFile {
+        name: "hello".into(),
+        kind: "function".into(),
+        file_path: "main.py".into(),
+        line: 1,
+        signature: "def hello():".into(),
+        name_path: "hello".into(),
+        start_byte: 0,
+        end_byte: 10,
+    };
+    let text = build_embedding_text(&sym, Some("def hello(): pass"));
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_EMBED_SYMBOL_CARD", value),
+            None => std::env::remove_var("CODELENS_EMBED_SYMBOL_CARD"),
+        }
+    }
+    assert_eq!(text, "function hello in main.py: def hello():");
 }
 
 #[test]
@@ -1487,6 +1553,31 @@ fn inspect_existing_index_returns_model_and_count() {
         .expect("index info should exist");
     assert_eq!(info.model_name, engine.model_name());
     assert_eq!(info.indexed_symbols, 2);
+    assert_eq!(info.indexed_files, 1);
+    assert_eq!(info.query_cache_entries, 0);
+    assert_eq!(info.last_index_sha, None);
+}
+
+#[test]
+fn embed_query_cached_reports_cold_then_exact_cache_tier() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    skip_without_embedding_model!();
+    let (_dir, project) = make_project_with_source();
+    let engine = EmbeddingEngine::new(&project).unwrap();
+    engine.index_from_project(&project).unwrap();
+
+    let first = engine
+        .embed_query_cached_with_tier("hello function")
+        .unwrap();
+    assert_eq!(first.cache_hit_tier.as_str(), "cold");
+    assert_eq!(engine.query_cache_stats().unwrap().entries, 1);
+
+    let second = engine
+        .embed_query_cached_with_tier("hello function")
+        .unwrap();
+    assert_eq!(second.cache_hit_tier.as_str(), "exact");
+    assert_eq!(first.embedding.len(), second.embedding.len());
+    assert_eq!(engine.query_cache_stats().unwrap().entries, 1);
 }
 
 #[test]

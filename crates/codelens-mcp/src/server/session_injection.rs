@@ -47,6 +47,10 @@ pub(super) fn inject_tool_call_session(
         serde_json::json!(metadata.client_version),
     );
     args.insert(
+        "_session_host_context".to_owned(),
+        serde_json::json!(metadata.host_context),
+    );
+    args.insert(
         "_session_deferred_tool_loading".to_owned(),
         serde_json::json!(metadata.deferred_tool_loading),
     );
@@ -65,6 +69,30 @@ pub(super) fn inject_tool_call_session(
     args.insert(
         "_session_full_tool_exposure".to_owned(),
         serde_json::json!(metadata.full_tool_exposure),
+    );
+    args.insert(
+        "_session_available_mcp_servers".to_owned(),
+        serde_json::json!(metadata.available_mcp_servers),
+    );
+    args.insert(
+        "_session_available_mcp_tools".to_owned(),
+        serde_json::json!(metadata.available_mcp_tools),
+    );
+    args.insert(
+        "_session_skill_roots".to_owned(),
+        serde_json::json!(metadata.skill_roots),
+    );
+    args.insert(
+        "_session_memory_roots".to_owned(),
+        serde_json::json!(metadata.memory_roots),
+    );
+    args.insert(
+        "_session_host_setting_keys".to_owned(),
+        serde_json::json!(metadata.host_setting_keys),
+    );
+    args.insert(
+        "_session_harness_profile".to_owned(),
+        serde_json::json!(metadata.harness_profile),
     );
 }
 
@@ -197,11 +225,18 @@ fn inject_deferred_params(
         "_session_requested_profile": metadata.requested_profile,
         "_session_client_name": metadata.client_name,
         "_session_client_version": metadata.client_version,
+        "_session_host_context": metadata.host_context,
         "_session_deferred_tool_loading": metadata.deferred_tool_loading,
         "_session_project_path": metadata.project_path,
         "_session_loaded_namespaces": metadata.loaded_namespaces,
         "_session_loaded_tiers": metadata.loaded_tiers,
         "_session_full_tool_exposure": metadata.full_tool_exposure,
+        "_session_available_mcp_servers": metadata.available_mcp_servers,
+        "_session_available_mcp_tools": metadata.available_mcp_tools,
+        "_session_skill_roots": metadata.skill_roots,
+        "_session_memory_roots": metadata.memory_roots,
+        "_session_host_setting_keys": metadata.host_setting_keys,
+        "_session_harness_profile": metadata.harness_profile,
     });
 
     if let Some(params) = request.params.as_mut().and_then(|v| v.as_object_mut()) {

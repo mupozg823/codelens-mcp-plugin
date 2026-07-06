@@ -176,6 +176,7 @@ fn tool_defs_and_dispatch_are_consistent() {
     let semantic_tools = &[
         "semantic_search",
         "index_embeddings",
+        "embedding_coverage_report",
         "find_similar_code",
         "find_code_duplicates",
         "classify_symbol",

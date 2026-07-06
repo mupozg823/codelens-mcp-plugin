@@ -114,6 +114,15 @@ pub(crate) fn expand_retrieval_query(query: &str) -> String {
             push_unique(alias);
         }
     }
+    if lowered.contains("rename")
+        && (lowered.contains("variable")
+            || lowered.contains("function")
+            || lowered.contains("project"))
+    {
+        for alias in ["rename_symbol", "rename"] {
+            push_unique(alias);
+        }
+    }
     if lowered.contains("inline")
         && (lowered.contains("entrypoint")
             || lowered.contains("handler")
@@ -163,6 +172,38 @@ pub(crate) fn expand_retrieval_query(query: &str) -> String {
         for alias in ["build_embedding_text", "embedding_text"] {
             push_unique(alias);
         }
+    }
+    if lowered.contains("embedding")
+        && (lowered.contains("vector") || lowered.contains("index"))
+        && (lowered.contains("symbol") || lowered.contains("project"))
+    {
+        for alias in ["index_from_project", "embedding_index"] {
+            push_unique(alias);
+        }
+    }
+    if (lowered.contains("categorize") || lowered.contains("classify"))
+        && (lowered.contains("symbol")
+            || lowered.contains("function")
+            || lowered.contains("purpose")
+            || lowered.contains("kind"))
+    {
+        for alias in ["classify_symbol", "classification"] {
+            push_unique(alias);
+        }
+    }
+    if lowered.contains("preflight")
+        && (lowered.contains("verification")
+            || lowered.contains("requires")
+            || lowered.contains("tool"))
+    {
+        for alias in ["is_refactor_gated_mutation_tool", "mutation_gate"] {
+            push_unique(alias);
+        }
+    }
+    if lowered.contains("timestamp")
+        && (lowered.contains("millisecond") || lowered.contains("current"))
+    {
+        push_unique("now_ms");
     }
     // Disambiguation aliases for generic-named symbols in specific domains
     if lowered.contains("index") && lowered.contains("project") && lowered.contains("embedding") {

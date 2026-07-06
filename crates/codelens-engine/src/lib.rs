@@ -113,11 +113,15 @@ pub mod scip_backend;
 pub(crate) mod test_helpers;
 #[cfg(feature = "semantic")]
 pub use embedding::{
-    EmbeddingEngine, configured_embedding_model_name, configured_embedding_runtime_info,
+    EmbeddingCoverageReport, EmbeddingEngine, EmbeddingStaleFileReason, EmbeddingStaleReason,
+    configured_embedding_model_name, configured_embedding_runtime_info,
     configured_embedding_runtime_preference, configured_embedding_threads,
-    embedding_model_assets_available,
+    configured_model_asset_identity, embedding_model_assets_available,
+    embedding_store_schema_version,
 };
-pub use embedding_types::{EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch};
+pub use embedding_types::{
+    EmbeddingIndexInfo, EmbeddingModelAssetIdentity, EmbeddingRuntimeInfo, SemanticMatch,
+};
 pub use memory::{
     AuditRecorder, MemoryAuditEvent, MemoryFrontmatter, MemoryLocation, MemoryMetadata,
     MemoryPolicy, MemoryTier, NullRecorder, archive_memory, archive_memory_rec, delete_memory,

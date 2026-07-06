@@ -135,11 +135,21 @@ done
 # Homebrew tap
 curl -fsSL "https://raw.githubusercontent.com/mupozg823/homebrew-tap/main/Formula/codelens-mcp.rb" \
   | grep '^  version '
+
+# Public installer/Homebrew transcript plan and live metadata smoke
+python3 scripts/public_release_channel_smoke.py --version "${VERSION}"
+python3 scripts/public_release_channel_smoke.py --version "${VERSION}" --mode metadata
 ```
 
 All four commands should report the new `VERSION`. If any reports an
 older version, the workflow log for that job will show whether the
 secret was missing (clean skip) or the step actually failed.
+
+For the publish-evidence transcript, also run `--mode installer` on a disposable
+machine or CI runner. That mode isolates `HOME` and `CODELENS_INSTALL_DIR`, then
+reuses the clean quickstart smoke against the installed binary and model sidecar.
+Use `--mode homebrew-info` to verify the tapped formula version without
+installing into the user's Homebrew prefix.
 
 ## User install cheatsheet
 
@@ -151,7 +161,11 @@ secret was missing (clean skip) or the step actually failed.
 | Binary download          | `gh release download <tag> -R mupozg823/codelens-mcp-plugin`                                    |
 | Cargo from git           | `cargo install --git https://github.com/mupozg823/codelens-mcp-plugin --tag <tag> codelens-mcp` |
 
-`cargo install codelens-mcp` bundles the CodeSearchNet semantic model
-via the default `semantic` feature; expect the first build to take
-several minutes for `fastembed` and `ort`. For the lighter tree-sitter
-only build, use `cargo install codelens-mcp --no-default-features`.
+`cargo install codelens-mcp` installs the lean BM25 + AST + call-graph
+binary by default. For semantic retrieval from crates.io, install with
+`--features semantic` and point `CODELENS_MODEL_DIR` at a model sidecar
+from a release archive. GitHub Release, installer, and Homebrew channels
+are the release-tarball-equivalent paths that bundle or stage the
+CodeSearchNet model payload. The Homebrew formula installs the `models/`
+directory into the package prefix, and the clean quickstart smoke covers that
+Cellar-style layout with `scripts/smoke-clean-quickstart.py --homebrew-layout`.

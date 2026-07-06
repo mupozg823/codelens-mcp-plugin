@@ -2,6 +2,17 @@
 
 This document is the operational reference for what the current release pipeline is configured to produce, how to verify a published release, and what still needs to land before CodeLens can claim supply-chain-grade packaging.
 
+For the runtime quickstart path after a binary is available, see
+[`docs/quickstart-transcript.md`](quickstart-transcript.md). That transcript
+captures install -> doctor/status -> index -> coverage -> retrieve from an
+isolated temp prefix. CI replays the same flow against the extracted Linux
+release archive and native build-matrix archives with
+`scripts/smoke-clean-quickstart.py --archive`; the Homebrew formula layout is
+covered by the same script with `--homebrew-layout`, which proves prefix-sidecar
+model discovery without `CODELENS_MODEL_DIR`. The remaining public-channel
+proof is a post-tag live transcript for the published installer URL and tapped
+Homebrew formula, generated with `scripts/public_release_channel_smoke.py`.
+
 **See also**: [`docs/release-distribution.md`](release-distribution.md)
 for the producer-side playbook — tag-push flow, manual fallback commands,
 post-release verification script, user install cheatsheet. That file covers
@@ -197,6 +208,32 @@ It contains:
 
 Once extracted, the binary can run in place and will resolve `./models/codesearch` automatically.
 
+### 8. Generate the public release-channel transcript
+
+After the GitHub Release and Homebrew tap jobs finish, first generate the
+side-effect-free plan:
+
+```bash
+python3 scripts/public_release_channel_smoke.py --version X.Y.Z
+```
+
+Then run the live checks that match the release claim:
+
+```bash
+python3 scripts/public_release_channel_smoke.py --version X.Y.Z --mode metadata
+python3 scripts/public_release_channel_smoke.py --version X.Y.Z --mode installer \
+  --output /tmp/codelens-public-installer-smoke.md
+python3 scripts/public_release_channel_smoke.py --version X.Y.Z --mode homebrew-info \
+  --output /tmp/codelens-homebrew-info-smoke.md
+```
+
+`metadata` fetches the public checksums, installer script, and Homebrew formula
+and verifies version/checksum/model-sidecar contracts. `installer` runs the
+public installer with an isolated `HOME` and `CODELENS_INSTALL_DIR`, then reuses
+`scripts/smoke-clean-quickstart.py` against the installed binary and sidecar
+model payload. `homebrew-info` verifies the tapped formula reports the expected
+version without installing into the user's Homebrew prefix.
+
 ---
 
 ## Current configured attestation model
@@ -226,6 +263,7 @@ The OCI image is built from the released `linux-x86_64` binary artifact rather t
 | OCI image publishing                      | GHCR via `docker/build-push-action`                                            | Present     |
 | Air-gapped bundle                         | Linux offline tarball via `build-airgap-bundle.sh` when `model.onnx` is staged | Conditional |
 | Local artifact verification path          | `scripts/verify-release-artifacts.sh`                                          | Present     |
+| Public release-channel transcript path    | `scripts/public_release_channel_smoke.py`                                      | Present     |
 | Homebrew derivation from published assets | Implemented in release workflow                                                | Present     |
 | Signature verification path               | Cosign keyless blob verification for release payloads                          | Present     |
 

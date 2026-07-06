@@ -12,8 +12,14 @@ mod chunk_ops;
 mod duplicates;
 mod engine_impl;
 pub(super) mod ffi;
+mod model_assets;
+#[cfg(feature = "model-bakeoff")]
+mod model_bakeoff;
 mod prompt;
+mod ranker_settings;
 mod runtime;
+mod runtime_info;
+mod runtime_settings;
 mod vec_store;
 
 use cache::TextEmbeddingCache;
@@ -21,12 +27,15 @@ use vec_store::SqliteVecStore;
 
 // ── Public re-exports ─────────────────────────────────────────────────
 pub use chunk_ops::{CategoryScore, DuplicatePair, OutlierSymbol, cosine_similarity};
+pub use model_assets::{configured_model_asset_identity, embedding_model_assets_available};
 pub use prompt::auto_sparse_should_enable;
-pub use runtime::{
-    configured_embedding_model_name, configured_embedding_runtime_info,
-    configured_embedding_runtime_preference, configured_embedding_threads,
-    embedding_model_assets_available,
-};
+pub use runtime::configured_embedding_model_name;
+pub use runtime_info::configured_embedding_runtime_info;
+pub use runtime_settings::{configured_embedding_runtime_preference, configured_embedding_threads};
+
+pub const fn embedding_store_schema_version() -> i64 {
+    vec_store::EMBEDDING_STORE_SCHEMA_VERSION
+}
 
 // ── Internal re-exports used by sibling sub-modules ───────────────────
 // vec_store.rs uses embedding_to_bytes via `super::`
@@ -50,9 +59,10 @@ pub(super) use prompt::{
     strict_comments_enabled, strict_literal_filter_enabled,
 };
 #[cfg(test)]
-pub(super) use runtime::{
-    CODESEARCH_MODEL_NAME, DEFAULT_MACOS_EMBED_BATCH_SIZE, embed_batch_size,
-    recommended_embed_threads, requested_embedding_model_override, resolve_model_dir,
+pub(super) use runtime::requested_embedding_model_override;
+#[cfg(test)]
+pub(super) use runtime_settings::{
+    DEFAULT_MACOS_EMBED_BATCH_SIZE, embed_batch_size, recommended_embed_threads,
 };
 
 // ── Core engine struct ───────────────────────────────────────────────────
@@ -73,6 +83,30 @@ pub struct QueryEmbeddingCacheStats {
     pub max_entries: usize,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryEmbeddingCacheHitTier {
+    Disabled,
+    Cold,
+    Exact,
+}
+
+impl QueryEmbeddingCacheHitTier {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Cold => "cold",
+            Self::Exact => "exact",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueryEmbeddingCacheResult {
+    pub embedding: Vec<f32>,
+    pub cache_hit_tier: QueryEmbeddingCacheHitTier,
+}
+
 #[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct EmbeddingFreshnessReport {
     pub checked_files: usize,
@@ -81,6 +115,39 @@ pub struct EmbeddingFreshnessReport {
     pub removed_files: usize,
     pub skipped_new_files: usize,
     pub indexed_symbols: usize,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EmbeddingStaleReason {
+    MissingEmbeddings,
+    EmbeddingKeysChanged,
+    OrphanedEmbeddings,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct EmbeddingStaleFileReason {
+    pub file_path: String,
+    pub reason: EmbeddingStaleReason,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct EmbeddingCoverageReport {
+    pub model_name: String,
+    pub indexed_symbols: usize,
+    pub indexed_files: usize,
+    pub checked_files: usize,
+    pub ready_files: usize,
+    pub readiness_percent: u8,
+    pub unchanged_files: usize,
+    pub stale_files: usize,
+    pub missing_files: usize,
+    pub extra_files: usize,
+    pub skipped_new_files: usize,
+    pub stale_file_reasons: Vec<EmbeddingStaleFileReason>,
+    pub stale_file_reasons_omitted: usize,
+    pub current_git_sha: Option<String>,
+    pub last_index_sha: Option<String>,
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────

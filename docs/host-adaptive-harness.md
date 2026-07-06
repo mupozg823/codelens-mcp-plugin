@@ -36,7 +36,7 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Recommended modes: `solo-local`, `planner-builder`, `reviewer-gate`
 - Preferred profiles: `planner-readonly`, `reviewer-graph`
 - Default compiled overlay: profile=`planner-readonly`, task_overlay=`planning`
-- Primary bootstrap sequence: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `explore_codebase` -> `review_architecture`
+- Primary bootstrap sequence: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `explore_codebase` -> `review_architecture` -> `plan_safe_refactor` -> `start_analysis_job` -> `get_analysis_section`
 - Compiler targets: `CLAUDE.md`, `.mcp.json`, `managed-mcp.json`, `subagent definitions`
 
 ### `codex`
@@ -56,7 +56,7 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Recommended modes: `solo-local`, `reviewer-gate`, `batch-analysis`
 - Preferred profiles: `planner-readonly`, `reviewer-graph`, `ci-audit`
 - Default compiled overlay: profile=`reviewer-graph`, task_overlay=`review`
-- Primary bootstrap sequence: `prepare_harness_session` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session`
+- Primary bootstrap sequence: `prepare_harness_session` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session` -> `review_architecture` -> `start_analysis_job` -> `get_analysis_section`
 - Compiler targets: `.cursor/rules`, `AGENTS.md`, `.cursor/mcp.json`, `background-agent environment.json`
 
 ### `cline`
@@ -66,7 +66,7 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Recommended modes: `solo-local`, `planner-builder`
 - Preferred profiles: `builder-minimal`, `reviewer-graph`
 - Default compiled overlay: profile=`builder-minimal`, task_overlay=`editing`
-- Primary bootstrap sequence: `prepare_harness_session` -> `get_file_diagnostics` -> `verify_change_readiness` -> `trace_request_path` -> `plan_safe_refactor` -> `rename_symbol` -> `replace_symbol_body` -> `insert_before_symbol` -> `insert_after_symbol`
+- Primary bootstrap sequence: `prepare_harness_session` -> `get_file_diagnostics` -> `verify_change_readiness` -> `trace_request_path` -> `plan_safe_refactor` -> `rename_symbol` -> `replace_symbol_body` -> `insert_before_symbol` -> `insert_after_symbol` -> `explore_codebase`
 - Compiler targets: `mcp_servers.json`, `.clinerules`, `repo instructions`
 
 ### `windsurf`
@@ -203,6 +203,9 @@ The same policy is also emitted at tool granularity through runtime metadata:
 
 - `tools/list` exposes `_meta["codelens/preferredExecutor"]` per tool
 - `tools/call` echoes `_meta["codelens/preferredExecutor"]` on the call result
+- `prepare_harness_session` reports `host_environment.skill_root_source` so
+  hosts can distinguish supplied `skill_roots` from Codex default skill root
+  discovery without loading every `SKILL.md`
 - HTTP `initialize` advertises `capabilities.tools.listChanged = true`
 - HTTP sessions emit `notifications/tools/list_changed` after runtime surface changes such as `set_profile` and `set_preset`
 - current labels are `codex-builder`, `claude`, and `any`

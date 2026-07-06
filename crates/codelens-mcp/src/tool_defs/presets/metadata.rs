@@ -35,15 +35,11 @@ pub(crate) fn deprecated_workflow_alias(name: &str) -> Option<(&'static str, &'s
 }
 
 pub(crate) fn tool_feature_gate(name: &str) -> Option<&'static str> {
-    match name {
-        "semantic_search"
-        | "index_embeddings"
-        | "find_similar_code"
-        | "find_code_duplicates"
-        | "classify_symbol"
-        | "find_misplaced_code" => Some("semantic"),
-        _ => None,
-    }
+    crate::tool_defs::generated::tool_feature_gate(name)
+}
+
+pub(crate) fn default_listed_tool_names() -> &'static [&'static str] {
+    crate::tool_defs::generated::default_listed_tool_names()
 }
 
 /// Phase alias per ADR-0005 step 4 — harness-phase scoping for `tools/list`
@@ -51,69 +47,12 @@ pub(crate) fn tool_feature_gate(name: &str) -> Option<&'static str> {
 /// the tool as phase-agnostic (infrastructure / coordination).
 pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
     use crate::protocol::ToolPhase;
-    match name {
-        // Plan — analyze/retrieve/orient before deciding to edit.
-        "explore_codebase"
-        | "trace_request_path"
-        | "review_architecture"
-        | "plan_safe_refactor"
-        | "plan_symbol_rename"
-        | "analyze_change_impact"
-        | "module_boundary_report"
-        | "mermaid_module_graph"
-        | "impact_report"
-        | "get_ranked_context"
-        | "get_symbols_overview"
-        | "find_symbol"
-        | "find_referencing_symbols"
-        | "search_symbols_fuzzy"
-        | "search_workspace_symbols"
-        | "get_type_hierarchy"
-        | "semantic_search"
-        | "index_embeddings"
-        | "find_scoped_references"
-        | "get_symbol_importance"
-        | "get_complexity"
-        | "find_similar_code"
-        | "get_changed_files" => Some(ToolPhase::Plan),
-
-        // Build — mutation surface.
-        "cleanup_duplicate_logic" => Some(ToolPhase::Build),
-
-        // Review — post-edit safety, verifier, diff-aware inspection, audits.
-        "review_changes"
-        | "diff_aware_references"
-        | "verify_change_readiness"
-        | "assess_change_readiness"
-        | "safe_rename_report"
-        | "refactor_safety_report"
-        | "unresolved_reference_check"
-        | "dead_code_report"
-        | "find_dead_code"
-        | "find_circular_dependencies"
-        | "find_misplaced_code"
-        | "find_code_duplicates"
-        | "classify_symbol"
-        | "diagnose_issues"
-        | "audit_security_context"
-        | "get_file_diagnostics"
-        | "get_lsp_recipe"
-        | "audit_builder_session"
-        | "audit_planner_session" => Some(ToolPhase::Review),
-
-        // Eval — telemetry, audit export, analysis artifact retrieval.
-        "get_tool_metrics"
-        | "export_session_markdown"
-        | "start_analysis_job"
-        | "get_analysis_job"
-        | "cancel_analysis_job"
-        | "get_analysis_section"
-        | "list_analysis_jobs"
-        | "list_analysis_artifacts" => Some(ToolPhase::Eval),
-
-        // Infrastructure (filesystem, memory, session coordination) is
-        // deliberately phase-agnostic: used in every phase.
-        _ => None,
+    match crate::tool_defs::generated::tool_phase(name) {
+        Some("plan") => Some(ToolPhase::Plan),
+        Some("build") => Some(ToolPhase::Build),
+        Some("review") => Some(ToolPhase::Review),
+        Some("eval") => Some(ToolPhase::Eval),
+        Some(_) | None => None,
     }
 }
 
@@ -205,89 +144,19 @@ pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
 /// Claude Code MCP tools are deferred by default. The always-load set
 /// is what gets `meta["anthropic/alwaysLoad"] = true` — schemas
 /// pre-loaded so the model can call them without a `ToolSearch` round
-/// trip. The remaining `DEFAULT_LISTED_TOOL_NAMES` entries stay
-/// deferred-discoverable but require explicit ToolSearch select before
-/// invocation, which keeps the initial tool prompt bounded.
+/// trip. The remaining default-listed tools stay deferred-discoverable
+/// but require explicit ToolSearch select before invocation, which
+/// keeps the initial tool prompt bounded.
 ///
-/// Composition (2026-07-03, Fable/agent-consumption rebalance): five
-/// workflow entrypoints (bootstrap, pre-merge review, mutation
-/// preflight, architecture audit, onboarding) PLUS the four
-/// highest-frequency mechanical navigation verbs (`find_symbol`,
-/// `find_referencing_symbols`, `get_symbols_overview`,
-/// `get_ranked_context`). Measured: workflow subagents skipped CodeLens
-/// navigation entirely when it cost a ToolSearch round trip (1–2 calls
-/// vs 10–47 grep sweeps), so the navigation core must be zero-setup.
-/// `plan_safe_refactor` / `trace_request_path` moved to deferred — both
-/// remain reachable via `suggested_next_tools` chains. Keep this set
-/// ≤10: every entry is upfront schema tokens in EVERY session.
+/// Composition (2026-07-05 cost surface rebalance): the same 9 tools
+/// as the default `tools/list` slice. Everything else is reachable via
+/// phase/namespace/tier expansion, preferred entrypoints, or ToolSearch.
+/// Keep this set ≤9: every entry is upfront schema tokens in EVERY
+/// session for hosts that honor always-load hints.
 pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
-    matches!(
-        name,
-        "prepare_harness_session"
-            | "explore_codebase"
-            | "review_changes"
-            | "review_architecture"
-            | "verify_change_readiness"
-            | "find_symbol"
-            | "find_referencing_symbols"
-            | "get_symbols_overview"
-            | "get_ranked_context"
-    )
+    crate::tool_defs::generated::tool_default_listed(name)
 }
 
 pub(crate) fn tool_namespace(name: &str) -> &'static str {
-    match name {
-        "read_file" | "list_dir" | "find_file" | "find_annotations" | "find_tests" => "filesystem",
-        "get_symbols_overview"
-        | "find_symbol"
-        | "get_ranked_context"
-        | "search_symbols_fuzzy"
-        | "bm25_symbol_search"
-        | "find_referencing_symbols"
-        | "search_workspace_symbols"
-        | "get_type_hierarchy"
-        | "plan_symbol_rename"
-        | "semantic_search"
-        | "index_embeddings" => "symbols",
-        "get_changed_files"
-        | "get_callers"
-        | "get_callees"
-        | "find_scoped_references"
-        | "get_symbol_importance"
-        | "find_dead_code"
-        | "find_circular_dependencies"
-        | "find_similar_code"
-        | "find_code_duplicates"
-        | "classify_symbol"
-        | "find_misplaced_code"
-        | "get_complexity" => "graph",
-        "cleanup_duplicate_logic"
-        | "explore_codebase"
-        | "trace_request_path"
-        | "review_architecture"
-        | "plan_safe_refactor"
-        | "audit_security_context"
-        | "analyze_change_impact"
-        | "review_changes"
-        | "assess_change_readiness"
-        | "diagnose_issues"
-        | "verify_change_readiness"
-        | "module_boundary_report"
-        | "mermaid_module_graph"
-        | "safe_rename_report"
-        | "unresolved_reference_check"
-        | "dead_code_report"
-        | "impact_report"
-        | "refactor_safety_report"
-        | "diff_aware_references"
-        | "start_analysis_job"
-        | "get_analysis_job"
-        | "cancel_analysis_job"
-        | "get_analysis_section" => "reports",
-        "list_memories" | "read_memory" | "write_memory" | "delete_memory" | "rename_memory" => {
-            "memory"
-        }
-        "get_file_diagnostics" | "get_lsp_recipe" => "lsp",
-        _ => "session",
-    }
+    crate::tool_defs::generated::tool_namespace(name).unwrap_or("session")
 }

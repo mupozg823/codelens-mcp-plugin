@@ -83,6 +83,7 @@ mod change;
 mod ci_audit;
 mod dispatch;
 mod harness;
+mod host_adaptation;
 mod impact;
 mod jobs;
 mod misc;

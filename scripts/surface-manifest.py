@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# noqa: SIZE_OK - deterministic manifest/doc generator; split after surface contracts stabilize.
 """Generate or check the canonical surface manifest and generated doc blocks."""
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ HOST_ADAPTER_SUMMARY_BEGIN = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_SUMMARY:BEGIN -
 HOST_ADAPTER_SUMMARY_END = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_SUMMARY:END -->"
 HOST_ADAPTER_GUIDANCE_BEGIN = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_GUIDANCE:BEGIN -->"
 HOST_ADAPTER_GUIDANCE_END = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_GUIDANCE:END -->"
+SURFACE_MANIFEST_FEATURES = "http,semantic"
 
 GENERATED_BLOCKS = [
     (README_SNAPSHOT_BEGIN, README_SNAPSHOT_END),
@@ -88,18 +90,22 @@ CANONICAL_TRUTH_PATTERNS = [
 ]
 
 
-def load_manifest() -> dict:
-    cmd = [
+def surface_manifest_command() -> list[str]:
+    return [
         "cargo",
         "run",
         "-q",
         "-p",
         "codelens-mcp",
         "--features",
-        "http",
+        SURFACE_MANIFEST_FEATURES,
         "--",
         "--print-surface-manifest",
     ]
+
+
+def load_manifest() -> dict:
+    cmd = surface_manifest_command()
     proc = subprocess.run(
         cmd,
         cwd=REPO_ROOT,

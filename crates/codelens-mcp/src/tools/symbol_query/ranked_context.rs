@@ -214,14 +214,20 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             .map(|(idx, file)| (file.clone(), 1.0_f64 - (idx as f64 * 0.15)))
             .collect::<std::collections::HashMap<String, f64>>()
     };
+    #[cfg(feature = "semantic")]
+    let mut query_cache_hit_tier: Option<&'static str> = None;
+    #[cfg(not(feature = "semantic"))]
+    let query_cache_hit_tier: Option<&'static str> = None;
     let mut user_context_scores: std::collections::HashMap<String, f64> = {
         #[cfg(feature = "semantic")]
         {
             if use_semantic_in_core {
                 let guard = state.embedding_engine();
                 if let Some(engine) = guard.as_ref() {
-                    match engine.embed_query_cached(query) {
-                        Ok(query_emb) => {
+                    match engine.embed_query_cached_with_tier(query) {
+                        Ok(query_result) => {
+                            query_cache_hit_tier = Some(query_result.cache_hit_tier.as_str());
+                            let query_emb = query_result.embedding;
                             let file_refs: Vec<&str> =
                                 recent_files.iter().map(String::as_str).collect();
                             match engine.file_mean_embeddings(&file_refs) {
@@ -408,6 +414,16 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
     } else {
         "short_phrase"
     };
+    let query_cache_enabled = {
+        #[cfg(feature = "semantic")]
+        {
+            codelens_engine::EmbeddingEngine::configured_query_embed_cache_size() > 0
+        }
+        #[cfg(not(feature = "semantic"))]
+        {
+            false
+        }
+    };
     let retrieval = json!({
         "semantic_enabled": !effective_disable_semantic,
         "semantic_used_in_core": use_semantic_in_core,
@@ -418,6 +434,13 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         "path_scope": normalized_path_scope.as_deref(),
         "lexical_query": query_analysis.expanded_query,
         "semantic_query": query_analysis.semantic_query,
+        "cache_hit_tier": query_cache_hit_tier,
+        "query_cache": {
+            "enabled": query_cache_enabled,
+            "used": query_cache_hit_tier.is_some(),
+            "cache_hit_tier": query_cache_hit_tier,
+            "source": "user_context_query_embedding",
+        },
     });
     let backend = if result.symbols.iter().any(|s| s.relevance_score > 0) {
         BackendKind::TreeSitter
@@ -446,6 +469,9 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
     );
     if let Some(map) = payload.as_object_mut() {
         map.insert("retrieval".to_owned(), retrieval);
+        if let Some(tier) = query_cache_hit_tier {
+            map.insert("cache_hit_tier".to_owned(), json!(tier));
+        }
         if !semantic_evidence.is_empty() {
             map.insert("semantic_evidence".to_owned(), json!(semantic_evidence));
         }

@@ -52,6 +52,14 @@ pub(crate) fn extract_initialize_metadata(
                 .and_then(|value| value.to_str().ok())
                 .map(ToOwned::to_owned)
         });
+    let host_context = string_param(params, "hostContext", "host_context").or_else(|| {
+        headers
+            .get("x-codelens-host-context")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    });
     let trusted_client = headers
         .get("x-codelens-trusted-client")
         .and_then(|value| value.to_str().ok())
@@ -96,13 +104,40 @@ pub(crate) fn extract_initialize_metadata(
                 .map(ToOwned::to_owned)
         });
     let project_path_explicit = project_path.is_some();
+    let available_mcp_servers =
+        string_array_param(params, "availableMcpServers", "available_mcp_servers")
+            .unwrap_or_else(|| csv_header_values(headers, "x-codelens-available-mcp-servers"));
+    let available_mcp_tools =
+        string_array_param(params, "availableMcpTools", "available_mcp_tools")
+            .unwrap_or_else(|| csv_header_values(headers, "x-codelens-available-mcp-tools"));
+    let skill_roots = string_array_param(params, "skillRoots", "skill_roots")
+        .unwrap_or_else(|| csv_header_values(headers, "x-codelens-skill-roots"));
+    let memory_roots = string_array_param(params, "memoryRoots", "memory_roots")
+        .unwrap_or_else(|| csv_header_values(headers, "x-codelens-memory-roots"));
+    let host_setting_keys = string_array_param(params, "hostSettingKeys", "host_setting_keys")
+        .unwrap_or_else(|| csv_header_values(headers, "x-codelens-host-setting-keys"));
+    let harness_profile = string_param(params, "harnessProfile", "harness_profile").or_else(|| {
+        headers
+            .get("x-codelens-harness-profile")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    });
 
     if client_name.is_none()
         && client_version.is_none()
         && requested_profile.is_none()
+        && host_context.is_none()
         && trusted_client.is_none()
         && deferred_tool_loading.is_none()
         && project_path.is_none()
+        && available_mcp_servers.is_empty()
+        && available_mcp_tools.is_empty()
+        && skill_roots.is_empty()
+        && memory_roots.is_empty()
+        && host_setting_keys.is_empty()
+        && harness_profile.is_none()
     {
         return None;
     }
@@ -111,6 +146,7 @@ pub(crate) fn extract_initialize_metadata(
         client_name,
         client_version,
         requested_profile,
+        host_context,
         trusted_client,
         deferred_tool_loading,
         project_path,
@@ -118,6 +154,12 @@ pub(crate) fn extract_initialize_metadata(
         loaded_namespaces: Vec::new(),
         loaded_tiers: Vec::new(),
         full_tool_exposure: None,
+        available_mcp_servers,
+        available_mcp_tools,
+        skill_roots,
+        memory_roots,
+        host_setting_keys,
+        harness_profile,
     })
 }
 
@@ -143,7 +185,14 @@ impl SessionSeed {
                 .and_then(|value| value.to_str().ok())
                 .and_then(parse_bool_header),
             client_name: header("x-codelens-client"),
+            host_context: header("x-codelens-host-context"),
             project_path: project_header_value(headers),
+            available_mcp_servers: csv_header_values(headers, "x-codelens-available-mcp-servers"),
+            available_mcp_tools: csv_header_values(headers, "x-codelens-available-mcp-tools"),
+            skill_roots: csv_header_values(headers, "x-codelens-skill-roots"),
+            memory_roots: csv_header_values(headers, "x-codelens-memory-roots"),
+            host_setting_keys: csv_header_values(headers, "x-codelens-host-setting-keys"),
+            harness_profile: header("x-codelens-harness-profile"),
         }
     }
 }
@@ -237,6 +286,58 @@ fn parse_bool_header(value: &str) -> Option<bool> {
         "0" | "false" | "no" => Some(false),
         _ => None,
     }
+}
+
+fn string_param(params: &serde_json::Value, camel_key: &str, snake_key: &str) -> Option<String> {
+    params
+        .get(camel_key)
+        .or_else(|| params.get(snake_key))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn string_array_param(
+    params: &serde_json::Value,
+    camel_key: &str,
+    snake_key: &str,
+) -> Option<Vec<String>> {
+    let values = params.get(camel_key).or_else(|| params.get(snake_key))?;
+    let mut normalized = Vec::new();
+    for item in values.as_array()? {
+        let Some(value) = item
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if !normalized.iter().any(|existing| existing == value) {
+            normalized.push(value.to_owned());
+        }
+    }
+    Some(normalized)
+}
+
+fn csv_header_values(headers: &HeaderMap, key: &str) -> Vec<String> {
+    let Some(raw) = headers
+        .get(key)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Vec::new();
+    };
+    let mut values = Vec::new();
+    for item in raw.split(',') {
+        let value = item.trim();
+        if value.is_empty() || values.iter().any(|existing| existing == value) {
+            continue;
+        }
+        values.push(value.to_owned());
+    }
+    values
 }
 
 fn annotate_initialize_response(

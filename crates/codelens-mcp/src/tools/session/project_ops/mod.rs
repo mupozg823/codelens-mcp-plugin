@@ -1,5 +1,6 @@
 pub mod activate;
 pub mod embed_hint;
+pub mod host_environment;
 pub mod prep_recovery;
 pub mod prep_warnings;
 pub mod prepare_harness;

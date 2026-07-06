@@ -6,6 +6,7 @@
 //! touch this file. See ADR-0013.
 
 mod build_generated;
+mod metadata_generated;
 
 // Re-export the per-category emit functions so callers in `super::build`
 // see them as `super::generated::<name>_tools` rather than reaching
@@ -21,3 +22,8 @@ pub(super) use build_generated::{
 
 #[cfg(feature = "semantic")]
 pub(super) use build_generated::semantic_tools;
+
+pub(super) use metadata_generated::{
+    default_listed_tool_names, tool_annotation_key, tool_default_listed, tool_feature_gate,
+    tool_namespace, tool_phase,
+};

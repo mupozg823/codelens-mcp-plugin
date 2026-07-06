@@ -1,0 +1,59 @@
+{
+  "schema_version": "codelens-external-project-smoke-matrix-v1",
+  "projects": [
+    {
+      "name": "fixture-python-callgraph",
+      "kind": "python",
+      "path": "benchmarks/call-graph-accuracy/fixtures/python",
+      "query": "parse incoming event payload line",
+      "path_hint": "registry.py",
+      "max_results": 8,
+      "expected_search": {
+        "file_path": "registry.py",
+        "symbol_name": "parse_line",
+        "max_rank": 3
+      },
+      "mutation": {
+        "file_path": "registry.py",
+        "symbol_name": "parse_line",
+        "new_name": "preview_parse_line"
+      }
+    },
+    {
+      "name": "fixture-typescript-callgraph",
+      "kind": "typescript",
+      "path": "benchmarks/call-graph-accuracy/fixtures/ts",
+      "query": "handle request payload normalize and parse lines",
+      "path_hint": "promises.ts",
+      "max_results": 8,
+      "expected_search": {
+        "file_path": "promises.ts",
+        "symbol_name": "parseLine",
+        "max_rank": 3
+      },
+      "mutation": {
+        "file_path": "promises.ts",
+        "symbol_name": "handleRequest",
+        "new_name": "previewHandleRequest"
+      }
+    },
+    {
+      "name": "fixture-rust-callgraph",
+      "kind": "rust",
+      "path": "benchmarks/call-graph-accuracy/fixtures/rust",
+      "query": "run handler and parse line lengths",
+      "path_hint": "registry.rs",
+      "max_results": 8,
+      "expected_search": {
+        "file_path": "registry.rs",
+        "symbol_name": "parse_line",
+        "max_rank": 3
+      },
+      "mutation": {
+        "file_path": "registry.rs",
+        "symbol_name": "parse_line",
+        "new_name": "preview_parse_line"
+      }
+    }
+  ]
+}

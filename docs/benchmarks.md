@@ -40,9 +40,9 @@ each later turn, so envelope bytes are a recurring cost.
 
 Measured-motivation footnote: workflow subagents given only a soft "use
 CodeLens if available" hint made 1–2 CodeLens calls vs 10–47 grep/Bash sweeps
-per agent — which is why the navigation core (`find_symbol`,
-`find_referencing_symbols`, `get_symbols_overview`, `get_ranked_context`) is
-now in the `alwaysLoad` schema set (zero-setup on the hot path).
+per agent. The current alwaysLoad contract keeps only the 9-tool bootstrap
+surface resident; broader navigation expands by phase, namespace, tier, or
+preferred entrypoint.
 
 ---
 
@@ -100,25 +100,27 @@ The compression ratio grows when agents would otherwise expand raw graph data (i
 
 **What we measure**: three benchmark tiers.
 
-1. **Self regression** — 104 queries against real symbols in this repository.
+1. **Self regression** — current live dataset rows against real symbols in this repository; 112 rows as of the latest product-readiness gate, while historical snapshots below may use smaller row counts.
 2. **Role regression** — 70 workflow-oriented queries phrased the way harness agents actually ask for implementations, handlers, helpers, and entrypoints.
 3. **External smoke** — small non-CodeLens datasets used to ensure the promoted numbers are not purely repo-local.
 
 **Scripts**:
 
 - `benchmarks/embedding-quality.py` — runs the full quality suite
-- `benchmarks/embedding-quality-dataset-self.json` — the 104-query self regression dataset
+- `benchmarks/embedding-quality-dataset-self.json` — the current self regression dataset
 - `benchmarks/role-retrieval-dataset.json` — the 70-query role regression dataset
 - `benchmarks/external-*.json` — smoke datasets for non-CodeLens repositories
+- `benchmarks/external-project-smoke.py` + `benchmarks/external-project-smoke-matrix.json` — fast fixture smoke that runs index/search/dry-run rename, applies `semantic_search(path_hint)` scope, and asserts the expected semantic hit
 
 **Metrics**:
 
 - **MRR** (Mean Reciprocal Rank) — `1/rank` of the correct answer, averaged. Higher is better. `1.0` means always rank-1.
 - **Accuracy@k** — fraction of queries where the correct symbol lands in the top-k results.
+- **Average response bytes / estimated response tokens** — compact JSON payload size per query, with the same rough `4 bytes ~= 1 token` estimate used by the MCP response budget layer. This keeps retrieval changes honest about agent consumption cost, not only ranking quality.
 
 ### Current promoted regression baselines
 
-**Self regression snapshot** (2026-04-17, 104 queries, v1.9.36, artifact: `benchmarks/results/v1.9.36-mrr-self.{json,md}`):
+**Historical self regression snapshot** (2026-04-17, 104 queries, v1.9.36, artifact: `benchmarks/results/v1.9.36-mrr-self.{json,md}`):
 
 | Method                         |       MRR | Acc@1 | Acc@3 | Avg ms |
 | ------------------------------ | --------: | ----: | ----: | -----: |
@@ -148,6 +150,12 @@ The compression ratio grows when agents would otherwise expand raw graph data (i
 
 These are intentionally small and do **not** replace a promotion-grade cross-repo matrix. They do, however, prevent us from presenting a pure self-repo success story as if it were universal.
 
+The executable `external-project-smoke.py` gate is a separate runtime sanity
+check, not an MRR table. Its default matrix uses Python, TypeScript, and Rust
+fixtures and fails if `semantic_search` ignores the configured `path_hint` scope
+or succeeds while the expected file/symbol is missing from the configured top-k
+window.
+
 | Repo  | Queries | Semantic MRR | Lexical MRR | Hybrid MRR | Hybrid Acc@1 | Hybrid Acc@3 |
 | ----- | ------: | -----------: | ----------: | ---------: | -----------: | -----------: |
 | Flask |      20 |    **0.577** |       0.363 |      0.563 |        0.450 |        0.650 |
@@ -159,7 +167,7 @@ Interpretation:
 - Flask is a visible exception: pure semantic slightly beats hybrid there, which means Python app repos still need additional calibration work.
 - Public claims should distinguish clearly between **self regression**, **role regression**, and **external smoke**.
 
-> **Authoritative baseline rule**: current public regression claims are based on the 104-query self dataset and the 70-query role dataset above. Older 89-query numbers remain historically useful for experiment logs below, but they are not the current promoted baseline.
+> **Authoritative baseline rule**: public regression claims must state the dataset row count and artifact they came from. The 104-query table above is a historical promoted snapshot; the current self dataset is larger and should be interpreted together with role regression and external smoke evidence.
 
 ### Release quality matrix
 
@@ -181,6 +189,18 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 ```
 
 Use `--isolated-copy` to avoid index pollution when the script mutates the working directory (it runs `refresh_symbol_index` between runs).
+
+For candidate ranker or symbol-card changes, run `--check` with explicit quality and consumption floors, for example:
+
+```bash
+python3 benchmarks/embedding-quality.py . --isolated-copy --check \
+  --min-hybrid-mrr 0.65 \
+  --min-hybrid-recall 0.70 \
+  --min-hybrid-acc1 0.45 \
+  --max-hybrid-avg-ms 250 \
+  --max-hybrid-avg-response-bytes 120000 \
+  --max-hybrid-p95-response-tokens 20000
+```
 
 ---
 

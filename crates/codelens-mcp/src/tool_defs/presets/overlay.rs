@@ -76,10 +76,34 @@ impl TaskOverlay {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentRole {
+    Main,
+    Subagent,
+}
+
+impl AgentRole {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "main" | "orchestrator" | "coordinator" | "parent" => Some(Self::Main),
+            "subagent" | "sub-agent" | "worker" | "delegate" | "child" => Some(Self::Subagent),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Main => "main",
+            Self::Subagent => "subagent",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SurfaceOverlayPlan {
     pub host_context: Option<HostContext>,
     pub task_overlay: Option<TaskOverlay>,
+    pub agent_role: Option<AgentRole>,
     pub preferred_executor_bias: Option<&'static str>,
     pub preferred_entrypoints: Vec<&'static str>,
     pub emphasized_tools: Vec<&'static str>,
@@ -89,12 +113,12 @@ pub(crate) struct SurfaceOverlayPlan {
 
 impl SurfaceOverlayPlan {
     pub fn applied(&self) -> bool {
-        self.host_context.is_some() || self.task_overlay.is_some()
+        self.host_context.is_some() || self.task_overlay.is_some() || self.agent_role.is_some()
     }
 }
 
 /// Input bundle for the 2-layer surface compiler
-/// (profile × host_context × task_overlay).
+/// (profile × host_context × task_overlay × agent_role).
 ///
 /// Binds the three orthogonal lanes called out in
 /// `docs/design/serena-comparison-2026-04-18.md` §Adopt 1:
@@ -102,6 +126,7 @@ impl SurfaceOverlayPlan {
 /// - `surface` — role lane (planner / builder / reviewer / …)
 /// - `host_context` — runtime envelope (claude-code / codex / cursor / …)
 /// - `task_overlay` — task shape (planning / editing / review / …)
+/// - `agent_role` — caller topology (main orchestrator / delegated worker)
 ///
 /// Reserved extension points (not populated yet, tracked in the P2/P3 plan):
 ///
@@ -117,6 +142,7 @@ pub(crate) struct SurfaceCompilerInput {
     pub surface: ToolSurface,
     pub host_context: Option<HostContext>,
     pub task_overlay: Option<TaskOverlay>,
+    pub agent_role: Option<AgentRole>,
 }
 
 impl SurfaceCompilerInput {
@@ -125,6 +151,7 @@ impl SurfaceCompilerInput {
             surface,
             host_context: None,
             task_overlay: None,
+            agent_role: None,
         }
     }
 
@@ -138,8 +165,21 @@ impl SurfaceCompilerInput {
         self
     }
 
+    pub fn with_agent_role(mut self, role: AgentRole) -> Self {
+        self.agent_role = Some(role);
+        self
+    }
+
     pub fn compile(self) -> SurfaceOverlayPlan {
-        compile_surface_overlay(self.surface, self.host_context, self.task_overlay)
+        match self.agent_role {
+            Some(agent_role) => compile_surface_overlay_for_agent(
+                self.surface,
+                self.host_context,
+                self.task_overlay,
+                Some(agent_role),
+            ),
+            None => compile_surface_overlay(self.surface, self.host_context, self.task_overlay),
+        }
     }
 }
 
@@ -185,9 +225,19 @@ pub(crate) fn compile_surface_overlay(
     host_context: Option<HostContext>,
     task_overlay: Option<TaskOverlay>,
 ) -> SurfaceOverlayPlan {
+    compile_surface_overlay_for_agent(surface, host_context, task_overlay, None)
+}
+
+pub(crate) fn compile_surface_overlay_for_agent(
+    surface: ToolSurface,
+    host_context: Option<HostContext>,
+    task_overlay: Option<TaskOverlay>,
+    agent_role: Option<AgentRole>,
+) -> SurfaceOverlayPlan {
     let mut plan = SurfaceOverlayPlan {
         host_context,
         task_overlay,
+        agent_role,
         preferred_executor_bias: None,
         preferred_entrypoints: Vec::new(),
         emphasized_tools: Vec::new(),
@@ -442,6 +492,49 @@ pub(crate) fn compile_surface_overlay(
                 crate::util::push_unique(
                     &mut plan.routing_notes,
                     "Interactive overlay should keep bootstrap light and bias toward retrieval tools that answer the next question quickly.",
+                );
+            }
+        }
+    }
+
+    if let Some(agent_role) = agent_role {
+        match agent_role {
+            AgentRole::Main => {
+                push_surface_tools(
+                    &mut plan,
+                    surface,
+                    &[
+                        "prepare_harness_session",
+                        "explore_codebase",
+                        "review_architecture",
+                        "plan_safe_refactor",
+                        "review_changes",
+                        "start_analysis_job",
+                        "get_analysis_section",
+                    ],
+                );
+                crate::util::push_unique(
+                    &mut plan.routing_notes,
+                    "Main agent role should orchestrate through workflow and report entrypoints, keeping worker-level context retrieval and mutation behind explicit gates.",
+                );
+            }
+            AgentRole::Subagent => {
+                push_surface_tools(
+                    &mut plan,
+                    surface,
+                    &[
+                        "prepare_harness_session",
+                        "trace_request_path",
+                        "get_ranked_context",
+                        "find_symbol",
+                        "get_symbols_overview",
+                        "get_file_diagnostics",
+                        "verify_change_readiness",
+                    ],
+                );
+                crate::util::push_unique(
+                    &mut plan.routing_notes,
+                    "Subagent role should stay narrow: retrieve bounded context, run diagnostics, and return evidence for the parent session to verify.",
                 );
             }
         }

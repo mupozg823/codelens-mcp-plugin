@@ -25,21 +25,19 @@ fn lists_tools() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
-    // v1.10.1 (F2): default tools/list now surfaces workflow-first 7 +
-    // core navigation primitives so the slogan matches reality. Symbol
-    // primitives like `get_symbols_overview` are now in the default
-    // list. Use a phase or namespace filter when only a slice is wanted.
+    // 2026-07-05 cost-surface contract: default tools/list is the
+    // bootstrap/control slice only. Broader work expands by phase,
+    // namespace, tier, or full listing.
+    assert!(names.len() <= 9, "default tools/list must stay <=9 tools");
+    assert!(names.contains(&"prepare_harness_session"));
     assert!(names.contains(&"get_ranked_context"));
-    assert!(names.contains(&"get_callers"));
-    assert!(names.contains(&"start_analysis_job"));
-    assert!(
-        names.contains(&"get_symbols_overview"),
-        "default tools/list now includes core navigation primitives (v1.10.1 F2)"
-    );
     assert!(
         names.contains(&"review_changes"),
-        "default tools/list now includes the workflow-first 7 (v1.10.1 F2)"
+        "default tools/list must keep the pre-merge review entrypoint"
     );
+    assert!(!names.contains(&"get_callers"));
+    assert!(!names.contains(&"start_analysis_job"));
+    assert!(!names.contains(&"get_symbols_overview"));
 }
 
 #[test]
@@ -65,47 +63,27 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
 
-    // v1.10.1 (F2): default tools/list expanded from 13 → 26 tools to
-    // surface the workflow-first composite tools and core navigation
-    // primitives that the product is positioned around. The list is
-    // ordered as defined in `DEFAULT_LISTED_TOOL_NAMES`.
-    let mut expected: Vec<&'static str> = vec![
-        // Control plane
-        "activate_project",
+    // 2026-07-05: keep first exposure to the local code-intelligence
+    // control plane compact. The list is ordered as defined in
+    // `tools.toml` default_visible_rank entries; wider surfaces are explicit
+    // namespace/tier/phase/full expansions.
+    let expected: Vec<&'static str> = vec![
         "prepare_harness_session",
         "get_current_config",
-        "get_capabilities",
-        "set_profile",
-        "set_preset",
-        // Workflow-first 7
         "explore_codebase",
-        "trace_request_path",
         "review_architecture",
-        "plan_safe_refactor",
-        "cleanup_duplicate_logic",
         "review_changes",
-        "diagnose_issues",
-        // Core navigation primitives
-        "find_symbol",
-        "get_symbols_overview",
-        "find_referencing_symbols",
-        "get_file_diagnostics",
-        "bm25_symbol_search",
-        "semantic_search",
-        // Analysis & async jobs
-        "get_ranked_context",
-        "get_callers",
-        "get_callees",
+        "plan_safe_refactor",
         "verify_change_readiness",
-        "start_analysis_job",
-        "get_analysis_job",
-        "get_analysis_section",
+        "find_symbol",
+        "get_ranked_context",
     ];
-    if !cfg!(feature = "semantic") {
-        // semantic_search is gated; only present when the feature is on.
-        expected.retain(|name| *name != "semantic_search");
-    }
     assert_eq!(default_tools, expected);
+    assert_eq!(
+        crate::tool_defs::default_listed_tool_names(),
+        expected.as_slice(),
+        "default tools/list order must be generated from tools.toml default_visible_rank"
+    );
 
     let full_resp = handle_request(
         &state,
@@ -870,20 +848,25 @@ fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
         review["_meta"]["anthropic/searchHint"],
         json!("review changed files and risk")
     );
-    // 2026-07-03 rebalance: the mechanical navigation core is zero-setup
-    // (alwaysLoad) so agents stop skipping CodeLens over the ToolSearch
-    // round-trip cost; lower-frequency workflow reports stay deferred.
+    // 2026-07-05 rebalance: alwaysLoad matches the 9-tool default
+    // control-plane slice; lower-frequency reports stay deferred.
     assert_eq!(symbol["_meta"]["anthropic/alwaysLoad"], json!(true));
-    let deferred_report = tools
+    let preflight = tools
         .iter()
         .find(|tool| tool["name"] == "plan_safe_refactor")
         .expect("plan_safe_refactor present");
-    assert!(
-        deferred_report["_meta"]
-            .get("anthropic/alwaysLoad")
-            .is_none(),
-        "plan_safe_refactor must stay deferred-discoverable"
-    );
+    assert_eq!(preflight["_meta"]["anthropic/alwaysLoad"], json!(true));
+
+    let default_names = crate::tool_defs::default_listed_tool_names();
+    for tool in tools {
+        let name = tool["name"].as_str().expect("tool name");
+        let has_always_load = tool["_meta"]["anthropic/alwaysLoad"] == json!(true);
+        assert_eq!(
+            has_always_load,
+            default_names.contains(&name),
+            "anthropic/alwaysLoad should match tools.toml default_visible_rank for {name}"
+        );
+    }
 }
 
 #[test]

@@ -1,4 +1,9 @@
 mod analysis;
+mod bridges;
+mod changed_files;
+mod coverage;
+mod git_sha;
 mod index;
 mod query_cache;
+mod reconcile;
 mod search;
