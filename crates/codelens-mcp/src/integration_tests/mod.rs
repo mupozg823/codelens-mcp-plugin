@@ -32,6 +32,7 @@ mod protocol_observability;
 mod protocol_resources;
 mod protocol_security;
 mod protocol_tools_list;
+mod ranked_context_coverage;
 mod readonly;
 mod registry;
 #[cfg(feature = "semantic")]

@@ -37,6 +37,34 @@ pub(crate) fn ranked_context_output_schema() -> serde_json::Value {
             "token_budget": {"type": "integer"},
             "chars_used": {"type": "integer"},
             "cache_hit_tier": {"type": "string", "enum": ["disabled", "cold", "exact"]},
+            "coverage": {
+                "type": "object",
+                "properties": {
+                    "mode": {"type": "string", "enum": ["symbol_cards"]},
+                    "flow_complete": {"type": "boolean"},
+                    "bodies_requested": {"type": "boolean"},
+                    "bodies_returned": {"type": "integer"},
+                    "symbols_selected": {"type": "integer"},
+                    "body_scope": {
+                        "type": "string",
+                        "enum": ["omitted", "none", "symbol_span"]
+                    },
+                    "gaps": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "next_call_hints": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "tool": {"type": "string"},
+                                "reason": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            },
             "evidence": evidence_output_schema(),
             "retrieval": {
                 "type": "object",

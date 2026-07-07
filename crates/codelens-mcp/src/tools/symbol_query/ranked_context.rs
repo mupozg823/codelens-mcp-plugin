@@ -30,6 +30,7 @@ use super::rank_fusion::{
     annotate_ranked_context_provenance, compact_semantic_evidence, compact_sparse_evidence,
     fuse_ranked_entries_weighted_rrf, resolve_rrf_channel_weights,
 };
+use super::ranked_context_coverage::ranked_context_coverage;
 use super::retrieval_scope::normalize_path_scope;
 use super::sparse_retriever::{adapt_budget_to_context_window, sparse_symbol_hits_for_query};
 use crate::AppState;
@@ -392,6 +393,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
     };
     let mut payload =
         serde_json::to_value(&result).map_err(|e| CodeLensError::Internal(e.into()))?;
+    let coverage = ranked_context_coverage(&result.symbols, include_body, max_tokens);
     annotate_ranked_context_provenance(
         &mut payload,
         &structural_keys,
@@ -469,6 +471,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
     );
     if let Some(map) = payload.as_object_mut() {
         map.insert("retrieval".to_owned(), retrieval);
+        map.insert("coverage".to_owned(), coverage);
         if let Some(tier) = query_cache_hit_tier {
             map.insert("cache_hit_tier".to_owned(), json!(tier));
         }

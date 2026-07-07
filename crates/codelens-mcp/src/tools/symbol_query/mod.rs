@@ -9,6 +9,7 @@
 mod find_symbol;
 mod rank_fusion;
 mod ranked_context;
+mod ranked_context_coverage;
 pub(crate) mod retrieval_scope;
 pub(crate) mod sparse_retriever;
 mod symbols_overview;
