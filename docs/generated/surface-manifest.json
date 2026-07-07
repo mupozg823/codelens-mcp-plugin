@@ -2,7 +2,7 @@
   "schema_version": "codelens-surface-manifest-v2",
   "workspace": {
     "version": "1.13.34",
-    "description": "Host-adaptive Rust MCP code-intelligence router with hybrid semantic retrieval, index-health visibility, mutation gates, and token-lean workflows for Codex, Claude, and generic MCP clients",
+    "description": "Host-adaptive Rust MCP code-intelligence router with cached hybrid retrieval, index-health visibility, mutation gates, and token-lean workflows for Codex, Claude, and generic MCP clients",
     "members": [
       "crates/codelens-engine",
       "crates/codelens-mcp"

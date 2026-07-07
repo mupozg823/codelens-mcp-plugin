@@ -1,15 +1,15 @@
 # CodeLens MCP — Platform Setup Guide
 
-> One binary, compressed context and verification tool for planner/reviewer/refactor harnesses.
+> One binary, cached hybrid retrieval, compressed context, and verification tooling for planner/reviewer/refactor harnesses.
 
 ## Quick Install
 
-| Channel          | Command                                                                                     | Best for                         |
-| ---------------- | ------------------------------------------------------------------------------------------- | -------------------------------- | --------------------- |
-| crates.io        | `cargo install codelens-mcp`                                                                | Standard Rust installs           |
-| Homebrew         | `brew install mupozg823/tap/codelens-mcp`                                                   | macOS/Linux workstation installs |
-| GitHub installer | `curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash`                            | Fast binary bootstrap |
-| Source build     | `cargo build --release`                                                                     | Custom feature combinations      |
+| Channel          | Command                                                                                       | Best for                         |
+| ---------------- | --------------------------------------------------------------------------------------------- | -------------------------------- |
+| crates.io        | `cargo install codelens-mcp`                                                                  | Standard Rust installs           |
+| Homebrew         | `brew install mupozg823/tap/codelens-mcp`                                                     | macOS/Linux workstation installs |
+| GitHub installer | `curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh \| bash` | Fast binary bootstrap            |
+| Source build     | `cargo build --release`                                                                       | Custom feature combinations      |
 
 ### Capability Matrix By Install Channel
 
@@ -52,7 +52,7 @@ cp target/release/codelens-mcp ~/.local/bin/
 
 Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 
-Semantic search is supported by the default binary, but it needs a sidecar model directory containing `codesearch/model.onnx`. Set `CODELENS_MODEL_DIR` to that parent directory or place `models/codesearch/` next to the executable.
+Semantic search is not part of the lean crates.io default. It is available in GitHub Release, Homebrew, installer, or source builds that include the `semantic` feature, and it needs a sidecar model directory containing `codesearch/model.onnx`. Set `CODELENS_MODEL_DIR` to that parent directory or place `models/codesearch/` next to the executable.
 
 If you need a feature that exists on `main` but not in your installed binary, compare these before debugging:
 
@@ -84,6 +84,17 @@ Recommended daemon split:
 - `7838` mutation-enabled daemon only for explicit gated refactor sessions
 
 For this repository's local launchd workflow, use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh). It installs the repo-local dual-daemon shape from a current `--features http,semantic` build by default, writes `CODELENS_MODEL_DIR` into the plists when the repo-local model sidecar exists, and defaults to `7839` read-only plus `7838` mutation-enabled to match the local harness contract.
+
+After changing runtime-facing retrieval or daemon behavior in this repository,
+refresh the local deployment and prove that the daemon is serving the same
+binary as `HEAD`:
+
+```bash
+bash scripts/redeploy-daemons.sh --build --probe
+bash scripts/daemon-stale-check.sh
+.codelens/bin/codelens-mcp-http . --cmd index_embeddings
+python3 scripts/smoke-embedding-coverage.py --binary .codelens/bin/codelens-mcp-http --project .
+```
 
 The local launchd installer also defaults `CODELENS_EMBED_RESOURCE_PROFILE=low_power`.
 That caps semantic embedding work to the low-power runtime path (CPU provider,

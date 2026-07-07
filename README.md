@@ -2,11 +2,11 @@
 
 # CodeLens MCP
 
-**Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
+**Host-adaptive Rust MCP code-intelligence router with cached hybrid retrieval, index-health visibility, mutation gates, and token-lean workflows.**
 
 If you are preparing automation or host configs for the eventual cutover, use the host-by-host migration guide: [`docs/migrate-from-codelens.md`](docs/migrate-from-codelens.md).
 
-Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, token compression, and enterprise-ready observability. The binary statically links SQLite, the vector store, and the ONNX runtime, so no external daemons or service installs are required for the core retrieval and mutation surfaces. **Semantic search additionally needs a sidecar model directory** (~80 MB ONNX) — GitHub Release tarballs bundle it automatically, but users installing via `cargo install codelens-mcp` must point `CODELENS_MODEL_DIR` at a separately-fetched model payload (see the [Install Channel Matrix](#install-channel-matrix)).
+Pure Rust MCP server for multi-agent harnesses with cached hybrid retrieval (tree-sitter + BM25/sparse ranking + semantic), mutation-gated refactoring, token compression, and enterprise-ready observability. The binary statically links SQLite, the vector store, and the ONNX runtime, so no external daemons or service installs are required for the core retrieval and mutation surfaces. **Semantic search additionally needs a sidecar model directory** (~80 MB ONNX) — GitHub Release tarballs bundle it automatically, but users installing via `cargo install codelens-mcp` must point `CODELENS_MODEL_DIR` at a separately-fetched model payload (see the [Install Channel Matrix](#install-channel-matrix)).
 
 [![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/mupozg823/codelens-mcp-plugin/actions)
 [![crates.io](https://img.shields.io/crates/v/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
@@ -86,6 +86,8 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 Latest release: [GitHub Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). For local release comparisons, use `git tag --sort=-v:refname | head -1` instead of copying a fixed tag into docs.
 
 Runtime smoke proof: [`docs/quickstart-transcript.md`](docs/quickstart-transcript.md) captures install -> doctor/status -> index -> coverage -> retrieve from an isolated temp prefix.
+
+Public repo, release-page, and plugin-marketplace descriptions should use the same short product line as this README. Localized deployment copy for country/language-specific pages lives in [`docs/release-distribution.md#localized-deployment-page-copy`](docs/release-distribution.md#localized-deployment-page-copy).
 
 ### Install Channel Matrix
 

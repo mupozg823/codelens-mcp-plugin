@@ -1,9 +1,9 @@
 # CodeLens MCP — Architecture & Project Overview
 
-> Pure Rust MCP server and harness optimization tool for code intelligence
-> Harness optimization control plane with generated surface governance and tree-sitter-first retrieval
+> Host-adaptive Rust MCP code-intelligence router for multi-agent harnesses
+> Cached hybrid retrieval, generated surface governance, daemon health checks, and mutation-gated refactoring
 
-## Current Snapshot (2026-06-15 local re-check)
+## Current Snapshot (2026-07-07 local daemon re-check)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
 
@@ -25,16 +25,20 @@
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
 - Current enterprise productization decision record: [docs/adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
 - Current product direction: CodeLens is becoming a bounded code-work orchestrator over its existing code-intelligence substrate. See [docs/adr/ADR-0014-bounded-code-work-orchestrator.md](adr/ADR-0014-bounded-code-work-orchestrator.md).
+- Latest local deploy proof: `scripts/redeploy-daemons.sh --build --probe` rebuilt and reprobed the shared daemons; `scripts/daemon-stale-check.sh` reported daemon commit `26d6b87` matching source `HEAD`; `smoke-embedding-coverage.py` reported semantic index readiness at 100%.
+- Latest retrieval performance proof: the sparse symbol BM25 layer now caches token weights and document frequencies by project/path-scope fingerprint. The local gate improved from `41465.92 ms` to `26584.4 ms` with quality gates passing and unchanged top-hit behavior.
 
 This document describes the product shape and the stable architectural layers.
 The audit document above captures the current overdesign, duplication, and drift findings against the latest code.
 
 ---
 
-## Current Improvement Priorities (2026-06-15 follow-up)
+## Current Improvement Priorities (2026-07-07 follow-up)
 
-This pass cross-checked native LOC inventory, Serena symbol overview, and CodeLens `review_architecture`
-dogfood. It does not change runtime behavior.
+The current hot path is no longer "run more retrieval"; it is keeping the
+retrieval stack cache-aware, observable, and profile-scoped so the same daemon
+can serve planner/reviewer/builder sessions without repeated full-project
+sparse scoring.
 
 Evidence:
 
@@ -44,17 +48,37 @@ Evidence:
 
 Prioritized architecture moves:
 
-1. Resolved (2026-07-03): pending-D3 stays dispatch-only (internal) by decision — this is no longer an open TODO. The 4-tool `pending_d3_symbolic_edit_core` and the 5-tool `pending_d3_refactor_substrate` remain callable behind the mutation gate but unlisted (schemaless). Rationale: hosts route schema-exposed symbolic edits through a dedicated editor (Serena et al.), while the `:7838` mutation daemon must keep calling these behind the gate. Re-listing is conditioned on host demand with no symbolic editor plus a mature LSP authoritative-apply path. The `pending_d3_` identifiers are retained deliberately because CI drift gates and runtime report vocabulary key off them.
-2. Completed: split `tools/workflows.rs` by real responsibility; duplicate-cleanup quality filters and tests now live in `tools/workflows/duplicate_cleanup.rs`, leaving workflow entrypoints as thin orchestration.
-3. Completed: split `session_metrics_payload.rs` by real ownership. The parent now snapshots `AppState` and delegates to submodules for session fields, derived KPIs, and token bill construction; grouped field writers keep every touched file under the 250 pure-LOC review ceiling.
-4. Completed: productize the local tool-usage analyzer modules as operator-facing telemetry. The CLI now covers metrics JSON, telemetry JSONL, and Codex rollout JSONL; rollout event parsing lives in `scripts/codex_rollout_events.py`, leaving `scripts/codex_rollout_usage.py` as the loader/orchestration layer.
-5. Next: review `crates/codelens-engine/src/project.rs` detection helpers with CodeLens before any split. It is still a large production file and has broader engine blast radius than the Python telemetry lane.
-6. Treat `dispatch/response.rs` as high-risk but second order: it is large, but the dispatch boundary has no cycle hit. Only extract cohesive delegate-hint or response-enrichment helpers when the diff removes real branching complexity.
-7. Keep Serena comparison honest: CodeLens should adopt Serena's deterministic routing pressure at the plugin/skill layer, not Serena's blind-trust editing prompt or LSP-adapter breadth race.
+1. Completed (2026-07-07): cache the sparse BM25 symbol index behind the current
+   retrieval diagnostics path. Repeated `hybrid_search` calls now reuse
+   per-project/path-scope token weights instead of rebuilding the sparse corpus.
+2. Resolved (2026-07-03): pending-D3 stays dispatch-only (internal) by decision — this is no longer an open TODO. The 4-tool `pending_d3_symbolic_edit_core` and the 5-tool `pending_d3_refactor_substrate` remain callable behind the mutation gate but unlisted (schemaless). Rationale: hosts route schema-exposed symbolic edits through a dedicated editor (Serena et al.), while the `:7838` mutation daemon must keep calling these behind the gate. Re-listing is conditioned on host demand with no symbolic editor plus a mature LSP authoritative-apply path. The `pending_d3_` identifiers are retained deliberately because CI drift gates and runtime report vocabulary key off them.
+3. Completed: split `tools/workflows.rs` by real responsibility; duplicate-cleanup quality filters and tests now live in `tools/workflows/duplicate_cleanup.rs`, leaving workflow entrypoints as thin orchestration.
+4. Completed: split `session_metrics_payload.rs` by real ownership. The parent now snapshots `AppState` and delegates to submodules for session fields, derived KPIs, and token bill construction; grouped field writers keep every touched file under the 250 pure-LOC review ceiling.
+5. Completed: productize the local tool-usage analyzer modules as operator-facing telemetry. The CLI now covers metrics JSON, telemetry JSONL, and Codex rollout JSONL; rollout event parsing lives in `scripts/codex_rollout_events.py`, leaving `scripts/codex_rollout_usage.py` as the loader/orchestration layer.
+6. Next: put the same strict measurements around adaptive RRF/rerank and
+   hierarchical context changes: compare Recall@k, nDCG/MRR, latency p50/p95,
+   and context-token deltas before widening defaults.
+7. Next: review `crates/codelens-engine/src/project.rs` detection helpers with CodeLens before any split. It is still a large production file and has broader engine blast radius than the Python telemetry lane.
+8. Treat `dispatch/response.rs` as high-risk but second order: it is large, but the dispatch boundary has no cycle hit. Only extract cohesive delegate-hint or response-enrichment helpers when the diff removes real branching complexity.
+9. Keep Serena comparison honest: CodeLens should adopt Serena's deterministic routing pressure at the plugin/skill layer, not Serena's blind-trust editing prompt or LSP-adapter breadth race.
 
 ---
 
 ## Retrieval Adaptation Tiers
+
+CodeLens uses three retrieval lanes before host-side fusion or reranking:
+
+- lexical/symbol lane: tree-sitter symbols, identifier splits, BM25-style sparse
+  weights, and exact path/name signals
+- semantic lane: cfg-gated embedding search using the configured CodeSearchNet
+  sidecar model
+- workflow/context lane: profile-aware tools such as ranked context,
+  architecture review, trace request path, and analysis jobs
+
+The sparse symbol lane is cached by project/root query scope. Cache keys include
+the project identity and the path scope, so focused searches avoid paying for a
+full-project sparse rebuild while still invalidating when the symbol index or
+scope changes.
 
 Semantic query shaping is split into two explicit tiers:
 
@@ -140,14 +164,15 @@ as the *precision tier* above tree-sitter and beside SCIP:
 
 ## Distribution Surface
 
-CodeLens is currently packaged and deployed through four user-facing channels and one source path:
+CodeLens is currently packaged and deployed through six public distribution paths:
 
 | Channel          | Current shape                             | Notes                                            |
 | ---------------- | ----------------------------------------- | ------------------------------------------------ |
-| crates.io        | `cargo install codelens-mcp`              | Fastest path for Rust users                      |
+| crates.io        | `cargo install codelens-mcp`              | Fastest lean path for Rust users                 |
 | GitHub Releases  | prebuilt tar/zip artifacts                | `darwin-arm64`, `linux-x86_64`, `windows-x86_64` |
+| GitHub installer | `install.sh`                              | Convenience wrapper over published binaries      |
+| GHCR OCI image   | `ghcr.io/...:<tag>`                       | Containerized release artifact                   |
 | Homebrew tap     | `brew install mupozg823/tap/codelens-mcp` | Generated from release checksums in CI           |
-| Installer script | `install.sh`                              | Convenience wrapper over published binaries      |
 | Source build     | `cargo build --release`                   | Required for custom feature combinations         |
 
 Operational deployment modes:

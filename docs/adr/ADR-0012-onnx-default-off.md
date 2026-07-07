@@ -51,8 +51,9 @@ decision.
 
 ### Existing release-channel feature policy
 
-The four user-facing channels already have different feature policies,
-and the inconsistency is part of the problem:
+At decision time, the user-facing release channels already had different
+feature policies, and the inconsistency was part of the problem. For the
+current channel inventory, use [release distribution](../release-distribution.md).
 
 | Channel                                               | Feature flags today                                                                  |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------ |
