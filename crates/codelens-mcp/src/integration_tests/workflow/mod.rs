@@ -76,6 +76,7 @@ pub(super) fn create_http_profile_session(
 }
 
 mod analysis_jobs;
+mod architecture_graph;
 mod audit_builder;
 mod audit_planner;
 mod capabilities;

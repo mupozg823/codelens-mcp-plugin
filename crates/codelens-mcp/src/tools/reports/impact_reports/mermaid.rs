@@ -5,6 +5,7 @@ use crate::tools::report_utils::stable_cache_key;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+use super::workspace_modules::build_workspace_module_graph_report;
 use super::{file_name, impact_entry_file, mermaid_escape_label, parent_dir};
 
 /// Render a Mermaid `flowchart LR` diagram summarising direct importers
@@ -174,14 +175,37 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
         .cloned()
         .unwrap_or_default();
 
-    let mermaid = render_module_mermaid(path, &importers, &downstream, max_nodes);
     let importer_count = importers.len();
     let downstream_count = downstream.len();
-
-    let top_findings = vec![format!(
-        "{} upstream, {} downstream (rendered up to {} per side)",
-        importer_count, downstream_count, max_nodes
-    )];
+    let workspace_report =
+        build_workspace_module_graph_report(&state.project(), path, &impact, max_nodes);
+    let (mermaid, top_findings, stats, module_graph) = if let Some(report) = workspace_report {
+        (
+            report.mermaid,
+            vec![report.top_finding],
+            report.stats,
+            Some(report.module_graph),
+        )
+    } else {
+        (
+            render_module_mermaid(path, &importers, &downstream, max_nodes),
+            vec![format!(
+                "{} upstream, {} downstream (rendered up to {} per side)",
+                importer_count, downstream_count, max_nodes
+            )],
+            json!({
+                "target": path,
+                "scope_kind": impact.get("scope_kind").and_then(Value::as_str).unwrap_or("file"),
+                "granularity": "file_impact",
+                "in_scope_file_count": impact.get("in_scope_file_count").cloned().unwrap_or(Value::Null),
+                "in_scope_file_limit_hit": impact.get("in_scope_file_limit_hit").cloned().unwrap_or(Value::Null),
+                "upstream_total": importer_count,
+                "downstream_total": downstream_count,
+                "max_nodes_rendered": max_nodes,
+            }),
+            None,
+        )
+    };
 
     let mut sections = BTreeMap::new();
     sections.insert(
@@ -193,18 +217,10 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
             "hint": "Embed the `content` field in a fenced ```mermaid block to render in GitHub / GitLab / VS Code Markdown.",
         }),
     );
-    sections.insert(
-        "stats".to_owned(),
-        json!({
-            "target": path,
-            "scope_kind": impact.get("scope_kind").and_then(Value::as_str).unwrap_or("file"),
-            "in_scope_file_count": impact.get("in_scope_file_count").cloned().unwrap_or(Value::Null),
-            "in_scope_file_limit_hit": impact.get("in_scope_file_limit_hit").cloned().unwrap_or(Value::Null),
-            "upstream_total": importer_count,
-            "downstream_total": downstream_count,
-            "max_nodes_rendered": max_nodes,
-        }),
-    );
+    sections.insert("stats".to_owned(), stats);
+    if let Some(module_graph) = module_graph {
+        sections.insert("module_graph".to_owned(), module_graph);
+    }
     sections.insert("raw_impact".to_owned(), impact);
 
     make_handle_response(
