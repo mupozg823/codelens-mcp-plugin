@@ -64,7 +64,7 @@ use cli::{
 };
 use env_compat::dual_prefix_env;
 use server::compat::ServerCompatMode;
-use server::oneshot::run_oneshot;
+use server::oneshot::{run_oneshot, run_oneshot_batch};
 use server::transport_stdio::run_stdio;
 use state::RuntimeDaemonMode;
 use std::sync::Arc;
@@ -288,8 +288,14 @@ fn main() -> Result<()> {
 
     // One-shot CLI mode: --cmd <tool_name> [--args '<json>']
     let cmd_tool = cli_option_value(&args, "--cmd");
-
+    let batch_calls = cli_option_value(&args, "--batch");
     let cmd_args = cli_option_value(&args, "--args");
+    if cmd_tool.is_some() && batch_calls.is_some() {
+        anyhow::bail!("--cmd and --batch cannot be used together");
+    }
+    if batch_calls.is_some() && cmd_args.is_some() {
+        anyhow::bail!("--args can only be used with --cmd, not --batch");
+    }
 
     #[cfg(feature = "http")]
     let http_runtime = server::http_config::configured_http_runtime(&args)?;
@@ -353,6 +359,10 @@ fn main() -> Result<()> {
     if let Some(tool_name) = cmd_tool {
         let state = Arc::new(app_state);
         return run_oneshot(&state, &tool_name, cmd_args.as_deref());
+    }
+    if let Some(batch_json) = batch_calls {
+        let state = Arc::new(app_state);
+        return run_oneshot_batch(&state, &batch_json);
     }
 
     match transport.as_str() {

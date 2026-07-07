@@ -177,9 +177,42 @@ git diff --check
 
 Retrieval/ranker promotion additionally requires:
 
+Fast ranker iteration should first run the hybrid lane only. This keeps root
+cause work observable without paying for every comparator subprocess on each
+loop:
+
 ```bash
 python3 benchmarks/embedding-quality.py . \
   --binary target/debug/codelens-mcp \
+  --methods get_ranked_context \
+  --workers 4 \
+  --batch-size 16 \
+  --query-cache-probe off \
+  --output /tmp/codelens-embedding-quality-hybrid-only.json \
+  --stdout summary \
+  --markdown-output /tmp/codelens-embedding-quality-hybrid-only.md \
+  --triage-output /tmp/codelens-embedding-quality-hybrid-only-triage.json \
+  --check \
+  --min-hybrid-mrr 0.70 \
+  --max-hybrid-candidate-missing-rate 0.10 \
+  --max-hybrid-p95-response-tokens 20000
+```
+
+Promotion still requires the full default method set with the cache probe
+enabled so BM25/lexical, semantic, hybrid, and symbol-search comparators are
+measured together. Keep batching enabled so the promotion gate measures ranker
+quality without paying per-row process startup cost, and use method workers for
+the independent comparator lanes while preserving deterministic output order.
+Batch latency is reported separately as amortized batch latency; per-query
+latency ceilings such as `--max-hybrid-avg-ms` must be run with
+`--batch-size 1`:
+
+```bash
+python3 benchmarks/embedding-quality.py . \
+  --binary target/debug/codelens-mcp \
+  --method-workers 4 \
+  --batch-size 16 \
+  --query-cache-probe on \
   --output /tmp/codelens-embedding-quality-results.json \
   --stdout summary \
   --markdown-output /tmp/codelens-embedding-quality-summary.md \

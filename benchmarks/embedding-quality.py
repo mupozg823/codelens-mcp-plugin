@@ -4,6 +4,7 @@
 
 import argparse
 import collections
+import concurrent.futures
 import hashlib
 import json
 import math
@@ -21,6 +22,45 @@ from benchmark_runtime_common import (
     tool_payload_succeeded,
     validate_expected_file_suffixes,
 )
+
+METHOD_ORDER: tuple[str, ...] = (
+    "semantic_search",
+    "get_ranked_context_no_semantic",
+    "get_ranked_context",
+    "bm25_symbol_search",
+)
+MAX_WORKERS = 16
+MAX_BATCH_SIZE = 64
+MAX_METHOD_WORKERS = len(METHOD_ORDER)
+
+
+def positive_int(raw: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
+    if value < 1:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return value
+
+
+def bounded_positive_int(raw: str, label: str, maximum: int) -> int:
+    value = positive_int(raw)
+    if value > maximum:
+        raise argparse.ArgumentTypeError(f"{label} must be <= {maximum}")
+    return value
+
+
+def worker_count(raw: str) -> int:
+    return bounded_positive_int(raw, "workers", MAX_WORKERS)
+
+
+def batch_size(raw: str) -> int:
+    return bounded_positive_int(raw, "batch-size", MAX_BATCH_SIZE)
+
+
+def method_worker_count(raw: str) -> int:
+    return bounded_positive_int(raw, "method-workers", MAX_METHOD_WORKERS)
 
 
 def parse_args():
@@ -60,7 +100,10 @@ def parse_args():
         "--tool-timeout",
         type=int,
         default=180,
-        help="Seconds before a per-query tool invocation is recorded as a timeout failure",
+        help=(
+            "Seconds before a single tool invocation is recorded as a timeout "
+            "failure. Batch mode scales this by batch size."
+        ),
     )
     parser.add_argument(
         "--ranked-context-max-tokens",
@@ -155,6 +198,50 @@ def parse_args():
         default=0,
         help="Optional ceiling for hybrid p95 estimated response tokens under --check; 0 disables",
     )
+    parser.add_argument(
+        "--methods",
+        default="all",
+        help=(
+            "Comma-separated methods to run for iterative tuning. "
+            "Use 'all' for the full gate. Must include get_ranked_context."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=worker_count,
+        default=1,
+        help=(
+            "Parallel row workers per method for benchmark subprocess calls. "
+            f"Default 1 preserves sequential execution; max {MAX_WORKERS}."
+        ),
+    )
+    parser.add_argument(
+        "--method-workers",
+        type=method_worker_count,
+        default=1,
+        help=(
+            "Parallel comparator method workers. Default 1 preserves sequential "
+            f"method evaluation; max {MAX_METHOD_WORKERS}."
+        ),
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=batch_size,
+        default=1,
+        help=(
+            "Tool calls per codelens-mcp subprocess. "
+            f"Default 1 preserves one process per benchmark row; max {MAX_BATCH_SIZE}."
+        ),
+    )
+    parser.add_argument(
+        "--query-cache-probe",
+        choices=("on", "off"),
+        default="on",
+        help=(
+            "Run the extra two-call get_ranked_context cache probe. "
+            "Use 'off' for fast ranker iteration."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -172,6 +259,25 @@ if "CODELENS_MODEL_DIR" not in RUN_ENV:
     )
     if resolve_codelens_model_dir(BIN, env={"CODELENS_MODEL_DIR": str(repo_model_dir)}):
         RUN_ENV["CODELENS_MODEL_DIR"] = str(repo_model_dir)
+
+
+def parse_requested_methods(raw: str) -> list[str]:
+    text = (raw or "all").strip()
+    if text == "all":
+        return list(METHOD_ORDER)
+    requested = []
+    for part in text.split(","):
+        method = part.strip()
+        if not method:
+            continue
+        if method not in METHOD_ORDER:
+            valid = ", ".join(METHOD_ORDER)
+            raise SystemExit(f"unknown benchmark method: {method}; valid: {valid}")
+        if method not in requested:
+            requested.append(method)
+    if "get_ranked_context" not in requested:
+        raise SystemExit("--methods must include get_ranked_context")
+    return requested
 
 
 def compute_file_sha256(path):
@@ -237,6 +343,25 @@ def subprocess_text(value):
     return str(value)
 
 
+def build_tool_result(elapsed_ms, returncode, payload, stderr, raw_output=""):
+    if payload is None:
+        response_bytes = len(raw_output.encode("utf-8"))
+    else:
+        compact_payload = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")
+        )
+        response_bytes = len(compact_payload.encode("utf-8"))
+    return {
+        "elapsed_ms": elapsed_ms,
+        "batch_amortized_elapsed_ms": None,
+        "response_bytes": response_bytes,
+        "estimated_response_tokens": max(1, response_bytes // 4),
+        "returncode": returncode,
+        "payload": payload,
+        "stderr": stderr.strip(),
+    }
+
+
 def run_tool(cmd, args, timeout=None):
     effective_timeout = ARGS.tool_timeout if timeout is None else timeout
     argv = [
@@ -294,21 +419,132 @@ def run_tool(cmd, args, timeout=None):
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
     output = stdout.strip()
     payload = parse_output_json(output)
-    if payload is None:
-        response_bytes = len(output.encode("utf-8"))
-    else:
-        compact_payload = json.dumps(
-            payload, ensure_ascii=False, separators=(",", ":")
+    return build_tool_result(
+        elapsed_ms, process.returncode, payload, stderr, raw_output=output
+    )
+
+
+def returncode_for_batch_payload(process_returncode, payload):
+    if tool_payload_succeeded(payload):
+        return 0
+    return process_returncode if process_returncode else 1
+
+
+def build_batch_tool_result(
+    batch_elapsed_ms,
+    batch_amortized_elapsed_ms,
+    returncode,
+    payload,
+    stderr,
+    raw_output="",
+):
+    result = build_tool_result(
+        batch_elapsed_ms,
+        returncode,
+        payload,
+        stderr,
+        raw_output=raw_output,
+    )
+    result["elapsed_ms"] = None
+    result["batch_elapsed_ms"] = batch_elapsed_ms
+    result["batch_amortized_elapsed_ms"] = batch_amortized_elapsed_ms
+    return result
+
+
+def run_tool_batch(cmd, args_list, timeout=None):
+    if not args_list:
+        return []
+    per_call_timeout = ARGS.tool_timeout if timeout is None else timeout
+    effective_timeout = per_call_timeout * len(args_list)
+    batch = [{"name": cmd, "arguments": args} for args in args_list]
+    argv = [
+        BIN,
+        PROJECT,
+        "--preset",
+        ARGS.preset,
+        "--batch",
+        json.dumps(batch),
+    ]
+    t0 = time.perf_counter()
+    process = None
+    try:
+        process = subprocess.Popen(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=RUN_ENV,
+            start_new_session=True,
         )
-        response_bytes = len(compact_payload.encode("utf-8"))
-    return {
-        "elapsed_ms": elapsed_ms,
-        "response_bytes": response_bytes,
-        "estimated_response_tokens": max(1, response_bytes // 4),
-        "returncode": process.returncode,
-        "payload": payload,
-        "stderr": stderr.strip(),
-    }
+        stdout, stderr = process.communicate(timeout=effective_timeout)
+    except subprocess.TimeoutExpired as error:
+        if process is not None:
+            if hasattr(os, "killpg"):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    process.poll()
+            else:
+                process.kill()
+            try:
+                stdout, stderr = process.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                stdout = error.stdout
+                stderr = error.stderr
+        elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
+        output = subprocess_text(stdout).strip()
+        response_bytes = len(output.encode("utf-8"))
+        return [
+            {
+                "elapsed_ms": elapsed_ms,
+                "response_bytes": response_bytes,
+                "estimated_response_tokens": max(1, response_bytes // 4),
+                "returncode": 124,
+                "payload": {
+                    "success": False,
+                    "error": "tool_timeout",
+                    "tool": cmd,
+                    "timeout_seconds": effective_timeout,
+                },
+                "stderr": subprocess_text(stderr).strip(),
+            }
+            for _ in args_list
+        ]
+    elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
+    output = stdout.strip()
+    payloads = parse_output_json(output)
+    if not isinstance(payloads, list) or len(payloads) != len(args_list):
+        payload = {
+            "success": False,
+            "error": "invalid_batch_output",
+            "tool": cmd,
+            "batch_size": len(args_list),
+            "payload_type": type(payloads).__name__,
+        }
+        return [
+            build_batch_tool_result(
+                elapsed_ms,
+                elapsed_ms,
+                process.returncode if process.returncode else 1,
+                payload,
+                stderr,
+                raw_output=output,
+            )
+            for _ in args_list
+        ]
+
+    per_call_elapsed_ms = round(elapsed_ms / len(args_list), 2)
+    return [
+        build_batch_tool_result(
+            elapsed_ms,
+            per_call_elapsed_ms,
+            returncode_for_batch_payload(process.returncode, payload),
+            payload,
+            stderr,
+            raw_output=output,
+        )
+        for payload in payloads
+    ]
 
 
 def tool_succeeded(result):
@@ -335,26 +571,46 @@ def require_tool_success(name, result, context=""):
 def render_stdout_summary(result):
     methods = {method["method"]: method for method in result["methods"]}
     hybrid = methods["get_ranked_context"]
-    lexical = methods["get_ranked_context_no_semantic"]
-    semantic = methods["semantic_search"]
     diagnostics = result["ranker_diagnostics"]
     missing_rate = hybrid_candidate_missing_rate(diagnostics)
     demoted_hits = hybrid_demoted_semantic_hits(diagnostics)
-    cache_probe = result["query_cache_probe"]
+    cache_probe = result.get("query_cache_probe")
+    timings = result.get("timings") or {}
     lines = [
         "Embedding-quality summary:",
         f"dataset_size={result['dataset_size']}",
+        f"methods={','.join(result.get('requested_methods') or [])}",
+        f"workers={result['worker_count']}",
+        f"method_workers={result['method_worker_count']}",
+        f"batch_size={result['batch_size']}",
+        f"total_elapsed_ms={format_optional_ms(timings.get('total_elapsed_ms'))}",
+        "index_embeddings_elapsed_ms="
+        f"{format_optional_ms(timings.get('index_embeddings_elapsed_ms'))}",
         f"hybrid_mrr={hybrid['mrr']:.6f}",
         f"hybrid_recall={hybrid['recall_at_cutoff']:.6f}",
         f"hybrid_acc1={hybrid['acc1']:.6f}",
         f"hybrid_avg_tokens={hybrid['avg_estimated_response_tokens']:.2f}",
         f"hybrid_p95_tokens={hybrid['p95_estimated_response_tokens']}",
-        f"lexical_mrr={lexical['mrr']:.6f}",
-        f"semantic_mrr={semantic['mrr']:.6f}",
+        "lexical_mrr="
+        + (
+            f"{methods['get_ranked_context_no_semantic']['mrr']:.6f}"
+            if "get_ranked_context_no_semantic" in methods
+            else "skipped"
+        ),
+        "semantic_mrr="
+        + (
+            f"{methods['semantic_search']['mrr']:.6f}"
+            if "semantic_search" in methods
+            else "skipped"
+        ),
         f"candidate_missing_rate={missing_rate:.6f}",
         f"hybrid_demoted_semantic_hits={demoted_hits}",
         "query_cache="
-        f"{cache_probe.get('first_cache_hit_tier')}->{cache_probe.get('second_cache_hit_tier')}",
+        + (
+            f"{cache_probe.get('first_cache_hit_tier')}->{cache_probe.get('second_cache_hit_tier')}"
+            if cache_probe
+            else "skipped"
+        ),
     ]
     if ARGS.output:
         lines.append(f"json_output={ARGS.output}")
@@ -478,6 +734,18 @@ def percentile_value(values, percentile):
     return ordered[index]
 
 
+def optional_percentile_value(values, percentile):
+    return percentile_value(values, percentile) if values else None
+
+
+def format_optional_ms(value):
+    return "n/a" if value is None else f"{value:.1f}"
+
+
+def elapsed_ms_since(started_at):
+    return round((time.perf_counter() - started_at) * 1000, 2)
+
+
 def cache_hit_tier_from_payload(payload):
     data = payload_data(payload or {}) or {}
     query_cache = data.get("query_cache")
@@ -512,6 +780,14 @@ def ranked_context_args(item, disable_semantic=False):
 
 def method_metrics(rows):
     total = len(rows)
+    elapsed_values = [
+        row["elapsed_ms"] for row in rows if row.get("elapsed_ms") is not None
+    ]
+    amortized_values = [
+        row["batch_amortized_elapsed_ms"]
+        for row in rows
+        if row.get("batch_amortized_elapsed_ms") is not None
+    ]
     return {
         "mrr": sum(mrr_component(row["rank"]) for row in rows) / total,
         "acc1": sum(acc_at(row["rank"], 1) for row in rows) / total,
@@ -521,9 +797,17 @@ def method_metrics(rows):
             recall_at(row["rank"], ARGS.max_results) for row in rows
         )
         / total,
-        "avg_elapsed_ms": sum(row["elapsed_ms"] for row in rows) / total,
-        "p95_elapsed_ms": percentile_value(
-            [row["elapsed_ms"] for row in rows], 95
+        "avg_elapsed_ms": (
+            sum(elapsed_values) / len(elapsed_values) if elapsed_values else None
+        ),
+        "p95_elapsed_ms": optional_percentile_value(elapsed_values, 95),
+        "avg_batch_amortized_elapsed_ms": (
+            sum(amortized_values) / len(amortized_values)
+            if amortized_values
+            else None
+        ),
+        "p95_batch_amortized_elapsed_ms": optional_percentile_value(
+            amortized_values, 95
         ),
         "avg_response_bytes": sum(row["response_bytes"] for row in rows) / total,
         "p95_response_bytes": percentile_value(
@@ -539,36 +823,85 @@ def method_metrics(rows):
     }
 
 
+def row_from_tool_result(name, tool_name, item, tool_result):
+    tool_result = require_tool_success(
+        tool_name,
+        tool_result,
+        context=item["query"],
+    )
+    payload = tool_result.get("payload") or {}
+    candidates = candidate_rows(name, payload)
+    rank = find_rank(
+        item["expected_symbol"], item.get("expected_file_suffix"), candidates
+    )
+    return {
+        "query": item["query"],
+        "query_type": query_type_for_item(item),
+        "expected_symbol": item["expected_symbol"],
+        "expected_file_suffix": item.get("expected_file_suffix"),
+        "rank": rank,
+        "elapsed_ms": tool_result["elapsed_ms"],
+        "batch_elapsed_ms": tool_result.get("batch_elapsed_ms"),
+        "batch_amortized_elapsed_ms": tool_result.get(
+            "batch_amortized_elapsed_ms"
+        ),
+        "response_bytes": tool_result["response_bytes"],
+        "estimated_response_tokens": tool_result["estimated_response_tokens"],
+        "cache_hit_tier": cache_hit_tier_from_payload(payload),
+        "candidate_count": len(candidates),
+        "top_candidate": candidates[0] if candidates else None,
+    }
+
+
+def chunked_rows(dataset):
+    return [
+        dataset[index : index + ARGS.batch_size]
+        for index in range(0, len(dataset), ARGS.batch_size)
+    ]
+
+
 def evaluate_method(name, dataset, tool_name, args_factory):
-    rows = []
-    for item in dataset:
-        tool_result = require_tool_success(
+    method_started = time.perf_counter()
+
+    def evaluate_item(item):
+        return row_from_tool_result(
+            name,
             tool_name,
+            item,
             run_tool(tool_name, args_factory(item)),
-            context=item["query"],
         )
-        payload = tool_result.get("payload") or {}
-        candidates = candidate_rows(name, payload)
-        rank = find_rank(
-            item["expected_symbol"], item.get("expected_file_suffix"), candidates
-        )
-        rows.append(
-            {
-                "query": item["query"],
-                "query_type": query_type_for_item(item),
-                "expected_symbol": item["expected_symbol"],
-                "expected_file_suffix": item.get("expected_file_suffix"),
-                "rank": rank,
-                "elapsed_ms": tool_result["elapsed_ms"],
-                "response_bytes": tool_result["response_bytes"],
-                "estimated_response_tokens": tool_result[
-                    "estimated_response_tokens"
-                ],
-                "cache_hit_tier": cache_hit_tier_from_payload(payload),
-                "candidate_count": len(candidates),
-                "top_candidate": candidates[0] if candidates else None,
-            }
-        )
+
+    def evaluate_batch(batch):
+        args_list = [args_factory(item) for item in batch]
+        tool_results = run_tool_batch(tool_name, args_list)
+        return [
+            row_from_tool_result(name, tool_name, item, tool_result)
+            for item, tool_result in zip(batch, tool_results, strict=True)
+        ]
+
+    if ARGS.batch_size == 1 and (ARGS.workers == 1 or len(dataset) <= 1):
+        rows = [evaluate_item(item) for item in dataset]
+    elif ARGS.batch_size == 1:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=ARGS.workers
+        ) as executor:
+            rows = list(executor.map(evaluate_item, dataset))
+    elif ARGS.workers == 1:
+        rows = [
+            row
+            for batch_result in map(evaluate_batch, chunked_rows(dataset))
+            for row in batch_result
+        ]
+    else:
+        batches = chunked_rows(dataset)
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=ARGS.workers
+        ) as executor:
+            rows = [
+                row
+                for batch_result in executor.map(evaluate_batch, batches)
+                for row in batch_result
+            ]
 
     by_type = {}
     grouped = collections.defaultdict(list)
@@ -579,15 +912,34 @@ def evaluate_method(name, dataset, tool_name, args_factory):
 
     return {
         "method": name,
+        "method_wall_ms": elapsed_ms_since(method_started),
+        "subprocess_invocation_count": (
+            len(dataset) if ARGS.batch_size == 1 else len(chunked_rows(dataset))
+        ),
         **method_metrics(rows),
         "by_query_type": by_type,
         "rows": rows,
     }
 
 
+def evaluate_method_specs(method_specs):
+    def evaluate_spec(spec):
+        return evaluate_method(*spec)
+
+    if ARGS.method_workers == 1 or len(method_specs) <= 1:
+        return [evaluate_spec(spec) for spec in method_specs]
+
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(ARGS.method_workers, len(method_specs))
+    ) as executor:
+        futures = [executor.submit(evaluate_spec, spec) for spec in method_specs]
+        return [future.result() for future in futures]
+
+
 def measure_query_cache_probe(dataset):
     if not dataset:
         return None
+    probe_started = time.perf_counter()
     item = dataset[0]
     first = require_tool_success(
         "get_ranked_context",
@@ -611,6 +963,7 @@ def measure_query_cache_probe(dataset):
         "second_cache_hit_tier": second_tier,
         "cache_hit_signal_available": first_tier is not None or second_tier is not None,
         "cache_hit_observed": cache_hit_observed(second_tier),
+        "probe_elapsed_ms": elapsed_ms_since(probe_started),
     }
 
 
@@ -633,7 +986,13 @@ def ranker_diagnostic_cause_candidates(row):
     causes = []
     match status:
         case "candidate_missing":
-            causes.append("expected_symbol_absent_from_semantic_and_hybrid_candidates")
+            comparisons = row.get("comparison_methods_available") or {}
+            if comparisons.get("semantic_search"):
+                causes.append("expected_symbol_absent_from_semantic_and_hybrid_candidates")
+            else:
+                causes.append("expected_symbol_absent_from_hybrid_candidates")
+        case "hybrid_candidate_missing":
+            causes.append("expected_symbol_absent_from_hybrid_candidates")
         case "semantic_hit_dropped_by_hybrid":
             causes.append("semantic_candidate_not_preserved_by_hybrid")
             if row.get("lexical_rank") is None:
@@ -651,7 +1010,11 @@ def ranker_diagnostic_cause_candidates(row):
                 causes.append("hybrid_top_candidate_matches_lexical_top_candidate")
         case _:
             pass
-    if not causes and status not in {"rank_preserved", "hybrid_improved_semantic_hit"}:
+    if not causes and status not in {
+        "hybrid_hit",
+        "rank_preserved",
+        "hybrid_improved_semantic_hit",
+    }:
         causes.append("ranker_status_requires_manual_review")
     return causes
 
@@ -664,6 +1027,11 @@ def ranker_diagnostics(methods):
     semantic_rows = by_method.get("semantic_search", {})
     hybrid_rows = by_method.get("get_ranked_context", {})
     lexical_rows = by_method.get("get_ranked_context_no_semantic", {})
+    comparison_methods_available = {
+        "semantic_search": "semantic_search" in by_method,
+        "get_ranked_context_no_semantic": "get_ranked_context_no_semantic"
+        in by_method,
+    }
     rows = []
     grouped = collections.defaultdict(collections.Counter)
     for key, hybrid in hybrid_rows.items():
@@ -672,7 +1040,12 @@ def ranker_diagnostics(methods):
         semantic_rank = semantic["rank"] if semantic else None
         lexical_rank = lexical["rank"] if lexical else None
         hybrid_rank = hybrid["rank"]
-        if semantic_rank is None and hybrid_rank is None:
+        semantic_comparison_available = comparison_methods_available["semantic_search"]
+        if not semantic_comparison_available and hybrid_rank is None:
+            status = "hybrid_candidate_missing"
+        elif not semantic_comparison_available:
+            status = "hybrid_hit"
+        elif semantic_rank is None and hybrid_rank is None:
             status = "candidate_missing"
         elif semantic_rank is not None and hybrid_rank is None:
             status = "semantic_hit_dropped_by_hybrid"
@@ -698,10 +1071,12 @@ def ranker_diagnostics(methods):
             "lexical_top_candidate": lexical["top_candidate"] if lexical else None,
             "hybrid_top_candidate": hybrid["top_candidate"],
             "status": status,
+            "comparison_methods_available": comparison_methods_available,
         }
         row["cause_candidates"] = ranker_diagnostic_cause_candidates(row)
         rows.append(row)
     return {
+        "comparison_methods_available": comparison_methods_available,
         "by_query_type": {
             query_type: dict(counter) for query_type, counter in sorted(grouped.items())
         },
@@ -745,6 +1120,11 @@ def add_numeric_ceiling_failure(failures, method, metric_key, metric_label, ceil
     if ceiling <= 0:
         return
     value = method[metric_key]
+    if value is None:
+        failures.append(
+            f"hybrid {metric_label} unavailable with batch_size > 1; rerun with --batch-size 1 for this latency gate"
+        )
+        return
     if value > ceiling:
         failures.append(
             f"hybrid {metric_label} {value:.0f} > ceiling {ceiling:.0f}"
@@ -763,7 +1143,10 @@ def hybrid_candidate_missing_rate(diagnostics):
     total = sum(counts.values())
     if not total:
         return 0.0
-    return counts.get("candidate_missing", 0) / total
+    return (
+        counts.get("candidate_missing", 0)
+        + counts.get("hybrid_candidate_missing", 0)
+    ) / total
 
 
 def ranker_rows_by_status(diagnostics, status):
@@ -774,13 +1157,24 @@ def ranker_rows_by_status(diagnostics, status):
     ]
 
 
+def ranker_rows_by_statuses(diagnostics, statuses):
+    wanted = set(statuses)
+    return [
+        row
+        for row in diagnostics.get("rows", [])
+        if row.get("status") in wanted
+    ]
+
+
 def build_triage_artifact(result):
     diagnostics = result.get("ranker_diagnostics") or {}
     hybrid = next(
         method for method in result["methods"] if method["method"] == "get_ranked_context"
     )
     status_counts = (diagnostics.get("by_query_type") or {}).get("all") or {}
-    candidate_missing_rows = ranker_rows_by_status(diagnostics, "candidate_missing")
+    candidate_missing_rows = ranker_rows_by_statuses(
+        diagnostics, ["candidate_missing", "hybrid_candidate_missing"]
+    )
     dropped_rows = ranker_rows_by_status(
         diagnostics, "semantic_hit_dropped_by_hybrid"
     )
@@ -796,12 +1190,26 @@ def build_triage_artifact(result):
         "dataset_path": result["dataset_path"],
         "dataset_size": result["dataset_size"],
         "ranking_cutoff": result["ranking_cutoff"],
+        "requested_methods": result.get("requested_methods") or [],
+        "worker_count": result["worker_count"],
+        "method_worker_count": result["method_worker_count"],
+        "batch_size": result["batch_size"],
+        "query_cache_probe_enabled": result["query_cache_probe_enabled"],
+        "timings": result.get("timings") or {},
         "hybrid_metrics": {
             "mrr": hybrid["mrr"],
             "recall_at_cutoff": hybrid["recall_at_cutoff"],
             "acc1": hybrid["acc1"],
+            "method_wall_ms": hybrid["method_wall_ms"],
+            "subprocess_invocation_count": hybrid["subprocess_invocation_count"],
             "avg_elapsed_ms": hybrid["avg_elapsed_ms"],
             "p95_elapsed_ms": hybrid["p95_elapsed_ms"],
+            "avg_batch_amortized_elapsed_ms": hybrid[
+                "avg_batch_amortized_elapsed_ms"
+            ],
+            "p95_batch_amortized_elapsed_ms": hybrid[
+                "p95_batch_amortized_elapsed_ms"
+            ],
             "avg_estimated_response_tokens": hybrid[
                 "avg_estimated_response_tokens"
             ],
@@ -813,6 +1221,10 @@ def build_triage_artifact(result):
         },
         "status_counts": status_counts,
         "status_counts_by_query_type": diagnostics.get("by_query_type") or {},
+        "comparison_methods_available": diagnostics.get(
+            "comparison_methods_available"
+        )
+        or {},
         "candidate_missing": {
             "count": len(candidate_missing_rows),
             "rate": (len(candidate_missing_rows) / total) if total else 0.0,
@@ -862,28 +1274,61 @@ def render_markdown(result):
             a(f"- Runtime model path: `{runtime_model.get('model_path')}`")
     a(f"- Dataset size: {result['dataset_size']}")
     a(f"- Ranking cutoff: top-{result['ranking_cutoff']}")
+    if result.get("requested_methods"):
+        a(f"- Requested methods: `{', '.join(result['requested_methods'])}`")
+    a(f"- Workers: {result['worker_count']}")
+    a(f"- Method workers: {result['method_worker_count']}")
+    a(f"- Batch size: {result['batch_size']}")
+    a(
+        "- Query cache probe: "
+        + ("enabled" if result["query_cache_probe_enabled"] else "skipped")
+    )
+    timings = result.get("timings") or {}
+    if timings:
+        a("")
+        a("## Timings")
+        a("")
+        a("| Phase | Wall ms |")
+        a("|---|---:|")
+        a(f"| total | {format_optional_ms(timings.get('total_elapsed_ms'))} |")
+        a(
+            "| dataset_load | "
+            f"{format_optional_ms(timings.get('dataset_load_elapsed_ms'))} |"
+        )
+        a(
+            "| get_capabilities | "
+            f"{format_optional_ms(timings.get('get_capabilities_elapsed_ms'))} |"
+        )
+        a(
+            "| index_embeddings | "
+            f"{format_optional_ms(timings.get('index_embeddings_elapsed_ms'))} |"
+        )
+        a(
+            "| query_cache_probe | "
+            f"{format_optional_ms(timings.get('query_cache_probe_elapsed_ms'))} |"
+        )
     a("")
     a("## Metrics")
     a("")
     a(
-        f"| Method | MRR@{result['ranking_cutoff']} | Recall@{result['ranking_cutoff']} | Acc@1 | Acc@3 | Acc@5 | Avg ms | P95 ms | Avg bytes | P95 bytes | Avg tokens | P95 tokens |"
+        f"| Method | MRR@{result['ranking_cutoff']} | Recall@{result['ranking_cutoff']} | Acc@1 | Acc@3 | Acc@5 | Method wall ms | Calls | Avg ms | P95 ms | Avg batch ms | P95 batch ms | Avg bytes | P95 bytes | Avg tokens | P95 tokens |"
     )
-    a("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    a("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for method in result["methods"]:
         a(
-            f"| {method['method']} | {method['mrr']:.3f} | {method['recall_at_cutoff']:.0%} | {method['acc1']:.0%} | {method['acc3']:.0%} | {method['acc5']:.0%} | {method['avg_elapsed_ms']:.1f} | {method['p95_elapsed_ms']:.1f} | {method['avg_response_bytes']:.0f} | {method['p95_response_bytes']:.0f} | {method['avg_estimated_response_tokens']:.0f} | {method['p95_estimated_response_tokens']:.0f} |"
+            f"| {method['method']} | {method['mrr']:.3f} | {method['recall_at_cutoff']:.0%} | {method['acc1']:.0%} | {method['acc3']:.0%} | {method['acc5']:.0%} | {format_optional_ms(method['method_wall_ms'])} | {method['subprocess_invocation_count']} | {format_optional_ms(method['avg_elapsed_ms'])} | {format_optional_ms(method['p95_elapsed_ms'])} | {format_optional_ms(method['avg_batch_amortized_elapsed_ms'])} | {format_optional_ms(method['p95_batch_amortized_elapsed_ms'])} | {method['avg_response_bytes']:.0f} | {method['p95_response_bytes']:.0f} | {method['avg_estimated_response_tokens']:.0f} | {method['p95_estimated_response_tokens']:.0f} |"
         )
     a("")
     a("## Query Type Breakdown")
     a("")
     a(
-        "| Method | Query type | Count | MRR | Recall | Acc@1 | Acc@3 | Acc@5 | Avg ms | P95 ms | Avg bytes | P95 bytes | Avg tokens | P95 tokens |"
+        "| Method | Query type | Count | MRR | Recall | Acc@1 | Acc@3 | Acc@5 | Avg ms | P95 ms | Avg batch ms | P95 batch ms | Avg bytes | P95 bytes | Avg tokens | P95 tokens |"
     )
-    a("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    a("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for method in result["methods"]:
         for query_type, metrics in method.get("by_query_type", {}).items():
             a(
-                f"| {method['method']} | {query_type} | {metrics['count']} | {metrics['mrr']:.3f} | {metrics['recall_at_cutoff']:.0%} | {metrics['acc1']:.0%} | {metrics['acc3']:.0%} | {metrics['acc5']:.0%} | {metrics['avg_elapsed_ms']:.1f} | {metrics['p95_elapsed_ms']:.1f} | {metrics['avg_response_bytes']:.0f} | {metrics['p95_response_bytes']:.0f} | {metrics['avg_estimated_response_tokens']:.0f} | {metrics['p95_estimated_response_tokens']:.0f} |"
+                f"| {method['method']} | {query_type} | {metrics['count']} | {metrics['mrr']:.3f} | {metrics['recall_at_cutoff']:.0%} | {metrics['acc1']:.0%} | {metrics['acc3']:.0%} | {metrics['acc5']:.0%} | {format_optional_ms(metrics['avg_elapsed_ms'])} | {format_optional_ms(metrics['p95_elapsed_ms'])} | {format_optional_ms(metrics['avg_batch_amortized_elapsed_ms'])} | {format_optional_ms(metrics['p95_batch_amortized_elapsed_ms'])} | {metrics['avg_response_bytes']:.0f} | {metrics['p95_response_bytes']:.0f} | {metrics['avg_estimated_response_tokens']:.0f} | {metrics['p95_estimated_response_tokens']:.0f} |"
             )
     cache_probe = result.get("query_cache_probe") or {}
     if cache_probe:
@@ -895,16 +1340,17 @@ def render_markdown(result):
         a(
             f"| {cache_probe['query']} | {cache_probe['first_elapsed_ms']:.1f} | {cache_probe['second_elapsed_ms']:.1f} | {cache_probe.get('first_cache_hit_tier') or 'none'} | {cache_probe.get('second_cache_hit_tier') or 'none'} | {cache_probe['cache_hit_observed']} |"
         )
-    uplift = result["hybrid_uplift"]
-    a("")
-    a("## Hybrid Uplift")
-    a("")
-    a("| KPI | Delta |")
-    a("|---|---:|")
-    a(f"| MRR uplift | {uplift['mrr_delta']:+.3f} |")
-    a(f"| Acc@1 uplift | {uplift['acc1_delta']:+.0%} |")
-    a(f"| Acc@3 uplift | {uplift['acc3_delta']:+.0%} |")
-    a(f"| Acc@5 uplift | {uplift['acc5_delta']:+.0%} |")
+    uplift = result.get("hybrid_uplift")
+    if uplift:
+        a("")
+        a("## Hybrid Uplift")
+        a("")
+        a("| KPI | Delta |")
+        a("|---|---:|")
+        a(f"| MRR uplift | {uplift['mrr_delta']:+.3f} |")
+        a(f"| Acc@1 uplift | {uplift['acc1_delta']:+.0%} |")
+        a(f"| Acc@3 uplift | {uplift['acc3_delta']:+.0%} |")
+        a(f"| Acc@5 uplift | {uplift['acc5_delta']:+.0%} |")
     if result.get("hybrid_uplift_by_query_type"):
         a("")
         a("## Hybrid Uplift by Query Type")
@@ -933,6 +1379,7 @@ def render_markdown(result):
             if row.get("status")
             in {
                 "candidate_missing",
+                "hybrid_candidate_missing",
                 "semantic_hit_dropped_by_hybrid",
                 "hybrid_demoted_semantic_hit",
             }
@@ -975,6 +1422,7 @@ def render_markdown(result):
 
 
 def main():
+    benchmark_started = time.perf_counter()
     mrr_type_floors = parse_query_type_floors(
         ARGS.min_hybrid_mrr_by_query_type, "MRR"
     )
@@ -984,7 +1432,9 @@ def main():
     acc1_type_floors = parse_query_type_floors(
         ARGS.min_hybrid_acc1_by_query_type, "Acc@1"
     )
+    dataset_started = time.perf_counter()
     dataset = load_dataset()
+    dataset_load_elapsed_ms = elapsed_ms_since(dataset_started)
     capabilities = require_tool_success(
         "get_capabilities", run_tool("get_capabilities", {})
     )
@@ -992,67 +1442,97 @@ def main():
     embedding_model = capability_data.get("embedding_model")
     runtime_model = snapshot_runtime_model(capabilities.get("payload") or {})
 
-    require_tool_success(
+    index_embeddings = require_tool_success(
         "index_embeddings", run_tool("index_embeddings", {}, timeout=1800)
     )
 
-    methods = []
-    methods.append(
-        evaluate_method(
-            "semantic_search",
-            dataset,
-            "semantic_search",
-            lambda item: {"query": item["query"], "max_results": ARGS.max_results},
+    requested_methods = parse_requested_methods(ARGS.methods)
+    method_specs = []
+    if "semantic_search" in requested_methods:
+        method_specs.append(
+            (
+                "semantic_search",
+                dataset,
+                "semantic_search",
+                lambda item: {"query": item["query"], "max_results": ARGS.max_results},
+            )
         )
-    )
-    methods.append(
-        evaluate_method(
-            "get_ranked_context_no_semantic",
-            dataset,
-            "get_ranked_context",
-            lambda item: ranked_context_args(item, disable_semantic=True),
+    if "get_ranked_context_no_semantic" in requested_methods:
+        method_specs.append(
+            (
+                "get_ranked_context_no_semantic",
+                dataset,
+                "get_ranked_context",
+                lambda item: ranked_context_args(item, disable_semantic=True),
+            )
         )
-    )
-    methods.append(
-        evaluate_method(
-            "get_ranked_context",
-            dataset,
-            "get_ranked_context",
-            ranked_context_args,
+    if "get_ranked_context" in requested_methods:
+        method_specs.append(
+            (
+                "get_ranked_context",
+                dataset,
+                "get_ranked_context",
+                ranked_context_args,
+            )
         )
-    )
-    methods.append(
-        evaluate_method(
-            "bm25_symbol_search",
-            dataset,
-            "bm25_symbol_search",
-            lambda item: {
-                "query": item["query"],
-                "max_results": ARGS.max_results,
-            },
+    if "bm25_symbol_search" in requested_methods:
+        method_specs.append(
+            (
+                "bm25_symbol_search",
+                dataset,
+                "bm25_symbol_search",
+                lambda item: {
+                    "query": item["query"],
+                    "max_results": ARGS.max_results,
+                },
+            )
         )
-    )
+    methods = evaluate_method_specs(method_specs)
 
     lexical = next(
-        method
-        for method in methods
-        if method["method"] == "get_ranked_context_no_semantic"
+        (
+            method
+            for method in methods
+            if method["method"] == "get_ranked_context_no_semantic"
+        ),
+        None,
     )
     hybrid = next(
         method for method in methods if method["method"] == "get_ranked_context"
     )
     hybrid_uplift_by_query_type = {}
-    for query_type, metrics in hybrid["by_query_type"].items():
-        lexical_metrics = lexical["by_query_type"].get(query_type)
-        if not lexical_metrics:
-            continue
-        hybrid_uplift_by_query_type[query_type] = {
-            "mrr_delta": metrics["mrr"] - lexical_metrics["mrr"],
-            "acc1_delta": metrics["acc1"] - lexical_metrics["acc1"],
-            "acc3_delta": metrics["acc3"] - lexical_metrics["acc3"],
-            "acc5_delta": metrics["acc5"] - lexical_metrics["acc5"],
-        }
+    if lexical is not None:
+        for query_type, metrics in hybrid["by_query_type"].items():
+            lexical_metrics = lexical["by_query_type"].get(query_type)
+            if not lexical_metrics:
+                continue
+            hybrid_uplift_by_query_type[query_type] = {
+                "mrr_delta": metrics["mrr"] - lexical_metrics["mrr"],
+                "acc1_delta": metrics["acc1"] - lexical_metrics["acc1"],
+                "acc3_delta": metrics["acc3"] - lexical_metrics["acc3"],
+                "acc5_delta": metrics["acc5"] - lexical_metrics["acc5"],
+            }
 
+    query_cache_probe_enabled = ARGS.query_cache_probe == "on"
+    query_cache_probe = (
+        measure_query_cache_probe(dataset) if query_cache_probe_enabled else None
+    )
+    timings = {
+        "dataset_load_elapsed_ms": dataset_load_elapsed_ms,
+        "get_capabilities_elapsed_ms": capabilities["elapsed_ms"],
+        "index_embeddings_elapsed_ms": index_embeddings["elapsed_ms"],
+        "method_worker_count": ARGS.method_workers,
+        "method_wall_ms": {
+            method["method"]: method["method_wall_ms"] for method in methods
+        },
+        "method_subprocess_invocations": {
+            method["method"]: method["subprocess_invocation_count"]
+            for method in methods
+        },
+        "query_cache_probe_elapsed_ms": (
+            query_cache_probe.get("probe_elapsed_ms") if query_cache_probe else None
+        ),
+    }
     result = {
         "project": SOURCE_PROJECT,
         "benchmark_project": PROJECT,
@@ -1064,6 +1544,12 @@ def main():
         "dataset_path": DATASET,
         "dataset_size": len(dataset),
         "ranking_cutoff": ARGS.max_results,
+        "requested_methods": requested_methods,
+        "worker_count": ARGS.workers,
+        "method_worker_count": ARGS.method_workers,
+        "batch_size": ARGS.batch_size,
+        "query_cache_probe_enabled": query_cache_probe_enabled,
+        "timings": timings,
         "metric_labels": {
             "mrr": f"MRR@{ARGS.max_results}",
             "recall_at_cutoff": f"Recall@{ARGS.max_results}",
@@ -1072,22 +1558,29 @@ def main():
             "acc5": "Acc@5",
             "avg_elapsed_ms": "Avg latency ms",
             "p95_elapsed_ms": "P95 latency ms",
+            "avg_batch_amortized_elapsed_ms": "Avg batch-amortized latency ms",
+            "p95_batch_amortized_elapsed_ms": "P95 batch-amortized latency ms",
             "avg_response_bytes": "Avg compact JSON payload bytes",
             "p95_response_bytes": "P95 compact JSON payload bytes",
             "avg_estimated_response_tokens": "Avg estimated response tokens",
             "p95_estimated_response_tokens": "P95 estimated response tokens",
         },
         "methods": methods,
-        "hybrid_uplift": {
-            "mrr_delta": hybrid["mrr"] - lexical["mrr"],
-            "acc1_delta": hybrid["acc1"] - lexical["acc1"],
-            "acc3_delta": hybrid["acc3"] - lexical["acc3"],
-            "acc5_delta": hybrid["acc5"] - lexical["acc5"],
-        },
+        "hybrid_uplift": (
+            {
+                "mrr_delta": hybrid["mrr"] - lexical["mrr"],
+                "acc1_delta": hybrid["acc1"] - lexical["acc1"],
+                "acc3_delta": hybrid["acc3"] - lexical["acc3"],
+                "acc5_delta": hybrid["acc5"] - lexical["acc5"],
+            }
+            if lexical is not None
+            else None
+        ),
         "hybrid_uplift_by_query_type": hybrid_uplift_by_query_type,
         "ranker_diagnostics": ranker_diagnostics(methods),
-        "query_cache_probe": measure_query_cache_probe(dataset),
+        "query_cache_probe": query_cache_probe,
     }
+    result["timings"]["total_elapsed_ms"] = elapsed_ms_since(benchmark_started)
 
     output_text = json.dumps(result, ensure_ascii=False, indent=2)
     match ARGS.stdout:
@@ -1117,7 +1610,7 @@ def main():
             failures.append(
                 f"hybrid MRR {hybrid['mrr']:.3f} < floor {ARGS.min_hybrid_mrr:.3f}"
             )
-        if lexical["mrr"] < ARGS.min_lexical_mrr:
+        if lexical is not None and lexical["mrr"] < ARGS.min_lexical_mrr:
             failures.append(
                 f"lexical MRR {lexical['mrr']:.3f} < floor {ARGS.min_lexical_mrr:.3f}"
             )
@@ -1187,8 +1680,12 @@ def main():
             sys.exit(1)
         print(
             f"\nEmbedding-quality gate passed: "
-            f"hybrid MRR {hybrid['mrr']:.3f} >= {ARGS.min_hybrid_mrr:.3f}, "
-            f"lexical MRR {lexical['mrr']:.3f} >= {ARGS.min_lexical_mrr:.3f}"
+            f"hybrid MRR {hybrid['mrr']:.3f} >= {ARGS.min_hybrid_mrr:.3f}"
+            + (
+                f", lexical MRR {lexical['mrr']:.3f} >= {ARGS.min_lexical_mrr:.3f}"
+                if lexical is not None
+                else ", lexical MRR skipped"
+            )
         )
 
 

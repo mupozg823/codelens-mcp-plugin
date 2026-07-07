@@ -152,14 +152,14 @@ jobs:
           python3 scripts/smoke-embedding-coverage.py \
             --binary ./codelens-mcp \
             --project . \
-            | tee benchmarks/embedding-coverage-smoke.txt
+            | tee "${{ runner.temp }}/embedding-coverage-smoke.txt"
 
       - name: Smoke clean quickstart
         run: |
           set -o pipefail
           python3 scripts/smoke-clean-quickstart.py \
             --archive codelens-mcp-linux-x86_64.tar.gz \
-            | tee benchmarks/clean-quickstart-smoke.txt
+            | tee "${{ runner.temp }}/clean-quickstart-smoke.txt"
 
       - name: Run semantic index lifecycle benchmark
         env:
@@ -167,7 +167,7 @@ jobs:
         run: |
           python3 benchmarks/embedding-index-lifecycle.py . \
             --binary ./codelens-mcp \
-            --output benchmarks/codelens-index-lifecycle.json \
+            --output "${{ runner.temp }}/codelens-index-lifecycle.json" \
             --timeout 420
 
       - name: Run self retrieval quality gate
@@ -176,10 +176,13 @@ jobs:
         run: |
           python3 benchmarks/embedding-quality.py . \
             --binary ./codelens-mcp \
-            --output benchmarks/codelens-self-retrieval-quality.json \
+            --method-workers 4 \
+            --batch-size 16 \
+            --query-cache-probe on \
+            --output "${{ runner.temp }}/codelens-self-retrieval-quality.json" \
             --stdout summary \
-            --markdown-output benchmarks/codelens-self-retrieval-quality.md \
-            --triage-output benchmarks/codelens-self-retrieval-triage.json \
+            --markdown-output "${{ runner.temp }}/codelens-self-retrieval-quality.md" \
+            --triage-output "${{ runner.temp }}/codelens-self-retrieval-triage.json" \
             --check \
             --min-hybrid-mrr 0.70 \
             --min-lexical-mrr 0.50 \
@@ -195,7 +198,7 @@ jobs:
           python3 benchmarks/external-project-smoke.py \
             --binary ./codelens-mcp \
             --matrix benchmarks/external-project-smoke-matrix.json \
-            --output benchmarks/external-project-smoke-results.json \
+            --output "${{ runner.temp }}/external-project-smoke-results.json" \
             --timeout 180 \
             --check
 
@@ -206,7 +209,7 @@ jobs:
           python3 benchmarks/external-project-smoke.py \
             --binary ./codelens-mcp \
             --matrix benchmarks/external-project-smoke-upstream-matrix.json \
-            --output benchmarks/external-project-smoke-upstream-results.json \
+            --output "${{ runner.temp }}/external-project-smoke-upstream-results.json" \
             --timeout 420 \
             --check
 
@@ -217,7 +220,7 @@ jobs:
           python3 benchmarks/semantic-refactor-matrix.py \
             --binary ./codelens-mcp \
             --matrix benchmarks/semantic-refactor-upstream-matrix.json \
-            --output benchmarks/semantic-refactor-upstream-results.json \
+            --output "${{ runner.temp }}/semantic-refactor-upstream-results.json" \
             --timeout 420 \
             --check
 
@@ -227,15 +230,15 @@ jobs:
         with:
           name: upstream-smoke-results
           path: |
-            benchmarks/embedding-coverage-smoke.txt
-            benchmarks/clean-quickstart-smoke.txt
-            benchmarks/codelens-index-lifecycle.json
-            benchmarks/codelens-self-retrieval-quality.json
-            benchmarks/codelens-self-retrieval-quality.md
-            benchmarks/codelens-self-retrieval-triage.json
-            benchmarks/external-project-smoke-results.json
-            benchmarks/external-project-smoke-upstream-results.json
-            benchmarks/semantic-refactor-upstream-results.json
+            ${{ runner.temp }}/embedding-coverage-smoke.txt
+            ${{ runner.temp }}/clean-quickstart-smoke.txt
+            ${{ runner.temp }}/codelens-index-lifecycle.json
+            ${{ runner.temp }}/codelens-self-retrieval-quality.json
+            ${{ runner.temp }}/codelens-self-retrieval-quality.md
+            ${{ runner.temp }}/codelens-self-retrieval-triage.json
+            ${{ runner.temp }}/external-project-smoke-results.json
+            ${{ runner.temp }}/external-project-smoke-upstream-results.json
+            ${{ runner.temp }}/semantic-refactor-upstream-results.json
 
   publish:
     name: GitHub Release

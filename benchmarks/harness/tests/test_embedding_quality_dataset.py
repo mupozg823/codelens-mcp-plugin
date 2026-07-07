@@ -1,3 +1,4 @@
+# noqa: SIZE_OK - benchmark harness matrix keeps related CLI regression scenarios together.
 import json
 import subprocess
 import sys
@@ -25,7 +26,6 @@ def write_success_fake_binary(path):
     path.write_text(
         "#!/usr/bin/env python3\n"
         "import json, sys\n"
-        "cmd = sys.argv[sys.argv.index('--cmd') + 1]\n"
         "payloads = {\n"
         "  'get_capabilities': {'success': True, 'data': {'embedding_model': 'fake'}},\n"
         "  'index_embeddings': {'success': True, 'data': {'indexed': True}},\n"
@@ -33,7 +33,14 @@ def write_success_fake_binary(path):
         "  'get_ranked_context': {'success': True, 'data': {'symbols': [{'name': 'target_symbol', 'file': 'target.rs'}], 'retrieval': {'cache_hit_tier': 'exact'}}},\n"
         "  'bm25_symbol_search': {'success': True, 'data': {'results': [{'name': 'target_symbol', 'file_path': 'target.rs'}]}},\n"
         "}\n"
-        "print(json.dumps(payloads.get(cmd, {'success': False, 'error': cmd})))\n",
+        "def payload_for(cmd):\n"
+        "    return payloads.get(cmd, {'success': False, 'error': cmd})\n"
+        "if '--batch' in sys.argv:\n"
+        "    calls = json.loads(sys.argv[sys.argv.index('--batch') + 1])\n"
+        "    print(json.dumps([payload_for(call['name']) for call in calls]))\n"
+        "else:\n"
+        "    cmd = sys.argv[sys.argv.index('--cmd') + 1]\n"
+        "    print(json.dumps(payload_for(cmd)))\n",
         encoding="utf-8",
     )
     path.chmod(0o755)
@@ -89,6 +96,7 @@ class EmbeddingQualityDatasetTests(unittest.TestCase):
         self.assertIn("--max-hybrid-candidate-missing-rate", result.stdout)
         self.assertIn("--triage-output", result.stdout)
         self.assertIn("--stdout", result.stdout)
+        self.assertIn("--method-workers", result.stdout)
 
     def test_embedding_quality_reports_tool_timeout(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -235,9 +243,26 @@ class EmbeddingQualityDatasetTests(unittest.TestCase):
                 "exact",
             )
             self.assertTrue(payload["query_cache_probe"]["cache_hit_observed"])
+            self.assertIsInstance(payload["timings"]["total_elapsed_ms"], (int, float))
+            self.assertIsInstance(
+                payload["timings"]["index_embeddings_elapsed_ms"],
+                (int, float),
+            )
             triage = json.loads(triage_output.read_text(encoding="utf-8"))
             self.assertEqual(triage["schema_version"], 1)
             self.assertEqual(triage["dataset_size"], 1)
+            self.assertEqual(
+                triage["timings"]["total_elapsed_ms"],
+                payload["timings"]["total_elapsed_ms"],
+            )
+            self.assertIsInstance(
+                triage["hybrid_metrics"]["method_wall_ms"],
+                (int, float),
+            )
+            self.assertEqual(
+                triage["hybrid_metrics"]["subprocess_invocation_count"],
+                1,
+            )
             self.assertEqual(triage["candidate_missing"]["count"], 0)
             self.assertEqual(
                 triage["semantic_hit_dropped_by_hybrid"]["count"],
@@ -246,6 +271,116 @@ class EmbeddingQualityDatasetTests(unittest.TestCase):
             self.assertEqual(triage["hybrid_demoted_semantic_hit"]["count"], 0)
             self.assertIn("p95_response_tokens", triage["token_budget"])
             self.assertTrue(triage["query_cache_probe"]["cache_hit_observed"])
+
+    def test_embedding_quality_batch_size_uses_batch_latency_fields(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            dataset = temp_path / "dataset.json"
+            output = temp_path / "results.json"
+            write_single_row_dataset(dataset)
+            fake_binary = temp_path / "codelens-fake"
+            write_success_fake_binary(fake_binary)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(REPO_ROOT),
+                    "--binary",
+                    str(fake_binary),
+                    "--dataset",
+                    str(dataset),
+                    "--methods",
+                    "get_ranked_context",
+                    "--batch-size",
+                    "2",
+                    "--query-cache-probe",
+                    "off",
+                    "--output",
+                    str(output),
+                    "--stdout",
+                    "none",
+                    "--tool-timeout",
+                    "5",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(payload["batch_size"], 2)
+            hybrid = payload["methods"][0]
+            self.assertIsNone(hybrid["avg_elapsed_ms"])
+            self.assertIsNone(hybrid["p95_elapsed_ms"])
+            self.assertIsInstance(hybrid["method_wall_ms"], (int, float))
+            self.assertEqual(hybrid["subprocess_invocation_count"], 1)
+            self.assertIn("method_wall_ms", payload["timings"])
+            self.assertIsInstance(hybrid["avg_batch_amortized_elapsed_ms"], (int, float))
+            self.assertIsInstance(hybrid["p95_batch_amortized_elapsed_ms"], (int, float))
+
+    def test_embedding_quality_method_workers_preserve_method_order(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            dataset = temp_path / "dataset.json"
+            output = temp_path / "results.json"
+            write_single_row_dataset(dataset)
+            fake_binary = temp_path / "codelens-fake"
+            write_success_fake_binary(fake_binary)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(REPO_ROOT),
+                    "--binary",
+                    str(fake_binary),
+                    "--dataset",
+                    str(dataset),
+                    "--method-workers",
+                    "4",
+                    "--batch-size",
+                    "2",
+                    "--query-cache-probe",
+                    "off",
+                    "--output",
+                    str(output),
+                    "--stdout",
+                    "none",
+                    "--tool-timeout",
+                    "5",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(payload["method_worker_count"], 4)
+            self.assertEqual(
+                [method["method"] for method in payload["methods"]],
+                [
+                    "semantic_search",
+                    "get_ranked_context_no_semantic",
+                    "get_ranked_context",
+                    "bm25_symbol_search",
+                ],
+            )
+            self.assertEqual(
+                sorted(payload["timings"]["method_wall_ms"]),
+                [
+                    "bm25_symbol_search",
+                    "get_ranked_context",
+                    "get_ranked_context_no_semantic",
+                    "semantic_search",
+                ],
+            )
 
     def test_promotion_retrieval_scripts_expose_ranked_context_token_budget(self):
         for script_name in ("external-retrieval.py", "role-retrieval.py"):

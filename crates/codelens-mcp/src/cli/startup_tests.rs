@@ -54,6 +54,17 @@ fn cli_project_arg_skips_equals_syntax_flags() {
 }
 
 #[test]
+fn cli_project_arg_skips_batch_json() {
+    let args = vec![
+        "codelens-mcp".to_owned(),
+        "--batch".to_owned(),
+        r#"[{"name":"get_capabilities","arguments":{}}]"#.to_owned(),
+        "/tmp/repo".to_owned(),
+    ];
+    assert_eq!(parse_cli_project_arg(&args).as_deref(), Some("/tmp/repo"));
+}
+
+#[test]
 fn explicit_project_resolution_fails_closed() {
     let missing = temp_dir("missing-parent").join("does-not-exist");
     let source = StartupProjectSource::Cli(missing.to_string_lossy().to_string());
@@ -105,6 +116,7 @@ fn render_help_separates_active_profiles_from_compatibility_aliases() {
     let rendered = render_help();
 
     assert!(rendered.contains("--profile planner-readonly|builder-minimal|reviewer-graph"));
+    assert!(rendered.contains("--batch <json>"));
     assert!(rendered.contains(
         "compatibility aliases: refactor-full, ci-audit, evaluator-compact, workflow-first"
     ));

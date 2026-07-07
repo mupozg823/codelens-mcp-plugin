@@ -204,13 +204,34 @@ python3 benchmarks/embedding-index-lifecycle.py . \
 ### 1-3. 임베드 품질 benchmark (embedding-quality.py)
 
 ```bash
-python3 benchmarks/embedding-quality.py . --isolated-copy
 python3 benchmarks/embedding-quality.py . \
-  --isolated-copy \
-  --output benchmarks/embedding-quality-results.json \
+  --methods get_ranked_context \
+  --workers 4 \
+  --batch-size 16 \
+  --query-cache-probe off \
+  --output /tmp/codelens-embedding-quality-hybrid-only.json \
   --stdout summary \
-  --markdown-output benchmarks/embedding-quality-summary.md \
+  --markdown-output /tmp/codelens-embedding-quality-hybrid-only.md \
+  --triage-output /tmp/codelens-embedding-quality-hybrid-only-triage.json \
+  --check \
+  --min-hybrid-mrr 0.70 \
+  --max-hybrid-candidate-missing-rate 0.10 \
+  --max-hybrid-p95-response-tokens 20000
+
+python3 benchmarks/embedding-quality.py . \
+  --method-workers 4 \
+  --batch-size 16 \
+  --query-cache-probe on \
+  --output /tmp/codelens-embedding-quality-results.json \
+  --stdout summary \
+  --markdown-output /tmp/codelens-embedding-quality-summary.md \
   --triage-output /tmp/codelens-embedding-quality-triage.json \
+  --check \
+  --min-hybrid-mrr 0.70 \
+  --min-lexical-mrr 0.50 \
+  --min-hybrid-mrr-by-query-type natural_language=0.55 \
+  --min-hybrid-recall-by-query-type issue_to_edit=0.80 \
+  --max-hybrid-candidate-missing-rate 0.10 \
   --max-hybrid-p95-response-tokens 20000
 ```
 
@@ -221,10 +242,15 @@ python3 benchmarks/embedding-quality.py . \
 - `get_ranked_context disable_semantic=true` 대비 hybrid uplift
 - query별 miss / wrong-top-hit
 - `--triage-output` JSON의 `candidate_missing`, `semantic_hit_dropped_by_hybrid`, `hybrid_demoted_semantic_hit`, p95 response tokens, query-cache hit evidence
+- JSON/Markdown/triage artifact의 `timings`와 method별 `method_wall_ms`, `subprocess_invocation_count`; full comparator가 느릴 때는 shell `time` 대신 이 필드로 dataset load, capabilities, index, method, cache-probe 비용을 분리한다.
 - CI/agent 실행은 `--stdout summary`를 사용해 full JSON은 파일 artifact로 남기고 대화/로그 토큰을 줄인다.
+- 빠른 ranker 반복은 `--methods get_ranked_context --query-cache-probe off`로 hybrid lane만 먼저 확인한다.
+- `--batch-size`는 여러 tool call을 한 `codelens-mcp` subprocess로 묶어 프로세스 startup cost를 줄인다. 이때 latency는 `*_batch_amortized_elapsed_ms`로 별도 기록되며, per-query latency gate인 `--max-hybrid-avg-ms`는 `--batch-size 1`에서만 사용한다.
+- `--workers`는 batch 단위 병렬 실행이다. promotion 품질 gate는 deterministic 비교를 위해 기본 worker count를 유지하고, fast iteration에서만 높인다.
+- `--method-workers`는 full comparator의 독립 method lane 병렬 실행이다. 결과 배열은 `METHOD_ORDER` 순서를 유지하므로 CI full gate에서는 `4`를 사용해 wall time을 줄이고, 문제 재현이 필요할 때만 `1`로 되돌린다.
 - `--max-hybrid-p95-response-tokens`로 retrieval payload token 폭증을 `--check` 단계에서 fail-close
 
-현재 재현 가능한 로컬 기준선 (`embedding-quality-results.json`, sequential + `--isolated-copy`):
+Historical local baseline (`embedding-quality-results.json`, sequential + `--isolated-copy`):
 
 - `semantic_search`: `MRR 0.502`, `Acc@1 44%`, `Acc@3 56%`, `Acc@5 62%`
 - `get_ranked_context` lexical-only: `MRR 0.407`, `Acc@1 28%`, `Acc@3 47%`, `Acc@5 53%`

@@ -23,7 +23,6 @@ def write_success_fake_binary(path):
     path.write_text(
         "#!/usr/bin/env python3\n"
         "import json, sys\n"
-        "cmd = sys.argv[sys.argv.index('--cmd') + 1]\n"
         "payloads = {\n"
         "  'get_capabilities': {'success': True, 'data': {'embedding_model': 'fake'}},\n"
         "  'index_embeddings': {'success': True, 'data': {'indexed': True}},\n"
@@ -31,7 +30,14 @@ def write_success_fake_binary(path):
         "  'get_ranked_context': {'success': True, 'data': {'symbols': [{'name': 'target_symbol', 'file': 'target.rs'}], 'retrieval': {'cache_hit_tier': 'exact'}}},\n"
         "  'bm25_symbol_search': {'success': True, 'data': {'results': [{'name': 'target_symbol', 'file_path': 'target.rs'}]}},\n"
         "}\n"
-        "print(json.dumps(payloads.get(cmd, {'success': False, 'error': cmd})))\n",
+        "def payload_for(cmd):\n"
+        "    return payloads.get(cmd, {'success': False, 'error': cmd})\n"
+        "if '--batch' in sys.argv:\n"
+        "    calls = json.loads(sys.argv[sys.argv.index('--batch') + 1])\n"
+        "    print(json.dumps([payload_for(call['name']) for call in calls]))\n"
+        "else:\n"
+        "    cmd = sys.argv[sys.argv.index('--cmd') + 1]\n"
+        "    print(json.dumps(payload_for(cmd)))\n",
         encoding="utf-8",
     )
     path.chmod(0o755)
@@ -60,6 +66,8 @@ class EmbeddingQualityStdoutTests(unittest.TestCase):
                     str(output),
                     "--stdout",
                     "summary",
+                    "--batch-size",
+                    "2",
                     "--tool-timeout",
                     "5",
                 ],
@@ -74,10 +82,19 @@ class EmbeddingQualityStdoutTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Embedding-quality summary:", result.stdout)
             self.assertIn("dataset_size=1", result.stdout)
+            self.assertIn("method_workers=1", result.stdout)
+            self.assertIn("total_elapsed_ms=", result.stdout)
+            self.assertIn("index_embeddings_elapsed_ms=", result.stdout)
             self.assertNotIn('"methods"', result.stdout)
             self.assertLess(len(result.stdout), 1000)
             payload = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(payload["dataset_size"], 1)
+            self.assertEqual(payload["batch_size"], 2)
+            self.assertIsInstance(payload["timings"]["total_elapsed_ms"], (int, float))
+            self.assertIsInstance(
+                payload["timings"]["index_embeddings_elapsed_ms"],
+                (int, float),
+            )
             self.assertIn("methods", payload)
 
 

@@ -46,6 +46,7 @@ fn flag_takes_value(flag: &str) -> bool {
             | "--daemon-mode"
             | "--cmd"
             | "--args"
+            | "--batch"
             | "--transport"
             | "--listen"
             | "--port"
@@ -95,6 +96,7 @@ pub(crate) fn render_help() -> String {
         "Options:".to_owned(),
         "  --cmd <tool>                 Run one MCP tool and exit".to_owned(),
         "  --args <json>                JSON arguments for --cmd".to_owned(),
+        "  --batch <json>              Run multiple MCP tools and exit".to_owned(),
         "  --preset minimal|balanced|full".to_owned(),
         "  --profile planner-readonly|builder-minimal|reviewer-graph".to_owned(),
         "      compatibility aliases: refactor-full, ci-audit, evaluator-compact, workflow-first"
