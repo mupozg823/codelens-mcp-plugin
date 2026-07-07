@@ -51,6 +51,58 @@ pub struct ScoredSymbol {
     pub matched_terms: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SparseSymbolIndex {
+    docs: Vec<IndexedSymbolDocument>,
+    df: HashMap<String, usize>,
+    avgdl: f64,
+}
+
+impl SparseSymbolIndex {
+    pub fn new(corpus: Vec<SymbolDocument>) -> Self {
+        let mut docs = Vec::with_capacity(corpus.len());
+        let mut df: HashMap<String, usize> = HashMap::new();
+        let mut total_weighted_length = 0.0_f64;
+
+        for document in corpus {
+            let fields = tokenize_fields(&document);
+            let weighted_length = fields.weighted_length();
+            let token_weights = fields.weighted_term_frequencies();
+            for token in token_weights.keys() {
+                *df.entry(token.clone()).or_insert(0) += 1;
+            }
+            total_weighted_length += weighted_length;
+            docs.push(IndexedSymbolDocument {
+                document,
+                token_weights,
+                weighted_length,
+            });
+        }
+
+        let avgdl = if docs.is_empty() || total_weighted_length == 0.0 {
+            1.0
+        } else {
+            total_weighted_length / docs.len() as f64
+        };
+        Self { docs, df, avgdl }
+    }
+
+    pub fn len(&self) -> usize {
+        self.docs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.docs.is_empty()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct IndexedSymbolDocument {
+    document: SymbolDocument,
+    token_weights: HashMap<String, f64>,
+    weighted_length: f64,
+}
+
 const BM25_K1: f64 = 1.2;
 const BM25_B: f64 = 0.75;
 const MIN_TOKEN_LEN: usize = 2;
@@ -81,7 +133,18 @@ pub fn search_symbols_bm25f(
     include_tests: bool,
     include_generated: bool,
 ) -> Vec<ScoredSymbol> {
-    if corpus.is_empty() || top_k == 0 {
+    let index = SparseSymbolIndex::new(corpus.to_vec());
+    search_symbols_bm25f_index(&index, query, top_k, include_tests, include_generated)
+}
+
+pub fn search_symbols_bm25f_index(
+    index: &SparseSymbolIndex,
+    query: &str,
+    top_k: usize,
+    include_tests: bool,
+    include_generated: bool,
+) -> Vec<ScoredSymbol> {
+    if index.is_empty() || top_k == 0 {
         return Vec::new();
     }
     let query_tokens = tokenize(query);
@@ -97,52 +160,28 @@ pub fn search_symbols_bm25f(
             .collect()
     };
 
-    let doc_fields: Vec<FieldTokens> = corpus.iter().map(tokenize_fields).collect();
-    let doc_weighted_lengths: Vec<f64> = doc_fields
+    let n_docs = index.docs.len() as f64;
+    let mut scored: Vec<ScoredSymbol> = index
+        .docs
         .iter()
-        .map(FieldTokens::weighted_length)
-        .collect();
-    let total_weighted_length: f64 = doc_weighted_lengths.iter().sum();
-    let n_docs = corpus.len() as f64;
-    let avgdl = if total_weighted_length == 0.0 {
-        1.0
-    } else {
-        total_weighted_length / n_docs
-    };
-
-    let mut df: HashMap<&str, usize> = HashMap::new();
-    for qt in &unique_query_terms {
-        if df.contains_key(qt.as_str()) {
-            continue;
-        }
-        let count = doc_fields
-            .iter()
-            .filter(|fields| fields.contains_any(qt))
-            .count();
-        df.insert(qt.as_str(), count);
-    }
-
-    let mut scored: Vec<ScoredSymbol> = corpus
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, doc)| {
+        .filter_map(|indexed| {
+            let doc = &indexed.document;
             if doc.is_test && !include_tests && doc.is_generated {
                 // still scored — downweighted below
             }
-            let fields = &doc_fields[idx];
-            let dl = doc_weighted_lengths[idx];
             let mut score = 0.0_f64;
             let mut matched: Vec<String> = Vec::new();
             for qt in &unique_query_terms {
-                let tf_w = fields.weighted_tf(qt);
-                if tf_w == 0.0 {
+                let Some(tf_w) = indexed.token_weights.get(qt) else {
                     continue;
-                }
+                };
                 matched.push(qt.clone());
-                let docs_with_term = *df.get(qt.as_str()).unwrap_or(&0) as f64;
+                let docs_with_term = *index.df.get(qt).unwrap_or(&0) as f64;
                 let idf = ((n_docs - docs_with_term + 0.5) / (docs_with_term + 0.5) + 1.0).ln();
-                let tf_norm = tf_w * (BM25_K1 + 1.0)
-                    / (tf_w + BM25_K1 * (1.0 - BM25_B + BM25_B * dl / avgdl));
+                let tf_norm = *tf_w * (BM25_K1 + 1.0)
+                    / (*tf_w
+                        + BM25_K1
+                            * (1.0 - BM25_B + BM25_B * indexed.weighted_length / index.avgdl));
                 score += idf * tf_norm;
             }
             if score <= 0.0 {
@@ -209,25 +248,22 @@ impl FieldTokens {
             + W_BODY * self.body.len() as f64
     }
 
-    fn weighted_tf(&self, token: &str) -> f64 {
-        let tf = |field: &[String]| field.iter().filter(|t| t.as_str() == token).count() as f64;
-        W_NAME_PATH * tf(&self.name_path)
-            + W_NAME * tf(&self.name)
-            + W_SIGNATURE * tf(&self.signature)
-            + W_MODULE_PATH * tf(&self.module_path)
-            + W_FILE_PATH * tf(&self.file_path)
-            + W_DOC_COMMENT * tf(&self.doc_comment)
-            + W_BODY * tf(&self.body)
+    fn weighted_term_frequencies(&self) -> HashMap<String, f64> {
+        let mut terms = HashMap::new();
+        add_weighted_terms(&mut terms, &self.name_path, W_NAME_PATH);
+        add_weighted_terms(&mut terms, &self.name, W_NAME);
+        add_weighted_terms(&mut terms, &self.signature, W_SIGNATURE);
+        add_weighted_terms(&mut terms, &self.module_path, W_MODULE_PATH);
+        add_weighted_terms(&mut terms, &self.file_path, W_FILE_PATH);
+        add_weighted_terms(&mut terms, &self.doc_comment, W_DOC_COMMENT);
+        add_weighted_terms(&mut terms, &self.body, W_BODY);
+        terms
     }
+}
 
-    fn contains_any(&self, token: &str) -> bool {
-        self.name_path.iter().any(|t| t == token)
-            || self.name.iter().any(|t| t == token)
-            || self.signature.iter().any(|t| t == token)
-            || self.module_path.iter().any(|t| t == token)
-            || self.file_path.iter().any(|t| t == token)
-            || self.doc_comment.iter().any(|t| t == token)
-            || self.body.iter().any(|t| t == token)
+fn add_weighted_terms(terms: &mut HashMap<String, f64>, tokens: &[String], weight: f64) {
+    for token in tokens {
+        *terms.entry(token.clone()).or_insert(0.0) += weight;
     }
 }
 
@@ -583,5 +619,58 @@ mod tests {
         let results = search_symbols_bm25f(&corpus, "preflight", 2, false, false);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].document.name, "unrelated_name");
+    }
+
+    #[test]
+    fn indexed_search_matches_uncached_search_order_and_scores() {
+        let corpus = vec![
+            doc(
+                "evaluate_mutation_gate",
+                "mutation_gate::evaluate_mutation_gate",
+                "pub fn evaluate_mutation_gate()",
+                "src/mutation_gate.rs",
+                "mutation_gate",
+                "body text without query terms",
+                false,
+                false,
+                true,
+            ),
+            doc(
+                "helper",
+                "helpers::helper",
+                "fn helper(preflight: Preflight)",
+                "src/helpers.rs",
+                "helpers",
+                "mutation gate body tokens",
+                false,
+                false,
+                false,
+            ),
+            doc(
+                "test_helper",
+                "tests::test_helper",
+                "fn test_helper()",
+                "tests/helpers.rs",
+                "tests",
+                "mutation gate body tokens",
+                true,
+                false,
+                false,
+            ),
+        ];
+        let uncached = search_symbols_bm25f(&corpus, "mutation gate", 5, true, false);
+        let index = SparseSymbolIndex::new(corpus);
+        let indexed = search_symbols_bm25f_index(&index, "mutation gate", 5, true, false);
+
+        assert_eq!(indexed.len(), uncached.len());
+        for (cached, fresh) in indexed.iter().zip(uncached.iter()) {
+            assert_eq!(cached.document.name, fresh.document.name);
+            assert!(
+                (cached.score - fresh.score).abs() < f64::EPSILON,
+                "indexed score should match uncached score for {}",
+                cached.document.name
+            );
+            assert_eq!(cached.matched_terms, fresh.matched_terms);
+        }
     }
 }

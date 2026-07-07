@@ -85,7 +85,8 @@ pub(crate) fn ranked_context_output_schema() -> serde_json::Value {
                             "cache_hit_tier": {"type": ["string", "null"], "enum": ["disabled", "cold", "exact", null]},
                             "source": {"type": "string"}
                         }
-                    }
+                    },
+                    "sparse_index": sparse_index_diagnostics_schema()
                 }
             },
             "semantic_evidence": {
@@ -183,7 +184,23 @@ pub(crate) fn bm25_symbol_search_output_schema() -> serde_json::Value {
                     "lexical_query": {"type": "string"},
                     "semantic_query": {"type": "string"}
                 }
-            }
+            },
+            "sparse_index": sparse_index_diagnostics_schema()
+        }
+    })
+}
+
+fn sparse_index_diagnostics_schema() -> serde_json::Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "cache_hit": {"type": "boolean"},
+            "indexed_files": {"type": "integer"},
+            "symbol_count": {"type": "integer"},
+            "max_indexed_at": {"type": ["integer", "null"]},
+            "corpus_build_ms": {"type": "integer"},
+            "search_ms": {"type": "integer"},
+            "total_ms": {"type": "integer"}
         }
     })
 }

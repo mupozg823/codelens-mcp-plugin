@@ -7,16 +7,50 @@
 
 use crate::AppState;
 use crate::error::CodeLensError;
+use crate::sparse_symbol_cache::{SparseSymbolCacheKey, SparseSymbolIndexFingerprint};
 use crate::symbol_corpus::build_symbol_corpus;
-use crate::symbol_retrieval::{ScoredSymbol, search_symbols_bm25f};
+use crate::symbol_retrieval::{ScoredSymbol, SparseSymbolIndex, search_symbols_bm25f_index};
 use crate::tools::query_analysis::RetrievalQueryAnalysis;
 use codelens_engine::SymbolInfo;
+use serde_json::{Value, json};
+use std::sync::Arc;
+use std::time::Instant;
 
 use super::retrieval_scope::{
     file_matches_scope, markup_config_penalty_multiplier, normalize_path_scope,
 };
 
-pub(crate) fn sparse_symbol_hits_for_query(
+pub(crate) struct SparseRetrievalResult {
+    pub(crate) hits: Vec<ScoredSymbol>,
+    pub(crate) diagnostics: SparseRetrievalDiagnostics,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SparseRetrievalDiagnostics {
+    cache_hit: bool,
+    indexed_files: usize,
+    symbol_count: usize,
+    max_indexed_at: Option<i64>,
+    corpus_build_ms: u128,
+    search_ms: u128,
+    total_ms: u128,
+}
+
+impl SparseRetrievalDiagnostics {
+    pub(crate) fn to_json(&self) -> Value {
+        json!({
+            "cache_hit": self.cache_hit,
+            "indexed_files": self.indexed_files,
+            "symbol_count": self.symbol_count,
+            "max_indexed_at": self.max_indexed_at,
+            "corpus_build_ms": self.corpus_build_ms,
+            "search_ms": self.search_ms,
+            "total_ms": self.total_ms,
+        })
+    }
+}
+
+pub(crate) fn sparse_symbol_hits_for_query_with_diagnostics(
     state: &AppState,
     query_analysis: &RetrievalQueryAnalysis,
     max_results: usize,
@@ -24,21 +58,37 @@ pub(crate) fn sparse_symbol_hits_for_query(
     include_generated: bool,
     session: &crate::session_context::SessionRequestContext,
     path_scope: Option<&str>,
-) -> Result<Vec<ScoredSymbol>, CodeLensError> {
+) -> Result<SparseRetrievalResult, CodeLensError> {
+    let total_start = Instant::now();
     let normalized_path_scope = normalize_path_scope(state.project().as_path(), path_scope);
-    let mut all_symbols = Vec::new();
-    for path in state.symbol_index().indexed_file_paths()? {
-        if !file_matches_scope(&path, normalized_path_scope.as_deref()) {
-            continue;
+    let symbol_index = state.symbol_index();
+    let fingerprint = SparseSymbolIndexFingerprint::from_symbol_index(symbol_index.as_ref())?;
+    let cache_key =
+        SparseSymbolCacheKey::new(state.current_project_scope(), normalized_path_scope.clone());
+    let cache = state.sparse_symbol_cache();
+    let cache_lookup = cache.get(&cache_key, fingerprint);
+    let cache_hit = cache_lookup.is_some();
+    let build_start = Instant::now();
+    let sparse_index = match cache_lookup {
+        Some(index) => index,
+        None => {
+            let index = Arc::new(build_sparse_symbol_index(
+                state,
+                normalized_path_scope.as_deref(),
+            )?);
+            cache.store(cache_key, fingerprint, Arc::clone(&index));
+            index
         }
-        if let Ok(symbols) = state.symbol_index().get_symbols_overview_cached(&path, 3) {
-            all_symbols.extend(flatten_symbols(&symbols));
-        }
-    }
+    };
+    let corpus_build_ms = if cache_hit {
+        0
+    } else {
+        build_start.elapsed().as_millis()
+    };
 
-    let corpus = build_symbol_corpus(&all_symbols);
-    let mut scored = search_symbols_bm25f(
-        &corpus,
+    let search_start = Instant::now();
+    let mut scored = search_symbols_bm25f_index(
+        &sparse_index,
         &query_analysis.expanded_query,
         max_results.saturating_mul(5).max(max_results),
         include_tests,
@@ -64,7 +114,39 @@ pub(crate) fn sparse_symbol_hits_for_query(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     scored.truncate(max_results);
-    Ok(scored)
+    let search_ms = search_start.elapsed().as_millis();
+
+    Ok(SparseRetrievalResult {
+        hits: scored,
+        diagnostics: SparseRetrievalDiagnostics {
+            cache_hit,
+            indexed_files: fingerprint.file_count(),
+            symbol_count: sparse_index.len(),
+            max_indexed_at: fingerprint.max_indexed_at(),
+            corpus_build_ms,
+            search_ms,
+            total_ms: total_start.elapsed().as_millis(),
+        },
+    })
+}
+
+fn build_sparse_symbol_index(
+    state: &AppState,
+    normalized_path_scope: Option<&str>,
+) -> Result<SparseSymbolIndex, CodeLensError> {
+    let symbol_index = state.symbol_index();
+    let mut all_symbols = Vec::new();
+    for path in symbol_index.indexed_file_paths()? {
+        if !file_matches_scope(&path, normalized_path_scope) {
+            continue;
+        }
+        if let Ok(symbols) = symbol_index.get_symbols_overview_cached(&path, 3) {
+            all_symbols.extend(flatten_symbols(&symbols));
+        }
+    }
+
+    let corpus = build_symbol_corpus(&all_symbols);
+    Ok(SparseSymbolIndex::new(corpus))
 }
 
 /// Scale a base token budget to the host's advertised model context window.

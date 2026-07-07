@@ -4,6 +4,7 @@ use codelens_engine::{FileWatcher, GraphCache, LspSessionPool, SymbolIndex};
 
 use crate::error::CodeLensError;
 use crate::runtime_types::WatcherFailureHealth;
+use crate::sparse_symbol_cache::SparseSymbolCache;
 use crate::state::AppState;
 
 impl AppState {
@@ -32,6 +33,10 @@ impl AppState {
         self.active_project_context()
             .map(|context| Arc::clone(&context.symbol_index))
             .unwrap_or_else(|| Arc::clone(&self.default_symbol_index))
+    }
+
+    pub(crate) fn sparse_symbol_cache(&self) -> Arc<SparseSymbolCache> {
+        Arc::clone(&self.sparse_symbol_cache)
     }
 
     pub(crate) fn watcher_failure_health(&self) -> WatcherFailureHealth {

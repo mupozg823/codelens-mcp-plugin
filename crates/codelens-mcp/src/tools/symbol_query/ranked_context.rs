@@ -32,7 +32,9 @@ use super::rank_fusion::{
 };
 use super::ranked_context_coverage::ranked_context_coverage;
 use super::retrieval_scope::normalize_path_scope;
-use super::sparse_retriever::{adapt_budget_to_context_window, sparse_symbol_hits_for_query};
+use super::sparse_retriever::{
+    adapt_budget_to_context_window, sparse_symbol_hits_for_query_with_diagnostics,
+};
 use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
@@ -170,8 +172,8 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         effective_disable_semantic,
         normalized_path_scope.as_deref(),
     );
-    let sparse_results = if use_sparse_in_core {
-        sparse_symbol_hits_for_query(
+    let sparse_result = if use_sparse_in_core {
+        Some(sparse_symbol_hits_for_query_with_diagnostics(
             state,
             &query_analysis,
             10,
@@ -179,10 +181,17 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             false,
             &session,
             normalized_path_scope.as_deref(),
-        )?
+        )?)
     } else {
-        Vec::new()
+        None
     };
+    let sparse_diagnostics = sparse_result
+        .as_ref()
+        .map(|result| result.diagnostics.to_json());
+    let sparse_results = sparse_result
+        .as_ref()
+        .map(|result| result.hits.clone())
+        .unwrap_or_default();
     let semantic_scores = semantic_results
         .iter()
         .filter(|r| r.score > 0.05)
@@ -443,6 +452,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             "cache_hit_tier": query_cache_hit_tier,
             "source": "user_context_query_embedding",
         },
+        "sparse_index": sparse_diagnostics,
     });
     let backend = if result.symbols.iter().any(|s| s.relevance_score > 0) {
         BackendKind::TreeSitter

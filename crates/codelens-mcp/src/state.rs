@@ -10,6 +10,7 @@ use crate::analysis_queue::AnalysisWorkerQueue;
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::orchestration_store::OrchestrationStore;
 use crate::preflight_store::RecentPreflightStore;
+use crate::sparse_symbol_cache::SparseSymbolCache;
 use crate::telemetry::ToolMetricsRegistry;
 #[cfg(test)]
 use crate::tool_defs::ToolPreset;
@@ -109,6 +110,7 @@ pub(crate) struct AppState {
     orchestration_store: Arc<OrchestrationStore>,
     coord_store: Arc<AgentCoordinationStore>,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
+    sparse_symbol_cache: Arc<SparseSymbolCache>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
     #[cfg_attr(not(feature = "http"), allow(dead_code))]
     project_execution_lock: Mutex<()>,

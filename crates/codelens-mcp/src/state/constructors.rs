@@ -10,6 +10,7 @@ use crate::orchestration_store::OrchestrationStore;
 use crate::preflight_store::RecentPreflightStore;
 use crate::recent_buffer::RecentRingBuffer;
 use crate::runtime_types::{RuntimeDaemonMode, RuntimeTransportMode};
+use crate::sparse_symbol_cache::SparseSymbolCache;
 use crate::state::project_runtime::{ProjectContextCache, ProjectRuntimeContext};
 use crate::state::{AppState, now_rfc3339_utc};
 use crate::telemetry::ToolMetricsRegistry;
@@ -57,6 +58,7 @@ impl AppState {
             orchestration_store: Arc::clone(&self.orchestration_store),
             coord_store: Arc::clone(&self.coord_store),
             analysis_queue: OnceLock::new(),
+            sparse_symbol_cache: Arc::clone(&self.sparse_symbol_cache),
             watcher_maintenance: Mutex::new(HashMap::new()),
             project_execution_lock: Mutex::new(()),
             secondary_projects: Mutex::new(HashMap::new()),
@@ -148,6 +150,7 @@ impl AppState {
             orchestration_store: Arc::new(OrchestrationStore::new()),
             coord_store: Arc::new(AgentCoordinationStore::new()),
             analysis_queue: OnceLock::new(),
+            sparse_symbol_cache: Arc::new(SparseSymbolCache::new()),
             watcher_maintenance: Mutex::new(HashMap::new()),
             project_execution_lock: Mutex::new(()),
             secondary_projects: Mutex::new(HashMap::new()),

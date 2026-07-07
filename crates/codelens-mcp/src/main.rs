@@ -38,6 +38,7 @@ mod server;
 mod session_context;
 mod session_metrics_payload;
 mod skill_catalog;
+mod sparse_symbol_cache;
 mod state;
 
 mod surface_manifest;

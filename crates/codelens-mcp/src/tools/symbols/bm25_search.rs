@@ -14,7 +14,7 @@ use super::super::{
 };
 use crate::protocol::BackendKind;
 use crate::symbol_retrieval::unique_query_terms;
-use crate::tools::symbol_query::sparse_retriever::sparse_symbol_hits_for_query;
+use crate::tools::symbol_query::sparse_retriever::sparse_symbol_hits_for_query_with_diagnostics;
 use serde_json::{Value, json};
 
 pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
@@ -24,7 +24,7 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
     let include_tests = optional_bool(arguments, "include_tests", false);
     let include_generated = optional_bool(arguments, "include_generated", false);
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
-    let scored = sparse_symbol_hits_for_query(
+    let sparse_result = sparse_symbol_hits_for_query_with_diagnostics(
         state,
         &query_analysis,
         max_results,
@@ -33,9 +33,11 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
         &session,
         None,
     )?;
+    let diagnostics = sparse_result.diagnostics.to_json();
 
     let total_query_terms = unique_query_terms(&query_analysis.expanded_query).len();
-    let payload_results: Vec<Value> = scored
+    let payload_results: Vec<Value> = sparse_result
+        .hits
         .into_iter()
         .enumerate()
         .map(|(idx, hit)| {
@@ -114,6 +116,7 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
             "results": payload_results,
             "count": payload_results.len(),
             "retrieval": retrieval,
+            "sparse_index": diagnostics,
             "evidence": evidence,
         }),
         meta,
