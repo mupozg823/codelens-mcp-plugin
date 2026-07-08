@@ -243,7 +243,10 @@ pub(crate) fn safe_delete_with_lsp_backend(
                     }
                 },
                 "suggested_next_tools": if safe_to_delete {
-                    json!(["delete_lines", "get_file_diagnostics"])
+                    // `delete_lines` was tombstoned (#346) — line edits belong to
+                    // the host-native Edit tool. Mirrors the tree-sitter arm in
+                    // `composite.rs`.
+                    json!(["get_file_diagnostics"])
                 } else {
                     json!(["find_referencing_symbols", "get_callers", "plan_safe_refactor"])
                 }

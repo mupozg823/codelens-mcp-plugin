@@ -180,7 +180,6 @@ Pick by question shape, not by reflex.
 | File/directory structure                | `mcp__codelens__get_symbols_overview`            | AST-accurate, includes private symbols grep can miss               |
 | Who calls / inherits X (real callsites) | `mcp__codelens__find_referencing_symbols`        | Rejects imports / strings / type annotations grep floods you with  |
 | Smart context for a query               | `mcp__codelens__get_ranked_context`              | Bundled by importance + hybrid BM25 + semantic                     |
-| What breaks if I change X               | `mcp__codelens__get_impact_analysis`             | Blast radius + importer evidence grep cannot produce               |
 | Type errors after edit                  | `mcp__codelens__get_file_diagnostics`            | Machine-readable diagnostics stream                                |
 | First look at unfamiliar repo           | `mcp__codelens__onboard_project`                 | Key files + structure + health in one call                         |
 | Safe multi-file rename                  | `mcp__codelens__rename_symbol`                   | Verifier-gated; refuses broken renames                             |
@@ -227,7 +226,7 @@ Instead of choosing from 90 individual tools, use these **workflow patterns**:
 | **Explore codebase**   | `onboard_project` → `get_symbols_overview` → `get_ranked_context`                       | First look at unfamiliar code                                   |
 | **Plan safe refactor** | `analyze_change_request` → `verify_change_readiness` → `safe_rename_report`             | Before any multi-file rename/move                               |
 | **Audit architecture** | `module_boundary_report` → `dead_code_report` → `find_misplaced_code` → `impact_report` | Architecture review / tech debt assessment                      |
-| **Trace request path** | `find_symbol` → `find_referencing_symbols` → `get_impact_analysis`                      | "How does X work? What calls Y?"                                |
+| **Trace request path** | `find_symbol` → `find_referencing_symbols` → `impact_report`                            | "How does X work? What calls Y?"                                |
 | **Review changes**     | `impact_report` → `diff_aware_references` → `get_file_diagnostics`                      | Pre-merge review                                                |
 | **Cleanup duplicates** | `find_code_duplicates` → `find_similar_code` → `refactor_extract_function`              | DRY violation resolution                                        |
 | **Assess security**    | `dead_code_report` → `find_annotations` → external CodeQL/Semgrep                       | Security audit (CodeLens provides context, not formal analysis) |

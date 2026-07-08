@@ -38,6 +38,7 @@ mod registry;
 #[cfg(feature = "semantic")]
 mod semantic;
 mod session_mutation;
+mod suggestion_drift;
 mod workflow;
 
 // ── Test helpers ─────────────────────────────────────────────────────

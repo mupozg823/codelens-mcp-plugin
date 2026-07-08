@@ -33,7 +33,7 @@ pub use crate::tool_runtime::{
 // callers use `suggest_next_contextual`, which wraps it.
 use std::collections::HashMap;
 #[cfg(test)]
-pub(crate) use suggestions::suggest_next;
+pub(crate) use suggestions::{SUGGEST_NEXT_TABLE, suggest_next};
 pub(crate) use suggestions::{
     composite_guidance_for_chain, infer_harness_phase, suggest_next_contextual,
     suggestion_reasons_for,

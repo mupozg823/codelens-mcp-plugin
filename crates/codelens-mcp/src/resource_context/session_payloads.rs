@@ -13,6 +13,15 @@ pub(crate) fn build_http_session_payload(
     let surface = state.execution_surface(&request.session);
     let runtime_health = collect_runtime_health_snapshot(state, surface);
     let coordination = state.coordination_counts_for_session(&request.session);
+    // T3: the namespace/tier gates only apply when this session is actually
+    // operating in deferred-loading mode. Reporting them as unconditionally
+    // `true` contradicted `visible_tools.deferred_loading_active` (which is
+    // `request.deferred_loading_active()`) for full-exposure / non-deferred
+    // sessions. Tie them to the same signal so the two never disagree; a
+    // non-deferred session now reports `false` (no listing requirement).
+    // `deferred_loading_supported` (a server capability) and the trust /
+    // rename-preflight hooks are orthogonal to deferred loading and stay fixed.
+    let deferred_active = request.deferred_loading_active();
     json!({
         "enabled": state.session_resume_supported(),
         "active_sessions": state.active_session_count(),
@@ -36,8 +45,8 @@ pub(crate) fn build_http_session_payload(
         "loaded_namespaces": request.session.loaded_namespaces,
         "loaded_tiers": request.session.loaded_tiers,
         "full_tool_exposure": request.session.full_tool_exposure,
-        "deferred_namespace_gate": true,
-        "deferred_tier_gate": true,
+        "deferred_namespace_gate": deferred_active,
+        "deferred_tier_gate": deferred_active,
         "preferred_namespaces": preferred_namespaces(surface),
         "preferred_tiers": preferred_tier_labels(surface),
         "trusted_client_hook": true,
@@ -51,8 +60,8 @@ pub(crate) fn build_http_session_payload(
         ),
         "preflight_ttl_seconds": state.preflight_ttl_seconds(),
         "rename_requires_symbol_preflight": true,
-        "requires_namespace_listing_before_tool_call": true,
-        "requires_tier_listing_before_tool_call": true
+        "requires_namespace_listing_before_tool_call": deferred_active,
+        "requires_tier_listing_before_tool_call": deferred_active
     })
 }
 

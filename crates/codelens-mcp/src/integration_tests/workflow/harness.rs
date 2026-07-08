@@ -69,7 +69,7 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     let payload = call_tool(
         &state,
         "prepare_harness_session",
-        json!({"profile": "builder-minimal"}),
+        json!({"profile": "builder-minimal", "detail": "full"}),
     );
 
     unsafe {
@@ -135,7 +135,7 @@ fn prepare_harness_session_warns_when_diagnostics_recipe_is_missing() {
     let payload = call_tool(
         &state,
         "prepare_harness_session",
-        json!({"profile": "builder-minimal", "file_path": "diagnose.unknown"}),
+        json!({"profile": "builder-minimal", "file_path": "diagnose.unknown", "detail": "full"}),
     );
 
     assert_eq!(payload["success"], json!(true));
@@ -330,7 +330,7 @@ fn prepare_harness_session_surfaces_top_level_health_summary() {
     let payload = call_tool(
         &state,
         "prepare_harness_session",
-        json!({"profile": "builder-minimal"}),
+        json!({"profile": "builder-minimal", "detail": "full"}),
     );
 
     assert_eq!(payload["success"], json!(true));
@@ -340,7 +340,12 @@ fn prepare_harness_session_surfaces_top_level_health_summary() {
         payload["data"]["capabilities"]["health_summary"]
     );
     assert!(payload["data"]["health_summary"]["status"].is_string());
-    assert!(payload["data"]["health_summary"]["warnings"].is_array());
+    // T3: the full response is passed through `strip_empty_fields`, so an empty
+    // `warnings` array is dropped for token economy. When present it must still
+    // be an array; when absent the health summary was "ok" with zero warnings.
+    if let Some(warnings) = payload["data"]["health_summary"].get("warnings") {
+        assert!(warnings.is_array());
+    }
 }
 
 #[test]
@@ -413,7 +418,7 @@ fn prepare_harness_session_auto_refreshes_small_stale_index() {
     let payload = call_tool(
         &state,
         "prepare_harness_session",
-        json!({"profile": "builder-minimal"}),
+        json!({"profile": "builder-minimal", "detail": "full"}),
     );
 
     assert_eq!(payload["success"], json!(true));
@@ -463,7 +468,7 @@ fn prepare_harness_session_auto_refreshes_large_stale_index_by_default() {
     let payload = call_tool(
         &state,
         "prepare_harness_session",
-        json!({"profile": "builder-minimal"}),
+        json!({"profile": "builder-minimal", "detail": "full"}),
     );
 
     assert_eq!(payload["success"], json!(true));
@@ -523,6 +528,7 @@ fn prepare_harness_session_respects_explicit_stale_threshold() {
         json!({
             "profile": "builder-minimal",
             "auto_refresh_stale_threshold": 2,
+            "detail": "full",
         }),
     );
 
@@ -714,7 +720,7 @@ fn prepare_harness_session_defaults_to_surface_bootstrap_entrypoints() {
     let payload = call_tool(
         &state,
         "prepare_harness_session",
-        json!({"profile": "builder-minimal"}),
+        json!({"profile": "builder-minimal", "detail": "full"}),
     );
     assert_eq!(payload["success"], json!(true));
     assert_eq!(
@@ -749,7 +755,8 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
         json!({
             "profile": "builder-minimal",
             "host_context": "claude-code",
-            "task_overlay": "review"
+            "task_overlay": "review",
+            "detail": "full"
         }),
     );
     assert_eq!(payload["success"], json!(true));
@@ -804,7 +811,8 @@ fn prepare_harness_session_agent_role_compiles_worker_routing() {
         "prepare_harness_session",
         json!({
             "profile": "builder-minimal",
-            "agent_role": "subagent"
+            "agent_role": "subagent",
+            "detail": "full"
         }),
     );
     assert_eq!(payload["success"], json!(true));

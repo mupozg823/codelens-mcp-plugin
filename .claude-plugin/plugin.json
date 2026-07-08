@@ -2,7 +2,7 @@
   "name": "codelens",
   "displayName": "CodeLens",
   "description": "Host-adaptive code-intelligence MCP for Claude/Codex-style harnesses — cached hybrid retrieval, index-health checks, and mutation-gated refactoring.",
-  "version": "1.0.0",
+  "version": "1.13.34",
   "author": { "name": "mupozg823" },
   "homepage": "https://github.com/mupozg823/codelens-mcp-plugin",
   "repository": "https://github.com/mupozg823/codelens-mcp-plugin",

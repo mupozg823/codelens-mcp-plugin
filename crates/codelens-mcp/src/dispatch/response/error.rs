@@ -5,7 +5,7 @@ use crate::dispatch::response_support::{
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::MutationGateFailure;
-use crate::protocol::{JsonRpcResponse, ToolCallResponse};
+use crate::protocol::{JsonRpcError, JsonRpcResponse, ToolCallResponse};
 use crate::telemetry::CallTelemetryHints;
 use crate::tools;
 use serde_json::json;
@@ -41,7 +41,25 @@ pub(crate) fn build_error_response(
             &target_paths,
             CallTelemetryHints::default(),
         );
-        return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());
+        // Protocol errors used to terminate as a bare JSON-RPC string. Carry
+        // the structured recovery hint (RequireField / did-you-mean +
+        // get_capabilities fallback) in `error.data.recovery_hint` so agents
+        // can self-correct without re-parsing the message.
+        let known_tools: Vec<&str> = crate::dispatch::table::DISPATCH_TABLE
+            .keys()
+            .copied()
+            .collect();
+        let (message, data) = error.protocol_error_data(name, &known_tools);
+        return JsonRpcResponse {
+            jsonrpc: "2.0",
+            id,
+            result: None,
+            error: Some(JsonRpcError {
+                code: error.jsonrpc_code(),
+                message,
+                data,
+            }),
+        };
     }
 
     // Derive the structured recovery hint before consuming the error via `to_string()`.

@@ -29,9 +29,51 @@ pub(super) struct PrepareHarnessResponseInput<'a> {
 
 pub(super) fn prepare_harness_response(input: PrepareHarnessResponseInput<'_>) -> Value {
     if input.detail == "full" {
-        full_response(input)
+        // Token economy (T3): trim null/empty scaffold (e.g. the six
+        // `embedding_coreml_*` fields that are null off macOS/CoreML, empty
+        // warning arrays, absent host-environment slots) from the full
+        // bootstrap payload. Stripping is applied uniformly so the two
+        // health-summary copies (`health_summary` and `capabilities.health_summary`)
+        // stay byte-identical.
+        let mut value = full_response(input);
+        strip_empty_fields(&mut value);
+        value
     } else {
         compact_response(input)
+    }
+}
+
+/// Recursively drop null / empty-string / empty-array / empty-object fields.
+///
+/// Mirrors `crate::dispatch::response_support::payload_compact::strip_empty_fields`
+/// (the canonical implementation), replicated here because that module is
+/// private to `dispatch` and not reachable from the tool layer. Boolean
+/// `false` and numeric `0` are intentionally preserved — they are signal, not
+/// empty scaffold (e.g. `after.stale_files: 0`, deferred gate `false`).
+fn strip_empty_fields(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            map.retain(|_, v| {
+                strip_empty_fields(v);
+                !is_empty_value(v)
+            });
+        }
+        Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                strip_empty_fields(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_empty_value(v: &Value) -> bool {
+    match v {
+        Value::Null => true,
+        Value::String(s) => s.is_empty(),
+        Value::Array(a) => a.is_empty(),
+        Value::Object(m) => m.is_empty(),
+        _ => false,
     }
 }
 

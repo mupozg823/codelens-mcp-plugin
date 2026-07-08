@@ -106,10 +106,14 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
 
     let index_recovery = prepare_harness_index_recovery(state, arguments);
 
+    // Token economy (T3): the bootstrap default is now the ~1K-token compact
+    // envelope. Callers that need the full ~3.6K payload (config, http_session,
+    // overlay, index_recovery, full visible_tools/routing) must opt in with an
+    // explicit `detail="full"` — backward compatible for those callers.
     let detail = arguments
         .get("detail")
         .and_then(|v| v.as_str())
-        .unwrap_or("full");
+        .unwrap_or("compact");
     let request = ResourceRequestContext::from_request("codelens://tools/list", Some(arguments));
     let session = request.session.clone();
     let active_surface = state.execution_surface(&session);
