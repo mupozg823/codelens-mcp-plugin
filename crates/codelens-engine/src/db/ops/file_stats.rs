@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 
 use super::super::{DirStats, IndexDb};
 
@@ -86,11 +86,11 @@ impl IndexDb {
 
     /// Newest `indexed_at` epoch (seconds) across all files in the index.
     pub fn max_files_indexed_at(&self) -> Result<Option<i64>> {
-        let row: Option<i64> = self
+        Ok(self
             .conn
-            .query_row("SELECT MAX(indexed_at) FROM files", [], |row| row.get(0))
-            .optional()?;
-        Ok(row)
+            .query_row("SELECT MAX(indexed_at) FROM files", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })?)
     }
 
     /// Per-language indexed-file counts, descending.
@@ -111,11 +111,11 @@ impl IndexDb {
 
     /// Oldest `indexed_at` epoch (seconds) across all files in the index.
     pub fn min_files_indexed_at(&self) -> Result<Option<i64>> {
-        let row: Option<i64> = self
+        Ok(self
             .conn
-            .query_row("SELECT MIN(indexed_at) FROM files", [], |row| row.get(0))
-            .optional()?;
-        Ok(row)
+            .query_row("SELECT MIN(indexed_at) FROM files", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })?)
     }
 
     /// Return all indexed file paths.

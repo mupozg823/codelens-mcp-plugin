@@ -94,6 +94,7 @@ pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static
             "trace_request_path",
             "plan_safe_refactor",
             "prepare_harness_session",
+            "analyze_change_request",
         ]),
         ToolSurface::Profile(ToolProfile::ReviewerGraph) => Some(&[
             "review_architecture",

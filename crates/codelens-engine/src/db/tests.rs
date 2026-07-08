@@ -23,6 +23,14 @@ fn creates_schema_and_upserts_file() {
 }
 
 #[test]
+fn indexed_at_bounds_are_none_for_empty_index() {
+    let db = IndexDb::open_memory().unwrap();
+
+    assert_eq!(db.max_files_indexed_at().unwrap(), None);
+    assert_eq!(db.min_files_indexed_at().unwrap(), None);
+}
+
+#[test]
 fn fresh_file_check() {
     let db = IndexDb::open_memory().unwrap();
     db.upsert_file("a.py", 100, "hash1", 10, Some("py"))

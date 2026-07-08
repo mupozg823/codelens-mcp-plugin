@@ -12,6 +12,7 @@ use super::super::runtime_settings::{
 use super::super::vec_store::SqliteVecStore;
 use super::super::{EmbeddingEngine, EmbeddingFreshnessReport, EmbeddingRuntimeInfo};
 use super::git_sha::current_git_sha;
+use super::reconcile::PendingEmbeddingBatch;
 use crate::db::IndexDb;
 use crate::embedding_store::EmbeddingChunk;
 use crate::project::ProjectRoot;
@@ -83,13 +84,13 @@ impl EmbeddingEngine {
         let max_symbols = max_embed_symbols();
         let mut total_indexed = 0usize;
         let mut total_seen = 0usize;
-        let mut model = None;
         let mut existing_embeddings: HashMap<
             String,
             HashMap<ReusableEmbeddingKey, EmbeddingChunk>,
         > = HashMap::new();
         let mut current_db_files = HashSet::new();
         let mut capped = false;
+        let mut batch = PendingEmbeddingBatch::new(self, batch_size);
 
         self.store
             .for_each_file_embeddings(&mut |file_path, chunks| {
@@ -128,16 +129,16 @@ impl EmbeddingEngine {
             total_seen += relevant_symbols.len();
 
             let existing_for_file = existing_embeddings.remove(&file_path).unwrap_or_default();
-            total_indexed += self.reconcile_file_embeddings(
+            total_indexed += self.reconcile_file_embeddings_batched(
                 &file_path,
                 relevant_symbols,
                 source.as_deref(),
                 existing_for_file,
-                batch_size,
-                &mut model,
+                &mut batch,
             )?;
             Ok(())
         })?;
+        total_indexed += batch.flush()?;
 
         let removed_files: Vec<String> = existing_embeddings
             .into_keys()

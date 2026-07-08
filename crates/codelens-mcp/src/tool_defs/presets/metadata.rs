@@ -144,17 +144,30 @@ pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
 /// Claude Code MCP tools are deferred by default. The always-load set
 /// is what gets `meta["anthropic/alwaysLoad"] = true` — schemas
 /// pre-loaded so the model can call them without a `ToolSearch` round
-/// trip. The remaining default-listed tools stay deferred-discoverable
-/// but require explicit ToolSearch select before invocation, which
-/// keeps the initial tool prompt bounded.
-///
-/// Composition (2026-07-05 cost surface rebalance): the same 9 tools
-/// as the default `tools/list` slice. Everything else is reachable via
-/// phase/namespace/tier expansion, preferred entrypoints, or ToolSearch.
-/// Keep this set ≤9: every entry is upfront schema tokens in EVERY
-/// session for hosts that honor always-load hints.
+/// trip. Keep this as a Claude-native affordance list, separate from
+/// the compact default `tools/list` slice used by generic hosts.
 pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
     crate::tool_defs::generated::tool_default_listed(name)
+        || matches!(
+            name,
+            "activate_project"
+                | "set_preset"
+                | "set_profile"
+                | "trace_request_path"
+                | "analyze_change_request"
+                | "cleanup_duplicate_logic"
+                | "diagnose_issues"
+                | "get_symbols_overview"
+                | "find_referencing_symbols"
+                | "bm25_symbol_search"
+                | "get_file_diagnostics"
+                | "semantic_search"
+                | "get_callers"
+                | "get_callees"
+                | "start_analysis_job"
+                | "get_analysis_job"
+                | "get_analysis_section"
+        )
 }
 
 pub(crate) fn tool_namespace(name: &str) -> &'static str {

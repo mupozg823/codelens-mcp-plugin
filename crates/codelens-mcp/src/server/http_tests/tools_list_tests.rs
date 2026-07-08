@@ -95,7 +95,7 @@ async fn codex_session_uses_lean_tools_list_contract_by_default() {
 }
 
 #[tokio::test]
-async fn claude_session_uses_full_tools_list_contract_by_default() {
+async fn claude_session_uses_deferred_tools_list_contract_by_default() {
     let state = test_state();
     let app = build_router(state.clone());
     let init = app
@@ -138,9 +138,10 @@ async fn claude_session_uses_full_tools_list_contract_by_default() {
     let body = body_string(resp).await;
     assert!(body.contains("\"client_profile\":\"claude\""));
     assert!(body.contains("\"default_contract_mode\":\"full\""));
-    assert!(body.contains("\"include_output_schema\":true"));
+    assert!(body.contains("\"deferred_loading_active\":true"));
+    assert!(body.contains("\"include_output_schema\":false"));
     assert!(body.contains("\"include_annotations\":true"));
-    assert!(body.contains("\"outputSchema\""));
+    assert!(!body.contains("\"outputSchema\""));
     assert!(body.contains("\"annotations\""));
     assert!(body.contains("\"visible_namespaces\""));
 }

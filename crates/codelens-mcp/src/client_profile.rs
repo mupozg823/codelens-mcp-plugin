@@ -114,7 +114,7 @@ impl ClientProfile {
     pub(crate) fn default_deferred_tool_loading(&self) -> Option<bool> {
         match self {
             Self::Codex => Some(true),
-            Self::Claude => Some(false),
+            Self::Claude => Some(true),
             Self::Generic => None,
         }
     }

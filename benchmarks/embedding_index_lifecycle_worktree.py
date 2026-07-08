@@ -13,6 +13,7 @@ GIT_SNAPSHOT_TIMEOUT_SECONDS: Final = 120
 COPY_IGNORE_NAMES: Final = frozenset(
     {
         ".codelens",
+        ".debug-journal.md",
         ".fastembed_cache",
         ".git",
         ".pytest_cache",
@@ -23,6 +24,7 @@ COPY_IGNORE_NAMES: Final = frozenset(
         "__pycache__",
         "node_modules",
         "target",
+        "worktrees",
     }
 )
 COPY_IGNORE_SUFFIXES: Final = (".onnx", ".onnx.bak", ".pyc", ".pyo")

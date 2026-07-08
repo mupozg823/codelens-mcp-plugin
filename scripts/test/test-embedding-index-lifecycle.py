@@ -49,6 +49,7 @@ initialize_git_snapshot = MODULE.initialize_git_snapshot
 lifecycle_step = MODULE.lifecycle_step
 parse_output_json = MODULE.parse_output_json
 tool_data = MODULE.tool_data
+WORKTREE_MODULE = importlib.import_module("embedding_index_lifecycle_worktree")
 
 
 def index_envelope(elapsed_ms: int) -> ToolRun:
@@ -231,6 +232,15 @@ def test_initialize_git_snapshot_creates_head_for_lifecycle_freshness() -> None:
         assert head.returncode == 0
 
 
+def test_copy_ignore_skips_local_agent_worktrees() -> None:
+    ignored = WORKTREE_MODULE.copy_ignore(
+        "/repo/.claude",
+        ["agents", "worktrees", ".debug-journal.md", "model.onnx", "src"],
+    )
+
+    assert ignored == {"worktrees", ".debug-journal.md", "model.onnx"}
+
+
 if __name__ == "__main__":
     test_default_output_path_is_tmp_json()
     test_parse_output_json_accepts_log_prefixed_payload()
@@ -238,3 +248,4 @@ if __name__ == "__main__":
     test_lifecycle_step_preserves_index_and_coverage_contract()
     test_delta_reports_warm_ratio_and_savings()
     test_initialize_git_snapshot_creates_head_for_lifecycle_freshness()
+    test_copy_ignore_skips_local_agent_worktrees()

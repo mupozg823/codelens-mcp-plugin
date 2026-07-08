@@ -313,7 +313,7 @@ async fn initialize_codex_defaults_to_deferred_loading() {
 }
 
 #[tokio::test]
-async fn initialize_claude_defaults_to_full_contract() {
+async fn initialize_claude_defaults_to_deferred_loading() {
     let state = test_state();
     let app = build_router(state.clone());
     let resp = app
@@ -338,7 +338,7 @@ async fn initialize_claude_defaults_to_full_contract() {
         .to_owned();
     let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
     let metadata = session.client_metadata();
-    assert_eq!(metadata.deferred_tool_loading, Some(false));
+    assert_eq!(metadata.deferred_tool_loading, Some(true));
 }
 
 #[tokio::test]

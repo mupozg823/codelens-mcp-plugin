@@ -627,7 +627,7 @@ fn codex_client_name_enables_lean_tools_list_contract() {
 }
 
 #[test]
-fn claude_client_name_keeps_full_tools_list_contract() {
+fn claude_client_name_uses_deferred_tools_list_contract() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
@@ -650,9 +650,10 @@ fn claude_client_name_keeps_full_tools_list_contract() {
     let encoded = serde_json::to_string(&response).expect("serialize");
     assert!(encoded.contains("\"client_profile\":\"claude\""));
     assert!(encoded.contains("\"default_contract_mode\":\"full\""));
-    assert!(encoded.contains("\"include_output_schema\":true"));
+    assert!(encoded.contains("\"deferred_loading_active\":true"));
+    assert!(encoded.contains("\"include_output_schema\":false"));
     assert!(encoded.contains("\"include_annotations\":true"));
-    assert!(encoded.contains("\"outputSchema\""));
+    assert!(!encoded.contains("\"outputSchema\""));
     assert!(encoded.contains("\"annotations\""));
     assert!(encoded.contains("\"visible_namespaces\""));
 }
@@ -848,8 +849,6 @@ fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
         review["_meta"]["anthropic/searchHint"],
         json!("review changed files and risk")
     );
-    // 2026-07-05 rebalance: alwaysLoad matches the 9-tool default
-    // control-plane slice; lower-frequency reports stay deferred.
     assert_eq!(symbol["_meta"]["anthropic/alwaysLoad"], json!(true));
     let preflight = tools
         .iter()
@@ -857,16 +856,59 @@ fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
         .expect("plan_safe_refactor present");
     assert_eq!(preflight["_meta"]["anthropic/alwaysLoad"], json!(true));
 
-    let default_names = crate::tool_defs::default_listed_tool_names();
-    for tool in tools {
-        let name = tool["name"].as_str().expect("tool name");
-        let has_always_load = tool["_meta"]["anthropic/alwaysLoad"] == json!(true);
+    let expected = [
+        "activate_project",
+        "prepare_harness_session",
+        "get_current_config",
+        "set_preset",
+        "set_profile",
+        "explore_codebase",
+        "trace_request_path",
+        "analyze_change_request",
+        "review_architecture",
+        "plan_safe_refactor",
+        "cleanup_duplicate_logic",
+        "review_changes",
+        "diagnose_issues",
+        "verify_change_readiness",
+        "find_symbol",
+        "get_symbols_overview",
+        "find_referencing_symbols",
+        "bm25_symbol_search",
+        "get_file_diagnostics",
+        "get_ranked_context",
+        "get_callers",
+        "get_callees",
+        "start_analysis_job",
+        "get_analysis_job",
+        "get_analysis_section",
+    ];
+    for name in expected {
+        let tool = tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("{name} present"));
         assert_eq!(
-            has_always_load,
-            default_names.contains(&name),
-            "anthropic/alwaysLoad should match tools.toml default_visible_rank for {name}"
+            tool["_meta"]["anthropic/alwaysLoad"],
+            json!(true),
+            "{name} should be preloaded for Claude Code"
         );
     }
+    if let Some(tool) = tools.iter().find(|tool| tool["name"] == "semantic_search") {
+        assert_eq!(
+            tool["_meta"]["anthropic/alwaysLoad"],
+            json!(true),
+            "semantic_search should be preloaded for Claude Code when enabled"
+        );
+    }
+    let low_frequency_report = tools
+        .iter()
+        .find(|tool| tool["name"] == "module_boundary_report")
+        .expect("module_boundary_report present");
+    assert_ne!(
+        low_frequency_report["_meta"]["anthropic/alwaysLoad"],
+        json!(true)
+    );
 }
 
 #[test]
