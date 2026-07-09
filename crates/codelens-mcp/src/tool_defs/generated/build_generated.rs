@@ -513,7 +513,7 @@ pub fn symbol_tools(
         ).with_output_schema(ranked_context_output_schema()).with_annotations(ro_a.clone()).with_max_response_tokens(32768),
         Tool::new(
             "search",
-            "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name → find_symbol) | refs (usages → find_referencing_symbols) | defn | impl | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged.",
+            "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name) | refs (usages) | defn (declaration) | impl (implementations) | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged.",
             json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["symbol","refs","defn","impl","scoped","workspace","bm25","fuzzy","semantic","ranked"],"description":"Which search family to run; other params pass through to the target tool"},"name":{"type":"string","description":"Symbol name (mode=symbol)"},"query":{"type":"string","description":"Search query (mode=semantic|ranked|bm25|fuzzy|workspace)"},"path":{"type":"string","description":"File or directory scope"},"symbol_name":{"type":"string","description":"Symbol to look up references for (mode=refs|scoped|defn|impl)"},"include_body":{"type":"boolean"},"max_results":{"type":"integer"},"use_lsp":{"type":"boolean","description":"Type-aware precision (mode=refs|defn|impl)"}}}),
         ).with_annotations(ro_w.clone()),
         Tool::new(

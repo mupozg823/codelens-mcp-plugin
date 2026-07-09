@@ -205,7 +205,7 @@ namespace = "symbols"
 phase = "plan"
 default_visible_rank = 80
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name → find_symbol) | refs (usages → find_referencing_symbols) | defn | impl | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged."
+description = "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name) | refs (usages) | defn (declaration) | impl (implementations) | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged."
 annotations = "ro_w"
 
 [tool.input_schema]

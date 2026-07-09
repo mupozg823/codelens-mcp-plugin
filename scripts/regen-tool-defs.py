@@ -241,7 +241,28 @@ DISPATCH_ONLY_ALLOWLIST: frozenset[str] = (
 # (tool, referenced_tool) description cross-references that are
 # intentionally allowed. Keep empty unless a pairing is genuinely
 # load-bearing; chaining belongs in suggested_next_tools (spec D7).
-DESCRIPTION_XREF_ALLOWLIST: frozenset[tuple[str, str]] = frozenset()
+#
+# The verb facades (search / graph / review — Phase-1/2 consolidation)
+# are deliberately named with common English words. The D7 word-boundary
+# check therefore false-positives whenever a PRE-EXISTING description uses
+# those words organically ("partial-identifier search", "call graph",
+# "review changed files") — none of these are chaining name-drops. Each
+# pairing below is such an organic collision, reviewed and exempted; the
+# verbs' own descriptions avoid naming their target tools (D7-clean).
+DESCRIPTION_XREF_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("get_ranked_context", "search"),
+        ("search_symbols_fuzzy", "search"),
+        ("search_workspace_symbols", "search"),
+        ("semantic_search", "search"),
+        ("index_embeddings", "search"),
+        ("cleanup_duplicate_logic", "search"),
+        ("get_callers", "graph"),
+        ("prepare_harness_session", "graph"),
+        ("get_changed_files", "review"),
+        ("review_changes", "review"),
+    }
+)
 
 
 def parse_dispatch_names(src: str) -> set[str]:

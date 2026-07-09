@@ -127,7 +127,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 315
+        "estimated_tokens": 311
       },
       {
         "name": "overview",
