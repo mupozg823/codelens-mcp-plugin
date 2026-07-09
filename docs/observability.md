@@ -123,6 +123,32 @@ therefore be correlated across logical sessions by shared `handoff_id`.
 The `builder follow-through proxy` still remains useful when a host does
 not preserve that field, so both measurements are reported.
 
+## Productivity Proof Loop
+
+Use the productivity loop when you need one repeatable evidence bundle instead
+of separate ad hoc analyzer, audit, summary, and gate commands:
+
+```bash
+bash scripts/run-productivity-proof-loop.sh .
+```
+
+The loop writes a timestamped run under
+`.codelens/reports/productivity/runs/` and stores daemon audit snapshots under
+`.codelens/reports/productivity/history/`. Each run contains:
+
+- `tool-usage.json` and `tool-usage.txt` from local JSONL telemetry
+- `history-summary.md` from recent `eval_session_audit` snapshots
+- `operator-gate.md` with the current pass/warn/fail verdict
+- `productivity-trend-summary.md` comparing the latest tool-usage metrics
+  against previous loop runs
+- `productivity-proof-loop.md` as the artifact index
+
+By default the loop targets the repository-local read-only daemon at
+`http://127.0.0.1:7839/mcp`. It first checks
+`.codelens/telemetry/tool_usage.jsonl`, then
+`crates/codelens-mcp/.codelens/telemetry/tool_usage.jsonl`, so crate-local
+telemetry is not silently missed during dogfooding.
+
 ## Daily aggregate snapshots on macOS
 
 If you keep a long-running HTTP daemon up with launchd, install a second

@@ -54,6 +54,21 @@ fn planner_workflow_target_paths(timeline: &[ToolInvocation]) -> Vec<String> {
     targets
 }
 
+fn planner_workflow_evidence_paths(timeline: &[ToolInvocation]) -> Vec<String> {
+    let mut seen = Vec::new();
+    for entry in timeline {
+        if entry.tool != "get_changed_files"
+            && is_planner_surface(&entry.surface)
+            && is_planner_workflow(&entry.tool)
+        {
+            for path in &entry.target_paths {
+                crate::util::push_unique_string(&mut seen, path.clone());
+            }
+        }
+    }
+    seen
+}
+
 fn missing_change_evidence_workflows(timeline: &[ToolInvocation]) -> Vec<String> {
     let has_changed_files_evidence = timeline
         .iter()
@@ -177,11 +192,15 @@ pub(crate) fn build_planner_session_audit(
     );
     let symbol_search_seen =
         collect_seen_paths(&metrics.timeline, "find_symbol", 0..metrics.timeline.len());
+    let workflow_evidence_seen = planner_workflow_evidence_paths(&metrics.timeline);
     let mut evidence_seen = symbols_seen;
     for path in diagnostics_seen {
         crate::util::push_unique_string(&mut evidence_seen, path);
     }
     for path in symbol_search_seen {
+        crate::util::push_unique_string(&mut evidence_seen, path);
+    }
+    for path in workflow_evidence_seen {
         crate::util::push_unique_string(&mut evidence_seen, path);
     }
 

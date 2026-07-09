@@ -135,10 +135,20 @@ fn source_suggested_next_tools_literals_reference_live_tools() {
         // `suggested_next_tools` json literal — it was previously outside the
         // census and shipped a tombstoned `delete_lines` suggestion (#346).
         dir.join("src/tools/semantic_edit/safe_delete.rs"),
+        // `mutation.rs` emits a compound rename hint via the map-insert form
+        // (`"suggested_next_tools".to_owned(), json!([ ... ])`). `rename_symbol`
+        // there is dispatch-only (pending-D3), so the extracted bare names still
+        // clear `tool_is_known` via the D3 carve-out.
+        dir.join("src/tools/mutation.rs"),
     ];
 
     let direct_re = regex::Regex::new(r#""suggested_next_tools"\s*:\s*\[([^\]]*)\]"#).unwrap();
     let key_re = regex::Regex::new(r#""suggested_next_tools"\s*:\s*"#).unwrap();
+    // Map-insert form used by `mutation.rs`:
+    // `obj.insert("suggested_next_tools".to_owned(), json!([ ... ]))`.
+    let insert_re =
+        regex::Regex::new(r#""suggested_next_tools"\.to_owned\(\),\s*json!\(\[([^\]]*)\]\)"#)
+            .unwrap();
     let json_arr_re = regex::Regex::new(r#"json!\(\[([^\]]*)\]\)"#).unwrap();
     let name_re = regex::Regex::new(r#""([a-z][a-z0-9_]+)""#).unwrap();
 
@@ -163,6 +173,11 @@ fn source_suggested_next_tools_literals_reference_live_tools() {
 
         // Direct array form.
         for cap in direct_re.captures_iter(&src) {
+            check(&cap[1], file, &mut bad, &mut checked);
+        }
+
+        // Map-insert form (`serde_json::Map::insert` with a `json!([..])` value).
+        for cap in insert_re.captures_iter(&src) {
             check(&cap[1], file, &mut bad, &mut checked);
         }
 
@@ -256,6 +271,65 @@ fn skill_and_agent_tool_grants_reference_live_tools() {
     assert!(
         checked > 0,
         "no tool grants extracted — frontmatter `tools:` shape changed?"
+    );
+}
+
+/// (3c) The contextual-suggestion **phase filters** (`*_PHASE_TOOLS`) and
+/// **phase-inference signal lists** (`*_SIGNAL`, `EXPLORATION_TOOLS`,
+/// `MUTATION_TOOLS`, `REVIEW_TOOLS`) in `suggestions.rs` must only name tools an
+/// agent can actually reach: a live `tools.toml` tool, a dispatch-only
+/// pending-D3 tool, or the single intentional legacy alias
+/// (`analyze_change_impact`). Each of these lists either filters `suggest_next`
+/// values or matches against recent-tool calls, so a phantom or tombstoned entry
+/// is inert — it can never match a live suggestion or a live recent-tool call —
+/// and is pure drift risk. This gate makes such a dead string a
+/// test-compile-suite failure, exactly like the `SUGGEST_NEXT_TABLE` gate (3a).
+///
+/// Historical-name carve-out: `analyze_change_impact` is a removed v2.0 alias
+/// intentionally retained in `PLAN_SIGNAL` (and `is_workflow_tool_name`) so an
+/// agent still emitting the legacy name is inferred into the plan phase. It is
+/// allow-listed here through `INTENTIONAL_ALIAS_KEYS` — the same explicit carve-out
+/// used for the `suggest_next` keys.
+#[test]
+fn phase_and_signal_constants_only_reference_live_tools() {
+    let live = live_tools();
+
+    let named: &[(&str, &[&str])] = &[
+        ("PLAN_PHASE_TOOLS", crate::tools::PLAN_PHASE_TOOLS),
+        ("BUILD_PHASE_TOOLS", crate::tools::BUILD_PHASE_TOOLS),
+        ("REVIEW_PHASE_TOOLS", crate::tools::REVIEW_PHASE_TOOLS),
+        ("EVAL_PHASE_TOOLS", crate::tools::EVAL_PHASE_TOOLS),
+        ("EXPLORATION_TOOLS", crate::tools::EXPLORATION_TOOLS),
+        ("MUTATION_TOOLS", crate::tools::MUTATION_TOOLS),
+        ("REVIEW_TOOLS", crate::tools::REVIEW_TOOLS),
+        ("BUILD_SIGNAL", crate::tools::BUILD_SIGNAL),
+        ("REVIEW_SIGNAL", crate::tools::REVIEW_SIGNAL),
+        ("PLAN_SIGNAL", crate::tools::PLAN_SIGNAL),
+    ];
+
+    let mut bad = Vec::new();
+    let mut checked = 0usize;
+    for (label, entries) in named {
+        for name in *entries {
+            checked += 1;
+            if !tool_is_known(name, &live) && !INTENTIONAL_ALIAS_KEYS.contains(name) {
+                bad.push(format!(
+                    "{label}: `{name}` is neither a live tools.toml tool, a \
+                     dispatch-only pending-D3 tool, nor a documented alias"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        bad.is_empty(),
+        "phase/signal constant drift:\n  {}",
+        bad.join("\n  ")
+    );
+    // Guard against a constant silently emptying via a bad refactor (total is ~95).
+    assert!(
+        checked > 40,
+        "extracted only {checked} phase/signal entries — a constant vanished?"
     );
 }
 

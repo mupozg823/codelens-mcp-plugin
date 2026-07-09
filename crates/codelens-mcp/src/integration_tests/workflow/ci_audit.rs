@@ -43,6 +43,69 @@ fn ci_audit_reports_use_fixed_machine_schema() {
     assert!(payload["data"]["performance_watchpoints"].is_array());
 }
 
+#[test]
+fn eval_session_audit_routes_codex_builder_preferred_tool_to_builder_lane() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("eval_builder_preferred.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "reviewer-graph"}),
+        "eval-codex-builder-preferred",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        "eval-codex-builder-preferred",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "cleanup_duplicate_logic",
+        json!({"scope": "eval_builder_preferred.py", "max_results": 1}),
+        "eval-codex-builder-preferred",
+    );
+
+    let (payload, _) = crate::tools::reports::eval_session_audit(&state, &json!({})).unwrap();
+    let analysis_id = payload["analysis_id"].as_str().unwrap();
+
+    let summary = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "audit_pass_rate"}),
+    );
+    assert_eq!(summary["success"], json!(true));
+    assert_eq!(
+        summary["data"]["content"]["builder_session_count"],
+        json!(1)
+    );
+
+    let rows = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "session_rows"}),
+    );
+    assert_eq!(rows["success"], json!(true));
+    assert!(
+        rows["data"]["content"]["sessions"]
+            .as_array()
+            .map(|sessions| sessions.iter().any(|session| {
+                session["role"] == json!("builder")
+                    && session["recent_tools"]
+                        .as_array()
+                        .map(|tools| tools.iter().any(|tool| tool == "cleanup_duplicate_logic"))
+                        .unwrap_or(false)
+            }))
+            .unwrap_or(false)
+    );
+}
+
 #[cfg(feature = "http")]
 #[ignore = "v1.12.2 root fix changed audit findings; aggregation expectations need re-baselining (top_failed_checks count, pass_rate) — tracked as v1.13.0 follow-up"]
 #[test]

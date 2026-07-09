@@ -2,11 +2,15 @@
 
 # CodeLens MCP
 
-**Host-adaptive Rust MCP code-intelligence router with cached hybrid retrieval, index-health visibility, mutation gates, and token-lean workflows.**
+**코드베이스를 빠르게 이해하고, 필요한 맥락만 좁혀 주며, 안전한 수정을 돕는 Rust 기반 MCP 코드 인텔리전스 라우터입니다.**
 
-If you are preparing automation or host configs for the eventual cutover, use the host-by-host migration guide: [`docs/migrate-from-codelens.md`](docs/migrate-from-codelens.md).
+<sub>English: A host-adaptive Rust MCP code-intelligence router for cached hybrid retrieval, index-health visibility, mutation gates, and token-lean coding workflows.</sub>
 
-Pure Rust MCP server for multi-agent harnesses with cached hybrid retrieval (tree-sitter + BM25/sparse ranking + semantic), mutation-gated refactoring, token compression, and enterprise-ready observability. The binary statically links SQLite, the vector store, and the ONNX runtime, so no external daemons or service installs are required for the core retrieval and mutation surfaces. **Semantic search additionally needs a sidecar model directory** (~80 MB ONNX) — GitHub Release tarballs bundle it automatically, but users installing via `cargo install codelens-mcp` must point `CODELENS_MODEL_DIR` at a separately-fetched model payload (see the [Install Channel Matrix](#install-channel-matrix)).
+자동화나 호스트 설정을 CodeLens로 이전할 준비를 하고 있다면 호스트별 마이그레이션 가이드부터 확인하세요: [`docs/migrate-from-codelens.md`](docs/migrate-from-codelens.md).
+
+CodeLens MCP는 multi-agent 코딩 하네스가 “파일을 통째로 읽고 grep을 반복하는 방식”에서 벗어나도록 돕는 순수 Rust MCP 서버입니다. tree-sitter, BM25/sparse ranking, semantic retrieval을 결합한 캐시형 하이브리드 검색, mutation gate가 있는 refactor workflow, token compression, observability를 제공합니다. 기본 retrieval/refactor 표면은 SQLite, vector store, ONNX runtime을 정적으로 포함한 단일 바이너리로 동작합니다. **Semantic search는 별도의 sidecar model directory**(~80 MB ONNX)가 추가로 필요합니다. GitHub Release tarball에는 모델이 자동 포함되지만, `cargo install codelens-mcp` 사용자는 별도 모델 payload를 받아 `CODELENS_MODEL_DIR`로 지정해야 합니다. 자세한 차이는 [Install Channel Matrix](#install-channel-matrix)를 참고하세요.
+
+<sub>English: CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. It combines cached hybrid retrieval, mutation-gated refactoring, token compression, and production-oriented observability. Core retrieval and mutation run from one statically linked binary; semantic search additionally requires the model sidecar.</sub>
 
 [![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/mupozg823/codelens-mcp-plugin/actions)
 [![crates.io](https://img.shields.io/crates/v/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
@@ -15,6 +19,43 @@ Pure Rust MCP server for multi-agent harnesses with cached hybrid retrieval (tre
 [![Downloads](https://img.shields.io/crates/d/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
 
 </div>
+
+## 아키텍처 한눈에 보기
+
+<sub>English: Architecture at a glance.</sub>
+
+```mermaid
+flowchart LR
+  Host["Host agents<br/>Claude Code / Codex / Cursor"] --> Transport["MCP transport<br/>stdio or HTTP daemon"]
+  Transport --> Server["codelens-mcp<br/>tool surface / session binding / response envelope"]
+  Server --> Dispatch["dispatch pipeline<br/>rate limit / role gate / mutation gate"]
+  Dispatch --> Tools["problem-first tools<br/>explore / trace / review / verify"]
+  Dispatch --> Engine["codelens-engine<br/>symbols / graph / search / LSP / edits"]
+  Engine --> Index["project index<br/>tree-sitter / BM25 / SQLite / SCIP* / semantic*"]
+  Server --> Ops["observability<br/>surface manifest / audit sink / tool metrics"]
+
+  classDef host fill:#eef6ff,stroke:#4d7fb8
+  classDef core fill:#f7f7f7,stroke:#777
+  classDef data fill:#fff7df,stroke:#a77d20
+  class Host host
+  class Server,Dispatch,Tools,Engine core
+  class Index,Ops data
+```
+
+CodeLens는 host가 대화를 소유하고, `codelens-mcp`가 MCP tool 표면과 session policy를 관리하며, `codelens-engine`이 실제 코드 index와 graph/search/edit primitive를 제공하는 구조입니다. mutation은 engine primitive를 직접 호출하지 않고 MCP dispatch pipeline을 통과해야 role gate, preflight, audit, cache invalidation이 일관되게 적용됩니다.
+
+<sub>English: The host owns the conversation, `codelens-mcp` owns the MCP surface and session policy, and `codelens-engine` owns repository indexing and code-intelligence primitives. Mutations are expected to pass through the MCP dispatch pipeline so gates, audits, and cache invalidation stay consistent.</sub>
+
+| 영역 | 핵심 코드 | 역할 |
+| --- | --- | --- |
+| 서버 부팅/transport | [`crates/codelens-mcp/src/main.rs`](crates/codelens-mcp/src/main.rs) | stdio, HTTP/HTTPS, one-shot CLI, profile/preset, semantic banner, daemon mode를 선택합니다. |
+| MCP 요청 처리 | [`crates/codelens-mcp/src/server/router.rs`](crates/codelens-mcp/src/server/router.rs), [`crates/codelens-mcp/src/dispatch/mod.rs`](crates/codelens-mcp/src/dispatch/mod.rs) | JSON-RPC tool call을 파싱하고 rate limit, role gate, access check, mutation gate, response shaping을 적용합니다. |
+| tool 표면 | [`crates/codelens-mcp/src/tools/mod.rs`](crates/codelens-mcp/src/tools/mod.rs), [`crates/codelens-mcp/src/tool_defs/`](crates/codelens-mcp/src/tool_defs) | 94개 tool 정의, profile/preset별 visible surface, workflow alias, schema output을 관리합니다. |
+| session bootstrap | [`crates/codelens-mcp/src/tools/session/project_ops/prepare_harness.rs`](crates/codelens-mcp/src/tools/session/project_ops/prepare_harness.rs) | `prepare_harness_session(project=...)`로 project binding, index recovery, host/skill hint, visible tool context를 반환합니다. |
+| runtime state | [`crates/codelens-mcp/src/state.rs`](crates/codelens-mcp/src/state.rs), [`crates/codelens-mcp/src/state/`](crates/codelens-mcp/src/state) | project context cache, watcher, LSP pool, analysis artifacts, coordination claims, audit sinks, semantic engine 상태를 보관합니다. |
+| engine primitive | [`crates/codelens-engine/src/lib.rs`](crates/codelens-engine/src/lib.rs), [`crates/codelens-engine/src/symbols/`](crates/codelens-engine/src/symbols), [`crates/codelens-engine/src/search.rs`](crates/codelens-engine/src/search.rs) | tree-sitter symbol index, sparse/BM25 ranking, hybrid search, graph/LSP/read primitive를 제공합니다. |
+| semantic lane | [`crates/codelens-mcp/src/dispatch/semantic/`](crates/codelens-mcp/src/dispatch/semantic), [`crates/codelens-engine/src/embedding/`](crates/codelens-engine/src/embedding) | `semantic` feature와 model sidecar가 있을 때 embedding indexing/search를 활성화합니다. |
+| 검증/감사 | [`crates/codelens-mcp/src/tools/reports/verifier_reports.rs`](crates/codelens-mcp/src/tools/reports/verifier_reports.rs), [`crates/codelens-mcp/src/audit_sink.rs`](crates/codelens-mcp/src/audit_sink.rs) | `verify_change_readiness`, analysis handle, mutation audit, session report를 제공합니다. |
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
 
@@ -33,13 +74,17 @@ Pure Rust MCP server for multi-agent harnesses with cached hybrid retrieval (tre
 
 ---
 
-## The Problem
+## 왜 필요한가
 
-Multi-agent coding harnesses fail when every agent sees too many tools, too much raw code, and too many intermediate results. Tokens get burned on `tools/list`, repeated file reads, and low-value raw graph expansion.
+multi-agent 코딩 환경은 각 agent가 너무 많은 tool, 너무 많은 원본 코드, 너무 많은 중간 결과를 한꺼번에 보면 쉽게 느려집니다. `tools/list`, 반복적인 파일 읽기, 가치 낮은 raw graph expansion에 token이 낭비되고, 실제 수정에 필요한 판단 맥락은 오히려 흐려집니다.
 
-## The Solution
+<sub>English: Multi-agent coding harnesses waste tokens and attention when every agent receives too many tools, raw files, and intermediate graph results.</sub>
 
-CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a harness optimization layer. The model asks a precise question and gets a bounded answer with a handle for deeper expansion only when needed.
+## CodeLens가 하는 일
+
+CodeLens는 코드베이스의 **살아 있는 index와 구조 이해**를 유지하고, 이를 MCP host가 바로 사용할 수 있는 최적화 계층으로 노출합니다. 모델은 정확한 질문을 던지고, 필요한 만큼 제한된 답변과 후속 확장 handle을 받습니다. 큰 코드베이스에서도 처음부터 전체 파일을 읽지 않고 “어디를 봐야 하는지”를 먼저 좁힐 수 있습니다.
+
+<sub>English: CodeLens keeps a live indexed model of the repository and returns bounded, expandable answers instead of forcing the model to read everything up front.</sub>
 
 ```
 Without CodeLens                                    With CodeLens (with semantic feature on)
@@ -51,30 +96,38 @@ Read + grep × 3 files         → 3,200 tokens       get_ranked_context     →
 
 > Measured with tiktoken (cl100k_base) on real projects with `--features semantic` enabled and the bundled CodeSearchNet model loaded. Reproducible via `benchmarks/token-efficiency.py`. The default crates.io build (BM25 + AST only) still hits the bounded-output and workflow-shape benefits but does not run the hybrid semantic ranker.
 
-## Quick Install
+## 빠른 설치
 
-**Default (BM25 + AST + call-graph, no model sidecar)** — works out of the box, no extra setup:
+<sub>English: Quick install options.</sub>
+
+**기본 설치 (BM25 + AST + call-graph, model sidecar 없음)** — 추가 설정 없이 바로 동작합니다:
+
+<sub>English: Default install. BM25 + AST + call graph, no model sidecar required.</sub>
 
 ```bash
 cargo install codelens-mcp
 ```
 
-**Hybrid retrieval (semantic + bundled CodeSearchNet model)** — pick one:
+**Hybrid retrieval (semantic + bundled CodeSearchNet model)** — semantic 검색까지 쓰려면 아래 중 하나를 선택하세요:
+
+<sub>English: Pick one of these channels when you want semantic retrieval with the bundled CodeSearchNet model.</sub>
 
 ```bash
-# Option A: GitHub Release tarball — model is bundled and verified in CI.
+# Option A: GitHub Release tarball — 모델이 번들되어 있고 CI에서 검증됩니다.
 curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
 
-# Option B: cargo install with the semantic feature, then point CODELENS_MODEL_DIR at a model
-#          payload (the model is not on crates.io due to the 10 MB cap).
+# Option B: semantic feature로 cargo install 후 CODELENS_MODEL_DIR를 모델 payload로 지정합니다.
+#          crates.io 10 MB 제한 때문에 모델은 별도로 받아야 합니다.
 cargo install codelens-mcp --features semantic
 export CODELENS_MODEL_DIR=/path/to/codesearch/model
 
-# Option C: Homebrew tap (macOS / Linux) — release-tarball-equivalent
+# Option C: Homebrew tap (macOS / Linux) — release tarball과 같은 구성입니다.
 brew install mupozg823/tap/codelens-mcp
 ```
 
-**HTTP daemon mode** — add `--features http` to either path above. Source builds:
+**HTTP daemon mode** — 위 설치 경로에 `--features http`를 추가하면 됩니다. Source build 예시는 다음과 같습니다:
+
+<sub>English: Add `--features http` when you want shared HTTP daemon mode.</sub>
 
 ```bash
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
@@ -336,6 +389,17 @@ automatically. CLI flags and env vars still override the repo-local policy.
 The export script can also refresh that gate artifact automatically after each
 JSON snapshot, so scheduled operators do not need a second wrapper job just to
 keep `latest-gate.md` current.
+
+To collect a full productivity evidence bundle for a real agent loop, run:
+
+```bash
+bash scripts/run-productivity-proof-loop.sh .
+```
+
+That command writes tool-usage analysis, a live daemon audit snapshot, recent
+history summary, a latest-vs-previous productivity trend summary, and an
+operator gate verdict under
+`.codelens/reports/productivity/`.
 
 See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
 

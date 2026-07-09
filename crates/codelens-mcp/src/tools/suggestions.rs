@@ -26,7 +26,15 @@ pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
     "get_type_hierarchy",
 ];
 
-/// Tools relevant during harness BUILD phase
+/// Tools relevant during harness BUILD phase.
+///
+/// Mutation entries are the pending-D3 dispatch-only editors (`replace_symbol_body`,
+/// `rename_symbol`); the former line-edit family (`insert_content`, `replace`,
+/// `create_text_file`, `add_import`) is tombstoned (#346, delegated to the
+/// host-native Edit/Write tools) and `analyze_missing_imports` was removed in
+/// v2.0, so all five were dropped here — a phantom in a phase filter can never
+/// match a live `suggest_next` value (guarded by
+/// `phase_and_signal_constants_only_reference_live_tools`).
 pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
@@ -37,18 +45,19 @@ pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
     "find_referencing_symbols",
     "get_file_diagnostics",
     "replace_symbol_body",
-    "insert_content",
-    "replace",
     "rename_symbol",
-    "create_text_file",
-    "add_import",
-    "analyze_missing_imports",
     "find_tests",
     "refresh_symbol_index",
     "verify_change_readiness",
 ];
 
-/// Tools relevant during harness REVIEW phase
+/// Tools relevant during harness REVIEW phase.
+///
+/// `semantic_code_review` is an analysis *kind* (never a callable tool),
+/// `find_dead_code` was superseded by `dead_code_report`, and
+/// `find_circular_dependencies` is an engine helper reached only through
+/// `module_boundary_report` — none are live tools, so they were dropped as inert
+/// filter entries (guarded by `phase_and_signal_constants_only_reference_live_tools`).
 pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
     "review_architecture",
     "cleanup_duplicate_logic",
@@ -60,10 +69,7 @@ pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
     "impact_report",
     "refactor_safety_report",
     "diff_aware_references",
-    "semantic_code_review",
     "dead_code_report",
-    "find_dead_code",
-    "find_circular_dependencies",
     "get_changed_files",
     "find_tests",
     "unresolved_reference_check",
@@ -86,26 +92,26 @@ pub(crate) const EVAL_PHASE_TOOLS: &[&str] = &[
     "get_analysis_section",
 ];
 
-const MUTATION_TOOLS: &[&str] = &[
+/// Tools whose presence in the recent-call trail marks a mutation just
+/// happened (so `get_file_diagnostics` is hoisted first).
+///
+/// Only the pending-D3 dispatch-only editors remain: the line-edit family
+/// (`replace_content`, `replace_lines`, `delete_lines`, `insert_at_line`,
+/// `insert_content`, `replace`, `create_text_file`, `add_import`) is tombstoned
+/// (#346) and can never appear as a live recent-tool call, so keeping it here was
+/// inert (guarded by `phase_and_signal_constants_only_reference_live_tools`).
+pub(crate) const MUTATION_TOOLS: &[&str] = &[
     "rename_symbol",
     "replace_symbol_body",
-    "replace_content",
-    "replace_lines",
-    "delete_lines",
-    "insert_at_line",
     "insert_before_symbol",
     "insert_after_symbol",
-    "insert_content",
-    "replace",
-    "create_text_file",
-    "add_import",
     "refactor_extract_function",
     "refactor_inline_function",
     "refactor_move_to_file",
     "refactor_change_signature",
 ];
 
-const REVIEW_TOOLS: &[&str] = &[
+pub(crate) const REVIEW_TOOLS: &[&str] = &[
     "review_architecture",
     "review_changes",
     "diagnose_issues",
@@ -114,13 +120,66 @@ const REVIEW_TOOLS: &[&str] = &[
     "find_scoped_references",
 ];
 
-const EXPLORATION_TOOLS: &[&str] = &[
+/// Tools whose presence in the recent-call trail marks an exploration context
+/// (so deeper-context tools like `get_ranked_context` get boosted).
+///
+/// `get_project_structure` was removed from the surface in v2.0 (handler retained
+/// but unregistered), so it was dropped as an inert matcher entry — its live
+/// stand-ins `explore_codebase` / `get_symbols_overview` remain.
+pub(crate) const EXPLORATION_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
     "get_symbols_overview",
-    "get_project_structure",
     "onboard_project",
     "get_current_config",
+];
+
+// Distinctive phase signals — tools that strongly indicate a single phase.
+// These are a subset of PLAN_/BUILD_/REVIEW_/EVAL_PHASE_TOOLS filtered down to
+// entries that do not appear in multiple phase lists. Hoisted to module scope
+// (like `SUGGEST_NEXT_TABLE`) so the drift gate can cross-check every member
+// against the live registry. Each list matches against real recent-tool calls,
+// so any phantom / tombstoned name would be a dead string that can never fire —
+// guarded by `phase_and_signal_constants_only_reference_live_tools`.
+
+/// Recent-call signals for the BUILD phase (pending-D3 dispatch-only editors +
+/// refactor/plan tools). The tombstoned line-edit family was dropped: those
+/// names are rejected at dispatch, so they never reach the recent-call trail.
+pub(crate) const BUILD_SIGNAL: &[&str] = &[
+    "rename_symbol",
+    "replace_symbol_body",
+    "refactor_extract_function",
+    "refactor_inline_function",
+    "refactor_move_to_file",
+    "refactor_change_signature",
+    "plan_safe_refactor",
+    "trace_request_path",
+];
+
+/// Recent-call signals for the REVIEW phase. `semantic_code_review` (an analysis
+/// kind, not a tool) and `find_circular_dependencies` (an engine helper) were
+/// dropped as inert entries.
+pub(crate) const REVIEW_SIGNAL: &[&str] = &[
+    "diff_aware_references",
+    "refactor_safety_report",
+    "dead_code_report",
+    "unresolved_reference_check",
+    "find_misplaced_code",
+    "find_code_duplicates",
+    "review_changes",
+    "review_architecture",
+];
+
+/// Recent-call signals for the PLAN phase. `analyze_change_impact` is the removed
+/// v2.0 alias kept **deliberately** for historical-name matching: an agent still
+/// emitting the legacy name is inferred into the plan phase. It is allow-listed
+/// in the drift gate through `INTENTIONAL_ALIAS_KEYS`.
+pub(crate) const PLAN_SIGNAL: &[&str] = &[
+    "orchestrate_change",
+    "analyze_change_request",
+    "onboard_project",
+    "explore_codebase",
+    "analyze_change_impact",
 ];
 
 /// Infer the harness phase from recent tool usage when the client has not
@@ -132,46 +191,6 @@ const EXPLORATION_TOOLS: &[&str] = &[
 /// agent has reached a mutation, it is building; mutations followed by
 /// review tools means the build is done and review is active.
 pub(crate) fn infer_harness_phase(recent_tools: &[String]) -> Option<&'static str> {
-    // Distinctive signals — tools that strongly indicate a single phase.
-    // These are a subset of PLAN_/BUILD_/REVIEW_/EVAL_PHASE_TOOLS filtered
-    // down to entries that do not appear in multiple phase lists.
-    const BUILD_SIGNAL: &[&str] = &[
-        "rename_symbol",
-        "replace_symbol_body",
-        "replace",
-        "replace_content",
-        "insert_content",
-        "insert_at_line",
-        "delete_lines",
-        "add_import",
-        "create_text_file",
-        "refactor_extract_function",
-        "refactor_inline_function",
-        "refactor_move_to_file",
-        "refactor_change_signature",
-        "plan_safe_refactor",
-        "trace_request_path",
-    ];
-    const REVIEW_SIGNAL: &[&str] = &[
-        "diff_aware_references",
-        "semantic_code_review",
-        "refactor_safety_report",
-        "dead_code_report",
-        "find_circular_dependencies",
-        "unresolved_reference_check",
-        "find_misplaced_code",
-        "find_code_duplicates",
-        "review_changes",
-        "review_architecture",
-    ];
-    const PLAN_SIGNAL: &[&str] = &[
-        "orchestrate_change",
-        "analyze_change_request",
-        "onboard_project",
-        "explore_codebase",
-        "analyze_change_impact",
-    ];
-
     // Look at up to the 5 most recent tools. The most recent call is the
     // last entry when `push_recent_tool_for_session` appends in order.
     for tool in recent_tools.iter().rev().take(5) {
@@ -268,17 +287,21 @@ pub fn suggest_next_contextual(
 }
 
 fn is_workflow_tool_name(name: &str) -> bool {
+    // `analyze_change_impact` is the removed v2.0 alias retained for
+    // historical-name matching (an agent still emitting the legacy name is
+    // classified as a workflow tool, matching the `suggest_next` key carve-out).
+    // The other removed aliases (`audit_security_context`,
+    // `assess_change_readiness`) were dropped — they are neither live tools nor
+    // intentional aliases, so classifying them was inert.
     matches!(
         name,
         "explore_codebase"
             | "trace_request_path"
             | "review_architecture"
             | "plan_safe_refactor"
-            | "audit_security_context"
             | "analyze_change_impact"
             | "cleanup_duplicate_logic"
             | "review_changes"
-            | "assess_change_readiness"
             | "diagnose_issues"
             | "orchestrate_change"
             | "analyze_change_request"
