@@ -21,6 +21,47 @@ fn audit_builder_session_is_not_applicable_for_non_builder_session() {
 }
 
 #[test]
+fn audit_builder_session_applies_to_codex_builder_preferred_tool() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("builder_preferred.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "reviewer-graph"}),
+        "codex-builder-preferred",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        "codex-builder-preferred",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "cleanup_duplicate_logic",
+        json!({"scope": "builder_preferred.py", "max_results": 1}),
+        "codex-builder-preferred",
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_builder_session",
+        json!({"session_id": "codex-builder-preferred"}),
+    );
+    assert_ne!(audit["data"]["status"], json!("not_applicable"));
+    assert_eq!(
+        audit["data"]["checks"][0]["evidence"]["has_codex_builder_preferred_tool"],
+        json!(true)
+    );
+}
+
+#[test]
 fn audit_builder_session_warns_when_bootstrap_is_missing() {
     let project = project_root();
     fs::write(

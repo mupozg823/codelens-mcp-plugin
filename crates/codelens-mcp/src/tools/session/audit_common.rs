@@ -25,6 +25,10 @@ pub(super) fn is_builder_surface(surface: &str) -> bool {
     matches!(surface, "builder-minimal" | "refactor-full")
 }
 
+pub(super) fn is_codex_builder_preferred_tool(name: &str) -> bool {
+    crate::tool_defs::tool_preferred_executor_label(name) == "codex-builder"
+}
+
 pub(super) fn is_planner_surface(surface: &str) -> bool {
     matches!(surface, "planner-readonly" | "reviewer-graph")
 }

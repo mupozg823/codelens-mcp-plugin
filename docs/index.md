@@ -1,8 +1,10 @@
-# CodeLens MCP Docs
+# CodeLens MCP 문서
 
-CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. This directory contains operational docs for architecture, setup, release verification, and ADRs.
+CodeLens MCP는 multi-agent 코딩 하네스가 큰 코드베이스를 더 적은 token으로 이해하고, 안전하게 수정하며, 현재 index 상태를 검증할 수 있게 돕는 순수 Rust MCP 서버입니다. 이 문서 디렉터리에는 architecture, setup, release verification, ADR, 운영 가이드가 정리되어 있습니다.
 
-## Releases
+<sub>English: CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. These docs cover architecture, setup, release verification, ADRs, and operations.</sub>
+
+## 릴리스
 
 <!-- SURFACE_MANIFEST_INDEX_RELEASE:BEGIN -->
 
@@ -13,14 +15,14 @@ CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. This di
 
 <!-- SURFACE_MANIFEST_INDEX_RELEASE:END -->
 
-## Start Here
+## 먼저 볼 문서
 
-- [README](../README.md) — overview, install, setup
-- [Platform setup](platform-setup.md) — Claude Code, Cursor, VS Code, Codex, Windsurf
-- [Harness modes](harness-modes.md) — role-based profiles and presets
+- [README](../README.md) — 제품 소개, 설치, 기본 설정
+- [Platform setup](platform-setup.md) — Claude Code, Cursor, VS Code, Codex, Windsurf 연결
+- [Harness modes](harness-modes.md) — 역할 기반 profile과 preset
 - [Multi-agent integration](multi-agent-integration.md) — HTTP daemon, coordination, delegation
-- [Architecture overview](architecture.md) — system design and components
-- [Release verification](release-verification.md) — how releases are validated
+- [Architecture overview](architecture.md) — 한글 아키텍처 요약, Mermaid 다이어그램, 요청 처리 흐름, 핵심 코드 지도
+- [Release verification](release-verification.md) — 릴리스 검증 절차
 
 ## Reference
 

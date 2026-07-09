@@ -17,7 +17,9 @@ set -euo pipefail
 #   bash scripts/daemon-stale-check.sh /custom/path/to/codelens-mcp-http
 #
 # Exit codes:
-#   0 — daemon binary matches source HEAD (in sync)
+#   0 — daemon binary matches source HEAD (in sync), OR lags HEAD but no
+#       commit in between touches binary-relevant paths (crates/, Cargo.*) —
+#       hook/doc/test-only commits do not make the binary stale
 #   1 — daemon binary lags source HEAD (stale, redeploy required)
 #   2 — daemon binary not found
 #   3 — daemon binary version string unparseable
@@ -77,7 +79,16 @@ if [[ -z "${DAEMON_FULL}" ]]; then
 fi
 
 if git -C "${REPO_ROOT}" merge-base --is-ancestor "${DAEMON_FULL}" HEAD 2>/dev/null; then
-	echo "[daemon-stale-check] STALE: daemon=${DAEMON_SHA} lags source HEAD=${SOURCE_SHA}" >&2
+	# Ancestor — but only binary-relevant changes make the daemon actually
+	# stale. Hook/doc/test-only commits produce a byte-identical binary; a
+	# redeploy would only churn launchd and drop live MCP sessions.
+	BINARY_RELEVANT="$(git -C "${REPO_ROOT}" diff --name-only "${DAEMON_FULL}..HEAD" -- \
+		crates Cargo.toml Cargo.lock 2>/dev/null | head -1 || true)"
+	if [[ -z "${BINARY_RELEVANT}" ]]; then
+		echo "[daemon-stale-check] in sync (binary-equivalent): daemon=${DAEMON_SHA} lags HEAD=${SOURCE_SHA} by non-binary commits only (hooks/docs/tests)"
+		exit 0
+	fi
+	echo "[daemon-stale-check] STALE: daemon=${DAEMON_SHA} lags source HEAD=${SOURCE_SHA} (binary-relevant: ${BINARY_RELEVANT})" >&2
 	echo "  run: bash scripts/redeploy-daemons.sh --build --probe" >&2
 	exit 1
 fi

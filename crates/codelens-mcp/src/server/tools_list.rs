@@ -23,8 +23,14 @@ pub(crate) fn build_tools_list_response(
     request: &JsonRpcRequest,
     connector_safe: bool,
 ) -> Value {
-    let request_context =
+    let mut request_context =
         ResourceRequestContext::from_request("codelens://tools/list", request.params.as_ref());
+    // #357: stdio/local sessions have no per-session store — honor the
+    // AppState-level exposure flag set by `prepare_harness_session` so a
+    // plain tools/list expands past the bootstrap subset after bootstrap.
+    if request_context.session.is_local() && state.local_full_tool_exposure() {
+        request_context.session.full_tool_exposure = true;
+    }
     let _session_project_guard = state
         .ensure_session_project(&request_context.session)
         .ok()

@@ -119,6 +119,7 @@ ready but `embedding_coverage_report` says the model is missing, the report wins
 | Adapt | The server exposes host-specific routing for Codex, Claude Code, Cursor, Cline, and Windsurf. | `docs/host-adaptive-harness.md`, manifest-generated host adapter resources, `host_adaptation` fixtures, HTTP initialize snapshot fixtures for Codex/Claude/generic/Cline/Windsurf, and non-Codex doctor/status JSON fixtures cover bootstrap behavior, host-observed MCP server/tool inventories, managed settings, memory roots, selected, absent, or malformed memory entrypoints, and unavailable HTTP daemons. | Keep host fixture payloads aligned with new client config shapes. |
 | Recover | Stale or missing semantic state should lead to one actionable fix. | `prepare_harness_session` emits `semantic_index_missing` with `recommended_action=run_index_embeddings`; `embedding_coverage_report` and doctor strict render `remediation.action`; `index_embeddings` refreshes the shared on-disk embedding index. | Keep missing-model, empty-index, stale-index, and mismatched-model recovery paths covered by fixtures and operator smoke. |
 | Benchmark | Retrieval changes cannot ship on anecdotes. | `benchmarks/embedding-quality.py` supports query-type gates, response-size/token metrics, query-cache probes, ranker diagnostics, and `--triage-output` JSON artifacts; the current self dataset has 112 rows split across identifier, short_phrase, natural_language, and issue_to_edit; upstream and release smoke workflows now upload self-retrieval quality and triage artifacts; the default external-project smoke matrix checks Python/TypeScript/Rust fixtures with expected semantic hits. | Expand to 300-500 labeled queries and reduce p95 response tokens before widening public retrieval claims. |
+| Productivity | Agent productivity claims must be backed by repeatable tool-call, follow-through, audit, and trend artifacts. | `scripts/run-productivity-proof-loop.sh` bundles local `tool_usage.jsonl` analysis, live daemon `eval_session_audit`, historical summary, and operator gate output into `.codelens/reports/productivity/`. | Run the loop across enough real Codex/Claude sessions to compare tool calls per task, missed-route rate, rework frequency, token estimates, and audit pass rate against the previous baseline. |
 | Release | Tagged artifacts include the binary, model assets where promised, SBOMs, checksums, attestations, and smoke gates. | `.github/workflows/release.yml` and `.github/workflows/upstream-smoke.yml` build with semantic/http features, stage model assets, verify model assets, run embedding coverage smoke, and upload both the coverage summary and cold/warm index-lifecycle artifact. | Keep release smoke fail-closed for semantic artifacts and choose cross-machine lifecycle thresholds before making latency claims. |
 
 ## Current Readiness Matrix
@@ -249,6 +250,9 @@ python3 benchmarks/embedding-quality.py . \
 5. Token cost is measured mostly as response size. The product claim should add
    repeated-query/cache-hit and retry-avoidance evidence before claiming net
    session-token savings.
+6. Productivity evidence now has a repeatable local loop, but the current local
+   sample size is still small. Treat early runs as instrumentation proof until
+   multiple real task sessions accumulate.
 
 ## Overfitting Guardrails
 

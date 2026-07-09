@@ -440,21 +440,29 @@ pub(crate) fn run_analysis_job_from_queue(
     {
         return JobLifecycle::Cancelled;
     }
-    if let Err(error) = worker_state.switch_project(&scope) {
-        patch_job_file(
-            &scope,
-            &job_id,
-            Some(JobLifecycle::Error),
-            Some(100),
-            Some(Some("failed".to_owned())),
-            Some(None),
-            Some(Some(format!(
-                "analysis worker failed to bind project scope `{scope}`: {error}"
-            ))),
-        );
-        return JobLifecycle::Error;
-    }
+    // #357: bind this worker THREAD to the job's project scope for the
+    // duration of the job instead of mutating the worker state's project
+    // override (which cleared its artifact/job stores on every switch).
+    let _project_guard = match worker_state.bind_request_project_scope(&scope) {
+        Ok(guard) => guard,
+        Err(error) => {
+            patch_job_file(
+                worker_state,
+                &scope,
+                &job_id,
+                Some(JobLifecycle::Error),
+                Some(100),
+                Some(Some("failed".to_owned())),
+                Some(None),
+                Some(Some(format!(
+                    "analysis worker failed to bind project scope `{scope}`: {error}"
+                ))),
+            );
+            return JobLifecycle::Error;
+        }
+    };
     patch_job_file(
+        worker_state,
         &scope,
         &job_id,
         Some(crate::runtime_types::JobLifecycle::Running),
@@ -545,6 +553,7 @@ pub(crate) fn run_analysis_job_from_queue(
                 "analysis worker panicked".to_owned()
             };
             patch_job_file(
+                worker_state,
                 &scope,
                 &job_id,
                 Some(JobLifecycle::Error),
@@ -557,6 +566,7 @@ pub(crate) fn run_analysis_job_from_queue(
         }
         Ok(Err(message)) => {
             patch_job_file(
+                worker_state,
                 &scope,
                 &job_id,
                 Some(JobLifecycle::Error),

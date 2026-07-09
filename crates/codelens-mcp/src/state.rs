@@ -46,7 +46,7 @@ pub(crate) use crate::agent_coordination::{
 };
 pub(crate) use crate::client_profile::ClientProfile;
 pub(crate) use crate::runtime_types::{
-    AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisVerifierCheck, RuntimeDaemonMode,
+    AnalysisArtifact, AnalysisReadiness, AnalysisVerifierCheck, RuntimeDaemonMode,
     RuntimeTransportMode,
 };
 
@@ -85,7 +85,10 @@ pub(crate) struct AppState {
     default_watcher_error: Option<String>,
     // Runtime project override (set by activate_project)
     project_override: std::sync::RwLock<Option<Arc<ProjectRuntimeContext>>>,
-    project_context_cache: Mutex<ProjectContextCache>,
+    /// Shared across worker clones (#357) so analysis workers reuse the
+    /// daemon's per-project runtime contexts instead of building duplicate
+    /// indexes/watchers/LSP pools per worker.
+    project_context_cache: Arc<Mutex<ProjectContextCache>>,
     transport_mode: Mutex<RuntimeTransportMode>,
     daemon_mode: Mutex<RuntimeDaemonMode>,
     client_profile: ClientProfile,
@@ -94,8 +97,11 @@ pub(crate) struct AppState {
     /// Global token budget for response size control.
     /// Tools that produce variable-length output respect this limit.
     pub(crate) token_budget: std::sync::atomic::AtomicUsize,
-    artifact_store: AnalysisArtifactStore,
-    job_store: crate::job_store::AnalysisJobStore,
+    /// Shared across worker clones (#357): scope-tagged records in one
+    /// store (memory + daemon-default disk dir) keep analysis jobs and
+    /// artifacts visible to every session and worker thread.
+    artifact_store: Arc<AnalysisArtifactStore>,
+    job_store: Arc<crate::job_store::AnalysisJobStore>,
     pub(crate) metrics: Arc<ToolMetricsRegistry>,
     /// Recent tool call names for context-aware suggestions (max 5).
     recent_tools: crate::recent_buffer::RecentRingBuffer,
@@ -112,10 +118,21 @@ pub(crate) struct AppState {
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
     sparse_symbol_cache: Arc<SparseSymbolCache>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
-    #[cfg_attr(not(feature = "http"), allow(dead_code))]
-    project_execution_lock: Mutex<()>,
+    /// #357: stdio/local analogue of the per-session `full_tool_exposure`
+    /// flag. `prepare_harness_session` flips this so a later plain
+    /// `tools/list` (which standard MCP clients send without expansion
+    /// params) returns the full surface instead of the bootstrap subset.
+    local_full_tool_exposure: std::sync::atomic::AtomicBool,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::RwLock<Option<EmbeddingEngine>>,
+    /// Project root the current `embedding` engine was built for. With
+    /// request-scoped project bindings (#357) the engine is no longer
+    /// dropped on project switch, so accessors compare this root against
+    /// the request's project and rebuild on mismatch — semantic queries
+    /// from a session bound to project A must never read project B's
+    /// embedding index.
+    #[cfg(feature = "semantic")]
+    pub(crate) embedding_root: Mutex<Option<PathBuf>>,
     /// Lazy-loaded SCIP precise backends, isolated per active project root.
     /// A shared HTTP daemon may switch projects between sessions; keying this
     /// cache by root prevents a SCIP index from the previous project from

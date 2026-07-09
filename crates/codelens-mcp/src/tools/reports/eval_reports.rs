@@ -131,6 +131,17 @@ fn is_planner_surface(surface: &str) -> bool {
     matches!(surface, "planner-readonly" | "reviewer-graph")
 }
 
+fn session_has_codex_builder_preferred_tool(state: &AppState, session_id: &str) -> bool {
+    state
+        .metrics()
+        .session_snapshot_for(session_id)
+        .timeline
+        .iter()
+        .any(|entry| {
+            crate::tool_defs::tool_preferred_executor_label(&entry.tool) == "codex-builder"
+        })
+}
+
 fn choose_role_audit(
     state: &AppState,
     session_id: &str,
@@ -142,7 +153,12 @@ fn choose_role_audit(
         .as_str()
         .or_else(|| planner["session_summary"]["current_surface"].as_str())
         .unwrap_or("");
+    let has_codex_builder_preferred_tool =
+        session_has_codex_builder_preferred_tool(state, session_id);
 
+    if has_codex_builder_preferred_tool && builder["status"].as_str() != Some("not_applicable") {
+        return Ok(Some(("builder", builder)));
+    }
     if is_builder_surface(current_surface) && builder["status"].as_str() != Some("not_applicable") {
         return Ok(Some(("builder", builder)));
     }

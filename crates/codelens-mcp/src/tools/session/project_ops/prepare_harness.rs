@@ -104,12 +104,35 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         }
     }
 
+    // #357: the compact bootstrap listing hides most tools (symbol
+    // navigation, references, impact) until the session expands it — but
+    // standard MCP clients never send the `full`/`namespace` expansion
+    // params, so the surface stayed collapsed forever. A successful
+    // bootstrap is the declared end of the compact phase: flip full
+    // exposure and notify so hosts re-fetch the complete surface.
+    let bootstrap_session = crate::session_context::SessionRequestContext::from_json(arguments);
+    #[cfg(feature = "http")]
+    if state.should_route_to_session(&bootstrap_session) {
+        state.enable_session_full_tool_exposure(&bootstrap_session.session_id);
+        state.notify_tools_list_changed(&bootstrap_session);
+    }
+    if bootstrap_session.is_local() {
+        state.enable_local_full_tool_exposure();
+    }
+
     let index_recovery = prepare_harness_index_recovery(state, arguments);
 
+    // Token economy (T3): the bootstrap default is now the ~1K-token compact
+    // envelope. Callers that need the full ~3.6K payload (config, http_session,
+    // overlay, index_recovery, full visible_tools/routing) must opt in with an
+    // explicit `detail="full"` — backward compatible for those callers.
     let detail = arguments
         .get("detail")
         .and_then(|v| v.as_str())
-        .unwrap_or("full");
+        .unwrap_or("compact");
+    // NOTE: the response's visible-tool context intentionally keeps the
+    // compact bootstrap view (T3 token economy) — the full-exposure flip
+    // above only affects SUBSEQUENT tools/list calls via session metadata.
     let request = ResourceRequestContext::from_request("codelens://tools/list", Some(arguments));
     let session = request.session.clone();
     let active_surface = state.execution_surface(&session);

@@ -21,7 +21,7 @@ Options:
                          Number of recent JSON snapshots to include when
                          refreshing the historical summary and gate
                          artifacts (default: 14)
-  --mcp-url URL            MCP HTTP endpoint (default: http://127.0.0.1:7837/mcp)
+  --mcp-url URL            MCP HTTP endpoint (default: http://127.0.0.1:7839/mcp)
   --timeout-secs N         RPC timeout in seconds (default: 10)
   --poll-interval-secs N   Poll interval in seconds (default: 0.5)
   --max-polls N            Maximum job polls before timing out (default: 20)
@@ -36,7 +36,7 @@ Examples:
 EOF
 }
 
-MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7837/mcp}"
+MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7839/mcp}"
 TIMEOUT_SECS="${CODELENS_AUDIT_TIMEOUT_SECS:-10}"
 POLL_INTERVAL_SECS="${CODELENS_AUDIT_POLL_INTERVAL_SECS:-0.5}"
 MAX_POLLS="${CODELENS_AUDIT_MAX_POLLS:-20}"

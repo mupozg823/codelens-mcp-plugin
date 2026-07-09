@@ -340,8 +340,12 @@ fn prepare_harness_session_surfaces_coordination_counts() {
         "session-a",
     );
 
-    let bootstrap =
-        call_tool_with_session(&state, "prepare_harness_session", json!({}), "session-a");
+    let bootstrap = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"detail": "full"}),
+        "session-a",
+    );
     assert_eq!(bootstrap["success"], json!(true));
     assert_eq!(
         bootstrap["data"]["http_session"]["active_coordination_agents"],

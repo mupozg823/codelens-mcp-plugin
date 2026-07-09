@@ -10,7 +10,6 @@ tools:
     mcp__codelens__find_referencing_symbols,
     mcp__codelens__get_type_hierarchy,
     mcp__codelens__find_scoped_references,
-    mcp__codelens__get_project_structure,
     mcp__codelens__get_file_diagnostics,
     mcp__codelens__find_tests,
     mcp__codelens__get_changed_files,

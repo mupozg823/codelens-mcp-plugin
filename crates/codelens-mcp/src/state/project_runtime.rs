@@ -83,7 +83,65 @@ impl ProjectContextCache {
     }
 }
 
+/// Request-scoped project binding. `Default` pins the daemon's startup
+/// default project — a session explicitly bound to it must not observe
+/// another session's `project_override`. `Context` pins a specific
+/// project runtime resolved from the context cache.
+pub(crate) enum RequestProjectBinding {
+    Default,
+    Context(Arc<ProjectRuntimeContext>),
+}
+
+thread_local! {
+    /// Per-request project binding. Set by `ensure_session_project` (dispatch,
+    /// tools/list, resources) and by analysis workers for the duration of a
+    /// job. Read by `active_project_context` ahead of the global override so
+    /// concurrent sessions bound to different projects never mutate — or
+    /// serialize on — shared daemon state (the pre-#357 design switched the
+    /// global override under a daemon-wide mutex on every call).
+    static REQUEST_PROJECT_BINDING: std::cell::RefCell<Option<RequestProjectBinding>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// RAII guard for a request-scoped project binding. Restores the previous
+/// binding on drop so nested binds (e.g. `activate_project` inside
+/// `prepare_harness_session`) unwind correctly even on panic.
+pub(crate) struct RequestProjectGuard {
+    previous: Option<RequestProjectBinding>,
+}
+
+impl Drop for RequestProjectGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        REQUEST_PROJECT_BINDING.with(|cell| {
+            *cell.borrow_mut() = previous;
+        });
+    }
+}
+
+pub(super) fn bind_request_project(binding: RequestProjectBinding) -> RequestProjectGuard {
+    let previous = REQUEST_PROJECT_BINDING.with(|cell| cell.borrow_mut().replace(binding));
+    RequestProjectGuard { previous }
+}
+
+/// Replace the current request's binding in place without creating a new
+/// guard scope. Used by `activate_project` when a session re-binds mid-call:
+/// the dispatch-level guard still restores the pre-request state on exit.
+pub(super) fn rebind_request_project(binding: RequestProjectBinding) {
+    REQUEST_PROJECT_BINDING.with(|cell| {
+        *cell.borrow_mut() = Some(binding);
+    });
+}
+
 pub(super) fn active_project_context(state: &AppState) -> Option<Arc<ProjectRuntimeContext>> {
+    let request_binding = REQUEST_PROJECT_BINDING.with(|cell| match &*cell.borrow() {
+        None => None,
+        Some(RequestProjectBinding::Default) => Some(None),
+        Some(RequestProjectBinding::Context(context)) => Some(Some(Arc::clone(context))),
+    });
+    if let Some(resolved) = request_binding {
+        return resolved;
+    }
     state
         .project_override
         .read()
@@ -258,6 +316,66 @@ pub(super) fn activate_project_context(
     state
         .job_store
         .cleanup_stale_files(crate::util::now_ms(), Some(&scope));
+}
+
+#[cfg(test)]
+mod request_binding_tests {
+    use crate::test_helpers::fixtures::temp_project_root;
+    use crate::tool_defs::ToolPreset;
+
+    #[test]
+    fn nested_request_bindings_restore_on_drop() {
+        let default_project = temp_project_root("binding-default");
+        let project_a = temp_project_root("binding-a");
+        let state = crate::AppState::new_minimal(default_project.clone(), ToolPreset::Balanced);
+
+        let default_scope = default_project.as_path().to_string_lossy().to_string();
+        assert_eq!(state.current_project_scope(), default_scope);
+
+        {
+            let _outer = state
+                .bind_request_project_scope(project_a.as_path().to_str().unwrap())
+                .unwrap();
+            assert_eq!(
+                state.current_project_scope(),
+                project_a.as_path().to_string_lossy().to_string()
+            );
+            {
+                // Nested bind back to the default project must pin Default —
+                // not fall through to any global override.
+                let _inner = state.bind_request_project_scope(&default_scope).unwrap();
+                assert_eq!(state.current_project_scope(), default_scope);
+            }
+            // Inner guard dropped → outer binding restored.
+            assert_eq!(
+                state.current_project_scope(),
+                project_a.as_path().to_string_lossy().to_string()
+            );
+        }
+        // All guards dropped → unbound thread falls back to the daemon default.
+        assert_eq!(state.current_project_scope(), default_scope);
+    }
+
+    #[test]
+    fn request_binding_shields_thread_from_global_override() {
+        let default_project = temp_project_root("shield-default");
+        let project_a = temp_project_root("shield-a");
+        let project_b = temp_project_root("shield-b");
+        let state = crate::AppState::new_minimal(default_project, ToolPreset::Balanced);
+
+        let _bound = state
+            .bind_request_project_scope(project_a.as_path().to_str().unwrap())
+            .unwrap();
+        // Another session explicitly switching the global override must not
+        // affect a request bound to its own project.
+        state
+            .switch_project(project_b.as_path().to_str().unwrap())
+            .unwrap();
+        assert_eq!(
+            state.current_project_scope(),
+            project_a.as_path().to_string_lossy().to_string()
+        );
+    }
 }
 
 #[cfg(test)]

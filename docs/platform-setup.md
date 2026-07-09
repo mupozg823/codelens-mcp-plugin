@@ -160,6 +160,19 @@ bash scripts/export-eval-session-audit.sh \
   --history-gate-path .codelens/reports/daily/latest-gate.md
 ```
 
+For a complete productivity proof bundle around one real agent work loop, run:
+
+```bash
+bash scripts/run-productivity-proof-loop.sh .
+```
+
+That wrapper combines local tool-usage analysis, live daemon audit export,
+history summary, latest-vs-previous productivity trend output, and operator
+gate output under
+`.codelens/reports/productivity/`. Use it when evaluating whether CodeLens
+actually reduces tool thrash, missed suggestions, audit warnings, and session
+rework over repeated runs.
+
 For a daily macOS operator snapshot, install the launchd wrapper with [`scripts/install-eval-session-audit-launchd.sh`](../scripts/install-eval-session-audit-launchd.sh). Example:
 
 ```bash

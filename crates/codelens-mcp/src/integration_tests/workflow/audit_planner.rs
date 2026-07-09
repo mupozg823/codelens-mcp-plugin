@@ -148,6 +148,51 @@ fn audit_planner_session_warns_when_change_evidence_is_missing() {
 }
 
 #[test]
+fn audit_planner_session_counts_composite_workflow_as_read_side_evidence() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("planner_composite.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "reviewer-graph"}),
+        "planner-composite-evidence",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        "planner-composite-evidence",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["planner_composite.py"], "task": "review planner composite evidence"}),
+        "planner-composite-evidence",
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_planner_session",
+        json!({"session_id": "planner-composite-evidence"}),
+    );
+    assert_eq!(audit["data"]["status"], json!("pass"));
+    assert!(
+        audit["data"]["checks"]
+            .as_array()
+            .map(|checks| checks.iter().any(|check| {
+                check["code"] == json!("read_side_evidence") && check["status"] == json!("pass")
+            }))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
 fn audit_planner_session_warns_when_workflow_first_guidance_is_missed() {
     let project = project_root();
     fs::write(project.as_path().join("planner_chain.py"), "print('ok')\n").unwrap();

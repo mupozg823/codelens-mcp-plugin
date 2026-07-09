@@ -1,7 +1,79 @@
 # CodeLens MCP — Architecture & Project Overview
 
-> Host-adaptive Rust MCP code-intelligence router for multi-agent harnesses
-> Cached hybrid retrieval, generated surface governance, daemon health checks, and mutation-gated refactoring
+> multi-agent 코딩 하네스를 위한 host-adaptive Rust MCP 코드 인텔리전스 라우터입니다.
+> 캐시형 hybrid retrieval, 생성된 tool-surface governance, daemon health check, mutation-gated refactoring을 제공합니다.
+
+<sub>English: Host-adaptive Rust MCP code-intelligence router for multi-agent harnesses. It provides cached hybrid retrieval, generated surface governance, daemon health checks, and mutation-gated refactoring.</sub>
+
+## 한글 아키텍처 요약 (2026-07-08)
+
+CodeLens는 “대화형 AI 런타임”이 아니라 host가 필요로 하는 코드 맥락을 작게 잘라 공급하는 MCP substrate입니다. host는 대화, 모델 선택, 권한 UI를 소유하고, CodeLens는 project binding, tool surface, index health, retrieval, mutation gate, audit evidence를 담당합니다.
+
+<sub>English: CodeLens is not the chat runtime. It is the MCP substrate that narrows code context, binds projects, exposes profile-specific tools, checks index health, gates mutations, and records evidence.</sub>
+
+```mermaid
+flowchart TB
+  Host["Host / Harness<br/>Claude Code, Codex, Cursor, CI"] --> Bind["prepare_harness_session<br/>project binding + surface overlay"]
+  Bind --> Transport["MCP transport<br/>stdio / Streamable HTTP"]
+  Transport --> Dispatch["dispatch_tool<br/>schema validation + rate limit + access gate"]
+  Dispatch --> Workflows["Problem-first workflows<br/>explore_codebase / trace_request_path / review_architecture"]
+  Dispatch --> Verify["Safety workflows<br/>verify_change_readiness / claims / diagnostics"]
+  Dispatch --> Engine["codelens-engine<br/>symbols, search, graph, LSP, edit primitives"]
+  Engine --> Store["Project substrate<br/>tree-sitter index, SQLite, BM25 cache, semantic sidecar, SCIP optional"]
+  Dispatch --> Envelope["Response envelope<br/>token budget, lean/compact, analysis handles"]
+  Dispatch --> Audit["Audit and observability<br/>audit sink, metrics, surface manifest"]
+```
+
+### 요청 처리 흐름
+
+<sub>English: Request-processing flow.</sub>
+
+```mermaid
+sequenceDiagram
+  participant H as Host
+  participant S as codelens-mcp
+  participant D as dispatch pipeline
+  participant E as codelens-engine
+  participant A as audit/artifacts
+
+  H->>S: prepare_harness_session(project, host_context)
+  S-->>H: active project, visible tools, warnings, recovery hints
+  H->>S: tools/call(name, arguments)
+  S->>D: parse envelope, budget, session context
+  D->>D: rate limit, role gate, surface access
+  alt read or analysis
+    D->>E: symbol/search/graph/LSP query
+    E-->>D: bounded result + handles
+  else content mutation
+    D->>D: verify preflight and mutation allowance
+    D->>E: apply edit primitive
+    D->>A: audit mutation and invalidate caches
+  end
+  D-->>H: compact/lean JSON-RPC response
+```
+
+### 핵심 코드 지도
+
+<sub>English: Core code map.</sub>
+
+| 계층 | 현재 코드 | 책임 |
+| --- | --- | --- |
+| CLI / daemon entry | [`../crates/codelens-mcp/src/main.rs`](../crates/codelens-mcp/src/main.rs) | `--transport`, `--profile`, `--preset`, `--daemon-mode`, one-shot CLI, HTTP/stdout-safe tracing, semantic feature banner를 선택합니다. |
+| MCP protocol/router | [`../crates/codelens-mcp/src/server/router.rs`](../crates/codelens-mcp/src/server/router.rs), [`../crates/codelens-mcp/src/server/transport_stdio.rs`](../crates/codelens-mcp/src/server/transport_stdio.rs), [`../crates/codelens-mcp/src/server/transport_http.rs`](../crates/codelens-mcp/src/server/transport_http.rs) | JSON-RPC 요청을 받고 `tools/list`, `tools/call`, resources를 transport별로 연결합니다. |
+| Dispatch boundary | [`../crates/codelens-mcp/src/dispatch/mod.rs`](../crates/codelens-mcp/src/dispatch/mod.rs), [`../crates/codelens-mcp/src/dispatch/table.rs`](../crates/codelens-mcp/src/dispatch/table.rs) | tool envelope parsing, required-param validation, doom-loop/rate-limit, role gate, access validation, mutation gate, response shaping을 수행합니다. |
+| Tool registry | [`../crates/codelens-mcp/src/tools/mod.rs`](../crates/codelens-mcp/src/tools/mod.rs), [`../crates/codelens-mcp/src/tool_defs/`](../crates/codelens-mcp/src/tool_defs) | file/symbol/LSP/analysis/edit/memory/session/workflow/report tool을 등록하고 profile/preset별 노출 표면을 생성합니다. |
+| Harness bootstrap | [`../crates/codelens-mcp/src/tools/session/project_ops/prepare_harness.rs`](../crates/codelens-mcp/src/tools/session/project_ops/prepare_harness.rs) | `project=<absolute path>` binding, stale-index recovery, host environment snapshot, Codex skill hints, visible tool routing을 반환합니다. |
+| Runtime state | [`../crates/codelens-mcp/src/state.rs`](../crates/codelens-mcp/src/state.rs), [`../crates/codelens-mcp/src/state/`](../crates/codelens-mcp/src/state) | active project, project context cache, watcher, graph cache, LSP pool, analysis jobs, coordination claims, preflight store, audit sinks를 보관합니다. |
+| Engine API | [`../crates/codelens-engine/src/lib.rs`](../crates/codelens-engine/src/lib.rs) | read/search/mutation primitive를 re-export합니다. mutation primitive 자체는 role gate/audit/cache invalidation을 보장하지 않으므로 MCP dispatch를 통해 호출해야 합니다. |
+| Index/search | [`../crates/codelens-engine/src/symbols/`](../crates/codelens-engine/src/symbols), [`../crates/codelens-engine/src/search.rs`](../crates/codelens-engine/src/search.rs), [`../crates/codelens-mcp/src/sparse_symbol_cache.rs`](../crates/codelens-mcp/src/sparse_symbol_cache.rs) | tree-sitter symbol index, sparse/BM25 scoring, ranked context, path-scope cache를 담당합니다. |
+| Semantic retrieval | [`../crates/codelens-mcp/src/dispatch/semantic/`](../crates/codelens-mcp/src/dispatch/semantic), [`../crates/codelens-engine/src/embedding/`](../crates/codelens-engine/src/embedding) | `semantic` feature와 model sidecar가 있을 때 `index_embeddings`와 `semantic_search`를 활성화합니다. |
+| Readiness/audit | [`../crates/codelens-mcp/src/tools/reports/verifier_reports.rs`](../crates/codelens-mcp/src/tools/reports/verifier_reports.rs), [`../crates/codelens-mcp/src/audit_sink.rs`](../crates/codelens-mcp/src/audit_sink.rs) | `verify_change_readiness`, analysis sections, mutation evidence, durable audit log를 제공합니다. |
+
+### 현재 구조 근거
+
+- CodeLens dogfood `review_architecture(path=.)` 기준 현재 workspace member는 `crates/codelens-engine`, `crates/codelens-mcp` 두 개이며, 두 crate 사이에는 양방향 module dependency가 있습니다.
+- `docs/generated/surface-manifest.json`과 아래 Surface Snapshot은 public tool count, profile/preset, language family 수의 canonical source입니다.
+- `codelens-engine/src/lib.rs`는 read primitive는 직접 호출 가능하되 mutation primitive는 `codelens-mcp` dispatch pipeline을 통과해야 한다고 명시합니다. 이 문서의 mutation boundary 설명은 해당 코드 주석을 기준으로 합니다.
 
 ## Current Snapshot (2026-07-07 local daemon re-check)
 

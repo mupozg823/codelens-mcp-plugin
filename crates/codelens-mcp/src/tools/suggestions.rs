@@ -26,7 +26,15 @@ pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
     "get_type_hierarchy",
 ];
 
-/// Tools relevant during harness BUILD phase
+/// Tools relevant during harness BUILD phase.
+///
+/// Mutation entries are the pending-D3 dispatch-only editors (`replace_symbol_body`,
+/// `rename_symbol`); the former line-edit family (`insert_content`, `replace`,
+/// `create_text_file`, `add_import`) is tombstoned (#346, delegated to the
+/// host-native Edit/Write tools) and `analyze_missing_imports` was removed in
+/// v2.0, so all five were dropped here — a phantom in a phase filter can never
+/// match a live `suggest_next` value (guarded by
+/// `phase_and_signal_constants_only_reference_live_tools`).
 pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
@@ -37,18 +45,19 @@ pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
     "find_referencing_symbols",
     "get_file_diagnostics",
     "replace_symbol_body",
-    "insert_content",
-    "replace",
     "rename_symbol",
-    "create_text_file",
-    "add_import",
-    "analyze_missing_imports",
     "find_tests",
     "refresh_symbol_index",
     "verify_change_readiness",
 ];
 
-/// Tools relevant during harness REVIEW phase
+/// Tools relevant during harness REVIEW phase.
+///
+/// `semantic_code_review` is an analysis *kind* (never a callable tool),
+/// `find_dead_code` was superseded by `dead_code_report`, and
+/// `find_circular_dependencies` is an engine helper reached only through
+/// `module_boundary_report` — none are live tools, so they were dropped as inert
+/// filter entries (guarded by `phase_and_signal_constants_only_reference_live_tools`).
 pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
     "review_architecture",
     "cleanup_duplicate_logic",
@@ -60,10 +69,7 @@ pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
     "impact_report",
     "refactor_safety_report",
     "diff_aware_references",
-    "semantic_code_review",
     "dead_code_report",
-    "find_dead_code",
-    "find_circular_dependencies",
     "get_changed_files",
     "find_tests",
     "unresolved_reference_check",
@@ -86,26 +92,26 @@ pub(crate) const EVAL_PHASE_TOOLS: &[&str] = &[
     "get_analysis_section",
 ];
 
-const MUTATION_TOOLS: &[&str] = &[
+/// Tools whose presence in the recent-call trail marks a mutation just
+/// happened (so `get_file_diagnostics` is hoisted first).
+///
+/// Only the pending-D3 dispatch-only editors remain: the line-edit family
+/// (`replace_content`, `replace_lines`, `delete_lines`, `insert_at_line`,
+/// `insert_content`, `replace`, `create_text_file`, `add_import`) is tombstoned
+/// (#346) and can never appear as a live recent-tool call, so keeping it here was
+/// inert (guarded by `phase_and_signal_constants_only_reference_live_tools`).
+pub(crate) const MUTATION_TOOLS: &[&str] = &[
     "rename_symbol",
     "replace_symbol_body",
-    "replace_content",
-    "replace_lines",
-    "delete_lines",
-    "insert_at_line",
     "insert_before_symbol",
     "insert_after_symbol",
-    "insert_content",
-    "replace",
-    "create_text_file",
-    "add_import",
     "refactor_extract_function",
     "refactor_inline_function",
     "refactor_move_to_file",
     "refactor_change_signature",
 ];
 
-const REVIEW_TOOLS: &[&str] = &[
+pub(crate) const REVIEW_TOOLS: &[&str] = &[
     "review_architecture",
     "review_changes",
     "diagnose_issues",
@@ -114,13 +120,66 @@ const REVIEW_TOOLS: &[&str] = &[
     "find_scoped_references",
 ];
 
-const EXPLORATION_TOOLS: &[&str] = &[
+/// Tools whose presence in the recent-call trail marks an exploration context
+/// (so deeper-context tools like `get_ranked_context` get boosted).
+///
+/// `get_project_structure` was removed from the surface in v2.0 (handler retained
+/// but unregistered), so it was dropped as an inert matcher entry — its live
+/// stand-ins `explore_codebase` / `get_symbols_overview` remain.
+pub(crate) const EXPLORATION_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
     "get_symbols_overview",
-    "get_project_structure",
     "onboard_project",
     "get_current_config",
+];
+
+// Distinctive phase signals — tools that strongly indicate a single phase.
+// These are a subset of PLAN_/BUILD_/REVIEW_/EVAL_PHASE_TOOLS filtered down to
+// entries that do not appear in multiple phase lists. Hoisted to module scope
+// (like `SUGGEST_NEXT_TABLE`) so the drift gate can cross-check every member
+// against the live registry. Each list matches against real recent-tool calls,
+// so any phantom / tombstoned name would be a dead string that can never fire —
+// guarded by `phase_and_signal_constants_only_reference_live_tools`.
+
+/// Recent-call signals for the BUILD phase (pending-D3 dispatch-only editors +
+/// refactor/plan tools). The tombstoned line-edit family was dropped: those
+/// names are rejected at dispatch, so they never reach the recent-call trail.
+pub(crate) const BUILD_SIGNAL: &[&str] = &[
+    "rename_symbol",
+    "replace_symbol_body",
+    "refactor_extract_function",
+    "refactor_inline_function",
+    "refactor_move_to_file",
+    "refactor_change_signature",
+    "plan_safe_refactor",
+    "trace_request_path",
+];
+
+/// Recent-call signals for the REVIEW phase. `semantic_code_review` (an analysis
+/// kind, not a tool) and `find_circular_dependencies` (an engine helper) were
+/// dropped as inert entries.
+pub(crate) const REVIEW_SIGNAL: &[&str] = &[
+    "diff_aware_references",
+    "refactor_safety_report",
+    "dead_code_report",
+    "unresolved_reference_check",
+    "find_misplaced_code",
+    "find_code_duplicates",
+    "review_changes",
+    "review_architecture",
+];
+
+/// Recent-call signals for the PLAN phase. `analyze_change_impact` is the removed
+/// v2.0 alias kept **deliberately** for historical-name matching: an agent still
+/// emitting the legacy name is inferred into the plan phase. It is allow-listed
+/// in the drift gate through `INTENTIONAL_ALIAS_KEYS`.
+pub(crate) const PLAN_SIGNAL: &[&str] = &[
+    "orchestrate_change",
+    "analyze_change_request",
+    "onboard_project",
+    "explore_codebase",
+    "analyze_change_impact",
 ];
 
 /// Infer the harness phase from recent tool usage when the client has not
@@ -132,46 +191,6 @@ const EXPLORATION_TOOLS: &[&str] = &[
 /// agent has reached a mutation, it is building; mutations followed by
 /// review tools means the build is done and review is active.
 pub(crate) fn infer_harness_phase(recent_tools: &[String]) -> Option<&'static str> {
-    // Distinctive signals — tools that strongly indicate a single phase.
-    // These are a subset of PLAN_/BUILD_/REVIEW_/EVAL_PHASE_TOOLS filtered
-    // down to entries that do not appear in multiple phase lists.
-    const BUILD_SIGNAL: &[&str] = &[
-        "rename_symbol",
-        "replace_symbol_body",
-        "replace",
-        "replace_content",
-        "insert_content",
-        "insert_at_line",
-        "delete_lines",
-        "add_import",
-        "create_text_file",
-        "refactor_extract_function",
-        "refactor_inline_function",
-        "refactor_move_to_file",
-        "refactor_change_signature",
-        "plan_safe_refactor",
-        "trace_request_path",
-    ];
-    const REVIEW_SIGNAL: &[&str] = &[
-        "diff_aware_references",
-        "semantic_code_review",
-        "refactor_safety_report",
-        "dead_code_report",
-        "find_circular_dependencies",
-        "unresolved_reference_check",
-        "find_misplaced_code",
-        "find_code_duplicates",
-        "review_changes",
-        "review_architecture",
-    ];
-    const PLAN_SIGNAL: &[&str] = &[
-        "orchestrate_change",
-        "analyze_change_request",
-        "onboard_project",
-        "explore_codebase",
-        "analyze_change_impact",
-    ];
-
     // Look at up to the 5 most recent tools. The most recent call is the
     // last entry when `push_recent_tool_for_session` appends in order.
     for tool in recent_tools.iter().rev().take(5) {
@@ -268,17 +287,21 @@ pub fn suggest_next_contextual(
 }
 
 fn is_workflow_tool_name(name: &str) -> bool {
+    // `analyze_change_impact` is the removed v2.0 alias retained for
+    // historical-name matching (an agent still emitting the legacy name is
+    // classified as a workflow tool, matching the `suggest_next` key carve-out).
+    // The other removed aliases (`audit_security_context`,
+    // `assess_change_readiness`) were dropped — they are neither live tools nor
+    // intentional aliases, so classifying them was inert.
     matches!(
         name,
         "explore_codebase"
             | "trace_request_path"
             | "review_architecture"
             | "plan_safe_refactor"
-            | "audit_security_context"
             | "analyze_change_impact"
             | "cleanup_duplicate_logic"
             | "review_changes"
-            | "assess_change_readiness"
             | "diagnose_issues"
             | "orchestrate_change"
             | "analyze_change_request"
@@ -371,206 +394,343 @@ pub fn composite_guidance_for_chain(
     Some((suggestions, hint))
 }
 
-pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
-    let suggestions: &[&str] = match tool_name {
-        // ── Symbols / index ──────────────────────────────────────────
-        "get_symbols_overview" => &["find_symbol", "impact_report", "get_ranked_context"],
-        "find_symbol" => &[
+/// Static `(tool, suggested_next)` table backing [`suggest_next`].
+///
+/// Kept as an iterable table — instead of an opaque `match` — so the drift-gate
+/// integration test (`suggestion_drift`) can cross-check every key and value
+/// against the canonical `tools.toml` registry. That is what stops a future
+/// rename/removal in `tools.toml` from silently leaving a suggestion pointing at
+/// a tool the client can never call.
+///
+/// Invariants enforced by `suggest_next_table_only_references_live_tools`:
+/// every **value** is a real `tools.toml` tool *or* a dispatch-only pending-D3
+/// tool (callable via `tools/call` behind the `:7838` mutation gate but absent
+/// from `tools.toml`, e.g. `rename_symbol`), and every **key** is a real tool
+/// *or* the single documented deprecated alias `analyze_change_impact` (retained
+/// so agents that still emit the legacy name get canonical next-step guidance —
+/// guarded by `suggest_next_prefers_canonical_workflows`).
+pub(crate) const SUGGEST_NEXT_TABLE: &[(&str, &[&str])] = &[
+    // ── Symbols / index ──────────────────────────────────────────
+    (
+        "get_symbols_overview",
+        &["find_symbol", "impact_report", "get_ranked_context"],
+    ),
+    (
+        "find_symbol",
+        &[
             "find_referencing_symbols",
             "find_declaration",
             "find_implementations",
             "impact_report",
         ],
-        "get_ranked_context" => &["find_symbol", "replace_symbol_body", "semantic_search"],
-        "refresh_symbol_index" => &["index_embeddings", "get_symbols_overview"],
-        "get_project_structure" => &["get_symbols_overview", "get_ranked_context", "find_symbol"],
-        "get_complexity" => &["find_symbol", "get_symbols_overview"],
-        "search_symbols_fuzzy" => &["find_symbol", "get_ranked_context"],
-
-        // ── LSP ──────────────────────────────────────────────────────
-        "find_referencing_symbols" => &["impact_report", "rename_symbol"],
-        "find_declaration" => &["find_referencing_symbols", "get_diagnostics_for_symbol"],
-        "find_implementations" => &["find_referencing_symbols", "get_type_hierarchy"],
-        "get_diagnostics_for_symbol" => &["get_file_diagnostics", "find_symbol"],
-        "get_file_diagnostics" => &["find_symbol", "get_symbols_overview"],
-        "search_workspace_symbols" => &["find_symbol", "get_symbols_overview"],
-        "get_type_hierarchy" => &["find_referencing_symbols", "get_symbols_overview"],
-        "plan_symbol_rename" => &["rename_symbol"],
-        "get_lsp_recipe" => &["get_capabilities", "get_file_diagnostics"],
-
-        // ── Graph / analysis ─────────────────────────────────────────
-        "get_changed_files" => &["impact_report", "get_symbols_overview"],
-        "get_importers" => &["impact_report", "get_symbol_importance"],
-        "get_symbol_importance" => &["get_importers", "impact_report"],
-        "find_dead_code" => &["get_symbols_overview", "delete_lines"],
-        "find_circular_dependencies" => &["impact_report", "get_symbols_overview"],
-        "get_callers" => &["get_callees", "find_symbol"],
-        "get_callees" => &["get_callers", "find_symbol"],
-        "find_scoped_references" => &["rename_symbol", "find_referencing_symbols"],
-
-        // ── Filesystem ───────────────────────────────────────────────
-        "get_current_config" => &["get_capabilities", "get_project_structure"],
-        "read_file" => &["get_symbols_overview", "find_symbol"],
-        "search_for_pattern" => &["find_referencing_symbols", "get_ranked_context"],
-        "find_annotations" => &["get_symbols_overview", "find_symbol"],
-        "find_tests" => &["get_symbols_overview"],
-
-        // ── Mutation ─────────────────────────────────────────────────
-        "rename_symbol" => &[
-            "safe_rename_report",
-            "unresolved_reference_check",
-            "get_file_diagnostics",
-        ],
-        "replace_symbol_body" => &["find_symbol", "get_file_diagnostics"],
-        "replace_content" => &["get_file_diagnostics", "get_symbols_overview"],
-        "replace_lines" => &["get_file_diagnostics"],
-        "delete_lines" => &["get_file_diagnostics"],
-        "insert_at_line" => &["get_file_diagnostics"],
-        "insert_before_symbol" => &["get_file_diagnostics", "find_symbol"],
-        "insert_after_symbol" => &["get_file_diagnostics", "find_symbol"],
-        "insert_content" => &["get_file_diagnostics", "find_symbol"],
-        "replace" => &["get_file_diagnostics", "get_symbols_overview"],
-        "create_text_file" => &["verify_change_readiness", "get_symbols_overview"],
-        "add_import" => &["get_file_diagnostics", "analyze_missing_imports"],
-        "analyze_missing_imports" => &["add_import"],
-
-        // ── Memory ───────────────────────────────────────────────────
-        "write_memory" => &["list_memories", "read_memory"],
-        "read_memory" => &["write_memory", "list_memories"],
-        "list_memories" => &["read_memory", "write_memory"],
-
-        // ── Session ──────────────────────────────────────────────────
-        "activate_project" => &[
-            "get_project_structure",
+    ),
+    (
+        "get_ranked_context",
+        &["find_symbol", "plan_safe_refactor", "semantic_search"],
+    ),
+    (
+        "refresh_symbol_index",
+        &["index_embeddings", "get_symbols_overview"],
+    ),
+    ("get_complexity", &["find_symbol", "get_symbols_overview"]),
+    (
+        "search_symbols_fuzzy",
+        &["find_symbol", "get_ranked_context"],
+    ),
+    // ── LSP ──────────────────────────────────────────────────────
+    (
+        "find_referencing_symbols",
+        &["impact_report", "plan_symbol_rename"],
+    ),
+    (
+        "find_declaration",
+        &["find_referencing_symbols", "get_diagnostics_for_symbol"],
+    ),
+    (
+        "find_implementations",
+        &["find_referencing_symbols", "get_type_hierarchy"],
+    ),
+    (
+        "get_diagnostics_for_symbol",
+        &["get_file_diagnostics", "find_symbol"],
+    ),
+    (
+        "get_file_diagnostics",
+        &["find_symbol", "get_symbols_overview"],
+    ),
+    (
+        "search_workspace_symbols",
+        &["find_symbol", "get_symbols_overview"],
+    ),
+    (
+        "get_type_hierarchy",
+        &["find_referencing_symbols", "get_symbols_overview"],
+    ),
+    ("plan_symbol_rename", &["safe_rename_report"]),
+    (
+        "get_lsp_recipe",
+        &["get_capabilities", "get_file_diagnostics"],
+    ),
+    // ── Graph / analysis ─────────────────────────────────────────
+    (
+        "get_changed_files",
+        &["impact_report", "get_symbols_overview"],
+    ),
+    (
+        "get_symbol_importance",
+        &["find_referencing_symbols", "impact_report"],
+    ),
+    ("get_callers", &["get_callees", "find_symbol"]),
+    ("get_callees", &["get_callers", "find_symbol"]),
+    (
+        "find_scoped_references",
+        &["plan_symbol_rename", "find_referencing_symbols"],
+    ),
+    // ── Filesystem ───────────────────────────────────────────────
+    (
+        "get_current_config",
+        &["get_capabilities", "get_symbols_overview"],
+    ),
+    ("read_file", &["get_symbols_overview", "find_symbol"]),
+    ("find_annotations", &["get_symbols_overview", "find_symbol"]),
+    ("find_tests", &["get_symbols_overview"]),
+    // ── Memory ───────────────────────────────────────────────────
+    ("write_memory", &["list_memories", "read_memory"]),
+    ("read_memory", &["write_memory", "list_memories"]),
+    ("list_memories", &["read_memory", "write_memory"]),
+    // ── Session ──────────────────────────────────────────────────
+    (
+        "activate_project",
+        &[
+            "get_symbols_overview",
             "get_current_config",
             "get_capabilities",
         ],
-        "prepare_harness_session" => &[
+    ),
+    (
+        "prepare_harness_session",
+        &[
             "get_current_config",
             "get_capabilities",
             "get_ranked_context",
         ],
-        "explore_codebase" => &["find_symbol", "review_architecture", "review_changes"],
-        "trace_request_path" => &["plan_safe_refactor", "find_symbol", "review_changes"],
-        "review_architecture" => &["review_changes", "explore_codebase", "plan_safe_refactor"],
-        "plan_safe_refactor" => &[
+    ),
+    (
+        "explore_codebase",
+        &["find_symbol", "review_architecture", "review_changes"],
+    ),
+    (
+        "trace_request_path",
+        &["plan_safe_refactor", "find_symbol", "review_changes"],
+    ),
+    (
+        "review_architecture",
+        &["review_changes", "explore_codebase", "plan_safe_refactor"],
+    ),
+    (
+        "plan_safe_refactor",
+        &[
             "trace_request_path",
             "review_changes",
             "get_file_diagnostics",
         ],
-        "audit_security_context" => &[
+    ),
+    // `analyze_change_impact` is a removed v2.0 alias — not a registered tool —
+    // but its suggestion arm is deliberately retained so agents that still emit
+    // the legacy name are routed to canonical workflows. Guarded by
+    // `suggest_next_prefers_canonical_workflows`; allowlisted in the drift gate.
+    (
+        "analyze_change_impact",
+        &[
+            "review_architecture",
             "review_changes",
             "get_analysis_section",
-            "review_architecture",
         ],
-        "analyze_change_impact" => &[
-            "review_architecture",
-            "review_changes",
-            "get_analysis_section",
-        ],
-        "cleanup_duplicate_logic" => &[
+    ),
+    (
+        "cleanup_duplicate_logic",
+        &[
             "review_changes",
             "review_architecture",
             "get_analysis_section",
         ],
-        "review_changes" => &["get_analysis_section", "impact_report", "diagnose_issues"],
-        "diagnose_issues" => &["review_changes", "find_symbol", "verify_change_readiness"],
-        "onboard_project" => &["get_ranked_context", "find_symbol", "get_capabilities"],
-        "get_watch_status" => &["refresh_symbol_index", "prune_index_failures"],
-        "prune_index_failures" => &["get_watch_status", "refresh_symbol_index"],
-        "list_queryable_projects" => &["add_queryable_project", "query_project"],
-        "add_queryable_project" => &["query_project", "list_queryable_projects"],
-        "query_project" => &["find_symbol", "list_queryable_projects"],
-        "set_preset" => &["get_capabilities"],
-        "get_capabilities" => &["get_project_structure", "get_ranked_context"],
-        "get_tool_metrics" => &[
+    ),
+    (
+        "review_changes",
+        &["get_analysis_section", "impact_report", "diagnose_issues"],
+    ),
+    (
+        "diagnose_issues",
+        &["review_changes", "find_symbol", "verify_change_readiness"],
+    ),
+    (
+        "onboard_project",
+        &["get_ranked_context", "find_symbol", "get_capabilities"],
+    ),
+    (
+        "get_watch_status",
+        &["refresh_symbol_index", "prune_index_failures"],
+    ),
+    (
+        "prune_index_failures",
+        &["get_watch_status", "refresh_symbol_index"],
+    ),
+    (
+        "list_queryable_projects",
+        &["add_queryable_project", "query_project"],
+    ),
+    (
+        "add_queryable_project",
+        &["query_project", "list_queryable_projects"],
+    ),
+    ("query_project", &["find_symbol", "list_queryable_projects"]),
+    ("set_preset", &["get_capabilities"]),
+    (
+        "get_capabilities",
+        &["get_symbols_overview", "get_ranked_context"],
+    ),
+    (
+        "get_tool_metrics",
+        &[
             "audit_builder_session",
             "export_session_markdown",
             "get_capabilities",
         ],
-        "audit_builder_session" => &[
+    ),
+    (
+        "audit_builder_session",
+        &[
             "get_tool_metrics",
             "export_session_markdown",
             "list_active_agents",
         ],
-
-        // ── Semantic ─────────────────────────────────────────────────
-        "semantic_search" => &["find_symbol", "get_symbols_overview", "find_similar_code"],
-        "index_embeddings" => &[
+    ),
+    // ── Semantic ─────────────────────────────────────────────────
+    (
+        "semantic_search",
+        &["find_symbol", "get_symbols_overview", "find_similar_code"],
+    ),
+    (
+        "index_embeddings",
+        &[
             "semantic_search",
             "find_code_duplicates",
             "find_misplaced_code",
         ],
-        "find_similar_code" => &["get_symbols_overview", "semantic_search"],
-        "find_code_duplicates" => &["find_similar_code", "get_symbols_overview"],
-        "classify_symbol" => &["find_similar_code", "get_symbols_overview"],
-        "find_misplaced_code" => &["get_symbols_overview", "find_similar_code"],
-
-        // ── Composite ────────────────────────────────────────────────
-        "refactor_extract_function" => &["get_file_diagnostics", "find_symbol"],
-        "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
-        "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
-        "refactor_change_signature" => &["get_file_diagnostics", "find_referencing_symbols"],
-        "propagate_deletions" => &["delete_lines", "get_file_diagnostics", "impact_report"],
-        "orchestrate_change" => &[
+    ),
+    (
+        "find_similar_code",
+        &["get_symbols_overview", "semantic_search"],
+    ),
+    (
+        "find_code_duplicates",
+        &["find_similar_code", "get_symbols_overview"],
+    ),
+    (
+        "classify_symbol",
+        &["find_similar_code", "get_symbols_overview"],
+    ),
+    (
+        "find_misplaced_code",
+        &["get_symbols_overview", "find_similar_code"],
+    ),
+    // ── Composite / analysis-handle ──────────────────────────────
+    (
+        "orchestrate_change",
+        &[
             "get_analysis_section",
             "verify_change_readiness",
             "audit_planner_session",
         ],
-        "analyze_change_request" => &[
+    ),
+    (
+        "analyze_change_request",
+        &[
             "orchestrate_change",
             "get_analysis_section",
             "verify_change_readiness",
             "impact_report",
             "refactor_safety_report",
         ],
-        "verify_change_readiness" => &[
+    ),
+    (
+        "verify_change_readiness",
+        &[
             "get_analysis_section",
             "safe_rename_report",
             "unresolved_reference_check",
         ],
-        "module_boundary_report" => &[
+    ),
+    (
+        "module_boundary_report",
+        &[
             "get_analysis_section",
             "mermaid_module_graph",
             "impact_report",
             "dead_code_report",
         ],
-        "mermaid_module_graph" => &[
+    ),
+    (
+        "mermaid_module_graph",
+        &[
             "get_analysis_section",
             "module_boundary_report",
             "impact_report",
         ],
-        "safe_rename_report" => &[
+    ),
+    // `rename_symbol` is dispatch-only (ADR-0009/D3, #346): callable via
+    // `tools/call` behind the `:7838` mutation gate but intentionally absent from
+    // `tools.toml`. It is the sole `codex-builder`-tagged suggestion in this
+    // table, so it must stay here to keep the planner→builder delegate handoff
+    // firing (`inject_delegate_to_codex_builder_hint`). Allowlisted in the drift
+    // gate via the pending-D3 carve-out.
+    (
+        "safe_rename_report",
+        &[
             "get_analysis_section",
             "unresolved_reference_check",
             "rename_symbol",
             "refactor_safety_report",
         ],
-        "unresolved_reference_check" => &[
+    ),
+    (
+        "unresolved_reference_check",
+        &[
             "get_analysis_section",
             "safe_rename_report",
             "find_referencing_symbols",
         ],
-        "dead_code_report" => &["get_analysis_section", "impact_report"],
-        "impact_report" => &["get_analysis_section", "diff_aware_references"],
-        "refactor_safety_report" => &[
+    ),
+    (
+        "dead_code_report",
+        &["get_analysis_section", "impact_report"],
+    ),
+    (
+        "impact_report",
+        &["get_analysis_section", "diff_aware_references"],
+    ),
+    (
+        "refactor_safety_report",
+        &[
             "get_analysis_section",
             "verify_change_readiness",
             "safe_rename_report",
         ],
-        "diff_aware_references" => &[
-            "get_analysis_section",
-            "impact_report",
-            "semantic_code_review",
-        ],
-        "semantic_code_review" => &["get_analysis_section", "impact_report"],
-        "start_analysis_job" => &["get_analysis_job"],
-        "get_analysis_job" => &["get_analysis_section"],
-        "cancel_analysis_job" => &["start_analysis_job"],
+    ),
+    (
+        "diff_aware_references",
+        &["get_analysis_section", "impact_report", "review_changes"],
+    ),
+    ("start_analysis_job", &["get_analysis_job"]),
+    ("get_analysis_job", &["get_analysis_section"]),
+    ("cancel_analysis_job", &["start_analysis_job"]),
+];
 
-        _ => return None,
-    };
-    Some(suggestions.iter().map(|s| s.to_string()).collect())
+pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
+    SUGGEST_NEXT_TABLE
+        .iter()
+        .find(|(name, _)| *name == tool_name)
+        .map(|(_, tools)| tools.iter().map(|s| (*s).to_string()).collect())
 }
 
 /// Returns a map of tool name → brief reason explaining why it is suggested.
