@@ -232,6 +232,73 @@ fn import_graph_operations() {
     assert_eq!(graph["utils.py"].1, vec!["main.py"]); // imported_by
 }
 
+// A resolver/parser LOGIC fix changes derived analysis for byte-identical
+// source, but `commit_analyzed` skips files whose (mtime, hash) are unchanged —
+// so the fix never reaches an already-populated index. `ANALYZER_VERSION` closes
+// that gap: a stored value below the compiled one must wipe the stale analysis
+// on open so `refresh_all` re-derives it with current logic.
+#[test]
+fn analyzer_version_bump_wipes_stale_analysis_on_reopen() {
+    let (_td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-analyzer-version-");
+    fs::create_dir_all(&dir).unwrap();
+    let db_path = dir.join("symbols.db");
+
+    // Simulate an index built by an OLDER binary: real content plus a stored
+    // analyzer_version rolled back below the current compiled value.
+    {
+        let db = IndexDb::open(&db_path).unwrap();
+        let fid = db.upsert_file("a.rs", 1, "h", 1, Some("rs")).unwrap();
+        db.insert_imports(
+            fid,
+            &[NewImport {
+                target_path: "phantom/mod.rs".into(),
+                raw_import: "super::phantom".into(),
+            }],
+        )
+        .unwrap();
+        db.conn
+            .execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer_version', '0')",
+                [],
+            )
+            .unwrap();
+        assert!(
+            db.file_count().unwrap() > 0,
+            "precondition: stale analysis present"
+        );
+    }
+
+    // Re-open with the current binary: ANALYZER_VERSION > stored 0 → wipe.
+    let db = IndexDb::open(&db_path).unwrap();
+    assert_eq!(
+        db.file_count().unwrap(),
+        0,
+        "stale analysis must be wiped when analyzer_version increases"
+    );
+    let stored: i64 = db
+        .conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'analyzer_version'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        stored, ANALYZER_VERSION,
+        "analyzer_version must be recorded after the wipe"
+    );
+
+    // Idempotent: with stored == current, a re-open must NOT wipe fresh content.
+    db.upsert_file("b.rs", 2, "h2", 2, Some("rs")).unwrap();
+    drop(db);
+    let db2 = IndexDb::open(&db_path).unwrap();
+    assert_eq!(
+        db2.file_count().unwrap(),
+        1,
+        "content must survive when analyzer_version is unchanged"
+    );
+}
+
 #[test]
 fn content_hash_is_deterministic() {
     let h1 = content_hash(b"hello world");

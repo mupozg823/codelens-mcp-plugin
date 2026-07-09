@@ -12,6 +12,16 @@ mod tests;
 
 const SCHEMA_VERSION: i64 = 6;
 
+/// Version of the analysis LOGIC (import resolver + import/symbol extractors)
+/// whose output is persisted in `imports`/`symbols`/`calls`. Distinct from
+/// `SCHEMA_VERSION`, which only tracks table *structure*. Bump this whenever a
+/// resolver/parser fix changes the derived analysis for byte-identical source
+/// (e.g. the `super::`/`self::` phantom-edge fix): on open, a stored value below
+/// the compiled one wipes the analysis tables so `refresh_all` re-derives them
+/// with current logic. Without it, `commit_analyzed`'s (mtime, hash) freshness
+/// skip keeps stale edges forever, so logic fixes never reach existing indexes.
+const ANALYZER_VERSION: i64 = 1;
+
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {
     pub(super) conn: Connection,
@@ -135,6 +145,7 @@ impl IndexDb {
             )?;
             let mut db = Self { conn };
             db.migrate()?;
+            db.invalidate_analysis_if_logic_changed()?;
             Ok(db)
         })
     }
@@ -164,6 +175,7 @@ impl IndexDb {
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
         let mut db = Self { conn };
         db.migrate()?;
+        db.invalidate_analysis_if_logic_changed()?;
         Ok(db)
     }
 
@@ -292,6 +304,33 @@ impl IndexDb {
             }
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Wipe persisted analysis (`symbols`/`imports`/`calls`/`files`) when the
+    /// compiled [`ANALYZER_VERSION`] exceeds the value recorded in `meta`, so a
+    /// resolver/parser logic fix is re-derived on the next `refresh_all` rather
+    /// than masked by `commit_analyzed`'s (mtime, hash) freshness skip. Runs
+    /// after `migrate()`, which guarantees the `meta` table exists. One-time per
+    /// version bump: after recording the new value, subsequent opens are no-ops.
+    fn invalidate_analysis_if_logic_changed(&mut self) -> Result<()> {
+        let stored: i64 = self
+            .conn
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'analyzer_version'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        if stored >= ANALYZER_VERSION {
+            return Ok(());
+        }
+        clear_symbol_index(&self.conn)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer_version', ?1)",
+            rusqlite::params![ANALYZER_VERSION.to_string()],
+        )?;
         Ok(())
     }
 
