@@ -49,27 +49,40 @@ def test_print_plan_resolves_crate_local_telemetry_without_writing() -> None:
         )
         output_dir = temp_root / "reports"
 
-        proc = run_command(
-            [
-                "bash",
-                str(LOOP_SCRIPT),
-                str(REPO_ROOT),
-                "--output-dir",
-                str(output_dir),
-                "--run-id",
-                "test-run",
-                "--print-plan",
-            ]
-        )
+        # The resolution ladder only returns candidates that EXIST. The
+        # crate-local telemetry file is untracked runtime state (absent on CI
+        # and on fresh checkouts), so the test provisions it and cleans up
+        # afterward instead of depending on leftover local state.
+        created_telemetry = not telemetry_path.exists()
+        if created_telemetry:
+            telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+            telemetry_path.touch()
 
-        assert proc.returncode == 0, (
-            "print-plan should resolve paths without running the daemon: "
-            f"stdout={proc.stdout} stderr={proc.stderr}"
-        )
-        assert f"repo_root={REPO_ROOT}" in proc.stdout
-        assert f"telemetry_path={telemetry_path}" in proc.stdout
-        assert f"run_dir={output_dir / 'runs' / 'test-run'}" in proc.stdout
-        assert not output_dir.exists()
+        try:
+            proc = run_command(
+                [
+                    "bash",
+                    str(LOOP_SCRIPT),
+                    str(REPO_ROOT),
+                    "--output-dir",
+                    str(output_dir),
+                    "--run-id",
+                    "test-run",
+                    "--print-plan",
+                ]
+            )
+
+            assert proc.returncode == 0, (
+                "print-plan should resolve paths without running the daemon: "
+                f"stdout={proc.stdout} stderr={proc.stderr}"
+            )
+            assert f"repo_root={REPO_ROOT}" in proc.stdout
+            assert f"telemetry_path={telemetry_path}" in proc.stdout
+            assert f"run_dir={output_dir / 'runs' / 'test-run'}" in proc.stdout
+            assert not output_dir.exists()
+        finally:
+            if created_telemetry:
+                telemetry_path.unlink(missing_ok=True)
 
 
 def test_export_audit_default_matches_repo_local_readonly_daemon() -> None:
