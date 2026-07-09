@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Deferred-loading gate now honors the bootstrap slice (#377)** — a tool advertised in the default `tools/list` (`default_visible_rank`) was still rejected on `tools/call` with a "hidden by deferred loading in tier" error until an explicit namespace/tier expansion. Default-listed tools now bypass the namespace and tier expansion gates so "advertised = callable" holds; non-default-listed tools keep the expansion gate.
 
+- **launchd KeepAlive respawn-loop on the daemon's deliberate port-yield exit (#378)** — `transport_http.rs` intentionally `exit(0)`s when a daemon loses the port race and yields to an existing instance, but the generated plist's `KeepAlive.SuccessfulExit=true` told launchd to respawn on *any* clean exit, including this one — an unbounded restart→re-yield loop under a live port conflict (10s-interval "deferring to existing instance" churn observed in `dev.codelens.mcp-readonly.err.log`). `install-http-daemons-launchd.sh` now emits `SuccessfulExit=false` (`Crashed` stays `true`) plus an explicit `ThrottleInterval=10` as a second safety net. Also fixed while sweeping the same area: `redeploy-daemons.sh`'s `launchctl kickstart` ran outside the plist-exists guard (a missing/mistyped label aborted the whole script with a raw `exit 113` instead of the LISTEN-wait diagnostic), and `update_host_attach_config()`'s embedded Python let a corrupt `.codelens/config.json` raise an unhandled `JSONDecodeError` after the plists were already written.
+
 ## [1.13.34] - 2026-07-04
 
 ### Security
