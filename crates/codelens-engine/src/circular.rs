@@ -67,6 +67,66 @@ mod tests {
     use crate::import_graph::GraphCache;
     use std::fs;
 
+    // Regression: a `use super::<item>` whose name collides with a top-level
+    // module must NOT resolve onto that unrelated module. Before the resolver
+    // fix, `super::tools` (importing a `tools()` fn from the parent) leaked onto
+    // `src/tools/mod.rs`, injecting a phantom `tool_defs -> tools` edge that — with
+    // the genuine `tools -> tool_defs` edge — fabricated a circular dependency.
+    #[test]
+    fn super_item_collision_with_top_level_module_is_not_a_cycle() {
+        let (_td, dir) = temp_project_dir("super-collision");
+        let src = dir.join("src");
+        fs::create_dir_all(src.join("tool_defs")).expect("mkdir tool_defs");
+        fs::create_dir_all(src.join("tools")).expect("mkdir tools");
+        // parent module exposes a `tools()` FUNCTION (not a module)
+        fs::write(
+            src.join("tool_defs/mod.rs"),
+            "pub mod visibility;\npub fn tools() -> u32 {\n    0\n}\n",
+        )
+        .expect("write tool_defs/mod.rs");
+        // child imports the parent's `tools` fn via `super::` — must stay relative
+        fs::write(
+            src.join("tool_defs/visibility.rs"),
+            "use super::tools;\npub fn v() -> u32 {\n    tools()\n}\n",
+        )
+        .expect("write visibility.rs");
+        // unrelated top-level `tools` module that genuinely depends on tool_defs
+        fs::write(
+            src.join("tools/mod.rs"),
+            "use crate::tool_defs::visibility;\npub fn t() -> u32 {\n    visibility::v()\n}\n",
+        )
+        .expect("write tools/mod.rs");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cache = GraphCache::new(0);
+        let cycles = find_circular_dependencies(&project, 50, &cache).expect("cycles");
+        assert!(
+            cycles.is_empty(),
+            "super::<item> colliding with a top-level module fabricated a cycle: {cycles:?}"
+        );
+    }
+
+    // Guard against over-suppression: a GENUINE cross-module cycle via absolute
+    // `crate::` imports must still be detected after the relative-import fix.
+    #[test]
+    fn genuine_rust_cross_module_cycle_is_detected() {
+        let (_td, dir) = temp_project_dir("rust-cycle");
+        let src = dir.join("src");
+        fs::create_dir_all(&src).expect("mkdir src");
+        fs::write(src.join("a.rs"), "use crate::b::foo;\npub fn bar() {}\n").expect("write a");
+        fs::write(src.join("b.rs"), "use crate::a::bar;\npub fn foo() {}\n").expect("write b");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cache = GraphCache::new(0);
+        let cycles = find_circular_dependencies(&project, 50, &cache).expect("cycles");
+        assert!(
+            cycles.iter().any(|c| c.length == 2
+                && c.cycle.iter().any(|f| f.ends_with("a.rs"))
+                && c.cycle.iter().any(|f| f.ends_with("b.rs"))),
+            "genuine crate:: cross-module cycle should still be detected: {cycles:?}"
+        );
+    }
+
     fn temp_project_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
         let (td, dir) =
             crate::test_helpers::make_unique_temp_dir(&format!("codelens-core-circular-{name}-"));

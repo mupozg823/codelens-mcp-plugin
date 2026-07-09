@@ -376,29 +376,40 @@ pub(super) fn find_workspace_crate_dir(project: &ProjectRoot, crate_name: &str) 
 ///       `mod foo;` -> look for foo.rs or foo/mod.rs relative to source dir.
 ///       `use codelens_engine::ProjectRoot` -> strip workspace crate prefix and look in that crate's src/.
 fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
+    // `super::`/`self::` are RELATIVE to the current module and must resolve only
+    // against the source file's own module directory — never the crate `src/` or
+    // `crates/*/src/` roots. Applying the absolute fallback to them makes a
+    // `super::<item>` whose name collides with a top-level module (e.g.
+    // `use super::tools` importing a `tools()` fn from the parent) resolve to that
+    // unrelated module, injecting phantom cross-module import edges that fabricate
+    // dependency cycles in `find_circular_dependencies`.
+    let is_relative = module.starts_with("super::") || module.starts_with("self::");
+
     let stripped = module
         .trim_start_matches("crate::")
         .trim_start_matches("super::")
         .trim_start_matches("self::");
 
-    // Check if the first segment matches a known workspace crate name.
-    let segments: Vec<&str> = stripped.splitn(2, "::").collect();
-    if segments.len() == 2 {
-        let first_seg = segments[0];
-        if let Some(crate_src) = find_workspace_crate_dir(project, first_seg) {
-            let remaining = segments[1].replace("::", "/");
-            let mut parts: Vec<&str> = remaining.split('/').collect();
-            while !parts.is_empty() {
-                let candidate_path = parts.join("/");
-                for candidate in [
-                    crate_src.join(format!("{candidate_path}.rs")),
-                    crate_src.join(&candidate_path).join("mod.rs"),
-                ] {
-                    if candidate.is_file() {
-                        return Some(project.to_relative(candidate));
+    // Workspace-crate resolution only applies to absolute paths.
+    if !is_relative {
+        let segments: Vec<&str> = stripped.splitn(2, "::").collect();
+        if segments.len() == 2 {
+            let first_seg = segments[0];
+            if let Some(crate_src) = find_workspace_crate_dir(project, first_seg) {
+                let remaining = segments[1].replace("::", "/");
+                let mut parts: Vec<&str> = remaining.split('/').collect();
+                while !parts.is_empty() {
+                    let candidate_path = parts.join("/");
+                    for candidate in [
+                        crate_src.join(format!("{candidate_path}.rs")),
+                        crate_src.join(&candidate_path).join("mod.rs"),
+                    ] {
+                        if candidate.is_file() {
+                            return Some(project.to_relative(candidate));
+                        }
                     }
+                    parts.pop();
                 }
-                parts.pop();
             }
         }
     }
@@ -418,24 +429,28 @@ fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) 
                 }
             }
         }
-        let src = project.as_path().join("src");
-        for candidate in [
-            src.join(format!("{candidate_path}.rs")),
-            src.join(&candidate_path).join("mod.rs"),
-        ] {
-            if candidate.is_file() {
-                return Some(project.to_relative(candidate));
+        // Absolute (crate/src-root) fallback is skipped for relative imports so a
+        // `super::<item>` never leaks onto a same-named top-level module.
+        if !is_relative {
+            let src = project.as_path().join("src");
+            for candidate in [
+                src.join(format!("{candidate_path}.rs")),
+                src.join(&candidate_path).join("mod.rs"),
+            ] {
+                if candidate.is_file() {
+                    return Some(project.to_relative(candidate));
+                }
             }
-        }
-        if let Ok(entries) = std::fs::read_dir(project.as_path().join("crates")) {
-            for entry in entries.flatten() {
-                let crate_src = entry.path().join("src");
-                for candidate in [
-                    crate_src.join(format!("{candidate_path}.rs")),
-                    crate_src.join(&candidate_path).join("mod.rs"),
-                ] {
-                    if candidate.is_file() {
-                        return Some(project.to_relative(candidate));
+            if let Ok(entries) = std::fs::read_dir(project.as_path().join("crates")) {
+                for entry in entries.flatten() {
+                    let crate_src = entry.path().join("src");
+                    for candidate in [
+                        crate_src.join(format!("{candidate_path}.rs")),
+                        crate_src.join(&candidate_path).join("mod.rs"),
+                    ] {
+                        if candidate.is_file() {
+                            return Some(project.to_relative(candidate));
+                        }
                     }
                 }
             }
