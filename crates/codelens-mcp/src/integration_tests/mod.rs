@@ -39,6 +39,7 @@ mod registry;
 mod semantic;
 mod session_mutation;
 mod suggestion_drift;
+mod verbs;
 mod workflow;
 
 // ── Test helpers ─────────────────────────────────────────────────────

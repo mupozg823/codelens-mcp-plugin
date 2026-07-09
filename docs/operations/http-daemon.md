@@ -3,6 +3,31 @@
 Reference for the repo-local CodeLens launchd daemons — deploy, redeploy, and
 codesigning recovery. Extracted from `CLAUDE.md` to keep the per-turn context lean.
 
+## Dev daemon vs consumption daemon (blast-radius isolation)
+
+The machine runs a **single** consumption daemon pair on `:7839`/`:7838`. Every
+project attaches to it via the global `~/.claude.json` `codelens` entry, so
+rebuilding it while dogfooding **this** repo drops *every other project's*
+CodeLens session (the recurring "CodeLens is genuinely unavailable → grep
+fallback" symptom). To break that coupling this repo uses a **dedicated dev
+daemon**:
+
+| Role | Label | Ports | Binary | Who uses it |
+| ---- | ----- | ----- | ------ | ----------- |
+| Consumption | `dev.codelens.mcp` | 7839 / 7838 | `codelens-mcp-http` | global config → all other projects — **never rebuilt during dev** |
+| Dev | `dev.codelens.mcp-dev` | 7739 / 7736 | `codelens-mcp-http-dev` | this repo's `.mcp.json` — **rebuild freely** |
+
+`codelens-mcp-plugin/.mcp.json` points at `:7739`, so dogfooding the
+working-tree build never touches the shared consumption daemon. Iterate with:
+
+```bash
+bash scripts/redeploy-dev-daemon.sh          # rebuild + resign + restart :7739/:7736 only
+```
+
+First-time setup (creates the dev plists) is documented at the top of
+`scripts/redeploy-dev-daemon.sh`. Only redeploy the **consumption** daemon
+(`redeploy-daemons.sh`) on a deliberate release, not during iteration.
+
 ## HTTP Daemon Operations (this repo)
 
 Two repo-local launchd agents share the on-disk index and use advisory `register_agent_work` / `claim_files` for mutation collisions:
@@ -10,7 +35,7 @@ Two repo-local launchd agents share the on-disk index and use advisory `register
 - `dev.codelens.mcp-readonly` → `:7839`, profile `reviewer-graph`, mode `read-only` — for planner/reviewer (Claude) sessions
 - `dev.codelens.mcp-mutation` → `:7838`, profile `refactor-full`, mode `mutation-enabled` — for builder (Codex) sessions
 
-Both clients (`~/.claude.json`, `~/.codex/config.toml`) attach by URL to `:7839` by default. Restart cycle (preferred path):
+The **consumption** clients (global `~/.claude.json`, `~/.codex/config.toml`) attach by URL to `:7839` by default; this repo's `.mcp.json` uses the dev daemon on `:7739` (see above). Restart cycle (preferred path):
 
 ```bash
 bash scripts/redeploy-daemons.sh --probe          # quick: cp + xattr/codesign + kickstart + LISTEN + tools/list

@@ -35,7 +35,7 @@ Single-agent local work without cross-agent coordination overhead.
 - Daemon shape: `single-session`
 - Recommended ports: none
 - Roles:
-  - `solo-agent`: `planner-readonly` (39), `builder-minimal` (38); mutate=`false`; one session handles both planning and implementation
+  - `solo-agent`: `planner-readonly` (45), `builder-minimal` (44); mutate=`false`; one session handles both planning and implementation
 - Recommended flow:
   - `prepare_harness_session`
   - `explore_codebase`
@@ -56,8 +56,8 @@ Primary multi-agent pattern: read-only planning/review paired with mutation-enab
 - Daemon shape: `dual-daemon`
 - Recommended ports: `7837`, `7838`
 - Roles:
-  - `planner-reviewer`: `planner-readonly` (39), `reviewer-graph` (43); mutate=`false`; bootstrap, rank context, and verify change readiness before dispatch
-  - `builder-refactor`: `builder-minimal` (38), `refactor-full` (38); mutate=`true`; execute bounded edits after preflight, diagnostics, and claims
+  - `planner-reviewer`: `planner-readonly` (45), `reviewer-graph` (49); mutate=`false`; bootstrap, rank context, and verify change readiness before dispatch
+  - `builder-refactor`: `builder-minimal` (44), `refactor-full` (44); mutate=`true`; execute bounded edits after preflight, diagnostics, and claims
 - Recommended flow:
   - `prepare_harness_session`
   - `get_symbols_overview per target file`
@@ -84,7 +84,7 @@ Read-only signoff lane that checks builder output before merge or handoff.
 - Daemon shape: `read-only-daemon`
 - Recommended ports: `7837`
 - Roles:
-  - `reviewer`: `reviewer-graph` (43), `ci-audit` (43); mutate=`false`; diff-aware review, impact analysis, and audit signoff
+  - `reviewer`: `reviewer-graph` (49), `ci-audit` (49); mutate=`false`; diff-aware review, impact analysis, and audit signoff
 - Recommended flow:
   - `prepare_harness_session`
   - `review_changes or impact_report`
@@ -106,7 +106,7 @@ Asynchronous analysis lane for repo-wide or long-running read-side jobs.
 - Daemon shape: `read-only-daemon`
 - Recommended ports: `7837`
 - Roles:
-  - `analysis-runner`: `workflow-first` (39), `evaluator-compact` (39), `ci-audit` (43); mutate=`false`; start durable jobs and consume bounded sections instead of raw full reports
+  - `analysis-runner`: `workflow-first` (45), `evaluator-compact` (45), `ci-audit` (49); mutate=`false`; start durable jobs and consume bounded sections instead of raw full reports
 - Recommended flow:
   - `prepare_harness_session`
   - `start_analysis_job`

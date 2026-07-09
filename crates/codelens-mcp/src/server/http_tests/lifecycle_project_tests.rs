@@ -372,9 +372,13 @@ async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
         payload["data"]["http_session"]["default_tools_list_contract_mode"],
         serde_json::json!("lean")
     );
+    // The request pinned ["explore_codebase", "plan_safe_refactor"];
+    // explore_codebase left the builder bootstrap slice in the Phase-2
+    // verb consolidation (overview mode=explore), so the first VISIBLE
+    // requested entrypoint is plan_safe_refactor.
     assert_eq!(
         payload["data"]["routing"]["recommended_entrypoint"],
-        serde_json::json!("explore_codebase")
+        serde_json::json!("plan_safe_refactor")
     );
     let tool_names = payload["data"]["visible_tools"]["default_listed_tool_names"]
         .as_array()

@@ -40,6 +40,22 @@ pub(crate) fn registered_tool_names() -> std::collections::BTreeSet<String> {
         .collect()
 }
 
+/// Invoke a registered tool handler directly, bypassing the JSON-RPC
+/// envelope. Used by the verb facades (`tools::verbs`) to delegate a
+/// resolved mode to its target tool while inheriting feature gates from
+/// the table (`None` = target not registered in this build). The outer
+/// dispatch has already set `REQUEST_BUDGET` and recorded metrics under
+/// the verb name, so the inner call is a plain handler invocation.
+pub(crate) fn invoke_registered(
+    state: &AppState,
+    name: &str,
+    arguments: &serde_json::Value,
+) -> Option<crate::tool_runtime::ToolResult> {
+    table::DISPATCH_TABLE
+        .get(name)
+        .map(|handler| handler(state, arguments))
+}
+
 // Thread-local request budget — avoids race condition when multiple
 // HTTP requests override the global token_budget concurrently.
 thread_local! {

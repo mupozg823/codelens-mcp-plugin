@@ -146,6 +146,13 @@ impl ToolSurface {
 }
 
 pub(crate) const MINIMAL_TOOLS: &[&str] = &[
+    // Verb facades (Phase-1/2 read-only consolidation)
+    "search",
+    "graph",
+    "review",
+    "overview",
+    "diagnose",
+    "analyze",
     "activate_project",
     "prepare_harness_session",
     "register_agent_work",
@@ -199,6 +206,13 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
 ];
 
 pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
+    // Verb facades (Phase-1/2 read-only consolidation)
+    "search",
+    "graph",
+    "review",
+    "overview",
+    "diagnose",
+    "analyze",
     // Session
     "activate_project",
     "prepare_harness_session",
@@ -256,6 +270,13 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
 ];
 
 pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
+    // Verb facades (Phase-1/2 read-only consolidation)
+    "search",
+    "graph",
+    "review",
+    "overview",
+    "diagnose",
+    "analyze",
     "activate_project",
     "prepare_harness_session",
     "register_agent_work",
@@ -314,6 +335,13 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
 ];
 
 pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
+    // Verb facades (Phase-1/2 read-only consolidation)
+    "search",
+    "graph",
+    "review",
+    "overview",
+    "diagnose",
+    "analyze",
     // Session
     "activate_project",
     "prepare_harness_session",

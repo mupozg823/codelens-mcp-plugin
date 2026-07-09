@@ -21,6 +21,7 @@ pub mod session;
 mod suggestions;
 pub(crate) mod symbol_query;
 pub mod symbols;
+pub mod verbs;
 pub mod workflows;
 
 use crate::AppState;
@@ -144,6 +145,14 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "refactor_change_signature"    => composite::refactor_change_signature,
         "propagate_deletions"          => composite::propagate_deletions,
         "onboard_project"              => composite::onboard_project,
+        // ── Verb facades (Phase-1 read-only consolidation) ──
+        // Mode-routed fronts over existing tools; absorbed IDs stay live.
+        "search"                       => verbs::search,
+        "graph"                        => verbs::graph,
+        "review"                       => verbs::review,
+        "overview"                     => verbs::overview,
+        "diagnose"                     => verbs::diagnose,
+        "analyze"                      => verbs::analyze,
         // ── Workflow aliases (problem-first) ──
         "explore_codebase"             => workflows::explore_codebase,
         "trace_request_path"           => workflows::trace_request_path,

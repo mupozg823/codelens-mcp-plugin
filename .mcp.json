@@ -1,8 +1,9 @@
 {
+  "_comment": "codelens-plugin dev uses the DEDICATED dev daemon on :7739 (label dev.codelens.mcp-dev, binary codelens-mcp-http-dev). Rebuild it freely with scripts/redeploy-dev-daemon.sh — the shared consumption daemon on :7839 (global config, other projects) is never touched, so dogfooding this repo no longer drops other projects' CodeLens sessions.",
   "mcpServers": {
     "codelens": {
       "type": "http",
-      "url": "http://127.0.0.1:7839/mcp",
+      "url": "http://127.0.0.1:7739/mcp",
       "headers": {
         "x-codelens-project": "/Users/bagjaeseog/codelens-mcp-plugin"
       }

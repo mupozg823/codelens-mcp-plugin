@@ -105,9 +105,9 @@ fn build_tools() -> Vec<Tool> {
     // Migrated to `tools.toml` (ADR-0013). The generator emits the same
     // Tool::new chain as the legacy categories that follow.
     let mut tools = super::generated::file_io_tools(&ro_p);
-    tools.extend(super::generated::symbol_tools(&mut_w, &ro_a, &ro_p));
-    tools.extend(super::generated::lsp_tools(&ro_a, &ro_p));
-    tools.extend(super::generated::analysis_tools(&ro_a, &ro_p));
+    tools.extend(super::generated::symbol_tools(&mut_w, &ro_a, &ro_p, &ro_w));
+    tools.extend(super::generated::lsp_tools(&ro_a, &ro_p, &ro_w));
+    tools.extend(super::generated::analysis_tools(&ro_a, &ro_p, &ro_w));
     tools.extend(super::generated::composite_tools(&mut_w, &ro_p, &ro_w));
     tools.extend(super::generated::workflow_first_tools(&ro_w));
     tools.extend(super::generated::session_tools(

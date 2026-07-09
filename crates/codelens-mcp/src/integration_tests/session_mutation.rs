@@ -44,8 +44,8 @@ fn set_preset_changes_tools_list() {
         "Minimal preset should NOT include dead_code_report"
     );
     assert!(
-        min_json.contains("get_ranked_context"),
-        "Default minimal listing should include the MVP retrieval entrypoint"
+        min_json.contains("\"search\""),
+        "Default minimal listing should include the MVP retrieval entrypoint (search verb)"
     );
 
     let bal_resp = call_tool(&state, "set_preset", json!({"preset": "balanced"}));
@@ -75,7 +75,7 @@ fn set_profile_changes_tools_list() {
     )
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
-    assert!(encoded.contains("get_ranked_context"));
+    assert!(encoded.contains("\"search\""));
     assert!(!encoded.contains("analyze_change_request"));
     assert!(!encoded.contains("\"analyze_change_impact\""));
     assert!(!encoded.contains("\"assess_change_readiness\""));
