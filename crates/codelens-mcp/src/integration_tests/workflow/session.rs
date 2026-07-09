@@ -18,10 +18,15 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
                 prev_path: std::env::var("CODELENS_TELEMETRY_PATH").ok(),
             };
             unsafe {
-                std::env::remove_var("SYMBIOTE_TELEMETRY_ENABLED");
-                std::env::set_var("CODELENS_TELEMETRY_ENABLED", "1");
-                std::env::remove_var("SYMBIOTE_TELEMETRY_PATH");
+                // PATH must be set BEFORE the enabled flag: `from_env` returns
+                // the custom path unconditionally when PATH is present, so a
+                // concurrent (non-env-locked) test constructing an AppState
+                // never observes "enabled without a path" — that window wrote
+                // junk telemetry to the crate CWD (2026-04 pollution incident).
                 std::env::set_var("CODELENS_TELEMETRY_PATH", path);
+                std::env::remove_var("SYMBIOTE_TELEMETRY_PATH");
+                std::env::set_var("CODELENS_TELEMETRY_ENABLED", "1");
+                std::env::remove_var("SYMBIOTE_TELEMETRY_ENABLED");
             }
             guard
         }

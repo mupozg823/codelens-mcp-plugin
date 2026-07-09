@@ -49,6 +49,13 @@ def event_index(event: dict) -> int:
     return int_value(event.get("_index"))
 
 
+def is_test_pollution(event: dict) -> bool:
+    """Telemetry rows leaked by cargo-test runs (parallel env-var races or
+    fixture sessions) — they poison real-usage metrics like the suggestion
+    follow rate, so the loader drops them at ingest."""
+    return session_id(event).startswith("test-session-")
+
+
 def load_telemetry(path: Path) -> list[dict]:
     events: list[dict] = []
     with path.open(encoding="utf-8") as handle:
@@ -57,7 +64,7 @@ def load_telemetry(path: Path) -> list[dict]:
             if not stripped:
                 continue
             parsed = json.loads(stripped)
-            if isinstance(parsed, dict):
+            if isinstance(parsed, dict) and not is_test_pollution(parsed):
                 parsed["_index"] = len(events)
                 events.append(parsed)
     return events

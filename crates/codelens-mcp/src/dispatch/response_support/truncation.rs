@@ -67,10 +67,25 @@ pub(crate) fn bounded_result_payload(
     } else {
         // Stage 5: hard truncation — summarize structured to minimal skeleton
         stage = 5;
+        // Hosts that ignore `structuredContent` (Claude Code, issue #4427)
+        // receive ONLY the text channel — a bare stub here means total data
+        // loss even though the depth-0 summary (arrays clipped to 3) usually
+        // fits well under budget. Embed that summary as `data_preview` when
+        // it stays within ~75% of the budget; fall back to the bare stub
+        // only when even the skeleton is too large.
+        let mut preview: Option<Value> = None;
         if let Some(existing) = structured_content.as_ref() {
-            structured_content = Some(summarize_structured_content(existing, 0));
+            let summarized = summarize_structured_content(existing, 0);
+            let preview_cap_chars = effective_budget.saturating_mul(3);
+            let fits = serde_json::to_string(&summarized)
+                .map(|s| s.len() <= preview_cap_chars)
+                .unwrap_or(false);
+            if fits {
+                preview = Some(summarized.clone());
+            }
+            structured_content = Some(summarized);
         }
-        text = serde_json::to_string(&json!({
+        let mut stub = json!({
             "success": true,
             "truncated": true,
             "compression_stage": 5,
@@ -79,8 +94,12 @@ pub(crate) fn bounded_result_payload(
                 payload_estimate, effective_budget
             ),
             "token_estimate": payload_estimate,
-        }))
-        .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned());
+        });
+        if let Some(preview) = preview {
+            stub["data_preview"] = preview;
+        }
+        text = serde_json::to_string(&stub)
+            .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned());
     }
 
     let info = if stage >= 2 {
@@ -264,6 +283,67 @@ pub(super) fn recovery_hint_for_stage(stage: u8, estimate: usize, budget: usize)
             estimate, budget
         ),
         _ => "Compression applied".to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod stage5_preview_tests {
+    use super::bounded_result_payload;
+    use serde_json::json;
+
+    #[test]
+    fn stage5_embeds_bounded_data_preview_in_text_channel() {
+        // #P0: hosts that ignore structuredContent must still receive the
+        // depth-0 summary through the text channel instead of a bare stub.
+        let structured = json!({
+            "query": "rename a symbol",
+            "symbols": [
+                {"name": "alpha", "file_path": "a.rs"},
+                {"name": "beta", "file_path": "b.rs"},
+                {"name": "gamma", "file_path": "c.rs"},
+                {"name": "delta", "file_path": "d.rs"},
+            ],
+            "count": 4,
+        });
+        let (text, structured_out, info) =
+            bounded_result_payload("x".repeat(60_000), Some(structured), 12_000, 4_000, 0);
+        assert_eq!(info.as_ref().map(|i| i.stage), Some(5));
+        assert!(structured_out.is_some());
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["compression_stage"], 5);
+        let preview = &parsed["data_preview"];
+        assert!(
+            preview.is_object(),
+            "stage-5 text must carry a data_preview, got: {text}"
+        );
+        // Arrays are clipped to 3 by the summarizer, but the top hits survive.
+        assert_eq!(preview["symbols"][0]["name"], "alpha");
+        assert!(preview["symbols"].as_array().unwrap().len() <= 3);
+    }
+
+    #[test]
+    fn stage5_omits_preview_when_even_summary_exceeds_cap() {
+        // A skeleton that is itself enormous (many top-level keys) must fall
+        // back to the bare stub rather than blow the budget it exists to honor.
+        let mut huge = serde_json::Map::new();
+        for i in 0..200 {
+            huge.insert(format!("field_{i}"), json!("y".repeat(240)));
+        }
+        let (text, _, info) = bounded_result_payload(
+            "x".repeat(60_000),
+            Some(serde_json::Value::Object(huge)),
+            12_000,
+            4_000,
+            0,
+        );
+        assert_eq!(info.as_ref().map(|i| i.stage), Some(5));
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(parsed.get("data_preview").is_none());
+        assert!(
+            text.len() <= 4_000,
+            "bare stub must stay tiny, got {}",
+            text.len()
+        );
     }
 }
 
