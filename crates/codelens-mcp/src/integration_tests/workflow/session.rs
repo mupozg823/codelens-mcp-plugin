@@ -169,7 +169,11 @@ fn session_scoped_preflight_does_not_cross_sessions() {
         }),
         "session-a",
     );
-    assert_eq!(preflight["success"], json!(true));
+    assert_eq!(
+        preflight["success"],
+        json!(true),
+        "verify_change_readiness did not succeed for session-a; full payload = {preflight:#}"
+    );
 
     let payload = call_tool_with_session(
         &state,
