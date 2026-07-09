@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
+import socket
 import stat
 import subprocess
 import tempfile
@@ -20,6 +22,16 @@ REDEPLOY_SCRIPT = REPO_ROOT / "scripts" / "redeploy-daemons.sh"
 def write_fake_executable(path: Path) -> None:
     path.write_text("#!/bin/sh\necho fake\nexit 0\n", encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+def open_listener(port: int) -> socket.socket:
+    """Bind + listen on 127.0.0.1:port so `lsof -sTCP:LISTEN` sees it — stands in
+    for a stale daemon already occupying an expected port."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", port))
+    sock.listen(1)
+    return sock
 
 
 def test_redeploy_reaches_listen_wait_when_plist_missing() -> None:
@@ -83,9 +95,76 @@ def test_redeploy_reaches_listen_wait_when_plist_missing() -> None:
         )
 
 
+def test_redeploy_fails_when_plist_missing_even_if_ports_already_listen() -> None:
+    # Codex review on PR #378: a missing LaunchAgent plist (e.g. a mistyped
+    # --label-prefix) must FAIL loudly, not silently exit 0. Before the fix the
+    # missing-plist branch only logged a warning; the subsequent LISTEN check then
+    # passed against pre-existing (stale) daemons already bound to the expected
+    # ports, so redeploy reported success without bootstrapping/kickstarting
+    # anything. Occupy the expected ports to simulate those stale daemons, then
+    # assert a non-zero exit plus a missing-plist diagnostic naming the label.
+    with tempfile.TemporaryDirectory(prefix="codelens-redeploy-") as raw_tmp:
+        tmp = Path(raw_tmp)
+        fake_home = tmp / "home"
+        # Empty LaunchAgents dir: no plist exists for our labels.
+        (fake_home / "Library" / "LaunchAgents").mkdir(parents=True)
+        source_bin = tmp / "codelens-mcp"
+        target_bin = tmp / "target" / "codelens-mcp-http"
+        write_fake_executable(source_bin)
+
+        label_prefix = f"codelens-test-fixture-{os.getpid()}"
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+
+        # Ephemeral ports we hold LISTEN on for the whole subprocess run — these
+        # stand in for stale daemons already occupying the expected ports.
+        with contextlib.closing(open_listener(0)) as ro_sock, contextlib.closing(
+            open_listener(0)
+        ) as mu_sock:
+            readonly_port = str(ro_sock.getsockname()[1])
+            mutation_port = str(mu_sock.getsockname()[1])
+            proc = subprocess.run(
+                [
+                    "bash",
+                    str(REDEPLOY_SCRIPT),
+                    str(REPO_ROOT),
+                    "--label-prefix",
+                    label_prefix,
+                    "--readonly-port",
+                    readonly_port,
+                    "--mutation-port",
+                    mutation_port,
+                    "--source",
+                    str(source_bin),
+                    "--target",
+                    str(target_bin),
+                    "--wait-secs",
+                    "5",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+                env=env,
+            )
+
+        combined = proc.stdout + proc.stderr
+        assert proc.returncode != 0, (
+            "redeploy exited 0 despite a missing plist while stale daemons were "
+            "listening on the expected ports — a mistyped --label-prefix would be "
+            "reported as a successful redeploy.\n"
+            f"returncode={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}"
+        )
+        assert "plist not found" in combined, (
+            "expected a missing-plist diagnostic naming the label.\n"
+            f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        )
+
+
 def main() -> int:
     tests = [
         test_redeploy_reaches_listen_wait_when_plist_missing,
+        test_redeploy_fails_when_plist_missing_even_if_ports_already_listen,
     ]
     failures: list[str] = []
     for test in tests:
