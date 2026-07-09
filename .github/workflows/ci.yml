@@ -12,39 +12,26 @@ env:
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
 
+# 2026-07-09 restructure: the former single 25-step serial job put hygiene,
+# the full feature matrix, coverage, security audit, and TWO cold release
+# builds on one 16-minute critical path (macos). Split into parallel jobs so
+# the PR gate's wall clock is the slowest independent job, moved the release
+# dry-run to main pushes only, and moved `cargo audit` to its own scheduled
+# workflow (audit.yml) — advisories are time-driven, not PR-driven.
 jobs:
-  check:
-    strategy:
-      # macos-latest runner has been intermittently shipping cargo as
-      # rustup-init in the 2026-05 batch, fast-failing `cargo fmt --check`
-      # before any code work runs and dragging ubuntu down with it. Decouple
-      # the two so the linux signal is independently visible while the macos
-      # infra issue is upstream.
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  # Fast platform-independent gates: formatting, codegen drift, manifests,
+  # script contracts. No cargo build required beyond fmt.
+  hygiene:
+    runs-on: ubuntu-latest
+    env:
+      # No sccache-action in this job — unset the global wrapper so any
+      # cargo invocation here doesn't fail on a missing sccache binary.
+      RUSTC_WRAPPER: ""
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
-
-      - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Cache cargo build
-        # 2026-05-14 PR #292: macos-latest (macos-15, M1) consistently
-        # restores a stale cargo binary via partial-match cache (`full
-        # match: false`), making `cargo fmt --check` fall through to
-        # rustup-init and fail with `unexpected argument 'fmt' found`.
-        # Skipping the cache restore here forces dtolnay/rust-toolchain
-        # to install a fresh toolchain, sidestepping the symlink
-        # corruption. Ubuntu cache stays intact.
-        if: matrix.os != 'macos-latest'
-        uses: Swatinem/rust-cache@v2
 
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
@@ -70,6 +57,22 @@ jobs:
           for test in scripts/test/test-*.py; do
             python3 "$test"
           done
+
+  # Full feature-matrix verification on linux (cached). Platform-independent
+  # gates (clippy, doctest, feature combos) run once, here.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
 
       - name: cargo check
         run: cargo check --workspace
@@ -104,9 +107,6 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-
       - name: cargo test (nextest)
         run: cargo nextest run --workspace
 
@@ -140,13 +140,54 @@ jobs:
       - name: cargo doctest
         run: cargo test --doc --workspace
 
-      - name: cargo audit
-        run: |
-          cargo install cargo-audit
-          cargo audit
-
       - name: cargo doc
         run: cargo doc --workspace --no-deps
+
+  # macOS platform smoke: the OS-specific signal (filesystem, watcher, LSP
+  # process behavior) without repeating the platform-independent matrix.
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run sccache-cache
+        # 2026-05-14 PR #292: Swatinem/rust-cache on macos-latest restored a
+        # stale cargo binary via partial-match cache; the cache stays
+        # disabled here (sccache alone) until that infra issue is re-verified.
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: cargo test (http)
+        run: cargo nextest run --workspace --features http
+
+      - name: cargo test (nextest)
+        run: cargo nextest run --workspace
+
+  # Coverage is informational (fail_ci_if_error: false) — run it in parallel
+  # instead of serializing it into the merge-gate path.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Code coverage
         run: |
@@ -154,22 +195,36 @@ jobs:
           cargo llvm-cov --workspace --lcov --output-path target/coverage/lcov.info
 
       - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v4
         with:
           files: target/coverage/lcov.info
           fail_ci_if_error: false
 
+  # Release packaging dry-run: two cold release-profile builds (~5.5 min on
+  # macos) that verify PACKAGING, not code — main pushes only. PR-introduced
+  # packaging regressions surface on the merge commit's run; code regressions
+  # are already covered by the check/test matrix above.
+  release-dry-run:
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Cold builds by design (PR #292: sccache temp-dir loss on macos) —
+      # and this job never installs the sccache binary.
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build release binary
-        # On macos-latest, the `mozilla-actions/sccache-action` wrapper
-        # loses its temp dir after the long test+coverage stages, then
-        # the unconditional `RUSTC_WRAPPER=sccache` makes cargo fail with
-        # `sccache: Failed to create temp dir` for every fresh proc-macro
-        # build (PR #292 batch). Bypass sccache for the release build
-        # step only — cost is one uncached release rebuild per CI run,
-        # which the check matrix already absorbs.
-        env:
-          RUSTC_WRAPPER: ""
+        # sccache is deliberately not configured in this job (PR #292 batch:
+        # the wrapper loses its temp dir on macos after long stages, failing
+        # proc-macro builds) — these are cold builds by design.
         run: cargo build --release --bin codelens-mcp
 
       - name: Stage release model assets
@@ -192,11 +247,6 @@ jobs:
           path: target/release/codelens-mcp
 
       - name: Build release binary (semantic-off)
-        # Same sccache temp-dir bypass as the default-feature release
-        # build above; otherwise macos hits `sccache: Failed to create
-        # temp dir` again on the proc-macro recompile.
-        env:
-          RUSTC_WRAPPER: ""
         run: cargo build --release --bin codelens-mcp --no-default-features
 
       - name: Upload slim release artifact

@@ -1,0 +1,47 @@
+name: Security Audit
+
+# `cargo audit` scans Cargo.lock against the RustSec advisory DB. Advisories
+# arrive on their own clock, not the PR's — running this inside the PR merge
+# gate (as ci.yml did until 2026-07-09) added ~2.5 min of `cargo install` +
+# scan to every push without gating anything PR-specific. Instead:
+# - weekly schedule catches newly published advisories,
+# - dependency-changing pushes/PRs (lockfile/manifest paths) re-scan,
+# - workflow_dispatch covers ad-hoc checks.
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  push:
+    branches: [main, master]
+    paths:
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/*/Cargo.toml"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "crates/*/Cargo.toml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo-audit install
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
