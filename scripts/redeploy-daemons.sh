@@ -114,11 +114,17 @@ mkdir -p "$(dirname "${TARGET_BIN}")"
 log "copying ${SOURCE_BIN} -> ${TARGET_BIN}"
 cp -f "${SOURCE_BIN}" "${TARGET_BIN}"
 
-log "stripping com.apple.provenance xattr (macOS gatekeeper)"
-xattr -dr com.apple.provenance "${TARGET_BIN}" 2>/dev/null || true
+if command -v xattr >/dev/null 2>&1; then
+	log "stripping com.apple.provenance xattr (macOS gatekeeper)"
+	xattr -dr com.apple.provenance "${TARGET_BIN}" 2>/dev/null || true
+fi
 
-log "ad-hoc resigning ${TARGET_BIN}"
-codesign --force --sign - "${TARGET_BIN}"
+if command -v codesign >/dev/null 2>&1; then
+	log "ad-hoc resigning ${TARGET_BIN}"
+	codesign --force --sign - "${TARGET_BIN}" || {
+		log "WARNING: codesign failed; daemon may be killed by Gatekeeper" >&2
+	}
+fi
 
 NEW_VERSION="$("${TARGET_BIN}" --version 2>/dev/null || true)"
 if [[ -n "${NEW_VERSION}" ]]; then
@@ -169,9 +175,11 @@ for label in "${KICK_LABELS[@]}"; do
 			launchctl bootstrap "gui/${UID_VAL}" "${plist}"
 		fi
 		launchctl enable "gui/${UID_VAL}/${label}" || true
+		log "launchctl kickstart -k gui/${UID_VAL}/${label}"
+		launchctl kickstart -k "gui/${UID_VAL}/${label}"
+	else
+		log "WARNING: plist not found for ${label} (${plist}); skipping bootstrap+kickstart. Run scripts/install-http-daemons-launchd.sh first." >&2
 	fi
-	log "launchctl kickstart -k gui/${UID_VAL}/${label}"
-	launchctl kickstart -k "gui/${UID_VAL}/${label}"
 done
 
 log "waiting up to ${WAIT_SECS}s for LISTEN sockets"
