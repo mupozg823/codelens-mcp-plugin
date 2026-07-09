@@ -51,9 +51,16 @@ pub(crate) fn build_tools_list_response(
         .is_some();
     let full_listing = request_context.full_listing;
     let lean_contract = request_context.lean_tool_contract() || connector_safe;
+    // #357: an AUTO-expanded surface (prepare_harness_session flipped the
+    // session to full exposure) inherits the bootstrap serialization
+    // contract — output schemas stay stripped so the expanded listing
+    // costs ~⅓ of the fat contract. Only an explicit `full:true` request
+    // (or includeOutputSchema:true) opts into fat entries.
+    let auto_expanded_listing = request_context.session.full_tool_exposure && !full_listing;
     let include_output_schema =
-        list_param_bool(request, "includeOutputSchema", "include_output_schema")
-            .unwrap_or(!(visible_context.deferred_loading_active || lean_contract));
+        list_param_bool(request, "includeOutputSchema", "include_output_schema").unwrap_or(
+            !(visible_context.deferred_loading_active || lean_contract || auto_expanded_listing),
+        );
     let include_annotations = list_param_bool(request, "includeAnnotations", "include_annotations")
         .unwrap_or(!lean_contract);
     let include_deprecated =

@@ -158,6 +158,11 @@ def profile(args) -> dict:
                 }
             )
             continue
+        if tool == "prepare_harness_session":
+            # #357: bootstrap listing is compact; prepare flips the session to
+            # full exposure. Re-fetch the surface so post-bootstrap tools are
+            # probed instead of reported as skipped_not_in_surface.
+            surface = available_tools(args.base_url, session_id)
         chars = response_chars(raw)
         actual_tokens = round(chars / args.chars_per_token)
         schema_tokens = estimates.get(tool)

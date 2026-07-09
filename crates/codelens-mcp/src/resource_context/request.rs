@@ -66,10 +66,16 @@ impl ResourceRequestContext {
         self.client_profile.default_tool_contract_mode()
     }
 
+    /// Whether tool entries are serialized without output schemas /
+    /// annotations. Deliberately independent of the SESSION-level
+    /// `full_tool_exposure` flag (#357): `prepare_harness_session` flips
+    /// that flag automatically to widen WHICH tools are listed, and a
+    /// lean-profile client must not pay the fat per-entry contract
+    /// (~34K vs ~10K tokens on the Balanced surface) just because the
+    /// listing expanded. The explicit per-request `full:true` escape
+    /// still disables lean.
     pub(crate) fn lean_tool_contract(&self) -> bool {
-        self.tool_contract_mode() == "lean"
-            && !self.full_listing
-            && !self.session.full_tool_exposure
+        self.tool_contract_mode() == "lean" && !self.full_listing
     }
 
     pub(crate) fn default_listing_requested(&self) -> bool {
