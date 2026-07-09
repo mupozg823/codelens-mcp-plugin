@@ -67,14 +67,15 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
     // control plane compact. The list is ordered as defined in
     // `tools.toml` default_visible_rank entries; wider surfaces are explicit
     // namespace/tier/phase/full expansions.
-    // Phase-1 verb consolidation: review/search/graph verbs replaced the
-    // four absorbed entries (review_architecture, review_changes,
-    // find_symbol, get_ranked_context) in the ranked bootstrap slice.
+    // Phase-1/2 verb consolidation: the verb facades replaced the absorbed
+    // entries (review_architecture, review_changes, find_symbol,
+    // get_ranked_context, explore_codebase) in the ranked bootstrap slice.
     let expected: Vec<&'static str> = vec![
         "prepare_harness_session",
         "get_current_config",
-        "explore_codebase",
+        "overview",
         "review",
+        "diagnose",
         "plan_safe_refactor",
         "verify_change_readiness",
         "search",
@@ -558,8 +559,12 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     );
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
-    assert!(encoded.contains("\"review_architecture\""));
-    assert!(encoded.contains("\"review_changes\""));
+    // Phase-2: reviewer bootstrap routes through the verb facades.
+    // Assert on the `name` key — bare substrings collide with
+    // `"phase":"review"` / `"namespace":"graph"` scaffold values.
+    assert!(encoded.contains("\"name\":\"review\""));
+    assert!(encoded.contains("\"name\":\"graph\""));
+    assert!(encoded.contains("\"name\":\"diagnose\""));
     assert!(encoded.contains("\"cleanup_duplicate_logic\""));
     assert!(!encoded.contains("\"analyze_change_impact\""));
     assert!(!encoded.contains("\"audit_security_context\""));

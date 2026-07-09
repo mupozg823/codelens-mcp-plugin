@@ -11,13 +11,22 @@ use crate::protocol::{Tool, ToolAnnotations};
 use crate::tool_defs::output_schemas::*;
 use serde_json::json;
 
-pub fn analysis_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
+pub fn analysis_tools(
+    ro_a: &ToolAnnotations,
+    ro_p: &ToolAnnotations,
+    ro_w: &ToolAnnotations,
+) -> Vec<Tool> {
     vec![
         Tool::new(
             "graph",
             "[CodeLens:Verb] Structural relationships — who calls, what breaks, how it flows. mode=callers | callees | types (hierarchy) | trace (request path) | impact (blast radius) | diff-refs (changed-file references). Remaining parameters pass through to the target tool unchanged.",
             json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["callers","callees","types","trace","impact","diff-refs"],"description":"Which graph analysis to run; other params pass through to the target tool"},"function_name":{"type":"string","description":"Function of interest (mode=callers|callees)"},"symbol":{"type":"string","description":"Symbol or entrypoint (mode=trace|types|impact)"},"path":{"type":"string","description":"File or directory scope"},"max_results":{"type":"integer"},"max_depth":{"type":"integer","description":"Trace depth (mode=trace)"}}}),
-        ).with_annotations(ro_a.clone()),
+        ).with_annotations(ro_w.clone()),
+        Tool::new(
+            "analyze",
+            "[CodeLens:Verb] Durable analysis jobs — one mode-routed entry point. mode=start (launch job) | status (poll job) | section (expand report section) | list (jobs) | cancel | artifacts (stored reports). Remaining parameters pass through to the target tool unchanged.",
+            json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["start","status","section","list","cancel","artifacts"],"description":"Which job operation to run; other params pass through to the target tool"},"kind":{"type":"string","description":"Report kind (mode=start)"},"job_id":{"type":"string","description":"Job handle (mode=status|cancel)"},"analysis_id":{"type":"string","description":"Analysis handle (mode=section)"},"section":{"type":"string","description":"Section name (mode=section)"},"path":{"type":"string"}}}),
+        ).with_annotations(ro_w.clone()),
         Tool::new(
             "get_changed_files",
             "[CodeLens:Analysis] Files changed since a git ref with symbol counts. Use for diff review.",
@@ -180,8 +189,17 @@ pub fn file_io_tools(ro_p: &ToolAnnotations) -> Vec<Tool> {
     ]
 }
 
-pub fn lsp_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
+pub fn lsp_tools(
+    ro_a: &ToolAnnotations,
+    ro_p: &ToolAnnotations,
+    ro_w: &ToolAnnotations,
+) -> Vec<Tool> {
     vec![
+        Tool::new(
+            "diagnose",
+            "[CodeLens:Verb] Health checks — one mode-routed entry point. mode=file (LSP diagnostics) | symbol (diagnostics for a symbol) | unresolved (unresolved reference check) | issues (file issues or reference workflow). Remaining parameters pass through to the target tool unchanged.",
+            json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["file","symbol","unresolved","issues"],"description":"Which diagnosis to run; other params pass through to the target tool"},"path":{"type":"string","description":"File to diagnose (mode=file|issues|unresolved)"},"symbol":{"type":"string","description":"Symbol to check (mode=symbol|unresolved)"},"max_results":{"type":"integer"}}}),
+        ).with_annotations(ro_w.clone()),
         Tool::new(
             "find_referencing_symbols",
             "[CodeLens:Symbol] Find all usages of a symbol. use_lsp=true for type-aware precision.",
@@ -475,6 +493,7 @@ pub fn symbol_tools(
     mut_w: &ToolAnnotations,
     ro_a: &ToolAnnotations,
     ro_p: &ToolAnnotations,
+    ro_w: &ToolAnnotations,
 ) -> Vec<Tool> {
     vec![
         Tool::new(
@@ -496,7 +515,12 @@ pub fn symbol_tools(
             "search",
             "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name → find_symbol) | refs (usages → find_referencing_symbols) | defn | impl | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged.",
             json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["symbol","refs","defn","impl","scoped","workspace","bm25","fuzzy","semantic","ranked"],"description":"Which search family to run; other params pass through to the target tool"},"name":{"type":"string","description":"Symbol name (mode=symbol)"},"query":{"type":"string","description":"Search query (mode=semantic|ranked|bm25|fuzzy|workspace)"},"path":{"type":"string","description":"File or directory scope"},"symbol_name":{"type":"string","description":"Symbol to look up references for (mode=refs|scoped|defn|impl)"},"include_body":{"type":"boolean"},"max_results":{"type":"integer"},"use_lsp":{"type":"boolean","description":"Type-aware precision (mode=refs|defn|impl)"}}}),
-        ).with_annotations(ro_a.clone()),
+        ).with_annotations(ro_w.clone()),
+        Tool::new(
+            "overview",
+            "[CodeLens:Verb] Structural maps — one mode-routed entry point. mode=file (symbols in a file) | project (directory tree) | explore (guided codebase exploration, compressed context) | classify (semantic symbol classification). Remaining parameters pass through to the target tool unchanged.",
+            json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["file","explore","classify"],"description":"Which overview to run; other params pass through to the target tool"},"path":{"type":"string","description":"File (mode=file) or directory scope"},"query":{"type":"string","description":"Exploration focus (mode=explore)"},"depth":{"type":"integer"},"include_body":{"type":"boolean"},"max_tokens":{"type":"integer"}}}),
+        ).with_annotations(ro_w.clone()),
         Tool::new(
             "bm25_symbol_search",
             "[CodeLens:Symbol] Sparse BM25-F symbol retrieval — best for identifiers, signatures, path tokens, and short lexical phrases.",
@@ -520,13 +544,13 @@ pub fn symbol_tools(
     ]
 }
 
-pub fn workflow_first_tools(ro_a: &ToolAnnotations, ro_w: &ToolAnnotations) -> Vec<Tool> {
+pub fn workflow_first_tools(ro_w: &ToolAnnotations) -> Vec<Tool> {
     vec![
         Tool::new(
             "review",
             "[CodeLens:Verb] Quality reports — one mode-routed entry point. mode=architecture (boundaries+diagram) | changes (pre-merge diff impact) | boundary (module report) | dead (dead code) | dupes (duplicates) | similar | misplaced. Remaining parameters pass through to the target tool unchanged.",
             json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["architecture","changes","boundary","dead","dupes","similar","misplaced"],"description":"Which review to run; other params pass through to the target tool"},"path":{"type":"string","description":"Scope path"},"changed_files":{"type":"array","items":{"type":"string"},"description":"Changed file paths (mode=changes)"},"task":{"type":"string","description":"Review focus (mode=changes)"},"include_diagram":{"type":"boolean","description":"Render mermaid diagram (mode=architecture)"},"max_results":{"type":"integer"}}}),
-        ).with_annotations(ro_a.clone()),
+        ).with_annotations(ro_w.clone()),
         Tool::new(
             "explore_codebase",
             "[CodeLens:Workflow] Problem-first entrypoint for codebase exploration. Use query for targeted context, or call without arguments for onboarding.",

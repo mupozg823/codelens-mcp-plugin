@@ -727,14 +727,16 @@ fn prepare_harness_session_defaults_to_surface_bootstrap_entrypoints() {
         payload["data"]["routing"]["preferred_entrypoints_source"],
         json!("surface_default")
     );
+    // Phase-2: builder bootstrap routes through the verb facades —
+    // overview leads, and request tracing rides graph(mode=trace).
     assert_eq!(
         payload["data"]["routing"]["recommended_entrypoint"],
-        json!("explore_codebase")
+        json!("overview")
     );
     assert!(
         payload["data"]["routing"]["preferred_entrypoints"]
             .as_array()
-            .map(|items| items.iter().any(|value| value == "trace_request_path"))
+            .map(|items| items.iter().any(|value| value == "graph"))
             .unwrap_or(false)
     );
 }

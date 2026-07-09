@@ -150,6 +150,9 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "search"                       => verbs::search,
         "graph"                        => verbs::graph,
         "review"                       => verbs::review,
+        "overview"                     => verbs::overview,
+        "diagnose"                     => verbs::diagnose,
+        "analyze"                      => verbs::analyze,
         // ── Workflow aliases (problem-first) ──
         "explore_codebase"             => workflows::explore_codebase,
         "trace_request_path"           => workflows::trace_request_path,

@@ -58,13 +58,15 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
             vec!["reports", "symbols", "graph", "session"]
         }
         ToolSurface::Profile(ToolProfile::BuilderMinimal) => {
-            vec!["reports", "symbols", "filesystem", "session"]
+            // "graph" added for the graph verb (Phase-2 bootstrap slice).
+            vec!["reports", "symbols", "graph", "filesystem", "session"]
         }
         ToolSurface::Profile(ToolProfile::ReviewerGraph) => {
             vec!["reports", "graph", "symbols", "session"]
         }
         ToolSurface::Profile(ToolProfile::RefactorFull) => {
-            vec!["reports", "session"]
+            // "symbols"/"graph" added for the search/graph verbs.
+            vec!["reports", "symbols", "graph", "session"]
         }
         ToolSurface::Profile(ToolProfile::CiAudit) => {
             vec!["reports", "graph", "session"]
@@ -81,24 +83,31 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
     }
 }
 
+// Phase-2 verb consolidation: profile bootstrap slices route through the
+// verb facades (overview/search/graph/review/diagnose) — the absorbed
+// workflow aliases (explore_codebase, review_architecture, review_changes,
+// trace_request_path) stay callable but yield their bootstrap slots.
 pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static [&'static str]> {
     match surface {
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => Some(&[
-            "explore_codebase",
-            "review_architecture",
-            "review_changes",
+            "overview",
+            "search",
+            "graph",
+            "review",
             "prepare_harness_session",
         ]),
         ToolSurface::Profile(ToolProfile::BuilderMinimal) => Some(&[
-            "explore_codebase",
-            "trace_request_path",
+            "overview",
+            "search",
+            "graph",
             "plan_safe_refactor",
             "prepare_harness_session",
             "analyze_change_request",
         ]),
         ToolSurface::Profile(ToolProfile::ReviewerGraph) => Some(&[
-            "review_architecture",
-            "review_changes",
+            "review",
+            "graph",
+            "diagnose",
             "cleanup_duplicate_logic",
             "prepare_harness_session",
         ]),
@@ -106,25 +115,28 @@ pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static
         // are still reachable after an explicit expansion or follow-up step.
         ToolSurface::Profile(ToolProfile::RefactorFull) => Some(&[
             "plan_safe_refactor",
-            "review_changes",
-            "trace_request_path",
+            "review",
+            "graph",
+            "search",
             "prepare_harness_session",
         ]),
         ToolSurface::Profile(ToolProfile::CiAudit) => Some(&[
-            "review_changes",
+            "review",
+            "diagnose",
             "cleanup_duplicate_logic",
-            "review_architecture",
             "prepare_harness_session",
         ]),
         ToolSurface::Preset(ToolPreset::Balanced) => Some(&[
-            "explore_codebase",
-            "review_architecture",
-            "review_changes",
+            "overview",
+            "search",
+            "graph",
+            "review",
             "prepare_harness_session",
         ]),
         ToolSurface::Preset(ToolPreset::Full) => Some(&[
-            "explore_codebase",
-            "review_architecture",
+            "overview",
+            "search",
+            "review",
             "plan_safe_refactor",
             "prepare_harness_session",
         ]),

@@ -206,7 +206,7 @@ phase = "plan"
 default_visible_rank = 80
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name → find_symbol) | refs (usages → find_referencing_symbols) | defn | impl | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged."
-annotations = "ro_a"
+annotations = "ro_w"
 
 [tool.input_schema]
 type = "object"
@@ -231,7 +231,7 @@ phase = "plan"
 default_visible_rank = 90
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Verb] Structural relationships — who calls, what breaks, how it flows. mode=callers | callees | types (hierarchy) | trace (request path) | impact (blast radius) | diff-refs (changed-file references). Remaining parameters pass through to the target tool unchanged."
-annotations = "ro_a"
+annotations = "ro_w"
 
 [tool.input_schema]
 type = "object"
@@ -254,7 +254,7 @@ phase = "review"
 default_visible_rank = 40
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Verb] Quality reports — one mode-routed entry point. mode=architecture (boundaries+diagram) | changes (pre-merge diff impact) | boundary (module report) | dead (dead code) | dupes (duplicates) | similar | misplaced. Remaining parameters pass through to the target tool unchanged."
-annotations = "ro_a"
+annotations = "ro_w"
 
 [tool.input_schema]
 type = "object"
@@ -266,6 +266,72 @@ changed_files = { type = "array", items = { type = "string" }, description = "Ch
 task = { type = "string", description = "Review focus (mode=changes)" }
 include_diagram = { type = "boolean", description = "Render mermaid diagram (mode=architecture)" }
 max_results = { type = "integer" }
+
+# ─────
+
+[[tool]]
+name = "overview"
+category = "symbol"
+namespace = "symbols"
+phase = "plan"
+default_visible_rank = 30
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Verb] Structural maps — one mode-routed entry point. mode=file (symbols in a file) | project (directory tree) | explore (guided codebase exploration, compressed context) | classify (semantic symbol classification). Remaining parameters pass through to the target tool unchanged."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+required = ["mode"]
+[tool.input_schema.properties]
+mode = { type = "string", enum = ["file", "explore", "classify"], description = "Which overview to run; other params pass through to the target tool" }
+path = { type = "string", description = "File (mode=file) or directory scope" }
+query = { type = "string", description = "Exploration focus (mode=explore)" }
+depth = { type = "integer" }
+include_body = { type = "boolean" }
+max_tokens = { type = "integer" }
+
+# ─────
+
+[[tool]]
+name = "diagnose"
+category = "lsp"
+namespace = "reports"
+phase = "review"
+default_visible_rank = 50
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Verb] Health checks — one mode-routed entry point. mode=file (LSP diagnostics) | symbol (diagnostics for a symbol) | unresolved (unresolved reference check) | issues (file issues or reference workflow). Remaining parameters pass through to the target tool unchanged."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+required = ["mode"]
+[tool.input_schema.properties]
+mode = { type = "string", enum = ["file", "symbol", "unresolved", "issues"], description = "Which diagnosis to run; other params pass through to the target tool" }
+path = { type = "string", description = "File to diagnose (mode=file|issues|unresolved)" }
+symbol = { type = "string", description = "Symbol to check (mode=symbol|unresolved)" }
+max_results = { type = "integer" }
+
+# ─────
+
+[[tool]]
+name = "analyze"
+category = "analysis"
+namespace = "reports"
+phase = "review"
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Verb] Durable analysis jobs — one mode-routed entry point. mode=start (launch job) | status (poll job) | section (expand report section) | list (jobs) | cancel | artifacts (stored reports). Remaining parameters pass through to the target tool unchanged."
+annotations = "ro_w"
+
+[tool.input_schema]
+type = "object"
+required = ["mode"]
+[tool.input_schema.properties]
+mode = { type = "string", enum = ["start", "status", "section", "list", "cancel", "artifacts"], description = "Which job operation to run; other params pass through to the target tool" }
+kind = { type = "string", description = "Report kind (mode=start)" }
+job_id = { type = "string", description = "Job handle (mode=status|cancel)" }
+analysis_id = { type = "string", description = "Analysis handle (mode=section)" }
+section = { type = "string", description = "Section name (mode=section)" }
+path = { type = "string" }
 
 # ─────
 
@@ -983,7 +1049,6 @@ name = "explore_codebase"
 category = "workflow_first"
 namespace = "reports"
 phase = "plan"
-default_visible_rank = 30
 preset_tags = ["planner-readonly", "builder-minimal"]
 description = "[CodeLens:Workflow] Problem-first entrypoint for codebase exploration. Use query for targeted context, or call without arguments for onboarding."
 annotations = "ro_w"

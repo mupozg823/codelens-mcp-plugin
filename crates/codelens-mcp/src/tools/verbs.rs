@@ -49,8 +49,48 @@ pub(crate) const REVIEW_MODES: &[(&str, &str)] = &[
     ("misplaced", "find_misplaced_code"),
 ];
 
+/// `overview` — structural maps: file symbols, guided exploration.
+/// (No `project` mode: `get_project_structure` is a codelens-explorer
+/// agent-surface name, not a tool registered in this server — the
+/// drift-gate unit test rejects phantom targets.)
+pub(crate) const OVERVIEW_MODES: &[(&str, &str)] = &[
+    ("file", "get_symbols_overview"),
+    ("explore", "explore_codebase"),
+    ("classify", "classify_symbol"),
+];
+
+/// `diagnose` — health checks: LSP diagnostics, unresolved references.
+pub(crate) const DIAGNOSE_MODES: &[(&str, &str)] = &[
+    ("file", "get_file_diagnostics"),
+    ("symbol", "get_diagnostics_for_symbol"),
+    ("unresolved", "unresolved_reference_check"),
+    ("issues", "diagnose_issues"),
+];
+
+/// `analyze` — durable analysis jobs: start, poll, expand, manage.
+pub(crate) const ANALYZE_MODES: &[(&str, &str)] = &[
+    ("start", "start_analysis_job"),
+    ("status", "get_analysis_job"),
+    ("section", "get_analysis_section"),
+    ("list", "list_analysis_jobs"),
+    ("cancel", "cancel_analysis_job"),
+    ("artifacts", "list_analysis_artifacts"),
+];
+
 pub fn search(state: &AppState, args: &Value) -> ToolResult {
     run_verb("search", SEARCH_MODES, state, args)
+}
+
+pub fn overview(state: &AppState, args: &Value) -> ToolResult {
+    run_verb("overview", OVERVIEW_MODES, state, args)
+}
+
+pub fn diagnose(state: &AppState, args: &Value) -> ToolResult {
+    run_verb("diagnose", DIAGNOSE_MODES, state, args)
+}
+
+pub fn analyze(state: &AppState, args: &Value) -> ToolResult {
+    run_verb("analyze", ANALYZE_MODES, state, args)
 }
 
 pub fn graph(state: &AppState, args: &Value) -> ToolResult {
@@ -120,6 +160,7 @@ mod tests {
         "find_code_duplicates",
         "find_similar_code",
         "find_misplaced_code",
+        "classify_symbol",
     ];
 
     #[test]
@@ -129,6 +170,9 @@ mod tests {
             ("search", SEARCH_MODES),
             ("graph", GRAPH_MODES),
             ("review", REVIEW_MODES),
+            ("overview", OVERVIEW_MODES),
+            ("diagnose", DIAGNOSE_MODES),
+            ("analyze", ANALYZE_MODES),
         ] {
             for (mode, target) in modes {
                 if SEMANTIC_GATED.contains(target) {
@@ -177,6 +221,9 @@ mod tests {
             ("search", SEARCH_MODES),
             ("graph", GRAPH_MODES),
             ("review", REVIEW_MODES),
+            ("overview", OVERVIEW_MODES),
+            ("diagnose", DIAGNOSE_MODES),
+            ("analyze", ANALYZE_MODES),
         ] {
             let mut seen = std::collections::HashSet::new();
             for (mode, _) in modes {

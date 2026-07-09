@@ -81,8 +81,8 @@ sequenceDiagram
 
 - Workspace version: `1.13.34`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
-- Registered tool definitions in source: `97`
-- Tool output schemas in source: `57 / 97`
+- Registered tool definitions in source: `100`
+- Tool output schemas in source: `57 / 100`
 - Supported language families: `34` across `56` extensions
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 

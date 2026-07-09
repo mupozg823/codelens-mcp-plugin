@@ -7,8 +7,9 @@ pub(in crate::tool_defs) fn default_listed_tool_names() -> &'static [&'static st
     &[
         "prepare_harness_session",
         "get_current_config",
-        "explore_codebase",
+        "overview",
         "review",
+        "diagnose",
         "plan_safe_refactor",
         "verify_change_readiness",
         "search",
@@ -21,8 +22,9 @@ pub(in crate::tool_defs) fn tool_default_listed(name: &str) -> bool {
         name,
         "prepare_harness_session"
             | "get_current_config"
-            | "explore_codebase"
+            | "overview"
             | "review"
+            | "diagnose"
             | "plan_safe_refactor"
             | "verify_change_readiness"
             | "search"
@@ -45,12 +47,14 @@ pub(in crate::tool_defs) fn tool_feature_gate(name: &str) -> Option<&'static str
 
 pub(in crate::tool_defs) fn tool_phase(name: &str) -> Option<&'static str> {
     match name {
+        "analyze" => Some("review"),
         "audit_builder_session" => Some("review"),
         "audit_planner_session" => Some("review"),
         "cancel_analysis_job" => Some("eval"),
         "classify_symbol" => Some("review"),
         "cleanup_duplicate_logic" => Some("build"),
         "dead_code_report" => Some("review"),
+        "diagnose" => Some("review"),
         "diagnose_issues" => Some("review"),
         "diff_aware_references" => Some("review"),
         "embedding_coverage_report" => Some("plan"),
@@ -80,6 +84,7 @@ pub(in crate::tool_defs) fn tool_phase(name: &str) -> Option<&'static str> {
         "list_analysis_jobs" => Some("eval"),
         "mermaid_module_graph" => Some("plan"),
         "module_boundary_report" => Some("plan"),
+        "overview" => Some("plan"),
         "plan_safe_refactor" => Some("plan"),
         "plan_symbol_rename" => Some("plan"),
         "refactor_safety_report" => Some("review"),
@@ -103,6 +108,7 @@ pub(in crate::tool_defs) fn tool_namespace(name: &str) -> Option<&'static str> {
     match name {
         "activate_project" => Some("session"),
         "add_queryable_project" => Some("session"),
+        "analyze" => Some("reports"),
         "analyze_change_request" => Some("session"),
         "archive_memory" => Some("session"),
         "audit_builder_session" => Some("session"),
@@ -117,6 +123,7 @@ pub(in crate::tool_defs) fn tool_namespace(name: &str) -> Option<&'static str> {
         "cleanup_duplicate_logic" => Some("reports"),
         "dead_code_report" => Some("reports"),
         "delete_memory" => Some("memory"),
+        "diagnose" => Some("reports"),
         "diagnose_issues" => Some("reports"),
         "diff_aware_references" => Some("reports"),
         "embedding_coverage_report" => Some("symbols"),
@@ -167,6 +174,7 @@ pub(in crate::tool_defs) fn tool_namespace(name: &str) -> Option<&'static str> {
         "module_boundary_report" => Some("reports"),
         "onboard_project" => Some("session"),
         "orchestrate_change" => Some("session"),
+        "overview" => Some("symbols"),
         "plan_safe_refactor" => Some("reports"),
         "plan_symbol_rename" => Some("symbols"),
         "prepare_harness_session" => Some("session"),
@@ -206,6 +214,7 @@ pub(in crate::tool_defs) fn tool_annotation_key(name: &str) -> Option<&'static s
     match name {
         "activate_project" => Some("ro_p"),
         "add_queryable_project" => Some("mutating"),
+        "analyze" => Some("ro_w"),
         "analyze_change_request" => Some("ro_w"),
         "archive_memory" => Some("mut_p"),
         "audit_builder_session" => Some("ro_a"),
@@ -220,6 +229,7 @@ pub(in crate::tool_defs) fn tool_annotation_key(name: &str) -> Option<&'static s
         "cleanup_duplicate_logic" => Some("ro_w"),
         "dead_code_report" => Some("ro_w"),
         "delete_memory" => Some("destructive"),
+        "diagnose" => Some("ro_w"),
         "diagnose_issues" => Some("ro_w"),
         "diff_aware_references" => Some("ro_w"),
         "embedding_coverage_report" => Some("ro_p"),
@@ -256,7 +266,7 @@ pub(in crate::tool_defs) fn tool_annotation_key(name: &str) -> Option<&'static s
         "get_tool_metrics" => Some("ro_p"),
         "get_type_hierarchy" => Some("ro_a"),
         "get_watch_status" => Some("ro_p"),
-        "graph" => Some("ro_a"),
+        "graph" => Some("ro_w"),
         "impact_report" => Some("ro_w"),
         "index_embeddings" => Some("ro"),
         "list_active_agents" => Some("ro_p"),
@@ -270,6 +280,7 @@ pub(in crate::tool_defs) fn tool_annotation_key(name: &str) -> Option<&'static s
         "module_boundary_report" => Some("ro_w"),
         "onboard_project" => Some("ro_w"),
         "orchestrate_change" => Some("ro_w"),
+        "overview" => Some("ro_w"),
         "plan_safe_refactor" => Some("ro_w"),
         "plan_symbol_rename" => Some("ro_a"),
         "prepare_harness_session" => Some("mutating"),
@@ -286,11 +297,11 @@ pub(in crate::tool_defs) fn tool_annotation_key(name: &str) -> Option<&'static s
         "rename_memory" => Some("mut_p"),
         "resolve_symbol_target" => Some("ro_a"),
         "restore_memory" => Some("mut_p"),
-        "review" => Some("ro_a"),
+        "review" => Some("ro_w"),
         "review_architecture" => Some("ro_w"),
         "review_changes" => Some("ro_w"),
         "safe_rename_report" => Some("ro_w"),
-        "search" => Some("ro_a"),
+        "search" => Some("ro_w"),
         "search_symbols_fuzzy" => Some("ro_a"),
         "search_workspace_symbols" => Some("ro_p"),
         "semantic_search" => Some("ro_p"),

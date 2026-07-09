@@ -77,6 +77,71 @@ fn search_verb_unknown_mode_lists_valid_modes() {
     );
 }
 
+// ── Phase-2 verbs (overview / diagnose / analyze) ────────────────────
+
+#[test]
+fn overview_verb_file_mode_delegates_to_symbols_overview() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("verb_overview.py"),
+        "class Omega:\n    def method(self):\n        pass\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "overview",
+        json!({ "mode": "file", "path": "verb_overview.py" }),
+    );
+
+    assert_eq!(
+        payload["success"],
+        json!(true),
+        "overview(mode=file) must delegate to get_symbols_overview: {payload}"
+    );
+}
+
+#[test]
+fn diagnose_verb_unresolved_mode_delegates_without_lsp() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("verb_diag.py"),
+        "def ok():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    // `unresolved` routes to unresolved_reference_check (index-based) —
+    // deterministic in CI, unlike the LSP-dependent `file`/`issues` modes.
+    let payload = call_tool(
+        &state,
+        "diagnose",
+        json!({ "mode": "unresolved", "file_path": "verb_diag.py", "symbol": "ok" }),
+    );
+
+    assert_eq!(
+        payload["success"],
+        json!(true),
+        "diagnose(mode=unresolved) must delegate to unresolved_reference_check: {payload}"
+    );
+}
+
+#[test]
+fn analyze_verb_list_mode_delegates_to_list_analysis_jobs() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let payload = call_tool(&state, "analyze", json!({ "mode": "list" }));
+
+    assert_eq!(
+        payload["success"],
+        json!(true),
+        "analyze(mode=list) must delegate to list_analysis_jobs: {payload}"
+    );
+}
+
 #[test]
 fn review_verb_missing_mode_is_missing_param() {
     let project = project_root();

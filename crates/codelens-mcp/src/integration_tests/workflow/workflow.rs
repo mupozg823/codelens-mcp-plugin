@@ -12,9 +12,10 @@ fn workflow_surfaces_prefer_canonical_bootstrap_entrypoints() {
 
     let balanced_bootstrap =
         preferred_bootstrap_tools(ToolSurface::Preset(ToolPreset::Balanced)).unwrap_or(&[]);
-    assert!(balanced_bootstrap.contains(&"explore_codebase"));
-    assert!(balanced_bootstrap.contains(&"review_architecture"));
-    assert!(balanced_bootstrap.contains(&"review_changes"));
+    // Phase-2: bootstrap slices route through the verb facades.
+    assert!(balanced_bootstrap.contains(&"overview"));
+    assert!(balanced_bootstrap.contains(&"search"));
+    assert!(balanced_bootstrap.contains(&"review"));
     assert!(!balanced_bootstrap.contains(&"analyze_change_impact"));
 }
 
@@ -29,12 +30,7 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
         .collect::<Vec<_>>();
     assert_eq!(
         builder_tools,
-        vec![
-            "explore_codebase",
-            "trace_request_path",
-            "plan_safe_refactor",
-            "prepare_harness_session",
-        ]
+        vec!["overview", "search", "graph", "plan_safe_refactor"]
     );
 
     let reviewer_tools = visible_tools(ToolSurface::Profile(ToolProfile::ReviewerGraph))
@@ -44,12 +40,7 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
         .collect::<Vec<_>>();
     assert_eq!(
         reviewer_tools,
-        vec![
-            "review_architecture",
-            "review_changes",
-            "cleanup_duplicate_logic",
-            "prepare_harness_session",
-        ]
+        vec!["review", "graph", "diagnose", "cleanup_duplicate_logic"]
     );
 }
 
