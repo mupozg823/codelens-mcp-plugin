@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Claude client parity on the shared daemon (#377)** — Claude Code sessions carried the worst combination: largest surface (Balanced) + fat per-entry `tools/list` contract (~34K tokens) + smallest response budget (4000 vs Codex 6000). The "Claude = tight context" premise is stale for Opus 4.8 (200K–1M context). `ClientProfile::Claude` now uses `default_budget = 6000` (Codex parity) and `default_tool_contract_mode = "lean"` — lean drops only per-entry scaffold (annotations, `visible_namespaces`), never code/symbol data; Generic clients keep the full contract; per-request `full:true` remains an escape hatch.
+
+### Added
+
+- **Read-only tool consolidation behind mode-routed verbs (#377, phases 1–2)** — six additive facade tools front the fine-grained read-only families while every absorbed tool ID stays registered and callable (hooks, RBAC tiers, and suggestion chains keyed by the original IDs are unaffected): `search` (symbol/refs/defn/impl/scoped/workspace/bm25/fuzzy/semantic/ranked), `graph` (callers/callees/types/trace/impact/diff-refs), `review` (architecture/changes/boundary/dead/dupes/similar/misplaced), `overview` (file/explore/classify), `diagnose` (file/symbol/unresolved/issues), `analyze` (start/status/section/list/cancel/artifacts). Unknown modes list the valid set for self-correction; delegation runs through the dispatch table so feature gates are inherited (a semantic-off build returns a rebuild hint). The verbs lead every profile bootstrap slice, cutting first-exposure cognitive load to ~9 bootstrap entries without dropping any capability. `refactor`/`session`/`memory` verbs (phase 3) are intentionally deferred pending a mutation-gate / RBAC / delegate-contract ADR.
+
+### Fixed
+
+- **Deferred-loading gate now honors the bootstrap slice (#377)** — a tool advertised in the default `tools/list` (`default_visible_rank`) was still rejected on `tools/call` with a "hidden by deferred loading in tier" error until an explicit namespace/tier expansion. Default-listed tools now bypass the namespace and tier expansion gates so "advertised = callable" holds; non-default-listed tools keep the expansion gate.
+
 ## [1.13.34] - 2026-07-04
 
 ### Security
