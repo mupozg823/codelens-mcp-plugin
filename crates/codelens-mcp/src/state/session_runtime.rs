@@ -141,10 +141,10 @@ pub(super) fn bind_project_to_session(state: &AppState, session_id: &str, projec
 }
 
 #[cfg(feature = "http")]
-pub(super) fn ensure_session_project<'a>(
-    state: &'a AppState,
+pub(super) fn ensure_session_project(
+    state: &AppState,
     session: &SessionRequestContext,
-) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
+) -> Result<Option<crate::state::project_runtime::RequestProjectGuard>, CodeLensError> {
     let mut bound_project_opt = session.project_path.clone();
     if bound_project_opt.is_none()
         && !session.is_local()
@@ -155,25 +155,23 @@ pub(super) fn ensure_session_project<'a>(
     let Some(bound_project) = bound_project_opt.as_deref() else {
         return Ok(None);
     };
-    let guard = state
-        .project_execution_lock
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let current = state.current_project_scope();
-    if current != bound_project {
-        state.switch_project(bound_project).map_err(|error| {
-            CodeLensError::Validation(format!(
-                "session project `{bound_project}` is not active and automatic rebind failed: {error}"
-            ))
-        })?;
-    }
+    // #357: bind the request thread to the session's project instead of
+    // switching the daemon-global override under a global mutex. Concurrent
+    // sessions bound to different projects no longer serialize on one lock,
+    // and a switch no longer clears another session's artifact/job/preflight
+    // state mid-flight.
+    let guard = state.bind_request_project_scope(bound_project).map_err(|error| {
+        CodeLensError::Validation(format!(
+            "session project `{bound_project}` is not active and automatic rebind failed: {error}"
+        ))
+    })?;
     Ok(Some(guard))
 }
 
 #[cfg(not(feature = "http"))]
-pub(super) fn ensure_session_project<'a>(
-    _state: &'a AppState,
+pub(super) fn ensure_session_project(
+    _state: &AppState,
     _session: &SessionRequestContext,
-) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
+) -> Result<Option<crate::state::project_runtime::RequestProjectGuard>, CodeLensError> {
     Ok(None)
 }

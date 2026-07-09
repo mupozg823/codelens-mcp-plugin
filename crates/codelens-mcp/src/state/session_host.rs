@@ -158,20 +158,39 @@ impl AppState {
         !session.is_local() && self.session_store.is_some()
     }
 
-    #[cfg(feature = "http")]
-    pub(crate) fn ensure_session_project<'a>(
-        &'a self,
+    /// Bind the current request thread to the session's project. The
+    /// returned guard keeps the binding alive for the duration of the
+    /// call and restores the previous binding on drop (#357).
+    pub(crate) fn ensure_session_project(
+        &self,
         session: &crate::session_context::SessionRequestContext,
-    ) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
+    ) -> Result<Option<crate::state::project_runtime::RequestProjectGuard>, CodeLensError> {
         session_runtime::ensure_session_project(self, session)
     }
 
-    #[cfg(not(feature = "http"))]
-    pub(crate) fn ensure_session_project<'a>(
-        &'a self,
-        _session: &crate::session_context::SessionRequestContext,
-    ) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
-        session_runtime::ensure_session_project(self, _session)
+    /// #357: flip the per-session full-exposure flag so subsequent plain
+    /// `tools/list` calls return the full surface instead of the bootstrap
+    /// subset. No-op when the session id is unknown.
+    #[cfg(feature = "http")]
+    pub(crate) fn enable_session_full_tool_exposure(&self, session_id: &str) {
+        if let Some(session) = self
+            .session_store
+            .as_ref()
+            .and_then(|store| store.get(session_id))
+        {
+            session.enable_full_tool_exposure();
+        }
+    }
+
+    /// #357: stdio/local analogue of the per-session exposure flag.
+    pub(crate) fn enable_local_full_tool_exposure(&self) {
+        self.local_full_tool_exposure
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn local_full_tool_exposure(&self) -> bool {
+        self.local_full_tool_exposure
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Initialize the session store for HTTP mode.

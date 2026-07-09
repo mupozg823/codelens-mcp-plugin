@@ -348,7 +348,7 @@ async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(format!(
-                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"prepare_harness_session","arguments":{{"project":"{}","preferred_entrypoints":["explore_codebase","plan_safe_refactor"]}}}}}}"#,
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"prepare_harness_session","arguments":{{"project":"{}","detail":"full","preferred_entrypoints":["explore_codebase","plan_safe_refactor"]}}}}}}"#,
                     state.project().as_path().display()
                 )))
                 .unwrap(),
@@ -883,5 +883,235 @@ async fn header_rebinds_unbound_session_per_request() {
     assert!(
         !body.contains("\"project_binding\""),
         "per-request capture makes the binding explicit — no nag: {body}"
+    );
+}
+
+fn tools_list_names(body: &str) -> Vec<String> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| value.get("result").cloned())
+        .and_then(|result| result.get("tools").cloned())
+        .and_then(|tools| tools.as_array().cloned())
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|tool| {
+                    tool.get("name")
+                        .and_then(|name| name.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn init_session(app: &axum::Router) -> String {
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    init.headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned()
+}
+
+async fn call_tool(app: &axum::Router, sid: &str, id: u64, name: &str, arguments: &str) -> String {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", sid)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":{id},"method":"tools/call","params":{{"name":"{name}","arguments":{arguments}}}}}"#,
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    body_string(response).await
+}
+
+async fn list_tools(app: &axum::Router, sid: &str, id: u64) -> Vec<String> {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", sid)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":{id},"method":"tools/list","params":{{}}}}"#,
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    tools_list_names(&body_string(response).await)
+}
+
+/// #357 regression guard: two sessions bound to DIFFERENT projects issue
+/// tool calls concurrently. Each must read its own project's index, and the
+/// daemon-global override must stay untouched (the pre-#357 design switched
+/// a global singleton under a daemon-wide mutex on every call, so parallel
+/// sessions serialized and clobbered each other's runtime state).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_sessions_on_different_projects_stay_isolated() {
+    let project_a = temp_project_dir("concurrent-a");
+    let project_b = temp_project_dir("concurrent-b");
+    std::fs::write(
+        project_a.join("alpha.py"),
+        "def alpha_only():\n    return 1\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project_b.join("beta.py"),
+        "def beta_only():\n    return 2\n",
+    )
+    .unwrap();
+
+    let default_project = temp_project_dir("concurrent-default");
+    let project = ProjectRoot::new(default_project.to_str().unwrap()).unwrap();
+    let state = Arc::new(
+        AppState::new(project, crate::tool_defs::ToolPreset::Balanced).with_session_store(),
+    );
+    let app = build_router(state.clone());
+
+    let sid_a = init_session(&app).await;
+    let sid_b = init_session(&app).await;
+
+    call_tool(
+        &app,
+        &sid_a,
+        2,
+        "activate_project",
+        &format!(r#"{{"project":"{}"}}"#, project_a.display()),
+    )
+    .await;
+    call_tool(
+        &app,
+        &sid_b,
+        2,
+        "activate_project",
+        &format!(r#"{{"project":"{}"}}"#, project_b.display()),
+    )
+    .await;
+
+    for round in 0..4u64 {
+        let find_a = call_tool(
+            &app,
+            &sid_a,
+            10 + round,
+            "find_symbol",
+            r#"{"name":"alpha_only","include_body":false,"max_matches":5}"#,
+        );
+        let find_b = call_tool(
+            &app,
+            &sid_b,
+            10 + round,
+            "find_symbol",
+            r#"{"name":"beta_only","include_body":false,"max_matches":5}"#,
+        );
+        let (body_a, body_b) = tokio::join!(find_a, find_b);
+        assert!(
+            body_a.contains("alpha_only") && body_a.contains("alpha.py"),
+            "session A must read project A (round {round}): {body_a}"
+        );
+        assert!(
+            !body_a.contains("beta.py"),
+            "session A must not leak project B files (round {round}): {body_a}"
+        );
+        assert!(
+            body_b.contains("beta_only") && body_b.contains("beta.py"),
+            "session B must read project B (round {round}): {body_b}"
+        );
+        assert!(
+            !body_b.contains("alpha.py"),
+            "session B must not leak project A files (round {round}): {body_b}"
+        );
+    }
+
+    // Session-scoped activation must never mutate the daemon-global override.
+    assert!(
+        !state.has_explicit_active_project(),
+        "session-bound calls must leave the daemon default project untouched"
+    );
+}
+
+/// #357 regression guard: the compact bootstrap tools/list must expand to
+/// the full surface after `prepare_harness_session` — standard MCP clients
+/// never send the `full`/`namespace` expansion params, so without this flip
+/// symbol tools (find_referencing_symbols, get_symbols_overview) stayed
+/// permanently invisible.
+#[tokio::test]
+async fn prepare_harness_session_expands_tools_list_surface() {
+    let project = temp_project_dir("expand-surface");
+    std::fs::write(project.join("main.py"), "def entry():\n    return 1\n").unwrap();
+
+    let state = test_state();
+    let app = build_router(state.clone());
+    let sid = init_session(&app).await;
+
+    let bootstrap_names = list_tools(&app, &sid, 2).await;
+    assert!(
+        !bootstrap_names.is_empty(),
+        "bootstrap listing must not be empty"
+    );
+    assert!(
+        !bootstrap_names
+            .iter()
+            .any(|name| name == "find_referencing_symbols"),
+        "bootstrap listing is expected to be collapsed: {bootstrap_names:?}"
+    );
+
+    let prepare_body = call_tool(
+        &app,
+        &sid,
+        3,
+        "prepare_harness_session",
+        &format!(
+            r#"{{"project":"{}","profile":"reviewer-graph"}}"#,
+            project.display()
+        ),
+    )
+    .await;
+    assert!(
+        prepare_body.contains("\"result\""),
+        "prepare_harness_session must succeed: {prepare_body}"
+    );
+
+    let expanded_names = list_tools(&app, &sid, 4).await;
+    assert!(
+        expanded_names
+            .iter()
+            .any(|name| name == "find_referencing_symbols"),
+        "post-bootstrap listing must expose symbol tools: {expanded_names:?}"
+    );
+    assert!(
+        expanded_names
+            .iter()
+            .any(|name| name == "get_symbols_overview"),
+        "post-bootstrap listing must expose overview tooling: {expanded_names:?}"
+    );
+    assert!(
+        expanded_names.len() > bootstrap_names.len(),
+        "surface must expand past the bootstrap subset ({} -> {})",
+        bootstrap_names.len(),
+        expanded_names.len()
     );
 }

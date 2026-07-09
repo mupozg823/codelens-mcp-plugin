@@ -9,14 +9,41 @@ use serde_json::json;
 use super::embed_hint::auto_set_embed_hint_lang;
 
 pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    // If a project path is provided, switch the active project
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    #[cfg(feature = "http")]
+    let route_to_session = state.should_route_to_session(&session);
+    #[cfg(not(feature = "http"))]
+    let route_to_session = false;
+
+    // If a project path is provided, switch the active project.
+    // #357: for HTTP sessions this must NOT mutate the daemon-global
+    // override (that clobbered every other session's project and cleared
+    // shared artifact/job/preflight state). Instead: validate + warm the
+    // context cache and re-point the CURRENT request's binding; the
+    // durable per-session binding is recorded below.
     let switched = if let Some(path) = arguments.get("project").and_then(|v| v.as_str()) {
-        match state.switch_project(path) {
-            Ok(name) => Some(name),
-            Err(e) => {
-                return Err(crate::error::CodeLensError::NotFound(format!(
-                    "failed to switch project: {e}"
-                )));
+        if route_to_session {
+            match state.rebind_request_project_scope(path) {
+                Ok(()) => Some(
+                    std::path::Path::new(path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| path.to_owned()),
+                ),
+                Err(e) => {
+                    return Err(crate::error::CodeLensError::NotFound(format!(
+                        "failed to switch project: {e}"
+                    )));
+                }
+            }
+        } else {
+            match state.switch_project(path) {
+                Ok(name) => Some(name),
+                Err(e) => {
+                    return Err(crate::error::CodeLensError::NotFound(format!(
+                        "failed to switch project: {e}"
+                    )));
+                }
             }
         }
     } else {
@@ -42,7 +69,6 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
     auto_set_embed_hint_lang(project.as_path());
 
     // Auto-set role surface based on project size + client profile
-    let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let client = session
         .client_name
         .as_deref()

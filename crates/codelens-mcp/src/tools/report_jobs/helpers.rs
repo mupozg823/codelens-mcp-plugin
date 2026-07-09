@@ -2,7 +2,6 @@ use super::super::{AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::resources::{analysis_section_handles, analysis_summary_resource};
 use serde_json::{Value, json};
-use std::path::Path;
 use std::time::Duration;
 
 pub(super) fn run_job_kind(state: &AppState, kind: &str, arguments: &Value) -> ToolResult {
@@ -81,8 +80,16 @@ pub(super) fn job_handle_fields(analysis_id: Option<&str>, sections: &[String]) 
     }
 }
 
+/// Best-effort job status patch, routed through the job store so worker
+/// and dispatch threads agree on the on-disk location. #357: the previous
+/// implementation wrote directly to `<scope>/.codelens/analysis-cache/jobs`,
+/// which only matched the store's dir while per-request project switching
+/// re-pointed it — with request-scoped bindings the store dir is stable
+/// (daemon default) and scope isolation happens via the job's scope tag.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn patch_job_file(
-    project_path: &str,
+    state: &AppState,
+    project_scope: &str,
     job_id: &str,
     status: Option<crate::runtime_types::JobLifecycle>,
     progress: Option<u8>,
@@ -90,41 +97,16 @@ pub(super) fn patch_job_file(
     analysis_id: Option<Option<String>>,
     error: Option<Option<String>>,
 ) {
-    let path = Path::new(project_path)
-        .join(".codelens")
-        .join("analysis-cache")
-        .join("jobs")
-        .join(format!("{job_id}.json"));
-    let Ok(bytes) = std::fs::read(&path) else {
-        return;
-    };
-    let Ok(mut job) = serde_json::from_slice::<crate::state::AnalysisJob>(&bytes) else {
-        return;
-    };
-    if let Some(status) = status {
-        job.status = status;
-    }
-    if let Some(progress) = progress {
-        job.progress = progress;
-    }
-    if let Some(current_step) = current_step {
-        job.current_step = current_step;
-    }
-    if let Some(analysis_id) = analysis_id {
-        job.analysis_id = analysis_id;
-    }
-    if let Some(error) = error {
-        job.error = error;
-    }
-    job.updated_at_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    if let Ok(updated) = serde_json::to_vec_pretty(&job) {
-        let tmp_path = path.with_extension("json.tmp");
-        let _ = std::fs::write(&tmp_path, updated);
-        let _ = std::fs::rename(tmp_path, path);
-    }
+    let _ = state.update_analysis_job(
+        project_scope,
+        job_id,
+        status,
+        progress,
+        current_step,
+        None,
+        analysis_id,
+        error,
+    );
 }
 
 pub(super) fn advance_job_progress(

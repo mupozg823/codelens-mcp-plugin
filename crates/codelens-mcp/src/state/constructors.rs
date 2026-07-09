@@ -18,27 +18,25 @@ use crate::tool_defs::{ToolPreset, ToolSurface};
 
 impl AppState {
     pub(crate) fn clone_for_worker(&self) -> Self {
-        let project = self.project();
-        let symbol_index = self.symbol_index();
-        let graph_cache = self.graph_cache();
-        let memories_dir = self.memories_dir();
-        let analysis_dir = self.analysis_dir();
-        let audit_dir = self.audit_dir();
-        let lsp_pool = self.lsp_pool();
+        // #357: pin worker clones to the daemon's own DEFAULT project —
+        // never to accessor methods, which resolve through the caller's
+        // request-scoped binding (the first session to trigger queue init
+        // would otherwise become every worker's implicit root). Jobs bind
+        // their own scope per run via `bind_request_project_scope`.
         Self {
-            default_project: project.clone(),
-            default_symbol_index: symbol_index,
-            default_graph_cache: graph_cache,
-            default_lsp_pool: lsp_pool,
-            default_memories_dir: memories_dir,
-            default_analysis_dir: analysis_dir.clone(),
-            default_audit_dir: audit_dir,
+            default_project: self.default_project.clone(),
+            default_symbol_index: Arc::clone(&self.default_symbol_index),
+            default_graph_cache: Arc::clone(&self.default_graph_cache),
+            default_lsp_pool: Arc::clone(&self.default_lsp_pool),
+            default_memories_dir: self.default_memories_dir.clone(),
+            default_analysis_dir: self.default_analysis_dir.clone(),
+            default_audit_dir: self.default_audit_dir.clone(),
             default_watcher: None,
-            // Worker clones never own a watcher; propagate the active
+            // Worker clones never own a watcher; propagate the default
             // context's error state so observability survives the clone.
-            default_watcher_error: self.watcher_error(),
+            default_watcher_error: self.default_watcher_error.clone(),
             project_override: std::sync::RwLock::new(None),
-            project_context_cache: Mutex::new(ProjectContextCache::default()),
+            project_context_cache: Arc::clone(&self.project_context_cache),
             transport_mode: Mutex::new(self.transport_mode()),
             daemon_mode: Mutex::new(self.daemon_mode()),
             client_profile: self.client_profile,
@@ -47,8 +45,8 @@ impl AppState {
             ),
             surface: Mutex::new(*self.surface()),
             token_budget: std::sync::atomic::AtomicUsize::new(self.token_budget()),
-            artifact_store: AnalysisArtifactStore::new(analysis_dir.clone()),
-            job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
+            artifact_store: Arc::clone(&self.artifact_store),
+            job_store: Arc::clone(&self.job_store),
             metrics: Arc::clone(&self.metrics),
             recent_tools: RecentRingBuffer::new(5),
             recent_analysis_ids: RecentRingBuffer::new(5),
@@ -60,10 +58,12 @@ impl AppState {
             analysis_queue: OnceLock::new(),
             sparse_symbol_cache: Arc::clone(&self.sparse_symbol_cache),
             watcher_maintenance: Mutex::new(HashMap::new()),
-            project_execution_lock: Mutex::new(()),
+            local_full_tool_exposure: std::sync::atomic::AtomicBool::new(false),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
+            #[cfg(feature = "semantic")]
+            embedding_root: Mutex::new(None),
             #[cfg(feature = "scip-backend")]
             scip_backends: Mutex::new(HashMap::new()),
             #[cfg(feature = "http")]
@@ -126,7 +126,7 @@ impl AppState {
             default_watcher,
             default_watcher_error,
             project_override: std::sync::RwLock::new(None),
-            project_context_cache: Mutex::new(ProjectContextCache::default()),
+            project_context_cache: Arc::new(Mutex::new(ProjectContextCache::default())),
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
             daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
             client_profile: ClientProfile::detect(None),
@@ -139,8 +139,10 @@ impl AppState {
             token_budget: std::sync::atomic::AtomicUsize::new(
                 crate::tool_defs::default_budget_for_preset(preset),
             ),
-            artifact_store: AnalysisArtifactStore::new(default_analysis_dir.clone()),
-            job_store: crate::job_store::AnalysisJobStore::new(default_analysis_dir.join("jobs")),
+            artifact_store: Arc::new(AnalysisArtifactStore::new(default_analysis_dir.clone())),
+            job_store: Arc::new(crate::job_store::AnalysisJobStore::new(
+                default_analysis_dir.join("jobs"),
+            )),
             metrics: Arc::new(ToolMetricsRegistry::new()),
             recent_tools: RecentRingBuffer::new(5),
             recent_analysis_ids: RecentRingBuffer::new(5),
@@ -152,10 +154,12 @@ impl AppState {
             analysis_queue: OnceLock::new(),
             sparse_symbol_cache: Arc::new(SparseSymbolCache::new()),
             watcher_maintenance: Mutex::new(HashMap::new()),
-            project_execution_lock: Mutex::new(()),
+            local_full_tool_exposure: std::sync::atomic::AtomicBool::new(false),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
+            #[cfg(feature = "semantic")]
+            embedding_root: Mutex::new(None),
             #[cfg(feature = "scip-backend")]
             scip_backends: Mutex::new(HashMap::new()),
             #[cfg(feature = "http")]
