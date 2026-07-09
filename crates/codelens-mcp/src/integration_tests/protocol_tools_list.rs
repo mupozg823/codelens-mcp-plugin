@@ -649,13 +649,15 @@ fn claude_client_name_uses_deferred_tools_list_contract() {
 
     let encoded = serde_json::to_string(&response).expect("serialize");
     assert!(encoded.contains("\"client_profile\":\"claude\""));
-    assert!(encoded.contains("\"default_contract_mode\":\"full\""));
+    // Claude now shares Codex's lean contract (parity fix): scaffold
+    // (annotations, visible_namespaces) dropped, code/symbol data intact.
+    assert!(encoded.contains("\"default_contract_mode\":\"lean\""));
     assert!(encoded.contains("\"deferred_loading_active\":true"));
     assert!(encoded.contains("\"include_output_schema\":false"));
-    assert!(encoded.contains("\"include_annotations\":true"));
+    assert!(encoded.contains("\"include_annotations\":false"));
     assert!(!encoded.contains("\"outputSchema\""));
-    assert!(encoded.contains("\"annotations\""));
-    assert!(encoded.contains("\"visible_namespaces\""));
+    assert!(!encoded.contains("\"annotations\""));
+    assert!(!encoded.contains("\"visible_namespaces\""));
 }
 
 #[test]

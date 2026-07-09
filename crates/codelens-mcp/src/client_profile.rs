@@ -106,7 +106,9 @@ impl ClientProfile {
     pub(crate) fn default_budget(&self) -> usize {
         match self {
             Self::Codex => 6000,
-            Self::Claude => 4000,
+            // Parity with Codex — modern Claude Code models (Opus 4.8) carry
+            // 200K–1M context, so the legacy 4000 cap under-served responses.
+            Self::Claude => 6000,
             Self::Generic => 4000,
         }
     }
@@ -129,8 +131,12 @@ impl ClientProfile {
 
     pub(crate) fn default_tool_contract_mode(&self) -> &'static str {
         match self {
-            Self::Codex => "lean",
-            Self::Claude | Self::Generic => "full",
+            // Lean drops only per-entry scaffold (annotations,
+            // visible_namespaces) — never code/symbol data — cutting the
+            // Balanced tools/list from ~34K to ~10K tokens. `full:true`
+            // per-request remains an escape hatch (see request.rs).
+            Self::Codex | Self::Claude => "lean",
+            Self::Generic => "full",
         }
     }
 
@@ -173,5 +179,26 @@ mod tests {
             ClientProfile::detect_request(Some("integration-test"), Some("codex")),
             ClientProfile::Codex
         );
+    }
+
+    #[test]
+    fn claude_budget_reaches_codex_parity() {
+        // Claude Code now ships 200K–1M context models (Opus 4.8); the legacy
+        // 4000 response cap starved it relative to Codex (6000). Parity at 6000.
+        assert_eq!(ClientProfile::Claude.default_budget(), 6000);
+        assert_eq!(
+            ClientProfile::Claude.default_budget(),
+            ClientProfile::Codex.default_budget()
+        );
+    }
+
+    #[test]
+    fn claude_uses_lean_tool_contract() {
+        // Balanced surface + fat annotation contract cost Claude ~34K on
+        // tools/list vs ~10K lean. Lean drops only scaffold (annotations,
+        // visible_namespaces), never code/symbol data.
+        assert_eq!(ClientProfile::Claude.default_tool_contract_mode(), "lean");
+        // Generic clients keep the full contract (no builtins assumption).
+        assert_eq!(ClientProfile::Generic.default_tool_contract_mode(), "full");
     }
 }
