@@ -142,6 +142,7 @@ if [[ ${#KICK_LABELS[@]} -eq 0 ]]; then
 	exit 0
 fi
 
+MISSING_LABELS=()
 for label in "${KICK_LABELS[@]}"; do
 	plist="${HOME}/Library/LaunchAgents/${label}.plist"
 	if [[ -f "${plist}" ]]; then
@@ -179,6 +180,7 @@ for label in "${KICK_LABELS[@]}"; do
 		launchctl kickstart -k "gui/${UID_VAL}/${label}"
 	else
 		log "WARNING: plist not found for ${label} (${plist}); skipping bootstrap+kickstart. Run scripts/install-http-daemons-launchd.sh first." >&2
+		MISSING_LABELS+=("${label}")
 	fi
 done
 
@@ -235,6 +237,14 @@ if [[ $DO_PROBE -eq 1 ]]; then
 			exit 3
 		fi
 	done
+fi
+
+if [[ ${#MISSING_LABELS[@]} -gt 0 ]]; then
+	log "ERROR: no LaunchAgent plist for requested label(s): ${MISSING_LABELS[*]}" >&2
+	log "  Nothing was bootstrapped/kickstarted for them; any LISTEN success above is from" >&2
+	log "  pre-existing daemons, not this redeploy (e.g. a mistyped --label-prefix)." >&2
+	log "  Run scripts/install-http-daemons-launchd.sh first, or fix --label-prefix, then re-run." >&2
+	exit 1
 fi
 
 log "done"
