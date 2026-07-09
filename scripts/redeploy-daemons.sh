@@ -169,9 +169,11 @@ for label in "${KICK_LABELS[@]}"; do
 			launchctl bootstrap "gui/${UID_VAL}" "${plist}"
 		fi
 		launchctl enable "gui/${UID_VAL}/${label}" || true
+		log "launchctl kickstart -k gui/${UID_VAL}/${label}"
+		launchctl kickstart -k "gui/${UID_VAL}/${label}"
+	else
+		log "WARNING: plist not found for ${label} (${plist}); skipping bootstrap+kickstart. Run scripts/install-http-daemons-launchd.sh first." >&2
 	fi
-	log "launchctl kickstart -k gui/${UID_VAL}/${label}"
-	launchctl kickstart -k "gui/${UID_VAL}/${label}"
 done
 
 log "waiting up to ${WAIT_SECS}s for LISTEN sockets"

@@ -401,10 +401,12 @@ create_plist() {
 		printf '%s\n' '  <key>KeepAlive</key>'
 		printf '%s\n' '  <dict>'
 		printf '%s\n' '    <key>SuccessfulExit</key>'
-		printf '%s\n' '    <true/>'
+		printf '%s\n' '    <false/>'
 		printf '%s\n' '    <key>Crashed</key>'
 		printf '%s\n' '    <true/>'
 		printf '%s\n' '  </dict>'
+		printf '%s\n' '  <key>ThrottleInterval</key>'
+		printf '%s\n' '  <integer>10</integer>'
 		if [[ -n "$run_at_load_xml" ]]; then
 			printf '%s' "$run_at_load_xml"
 		fi
@@ -439,7 +441,12 @@ mutation_url = sys.argv[3]
 
 payload = {}
 if config_path.exists():
-    payload = json.loads(config_path.read_text())
+    try:
+        payload = json.loads(config_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"{config_path} contains invalid JSON ({exc}); fix or remove it before re-running the installer"
+        )
     if not isinstance(payload, dict):
         raise SystemExit(f"{config_path} must contain a JSON object")
 
