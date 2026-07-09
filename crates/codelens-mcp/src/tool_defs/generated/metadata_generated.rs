@@ -8,12 +8,11 @@ pub(in crate::tool_defs) fn default_listed_tool_names() -> &'static [&'static st
         "prepare_harness_session",
         "get_current_config",
         "explore_codebase",
-        "review_architecture",
-        "review_changes",
+        "review",
         "plan_safe_refactor",
         "verify_change_readiness",
-        "find_symbol",
-        "get_ranked_context",
+        "search",
+        "graph",
     ]
 }
 
@@ -23,12 +22,11 @@ pub(in crate::tool_defs) fn tool_default_listed(name: &str) -> bool {
         "prepare_harness_session"
             | "get_current_config"
             | "explore_codebase"
-            | "review_architecture"
-            | "review_changes"
+            | "review"
             | "plan_safe_refactor"
             | "verify_change_readiness"
-            | "find_symbol"
-            | "get_ranked_context"
+            | "search"
+            | "graph"
     )
 }
 
@@ -75,6 +73,7 @@ pub(in crate::tool_defs) fn tool_phase(name: &str) -> Option<&'static str> {
         "get_symbols_overview" => Some("plan"),
         "get_tool_metrics" => Some("eval"),
         "get_type_hierarchy" => Some("plan"),
+        "graph" => Some("plan"),
         "impact_report" => Some("plan"),
         "index_embeddings" => Some("plan"),
         "list_analysis_artifacts" => Some("eval"),
@@ -84,9 +83,11 @@ pub(in crate::tool_defs) fn tool_phase(name: &str) -> Option<&'static str> {
         "plan_safe_refactor" => Some("plan"),
         "plan_symbol_rename" => Some("plan"),
         "refactor_safety_report" => Some("review"),
+        "review" => Some("review"),
         "review_architecture" => Some("plan"),
         "review_changes" => Some("review"),
         "safe_rename_report" => Some("review"),
+        "search" => Some("plan"),
         "search_symbols_fuzzy" => Some("plan"),
         "search_workspace_symbols" => Some("plan"),
         "semantic_search" => Some("plan"),
@@ -152,6 +153,7 @@ pub(in crate::tool_defs) fn tool_namespace(name: &str) -> Option<&'static str> {
         "get_tool_metrics" => Some("session"),
         "get_type_hierarchy" => Some("symbols"),
         "get_watch_status" => Some("session"),
+        "graph" => Some("graph"),
         "impact_report" => Some("reports"),
         "index_embeddings" => Some("symbols"),
         "list_active_agents" => Some("session"),
@@ -181,9 +183,11 @@ pub(in crate::tool_defs) fn tool_namespace(name: &str) -> Option<&'static str> {
         "rename_memory" => Some("memory"),
         "resolve_symbol_target" => Some("session"),
         "restore_memory" => Some("session"),
+        "review" => Some("reports"),
         "review_architecture" => Some("reports"),
         "review_changes" => Some("reports"),
         "safe_rename_report" => Some("reports"),
+        "search" => Some("symbols"),
         "search_symbols_fuzzy" => Some("symbols"),
         "search_workspace_symbols" => Some("symbols"),
         "semantic_search" => Some("symbols"),
@@ -252,6 +256,7 @@ pub(in crate::tool_defs) fn tool_annotation_key(name: &str) -> Option<&'static s
         "get_tool_metrics" => Some("ro_p"),
         "get_type_hierarchy" => Some("ro_a"),
         "get_watch_status" => Some("ro_p"),
+        "graph" => Some("ro_a"),
         "impact_report" => Some("ro_w"),
         "index_embeddings" => Some("ro"),
         "list_active_agents" => Some("ro_p"),
@@ -281,9 +286,11 @@ pub(in crate::tool_defs) fn tool_annotation_key(name: &str) -> Option<&'static s
         "rename_memory" => Some("mut_p"),
         "resolve_symbol_target" => Some("ro_a"),
         "restore_memory" => Some("mut_p"),
+        "review" => Some("ro_a"),
         "review_architecture" => Some("ro_w"),
         "review_changes" => Some("ro_w"),
         "safe_rename_report" => Some("ro_w"),
+        "search" => Some("ro_a"),
         "search_symbols_fuzzy" => Some("ro_a"),
         "search_workspace_symbols" => Some("ro_p"),
         "semantic_search" => Some("ro_p"),

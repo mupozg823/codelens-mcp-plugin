@@ -123,6 +123,10 @@ pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
         "audit_builder_session" => Some("audit builder session process"),
         "audit_planner_session" => Some("audit planner session process"),
         // Core navigation primitives (raised to deferred surface in v1.10.1)
+        // Verb facades (Phase-1 read-only consolidation)
+        "search" => Some("find code by name reference or meaning"),
+        "graph" => Some("call graph impact and request tracing"),
+        "review" => Some("architecture dead code duplicate reports"),
         "find_symbol" => Some("find function class type by exact name"),
         "get_symbols_overview" => Some("list all symbols in a file"),
         "find_referencing_symbols" => Some("find all usages of a symbol"),
@@ -167,6 +171,13 @@ pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
                 | "start_analysis_job"
                 | "get_analysis_job"
                 | "get_analysis_section"
+                // Phase-1 verb consolidation moved these out of the ranked
+                // bootstrap slice; keep the Claude-native always-load
+                // affordance (#365) so direct calls stay round-trip-free.
+                | "find_symbol"
+                | "get_ranked_context"
+                | "review_architecture"
+                | "review_changes"
         )
 }
 

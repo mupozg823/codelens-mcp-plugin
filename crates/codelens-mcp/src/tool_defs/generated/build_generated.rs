@@ -14,6 +14,11 @@ use serde_json::json;
 pub fn analysis_tools(ro_a: &ToolAnnotations, ro_p: &ToolAnnotations) -> Vec<Tool> {
     vec![
         Tool::new(
+            "graph",
+            "[CodeLens:Verb] Structural relationships — who calls, what breaks, how it flows. mode=callers | callees | types (hierarchy) | trace (request path) | impact (blast radius) | diff-refs (changed-file references). Remaining parameters pass through to the target tool unchanged.",
+            json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["callers","callees","types","trace","impact","diff-refs"],"description":"Which graph analysis to run; other params pass through to the target tool"},"function_name":{"type":"string","description":"Function of interest (mode=callers|callees)"},"symbol":{"type":"string","description":"Symbol or entrypoint (mode=trace|types|impact)"},"path":{"type":"string","description":"File or directory scope"},"max_results":{"type":"integer"},"max_depth":{"type":"integer","description":"Trace depth (mode=trace)"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
             "get_changed_files",
             "[CodeLens:Analysis] Files changed since a git ref with symbol counts. Use for diff review.",
             json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}}),
@@ -488,6 +493,11 @@ pub fn symbol_tools(
             json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer","description":"Token budget for the retrieval payload. Defaults to max(active surface budget, 16384) — raised in v1.10.1 from the surface budget alone to avoid Stage 5 truncation on hybrid retrieval."},"context_window":{"type":"integer","description":"Host model's context window in tokens (e.g. 1000000 for Opus 4.7, 200000 for Sonnet 4.6). When supplied AND max_tokens is unset, the budget scales adaptively: ≥1M → ×4 cap 128K, ≥200K → ×2 cap 64K, ≥32K → ×1 cap 32K, smaller → ×0.5 cap 16K. v1.13.18+."},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean","description":"Disable semantic/hybrid ranking and use structural signals only"},"expand_query":{"type":"boolean","description":"When true (default), expand the query with snake_case / camelCase / cartesian-token derivatives. Set to false for natural-language queries that don't benefit from expansion."},"anchor_files":{"type":"array","items":{"type":"string"},"description":"Optional working-set anchors: repo-relative file paths (e.g. files being actively edited) whose symbols are boosted in the user-context ranking lane. Reuses the recency lane's file-membership weighting — no graph recompute."}}}),
         ).with_output_schema(ranked_context_output_schema()).with_annotations(ro_a.clone()).with_max_response_tokens(32768),
         Tool::new(
+            "search",
+            "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name → find_symbol) | refs (usages → find_referencing_symbols) | defn | impl | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged.",
+            json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["symbol","refs","defn","impl","scoped","workspace","bm25","fuzzy","semantic","ranked"],"description":"Which search family to run; other params pass through to the target tool"},"name":{"type":"string","description":"Symbol name (mode=symbol)"},"query":{"type":"string","description":"Search query (mode=semantic|ranked|bm25|fuzzy|workspace)"},"path":{"type":"string","description":"File or directory scope"},"symbol_name":{"type":"string","description":"Symbol to look up references for (mode=refs|scoped|defn|impl)"},"include_body":{"type":"boolean"},"max_results":{"type":"integer"},"use_lsp":{"type":"boolean","description":"Type-aware precision (mode=refs|defn|impl)"}}}),
+        ).with_annotations(ro_a.clone()),
+        Tool::new(
             "bm25_symbol_search",
             "[CodeLens:Symbol] Sparse BM25-F symbol retrieval — best for identifiers, signatures, path tokens, and short lexical phrases.",
             json!({"type":"object","required":["query"],"properties":{"query":{"type":"string"},"max_results":{"type":"integer","description":"Maximum number of results to return (default 10)"},"include_tests":{"type":"boolean","description":"Include test symbols in the candidate pool"},"include_generated":{"type":"boolean","description":"Include generated symbols in the candidate pool"}}}),
@@ -510,8 +520,13 @@ pub fn symbol_tools(
     ]
 }
 
-pub fn workflow_first_tools(ro_w: &ToolAnnotations) -> Vec<Tool> {
+pub fn workflow_first_tools(ro_a: &ToolAnnotations, ro_w: &ToolAnnotations) -> Vec<Tool> {
     vec![
+        Tool::new(
+            "review",
+            "[CodeLens:Verb] Quality reports — one mode-routed entry point. mode=architecture (boundaries+diagram) | changes (pre-merge diff impact) | boundary (module report) | dead (dead code) | dupes (duplicates) | similar | misplaced. Remaining parameters pass through to the target tool unchanged.",
+            json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["architecture","changes","boundary","dead","dupes","similar","misplaced"],"description":"Which review to run; other params pass through to the target tool"},"path":{"type":"string","description":"Scope path"},"changed_files":{"type":"array","items":{"type":"string"},"description":"Changed file paths (mode=changes)"},"task":{"type":"string","description":"Review focus (mode=changes)"},"include_diagram":{"type":"boolean","description":"Render mermaid diagram (mode=architecture)"},"max_results":{"type":"integer"}}}),
+        ).with_annotations(ro_a.clone()),
         Tool::new(
             "explore_codebase",
             "[CodeLens:Workflow] Problem-first entrypoint for codebase exploration. Use query for targeted context, or call without arguments for onboarding.",

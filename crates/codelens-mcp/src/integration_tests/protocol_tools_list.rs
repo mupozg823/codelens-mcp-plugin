@@ -30,10 +30,10 @@ fn lists_tools() {
     // namespace, tier, or full listing.
     assert!(names.len() <= 9, "default tools/list must stay <=9 tools");
     assert!(names.contains(&"prepare_harness_session"));
-    assert!(names.contains(&"get_ranked_context"));
+    assert!(names.contains(&"search"));
     assert!(
-        names.contains(&"review_changes"),
-        "default tools/list must keep the pre-merge review entrypoint"
+        names.contains(&"review"),
+        "default tools/list must keep the pre-merge review entrypoint (verb facade)"
     );
     assert!(!names.contains(&"get_callers"));
     assert!(!names.contains(&"start_analysis_job"));
@@ -67,16 +67,18 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
     // control plane compact. The list is ordered as defined in
     // `tools.toml` default_visible_rank entries; wider surfaces are explicit
     // namespace/tier/phase/full expansions.
+    // Phase-1 verb consolidation: review/search/graph verbs replaced the
+    // four absorbed entries (review_architecture, review_changes,
+    // find_symbol, get_ranked_context) in the ranked bootstrap slice.
     let expected: Vec<&'static str> = vec![
         "prepare_harness_session",
         "get_current_config",
         "explore_codebase",
-        "review_architecture",
-        "review_changes",
+        "review",
         "plan_safe_refactor",
         "verify_change_readiness",
-        "find_symbol",
-        "get_ranked_context",
+        "search",
+        "graph",
     ];
     assert_eq!(default_tools, expected);
     assert_eq!(
@@ -138,7 +140,7 @@ fn tools_list_select_diagnostics_reports_per_requested_tool() {
             id: Some(json!(102)),
             method: "tools/list".to_owned(),
             params: Some(json!({
-                "query": "select:mcp__codelens__impact_report,mcp__codelens__get_ranked_context,mcp__codelens__does_not_exist_xyz"
+                "query": "select:mcp__codelens__impact_report,mcp__codelens__search,mcp__codelens__does_not_exist_xyz"
             })),
         },
     )
@@ -148,10 +150,10 @@ fn tools_list_select_diagnostics_reports_per_requested_tool() {
     assert_eq!(diagnostics["requested_count"], json!(3));
     assert_eq!(diagnostics["found_count"], json!(1));
     assert_eq!(diagnostics["not_found_count"], json!(2));
-    assert_eq!(diagnostics["found"][0]["tool"], json!("get_ranked_context"));
+    assert_eq!(diagnostics["found"][0]["tool"], json!("search"));
     assert_eq!(
         diagnostics["found"][0]["requested_tool"],
-        json!("mcp__codelens__get_ranked_context")
+        json!("mcp__codelens__search")
     );
 
     let not_found = diagnostics["not_found"]
@@ -884,6 +886,10 @@ fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
         "start_analysis_job",
         "get_analysis_job",
         "get_analysis_section",
+        // Verb facades (Phase-1 consolidation) — bootstrap slice
+        "search",
+        "graph",
+        "review",
     ];
     for name in expected {
         let tool = tools

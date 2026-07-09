@@ -199,6 +199,14 @@ pub(crate) fn visible_tiers(surface: ToolSurface) -> Vec<&'static str> {
     tiers
 }
 
+/// Ranked bootstrap slice membership (`default_visible_rank` in
+/// tools.toml). Crate-visible wrapper over the generated predicate so
+/// the dispatch access gates can honor the "advertised = callable"
+/// contract for the default tools/list.
+pub(crate) fn tool_default_listed(name: &str) -> bool {
+    generated::tool_default_listed(name)
+}
+
 pub(crate) fn tool_tier(name: &str) -> ToolTier {
     tool_definition(name)
         .and_then(|tool| tool.annotations.as_ref())

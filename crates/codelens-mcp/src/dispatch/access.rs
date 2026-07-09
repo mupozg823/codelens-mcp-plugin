@@ -18,6 +18,11 @@ fn is_deferred_namespace_access_allowed(
     if is_deferred_control_tool(name) {
         return true;
     }
+    // Ranked bootstrap slice (default_visible_rank): advertised in every
+    // default tools/list, so a call must not bounce off the expansion gate.
+    if crate::tool_defs::tool_default_listed(name) {
+        return true;
+    }
     if session.full_tool_exposure {
         return true;
     }
@@ -41,6 +46,10 @@ fn is_deferred_tier_access_allowed(
         return true;
     }
     if is_deferred_control_tool(name) {
+        return true;
+    }
+    // Same bootstrap-slice bypass as the namespace gate above.
+    if crate::tool_defs::tool_default_listed(name) {
         return true;
     }
     if session.full_tool_exposure {

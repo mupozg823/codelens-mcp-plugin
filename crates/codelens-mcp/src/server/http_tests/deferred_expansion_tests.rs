@@ -552,6 +552,68 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
     );
 }
 
+// Phase-1 verb consolidation contract: tools advertised in the ranked
+// bootstrap slice (default_visible_rank) must be callable on a deferred
+// session WITHOUT a namespace/tier expansion round trip — advertising a
+// tool in the bootstrap tools/list and then rejecting its call is
+// incoherent. Non-default-listed tools keep the expansion gate (the
+// find_symbol block below still holds).
+#[tokio::test]
+async fn default_listed_verbs_callable_without_tier_expansion() {
+    let state = test_state();
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+    let app = build_router(state.clone());
+    let file_path = state.project().as_path().join("verb-bootstrap.py");
+    std::fs::write(&file_path, "def gamma():\n    return 3\n").unwrap();
+
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA"},"profile":"reviewer-graph","deferredToolLoading":true}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search","arguments":{"mode":"symbol","name":"gamma"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        !body.contains("hidden by deferred loading"),
+        "default-listed `search` must not require expansion: {body}"
+    );
+}
+
 #[tokio::test]
 async fn deferred_tier_load_expands_default_surface_and_allows_calls() {
     let state = test_state();

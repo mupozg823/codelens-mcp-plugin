@@ -112,8 +112,10 @@ async fn post_non_initialize_without_session_works() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
+    // `search` replaced get_ranked_context in the bootstrap listing
+    // (Phase-1 verb consolidation — ranked retrieval is search mode=ranked).
     assert!(
-        body.contains("get_ranked_context"),
+        body.contains("\"search\""),
         "tools/list should return tools"
     );
 }
@@ -512,7 +514,8 @@ async fn full_session_lifecycle() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
-    assert!(body.contains("get_ranked_context"));
+    // Bootstrap listing carries the `search` verb (Phase-1 consolidation).
+    assert!(body.contains("\"search\""));
 
     // 3. Terminate session
     let app = build_router(state.clone());

@@ -153,7 +153,6 @@ name = "find_symbol"
 category = "symbol"
 namespace = "symbols"
 phase = "plan"
-default_visible_rank = 80
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body. Use `name` (canonical). Legacy `name_path` is accepted for one release with deprecation warning. `include_body=true` returns full body via tree-sitter; SCIP backend currently returns signature only (#172)."
 annotations = "ro_p"
@@ -177,7 +176,6 @@ name = "get_ranked_context"
 category = "symbol"
 namespace = "symbols"
 phase = "plan"
-default_visible_rank = 90
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Smart context retrieval — best symbols for a query within token budget. For natural-language queries, set expand_query=false to skip n-gram expansion; for partial-identifier search use the default."
 annotations = "ro_a"
@@ -197,6 +195,77 @@ depth = { type = "integer" }
 disable_semantic = { type = "boolean", description = "Disable semantic/hybrid ranking and use structural signals only" }
 expand_query = { type = "boolean", description = "When true (default), expand the query with snake_case / camelCase / cartesian-token derivatives. Set to false for natural-language queries that don't benefit from expansion." }
 anchor_files = { type = "array", items = { type = "string" }, description = "Optional working-set anchors: repo-relative file paths (e.g. files being actively edited) whose symbols are boosted in the user-context ranking lane. Reuses the recency lane's file-membership weighting — no graph recompute." }
+
+# ─────
+
+[[tool]]
+name = "search"
+category = "symbol"
+namespace = "symbols"
+phase = "plan"
+default_visible_rank = 80
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name → find_symbol) | refs (usages → find_referencing_symbols) | defn | impl | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+required = ["mode"]
+[tool.input_schema.properties]
+mode = { type = "string", enum = ["symbol", "refs", "defn", "impl", "scoped", "workspace", "bm25", "fuzzy", "semantic", "ranked"], description = "Which search family to run; other params pass through to the target tool" }
+name = { type = "string", description = "Symbol name (mode=symbol)" }
+query = { type = "string", description = "Search query (mode=semantic|ranked|bm25|fuzzy|workspace)" }
+path = { type = "string", description = "File or directory scope" }
+symbol_name = { type = "string", description = "Symbol to look up references for (mode=refs|scoped|defn|impl)" }
+include_body = { type = "boolean" }
+max_results = { type = "integer" }
+use_lsp = { type = "boolean", description = "Type-aware precision (mode=refs|defn|impl)" }
+
+# ─────
+
+[[tool]]
+name = "graph"
+category = "analysis"
+namespace = "graph"
+phase = "plan"
+default_visible_rank = 90
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Verb] Structural relationships — who calls, what breaks, how it flows. mode=callers | callees | types (hierarchy) | trace (request path) | impact (blast radius) | diff-refs (changed-file references). Remaining parameters pass through to the target tool unchanged."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+required = ["mode"]
+[tool.input_schema.properties]
+mode = { type = "string", enum = ["callers", "callees", "types", "trace", "impact", "diff-refs"], description = "Which graph analysis to run; other params pass through to the target tool" }
+function_name = { type = "string", description = "Function of interest (mode=callers|callees)" }
+symbol = { type = "string", description = "Symbol or entrypoint (mode=trace|types|impact)" }
+path = { type = "string", description = "File or directory scope" }
+max_results = { type = "integer" }
+max_depth = { type = "integer", description = "Trace depth (mode=trace)" }
+
+# ─────
+
+[[tool]]
+name = "review"
+category = "workflow_first"
+namespace = "reports"
+phase = "review"
+default_visible_rank = 40
+preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
+description = "[CodeLens:Verb] Quality reports — one mode-routed entry point. mode=architecture (boundaries+diagram) | changes (pre-merge diff impact) | boundary (module report) | dead (dead code) | dupes (duplicates) | similar | misplaced. Remaining parameters pass through to the target tool unchanged."
+annotations = "ro_a"
+
+[tool.input_schema]
+type = "object"
+required = ["mode"]
+[tool.input_schema.properties]
+mode = { type = "string", enum = ["architecture", "changes", "boundary", "dead", "dupes", "similar", "misplaced"], description = "Which review to run; other params pass through to the target tool" }
+path = { type = "string", description = "Scope path" }
+changed_files = { type = "array", items = { type = "string" }, description = "Changed file paths (mode=changes)" }
+task = { type = "string", description = "Review focus (mode=changes)" }
+include_diagram = { type = "boolean", description = "Render mermaid diagram (mode=architecture)" }
+max_results = { type = "integer" }
 
 # ─────
 
@@ -960,7 +1029,6 @@ name = "review_architecture"
 category = "workflow_first"
 namespace = "reports"
 phase = "plan"
-default_visible_rank = 40
 preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Review project or module architecture, boundaries, coupling, and optionally render a diagram."
 annotations = "ro_w"
@@ -1024,7 +1092,6 @@ name = "review_changes"
 category = "workflow_first"
 namespace = "reports"
 phase = "review"
-default_visible_rank = 50
 preset_tags = ["planner-readonly", "reviewer-graph"]
 description = "[CodeLens:Workflow] Pre-merge review: diff-aware references or impact analysis for changed files."
 annotations = "ro_w"

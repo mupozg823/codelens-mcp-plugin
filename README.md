@@ -63,11 +63,11 @@ CodeLens는 host가 대화를 소유하고, `codelens-mcp`가 MCP tool 표면과
 
 - Workspace version: `1.13.34`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
-- Registered tool definitions: `94`
-- Tool output schemas: `57 / 94`
+- Registered tool definitions: `97`
+- Tool output schemas: `57 / 97`
 - Supported language families: `34` across `56` extensions
-- Profiles: active `planner-readonly` (39), `builder-minimal` (38), `reviewer-graph` (43); compatibility aliases `evaluator-compact` (39, v2.0 removal), `refactor-full` (38, v2.0 removal), `ci-audit` (43, v2.0 removal), `workflow-first` (39, v2.0 removal)
-- Presets: `minimal` (20), `balanced` (81), `full` (94)
+- Profiles: active `planner-readonly` (42), `builder-minimal` (41), `reviewer-graph` (46); compatibility aliases `evaluator-compact` (42, v2.0 removal), `refactor-full` (41, v2.0 removal), `ci-audit` (46, v2.0 removal), `workflow-first` (42, v2.0 removal)
+- Presets: `minimal` (23), `balanced` (84), `full` (97)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
