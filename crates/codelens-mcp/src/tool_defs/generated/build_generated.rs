@@ -439,7 +439,7 @@ pub fn session_tools(
         Tool::new(
             "get_tool_metrics",
             "[CodeLens:Session] Per-tool call counts, latency, errors. Use for self-diagnosis.",
-            json!({"type":"object","properties":{"session_id":{"type":"string","description":"Optional logical session id. When present, return only that session's metrics."}}}),
+            json!({"type":"object","properties":{"session_id":{"type":"string","description":"Optional logical session id. When present, return only that session's metrics."},"compact":{"type":"boolean","description":"Omit zero-call and 30-day catalog lists while preserving measurement fields."}}}),
         ).with_output_schema(tool_metrics_output_schema()).with_annotations(ro_p.clone()),
         Tool::new(
             "audit_builder_session",

@@ -174,6 +174,13 @@ pub(super) fn put_ops_fields(
     );
     put(
         session_json,
+        "p50_tool_latency_ms",
+        json!(crate::telemetry::percentile_50(
+            &session.core.latency_samples
+        )),
+    );
+    put(
+        session_json,
         "p95_tool_latency_ms",
         json!(crate::telemetry::percentile_95(
             &session.core.latency_samples

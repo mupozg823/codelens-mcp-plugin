@@ -56,14 +56,22 @@ fn trim_rate_limit_window(samples: &mut VecDeque<u64>, now_ms: u64) {
     }
 }
 
-pub(crate) fn percentile_95(samples: &VecDeque<u64>) -> u64 {
+fn percentile(samples: &VecDeque<u64>, percentage: usize) -> u64 {
     if samples.is_empty() {
         return 0;
     }
     let mut values = samples.iter().copied().collect::<Vec<_>>();
     values.sort_unstable();
-    let index = ((values.len() - 1) * 95) / 100;
+    let index = ((values.len() - 1) * percentage.min(100)) / 100;
     values[index]
+}
+
+pub(crate) fn percentile_50(samples: &VecDeque<u64>) -> u64 {
+    percentile(samples, 50)
+}
+
+pub(crate) fn percentile_95(samples: &VecDeque<u64>) -> u64 {
+    percentile(samples, 95)
 }
 
 fn is_workflow_tool(name: &str) -> bool {

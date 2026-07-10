@@ -238,7 +238,7 @@ mod registry;
 mod writer;
 
 pub use registry::ToolMetricsRegistry;
-pub(crate) use registry::percentile_95;
+pub(crate) use registry::{percentile_50, percentile_95};
 #[cfg(test)]
 pub(crate) use writer::{PersistedEvent, TelemetryWriter};
 

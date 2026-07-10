@@ -23,15 +23,16 @@ fn latency_histogram(samples: &VecDeque<u64>) -> serde_json::Value {
 }
 
 pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let compact = _arguments
+        .get("compact")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
     let requested_session_id = _arguments
         .get("session_id")
         .and_then(|value| value.as_str());
     let snapshot = requested_session_id
         .map(|session_id| state.metrics().snapshot_for_session(session_id))
         .unwrap_or_else(|| state.metrics().snapshot());
-    let surfaces = requested_session_id
-        .map(|session_id| state.metrics().surface_snapshot_for_session(session_id))
-        .unwrap_or_else(|| state.metrics().surface_snapshot());
     let per_tool: Vec<serde_json::Value> = snapshot
         .iter()
         .map(|(name, m)| {
@@ -59,47 +60,6 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         })
         .collect();
     let count = per_tool.len();
-
-    // ── Tool Surface Diet: identify zero-call tools ───────────────────────────
-    let all_registered = crate::tool_defs::visible_tools(crate::tool_defs::ToolSurface::Preset(
-        crate::tool_defs::ToolPreset::Full,
-    ));
-    let registered_count = all_registered.len();
-    let all_tool_names: Vec<String> = all_registered.iter().map(|t| t.name.to_string()).collect();
-    let mut zero_call_tools: Vec<&str> = all_registered
-        .iter()
-        .filter(|tool| !snapshot.iter().any(|(name, _)| name == tool.name))
-        .map(|tool| tool.name)
-        .collect();
-    zero_call_tools.sort_unstable();
-    let call_coverage = if registered_count > 0 {
-        (registered_count - zero_call_tools.len()) as f64 / registered_count as f64
-    } else {
-        0.0
-    };
-
-    // Telemetry-driven 30-day underutilized tools (JSONL-based)
-    let underutilized_30d = state.metrics().underutilized_tools(&all_tool_names, 30);
-    let per_surface = surfaces
-        .into_iter()
-        .map(|(surface, metrics)| {
-            json!({
-                "surface": surface,
-                "calls": metrics.call_count,
-                "success_count": metrics.success_count,
-                "total_ms": metrics.total_ms,
-                "total_tokens": metrics.total_tokens,
-                "errors": metrics.error_count,
-                "avg_tokens_per_call": if metrics.call_count > 0 {
-                    metrics.total_tokens / metrics.call_count as usize
-                } else { 0 },
-                "p95_latency_ms": crate::telemetry::percentile_95(&metrics.latency_samples),
-                "surface_token_efficiency": if metrics.success_count > 0 {
-                    metrics.total_tokens as f64 / metrics.success_count as f64
-                } else { 0.0 }
-            })
-        })
-        .collect::<Vec<_>>();
     let coordination_scope: Option<String> = requested_session_id.and_then(|session_id| {
         #[cfg(feature = "http")]
         {
@@ -127,6 +87,68 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         "analysis_worker_limit": metrics_payload.session.get("analysis_worker_limit").cloned().unwrap_or_else(|| json!(0)),
         "analysis_job_success_rate": metrics_payload.derived_kpis.get("analysis_job_success_rate").cloned().unwrap_or_else(|| json!(0.0)),
     });
+
+    if compact {
+        return Ok((
+            json!({
+                "analysis_observability": analysis_observability,
+                "per_tool": per_tool,
+                "count": count,
+                "scope": if requested_session_id.is_some() { "session" } else { "global" },
+                "session_id": requested_session_id,
+                "session": metrics_payload.session,
+                "token_bill": metrics_payload.token_bill,
+                "derived_kpis": metrics_payload.derived_kpis,
+            }),
+            success_meta(BackendKind::Telemetry, 1.0),
+        ));
+    }
+
+    // ── Full diagnostic surface only: catalog and persisted-usage analysis ───
+    let all_registered = crate::tool_defs::visible_tools(crate::tool_defs::ToolSurface::Preset(
+        crate::tool_defs::ToolPreset::Full,
+    ));
+    let registered_count = all_registered.len();
+    let all_tool_names: Vec<String> = all_registered
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    let mut zero_call_tools: Vec<&str> = all_registered
+        .iter()
+        .filter(|tool| !snapshot.iter().any(|(name, _)| name == tool.name))
+        .map(|tool| tool.name)
+        .collect();
+    zero_call_tools.sort_unstable();
+    let call_coverage = if registered_count > 0 {
+        (registered_count - zero_call_tools.len()) as f64 / registered_count as f64
+    } else {
+        0.0
+    };
+    let underutilized_30d = state.metrics().underutilized_tools(&all_tool_names, 30);
+    let surfaces = requested_session_id
+        .map(|session_id| state.metrics().surface_snapshot_for_session(session_id))
+        .unwrap_or_else(|| state.metrics().surface_snapshot());
+    let per_surface = surfaces
+        .into_iter()
+        .map(|(surface, metrics)| {
+            json!({
+                "surface": surface,
+                "calls": metrics.call_count,
+                "success_count": metrics.success_count,
+                "total_ms": metrics.total_ms,
+                "total_tokens": metrics.total_tokens,
+                "errors": metrics.error_count,
+                "avg_tokens_per_call": if metrics.call_count > 0 {
+                    metrics.total_tokens / metrics.call_count as usize
+                } else { 0 },
+                "p95_latency_ms": crate::telemetry::percentile_95(&metrics.latency_samples),
+                "surface_token_efficiency": if metrics.success_count > 0 {
+                    metrics.total_tokens as f64 / metrics.success_count as f64
+                } else { 0.0 }
+            })
+        })
+        .collect::<Vec<_>>();
+
     Ok((
         json!({
             "analysis_observability": analysis_observability,
@@ -134,8 +156,6 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             "per_tool": per_tool,
             "count": count,
             "registered_count": registered_count,
-            "zero_call_tools": zero_call_tools,
-            "underutilized_30d": underutilized_30d,
             "call_coverage": call_coverage,
             "surfaces": per_surface.clone(),
             "per_surface": per_surface,
@@ -143,7 +163,9 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             "session_id": requested_session_id,
             "session": metrics_payload.session,
             "token_bill": metrics_payload.token_bill,
-            "derived_kpis": metrics_payload.derived_kpis
+            "derived_kpis": metrics_payload.derived_kpis,
+            "zero_call_tools": zero_call_tools,
+            "underutilized_30d": underutilized_30d,
         }),
         success_meta(BackendKind::Telemetry, 1.0),
     ))

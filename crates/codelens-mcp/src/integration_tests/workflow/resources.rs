@@ -157,6 +157,24 @@ fn tool_metrics_expose_kpis_and_chain_detection() {
 }
 
 #[test]
+fn compact_tool_metrics_preserve_measurement_fields_without_catalog_noise() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({"compact": true}));
+
+    assert!(metrics["data"]["session"]["total_calls"].is_number());
+    assert!(metrics["data"]["session"]["p50_tool_latency_ms"].is_number());
+    assert!(metrics["data"]["token_bill"]["total_tokens"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["handle_reuse_rate"].is_number());
+    assert!(metrics["data"].get("tools").is_none());
+    assert!(metrics["data"].get("surfaces").is_none());
+    assert!(metrics["data"]["per_tool"].is_array());
+    assert!(metrics["data"].get("zero_call_tools").is_none());
+    assert!(metrics["data"].get("underutilized_30d").is_none());
+}
+
+#[test]
 fn token_efficiency_resource_includes_watcher_metrics() {
     let project = project_root();
     let state = make_state(&project);

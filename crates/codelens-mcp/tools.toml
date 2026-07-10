@@ -1495,7 +1495,7 @@ output_schema = "tool_metrics_output_schema"
 
 [tool.input_schema]
 type = "object"
-properties = { session_id = { type = "string", description = "Optional logical session id. When present, return only that session's metrics." } }
+properties = { session_id = { type = "string", description = "Optional logical session id. When present, return only that session's metrics." }, compact = { type = "boolean", description = "Omit zero-call and 30-day catalog lists while preserving measurement fields." } }
 
 # ─────
 

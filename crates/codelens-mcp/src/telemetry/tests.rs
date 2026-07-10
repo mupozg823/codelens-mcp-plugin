@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::VecDeque;
 
 fn event<'a>(tool: &'a str, surface: &'a str) -> ToolCallEvent<'a> {
     ToolCallEvent {
@@ -32,6 +33,14 @@ fn record_and_snapshot() {
     assert_eq!(m.max_ms, 58);
     assert_eq!(m.error_count, 0);
     assert!(m.last_called_at > 0);
+}
+
+#[test]
+fn latency_percentiles_use_the_sorted_bounded_samples() {
+    let samples = VecDeque::from([90, 10, 40, 70, 20]);
+
+    assert_eq!(percentile_50(&samples), 40);
+    assert_eq!(percentile_95(&samples), 70);
 }
 
 #[test]
