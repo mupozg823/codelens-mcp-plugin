@@ -2,7 +2,7 @@
 #![allow(clippy::collapsible_if)]
 
 use super::writer::{PersistedEvent, TelemetryWriter};
-use super::{CallTelemetryHints, SessionMetrics, SurfaceMetrics, ToolInvocation, ToolMetrics};
+use super::{SessionMetrics, SurfaceMetrics, ToolCallEvent, ToolInvocation, ToolMetrics};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -20,6 +20,25 @@ const SESSION_RATE_LIMIT_WINDOW_MS: u64 = 60_000;
 mod events;
 mod recording;
 use recording::{record_session_call, record_surface_call, record_tool_call};
+
+#[cfg(test)]
+fn default_telemetry_writer() -> Option<TelemetryWriter> {
+    // Tests must opt in explicitly so a developer's runtime telemetry env
+    // cannot make unrelated cargo-test cases append fixture calls to JSONL.
+    if matches!(
+        std::env::var("CODELENS_TEST_TELEMETRY_ENABLED").as_deref(),
+        Ok("1")
+    ) {
+        TelemetryWriter::from_env()
+    } else {
+        None
+    }
+}
+
+#[cfg(not(test))]
+fn default_telemetry_writer() -> Option<TelemetryWriter> {
+    TelemetryWriter::from_env()
+}
 
 fn push_latency_sample(samples: &mut VecDeque<u64>, elapsed_ms: u64) {
     if samples.len() >= MAX_LATENCY_SAMPLES {
@@ -109,7 +128,7 @@ impl ToolMetricsRegistry {
             session: Mutex::new(SessionMetrics::default()),
             session_buckets: Mutex::new(HashMap::new()),
             session_windows: Mutex::new(HashMap::new()),
-            writer: TelemetryWriter::from_env(),
+            writer: default_telemetry_writer(),
         }
     }
 
@@ -128,46 +147,29 @@ impl ToolMetricsRegistry {
     /// Record a single tool invocation (per-tool + session).
     #[allow(dead_code)] // used in tests and as convenience wrapper
     pub fn record_call(&self, name: &str, elapsed_ms: u64, success: bool) {
-        self.record_call_with_tokens(name, elapsed_ms, success, 0, "unknown", false, None);
+        self.record_event(ToolCallEvent {
+            tool: name,
+            elapsed_ms,
+            tokens: 0,
+            success,
+            surface: "unknown",
+            truncated: false,
+            phase: None,
+            logical_session_id: None,
+            target_paths: &[],
+            hints: Default::default(),
+        });
     }
 
-    /// Record a tool invocation with token estimate.
-    #[allow(clippy::too_many_arguments)]
-    pub fn record_call_with_tokens(
-        &self,
-        name: &str,
-        elapsed_ms: u64,
-        success: bool,
-        tokens: usize,
-        surface: &str,
-        truncated: bool,
-        phase: Option<&str>,
-    ) {
-        self.record_call_with_tokens_for_session(
-            name, elapsed_ms, success, tokens, surface, truncated, phase, None,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn record_call_with_targets_for_session(
-        &self,
-        name: &str,
-        elapsed_ms: u64,
-        success: bool,
-        tokens: usize,
-        surface: &str,
-        truncated: bool,
-        phase: Option<&str>,
-        logical_session_id: Option<&str>,
-        target_paths: &[String],
-        telemetry_hints: CallTelemetryHints<'_>,
-    ) {
+    /// Record a completed call once and fan its facts out to all telemetry
+    /// sinks (global/session aggregates and optional JSONL persistence).
+    pub(crate) fn record_event(&self, event: ToolCallEvent<'_>) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
 
-        if let Some(session_id) = logical_session_id {
+        if let Some(session_id) = event.logical_session_id {
             let mut windows = self
                 .session_windows
                 .lock()
@@ -184,21 +186,7 @@ impl ToolMetricsRegistry {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-            let entry = map.entry(name.to_owned()).or_default();
-            entry.call_count += 1;
-            if success {
-                entry.success_count += 1;
-            }
-            entry.total_ms += elapsed_ms;
-            entry.total_tokens += tokens;
-            if elapsed_ms > entry.max_ms {
-                entry.max_ms = elapsed_ms;
-            }
-            push_latency_sample(&mut entry.latency_samples, elapsed_ms);
-            if !success {
-                entry.error_count += 1;
-            }
-            entry.last_called_at = now;
+            record_tool_call(&mut map, &event, now);
         }
 
         {
@@ -206,45 +194,18 @@ impl ToolMetricsRegistry {
                 .session
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            record_session_call(
-                &mut session,
-                name,
-                elapsed_ms,
-                success,
-                tokens,
-                surface,
-                truncated,
-                phase,
-                target_paths,
-            );
+            record_session_call(&mut session, &event);
         }
 
-        if let Some(session_id) = logical_session_id {
+        if let Some(session_id) = event.logical_session_id {
             let mut buckets = self
                 .session_buckets
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let bucket = buckets.entry(session_id.to_owned()).or_default();
-            record_tool_call(&mut bucket.tools, name, elapsed_ms, success, tokens, now);
-            record_surface_call(
-                &mut bucket.surfaces,
-                surface,
-                elapsed_ms,
-                success,
-                tokens,
-                now,
-            );
-            record_session_call(
-                &mut bucket.session,
-                name,
-                elapsed_ms,
-                success,
-                tokens,
-                surface,
-                truncated,
-                phase,
-                target_paths,
-            );
+            record_tool_call(&mut bucket.tools, &event, now);
+            record_surface_call(&mut bucket.surfaces, &event, now);
+            record_session_call(&mut bucket.session, &event);
         }
 
         {
@@ -252,57 +213,14 @@ impl ToolMetricsRegistry {
                 .surfaces
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            record_surface_call(&mut surfaces, surface, elapsed_ms, success, tokens, now);
+            record_surface_call(&mut surfaces, &event, now);
         }
 
         // Persist the event to the append-only telemetry log if enabled.
         // Failures are swallowed so telemetry can never break dispatch.
         if let Some(writer) = &self.writer {
-            writer.append_event(&PersistedEvent {
-                timestamp_ms: now,
-                tool: name,
-                surface,
-                elapsed_ms,
-                tokens,
-                success,
-                truncated,
-                session_id: logical_session_id,
-                phase,
-                target_paths: (!target_paths.is_empty()).then_some(target_paths),
-                suggested_next_tools: telemetry_hints.suggested_next_tools,
-                delegate_hint_trigger: telemetry_hints.delegate_hint_trigger,
-                delegate_target_tool: telemetry_hints.delegate_target_tool,
-                delegate_handoff_id: telemetry_hints.delegate_handoff_id,
-                handoff_id: telemetry_hints.handoff_id,
-            });
+            writer.append_event(&PersistedEvent::from_tool_call(now, &event));
         }
-    }
-
-    /// Record a tool invocation with token estimate and logical session context.
-    #[allow(clippy::too_many_arguments)]
-    pub fn record_call_with_tokens_for_session(
-        &self,
-        name: &str,
-        elapsed_ms: u64,
-        success: bool,
-        tokens: usize,
-        surface: &str,
-        truncated: bool,
-        phase: Option<&str>,
-        logical_session_id: Option<&str>,
-    ) {
-        self.record_call_with_targets_for_session(
-            name,
-            elapsed_ms,
-            success,
-            tokens,
-            surface,
-            truncated,
-            phase,
-            logical_session_id,
-            &[],
-            CallTelemetryHints::default(),
-        );
     }
 
     /// Return a snapshot of all per-tool metrics, sorted by call_count descending.

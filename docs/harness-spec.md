@@ -206,11 +206,16 @@ CODELENS_TELEMETRY_PATH=/var/log/codelens/traces.jsonl codelens-mcp ...
 
 Each JSONL line records: `timestamp_ms`, `tool`, `surface`, `phase`,
 `session_id`, `target_paths`, `elapsed_ms`, `tokens`, `success`,
-`truncated`, plus safe routing metadata when available:
+`truncated`, `recording_origin`, plus safe routing metadata when available:
 `suggested_next_tools`, `delegate_hint_trigger`, `delegate_target_tool`,
 `delegate_handoff_id`, `handoff_id`.
 **Tool arguments are intentionally excluded** so the trace cannot leak
 user query text or PII through the pipeline.
+
+Live server rows use `recording_origin=runtime`. Test-only rows use
+`recording_origin=test` and are excluded by the analyzer. Historical rows
+without the field are retained as legacy diagnostics but cannot establish a
+productivity claim until a runtime-marked collection window exists.
 
 Aggregation for the shipped eval lane:
 

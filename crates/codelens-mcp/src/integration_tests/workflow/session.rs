@@ -5,6 +5,7 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
     struct TelemetryEnvGuard {
         prev_sym_enabled: Option<String>,
         prev_enabled: Option<String>,
+        prev_test_enabled: Option<String>,
         prev_sym_path: Option<String>,
         prev_path: Option<String>,
     }
@@ -14,6 +15,7 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
             let guard = Self {
                 prev_sym_enabled: std::env::var("SYMBIOTE_TELEMETRY_ENABLED").ok(),
                 prev_enabled: std::env::var("CODELENS_TELEMETRY_ENABLED").ok(),
+                prev_test_enabled: std::env::var("CODELENS_TEST_TELEMETRY_ENABLED").ok(),
                 prev_sym_path: std::env::var("SYMBIOTE_TELEMETRY_PATH").ok(),
                 prev_path: std::env::var("CODELENS_TELEMETRY_PATH").ok(),
             };
@@ -26,6 +28,7 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
                 std::env::set_var("CODELENS_TELEMETRY_PATH", path);
                 std::env::remove_var("SYMBIOTE_TELEMETRY_PATH");
                 std::env::set_var("CODELENS_TELEMETRY_ENABLED", "1");
+                std::env::set_var("CODELENS_TEST_TELEMETRY_ENABLED", "1");
                 std::env::remove_var("SYMBIOTE_TELEMETRY_ENABLED");
             }
             guard
@@ -42,6 +45,10 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
                 match &self.prev_enabled {
                     Some(value) => std::env::set_var("CODELENS_TELEMETRY_ENABLED", value),
                     None => std::env::remove_var("CODELENS_TELEMETRY_ENABLED"),
+                }
+                match &self.prev_test_enabled {
+                    Some(value) => std::env::set_var("CODELENS_TEST_TELEMETRY_ENABLED", value),
+                    None => std::env::remove_var("CODELENS_TEST_TELEMETRY_ENABLED"),
                 }
                 match &self.prev_sym_path {
                     Some(value) => std::env::set_var("SYMBIOTE_TELEMETRY_PATH", value),

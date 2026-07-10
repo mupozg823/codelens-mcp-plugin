@@ -314,12 +314,29 @@ pub(crate) fn resolve_lsp_binary(command: &str) -> Option<PathBuf> {
 }
 
 /// Resolve an LSP binary with an optional `hint_dir`. When `hint_dir` is
-/// `Some`, the resolver also walks up from that directory looking for a
-/// `node_modules/.bin/<command>` shim before reporting the binary as
-/// missing. This unblocks Node / TS projects that install LSP servers
-/// as devDependencies (the Next.js standard pattern), where the global
-/// PATH does not see the binary but the per-project shim does.
+/// `Some`, a project-local `node_modules/.bin/<command>` shim takes
+/// precedence over global PATH candidates. This keeps a repository's pinned
+/// language server deterministic when a developer also has a different global
+/// version installed.
 pub fn resolve_lsp_binary_with_hint(command: &str, hint_dir: Option<&Path>) -> Option<PathBuf> {
+    match std::env::var_os("PATH") {
+        Some(path_dirs) => resolve_lsp_binary_with_hint_and_path_dirs(
+            command,
+            hint_dir,
+            std::env::split_paths(&path_dirs),
+        ),
+        None => resolve_lsp_binary_with_hint_and_path_dirs(command, hint_dir, std::iter::empty()),
+    }
+}
+
+fn resolve_lsp_binary_with_hint_and_path_dirs<I>(
+    command: &str,
+    hint_dir: Option<&Path>,
+    path_dirs: I,
+) -> Option<PathBuf>
+where
+    I: IntoIterator<Item = PathBuf>,
+{
     let command_path = Path::new(command);
     if command_path.components().count() > 1 {
         return if command_path.is_file() {
@@ -331,11 +348,15 @@ pub fn resolve_lsp_binary_with_hint(command: &str, hint_dir: Option<&Path>) -> O
         };
     }
 
-    if let Some(path_dirs) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&path_dirs) {
-            if let Some(path) = resolve_in_dir(&dir, command) {
-                return Some(path);
-            }
+    if let Some(start) = hint_dir
+        && let Some(path) = find_in_node_modules_bin(start, command, NODE_MODULES_TRAVERSE_DEPTH)
+    {
+        return Some(path);
+    }
+
+    for dir in path_dirs {
+        if let Some(path) = resolve_in_dir(&dir, command) {
+            return Some(path);
         }
     }
 
@@ -351,12 +372,6 @@ pub fn resolve_lsp_binary_with_hint(command: &str, hint_dir: Option<&Path>) -> O
                 return Some(path);
             }
         }
-    }
-
-    if let Some(start) = hint_dir
-        && let Some(path) = find_in_node_modules_bin(start, command, NODE_MODULES_TRAVERSE_DEPTH)
-    {
-        return Some(path);
     }
 
     None
@@ -486,6 +501,34 @@ mod tests {
         let resolved = resolve_lsp_binary_with_hint(&unique, Some(&nested))
             .expect("parent traversal must surface hoisted shim");
         assert_eq!(resolved, shim);
+    }
+
+    #[test]
+    fn resolves_project_local_lsp_before_conflicting_path_binary() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let unique = format!(
+            "phantom-lsp-path-priority-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let local_dir = tempdir.path().join("node_modules/.bin");
+        let global_dir = tempdir.path().join("path-bin");
+        std::fs::create_dir_all(&local_dir).expect("mkdir project-local bin");
+        std::fs::create_dir_all(&global_dir).expect("mkdir PATH bin");
+        let local_shim = local_dir.join(&unique);
+        std::fs::write(&local_shim, b"#!/bin/sh\nexit 0\n").expect("write local shim");
+        std::fs::write(global_dir.join(&unique), b"#!/bin/sh\nexit 0\n").expect("write PATH shim");
+
+        let resolved = resolve_lsp_binary_with_hint_and_path_dirs(
+            &unique,
+            Some(tempdir.path()),
+            vec![global_dir],
+        )
+        .expect("project-local shim should resolve");
+
+        assert_eq!(resolved, local_shim);
     }
 
     /// `resolve_lsp_binary_with_hint(_, None)` must behave exactly like

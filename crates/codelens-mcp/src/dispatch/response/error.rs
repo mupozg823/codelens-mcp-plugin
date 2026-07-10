@@ -6,7 +6,7 @@ use crate::dispatch::response_support::{
 use crate::error::CodeLensError;
 use crate::mutation_gate::MutationGateFailure;
 use crate::protocol::{JsonRpcError, JsonRpcResponse, ToolCallResponse};
-use crate::telemetry::CallTelemetryHints;
+use crate::telemetry::{CallTelemetryHints, ToolCallEvent};
 use crate::tools;
 use serde_json::json;
 
@@ -29,18 +29,18 @@ pub(crate) fn build_error_response(
     let target_paths = state.extract_target_paths(arguments);
 
     if error.is_protocol_error() {
-        state.metrics().record_call_with_targets_for_session(
-            name,
-            elapsed_ms as u64,
-            false,
-            0,
-            active_surface,
-            false,
-            None,
-            Some(logical_session_id),
-            &target_paths,
-            CallTelemetryHints::default(),
-        );
+        state.metrics().record_event(ToolCallEvent {
+            tool: name,
+            elapsed_ms: elapsed_ms as u64,
+            tokens: 0,
+            success: false,
+            surface: active_surface,
+            truncated: false,
+            phase: None,
+            logical_session_id: Some(logical_session_id),
+            target_paths: &target_paths,
+            hints: CallTelemetryHints::default(),
+        });
         // Protocol errors used to terminate as a bare JSON-RPC string. Carry
         // the structured recovery hint (RequireField / did-you-mean +
         // get_capabilities fallback) in `error.data.recovery_hint` so agents
@@ -105,24 +105,24 @@ pub(crate) fn build_error_response(
     let handoff_id = arguments.get("handoff_id").and_then(|value| value.as_str());
     let (delegate_hint_trigger, delegate_target_tool, delegate_handoff_id) =
         delegate_hint_telemetry_fields(&resp);
-    state.metrics().record_call_with_targets_for_session(
-        name,
-        elapsed_ms as u64,
-        false,
-        0,
-        active_surface,
-        false,
-        None,
-        Some(logical_session_id),
-        &target_paths,
-        CallTelemetryHints {
+    state.metrics().record_event(ToolCallEvent {
+        tool: name,
+        elapsed_ms: elapsed_ms as u64,
+        tokens: 0,
+        success: false,
+        surface: active_surface,
+        truncated: false,
+        phase: None,
+        logical_session_id: Some(logical_session_id),
+        target_paths: &target_paths,
+        hints: CallTelemetryHints {
             suggested_next_tools,
             delegate_hint_trigger,
             delegate_target_tool,
             delegate_handoff_id,
             handoff_id,
         },
-    );
+    });
     let text = text_payload_for_response(&resp, None, false);
     let mut body = json!({
         "content": [{ "type": "text", "text": text }],

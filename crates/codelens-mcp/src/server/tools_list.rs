@@ -4,6 +4,7 @@ use crate::resource_context::{
     ResourceRequestContext, build_visible_tool_context, filter_default_listed_tools,
     filter_listed_tools,
 };
+use crate::telemetry::ToolCallEvent;
 use crate::tool_defs::{
     parse_tool_selection_requests, preferred_phase_labels, tool_preferred_executor_label,
     tool_selection_diagnostics,
@@ -116,15 +117,18 @@ pub(crate) fn build_tools_list_response(
     {
         state.metrics().record_deferred_namespace_expansion();
     }
-    state.metrics().record_call_with_tokens(
-        "tools/list",
-        0,
-        true,
-        token_estimate,
-        surface.as_label(),
-        false,
-        None,
-    );
+    state.metrics().record_event(ToolCallEvent {
+        tool: "tools/list",
+        elapsed_ms: 0,
+        tokens: token_estimate,
+        success: true,
+        surface: surface.as_label(),
+        truncated: false,
+        phase: None,
+        logical_session_id: None,
+        target_paths: &[],
+        hints: Default::default(),
+    });
     let mut payload = Map::new();
     payload.insert(
         "client_profile".to_owned(),

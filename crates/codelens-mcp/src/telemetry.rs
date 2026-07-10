@@ -50,6 +50,26 @@ pub struct CallTelemetryHints<'a> {
     pub handoff_id: Option<&'a str>,
 }
 
+/// One completed tool call captured at the dispatch boundary.
+///
+/// This is deliberately a borrowed, stack-only value: it keeps the hot path
+/// allocation-free until the existing aggregate and JSONL sinks need to own
+/// their respective data. It also makes every telemetry sink consume the same
+/// call facts instead of receiving a growing positional argument list.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ToolCallEvent<'a> {
+    pub(crate) tool: &'a str,
+    pub(crate) elapsed_ms: u64,
+    pub(crate) tokens: usize,
+    pub(crate) success: bool,
+    pub(crate) surface: &'a str,
+    pub(crate) truncated: bool,
+    pub(crate) phase: Option<&'a str>,
+    pub(crate) logical_session_id: Option<&'a str>,
+    pub(crate) target_paths: &'a [String],
+    pub(crate) hints: CallTelemetryHints<'a>,
+}
+
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct SurfaceMetrics {
     pub call_count: u64,

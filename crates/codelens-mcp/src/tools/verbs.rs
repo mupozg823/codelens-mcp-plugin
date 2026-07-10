@@ -78,57 +78,80 @@ pub(crate) const ANALYZE_MODES: &[(&str, &str)] = &[
 ];
 
 pub fn search(state: &AppState, args: &Value) -> ToolResult {
-    run_verb("search", SEARCH_MODES, state, args)
+    run_verb("search", state, args)
 }
 
 pub fn overview(state: &AppState, args: &Value) -> ToolResult {
-    run_verb("overview", OVERVIEW_MODES, state, args)
+    run_verb("overview", state, args)
 }
 
 pub fn diagnose(state: &AppState, args: &Value) -> ToolResult {
-    run_verb("diagnose", DIAGNOSE_MODES, state, args)
+    run_verb("diagnose", state, args)
 }
 
 pub fn analyze(state: &AppState, args: &Value) -> ToolResult {
-    run_verb("analyze", ANALYZE_MODES, state, args)
+    run_verb("analyze", state, args)
 }
 
 pub fn graph(state: &AppState, args: &Value) -> ToolResult {
-    run_verb("graph", GRAPH_MODES, state, args)
+    run_verb("graph", state, args)
 }
 
 pub fn review(state: &AppState, args: &Value) -> ToolResult {
-    run_verb("review", REVIEW_MODES, state, args)
+    run_verb("review", state, args)
 }
 
-fn run_verb(
-    verb: &'static str,
-    modes: &'static [(&'static str, &'static str)],
-    state: &AppState,
-    args: &Value,
-) -> ToolResult {
-    let mode = args
-        .get("mode")
-        .and_then(Value::as_str)
-        .ok_or_else(|| CodeLensError::MissingParam("mode".to_owned()))?;
-    let target = resolve_mode(verb, modes, mode)?;
-    // Pass arguments through unchanged (target handlers read their own
-    // keys and ignore extras); only the routing key is stripped.
-    let mut inner = args.clone();
-    if let Some(obj) = inner.as_object_mut() {
-        obj.remove("mode");
-    }
+fn run_verb(verb: &'static str, state: &AppState, args: &Value) -> ToolResult {
+    let (target, inner) = resolve_verb_target(verb, args)?.ok_or_else(|| {
+        CodeLensError::ToolNotFound(format!("verb facade `{verb}` is not registered"))
+    })?;
     match crate::dispatch::invoke_registered(state, target, &inner) {
         Some(result) => result,
         None => Err(CodeLensError::Validation(format!(
-            "{verb} mode '{mode}' delegates to `{target}`, which is not registered in this \
+            "{verb} delegates to `{target}`, which is not registered in this \
              build (feature-gated — rebuild with `--features semantic`)"
         ))),
     }
 }
 
+/// Resolve a mode-routed facade to its target handler and target arguments.
+///
+/// The routing key is stripped after resolution so target handlers receive
+/// only their own arguments. `None` marks ordinary tools that are not verb
+/// facades.
+pub(crate) fn resolve_verb_target(
+    verb: &str,
+    args: &Value,
+) -> Result<Option<(&'static str, Value)>, CodeLensError> {
+    let Some(modes) = modes_for_verb(verb) else {
+        return Ok(None);
+    };
+    let mode = args
+        .get("mode")
+        .and_then(Value::as_str)
+        .ok_or_else(|| CodeLensError::MissingParam("mode".to_owned()))?;
+    let target = resolve_mode(verb, modes, mode)?;
+    let mut inner = args.clone();
+    if let Some(obj) = inner.as_object_mut() {
+        obj.remove("mode");
+    }
+    Ok(Some((target, inner)))
+}
+
+fn modes_for_verb(verb: &str) -> Option<&'static [(&'static str, &'static str)]> {
+    match verb {
+        "search" => Some(SEARCH_MODES),
+        "overview" => Some(OVERVIEW_MODES),
+        "diagnose" => Some(DIAGNOSE_MODES),
+        "analyze" => Some(ANALYZE_MODES),
+        "graph" => Some(GRAPH_MODES),
+        "review" => Some(REVIEW_MODES),
+        _ => None,
+    }
+}
+
 fn resolve_mode(
-    verb: &'static str,
+    verb: &str,
     modes: &'static [(&'static str, &'static str)],
     mode: &str,
 ) -> Result<&'static str, CodeLensError> {

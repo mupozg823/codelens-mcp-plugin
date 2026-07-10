@@ -128,12 +128,17 @@ Prioritized architecture moves:
 3. Completed: split `tools/workflows.rs` by real responsibility; duplicate-cleanup quality filters and tests now live in `tools/workflows/duplicate_cleanup.rs`, leaving workflow entrypoints as thin orchestration.
 4. Completed: split `session_metrics_payload.rs` by real ownership. The parent now snapshots `AppState` and delegates to submodules for session fields, derived KPIs, and token bill construction; grouped field writers keep every touched file under the 250 pure-LOC review ceiling.
 5. Completed: productize the local tool-usage analyzer modules as operator-facing telemetry. The CLI now covers metrics JSON, telemetry JSONL, and Codex rollout JSONL; rollout event parsing lives in `scripts/codex_rollout_events.py`, leaving `scripts/codex_rollout_usage.py` as the loader/orchestration layer.
-6. Next: put the same strict measurements around adaptive RRF/rerank and
+6. Completed (2026-07-10): route every completed tool call through one
+   borrowed `ToolCallEvent` before fanning out to global/session aggregates
+   and the opt-in JSONL writer. The persisted schema has a backward-compatible
+   `recording_origin` addition covered by a structured-event regression test;
+   this is a boundary cleanup, not a new event bus.
+7. Next: put the same strict measurements around adaptive RRF/rerank and
    hierarchical context changes: compare Recall@k, nDCG/MRR, latency p50/p95,
    and context-token deltas before widening defaults.
-7. Next: review `crates/codelens-engine/src/project.rs` detection helpers with CodeLens before any split. It is still a large production file and has broader engine blast radius than the Python telemetry lane.
-8. Treat `dispatch/response.rs` as high-risk but second order: it is large, but the dispatch boundary has no cycle hit. Only extract cohesive delegate-hint or response-enrichment helpers when the diff removes real branching complexity.
-9. Keep Serena comparison honest: CodeLens should adopt Serena's deterministic routing pressure at the plugin/skill layer, not Serena's blind-trust editing prompt or LSP-adapter breadth race.
+8. Next: review `crates/codelens-engine/src/project.rs` detection helpers with CodeLens before any split. It is still a large production file and has broader engine blast radius than the Python telemetry lane.
+9. Treat `dispatch/response.rs` as high-risk but second order: it is large, but the dispatch boundary has no cycle hit. Only extract cohesive delegate-hint or response-enrichment helpers when the diff removes real branching complexity.
+10. Keep Serena comparison honest: CodeLens should adopt Serena's deterministic routing pressure at the plugin/skill layer, not Serena's blind-trust editing prompt or LSP-adapter breadth race.
 
 ---
 
@@ -204,7 +209,7 @@ constraint, not a formatting detail. Layers, from request to wire:
    `project_binding` hint (−35% on `find_symbol` data); unbound store-backed
    HTTP sessions are blocked from content mutations (#347) with a structured
    `ProjectBindingRequired` recovery hint.
-5. **Surface economics** — of 94 `tools.toml` tool records, the default / alwaysLoad
+5. **Surface economics** — of 100 `tools.toml` tool records, the default / alwaysLoad
    slice stays capped at 9 control-plane tools; everything else expands by
    phase, namespace, tier, preferred entrypoint, or host tool search.
 
@@ -345,7 +350,7 @@ codelens-mcp-plugin/
 │   │       ├── lib.rs                    # Public API surface
 │   │       ├── project.rs                # ProjectRoot, framework detection
 │   │       │
-│   │       ├── lang_registry.rs          # 25 languages: ext → canonical → config
+│   │       ├── lang_registry.rs          # 34 language families: ext → canonical → config
 │   │       ├── lang_config.rs            # tree-sitter Language + Query per lang
 │   │       │
 │   │       ├── symbols/                  # Symbol extraction & ranking
@@ -542,7 +547,7 @@ codelens-mcp-plugin/
    └────┬────┘         └────┬────┘        └────┬────┘
         │                   │                   │
    ┌────▼───────────────────▼───────────────────▼────┐
-   │              tree-sitter (25 languages)         │
+   │           tree-sitter (34 language families)    │
    │         Statically linked, zero-config          │
    │         Error recovery, millisecond parsing     │
    └──────────────────────────────────────────────────┘
@@ -550,96 +555,34 @@ codelens-mcp-plugin/
 
 ---
 
-## 4. Tool Ecosystem (Historical Shape Reference)
+## 4. Tool Ecosystem (Current Surface Snapshot)
 
-This section is a broad shape reference for the product surface.
-For the latest authoritative counts, use the **Current Snapshot** at the top of this file and the audit report in [docs/architecture-audit-2026-04-24.md](architecture-audit-2026-04-24.md).
+These counts come from `docs/generated/surface-manifest.json`. Historical
+89/94-tool snapshots are not current inventory and must not be used for product
+or token-economics claims.
 
 ### Preset Distribution
 
 ```
-FULL     (89)   ████████████████████████████████████████████  100%
-BALANCED (55)   ██████████████████████████████                 62%
-MINIMAL  (20)   ██████████████                                 22%
+FULL     (100)  ████████████████████████████████████████████  100%
+BALANCED (87)   ████████████████████████████████████████████   87%
+MINIMAL  (26)   ██████████████                                 26%
 ```
 
-### Tool Categories (counted from tool_defs/build.rs)
+### Namespace Distribution
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         89 Tools                                 │
-├───────────────────┬─────────────────┬───────────────────────────┤
-│ File (7)          │ Symbol (7)      │ LSP (7)                   │
-│  read_file        │  get_symbols_   │  find_referencing_symbols │
-│  list_dir         │   overview      │  get_file_diagnostics     │
-│  find_file        │  find_symbol    │  search_workspace_symbols │
-│  search_for_      │  get_ranked_    │  get_type_hierarchy       │
-│   pattern         │   context       │  plan_symbol_rename       │
-│  find_annotations │  search_symbols_│  check_lsp_status         │
-│  find_tests       │   fuzzy         │  get_lsp_recipe           │
-│  get_current_     │  get_complexity │                           │
-│   config          │  get_project_   │                           │
-│                   │   structure     │                           │
-│                   │  refresh_symbol │                           │
-│                   │   _index        │                           │
-├───────────────────┼─────────────────┼───────────────────────────┤
-│ Analysis (7)      │ Edit (17)       │ Workflow/Composite (17)   │
-│  get_changed_     │  rename_symbol  │  onboard_project          │
-│   files           │  replace_symbol │  analyze_change_request   │
-│  get_impact_      │   _body         │  verify_change_readiness  │
-│   analysis        │  replace_content│  trace_request_path       │
-│  find_scoped_     │  replace_lines  │  mermaid_module_graph     │
-│   references      │  delete_lines   │  module_boundary_report   │
-│  get_symbol_      │  insert_at_line │  safe_rename_report       │
-│   importance      │  insert_before_ │  unresolved_reference_    │
-│  find_dead_code   │   symbol        │   check                   │
-│  find_circular_   │  insert_after_  │  dead_code_report         │
-│   dependencies    │   symbol        │  impact_report            │
-│  get_change_      │  insert_content │  impact_report            │
-│   coupling        │  replace        │  refactor_safety_report   │
-│                   │  create_text_   │  diff_aware_references    │
-│                   │   file          │  semantic_code_review     │
-│                   │  analyze_       │  start_analysis_job       │
-│                   │   missing_      │  get_analysis_job         │
-│                   │   imports       │  cancel_analysis_job      │
-│                   │  add_import     │  get_analysis_section     │
-│                   │  refactor_      │                           │
-│                   │   extract/      │                           │
-│                   │   inline/       │                           │
-│                   │   move_to_file/ │                           │
-│                   │   change_       │                           │
-│                   │   signature     │                           │
-├───────────────────┼─────────────────┼───────────────────────────┤
-│ Memory (5)        │ Session (16)    │ Semantic (6, cfg-gated)   │
-│  list_memories    │  activate_      │  semantic_search          │
-│  read_memory      │   project       │  index_embeddings         │
-│  write_memory     │  prepare_       │  find_similar_code        │
-│  delete_memory    │   harness_      │  find_code_duplicates     │
-│  rename_memory    │   session       │  classify_symbol          │
-│                   │  prepare_for_   │  find_misplaced_code      │
-│                   │   new_          │                           │
-│                   │   conversation  │                           │
-│                   │  summarize_     │                           │
-│                   │   changes       │                           │
-│                   │  get_watch_     │                           │
-│                   │   status        │                           │
-│                   │  prune_index_   │                           │
-│                   │   failures      │                           │
-│                   │  add/remove/    │                           │
-│                   │   query/list    │                           │
-│                   │   _queryable_   │                           │
-│                   │   project (4)   │                           │
-│                   │  set_preset     │                           │
-│                   │  set_profile    │                           │
-│                   │  get_           │                           │
-│                   │   capabilities  │                           │
-│                   │  get_tool_      │                           │
-│                   │   metrics       │                           │
-│                   │  export_session │                           │
-│                   │   _markdown     │                           │
-│                   │  summarize_file │                           │
-└───────────────────┴─────────────────┴───────────────────────────┘
-```
+| Namespace | Tool definitions |
+| --- | ---: |
+| filesystem | 5 |
+| graph | 11 |
+| lsp | 2 |
+| memory | 5 |
+| reports | 23 |
+| session | 40 |
+| symbols | 14 |
+
+The generated manifest is the source of truth for per-tool membership; this
+document intentionally avoids a second hand-maintained tool list.
 
 ### Output Schemas
 
@@ -675,7 +618,7 @@ The canonical family/extension inventory is generated from `codelens_engine::lan
 │  │  tree-sitter     │      │  LSP (opt-in)    │             │
 │  │  ✓ 0ms 시작      │      │  ✗ 2-30s 콜드    │             │
 │  │  ✓ 제로 설정     │      │  ✗ 서버 설치     │             │
-│  │  ✓ 25개 내장     │      │  ✗ 설정 필요     │             │
+│  │  ✓ 34 family     │      │  ✗ 설정 필요     │             │
 │  │  ✓ 에러 복구     │      │  ✗ 빌드 실패시   │             │
 │  │  ✓ 결정적        │      │    무응답        │             │
 │  │  DEFAULT ←───────┤      │  use_lsp=true    │             │
@@ -738,11 +681,10 @@ All mutation tools are gated:
 │  │  ✅ Session management (UUID, TTL)                │  │
 │  │  ✅ .well-known/mcp.json Server Card              │  │
 │  │  ✅ Deferred tool loading (bootstrap-aware)       │  │
-│  │  ✅ In-memory telemetry (per-tool metrics)        │  │
+│  │  ✅ Telemetry (in-memory + opt-in JSONL)          │  │
 │  │  ✅ suggest_next_tools (contextual chaining)      │  │
 │  │  ✅ v2.1.91+ `_meta` annotation                   │  │
 │  │  ✅ Doom-loop detection (rapid-burst → async)     │  │
-│  │  ⬜ Persistent telemetry (JSONL, planned)         │  │
 │  │  ⬜ Stateless session tokens (spec pending)       │  │
 │  │  ⬜ A2A Agent Card (long-term)                    │  │
 │  └───────────────────────────────────────────────────┘  │

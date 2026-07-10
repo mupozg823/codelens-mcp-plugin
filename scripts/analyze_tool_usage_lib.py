@@ -45,6 +45,13 @@ def session_id(event: dict) -> str:
     return str_value(event.get("session_id")) or "<none>"
 
 
+def recording_origin(event: dict) -> str:
+    origin = str_value(event.get("recording_origin"))
+    if origin in {"runtime", "test"}:
+        return origin
+    return "legacy_unverified"
+
+
 def event_index(event: dict) -> int:
     return int_value(event.get("_index"))
 
@@ -53,7 +60,10 @@ def is_test_pollution(event: dict) -> bool:
     """Telemetry rows leaked by cargo-test runs (parallel env-var races or
     fixture sessions) — they poison real-usage metrics like the suggestion
     follow rate, so the loader drops them at ingest."""
-    return session_id(event).startswith("test-session-")
+    return (
+        recording_origin(event) == "test"
+        or session_id(event).startswith("test-session-")
+    )
 
 
 def load_telemetry(path: Path) -> list[dict]:
@@ -122,6 +132,7 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
     handoff_consumers: dict[str, dict] = {}
     tool_counts = Counter()
     failed_tools = Counter()
+    origin_counts = Counter(recording_origin(event) for event in events)
 
     for event in events:
         tool_counts[tool_name(event)] += 1
@@ -230,5 +241,15 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
             "handoff_correlations": correlations,
             "missed_suggestions": missed[:10],
             "top_failed_tools": failed_tools.most_common(10),
+            "provenance": {
+                "status": (
+                    "verified"
+                    if origin_counts["runtime"] > 0
+                    and origin_counts["legacy_unverified"] == 0
+                    else "unverified"
+                ),
+                "runtime_events": origin_counts["runtime"],
+                "legacy_unverified_events": origin_counts["legacy_unverified"],
+            },
         }
     }

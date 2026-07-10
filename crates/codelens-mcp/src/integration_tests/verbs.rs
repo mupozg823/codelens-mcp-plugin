@@ -143,6 +143,32 @@ fn analyze_verb_list_mode_delegates_to_list_analysis_jobs() {
 }
 
 #[test]
+fn analyze_verb_cancel_mode_enforces_target_surface_access() {
+    let project = project_root();
+    let state = make_state(&project);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::PlannerReadonly,
+    ));
+
+    let payload = call_tool(
+        &state,
+        "analyze",
+        json!({ "mode": "cancel", "job_id": "missing-job" }),
+    );
+
+    assert_eq!(
+        payload["success"],
+        json!(false),
+        "planner surface must reject an analyze mode whose target is hidden: {payload}"
+    );
+    let error = payload["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains("cancel_analysis_job") && error.contains("not available in active surface"),
+        "facade must report target surface denial instead of invoking the target: {error}"
+    );
+}
+
+#[test]
 fn review_verb_missing_mode_is_missing_param() {
     let project = project_root();
     let state = make_state(&project);

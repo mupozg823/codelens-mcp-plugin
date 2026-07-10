@@ -1,5 +1,20 @@
 use super::*;
 
+fn event<'a>(tool: &'a str, surface: &'a str) -> ToolCallEvent<'a> {
+    ToolCallEvent {
+        tool,
+        elapsed_ms: 0,
+        tokens: 0,
+        success: true,
+        surface,
+        truncated: false,
+        phase: None,
+        logical_session_id: None,
+        target_paths: &[],
+        hints: CallTelemetryHints::default(),
+    }
+}
+
 #[test]
 fn record_and_snapshot() {
     let reg = ToolMetricsRegistry::new();
@@ -59,25 +74,21 @@ fn reset_clears_all() {
 #[test]
 fn session_metrics_accumulate() {
     let reg = ToolMetricsRegistry::new();
-    reg.record_call_with_tokens(
-        "find_symbol",
-        15,
-        true,
-        500,
-        "planner-readonly",
-        false,
-        None,
-    );
-    reg.record_call_with_tokens(
-        "get_ranked_context",
-        42,
-        true,
-        2000,
-        "planner-readonly",
-        false,
-        None,
-    );
-    reg.record_call_with_tokens("rename_symbol", 8, false, 0, "refactor-full", false, None);
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 15,
+        tokens: 500,
+        ..event("find_symbol", "planner-readonly")
+    });
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 42,
+        tokens: 2000,
+        ..event("get_ranked_context", "planner-readonly")
+    });
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 8,
+        success: false,
+        ..event("rename_symbol", "refactor-full")
+    });
 
     let session = reg.session_snapshot();
     assert_eq!(session.core.total_calls, 3);
@@ -133,7 +144,11 @@ fn analysis_queue_metrics_accumulate() {
 #[test]
 fn session_reset_clears() {
     let reg = ToolMetricsRegistry::new();
-    reg.record_call_with_tokens("a", 10, true, 100, "planner-readonly", false, None);
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 10,
+        tokens: 100,
+        ..event("a", "planner-readonly")
+    });
     assert_eq!(reg.session_snapshot().core.total_calls, 1);
 
     reg.reset();
@@ -146,36 +161,24 @@ fn session_reset_clears() {
 #[test]
 fn session_call_count_tracks_logical_sessions_independently() {
     let reg = ToolMetricsRegistry::new();
-    reg.record_call_with_tokens_for_session(
-        "find_symbol",
-        15,
-        true,
-        100,
-        "planner-readonly",
-        false,
-        None,
-        Some("session-a"),
-    );
-    reg.record_call_with_tokens_for_session(
-        "find_symbol",
-        15,
-        true,
-        100,
-        "planner-readonly",
-        false,
-        None,
-        Some("session-a"),
-    );
-    reg.record_call_with_tokens_for_session(
-        "impact_report",
-        20,
-        true,
-        100,
-        "reviewer-graph",
-        false,
-        None,
-        Some("session-b"),
-    );
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 15,
+        tokens: 100,
+        logical_session_id: Some("session-a"),
+        ..event("find_symbol", "planner-readonly")
+    });
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 15,
+        tokens: 100,
+        logical_session_id: Some("session-a"),
+        ..event("find_symbol", "planner-readonly")
+    });
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 20,
+        tokens: 100,
+        logical_session_id: Some("session-b"),
+        ..event("impact_report", "reviewer-graph")
+    });
 
     assert_eq!(reg.session_call_count("session-a"), 2);
     assert_eq!(reg.session_call_count("session-b"), 1);
@@ -185,16 +188,12 @@ fn session_call_count_tracks_logical_sessions_independently() {
 #[test]
 fn reset_clears_session_rate_limit_windows() {
     let reg = ToolMetricsRegistry::new();
-    reg.record_call_with_tokens_for_session(
-        "find_symbol",
-        15,
-        true,
-        100,
-        "planner-readonly",
-        false,
-        None,
-        Some("session-a"),
-    );
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 15,
+        tokens: 100,
+        logical_session_id: Some("session-a"),
+        ..event("find_symbol", "planner-readonly")
+    });
     assert_eq!(reg.session_call_count("session-a"), 1);
     reg.reset();
     assert_eq!(reg.session_call_count("session-a"), 0);
@@ -203,25 +202,25 @@ fn reset_clears_session_rate_limit_windows() {
 #[test]
 fn truncation_metrics_capture_followup() {
     let reg = ToolMetricsRegistry::new();
-    reg.record_call_with_tokens(
-        "analyze_change_request",
-        20,
-        true,
-        1200,
-        "planner-readonly",
-        true,
-        Some("review"),
-    );
-    reg.record_call_with_tokens(
-        "analyze_change_request",
-        18,
-        true,
-        800,
-        "planner-readonly",
-        false,
-        Some("review"),
-    );
-    reg.record_call_with_tokens("impact_report", 10, true, 500, "reviewer-graph", true, None);
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 20,
+        tokens: 1200,
+        truncated: true,
+        phase: Some("review"),
+        ..event("analyze_change_request", "planner-readonly")
+    });
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 18,
+        tokens: 800,
+        phase: Some("review"),
+        ..event("analyze_change_request", "planner-readonly")
+    });
+    reg.record_event(ToolCallEvent {
+        elapsed_ms: 10,
+        tokens: 500,
+        truncated: true,
+        ..event("impact_report", "reviewer-graph")
+    });
     reg.record_analysis_read_for_session(true, None);
 
     let session = reg.session_snapshot();

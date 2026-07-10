@@ -3,6 +3,12 @@
 > Reproducible token-efficiency and search-quality measurements.
 > Last promoted static snapshot: **2026-04-17**. Release-vs-candidate checks are produced by `benchmarks/release-quality-matrix.py`.
 
+> **Inventory boundary:** this document contains historical performance snapshots,
+> not the current tool inventory. The canonical current surface is
+> [`docs/generated/surface-manifest.json`](generated/surface-manifest.json): 100
+> registered tool definitions and 57 output schemas. Do not reuse older 89/94-tool
+> counts in benchmark summaries or product copy.
+
 This document is the authoritative source for CodeLens's public performance claims. Every number below is produced by an executable script in `benchmarks/` and can be re-run on any machine.
 
 ---

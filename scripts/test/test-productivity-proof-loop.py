@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 from pathlib import Path
@@ -190,12 +191,49 @@ def test_trend_summary_bridges_tool_usage_and_runtime_audit_coverage() -> None:
         assert "Top audit check: `read_side_evidence` in `1` session(s)" in rendered
 
 
+def test_trend_summary_rejects_legacy_telemetry_as_productivity_evidence() -> None:
+    with tempfile.TemporaryDirectory(prefix="codelens-productivity-provenance-") as raw_tmp:
+        temp_root = Path(raw_tmp)
+        runs_dir = temp_root / "runs"
+        output_path = temp_root / "summary.md"
+        usage_path = runs_dir / "20260707-110000" / "tool-usage.json"
+        write_tool_usage(usage_path, 31, 0.0)
+        report = json.loads(usage_path.read_text(encoding="utf-8"))
+        report["behavior"]["provenance"] = {
+            "status": "unverified",
+            "runtime_events": 0,
+            "legacy_unverified_events": 31,
+        }
+        usage_path.write_text(json.dumps(report), encoding="utf-8")
+
+        proc = run_command(
+            [
+                "python3",
+                str(TREND_SCRIPT),
+                "--input-dir",
+                str(runs_dir),
+                "--output",
+                str(output_path),
+            ]
+        )
+
+        assert proc.returncode == 0, (
+            "trend summary should render legacy telemetry provenance: "
+            f"stdout={proc.stdout} stderr={proc.stderr}"
+        )
+        rendered = output_path.read_text(encoding="utf-8")
+
+    assert "Status: `unverified`" in rendered
+    assert "cannot support a productivity claim" in rendered
+
+
 def main() -> int:
     tests = [
         test_print_plan_resolves_crate_local_telemetry_without_writing,
         test_export_audit_default_matches_repo_local_readonly_daemon,
         test_trend_summary_reports_latest_delta_against_previous_run,
         test_trend_summary_bridges_tool_usage_and_runtime_audit_coverage,
+        test_trend_summary_rejects_legacy_telemetry_as_productivity_evidence,
     ]
     for test in tests:
         try:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 def render_telemetry_report(report: dict) -> None:
     behavior = report["behavior"]
+    provenance = behavior["provenance"]
     print(f"\n{'=' * 60}")
     print("  CodeLens Agent Behavior Telemetry")
     print(f"{'=' * 60}")
@@ -15,6 +16,11 @@ def render_telemetry_report(report: dict) -> None:
     print(f"  Delegate emissions : {behavior['delegate_emissions']}")
     print(f"  Handoffs consumed  : {behavior['delegate_handoffs_consumed']}")
     print(f"  Builder tool events: {behavior['codex_builder_tool_events']}")
+    print(f"  Provenance         : {provenance['status']}")
+    print(
+        "  Runtime / legacy rows: "
+        f"{provenance['runtime_events']} / {provenance['legacy_unverified_events']}"
+    )
 
     if behavior["handoff_correlations"]:
         print("\n  HANDOFF CORRELATIONS:")

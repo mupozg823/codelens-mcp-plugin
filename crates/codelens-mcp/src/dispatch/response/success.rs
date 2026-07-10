@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::mutation_gate::MutationGateAllowance;
 use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
-use crate::telemetry::CallTelemetryHints;
+use crate::telemetry::{CallTelemetryHints, ToolCallEvent};
 use crate::tool_defs::{ToolSurface, tool_definition};
 use crate::tools;
 use serde_json::Value;
@@ -231,24 +231,24 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         delegate_hint_telemetry_fields(&resp);
 
     let target_paths = state.extract_target_paths(arguments);
-    state.metrics().record_call_with_targets_for_session(
-        name,
-        elapsed_ms as u64,
-        true,
-        payload_estimate,
-        active_surface,
+    state.metrics().record_event(ToolCallEvent {
+        tool: name,
+        elapsed_ms: elapsed_ms as u64,
+        tokens: payload_estimate,
+        success: true,
+        surface: active_surface,
         truncated,
-        harness_phase,
-        Some(logical_session_id),
-        &target_paths,
-        CallTelemetryHints {
+        phase: harness_phase,
+        logical_session_id: Some(logical_session_id),
+        target_paths: &target_paths,
+        hints: CallTelemetryHints {
             suggested_next_tools,
             delegate_hint_trigger,
             delegate_target_tool,
             delegate_handoff_id,
             handoff_id,
         },
-    );
+    });
     if emitted_composite_guidance
         && !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset")
     {

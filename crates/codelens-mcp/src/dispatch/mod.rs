@@ -43,20 +43,23 @@ pub(crate) fn registered_tool_names() -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-/// Invoke a registered tool handler directly, bypassing the JSON-RPC
-/// envelope. Used by the verb facades (`tools::verbs`) to delegate a
-/// resolved mode to its target tool while inheriting feature gates from
-/// the table (`None` = target not registered in this build). The outer
-/// dispatch has already set `REQUEST_BUDGET` and recorded metrics under
-/// the verb name, so the inner call is a plain handler invocation.
+/// Invoke a registered tool through the same execution path as JSON-RPC.
+///
+/// Verb facades use this for direct handler compatibility. Routing through
+/// [`QueryEngine`] preserves target-tool access, role, and mutation gates
+/// instead of calling a dispatch-table handler without its execution context.
 pub(crate) fn invoke_registered(
     state: &AppState,
     name: &str,
     arguments: &serde_json::Value,
 ) -> Option<crate::tool_runtime::ToolResult> {
-    table::DISPATCH_TABLE
-        .get(name)
-        .map(|handler| handler(state, arguments))
+    if !table::DISPATCH_TABLE.contains_key(name) {
+        return None;
+    }
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let surface = state.execution_surface(&session);
+    let (result, _, _) = QueryEngine::new(state).submit_message(name, arguments, &session, surface);
+    Some(result)
 }
 
 // Thread-local request budget — avoids race condition when multiple
@@ -240,8 +243,10 @@ pub(crate) fn dispatch_tool(
         None
     };
 
-    // 4. Execute via mutation gate (if applicable) or directly via dispatch table.
+    // 4. Execute through the QueryEngine. It resolves verb targets before
+    // applying their schema, role, surface, and mutation gates.
     let engine = QueryEngine::new(state);
+    #[allow(unused_mut)] // HTTP project-binding hints mutate only HTTP builds.
     let (mut result, gate_allowance, gate_failure) =
         engine.submit_message(name, arguments, session, ctx.surface);
 

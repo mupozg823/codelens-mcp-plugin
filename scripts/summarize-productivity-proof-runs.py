@@ -40,6 +40,9 @@ class ProductivityMetrics:
     delegate_emissions: int
     handoffs_consumed: int
     builder_tool_events: int
+    provenance_status: str
+    runtime_event_count: int
+    legacy_unverified_event_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +63,11 @@ def float_field(data: JsonMap, key: str) -> float:
     return float(value) if isinstance(value, int | float) else 0.0
 
 
+def str_field(data: JsonMap, key: str, default: str) -> str:
+    value = data.get(key)
+    return value if isinstance(value, str) else default
+
+
 def load_metrics(path: Path) -> ProductivityMetrics | None:
     parsed = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(parsed, Mapping):
@@ -67,6 +75,8 @@ def load_metrics(path: Path) -> ProductivityMetrics | None:
     behavior = parsed.get("behavior")
     if not isinstance(behavior, Mapping):
         return None
+    provenance = behavior.get("provenance")
+    provenance_map = provenance if isinstance(provenance, Mapping) else {}
     return ProductivityMetrics(
         run_id=path.parent.name,
         total_events=int_field(behavior, "total_events"),
@@ -78,6 +88,11 @@ def load_metrics(path: Path) -> ProductivityMetrics | None:
         delegate_emissions=int_field(behavior, "delegate_emissions"),
         handoffs_consumed=int_field(behavior, "delegate_handoffs_consumed"),
         builder_tool_events=int_field(behavior, "codex_builder_tool_events"),
+        provenance_status=str_field(provenance_map, "status", "unverified"),
+        runtime_event_count=int_field(provenance_map, "runtime_events"),
+        legacy_unverified_event_count=int_field(
+            provenance_map, "legacy_unverified_events"
+        ),
     )
 
 
@@ -190,6 +205,11 @@ def render_markdown(
         f"- Delegate emissions / handoffs consumed: `{latest.delegate_emissions}` / `{latest.handoffs_consumed}`",
         f"- Builder tool events: `{latest.builder_tool_events}` (`{delta_int(latest.builder_tool_events, previous_builder)}`)",
         "",
+        "## Telemetry Provenance",
+        "",
+        f"- Status: `{latest.provenance_status}`",
+        f"- Runtime / legacy-unverified events: `{latest.runtime_event_count}` / `{latest.legacy_unverified_event_count}`",
+        "",
         "## Audit Coverage Bridge",
         "",
         *render_audit_bridge(latest, audit_coverage),
@@ -197,7 +217,11 @@ def render_markdown(
         "## Interpretation",
         "",
     ]
-    if previous is None:
+    if latest.provenance_status != "verified":
+        lines.append(
+            "- Latest telemetry is unverified and cannot support a productivity claim; collect runtime-marked events before comparing trends."
+        )
+    elif previous is None:
         lines.append("- Only one run is available; collect more runs before claiming trend improvement.")
     elif latest.suggestion_follow_rate < previous.suggestion_follow_rate:
         lines.append("- Suggestion follow rate regressed versus the previous run.")

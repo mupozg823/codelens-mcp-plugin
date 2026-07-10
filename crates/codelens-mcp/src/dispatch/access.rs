@@ -152,24 +152,37 @@ pub(crate) fn validate_tool_access(
 // ── Role gate (merged from role_gate.rs) ────────────────────────────────────────
 
 use crate::principals::{required_role_for, resolve_principal_id};
-/// Enforce the role gate for a single dispatch call.
-pub(super) fn enforce_role_gate(
-    operation: &super::session::OperationAudit<'_>,
+
+/// Check whether the current principal can invoke a tool without recording an
+/// audit transition. QueryEngine uses this for a resolved verb target; the
+/// outer dispatch owns the audit record for the original request.
+pub(crate) fn validate_tool_role(
+    state: &AppState,
+    name: &str,
+    session: &SessionRequestContext,
 ) -> Result<(), CodeLensError> {
-    let state = operation.state;
-    let name = operation.name;
-    let session = operation.session;
     let required = required_role_for(name);
     let principal_id = resolve_principal_id(session);
     let principal_role = state.principals().resolve(principal_id.as_deref());
     if principal_role.satisfies(required) {
         return Ok(());
     }
-    let permission_error = CodeLensError::PermissionDenied {
+    Err(CodeLensError::PermissionDenied {
         principal: principal_id.unwrap_or_else(|| "<default>".to_owned()),
         principal_role: principal_role.as_str().to_owned(),
         tool: name.to_owned(),
         required_role: required.as_str().to_owned(),
+    })
+}
+
+/// Enforce the role gate for a single dispatch call.
+pub(super) fn enforce_role_gate(
+    operation: &super::session::OperationAudit<'_>,
+) -> Result<(), CodeLensError> {
+    let Err(permission_error) =
+        validate_tool_role(operation.state, operation.name, operation.session)
+    else {
+        return Ok(());
     };
     super::session::record_audit_rejection(
         operation,

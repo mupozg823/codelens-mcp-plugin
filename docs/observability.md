@@ -123,6 +123,13 @@ therefore be correlated across logical sessions by shared `handoff_id`.
 The `builder follow-through proxy` still remains useful when a host does
 not preserve that field, so both measurements are reported.
 
+New server rows carry `recording_origin=runtime`. The analyzer excludes
+`recording_origin=test` rows and marks rows without an origin as legacy
+unverified data. Legacy rows remain useful for diagnostics, but the
+productivity summary refuses to treat them as evidence for a productivity
+claim. Unit and integration tests keep telemetry disabled by default; the
+few persistence tests opt in explicitly with an isolated temporary path.
+
 ## Productivity Proof Loop
 
 Use the productivity loop when you need one repeatable evidence bundle instead
@@ -142,6 +149,11 @@ The loop writes a timestamped run under
 - `productivity-trend-summary.md` comparing the latest tool-usage metrics
   against previous loop runs
 - `productivity-proof-loop.md` as the artifact index
+
+Only a `verified` telemetry-provenance status (runtime-marked rows with no
+legacy-unverified rows in the run) supports productivity comparisons. A
+`warn` or `pass` operator gate still describes daemon audit health; it does
+not upgrade unverified tool telemetry into productivity evidence.
 
 By default the loop targets the repository-local read-only daemon at
 `http://127.0.0.1:7839/mcp`. It first checks

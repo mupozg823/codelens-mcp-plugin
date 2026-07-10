@@ -2,6 +2,7 @@
 #![allow(clippy::collapsible_if)]
 
 use crate::env_compat::dual_prefix_env;
+use crate::telemetry::ToolCallEvent;
 use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write as _;
@@ -21,6 +22,8 @@ pub(crate) struct PersistedEvent<'a> {
     pub(crate) session_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) phase: Option<&'a str>,
+    /// Whether this row came from the live server or a test-only writer.
+    pub(crate) recording_origin: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) target_paths: Option<&'a [String]>,
     #[serde(skip_serializing_if = "<[_]>::is_empty", default)]
@@ -33,6 +36,29 @@ pub(crate) struct PersistedEvent<'a> {
     pub(crate) delegate_handoff_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) handoff_id: Option<&'a str>,
+}
+
+impl<'a> PersistedEvent<'a> {
+    pub(crate) fn from_tool_call(timestamp_ms: u64, event: &ToolCallEvent<'a>) -> Self {
+        Self {
+            timestamp_ms,
+            tool: event.tool,
+            surface: event.surface,
+            elapsed_ms: event.elapsed_ms,
+            tokens: event.tokens,
+            success: event.success,
+            truncated: event.truncated,
+            session_id: event.logical_session_id,
+            phase: event.phase,
+            recording_origin: if cfg!(test) { "test" } else { "runtime" },
+            target_paths: (!event.target_paths.is_empty()).then_some(event.target_paths),
+            suggested_next_tools: event.hints.suggested_next_tools,
+            delegate_hint_trigger: event.hints.delegate_hint_trigger,
+            delegate_target_tool: event.hints.delegate_target_tool,
+            delegate_handoff_id: event.hints.delegate_handoff_id,
+            handoff_id: event.hints.handoff_id,
+        }
+    }
 }
 
 /// Append-only JSONL writer for tool invocation telemetry.

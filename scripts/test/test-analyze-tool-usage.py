@@ -158,10 +158,39 @@ def test_json_output_handles_missing_default_input() -> None:
     assert report["behavior"]["suggestion_events"] == 0
 
 
+def test_behavior_report_marks_legacy_rows_as_unverified() -> None:
+    with tempfile.TemporaryDirectory() as tempdir:
+        telemetry_path = Path(tempdir) / "tool_usage.jsonl"
+        write_jsonl(
+            telemetry_path,
+            [
+                {
+                    "timestamp_ms": 1000,
+                    "tool": "find_symbol",
+                    "surface": "primitive",
+                    "elapsed_ms": 10,
+                    "tokens": 100,
+                    "success": True,
+                    "truncated": False,
+                    "session_id": "legacy-session",
+                }
+            ],
+        )
+
+        report = run_analyzer(telemetry_path)
+
+    assert report["behavior"]["provenance"] == {
+        "status": "unverified",
+        "runtime_events": 0,
+        "legacy_unverified_events": 1,
+    }
+
+
 def main() -> int:
     tests = [
         test_behavior_report_counts_suggestions_and_handoff_consumption,
         test_json_output_handles_missing_default_input,
+        test_behavior_report_marks_legacy_rows_as_unverified,
     ]
     for test in tests:
         try:
