@@ -19,7 +19,10 @@ def mask_comments_and_strings(source: str) -> str:
         if source[cursor] == "/" and _starts_regex_literal(masked, cursor):
             cursor = _mask_regex(source, masked, cursor)
             continue
-        if source[cursor] in "'\"`":
+        if source[cursor] == "`":
+            cursor = _mask_template(source, masked, cursor)
+            continue
+        if source[cursor] in "'\"":
             cursor = _mask_quoted(source, masked, cursor, source[cursor])
             continue
         cursor += 1
@@ -40,17 +43,21 @@ def actual_statements(source: str, keyword: str) -> tuple[str, ...]:
     return tuple(statements)
 
 
-def module_specifier(statement: str) -> str | None:
-    """Extract an exact quoted `from` module specifier from one statement."""
-    masked = mask_comments_and_strings(statement)
-    for match in re.finditer(r"\bfrom\b", masked):
+def contains_live_keyword(source: str, keyword: str) -> bool:
+    """Return whether a word occurs outside comments and quoted literal text."""
+    return re.search(rf"\b{re.escape(keyword)}\b", mask_comments_and_strings(source)) is not None
+
+
+def contains_dynamic_import(source: str) -> bool:
+    """Return whether source has a live dynamic-import expression."""
+    masked = mask_comments_and_strings(source)
+    for match in re.finditer(r"\bimport\b", masked):
         cursor = match.end()
-        while cursor < len(statement) and statement[cursor].isspace():
+        while cursor < len(masked) and masked[cursor].isspace():
             cursor += 1
-        if cursor >= len(statement) or statement[cursor] not in "'\"":
-            continue
-        return _quoted_value(statement, cursor)
-    return None
+        if cursor < len(masked) and masked[cursor] == "(":
+            return True
+    return False
 
 
 def _mask_until(
@@ -86,6 +93,58 @@ def _mask_quoted(
             return cursor + 1
         elif source[cursor] != "\n":
             masked[cursor] = " "
+        cursor += 1
+    return cursor
+
+
+def _mask_template(source: str, masked: list[str], cursor: int) -> int:
+    masked[cursor] = " "
+    cursor += 1
+    while cursor < len(source):
+        if source[cursor] == "\\":
+            masked[cursor] = " "
+            cursor += 1
+            if cursor < len(source) and source[cursor] != "\n":
+                masked[cursor] = " "
+        elif source[cursor] == "`":
+            masked[cursor] = " "
+            return cursor + 1
+        elif source.startswith("${", cursor):
+            masked[cursor] = " "
+            masked[cursor + 1] = " "
+            cursor = _mask_template_expression(source, masked, cursor + 2)
+            continue
+        elif source[cursor] != "\n":
+            masked[cursor] = " "
+        cursor += 1
+    return cursor
+
+
+def _mask_template_expression(source: str, masked: list[str], cursor: int) -> int:
+    depth = 1
+    while cursor < len(source):
+        if source.startswith("//", cursor):
+            cursor = _mask_until(source, masked, cursor, "\n")
+            continue
+        if source.startswith("/*", cursor):
+            cursor = _mask_until(source, masked, cursor, "*/")
+            continue
+        if source[cursor] == "/" and _starts_regex_literal(masked, cursor):
+            cursor = _mask_regex(source, masked, cursor)
+            continue
+        if source[cursor] == "`":
+            cursor = _mask_template(source, masked, cursor)
+            continue
+        if source[cursor] in "'\"":
+            cursor = _mask_quoted(source, masked, cursor, source[cursor])
+            continue
+        if source[cursor] == "{":
+            depth += 1
+        elif source[cursor] == "}":
+            depth -= 1
+            if depth == 0:
+                masked[cursor] = " "
+                return cursor + 1
         cursor += 1
     return cursor
 
@@ -158,67 +217,3 @@ def _mask_regex(source: str, masked: list[str], cursor: int) -> int:
             return cursor + 1
         cursor += 1
     return start + 1
-
-
-def _quoted_value(source: str, cursor: int) -> str | None:
-    quote = source[cursor]
-    value: list[str] = []
-    cursor += 1
-    while cursor < len(source):
-        if source[cursor] == "\\":
-            escaped = _decode_string_escape(source, cursor)
-            if escaped is None:
-                return None
-            character, cursor = escaped
-            value.append(character)
-            continue
-        if source[cursor] == quote:
-            return "".join(value)
-        value.append(source[cursor])
-        cursor += 1
-    return None
-
-
-def _decode_string_escape(source: str, cursor: int) -> tuple[str, int] | None:
-    marker = cursor + 1
-    if marker >= len(source):
-        return None
-    if source[marker] == "u":
-        return _decode_unicode_escape(source, marker + 1)
-    if source[marker] == "x":
-        return _decode_hex_escape(source, marker + 1, 2)
-    if source[marker] in "\n\r":
-        if source[marker] == "\r" and marker + 1 < len(source) and source[marker + 1] == "\n":
-            return "", marker + 2
-        return "", marker + 1
-    escaped = {
-        "b": "\b",
-        "f": "\f",
-        "n": "\n",
-        "r": "\r",
-        "t": "\t",
-        "v": "\v",
-        "0": "\0",
-    }.get(source[marker], source[marker])
-    return escaped, marker + 1
-
-
-def _decode_unicode_escape(source: str, cursor: int) -> tuple[str, int] | None:
-    if cursor < len(source) and source[cursor] == "{":
-        end = source.find("}", cursor + 1)
-        if end < 0:
-            return None
-        return _decode_hex_escape(source, cursor + 1, end - cursor - 1, end + 1)
-    return _decode_hex_escape(source, cursor, 4)
-
-
-def _decode_hex_escape(
-    source: str,
-    cursor: int,
-    length: int,
-    next_cursor: int | None = None,
-) -> tuple[str, int] | None:
-    digits = source[cursor : cursor + length]
-    if len(digits) != length or re.fullmatch(r"[0-9a-fA-F]+", digits) is None:
-        return None
-    return chr(int(digits, 16)), next_cursor if next_cursor is not None else cursor + length

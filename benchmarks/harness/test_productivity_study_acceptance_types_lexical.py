@@ -204,6 +204,40 @@ def test_post_block_regex_cannot_hide_value_export() -> None:
     assert "value export" in (result[1] or "")
 
 
+def test_template_interpolation_dynamic_import_is_rejected() -> None:
+    with tempfile.TemporaryDirectory(prefix="study-types-evasion-") as raw_tmp:
+        candidate = Path(raw_tmp)
+        write_type_candidate(candidate)
+        types_path = candidate / TYPE_ROOT / "billboardSequenceSheetTypes.ts"
+        types_path.write_text(
+            types_path.read_text(encoding="utf-8")
+            + '\n`${import("./billboardSequenceSheet")}`;\n',
+            encoding="utf-8",
+        )
+
+        result = run(candidate)
+
+    assert result[0] is False
+    assert "value import" in (result[1] or "")
+
+
+def test_comment_and_string_require_text_are_ignored() -> None:
+    with tempfile.TemporaryDirectory(prefix="study-types-evasion-") as raw_tmp:
+        candidate = Path(raw_tmp)
+        write_type_candidate(candidate)
+        types_path = candidate / TYPE_ROOT / "billboardSequenceSheetTypes.ts"
+        types_path.write_text(
+            types_path.read_text(encoding="utf-8")
+            + '// require("./billboardSequenceSheet");\n'
+            + 'type Note = "require";\n',
+            encoding="utf-8",
+        )
+
+        result = run(candidate)
+
+    assert result == (True, None)
+
+
 def test_value_export_text_inside_comments_and_strings_is_ignored() -> None:
     with tempfile.TemporaryDirectory(prefix="study-types-evasion-") as raw_tmp:
         candidate = Path(raw_tmp)
