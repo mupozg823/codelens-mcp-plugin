@@ -2,28 +2,14 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Iterator, Mapping
+from typing import Iterator
 
-
-SAFE_GIT_SETTINGS: Final = (
-    ("GIT_CONFIG_NOSYSTEM", "1"),
-    ("GIT_CONFIG_GLOBAL", os.devnull),
-    ("GIT_TERMINAL_PROMPT", "0"),
-    ("GIT_CONFIG_COUNT", "1"),
-    ("GIT_CONFIG_KEY_0", "core.hooksPath"),
-    ("GIT_CONFIG_VALUE_0", os.devnull),
-)
-SAFE_SHELL_SETTINGS: Final = (
-    ("ZDOTDIR", os.devnull),
-    ("BASH_ENV", os.devnull),
-    ("ENV", os.devnull),
-)
+from productivity_study_home import study_process_environment
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,25 +74,6 @@ def disposable_candidate_checkout(
     finally:
         if destination.exists():
             shutil.rmtree(destination)
-
-
-def study_process_environment(
-    overlays: Mapping[str, str] | None = None,
-) -> dict[str, str]:
-    """Return a process environment with only explicit, inert Git settings."""
-    environment = {
-        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
-    }
-    if overlays is not None:
-        git_overlays = tuple(key for key in overlays if key.startswith("GIT_"))
-        if git_overlays:
-            raise CandidateCheckoutError(
-                f"study environment overlays cannot set Git variables: {git_overlays}"
-            )
-        environment.update(overlays)
-    environment.update(SAFE_GIT_SETTINGS)
-    environment.update(SAFE_SHELL_SETTINGS)
-    return environment
 
 
 def verify_candidate_repository(

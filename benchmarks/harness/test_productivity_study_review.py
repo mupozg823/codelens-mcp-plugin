@@ -89,6 +89,7 @@ def test_review_commands_have_no_mcp_configuration_or_source_worktree() -> None:
     assert "--config" not in codex
     assert "--mcp-config" not in claude
     assert "--strict-mcp-config" not in claude
+    assert "--safe-mode" not in claude
     assert "--cd" in codex
     assert "read-only" in codex
     assert "plan" in claude

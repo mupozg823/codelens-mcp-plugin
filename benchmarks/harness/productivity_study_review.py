@@ -9,9 +9,9 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from productivity_study_candidate import study_process_environment
 from productivity_study_contract import Agent, QualityStatus, retain_minimal_evidence
 from productivity_study_events import extract_final_response
+from productivity_study_home import isolated_study_environment
 from productivity_study_report import BlindReview, resolve_blind_reviews
 
 ReviewExecutor = Callable[[Agent, tuple[str, ...], Path], str]
@@ -86,7 +86,7 @@ def reviewer_command(agent: Agent, model: str, prompt: str, workdir: Path) -> tu
             return (
                 "claude", "--print", "--output-format", "stream-json",
                 "--no-session-persistence", "--model", model, "--permission-mode",
-                "plan", "--safe-mode", prompt,
+                "plan", prompt,
             )
 
 
@@ -161,15 +161,16 @@ def read_object(path: Path) -> dict[str, object]:
 
 
 def default_executor(_agent: Agent, command: tuple[str, ...], workdir: Path) -> str:
-    completed = subprocess.run(
-        command,
-        cwd=workdir,
-        env=study_process_environment(),
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
+    with isolated_study_environment(workdir) as environment:
+        completed = subprocess.run(
+            command,
+            cwd=workdir,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
     return f"{completed.stdout}\n{completed.stderr}"
 
 

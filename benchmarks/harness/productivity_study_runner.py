@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Sequence
 
-from productivity_study_candidate import study_process_environment
 from productivity_study_contract import Agent, Condition
+from productivity_study_home import study_process_environment
+from productivity_study_verification import run_verification_commands
 
 
 TASK_PACK_SCHEMA = "productivity-study-task-pack-v1"
@@ -168,24 +169,6 @@ def copy_hidden_test(evaluator: Path, candidate: Path, relative_path: str) -> No
     destination = candidate / relative
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
-
-
-def run_verification_commands(
-    candidate: Path, commands: Sequence[str]
-) -> tuple[bool, str | None]:
-    for command in commands:
-        completed = subprocess.run(
-            ["zsh", "-f", "-c", command],
-            cwd=candidate,
-            env=study_process_environment(),
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if completed.returncode != 0:
-            output = f"{completed.stdout}\n{completed.stderr}".strip()
-            return False, output[-500:] or f"verification command failed: {command}"
-    return True, None
 
 
 def run_git_text(repo: Path, *args: str) -> str:
