@@ -154,7 +154,7 @@ pub(super) fn build_project_runtime_context(
     project: ProjectRoot,
     start_watcher: bool,
 ) -> anyhow::Result<ProjectContext> {
-    let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
+    let symbol_index = Arc::new(SymbolIndex::new(project.clone())?);
     if symbol_index
         .stats()
         .map(|s| s.indexed_files == 0)

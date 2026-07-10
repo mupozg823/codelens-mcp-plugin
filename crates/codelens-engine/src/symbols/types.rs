@@ -1,5 +1,6 @@
 use crate::db::IndexDb;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Structural ownership category derived from file path.
 /// Used by the ranker to disambiguate same-name symbols across
@@ -283,6 +284,12 @@ pub(crate) struct ParsedSymbol {
 pub(crate) enum ReadDb<'a> {
     Owned(IndexDb),
     Writer(std::sync::MutexGuard<'a, IndexDb>),
+}
+
+/// Backing store selected explicitly at index construction time.
+pub(crate) enum IndexStorage {
+    Persistent(PathBuf),
+    Memory,
 }
 
 // `tests` is intentionally placed mid-file: it exercises the

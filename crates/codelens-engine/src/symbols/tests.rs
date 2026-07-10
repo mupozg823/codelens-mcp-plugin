@@ -79,7 +79,7 @@ fn refresh_all_populates_stats() {
 fn refresh_all_checkpoints_disk_wal() {
     let root = fixture_root();
     let project = ProjectRoot::new(&root).expect("project");
-    let index = SymbolIndex::new(project);
+    let index = SymbolIndex::new(project).expect("persistent index");
 
     index.refresh_all().expect("refresh all");
     let (busy, log_frames, checkpointed_frames) = index
@@ -94,10 +94,10 @@ fn refresh_all_checkpoints_disk_wal() {
 fn reloads_index_from_disk() {
     let root = fixture_root();
     let project = ProjectRoot::new(&root).expect("project");
-    let index = SymbolIndex::new(project.clone());
+    let index = SymbolIndex::new(project.clone()).expect("persistent index");
     index.refresh_all().expect("refresh all");
 
-    let reloaded = SymbolIndex::new(project);
+    let reloaded = SymbolIndex::new(project).expect("reopen persistent index");
     let stats = reloaded.stats().expect("stats");
     assert_eq!(stats.indexed_files, 2);
 }
@@ -326,7 +326,8 @@ fn find_symbol_range_uses_exact_name_path_when_provided() {
         find_symbol_range(&project, DUPLICATE_METHODS_PATH, "run", Some("Beta/run"))
             .expect("range for nested Beta/run");
     let source = fs::read_to_string(root.join(DUPLICATE_METHODS_PATH)).expect("read fixture");
-    let selected = std::str::from_utf8(&source.as_bytes()[start_byte..end_byte])
+    let selected = source
+        .get(start_byte..end_byte)
         .expect("selected range should be valid UTF-8");
 
     assert!(
@@ -627,6 +628,21 @@ fn score_and_rank_empty_query() {
     // rank_symbols passes all symbols that score_symbol accepts.
     assert_eq!(scored.len(), 1);
     assert!(scored[0].1 > 0);
+}
+
+#[test]
+fn persistent_index_open_failure_is_reported_without_memory_fallback() {
+    let root = fixture_root();
+    let project = ProjectRoot::new(&root).expect("project");
+    fs::write(root.join(".codelens"), "not a directory").expect("block index directory");
+
+    let error = SymbolIndex::new(project)
+        .err()
+        .expect("persistent index setup must surface an error");
+    assert!(
+        error.to_string().contains("failed to create"),
+        "persistent index setup must expose the failed path: {error:#}"
+    );
 }
 
 fn fixture_root() -> std::path::PathBuf {

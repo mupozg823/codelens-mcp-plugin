@@ -13,6 +13,7 @@ use scoring::score_symbol;
 pub use scoring::{
     sparse_coverage_bonus_from_fields, sparse_max_bonus, sparse_threshold, sparse_weighting_enabled,
 };
+use types::IndexStorage;
 pub(crate) use types::ReadDb;
 pub use types::{
     IndexStats, RankedContextEntry, RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance,
@@ -41,35 +42,25 @@ use crate::project::{collect_files, is_excluded_within};
 /// enabling `Arc<SymbolIndex>` without an external Mutex.
 pub struct SymbolIndex {
     project: ProjectRoot,
-    db_path: PathBuf,
+    storage: IndexStorage,
     writer: std::sync::Mutex<IndexDb>,
-    /// In-memory mode flag (tests) — when true, _cached reads use the writer.
-    in_memory: bool,
 }
 
 impl SymbolIndex {
-    pub fn new(project: ProjectRoot) -> Self {
+    /// Open the project's persistent index.
+    pub fn new(project: ProjectRoot) -> Result<Self> {
         let db_path = index_db_path(project.as_path());
-        let db = IndexDb::open(&db_path).unwrap_or_else(|e| {
-            tracing::warn!(
-                path = %db_path.display(),
-                error = %e,
-                "failed to open DB, falling back to in-memory"
-            );
-            IndexDb::open_memory().unwrap()
-        });
-        let in_memory = !db_path.is_file();
+        let db = IndexDb::open(&db_path)?;
         let mut idx = Self {
             project,
-            db_path,
+            storage: IndexStorage::Persistent(db_path),
             writer: std::sync::Mutex::new(db),
-            in_memory,
         };
         // Auto-migrate from legacy JSON index if DB is empty
         if idx.writer().file_count().unwrap_or(0) == 0 {
             let _ = idx.migrate_from_json();
         }
-        idx
+        Ok(idx)
     }
 
     /// Acquire the writer connection (poison-safe).
@@ -79,14 +70,14 @@ impl SymbolIndex {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Open a read-only DB connection for queries (or fall back to writer for in-memory).
+    /// Open a read-only DB connection for persistent indexes, or borrow the memory writer.
     fn reader(&self) -> Result<ReadDb<'_>> {
-        if self.in_memory {
-            return Ok(ReadDb::Writer(self.writer()));
-        }
-        match IndexDb::open_readonly(&self.db_path)? {
-            Some(db) => Ok(ReadDb::Owned(db)),
-            None => Ok(ReadDb::Writer(self.writer())),
+        match &self.storage {
+            IndexStorage::Memory => Ok(ReadDb::Writer(self.writer())),
+            IndexStorage::Persistent(db_path) => match IndexDb::open_readonly(db_path)? {
+                Some(db) => Ok(ReadDb::Owned(db)),
+                None => Ok(ReadDb::Writer(self.writer())),
+            },
         }
     }
 
@@ -94,10 +85,9 @@ impl SymbolIndex {
     pub fn new_memory(project: ProjectRoot) -> Self {
         let db = IndexDb::open_memory().unwrap();
         Self {
-            db_path: PathBuf::new(),
             project,
+            storage: IndexStorage::Memory,
             writer: std::sync::Mutex::new(db),
-            in_memory: true,
         }
     }
 
@@ -136,10 +126,10 @@ impl SymbolIndex {
     }
 
     fn checkpoint_wal_passive(&self) -> Result<(i64, i64, i64)> {
-        if self.in_memory {
-            return Ok((0, 0, 0));
+        match &self.storage {
+            IndexStorage::Memory => Ok((0, 0, 0)),
+            IndexStorage::Persistent(_) => self.writer().checkpoint_wal_passive(),
         }
-        self.writer().checkpoint_wal_passive()
     }
 
     pub fn stats(&self) -> Result<IndexStats> {

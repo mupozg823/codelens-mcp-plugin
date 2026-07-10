@@ -186,11 +186,7 @@ impl SymbolIndex {
             Ok(())
         })?;
         if let Err(error) = self.checkpoint_wal_passive() {
-            tracing::debug!(
-                path = %self.db_path.display(),
-                error = %error,
-                "symbol index WAL checkpoint skipped after refresh"
-            );
+            tracing::debug!(%error, "symbol index WAL checkpoint skipped after refresh");
         }
         self.stats()
     }

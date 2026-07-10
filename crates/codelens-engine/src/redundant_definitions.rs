@@ -420,7 +420,7 @@ mod tests {
             groups.entry(r.target.as_str()).or_default().push(r);
         }
         let mut multi: Vec<_> = groups.iter().filter(|(_, v)| v.len() >= 2).collect();
-        multi.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+        multi.sort_by_key(|entry| std::cmp::Reverse(entry.1.len()));
         eprintln!("Multi-wrapper clusters: {}\n", multi.len());
         for (target, members) in &multi {
             eprintln!("  {} ← {}", target, members.len());
