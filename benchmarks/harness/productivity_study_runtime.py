@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from productivity_study_agents import AgentInvocation, build_agent_command
+from productivity_study_binary_snapshot import bound_binary_snapshot
 from productivity_study_candidate import study_process_environment
 from productivity_study_events import AgentTelemetry, extract_final_response, parse_agent_stream
 
@@ -54,28 +55,39 @@ class DaemonResourceMonitor:
 
 @contextmanager
 def dedicated_daemon(
-    binary: Path, worktree: Path, telemetry_path: Path | None = None
+    binary: Path,
+    worktree: Path,
+    telemetry_path: Path | None = None,
+    *,
+    expected_sha256: str,
 ) -> Iterator[DaemonRuntime]:
-    port = unused_local_port()
-    command = build_daemon_command(binary, worktree, port)
-    environment = daemon_environment(telemetry_path)
-    started = time.monotonic()
-    process = subprocess.Popen(
-        command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=environment
-    )
-    url = f"http://127.0.0.1:{port}/mcp"
-    try:
-        health_session_id = open_mcp_session(url)
-        yield DaemonRuntime(
-            url, process.pid, int((time.monotonic() - started) * 1000), health_session_id
+    with bound_binary_snapshot(binary, expected_sha256) as bound_binary:
+        port = unused_local_port()
+        command = build_daemon_command(bound_binary, worktree, port)
+        environment = daemon_environment(telemetry_path)
+        started = time.monotonic()
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=environment,
         )
-    finally:
-        process.terminate()
+        url = f"http://127.0.0.1:{port}/mcp"
         try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+            health_session_id = open_mcp_session(url)
+            yield DaemonRuntime(
+                url,
+                process.pid,
+                int((time.monotonic() - started) * 1000),
+                health_session_id,
+            )
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
 
 def daemon_environment(telemetry_path: Path | None) -> dict[str, str]:

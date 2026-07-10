@@ -53,11 +53,14 @@ native tools as the default for simple local lookup.
   path, executed snapshot path, version, build timestamp, dirty flag, and
   content SHA-256 are retained in `codelens_binary_provenance`; malformed,
   mutated, stale, dirty, symlinked, or colliding binaries fail closed. Runs
-  with identical binary content reuse the same read-only snapshot path.
+  with identical binary content reuse the same read-only snapshot path. Each
+  daemon launch then binds that verified content to a private ephemeral
+  hardlink, checks its inode and hash before and after execution, and removes it.
 - Process isolation: every candidate, evaluator, agent, daemon, grader, and
   provenance Git subprocess removes ambient `GIT_*` state. The runner keeps
   `HOME`, `PATH`, and non-Git authentication state, disables system/global Git
-  config and prompts, and forces `core.hooksPath=/dev/null`.
+  config and prompts, forces `core.hooksPath=/dev/null`, and points zsh/bash/sh
+  startup-file variables at an inert target. Grading uses `zsh -f -c`.
 
 ```mermaid
 flowchart LR

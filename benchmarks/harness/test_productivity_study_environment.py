@@ -25,10 +25,20 @@ SAFE_GIT_ENVIRONMENT = {
     "GIT_CONFIG_KEY_0": "core.hooksPath",
     "GIT_CONFIG_VALUE_0": os.devnull,
 }
+SAFE_SHELL_ENVIRONMENT = {
+    "ZDOTDIR": os.devnull,
+    "BASH_ENV": os.devnull,
+    "ENV": os.devnull,
+}
 
 
 def install_malicious_environment(root: Path, fake_bin: Path) -> dict[str, str]:
     original = os.environ.copy()
+    malicious_home = root / "home"
+    malicious_home.mkdir()
+    (malicious_home / ".zprofile").write_text(
+        "export GIT_DIR=/tmp/reintroduced-by-zprofile.git\n", encoding="utf-8"
+    )
     malicious_global = root / "malicious.gitconfig"
     malicious_global.write_text(
         "[core]\n\thooksPath = /tmp/global-hooks\n", encoding="utf-8"
@@ -36,6 +46,10 @@ def install_malicious_environment(root: Path, fake_bin: Path) -> dict[str, str]:
     os.environ.update(
         {
             "PATH": f"{fake_bin}:{original['PATH']}",
+            "HOME": str(malicious_home),
+            "ZDOTDIR": str(malicious_home),
+            "BASH_ENV": str(malicious_home / ".shellrc"),
+            "ENV": str(malicious_home / ".shellrc"),
             "STUDY_AUTH_TOKEN": "preserved",
             "GIT_DIR": "/tmp/poison.git",
             "GIT_ALTERNATE_OBJECT_DIRECTORIES": "/tmp/poison-objects",
@@ -57,6 +71,9 @@ def assert_safe_environment(environment: dict[str, str]) -> None:
     assert environment["STUDY_AUTH_TOKEN"] == "preserved"
     assert environment["HOME"] == os.environ["HOME"]
     assert environment["PATH"] == os.environ["PATH"]
+    assert {
+        key: environment[key] for key in SAFE_SHELL_ENVIRONMENT
+    } == SAFE_SHELL_ENVIRONMENT
 
 
 def test_generated_daemon_agent_and_grading_environments_remove_ambient_git_state() -> (
@@ -78,6 +95,7 @@ test "$GIT_TERMINAL_PROMPT" = "0" || exit 36
 test "$GIT_CONFIG_KEY_0" = "core.hooksPath" || exit 37
 test "$GIT_CONFIG_VALUE_0" = "/dev/null" || exit 38
 test "$STUDY_AUTH_TOKEN" = "preserved" || exit 39
+zsh -lc 'test -z "${GIT_DIR+x}"' || exit 40
 printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"environment clean"}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}'
 """,
@@ -127,8 +145,14 @@ safe = {
     "GIT_CONFIG_KEY_0": "core.hooksPath",
     "GIT_CONFIG_VALUE_0": "/dev/null",
 }
+shell_safe = {
+    "ZDOTDIR": "/dev/null",
+    "BASH_ENV": "/dev/null",
+    "ENV": "/dev/null",
+}
 observed = {key: value for key, value in os.environ.items() if key.startswith("GIT_")}
 assert observed == safe, observed
+assert {key: os.environ[key] for key in shell_safe} == shell_safe
 assert os.environ["STUDY_AUTH_TOKEN"] == "preserved"
 hook = subprocess.run(
     ["git", "config", "--get", "core.hooksPath"],

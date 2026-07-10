@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import stat
 import tempfile
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,3 +151,110 @@ def verify_published_snapshot(path: Path, expected_sha256: str) -> None:
 
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@contextmanager
+def bound_binary_snapshot(snapshot_path: Path, expected_sha256: str) -> Iterator[Path]:
+    """Bind verified snapshot content to one private daemon execution inode."""
+    with ExitStack() as resources:
+        source_descriptor = open_snapshot_descriptor(snapshot_path)
+        resources.callback(os.close, source_descriptor)
+        source_status = os.fstat(source_descriptor)
+        verify_source_descriptor(
+            source_descriptor, source_status, snapshot_path, expected_sha256
+        )
+        try:
+            raw_execution_root = tempfile.mkdtemp(
+                prefix=".exec-", dir=snapshot_path.parent
+            )
+        except OSError as error:
+            raise BinarySnapshotError(
+                f"cannot create private binary execution directory: {snapshot_path.parent}"
+            ) from error
+        execution_root = Path(raw_execution_root)
+        execution_root.chmod(0o700)
+        resources.callback(shutil.rmtree, execution_root)
+        bound_path = execution_root / "codelens-mcp"
+        create_bound_hardlink(snapshot_path, bound_path)
+        bound_path.chmod(0o500)
+        source_identity_value = (source_status.st_dev, source_status.st_ino)
+        verify_bound_executable(
+            bound_path, source_identity_value, expected_sha256, phase="before execution"
+        )
+        try:
+            yield bound_path
+        finally:
+            verify_bound_executable(
+                bound_path,
+                source_identity_value,
+                expected_sha256,
+                phase="during daemon execution",
+            )
+
+
+def open_snapshot_descriptor(path: Path) -> int:
+    try:
+        return os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError as error:
+        raise BinarySnapshotError(
+            f"cannot open snapshot for execution binding: {path}"
+        ) from error
+
+
+def verify_source_descriptor(
+    descriptor: int,
+    status: os.stat_result,
+    path: Path,
+    expected_sha256: str,
+) -> None:
+    if not stat.S_ISREG(status.st_mode):
+        raise BinarySnapshotError(f"snapshot execution source is not regular: {path}")
+    if hash_descriptor(descriptor) != expected_sha256:
+        raise BinarySnapshotError(f"snapshot hash mismatch before binding: {path}")
+
+
+def create_bound_hardlink(source: Path, destination: Path) -> None:
+    try:
+        os.link(source, destination, follow_symlinks=False)
+    except OSError as error:
+        raise BinarySnapshotError(
+            f"cannot bind snapshot inode for daemon execution: {source}"
+        ) from error
+
+
+def verify_bound_executable(
+    path: Path,
+    expected_identity: tuple[int, int],
+    expected_sha256: str,
+    *,
+    phase: str,
+) -> None:
+    try:
+        status = path.lstat()
+    except OSError as error:
+        raise BinarySnapshotError(
+            f"bound executable mutated {phase}: {path}"
+        ) from error
+    identity = (status.st_dev, status.st_ino)
+    if not stat.S_ISREG(status.st_mode) or identity != expected_identity:
+        raise BinarySnapshotError(f"bound executable mutated {phase}: {path}")
+    descriptor = open_snapshot_descriptor(path)
+    try:
+        opened_status = os.fstat(descriptor)
+        opened_identity = (opened_status.st_dev, opened_status.st_ino)
+        content_matches = hash_descriptor(descriptor) == expected_sha256
+    finally:
+        os.close(descriptor)
+    if opened_identity != expected_identity or not content_matches:
+        raise BinarySnapshotError(f"bound executable mutated {phase}: {path}")
+    if status.st_mode & 0o222 or status.st_mode & 0o111 == 0:
+        raise BinarySnapshotError(f"bound executable mutated {phase}: {path}")
+
+
+def hash_descriptor(descriptor: int) -> str:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    digest = hashlib.sha256()
+    while chunk := os.read(descriptor, 1024 * 1024):
+        digest.update(chunk)
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    return digest.hexdigest()

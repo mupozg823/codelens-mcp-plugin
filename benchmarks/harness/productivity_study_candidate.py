@@ -19,6 +19,11 @@ SAFE_GIT_SETTINGS: Final = (
     ("GIT_CONFIG_KEY_0", "core.hooksPath"),
     ("GIT_CONFIG_VALUE_0", os.devnull),
 )
+SAFE_SHELL_SETTINGS: Final = (
+    ("ZDOTDIR", os.devnull),
+    ("BASH_ENV", os.devnull),
+    ("ENV", os.devnull),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +105,7 @@ def study_process_environment(
             )
         environment.update(overlays)
     environment.update(SAFE_GIT_SETTINGS)
+    environment.update(SAFE_SHELL_SETTINGS)
     return environment
 
 

@@ -52,6 +52,7 @@ class StudyExecutionConfig:
     codex_model: str
     claude_model: str
     timeout_seconds: int
+    codelens_binary_sha256: str = ""
 
 
 def run_id_for(planned: PlannedRun, index_mode: IndexMode) -> str:
@@ -73,7 +74,7 @@ def build_blind_review_packet(
 
 def execute_planned_run(planned: PlannedRun, config: StudyExecutionConfig) -> dict[str, object]:
     provenance = inspect_codelens_binary(CodelensBinaryRequest(config.codelens_repo, config.codelens_binary, config.artifact_root))
-    runtime_config = replace(config, codelens_binary=provenance.snapshot_path)
+    runtime_config = replace(config, codelens_binary=provenance.snapshot_path, codelens_binary_sha256=provenance.content_sha256)
     run_id = run_id_for(planned, config.index_mode)
     record_dir = config.artifact_root / config.study_id / run_id
     record_dir.mkdir(parents=True, exist_ok=False)
@@ -149,7 +150,7 @@ def execute_in_worktree(
             config.timeout_seconds,
         )
     telemetry_path = raw_path.with_name("mcp-telemetry.raw")
-    with dedicated_daemon(config.codelens_binary, candidate, telemetry_path) as daemon:
+    with dedicated_daemon(config.codelens_binary, candidate, telemetry_path, expected_sha256=config.codelens_binary_sha256) as daemon:
         control_session = open_mcp_session(daemon.url)
         if config.index_mode is IndexMode.WARM:
             mcp_tool_call(

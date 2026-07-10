@@ -175,7 +175,7 @@ def run_verification_commands(
 ) -> tuple[bool, str | None]:
     for command in commands:
         completed = subprocess.run(
-            ["zsh", "-lc", command],
+            ["zsh", "-f", "-c", command],
             cwd=candidate,
             env=study_process_environment(),
             check=False,
