@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import assert_never
 
 from productivity_study_contract import Agent, Condition
 
@@ -66,17 +67,15 @@ def build_claude_command(invocation: AgentInvocation, prompt: str) -> tuple[str,
         invocation.model,
         "--permission-mode",
         "plan" if invocation.read_only else "acceptEdits",
+        "--strict-mcp-config",
     ]
-    if invocation.condition is Condition.BASELINE:
-        command.append("--safe-mode")
-    else:
-        command.extend(
-            [
-                "--strict-mcp-config",
-                "--mcp-config",
-                str(invocation.claude_mcp_config),
-            ]
-        )
+    match invocation.condition:
+        case Condition.BASELINE:
+            pass
+        case Condition.NAIVE | Condition.ROUTED:
+            command.extend(["--mcp-config", str(invocation.claude_mcp_config)])
+        case unreachable:
+            assert_never(unreachable)
     command.append(prompt)
     return tuple(command)
 

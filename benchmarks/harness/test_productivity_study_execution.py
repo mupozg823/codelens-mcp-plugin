@@ -14,12 +14,14 @@ from productivity_study_contract import Agent, Condition
 from productivity_study_runner import PlannedRun, StudyTask
 
 
-def task() -> StudyTask:
+def task(
+    repo_id: str = "repo", task_kind: str = "multi-file-impact-review"
+) -> StudyTask:
     return StudyTask(
         task_id="repo::impact::001",
-        repo_id="repo",
+        repo_id=repo_id,
         repo_path=Path("/tmp/repo"),
-        task_kind="multi-file-impact-review",
+        task_kind=task_kind,
         base_sha="a" * 40,
         target_sha="b" * 40,
         read_only=True,
@@ -85,6 +87,39 @@ def test_metrics_envelope_unwraps_compact_data_without_defaulting_to_zero() -> N
     assert payload["token_bill"]["total_tokens"] == 8
 
 
+def test_fixed_policy_routes_both_simple_lookup_tasks_to_native_only() -> None:
+    policy_path = Path(__file__).with_name("productivity-study-routing-policy-v1.json")
+    assert policy_path.is_file(), f"missing fixed study policy: {policy_path}"
+
+    excerpts = tuple(
+        execution.policy_excerpt(
+            policy_path,
+            PlannedRun(task(repo_id, "simple-local-lookup"), Agent.CODEX, Condition.ROUTED, 0),
+        )
+        for repo_id in ("codelens-mcp-plugin", "signaturestudio")
+    )
+
+    assert all(excerpt.startswith("avoid_codelens_for_simple_local_lookup:") for excerpt in excerpts)
+    assert all("native repository tools only" in excerpt.lower() for excerpt in excerpts)
+    assert all("do not bootstrap or call codelens" in excerpt.lower() for excerpt in excerpts)
+
+
+def test_fixed_policy_keeps_codelens_first_for_complex_treatments() -> None:
+    policy_path = Path(__file__).with_name("productivity-study-routing-policy-v1.json")
+    assert policy_path.is_file(), f"missing fixed study policy: {policy_path}"
+
+    excerpts = tuple(
+        execution.policy_excerpt(
+            policy_path,
+            PlannedRun(task("codelens-mcp-plugin", task_kind), Agent.CODEX, Condition.ROUTED, 0),
+        )
+        for task_kind in ("multi-file-impact-review", "safe-refactor")
+    )
+
+    assert all(excerpt.startswith("prefer_codelens_after_bootstrap:") for excerpt in excerpts)
+    assert all("switch to CodeLens" in excerpt for excerpt in excerpts)
+
+
 def main() -> int:
     tests = [
         test_blind_review_packet_omits_agent_and_condition,
@@ -92,6 +127,8 @@ def main() -> int:
         test_dedicated_daemon_command_binds_only_the_candidate_worktree,
         test_process_cpu_parser_handles_minutes_and_days,
         test_metrics_envelope_unwraps_compact_data_without_defaulting_to_zero,
+        test_fixed_policy_routes_both_simple_lookup_tasks_to_native_only,
+        test_fixed_policy_keeps_codelens_first_for_complex_treatments,
     ]
     failures = 0
     for test in tests:

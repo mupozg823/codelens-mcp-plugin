@@ -72,8 +72,8 @@
       "read_only": false,
       "prompt": "Safely split the oversized SCIP backend implementation into cohesive modules while preserving the existing public `ScipBackend` behavior and feature compatibility. Keep visibility as narrow as possible and make only the allowed path changes.",
       "verification_commands": [
-        "cargo test -p codelens-engine scip_backend",
-        "cargo check -p codelens-engine",
+        "cargo test -p codelens-engine --features scip-backend scip_backend",
+        "cargo check -p codelens-engine --features scip-backend",
         "cargo fmt --check"
       ],
       "allowed_paths": [

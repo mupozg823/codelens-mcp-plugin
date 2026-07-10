@@ -38,10 +38,17 @@ def test_sequence_selector_uses_latin_square_order_without_reordering() -> None:
     assert selected.condition.value == "naive-on"
 
 
+def test_cli_defaults_to_versioned_productivity_study_policy() -> None:
+    expected = Path(__file__).with_name("productivity-study-routing-policy-v1.json")
+
+    assert getattr(cli, "DEFAULT_POLICY_PATH", None) == expected
+
+
 def main() -> int:
     tests = [
         test_pilot_plan_has_all_conditions_and_no_policy_apply_step,
         test_sequence_selector_uses_latin_square_order_without_reordering,
+        test_cli_defaults_to_versioned_productivity_study_policy,
     ]
     failures = 0
     for test in tests:

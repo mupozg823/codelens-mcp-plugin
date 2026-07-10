@@ -6,11 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import TypedDict
+from typing import Final, TypedDict
 
 from productivity_study_contract import Agent, IndexMode
 from productivity_study_execution import StudyExecutionConfig, execute_planned_run
 from productivity_study_runner import StudyTask, expand_run_plan, load_task_pack
+
+
+DEFAULT_POLICY_PATH: Final = Path(__file__).with_name(
+    "productivity-study-routing-policy-v1.json"
+)
 
 
 class PlanRun(TypedDict):
@@ -68,7 +73,7 @@ def main() -> int:
     parser.add_argument("--execute-sequence", type=int)
     parser.add_argument("--index-mode", choices=[mode.value for mode in IndexMode], default="warm")
     parser.add_argument("--artifact-root", type=Path, default=Path.home() / ".codex" / "productivity-studies")
-    parser.add_argument("--policy", type=Path, default=Path.home() / ".codex" / "harness" / "policies" / "codelens-routing-policy.shared.json")
+    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY_PATH)
     parser.add_argument("--codelens-repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--codelens-binary", type=Path, default=Path(__file__).resolve().parents[2] / "target" / "release" / "codelens-mcp")
     parser.add_argument("--codex-model", default="")

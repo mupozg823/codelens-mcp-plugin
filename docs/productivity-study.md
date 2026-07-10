@@ -17,6 +17,9 @@ native tools as the default for simple local lookup.
 ## Study Contract
 
 - Conditions: `baseline`, `naive-on`, and `routed-on`.
+- Claude isolation: every condition uses `--strict-mcp-config`; only treatment
+  conditions add the explicit CodeLens MCP config, while permission mode still
+  follows each task's read-only contract.
 - Agents: Codex and Claude with model and CLI version written per run.
 - Isolation: every task begins in a detached historical-base worktree; current
   source worktree WIP and production data are excluded.
@@ -39,7 +42,8 @@ native tools as the default for simple local lookup.
   candidate diffs are deleted after scoring; only manifests, version/commit
   hashes, aggregate metrics, redacted failure evidence, and raw SHA-256 remain.
 - Policy: the policy SHA is captured before a run and checked after it. No
-  refresh/apply operation is available in the study runner.
+  refresh/apply operation is available in the study runner. The CLI defaults
+  to the versioned study policy beside the task pack, never a shared home policy.
 
 ```mermaid
 flowchart LR

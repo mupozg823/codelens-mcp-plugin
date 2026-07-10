@@ -1,0 +1,29 @@
+{
+  "schema_version": "productivity-study-routing-policy-v1",
+  "global_rules": [
+    {
+      "task_kind": "impact/reviewer",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "explanation": "Use native exploration for the very first local step, then switch to CodeLens once the task becomes multi-file or reviewer-heavy."
+    },
+    {
+      "task_kind": "refactor preflight",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "explanation": "Use native exploration for the very first local step, then switch to CodeLens once the task becomes multi-file or reviewer-heavy."
+    }
+  ],
+  "repo_overrides": [
+    {
+      "repo_id": "codelens-mcp-plugin",
+      "task_kind": "simple local lookup/edit",
+      "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+      "explanation": "Use native repository tools only; do not bootstrap or call CodeLens for this task."
+    },
+    {
+      "repo_id": "signature-studio",
+      "task_kind": "simple local lookup/edit",
+      "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+      "explanation": "Use native repository tools only; do not bootstrap or call CodeLens for this task."
+    }
+  ]
+}

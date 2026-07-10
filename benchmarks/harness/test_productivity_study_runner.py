@@ -200,6 +200,21 @@ def test_pilot_task_pack_has_hidden_rubrics_for_every_task() -> None:
     assert all(task.hidden_rubric for task in tasks)
 
 
+def test_codelens_safe_refactor_verification_enables_scip_backend_feature() -> None:
+    pack_path = Path(__file__).with_name("productivity-study-pilot-v1.json")
+    tasks = runner.load_task_pack(pack_path)
+
+    safe_refactor = next(
+        task for task in tasks if task.task_id == "codelens::safe-refactor::001"
+    )
+
+    assert safe_refactor.verification_commands == (
+        "cargo test -p codelens-engine --features scip-backend scip_backend",
+        "cargo check -p codelens-engine --features scip-backend",
+        "cargo fmt --check",
+    )
+
+
 def main() -> int:
     tests = [
         test_disposable_worktree_uses_pinned_commit_without_source_wip,
@@ -208,6 +223,7 @@ def main() -> int:
         test_hidden_test_grading_uses_separate_target_worktree_and_allowed_diff,
         test_hidden_test_grading_rejects_out_of_bounds_candidate_write,
         test_pilot_task_pack_has_hidden_rubrics_for_every_task,
+        test_codelens_safe_refactor_verification_enables_scip_backend_feature,
     ]
     failures = 0
     for test in tests:
