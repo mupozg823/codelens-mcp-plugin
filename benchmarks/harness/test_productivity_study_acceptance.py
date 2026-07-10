@@ -99,44 +99,6 @@ def write_type_candidate(root: Path) -> None:
         )
 
 
-def write_scip_candidate(root: Path, *, wire_tests: bool = True) -> None:
-    test_wiring = "#[cfg(test)]\nmod tests;\n" if wire_tests else ""
-    write(
-        root,
-        "crates/codelens-engine/src/scip_backend/mod.rs",
-        "mod call_graph;\nmod navigation;\nmod parse;\n"
-        f"{test_wiring}pub struct ScipBackend {{}}\n",
-    )
-    helpers = "\n".join(
-        f"pub(super) fn {name}() {{}}"
-        for name in (
-            "short_name",
-            "is_definition",
-            "parse_range",
-            "is_function_like_symbol",
-            "body_end_line",
-        )
-    )
-    write(root, "crates/codelens-engine/src/scip_backend/parse.rs", helpers)
-    write(
-        root,
-        "crates/codelens-engine/src/scip_backend/navigation.rs",
-        "impl PreciseBackend for ScipBackend {}\n",
-    )
-    write(
-        root,
-        "crates/codelens-engine/src/scip_backend/call_graph.rs",
-        "impl ScipBackend {\n"
-        "pub fn find_callees(&self) {}\n"
-        "pub fn find_callers(&self) {}\n}\n",
-    )
-    write(
-        root,
-        "crates/codelens-engine/src/scip_backend/tests.rs",
-        "#[test]\nfn split_works() {}\n",
-    )
-
-
 def run(candidate: Path, check_id: str) -> tuple[bool, str | None]:
     return acceptance.run_evaluator_checks(candidate, (check_id,))
 
@@ -253,32 +215,6 @@ def test_type_split_rejects_value_or_reverse_import_evasions() -> None:
         result = run(candidate, acceptance.SIGNATURE_SEQUENCE_TYPES_SPLIT_ID)
 
     assert result[0] is False
-
-
-def test_scip_split_rejects_base_noop_and_accepts_target_shape() -> None:
-    with tempfile.TemporaryDirectory(prefix="study-scip-") as raw_tmp:
-        candidate = Path(raw_tmp)
-        write(
-            candidate,
-            "crates/codelens-engine/src/scip_backend.rs",
-            "pub struct ScipBackend;\n",
-        )
-        assert run(candidate, acceptance.CODELENS_SCIP_SPLIT_ID)[0] is False
-        (candidate / "crates/codelens-engine/src/scip_backend.rs").unlink()
-        write_scip_candidate(candidate)
-        result = run(candidate, acceptance.CODELENS_SCIP_SPLIT_ID)
-
-    assert result == (True, None)
-
-
-def test_scip_split_rejects_missing_test_wiring() -> None:
-    with tempfile.TemporaryDirectory(prefix="study-scip-") as raw_tmp:
-        candidate = Path(raw_tmp)
-        write_scip_candidate(candidate, wire_tests=False)
-        result = run(candidate, acceptance.CODELENS_SCIP_SPLIT_ID)
-
-    assert result[0] is False
-    assert "test module wiring" in (result[1] or "")
 
 
 def main() -> int:

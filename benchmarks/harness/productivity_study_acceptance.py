@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import tempfile
 from enum import StrEnum
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import Final, Sequence, assert_never
 
 import productivity_study_acceptance_syntax as syntax
+from productivity_study_acceptance_scip import check_codelens_scip_split
 from productivity_study_acceptance_types import check_signature_sequence_types
 from productivity_study_home import isolated_study_environment
 
@@ -32,17 +32,6 @@ _ANCHOR_SURFACES: Final = (
     ("src/components/film-v2/ResultCanvas.tsx", "sequenceSheet!.url"),
     ("src/components/gallery/UserGalleryPanels.tsx", "job.gif_path"),
 )
-_SCIP_ROOT: Final = "crates/codelens-engine/src/scip_backend"
-_SCIP_PRODUCTION: Final = ("mod.rs", "parse.rs", "navigation.rs", "call_graph.rs")
-_SCIP_PARSE_HELPERS: Final = (
-    "short_name",
-    "is_definition",
-    "parse_range",
-    "is_function_like_symbol",
-    "body_end_line",
-)
-
-
 def run_evaluator_checks(
     candidate: Path,
     check_ids: Sequence[str],
@@ -59,7 +48,7 @@ def run_evaluator_checks(
             case _CheckId.SIGNATURE_SEQUENCE_TYPES_SPLIT:
                 result = check_signature_sequence_types(candidate)
             case _CheckId.CODELENS_SCIP_SPLIT:
-                result = _check_codelens_scip_split(candidate)
+                result = check_codelens_scip_split(candidate)
             case unreachable:
                 assert_never(unreachable)
         if not result[0]:
@@ -140,51 +129,6 @@ def _mutation_check_anchor_guard(candidate: Path) -> tuple[bool, str | None]:
     return True, None
 
 
-def _check_codelens_scip_split(candidate: Path) -> tuple[bool, str | None]:
-    legacy = candidate / "crates/codelens-engine/src/scip_backend.rs"
-    if legacy.exists() or legacy.is_symlink():
-        return False, "legacy SCIP backend file remains"
-    sources: dict[str, str] = {}
-    for name in (*_SCIP_PRODUCTION, "tests.rs"):
-        source, failure = _read_required(candidate, f"{_SCIP_ROOT}/{name}")
-        if failure is not None:
-            return False, failure
-        sources[name] = source
-    module = sources["mod.rs"]
-    for name in ("call_graph", "navigation", "parse"):
-        if re.search(rf"(?m)^\s*mod\s+{name}\s*;\s*$", module) is None:
-            return False, f"private SCIP module wiring is missing: {name}"
-    test_wiring = r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]\s*mod\s+tests\s*;"
-    if re.search(test_wiring, module) is None:
-        return False, "SCIP test module wiring is missing"
-    if re.search(r"\bpub\s+struct\s+ScipBackend\b", module) is None:
-        return False, "ScipBackend is not public"
-    for helper in _SCIP_PARSE_HELPERS:
-        if (
-            re.search(
-                rf"\bpub\s*\(\s*super\s*\)\s+fn\s+{helper}\b", sources["parse.rs"]
-            )
-            is None
-        ):
-            return False, f"SCIP parse helper visibility is wrong: {helper}"
-    if (
-        re.search(
-            r"\bimpl\s+PreciseBackend\s+for\s+ScipBackend\b", sources["navigation.rs"]
-        )
-        is None
-    ):
-        return False, "PreciseBackend implementation is not in navigation"
-    for method in ("find_callers", "find_callees"):
-        if re.search(rf"\bpub\s+fn\s+{method}\b", sources["call_graph.rs"]) is None:
-            return False, f"SCIP call graph method is missing: {method}"
-    if re.search(r"#\s*\[\s*test\s*\]", sources["tests.rs"]) is None:
-        return False, "SCIP split has no wired unit tests"
-    for name in _SCIP_PRODUCTION:
-        if _pure_loc(sources[name]) > 250:
-            return False, f"SCIP production module exceeds 250 pure LOC: {name}"
-    return True, None
-
-
 def _read_required(candidate: Path, relative: str) -> tuple[str, str | None]:
     path = candidate / relative
     if not path.is_file() or path.is_symlink():
@@ -193,11 +137,3 @@ def _read_required(candidate: Path, relative: str) -> tuple[str, str | None]:
         return path.read_text(encoding="utf-8"), None
     except (OSError, UnicodeError) as error:
         return "", f"cannot read evaluator file {relative}: {error}"
-
-
-def _pure_loc(source: str) -> int:
-    return sum(
-        1
-        for line in source.splitlines()
-        if line.strip() and not line.lstrip().startswith("//")
-    )
