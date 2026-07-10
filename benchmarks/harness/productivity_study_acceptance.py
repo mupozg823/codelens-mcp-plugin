@@ -10,6 +10,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final, Sequence, assert_never
 
+import productivity_study_acceptance_syntax as syntax
 from productivity_study_home import isolated_study_environment
 
 
@@ -27,8 +28,8 @@ SUPPORTED_CHECK_IDS: Final = tuple(check_id.value for check_id in _CheckId)
 _ANCHOR_SCRIPT: Final = "node scripts/guards/anchor-download-target.mjs"
 _ANCHOR_GUARD: Final = "scripts/guards/anchor-download-target.mjs"
 _ANCHOR_SURFACES: Final = (
-    ("src/components/film-v2/ResultCanvas.tsx", "href={sequenceSheet!.url}"),
-    ("src/components/gallery/UserGalleryPanels.tsx", "href={job.gif_path}"),
+    ("src/components/film-v2/ResultCanvas.tsx", "sequenceSheet!.url"),
+    ("src/components/gallery/UserGalleryPanels.tsx", "job.gif_path"),
 )
 _TYPE_ROOT: Final = "src/lib/filmPlanner"
 _TYPE_MODULE: Final = "@/src/lib/filmPlanner/billboardSequenceSheetTypes"
@@ -105,21 +106,22 @@ def _check_signature_anchor_download(candidate: Path) -> tuple[bool, str | None]
         if failure is not None:
             return False, failure
         tags = [
-            match.group(0)
-            for match in re.finditer(r"<a\b[^>]*>", source, flags=re.DOTALL)
-            if href in match.group(0)
-            and re.search(r"\sdownload(?:\s|=|/|>)", match.group(0))
+            tag
+            for tag in syntax.extract_jsx_anchor_opening_tags(source)
+            if syntax.anchor_href_matches(tag, href)
+            and re.search(r"\sdownload(?:\s|=|/|>)", tag)
         ]
-        if not tags:
-            return False, f"required download anchor is missing: {relative}"
-        for tag in tags:
-            if re.search(r'\btarget\s*=\s*["\']_blank["\']', tag) is None:
-                return False, f"download anchor lacks target blank: {relative}"
-            rel = re.search(r'\brel\s*=\s*["\']([^"\']*)["\']', tag)
-            if rel is None or not {"noopener", "noreferrer"}.issubset(
-                rel.group(1).split()
-            ):
-                return False, f"download anchor lacks safe rel tokens: {relative}"
+        if len(tags) != 1:
+            return (
+                False,
+                f"required download anchor must have exactly one match: {relative}",
+            )
+        tag = tags[0]
+        if re.search(r'\btarget\s*=\s*["\']_blank["\']', tag) is None:
+            return False, f"download anchor lacks target blank: {relative}"
+        rel = re.search(r'\brel\s*=\s*["\']([^"\']*)["\']', tag)
+        if rel is None or not {"noopener", "noreferrer"}.issubset(rel.group(1).split()):
+            return False, f"download anchor lacks safe rel tokens: {relative}"
     return _mutation_check_anchor_guard(candidate)
 
 
@@ -128,20 +130,17 @@ def _mutation_check_anchor_guard(candidate: Path) -> tuple[bool, str | None]:
     if not guard_path.is_file() or guard_path.is_symlink():
         return False, "candidate anchor guard is missing or not a regular file"
     fixtures = (
-        ("missing target and rel", "<a href={asset} download>asset</a>\n", False),
-        (
-            "target-only",
-            '<a href={asset} download target="_blank">asset</a>\n',
-            False,
-        ),
-        (
-            "fully safe",
-            '<a href={asset} download target="_blank" rel="noopener noreferrer">asset</a>\n',
-            True,
-        ),
+        ("missing target and rel", "", "", False),
+        ("target-only", ' target="_blank"', "", False),
+        ("rel=nofollow", ' target="_blank"', ' rel="nofollow"', False),
+        ("noopener-only", ' target="_blank"', ' rel="noopener"', False),
+        ("noreferrer-only", ' target="_blank"', ' rel="noreferrer"', False),
+        ("safe rel without target", "", ' rel="noopener noreferrer"', False),
+        ("fully safe", ' target="_blank"', ' rel="noopener noreferrer"', True),
     )
     with isolated_study_environment(candidate) as environment:
-        for label, content, should_pass in fixtures:
+        for label, target, rel, should_pass in fixtures:
+            content = f"<a href={{asset}} download{target}{rel}>asset</a>\n"
             with tempfile.TemporaryDirectory(
                 prefix="codelens-guard-mutation-"
             ) as raw_tmp:
