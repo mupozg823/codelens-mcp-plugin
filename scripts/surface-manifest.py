@@ -499,7 +499,7 @@ def render_host_adapter_summary(manifest: dict) -> str:
                 + ", ".join(f"`{mode}`" for mode in host["recommended_modes"]),
                 "- Preferred profiles: "
                 + ", ".join(f"`{profile}`" for profile in host["preferred_profiles"]),
-                f"- Default compiled overlay: profile=`{host['default_profile']}`, task_overlay=`{host['default_task_overlay']}`",
+                f"- Default profile: `{host['default_profile']}`",
                 "- Primary bootstrap sequence: "
                 + " -> ".join(
                     f"`{step}`" for step in host["primary_bootstrap_sequence"]

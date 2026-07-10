@@ -49,18 +49,14 @@ pub(crate) const ALL_PROFILES: &[ToolProfile] = &[
     ToolProfile::PlannerReadonly,
     ToolProfile::BuilderMinimal,
     ToolProfile::ReviewerGraph,
-    ToolProfile::EvaluatorCompact,
-    ToolProfile::RefactorFull,
-    ToolProfile::CiAudit,
-    ToolProfile::WorkflowFirst,
 ];
 
 impl ToolProfile {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
-            "planner-readonly" | "planner" => Some(Self::PlannerReadonly),
-            "builder-minimal" | "builder" => Some(Self::BuilderMinimal),
-            "reviewer-graph" | "reviewer" => Some(Self::ReviewerGraph),
+            "readonly" | "planner-readonly" | "planner" => Some(Self::PlannerReadonly),
+            "builder" | "builder-minimal" => Some(Self::BuilderMinimal),
+            "review" | "reviewer-graph" | "reviewer" => Some(Self::ReviewerGraph),
             "refactor-full" | "refactor" => Some(Self::RefactorFull),
             "evaluator-compact" | "evaluator" => Some(Self::EvaluatorCompact),
             "ci-audit" | "ci" => Some(Self::CiAudit),
@@ -71,13 +67,19 @@ impl ToolProfile {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::PlannerReadonly => "planner-readonly",
-            Self::BuilderMinimal => "builder-minimal",
-            Self::ReviewerGraph => "reviewer-graph",
-            Self::RefactorFull => "refactor-full",
-            Self::EvaluatorCompact => "evaluator-compact",
-            Self::CiAudit => "ci-audit",
-            Self::WorkflowFirst => "workflow-first",
+            Self::PlannerReadonly | Self::EvaluatorCompact | Self::WorkflowFirst => "readonly",
+            Self::BuilderMinimal | Self::RefactorFull => "builder",
+            Self::ReviewerGraph | Self::CiAudit => "review",
+        }
+    }
+
+    pub fn compatibility_alias(value: &str) -> Option<&'static str> {
+        match value.to_ascii_lowercase().as_str() {
+            "planner-readonly" | "planner" | "workflow-first" | "workflow"
+            | "evaluator-compact" | "evaluator" => Some("readonly"),
+            "builder-minimal" | "refactor-full" | "refactor" => Some("builder"),
+            "reviewer-graph" | "reviewer" | "ci-audit" | "ci" => Some("review"),
+            _ => None,
         }
     }
 

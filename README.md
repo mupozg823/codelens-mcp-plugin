@@ -66,8 +66,8 @@ CodeLens는 host가 대화를 소유하고, `codelens-mcp`가 MCP tool 표면과
 - Registered tool definitions: `100`
 - Tool output schemas: `57 / 100`
 - Supported language families: `34` across `56` extensions
-- Profiles: active `planner-readonly` (45), `builder-minimal` (44), `reviewer-graph` (49); compatibility aliases `evaluator-compact` (45, v2.0 removal), `refactor-full` (44, v2.0 removal), `ci-audit` (49, v2.0 removal), `workflow-first` (45, v2.0 removal)
-- Presets: `minimal` (26), `balanced` (87), `full` (100)
+- Profiles: `readonly` (44), `builder` (43), `review` (48)
+- Presets: `minimal` (26), `balanced` (82), `full` (95)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
@@ -237,10 +237,10 @@ Minimal setup:
 
 ```bash
 # Start once, keep running in the background
-codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
+codelens-mcp /path/to/project --transport http --profile review --daemon-mode read-only --port 7837
 
 # Optional: a second daemon scoped for refactor-capable agents
-codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
+codelens-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 ```
 
 Those ports are the public generic example. In this repository's local launchd
@@ -307,8 +307,8 @@ bash scripts/install-http-daemons-launchd.sh . --load
 That installs two repo-local launchd agents from a current
 `--features http,semantic` build by default:
 
-- `dev.codelens.mcp-readonly` -> `reviewer-graph` on `:7839`
-- `dev.codelens.mcp-mutation` -> `refactor-full` on `:7838`
+- `dev.codelens.mcp-readonly` -> `review` on `:7839`
+- `dev.codelens.mcp-mutation` -> `builder` on `:7838`
 
 > **Build flag reminder (v1.10.1+)**: the installer builds the daemon
 > with `http,semantic` by default and writes `CODELENS_MODEL_DIR` into
@@ -333,7 +333,7 @@ using the installer above:
     <string>/Users/you/.local/bin/codelens-mcp</string>
     <string>/Users/you/your-project</string>
     <string>--transport</string><string>http</string>
-    <string>--profile</string><string>reviewer-graph</string>
+    <string>--profile</string><string>review</string>
     <string>--daemon-mode</string><string>read-only</string>
     <string>--port</string><string>7837</string>
   </array>
@@ -464,13 +464,13 @@ Instead of starting from the full raw tool registry, begin with the workflow-fir
 
 ### Role-Based Surfaces
 
-| Profile            | Tools Visible                  | Use Case                                        |
-| ------------------ | ------------------------------ | ----------------------------------------------- |
-| `planner-readonly` | Workflow-first                 | Planner/architect context compression           |
-| `builder-minimal`  | Workflow-first                 | Implementation with focused Codex/agent surface |
-| `reviewer-graph`   | Review-heavy                   | Graph-aware review and risk analysis            |
+| Profile    | Tools Visible  | Use Case                                        |
+| ---------- | -------------- | ----------------------------------------------- |
+| `readonly` | Read-only core | Lookup and bounded planning                     |
+| `review`   | Review-heavy   | Graph-aware review, risk analysis, and signoff  |
+| `builder`  | Mutation core  | Preflight-gated implementation and refactoring  |
 
-Compatibility aliases (`refactor-full`, `ci-audit`, `evaluator-compact`, `workflow-first`) remain parseable through the v1.13 deprecation window, carry `v2.0` removal metadata in the manifest, and canonicalize to the core trio for profile filtering.
+Compatibility aliases (`planner-readonly`, `reviewer-graph`, `builder-minimal`, `refactor-full`, `ci-audit`, `evaluator-compact`, `workflow-first`) remain parseable through the v1.13 deprecation window, carry `v2.0` removal metadata in the manifest, and canonicalize to the core trio for profile filtering.
 
 ### Adaptive Token Compression
 
@@ -664,9 +664,9 @@ see [`docs/product-readiness.md`](docs/product-readiness.md).
 │                    ┌─────────▼──────────┐                        │
 │                    │   CodeLens MCP     │                        │
 │                    │  ┌──────────────┐  │                        │
-│                    │  │  Profiles    │  │ planner-readonly       │
-│                    │  │  Workflows   │  │ builder-minimal        │
-│                    │  │  Handles     │  │ reviewer-graph         │
+│                    │  │  Profiles    │  │ readonly               │
+│                    │  │  Workflows   │  │ review                 │
+│                    │  │  Handles     │  │ builder                │
 │                    │  │  Gates       │  │ compat aliases -> core │
 │                    │  └──────┬───────┘  │                        │
 │                    │         │          │                        │

@@ -71,7 +71,12 @@ pub(crate) fn build_visible_tool_context(
     request: &ResourceRequestContext,
 ) -> VisibleToolContext {
     let surface = state.execution_surface(&request.session);
-    let all_tools = visible_tools(surface);
+    let principal_id = crate::principals::resolve_principal_id(&request.session);
+    let principal_role = state.principals().resolve(principal_id.as_deref());
+    let all_tools = visible_tools(surface)
+        .into_iter()
+        .filter(|tool| principal_role.satisfies(crate::principals::required_role_for(tool.name)))
+        .collect::<Vec<_>>();
     let preferred = preferred_namespaces(surface);
     let preferred_bootstrap = preferred_bootstrap_tools(surface);
     let preferred_tiers = preferred_tier_labels(surface);

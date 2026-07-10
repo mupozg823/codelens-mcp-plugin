@@ -93,20 +93,20 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
                 ToolSurface::Profile(ToolProfile::BuilderMinimal),
                 default_budget_for_profile(ToolProfile::BuilderMinimal)
                     .max(client.default_budget()),
-                "builder-minimal",
+                "builder",
             )
         } else if file_count > 500 {
             (
                 ToolSurface::Profile(ToolProfile::ReviewerGraph),
                 default_budget_for_profile(ToolProfile::ReviewerGraph).max(client.default_budget()),
-                "reviewer-graph",
+                "review",
             )
         } else {
             (
                 ToolSurface::Profile(ToolProfile::PlannerReadonly),
                 default_budget_for_profile(ToolProfile::PlannerReadonly)
                     .max(client.default_budget()),
-                "planner-readonly",
+                "readonly",
             )
         };
     #[cfg(feature = "http")]

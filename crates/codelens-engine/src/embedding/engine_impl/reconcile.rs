@@ -62,14 +62,18 @@ impl<'a> PendingEmbeddingBatch<'a> {
 }
 
 impl EmbeddingEngine {
-    pub(super) fn reconcile_file_embeddings_batched(
+    pub(super) fn reconcile_file_embeddings_batched<F>(
         &self,
         file_path: &str,
         symbols: Vec<crate::db::SymbolWithFile>,
         source: Option<&str>,
         mut existing_embeddings: HashMap<ReusableEmbeddingKey, EmbeddingChunk>,
         batch: &mut PendingEmbeddingBatch<'_>,
-    ) -> Result<usize> {
+        checkpoint: &mut F,
+    ) -> Result<usize>
+    where
+        F: FnMut() -> Result<()>,
+    {
         let mut inserted = 0usize;
         let mut reused_chunks = Vec::with_capacity(symbols.len());
         self.store.delete_by_file(&[file_path])?;
@@ -93,12 +97,17 @@ impl EmbeddingEngine {
                 continue;
             }
 
-            inserted += batch.push(text, sym)?;
+            let flushed = batch.push(text, sym)?;
+            inserted += flushed;
+            if flushed > 0 {
+                checkpoint()?;
+            }
         }
 
         if !reused_chunks.is_empty() {
             inserted += self.store.insert(&reused_chunks)?;
         }
+        checkpoint()?;
         Ok(inserted)
     }
 

@@ -41,6 +41,43 @@ fn lists_tools() {
 }
 
 #[test]
+fn full_tools_list_intersects_with_read_only_principal_role() {
+    let project = project_root();
+    let codelens_dir = project.as_path().join(".codelens");
+    fs::create_dir_all(&codelens_dir).unwrap();
+    fs::write(
+        codelens_dir.join("principals.toml"),
+        "[default]\nrole = \"ReadOnly\"\n",
+    )
+    .unwrap();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(2)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "full": true,
+                "_session_principal_id": "readonly-user"
+            })),
+        },
+    )
+    .expect("role-filtered tools/list should return a response");
+    let value = serde_json::to_value(&response).expect("serialize");
+    let names = value["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"find_symbol"));
+    assert!(!names.contains(&"insert_after_symbol"));
+    assert!(!names.contains(&"write_memory"));
+    assert!(!names.contains(&"audit_log_query"));
+}
+
+#[test]
 fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);

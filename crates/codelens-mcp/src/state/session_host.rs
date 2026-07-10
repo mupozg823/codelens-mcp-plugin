@@ -31,7 +31,11 @@ impl AppState {
     }
 
     pub(crate) fn default_project_scope(&self) -> String {
-        self.default_project.as_path().to_string_lossy().to_string()
+        self.default_context
+            .project
+            .as_path()
+            .to_string_lossy()
+            .to_string()
     }
 
     pub(crate) fn execution_surface(

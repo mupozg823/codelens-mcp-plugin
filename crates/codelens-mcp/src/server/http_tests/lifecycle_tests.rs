@@ -239,7 +239,7 @@ async fn initialize_profile_sets_http_session_surface_and_tools_list() {
 
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
-    assert!(body.contains("\"active_surface\":\"reviewer-graph\""));
+    assert!(body.contains("\"active_surface\":\"review\""));
     assert!(body.contains("\"get_ranked_context\""));
     assert!(body.contains("\"get_callers\""));
     assert!(body.contains("\"start_analysis_job\""));
@@ -404,7 +404,7 @@ async fn codex_session_client_name_affects_activate_project_budget() {
     assert_eq!(payload["success"], serde_json::json!(true));
     assert_eq!(
         payload["data"]["auto_surface"],
-        serde_json::json!("builder-minimal")
+        serde_json::json!("builder")
     );
     assert_eq!(payload["data"]["auto_budget"], serde_json::json!(6000));
 }

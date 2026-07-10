@@ -168,6 +168,101 @@ fn audit_failure_row_recorded_for_error_response() {
     );
 }
 
+#[test]
+fn missing_required_parameter_is_recorded_as_failed_operation() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let _response = call_tool(
+        &state,
+        "write_memory",
+        json!({"memory_name": "missing-content"}),
+    );
+
+    let sink = state.audit_sink().expect("audit sink available");
+    let rows = sink.query(None, None, 100).expect("query");
+    let row = rows
+        .iter()
+        .find(|row| row.tool == "write_memory" && row.apply_status == "failed")
+        .expect("required-parameter failure must be audited");
+    assert_eq!(row.state_to, "Failed");
+    assert!(uuid::Uuid::parse_str(&row.operation_id).is_ok());
+    assert!(
+        row.error_message
+            .as_deref()
+            .is_some_and(|message| message.contains("content"))
+    );
+}
+
+#[test]
+fn mutation_fails_closed_when_audit_sink_cannot_open() {
+    let project = project_root();
+    let codelens_dir = project.as_path().join(".codelens");
+    fs::create_dir_all(&codelens_dir).unwrap();
+    fs::write(
+        codelens_dir.join("principals.toml"),
+        "[default]\nrole = \"Refactor\"\n",
+    )
+    .unwrap();
+    fs::write(codelens_dir.join("audit"), "not a directory").unwrap();
+    let target = project.as_path().join("audit_fail_closed.py");
+    fs::write(&target, "def alpha():\n    return 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = call_tool(
+        &state,
+        "insert_after_symbol",
+        json!({
+            "relative_path": "audit_fail_closed.py",
+            "symbol_name": "alpha",
+            "content": "\ndef beta():\n    return 2\n",
+        }),
+    );
+
+    assert_eq!(
+        response["success"], false,
+        "audit failure must reject mutation"
+    );
+    assert_eq!(
+        fs::read_to_string(target).unwrap(),
+        "def alpha():\n    return 1\n",
+        "mutation must not run when its audit operation cannot be opened"
+    );
+}
+
+#[test]
+fn surface_denial_is_recorded_under_one_uuid_operation() {
+    let project = project_root();
+    let state = make_state(&project);
+    let profile = call_tool(
+        &state,
+        "set_profile",
+        json!({"profile": "planner-readonly"}),
+    );
+    assert_eq!(profile["success"], true);
+
+    let denied = call_tool(
+        &state,
+        "insert_after_symbol",
+        json!({
+            "relative_path": "blocked.py",
+            "symbol_name": "alpha",
+            "content": "\ndef beta():\n    pass\n",
+        }),
+    );
+    assert_eq!(denied["success"], false);
+
+    let sink = state.audit_sink().expect("audit sink available");
+    let rows = sink.query(None, None, 100).expect("query rows");
+    let row = rows
+        .iter()
+        .find(|row| row.tool == "insert_after_symbol")
+        .expect("surface denial must be audited");
+    assert_eq!(row.apply_status, "denied");
+    assert_eq!(row.state_to, "Denied");
+    assert!(uuid::Uuid::parse_str(&row.operation_id).is_ok());
+}
+
 /// ADR-0009 §1 (P2-C role gate): when `CODELENS_PRINCIPAL` env var is
 /// set and `principals.toml` maps that principal to `ReadOnly`, every
 /// mutation tool call is denied with a JSON-RPC -32008 error AND an

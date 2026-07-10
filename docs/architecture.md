@@ -97,7 +97,8 @@ sequenceDiagram
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
 - Current enterprise productization decision record: [docs/adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
 - Current product direction: CodeLens is becoming a bounded code-work orchestrator over its existing code-intelligence substrate. See [docs/adr/ADR-0014-bounded-code-work-orchestrator.md](adr/ADR-0014-bounded-code-work-orchestrator.md).
-- Latest local deploy proof: `scripts/redeploy-daemons.sh --build --probe` rebuilt and reprobed the shared daemons; `scripts/daemon-stale-check.sh` reported daemon commit `26d6b87` matching source `HEAD`; `smoke-embedding-coverage.py` reported semantic index readiness at 100%.
+- Current migration contract: [Architecture Migration Roadmap](architecture-migration-roadmap.md) documents fail-closed mutation audit, `ProjectContext`, `JobService`, the three canonical surfaces, and As-Is/To-Be dynamic flows.
+- Runtime identity proof is generated, not hand-maintained: run `python3 scripts/runtime-snapshot.py --write --check` after `scripts/redeploy-daemons.sh --build --probe`. The resulting ignored `.codelens/runtime-snapshot.json` records source HEAD/tree, disk binary SHA, live daemon SHA, and each principal-filtered `tools/list` count.
 - Latest retrieval performance proof: the sparse symbol BM25 layer now caches token weights and document frequencies by project/path-scope fingerprint. The local gate improved from `41465.92 ms` to `26584.4 ms` with quality gates passing and unchanged top-hit behavior.
 
 This document describes the product shape and the stable architectural layers.

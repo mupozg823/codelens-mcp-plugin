@@ -28,7 +28,7 @@ axum = { workspace = true, optional = true }
 axum-server = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tokio-stream = { workspace = true, optional = true }
-uuid = { workspace = true, optional = true }
+uuid.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -80,7 +80,7 @@ default = ["scip-backend", "lang-extra"]
 semantic = ["codelens-engine/semantic"]
 coreml = ["semantic", "codelens-engine/coreml"]
 model-bakeoff = ["semantic", "codelens-engine/model-bakeoff"]
-http = ["dep:axum", "dep:axum-server", "dep:tokio", "dep:uuid", "dep:tokio-stream", "dep:jsonwebtoken", "dep:ureq", "dep:rustls"]
+http = ["dep:axum", "dep:axum-server", "dep:tokio", "dep:tokio-stream", "dep:jsonwebtoken", "dep:ureq", "dep:rustls"]
 otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry", "dep:tokio"]
 scip-backend = ["codelens-engine/scip-backend"]
 # Niche / less-common tree-sitter languages — on by default for crates.io

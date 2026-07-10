@@ -1,4 +1,4 @@
-use super::super::overlays::{append_compiled_overlay_section, managed_host_policy_block};
+use super::super::overlays::managed_host_policy_block;
 use serde_json::{Value, json};
 
 const HOST: &str = "claude-code";
@@ -9,7 +9,7 @@ pub(super) fn bundle() -> Value {
         "resource_uri": format!("codelens://host-adapters/{HOST}"),
         "best_fit": "planner and reviewer orchestration with isolated research and explicit policy control",
         "recommended_modes": ["solo-local", "planner-builder", "reviewer-gate"],
-        "preferred_profiles": ["planner-readonly", "reviewer-graph"],
+        "preferred_profiles": ["readonly", "review"],
         "native_primitives": [
             "CLAUDE.md",
             "subagents and agent teams",
@@ -60,11 +60,11 @@ pub(super) fn bundle() -> Value {
                 "path": "CLAUDE.md",
                 "format": "markdown",
                 "purpose": "Carry the routing policy into Claude's project instructions.",
-                "template": managed_host_policy_block(&append_compiled_overlay_section(r#"## CodeLens Routing
+                "template": managed_host_policy_block(r#"## CodeLens Routing
 
 - Use native Read/Glob/Grep first for trivial point lookups and single-file edits.
 - Escalate to CodeLens after the first local step for multi-file review, refactor preflight, or durable artifact generation.
-- Default CodeLens profile for planning/review is `reviewer-graph`.
+- Default CodeLens profile for planning/review is `review`.
 - Main sessions call `prepare_harness_session` with `agent_role="main"`; delegated research/build workers call it with `agent_role="subagent"` and a narrow task overlay.
 - If the host can observe MCP server/tool names, memory roots, or subagent-scoped MCP config, pass only those names/roots as `available_mcp_servers`, `available_mcp_tools`, `memory_roots`, and `host_setting_keys`; never pass secret values.
 - Before dispatching a builder, run:
@@ -74,7 +74,7 @@ pub(super) fn bundle() -> Value {
   4. `verify_change_readiness`
 - Prefer asymmetric handoff over live planner/builder chat.
 - If `delegate_to_codex_builder` appears in `suggested_next_calls`, preserve `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` verbatim when dispatching the builder.
-"#, HOST))
+"#)
             }
         ]
     })

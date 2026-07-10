@@ -124,11 +124,14 @@ fn recommended_action_for_check(code: &str) -> Option<&'static str> {
 }
 
 fn is_builder_surface(surface: &str) -> bool {
-    matches!(surface, "builder-minimal" | "refactor-full")
+    matches!(surface, "builder" | "builder-minimal" | "refactor-full")
 }
 
 fn is_planner_surface(surface: &str) -> bool {
-    matches!(surface, "planner-readonly" | "reviewer-graph")
+    matches!(
+        surface,
+        "readonly" | "review" | "planner-readonly" | "reviewer-graph"
+    )
 }
 
 fn session_has_codex_builder_preferred_tool(state: &AppState, session_id: &str) -> bool {
@@ -527,9 +530,12 @@ mod tests {
 
     #[test]
     fn surface_classification() {
+        assert!(is_builder_surface("builder"));
         assert!(is_builder_surface("builder-minimal"));
         assert!(is_builder_surface("refactor-full"));
         assert!(!is_builder_surface("planner-readonly"));
+        assert!(is_planner_surface("readonly"));
+        assert!(is_planner_surface("review"));
         assert!(is_planner_surface("planner-readonly"));
         assert!(is_planner_surface("reviewer-graph"));
         assert!(!is_planner_surface("builder-minimal"));

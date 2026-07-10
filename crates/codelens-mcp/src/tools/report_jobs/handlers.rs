@@ -26,6 +26,7 @@ pub fn start_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
         None,
     )?;
     state.enqueue_analysis_job(
+        scope,
         job.id.clone(),
         kind,
         arguments.clone(),
@@ -68,6 +69,9 @@ pub fn get_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
             "section_handles": handle_fields["section_handles"].clone(),
             "error": job.error,
             "updated_at_ms": job.updated_at_ms,
+            "heartbeat_at_ms": job.heartbeat_at_ms,
+            "deadline_at_ms": job.deadline_at_ms,
+            "cancel_requested_at_ms": job.cancel_requested_at_ms,
         }),
         success_meta(BackendKind::Memory, 1.0),
     ))
@@ -177,6 +181,9 @@ pub fn list_analysis_jobs(state: &AppState, arguments: &Value) -> ToolResult {
                 "section_handles": handle_fields["section_handles"].clone(),
                 "error": job.error,
                 "updated_at_ms": job.updated_at_ms,
+                "heartbeat_at_ms": job.heartbeat_at_ms,
+                "deadline_at_ms": job.deadline_at_ms,
+                "cancel_requested_at_ms": job.cancel_requested_at_ms,
             })
         })
         .collect::<Vec<_>>();
@@ -265,7 +272,7 @@ pub fn retry_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
         "kind": kind,
         "profile_hint": profile_hint,
     });
-    state.enqueue_analysis_job(job.id.clone(), kind, retry_arguments, profile_hint)?;
+    state.enqueue_analysis_job(scope, job.id.clone(), kind, retry_arguments, profile_hint)?;
     Ok((
         json!({
             "job_id": job.id,

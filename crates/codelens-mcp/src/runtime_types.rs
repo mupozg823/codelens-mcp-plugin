@@ -185,6 +185,12 @@ pub(crate) struct AnalysisJob {
     pub error: Option<String>,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
+    #[serde(default)]
+    pub heartbeat_at_ms: u64,
+    #[serde(default)]
+    pub deadline_at_ms: Option<u64>,
+    #[serde(default)]
+    pub cancel_requested_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

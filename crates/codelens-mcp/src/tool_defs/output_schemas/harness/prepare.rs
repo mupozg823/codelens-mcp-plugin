@@ -2,8 +2,7 @@ mod adaptation;
 mod runtime;
 
 use adaptation::{
-    coordination_output_schema, host_environment_output_schema, overlay_output_schema,
-    skill_hints_output_schema,
+    coordination_output_schema, host_environment_output_schema, skill_hints_output_schema,
 };
 use runtime::{
     config_output_schema, harness_runtime_output_schema, http_session_output_schema,
@@ -33,7 +32,6 @@ pub(crate) fn prepare_harness_session_output_schema() -> serde_json::Value {
             "warnings": warnings_output_schema(),
             "skill_hints": skill_hints_output_schema(),
             "host_environment": host_environment_output_schema(),
-            "overlay": overlay_output_schema(),
             "coordination": coordination_output_schema(),
             "http_session": http_session_output_schema(),
             "visible_tools": visible_tools_output_schema(),

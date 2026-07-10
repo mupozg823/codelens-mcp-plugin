@@ -1325,6 +1325,29 @@ fn engine_new_and_index() {
 }
 
 #[test]
+fn indexing_checkpoint_can_interrupt_before_embedding() {
+    let _lock = MODEL_LOCK.lock().unwrap();
+    skip_without_embedding_model!();
+    let (_dir, project) = make_project_with_source();
+    let engine = EmbeddingEngine::new(&project).expect("engine should load");
+    let mut checkpoints = 0;
+
+    let error = engine
+        .index_from_project_with_checkpoint(&project, |_| {
+            checkpoints += 1;
+            if checkpoints >= 2 {
+                anyhow::bail!("indexing cancelled by checkpoint");
+            }
+            Ok(())
+        })
+        .expect_err("checkpoint must stop indexing");
+
+    assert!(error.to_string().contains("cancelled by checkpoint"));
+    assert!(checkpoints >= 2);
+    assert!(!engine.is_indexing());
+}
+
+#[test]
 fn engine_search_returns_results() {
     let _lock = MODEL_LOCK.lock().unwrap();
     skip_without_embedding_model!();

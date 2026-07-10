@@ -23,12 +23,6 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
         .context("missing host adapter bundle for attach target")?;
 
     let delegate_scaffold_rules = json_string_list(&adapter, "delegate_scaffold_rules");
-    let overlay_previews = adapter
-        .get("overlay_previews")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-
     let routing_defaults = adapter
         .get("routing_defaults")
         .and_then(Value::as_object)
@@ -60,37 +54,6 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
         out.push_str("Delegate scaffold contract:\n");
         for rule in delegate_scaffold_rules {
             out.push_str(&format!("- {rule}\n"));
-        }
-    }
-
-    if !overlay_previews.is_empty() {
-        out.push_str("Compiled overlays:\n");
-        for preview in overlay_previews {
-            let profile = preview
-                .get("profile")
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown-profile>");
-            let task_overlay = preview
-                .get("task_overlay")
-                .and_then(Value::as_str)
-                .unwrap_or("<unknown-overlay>");
-            let preferred_executor_bias = preview
-                .get("preferred_executor_bias")
-                .and_then(Value::as_str)
-                .unwrap_or("any");
-            let bootstrap_sequence = json_string_list(&preview, "bootstrap_sequence");
-            let avoid_tools = json_string_list(&preview, "avoid_tools");
-            out.push_str(&format!(
-                "- {profile} / {task_overlay}: {} [bias: {preferred_executor_bias}]\n",
-                if bootstrap_sequence.is_empty() {
-                    "prepare_harness_session".to_owned()
-                } else {
-                    bootstrap_sequence.join(" -> ")
-                }
-            ));
-            if !avoid_tools.is_empty() {
-                out.push_str(&format!("  avoid: {}\n", avoid_tools.join(", ")));
-            }
         }
     }
 

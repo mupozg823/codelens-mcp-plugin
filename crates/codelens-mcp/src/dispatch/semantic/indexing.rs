@@ -6,11 +6,11 @@ use crate::{
 };
 use serde_json::json;
 
-pub(in crate::dispatch) fn index_embeddings_handler(
+pub(crate) fn index_embeddings_handler(
     state: &AppState,
     arguments: &serde_json::Value,
 ) -> ToolResult {
-    let background = tools::optional_bool(arguments, "background", false);
+    let background = tools::optional_bool(arguments, "background", true);
     if background {
         return queue_index_embeddings_job(state, arguments);
     }
@@ -34,11 +34,18 @@ fn queue_index_embeddings_job(state: &AppState, arguments: &serde_json::Value) -
         None,
         None,
     )?;
-    let job_id = job.id.clone();
-    let response_job_id = job_id.clone();
-    let worker_state = state.clone_for_worker();
-    let arguments = arguments.clone();
-    std::thread::spawn(move || run_index_embeddings_job(worker_state, job_id, arguments));
+    let mut queued_arguments = arguments.clone();
+    if let Some(object) = queued_arguments.as_object_mut() {
+        object.insert("_job_id".to_owned(), json!(job.id));
+        object.insert("_project_scope".to_owned(), json!(scope));
+    }
+    state.enqueue_analysis_job(
+        scope,
+        job.id.clone(),
+        "index_embeddings".to_owned(),
+        queued_arguments,
+        None,
+    )?;
 
     Ok((
         json!({
@@ -47,59 +54,14 @@ fn queue_index_embeddings_job(state: &AppState, arguments: &serde_json::Value) -
             "job": job,
             "poll": {
                 "tool": "get_analysis_job",
-                "arguments": { "job_id": response_job_id }
+                "arguments": { "job_id": job.id }
             }
         }),
         tools::success_meta(BackendKind::Semantic, 0.90),
     ))
 }
 
-fn run_index_embeddings_job(worker_state: AppState, job_id: String, arguments: serde_json::Value) {
-    let scope = worker_state.current_project_scope();
-    let _ = worker_state.update_analysis_job(
-        &scope,
-        &job_id,
-        Some(crate::runtime_types::JobLifecycle::Running),
-        Some(10),
-        Some(Some("indexing semantic embeddings".to_owned())),
-        None,
-        None,
-        None,
-    );
-    match index_embeddings_now(&worker_state, &arguments) {
-        Ok(payload) => {
-            let current_step = payload
-                .get("indexed_symbols")
-                .and_then(|value| value.as_u64())
-                .map(|count| format!("indexed {count} symbols"))
-                .unwrap_or_else(|| "completed".to_owned());
-            let _ = worker_state.update_analysis_job(
-                &scope,
-                &job_id,
-                Some(crate::runtime_types::JobLifecycle::Completed),
-                Some(100),
-                Some(Some(current_step)),
-                None,
-                None,
-                None,
-            );
-        }
-        Err(error) => {
-            let _ = worker_state.update_analysis_job(
-                &scope,
-                &job_id,
-                Some(crate::runtime_types::JobLifecycle::Error),
-                Some(100),
-                Some(Some("failed".to_owned())),
-                None,
-                None,
-                Some(Some(error.to_string())),
-            );
-        }
-    }
-}
-
-fn index_embeddings_now(
+pub(crate) fn index_embeddings_now(
     state: &AppState,
     arguments: &serde_json::Value,
 ) -> Result<serde_json::Value, CodeLensError> {
@@ -109,7 +71,26 @@ fn index_embeddings_now(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
-    let count = engine.index_from_project(&project)?;
+    let count = match (
+        arguments.get("_job_id").and_then(|value| value.as_str()),
+        arguments
+            .get("_project_scope")
+            .and_then(|value| value.as_str()),
+    ) {
+        (Some(job_id), Some(scope)) => {
+            let mut last_heartbeat_ms = 0;
+            engine.index_from_project_with_checkpoint(&project, |scanned_symbols| {
+                checkpoint_embedding_job(
+                    state,
+                    scope,
+                    job_id,
+                    scanned_symbols,
+                    &mut last_heartbeat_ms,
+                )
+            })?
+        }
+        _ => engine.index_from_project(&project)?,
+    };
     let bridges_generated = match engine.generate_bridge_candidates(&project) {
         Ok(bridges) if !bridges.is_empty() => {
             let bridges_dir = project.as_path().join(".codelens");
@@ -141,6 +122,70 @@ fn index_embeddings_now(
         },
         "status": "ok"
     }))
+}
+
+fn checkpoint_embedding_job(
+    state: &AppState,
+    scope: &str,
+    job_id: &str,
+    scanned_symbols: usize,
+    last_heartbeat_ms: &mut u64,
+) -> anyhow::Result<()> {
+    let job = state
+        .get_analysis_job_for_scope(scope, job_id)
+        .ok_or_else(|| anyhow::anyhow!("unknown semantic indexing job `{job_id}`"))?;
+    match job.status {
+        crate::runtime_types::JobLifecycle::Cancelled => {
+            anyhow::bail!("semantic indexing job `{job_id}` was cancelled")
+        }
+        crate::runtime_types::JobLifecycle::Error => {
+            anyhow::bail!(
+                "semantic indexing job `{job_id}` stopped: {}",
+                job.error.as_deref().unwrap_or("job failed")
+            )
+        }
+        _ => {}
+    }
+
+    let now_ms = crate::util::now_ms();
+    if job
+        .deadline_at_ms
+        .is_some_and(|deadline| now_ms >= deadline)
+    {
+        state.update_analysis_job(
+            scope,
+            job_id,
+            Some(crate::runtime_types::JobLifecycle::Error),
+            Some(100),
+            Some(Some("deadline exceeded".to_owned())),
+            None,
+            None,
+            Some(Some("semantic indexing deadline exceeded".to_owned())),
+        )?;
+        anyhow::bail!("semantic indexing job `{job_id}` deadline exceeded");
+    }
+
+    let heartbeat_interval_ms = crate::env_compat::env_var_u64("CODELENS_JOB_HEARTBEAT_SECS")
+        .unwrap_or(5)
+        .max(1)
+        .saturating_mul(1000);
+    if *last_heartbeat_ms == 0 || now_ms.saturating_sub(*last_heartbeat_ms) >= heartbeat_interval_ms
+    {
+        state.update_analysis_job(
+            scope,
+            job_id,
+            Some(crate::runtime_types::JobLifecycle::Running),
+            None,
+            Some(Some(format!(
+                "indexing embeddings ({scanned_symbols} symbols scanned)"
+            ))),
+            None,
+            None,
+            None,
+        )?;
+        *last_heartbeat_ms = now_ms;
+    }
+    Ok(())
 }
 
 fn prewarm_embedding_queries(
@@ -177,4 +222,45 @@ fn prewarm_embedding_queries(
         })
         .collect::<Vec<_>>();
     Ok(engine.prewarm_queries(&semantic_queries)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codelens_engine::ProjectRoot;
+
+    #[test]
+    fn embedding_checkpoint_honors_job_cancellation() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-embedding-cancel-{}",
+            crate::util::now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sample.rs"), "fn sample() {}\n").unwrap();
+        let project = ProjectRoot::new_exact(&dir).unwrap();
+        let state = AppState::new_minimal(project, crate::tool_defs::ToolPreset::Full);
+        let scope = state.current_project_scope();
+        let job = state
+            .store_analysis_job(
+                &scope,
+                "index_embeddings",
+                None,
+                Vec::new(),
+                crate::runtime_types::JobLifecycle::Running,
+                5,
+                Some("worker started".to_owned()),
+                None,
+                None,
+            )
+            .unwrap();
+        state
+            .cancel_analysis_job_for_scope(&scope, &job.id)
+            .unwrap();
+
+        let error = checkpoint_embedding_job(&state, &scope, &job.id, 10, &mut 0)
+            .expect_err("cancelled job must stop indexing");
+
+        assert!(error.to_string().contains("cancelled"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

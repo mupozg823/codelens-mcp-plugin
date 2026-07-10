@@ -44,7 +44,7 @@ fn call_embedding_coverage(
         "params": {
             "clientInfo": {"name": "codelens-doctor", "version": "0"},
             "project": cwd,
-            "profile": "reviewer-graph",
+            "profile": "review",
             "deferredToolLoading": true,
         },
     });

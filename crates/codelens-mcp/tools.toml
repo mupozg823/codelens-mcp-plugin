@@ -36,6 +36,27 @@
 # is generated from this file.
 
 schema_version = "v1"
+content_mutation_tools = [
+    "replace_symbol_body",
+    "insert_before_symbol",
+    "insert_after_symbol",
+    "rename_symbol",
+    "write_memory",
+    "delete_memory",
+    "rename_memory",
+    "archive_memory",
+    "restore_memory",
+    "add_queryable_project",
+    "remove_queryable_project",
+    "refactor_extract_function",
+    "refactor_inline_function",
+    "refactor_move_to_file",
+    "refactor_change_signature",
+]
+
+[experimental_features]
+secondary-projects = ["add_queryable_project", "remove_queryable_project", "query_project", "list_queryable_projects"]
+orchestration = ["orchestrate_change"]
 
 # ── File I/O ─────────────────────────────────────────────────────────
 
@@ -739,7 +760,7 @@ required = ["task"]
 [tool.input_schema.properties]
 task = { type = "string" }
 changed_files = { type = "array", items = { type = "string" } }
-profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+profile_hint = { type = "string", enum = ["readonly", "review", "builder", "planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
 orchestration_run_id = { type = "string" }
 
 # ─────
@@ -957,7 +978,7 @@ target_paths = { type = "array", items = { type = "string" } }
 mode = { type = "string", enum = ["solo", "planner_builder", "planner-builder", "ci_audit", "ci-audit"] }
 acceptance = { type = "array", items = { type = "string" } }
 approval = { type = "object", properties = { decision = { type = "string", enum = ["requested", "request", "granted", "approved", "approve", "denied", "rejected", "deny"] }, actor = { type = "string" }, reason = { type = "string" }, approved_actions = { type = "array", items = { type = "string" } } } }
-profile_hint = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+profile_hint = { type = "string", enum = ["readonly", "review", "builder", "planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
 
 # ─────
 
@@ -1221,7 +1242,7 @@ output_schema = "prepare_harness_session_output_schema"
 type = "object"
 [tool.input_schema.properties]
 project = { type = "string", description = "Optional project name or path" }
-profile = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+profile = { type = "string", enum = ["readonly", "review", "builder", "planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
 preset = { type = "string", enum = ["minimal", "balanced", "full"] }
 token_budget = { type = "integer", description = "Optional explicit token budget override after activation" }
 file_path = { type = "string", description = "Optional file path for language-specific capability checks" }
@@ -1440,7 +1461,7 @@ annotations = "mutating"
 type = "object"
 required = ["profile"]
 [tool.input_schema.properties]
-profile = { type = "string", enum = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+profile = { type = "string", enum = ["readonly", "review", "builder", "planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
 token_budget = { type = "integer", description = "Override token budget for the active profile" }
 
 # ─────
@@ -1540,13 +1561,14 @@ name = "audit_log_query"
 category = "session"
 namespace = "session"
 preset_tags = []
-description = "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by transaction_id and/or since_ms; default limit 100 rows. Requires Admin role."
+description = "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by operation_id and/or since_ms; default limit 100 rows. Requires Admin role."
 annotations = "ro_a"
 
 [tool.input_schema]
 type = "object"
 [tool.input_schema.properties]
-transaction_id = { type = "string", description = "Stable id from a mutation response (payload.data.transaction_id). Returns the rows for that one call." }
+operation_id = { type = "string", description = "UUID from a mutation response (payload.data.operation_id). Returns rows for that invocation." }
+transaction_id = { type = "string", description = "DEPRECATED compatibility alias for operation_id." }
 since_ms = { type = "integer", description = "Earliest timestamp_ms (epoch millis) to include." }
 limit = { type = "integer", description = "Max rows (default 100, capped at 1000)." }
 
@@ -1751,13 +1773,13 @@ name = "rename_memory"
 category = "memory"
 namespace = "memory"
 preset_tags = []
-description = "[CodeLens:Memory] Rename a project memory file."
+description = "[CodeLens:Memory] Rename a project or global memory file."
 annotations = "mut_p"
 
 [tool.input_schema]
 type = "object"
 required = ["old_name", "new_name"]
-properties = { old_name = { type = "string" }, new_name = { type = "string" } }
+properties = { old_name = { type = "string" }, new_name = { type = "string" }, scope = { type = "string", enum = ["project", "global"], description = "Memory tier to rename within (default project)" } }
 
 # ─────
 
@@ -1766,13 +1788,13 @@ name = "archive_memory"
 category = "memory"
 namespace = "session"
 preset_tags = []
-description = "[CodeLens:Memory] Move a project memory file into the archive."
+description = "[CodeLens:Memory] Move a project or global memory file into the archive."
 annotations = "mut_p"
 
 [tool.input_schema]
 type = "object"
 required = ["memory_name"]
-properties = { memory_name = { type = "string" } }
+properties = { memory_name = { type = "string" }, scope = { type = "string", enum = ["project", "global"], description = "Memory tier to archive from (default project)" } }
 
 # ─────
 
@@ -1781,13 +1803,13 @@ name = "restore_memory"
 category = "memory"
 namespace = "session"
 preset_tags = []
-description = "[CodeLens:Memory] Restore an archived project memory file."
+description = "[CodeLens:Memory] Restore an archived project or global memory file."
 annotations = "mut_p"
 
 [tool.input_schema]
 type = "object"
 required = ["memory_name"]
-properties = { memory_name = { type = "string", description = "Archived memory name, with or without the archived/ prefix" } }
+properties = { memory_name = { type = "string", description = "Archived memory name, with or without the archived/ prefix" }, scope = { type = "string", enum = ["project", "global"], description = "Memory tier to restore into (default project)" } }
 
 # ─────
 
@@ -1796,12 +1818,12 @@ name = "list_archived"
 category = "memory"
 namespace = "session"
 preset_tags = []
-description = "[CodeLens:Memory] List archived project memory files."
+description = "[CodeLens:Memory] List archived project or global memory files."
 annotations = "ro_p"
 
 [tool.input_schema]
 type = "object"
-properties = {}
+properties = { scope = { type = "string", enum = ["project", "global"], description = "Memory tier to list (default project)" } }
 
 # ─────
 

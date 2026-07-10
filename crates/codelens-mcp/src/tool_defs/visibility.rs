@@ -1,6 +1,6 @@
 use super::{
-    ToolSurface, is_tool_in_surface, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_tiers, tool_namespace, tool_tier, tools,
+    ToolSurface, experimental_tool_enabled, is_tool_in_surface, preferred_bootstrap_tools,
+    preferred_namespaces, preferred_tiers, tool_namespace, tool_tier, tools,
 };
 
 fn raw_visible_tool_entries(surface: ToolSurface) -> Vec<(usize, &'static crate::protocol::Tool)> {
@@ -8,6 +8,7 @@ fn raw_visible_tool_entries(surface: ToolSurface) -> Vec<(usize, &'static crate:
         .iter()
         .enumerate()
         .filter(|(_, tool)| is_tool_in_surface(tool.name, surface))
+        .filter(|(_, tool)| experimental_tool_enabled(tool.name))
         .collect::<Vec<_>>()
 }
 

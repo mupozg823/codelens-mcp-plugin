@@ -32,6 +32,38 @@ pub(in crate::tool_defs) fn tool_default_listed(name: &str) -> bool {
     )
 }
 
+pub(in crate::tool_defs) fn tool_is_content_mutation(name: &str) -> bool {
+    matches!(
+        name,
+        "replace_symbol_body"
+            | "insert_before_symbol"
+            | "insert_after_symbol"
+            | "rename_symbol"
+            | "write_memory"
+            | "delete_memory"
+            | "rename_memory"
+            | "archive_memory"
+            | "restore_memory"
+            | "add_queryable_project"
+            | "remove_queryable_project"
+            | "refactor_extract_function"
+            | "refactor_inline_function"
+            | "refactor_move_to_file"
+            | "refactor_change_signature"
+    )
+}
+
+pub(in crate::tool_defs) fn tool_experimental_feature(name: &str) -> Option<&'static str> {
+    match name {
+        "add_queryable_project" => Some("secondary-projects"),
+        "list_queryable_projects" => Some("secondary-projects"),
+        "orchestrate_change" => Some("orchestration"),
+        "query_project" => Some("secondary-projects"),
+        "remove_queryable_project" => Some("secondary-projects"),
+        _ => None,
+    }
+}
+
 pub(in crate::tool_defs) fn tool_feature_gate(name: &str) -> Option<&'static str> {
     match name {
         "classify_symbol" => Some("semantic"),

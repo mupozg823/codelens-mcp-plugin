@@ -17,7 +17,7 @@ mod rate_limit;
 mod response;
 mod response_support;
 #[cfg(feature = "semantic")]
-mod semantic;
+pub(crate) mod semantic;
 mod session;
 mod table;
 
@@ -29,7 +29,10 @@ use envelope::{ToolCallEnvelope, validate_required_params};
 use query_engine::QueryEngine;
 use rate_limit::check_rate_limit;
 use response::{SuccessResponseInput, build_error_response, build_success_response};
-use session::{apply_post_mutation, collect_session_context, record_span_fields};
+use session::{
+    OperationAudit, apply_post_mutation, begin_mutation_operation, collect_session_context,
+    new_operation_id, record_span_fields,
+};
 
 use tracing::info_span;
 
@@ -77,6 +80,7 @@ pub(crate) fn dispatch_tool(
     let session = &envelope.session;
     let compact = envelope.compact;
     let lean = envelope.lean;
+    let operation_id = new_operation_id();
     REQUEST_BUDGET.set(envelope.budget);
 
     let span = info_span!(
@@ -90,22 +94,6 @@ pub(crate) fn dispatch_tool(
     );
     let _guard = span.enter();
     let start = std::time::Instant::now();
-
-    if let Err(validation_err) = validate_required_params(name, arguments) {
-        return build_error_response(
-            name,
-            validation_err,
-            None,
-            arguments,
-            "validation_failed",
-            &session.session_id,
-            state,
-            start,
-            id,
-            0,
-            false,
-        );
-    }
 
     // 2. Rate limit & session context (doom-loop, file-access, surface, recent tools).
     if let Some(err) = check_rate_limit(state, session) {
@@ -151,8 +139,17 @@ pub(crate) fn dispatch_tool(
         }
     };
 
+    let operation = OperationAudit::new(
+        state,
+        name,
+        arguments,
+        session,
+        &ctx.active_surface,
+        &operation_id,
+    );
+
     // 3. Auth & access (role gate + surface / namespace / tier / daemon mode).
-    if let Err(role_err) = enforce_role_gate(state, name, arguments, session, &ctx.active_surface) {
+    if let Err(role_err) = enforce_role_gate(&operation) {
         return build_error_response(
             name,
             role_err,
@@ -168,7 +165,17 @@ pub(crate) fn dispatch_tool(
         );
     }
 
-    if let Err(access_err) = validate_tool_access(name, session, ctx.surface, state) {
+    if let Err(mut access_err) = validate_tool_access(name, session, ctx.surface, state) {
+        if is_content_mutation_tool(name)
+            && let Err(audit_error) = session::record_audit_rejection(
+                &operation,
+                "denied",
+                crate::runtime_types::LifecycleState::Denied,
+                &access_err,
+            )
+        {
+            access_err = audit_error;
+        }
         return build_error_response(
             name,
             access_err,
@@ -184,23 +191,65 @@ pub(crate) fn dispatch_tool(
         );
     }
 
+    if let Err(mut validation_err) = validate_required_params(name, arguments) {
+        if is_content_mutation_tool(name)
+            && let Err(audit_error) = session::record_audit_rejection(
+                &operation,
+                "failed",
+                crate::runtime_types::LifecycleState::Failed,
+                &validation_err,
+            )
+        {
+            validation_err = audit_error;
+        }
+        return build_error_response(
+            name,
+            validation_err,
+            None,
+            arguments,
+            &ctx.active_surface,
+            &session.session_id,
+            state,
+            start,
+            id,
+            ctx.doom_count,
+            ctx.doom_rapid,
+        );
+    }
+
+    let mutation_audit_sink = if is_content_mutation_tool(name) {
+        match begin_mutation_operation(&operation) {
+            Ok(sink) => Some(sink),
+            Err(audit_error) => {
+                return build_error_response(
+                    name,
+                    audit_error,
+                    None,
+                    arguments,
+                    &ctx.active_surface,
+                    &session.session_id,
+                    state,
+                    start,
+                    id,
+                    ctx.doom_count,
+                    ctx.doom_rapid,
+                );
+            }
+        }
+    } else {
+        None
+    };
+
     // 4. Execute via mutation gate (if applicable) or directly via dispatch table.
     let engine = QueryEngine::new(state);
     let (mut result, gate_allowance, gate_failure) =
         engine.submit_message(name, arguments, session, ctx.surface);
 
     // 5. Response: post-mutation side effects, doom-loop warning, and response shaping.
-    if let Ok((payload, _)) = &mut result
-        && is_content_mutation_tool(name)
+    if let (Ok((payload, _)), Some(audit_sink)) = (&mut result, mutation_audit_sink.as_deref())
+        && let Err(audit_error) = apply_post_mutation(&operation, audit_sink, payload)
     {
-        apply_post_mutation(
-            state,
-            name,
-            arguments,
-            session,
-            &ctx.active_surface,
-            payload,
-        );
+        result = Err(audit_error);
     }
 
     // #347: shared-daemon project trap. An HTTP session that never
@@ -268,16 +317,12 @@ pub(crate) fn dispatch_tool(
             start,
             id,
         }),
-        Err(error) => {
-            if is_content_mutation_tool(name) {
-                session::record_audit_failure(
-                    state,
-                    name,
-                    arguments,
-                    session,
-                    &ctx.active_surface,
-                    &error,
-                );
+        Err(mut error) => {
+            if let Some(audit_sink) = mutation_audit_sink.as_deref()
+                && let Err(audit_error) =
+                    session::record_audit_failure(&operation, audit_sink, &error)
+            {
+                error = audit_error;
             }
             build_error_response(
                 name,

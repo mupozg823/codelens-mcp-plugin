@@ -571,6 +571,11 @@ def render_metadata() -> str:
     namespaces: dict[str, str] = {}
     annotations: dict[str, str] = {}
     default_listed = collect_default_listed_tools(data.get("tool", []))
+    content_mutation_tools = data.get("content_mutation_tools", [])
+    experimental_tools: dict[str, str] = {}
+    for feature, names in data.get("experimental_features", {}).items():
+        for name in names:
+            experimental_tools[name] = feature
 
     for tool in data.get("tool", []):
         name = tool["name"]
@@ -597,6 +602,8 @@ def render_metadata() -> str:
     parts = [METADATA_HEADER.rstrip(), ""]
     parts.append(render_default_listed_tool_names(default_listed))
     parts.append(render_bool_match("tool_default_listed", default_listed))
+    parts.append(render_bool_match("tool_is_content_mutation", content_mutation_tools))
+    parts.append(render_option_match("tool_experimental_feature", experimental_tools))
     parts.append(render_option_match("tool_feature_gate", feature_gates))
     parts.append(render_option_match("tool_phase", phases))
     parts.append(render_option_match("tool_namespace", namespaces))

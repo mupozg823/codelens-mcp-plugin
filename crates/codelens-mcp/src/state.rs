@@ -1,12 +1,12 @@
 #[cfg(feature = "semantic")]
 use codelens_engine::EmbeddingEngine;
-use codelens_engine::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
+use codelens_engine::ProjectRoot;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::agent_coordination::AgentCoordinationStore;
-use crate::analysis_queue::AnalysisWorkerQueue;
+use crate::analysis_queue::JobService;
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::orchestration_store::OrchestrationStore;
 use crate::preflight_store::RecentPreflightStore;
@@ -68,23 +68,13 @@ pub(super) fn normalize_path_for_project(project_root: &Path, path: &str) -> Str
 
 const PROJECT_CONTEXT_CACHE_LIMIT: usize = 4;
 
-use self::project_runtime::{ProjectContextCache, ProjectRuntimeContext};
+use self::project_runtime::{ProjectContext, ProjectContextCache};
 
 pub(crate) struct AppState {
     // Default project (set at startup, immutable)
-    default_project: ProjectRoot,
-    default_symbol_index: Arc<SymbolIndex>,
-    default_graph_cache: Arc<GraphCache>,
-    default_lsp_pool: Arc<LspSessionPool>,
-    default_memories_dir: PathBuf,
-    default_analysis_dir: PathBuf,
-    default_audit_dir: PathBuf,
-    default_watcher: Option<FileWatcher>,
-    /// `Some` only when the default project's watcher failed to start
-    /// (see `ProjectRuntimeContext::watcher_error`).
-    default_watcher_error: Option<String>,
+    default_context: Arc<ProjectContext>,
     // Runtime project override (set by activate_project)
-    project_override: std::sync::RwLock<Option<Arc<ProjectRuntimeContext>>>,
+    project_override: std::sync::RwLock<Option<Arc<ProjectContext>>>,
     /// Shared across worker clones (#357) so analysis workers reuse the
     /// daemon's per-project runtime contexts instead of building duplicate
     /// indexes/watchers/LSP pools per worker.
@@ -115,7 +105,7 @@ pub(crate) struct AppState {
     preflight_store: RecentPreflightStore,
     orchestration_store: Arc<OrchestrationStore>,
     coord_store: Arc<AgentCoordinationStore>,
-    analysis_queue: OnceLock<AnalysisWorkerQueue>,
+    job_service: OnceLock<JobService>,
     sparse_symbol_cache: Arc<SparseSymbolCache>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
     /// #357: stdio/local analogue of the per-session `full_tool_exposure`
@@ -212,18 +202,18 @@ impl AppState {
     }
 
     // ── Active project resolution ─────────────────────────────────────────
-    fn active_project_context(&self) -> Option<Arc<ProjectRuntimeContext>> {
+    fn active_project_context(&self) -> Option<Arc<ProjectContext>> {
         project_runtime::active_project_context(self)
     }
 
     fn build_project_runtime_context(
         project: ProjectRoot,
         start_watcher: bool,
-    ) -> anyhow::Result<ProjectRuntimeContext> {
+    ) -> anyhow::Result<ProjectContext> {
         project_runtime::build_project_runtime_context(project, start_watcher)
     }
 
-    fn activate_project_context(&self, context: Option<Arc<ProjectRuntimeContext>>) {
+    fn activate_project_context(&self, context: Option<Arc<ProjectContext>>) {
         project_runtime::activate_project_context(self, context)
     }
 }

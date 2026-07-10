@@ -8,7 +8,7 @@ pub(super) fn bundle() -> Value {
         "resource_uri": format!("codelens://host-adapters/{HOST}"),
         "best_fit": "editor-local implementation with a hard MCP tool cap and bounded foreground agent flows",
         "recommended_modes": ["solo-local", "reviewer-gate"],
-        "preferred_profiles": ["builder-minimal", "planner-readonly"],
+        "preferred_profiles": ["builder", "readonly"],
         "native_primitives": [
             "global MCP config",
             "foreground agent loop",
@@ -21,7 +21,7 @@ pub(super) fn bundle() -> Value {
         ],
         "routing_defaults": {
             "foreground_lookup": "native-first",
-            "multi_file_edit": "builder-minimal-after-bootstrap",
+            "multi_file_edit": "builder-after-bootstrap",
             "wide_surface": "deferred-loading-required",
             "tool_cap": "keep-profile-bounded"
         },

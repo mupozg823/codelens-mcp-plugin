@@ -89,26 +89,6 @@ pub(super) fn host_environment_output_schema() -> serde_json::Value {
     })
 }
 
-pub(super) fn overlay_output_schema() -> serde_json::Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "applied": {"type": "boolean"},
-            "host_context": {"type": ["string", "null"]},
-            "task_overlay": {"type": ["string", "null"]},
-            "agent_role": {"type": ["string", "null"]},
-            "preferred_executor_bias": {"type": ["string", "null"]},
-            "preferred_entrypoints": {"type": "array", "items": {"type": "string"}},
-            "preferred_entrypoints_visible": {"type": "array", "items": {"type": "string"}},
-            "emphasized_tools": {"type": "array", "items": {"type": "string"}},
-            "emphasized_tools_visible": {"type": "array", "items": {"type": "string"}},
-            "avoid_tools": {"type": "array", "items": {"type": "string"}},
-            "avoid_tools_visible": {"type": "array", "items": {"type": "string"}},
-            "routing_notes": {"type": "array", "items": {"type": "string"}}
-        }
-    })
-}
-
 pub(super) fn coordination_output_schema() -> serde_json::Value {
     json!({
         "type": "object",

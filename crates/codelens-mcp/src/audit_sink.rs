@@ -11,7 +11,7 @@ use std::sync::Mutex;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AuditRecord {
     /// Stable identifier joining all transitions of a single mutation.
-    pub transaction_id: String,
+    pub operation_id: String,
     /// Wall-clock timestamp in milliseconds since UNIX epoch.
     pub timestamp_ms: i64,
     /// Principal id (e.g. JWT `sub`, env `CODELENS_PRINCIPAL`); None when
@@ -47,7 +47,7 @@ pub struct AuditRecord {
     pub session_metadata: Option<serde_json::Value>,
 }
 
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 5;
 
 const CREATE_SQL: &str = "
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -57,16 +57,24 @@ CREATE TABLE IF NOT EXISTS audit_log (
     principal         TEXT,
     tool              TEXT NOT NULL,
     args_hash         TEXT NOT NULL,
-    apply_status      TEXT NOT NULL,
-    state_from        TEXT,
-    state_to          TEXT NOT NULL,
+    apply_status      TEXT NOT NULL CHECK (apply_status IN ('verifying', 'applied', 'rolled_back', 'no_op', 'denied', 'failed')),
+    state_from        TEXT CHECK (state_from IS NULL OR state_from IN ('Verifying', 'Applying', 'Audited', 'RolledBack', 'Failed', 'Denied')),
+    state_to          TEXT NOT NULL CHECK (state_to IN ('Verifying', 'Applying', 'Audited', 'RolledBack', 'Failed', 'Denied')),
     evidence_hash     TEXT,
     rollback_restored INTEGER,
     error_message     TEXT,
     session_metadata  TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_audit_log_tx ON audit_log(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(timestamp_ms);
+
+CREATE TRIGGER IF NOT EXISTS validate_audit_log_insert
+BEFORE INSERT ON audit_log
+WHEN NEW.apply_status NOT IN ('verifying', 'applied', 'rolled_back', 'no_op', 'denied', 'failed')
+  OR NEW.state_to NOT IN ('Verifying', 'Applying', 'Audited', 'RolledBack', 'Failed', 'Denied')
+  OR (NEW.state_from IS NOT NULL AND NEW.state_from NOT IN ('Verifying', 'Applying', 'Audited', 'RolledBack', 'Failed', 'Denied'))
+BEGIN
+    SELECT RAISE(ABORT, 'invalid audit lifecycle value');
+END;
 
 CREATE TABLE IF NOT EXISTS memory_audit_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,9 +148,10 @@ impl AuditSink {
         Ok(removed)
     }
 
-    /// Append one row. Caller must hold a stable `transaction_id` across
+    /// Append one row. Caller must hold a stable `operation_id` across
     /// all transitions of a single mutation.
     pub fn write(&self, record: &AuditRecord) -> Result<()> {
+        validate_record(record)?;
         let conn = self
             .conn
             .lock()
@@ -153,12 +162,12 @@ impl AuditSink {
             .map(|v| serde_json::to_string(v).unwrap_or_default());
         conn.execute(
             "INSERT INTO audit_log (
-                transaction_id, timestamp_ms, principal, tool, args_hash,
+                operation_id, timestamp_ms, principal, tool, args_hash,
                 apply_status, state_from, state_to, evidence_hash,
                 rollback_restored, error_message, session_metadata
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
-                record.transaction_id,
+                record.operation_id,
                 record.timestamp_ms,
                 record.principal,
                 record.tool,
@@ -174,8 +183,8 @@ impl AuditSink {
         )
         .with_context(|| {
             format!(
-                "failed to append audit row for tx={} tool={}",
-                record.transaction_id, record.tool
+                "failed to append audit row for operation={} tool={}",
+                record.operation_id, record.tool
             )
         })?;
         Ok(())
@@ -186,7 +195,7 @@ impl AuditSink {
     /// chronological order.
     pub fn query(
         &self,
-        transaction_id: Option<&str>,
+        operation_id: Option<&str>,
         since_ms: Option<i64>,
         limit: usize,
     ) -> Result<Vec<AuditRecord>> {
@@ -195,13 +204,13 @@ impl AuditSink {
             .lock()
             .map_err(|e| anyhow::anyhow!("audit_log mutex poisoned: {e}"))?;
         let mut sql = String::from(
-            "SELECT transaction_id, timestamp_ms, principal, tool, args_hash, \
+            "SELECT operation_id, timestamp_ms, principal, tool, args_hash, \
              apply_status, state_from, state_to, evidence_hash, rollback_restored, \
              error_message, session_metadata FROM audit_log WHERE 1=1",
         );
         let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-        if let Some(tx) = transaction_id {
-            sql.push_str(" AND transaction_id = ?");
+        if let Some(tx) = operation_id {
+            sql.push_str(" AND operation_id = ?");
             args.push(Box::new(tx.to_owned()));
         }
         if let Some(ts) = since_ms {
@@ -219,7 +228,7 @@ impl AuditSink {
                 let session_metadata = session_metadata_text
                     .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
                 Ok(AuditRecord {
-                    transaction_id: row.get(0)?,
+                    operation_id: row.get(0)?,
                     timestamp_ms: row.get(1)?,
                     principal: row.get(2)?,
                     tool: row.get(3)?,
@@ -274,6 +283,39 @@ impl AuditSink {
         )
         .with_context(|| format!("failed to record memory audit event: {event_type}"))?;
         Ok(())
+    }
+}
+
+fn validate_record(record: &AuditRecord) -> Result<()> {
+    let valid = match record.apply_status.as_str() {
+        "verifying" => record.state_from.is_none() && record.state_to == "Verifying",
+        "applied" | "no_op" => {
+            record.state_from.as_deref() == Some("Applying") && record.state_to == "Audited"
+        }
+        "rolled_back" => {
+            record.state_from.as_deref() == Some("Applying") && record.state_to == "RolledBack"
+        }
+        "failed" => {
+            matches!(
+                record.state_from.as_deref(),
+                None | Some("Verifying") | Some("Applying")
+            ) && record.state_to == "Failed"
+        }
+        "denied" => {
+            matches!(record.state_from.as_deref(), None | Some("Verifying"))
+                && record.state_to == "Denied"
+        }
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "invalid audit transition: status={} from={:?} to={}",
+            record.apply_status,
+            record.state_from,
+            record.state_to
+        )
     }
 }
 
@@ -336,6 +378,47 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
                 )
                 .context("failed to create memory_audit_log table")?;
             }
+            3 => {
+                conn.execute_batch(
+                    "CREATE TRIGGER IF NOT EXISTS validate_audit_log_insert
+                     BEFORE INSERT ON audit_log
+                     WHEN NEW.apply_status NOT IN ('verifying', 'applied', 'rolled_back', 'no_op', 'denied', 'failed')
+                       OR NEW.state_to NOT IN ('Verifying', 'Applying', 'Audited', 'RolledBack', 'Failed', 'Denied')
+                       OR (NEW.state_from IS NOT NULL AND NEW.state_from NOT IN ('Verifying', 'Applying', 'Audited', 'RolledBack', 'Failed', 'Denied'))
+                     BEGIN
+                         SELECT RAISE(ABORT, 'invalid audit lifecycle value');
+                     END;",
+                )
+                .context("failed to install audit lifecycle validator")?;
+            }
+            4 => {
+                let has_operation_id = conn
+                    .prepare("PRAGMA table_info(audit_log)")
+                    .and_then(|mut stmt| {
+                        let mut rows = stmt.query([])?;
+                        let mut found = false;
+                        while let Some(row) = rows.next()? {
+                            let name: String = row.get(1)?;
+                            if name == "operation_id" {
+                                found = true;
+                                break;
+                            }
+                        }
+                        Ok(found)
+                    })
+                    .context("failed to inspect audit operation-id column")?;
+                if !has_operation_id {
+                    conn.execute_batch(
+                        "ALTER TABLE audit_log RENAME COLUMN transaction_id TO operation_id;",
+                    )
+                    .context("failed to rename audit transaction id to operation id")?;
+                }
+                conn.execute_batch(
+                    "DROP INDEX IF EXISTS idx_audit_log_tx;
+                     CREATE INDEX IF NOT EXISTS idx_audit_log_operation ON audit_log(operation_id);",
+                )
+                .context("failed to migrate audit operation-id index")?;
+            }
             other => anyhow::bail!(
                 "audit_log schema at unexpected version {other}; current code targets {SCHEMA_VERSION}"
             ),
@@ -365,15 +448,22 @@ mod tests {
         dir
     }
 
-    fn sample(transaction_id: &str, tool: &str, state_to: &str) -> AuditRecord {
+    fn sample(operation_id: &str, tool: &str, state_to: &str) -> AuditRecord {
+        let (apply_status, state_from) = match state_to {
+            "Verifying" => ("verifying", None),
+            "RolledBack" => ("rolled_back", Some("Applying".to_owned())),
+            "Failed" => ("failed", Some("Verifying".to_owned())),
+            "Denied" => ("denied", None),
+            _ => ("applied", Some("Applying".to_owned())),
+        };
         AuditRecord {
-            transaction_id: transaction_id.to_owned(),
+            operation_id: operation_id.to_owned(),
             timestamp_ms: 1_700_000_000_000,
             principal: Some("test-user".to_owned()),
             tool: tool.to_owned(),
             args_hash: "deadbeef".to_owned(),
-            apply_status: "applied".to_owned(),
-            state_from: None,
+            apply_status: apply_status.to_owned(),
+            state_from,
             state_to: state_to.to_owned(),
             evidence_hash: Some("cafef00d".to_owned()),
             rollback_restored: None,
@@ -395,7 +485,7 @@ mod tests {
     fn write_and_query_roundtrip_single_row() {
         let dir = temp_audit_dir("roundtrip");
         let sink = AuditSink::open(&dir).expect("open ok");
-        let record = sample("tx-1", "replace_lines", "Committed");
+        let record = sample("tx-1", "replace_lines", "Audited");
         sink.write(&record).expect("write ok");
         let rows = sink.query(None, None, 100).expect("query ok");
         assert_eq!(rows.len(), 1);
@@ -403,33 +493,59 @@ mod tests {
     }
 
     #[test]
-    fn query_filters_by_transaction_id() {
+    fn operation_id_schema_reopens_after_migration() {
+        let dir = temp_audit_dir("operation-id-reopen");
+        let record = sample("op-1", "replace_lines", "Audited");
+        {
+            let sink = AuditSink::open(&dir).expect("initial open");
+            sink.write(&record).expect("write");
+        }
+
+        let reopened = AuditSink::open(&dir).expect("reopen migrated schema");
+        let rows = reopened.query(Some("op-1"), None, 10).expect("query");
+        assert_eq!(rows, vec![record]);
+    }
+
+    #[test]
+    fn write_rejects_invalid_lifecycle_status() {
+        let dir = temp_audit_dir("invalid-lifecycle");
+        let sink = AuditSink::open(&dir).expect("open ok");
+        let mut record = sample("tx-invalid", "replace_lines", "UnknownState");
+        record.apply_status = "mystery".to_owned();
+        assert!(
+            sink.write(&record).is_err(),
+            "audit rows outside the lifecycle domain must be rejected"
+        );
+    }
+
+    #[test]
+    fn query_filters_by_operation_id() {
         let dir = temp_audit_dir("tx-filter");
         let sink = AuditSink::open(&dir).expect("open ok");
-        sink.write(&sample("tx-A", "replace_lines", "Committed"))
+        sink.write(&sample("tx-A", "replace_lines", "Audited"))
             .unwrap();
-        sink.write(&sample("tx-B", "delete_lines", "Committed"))
+        sink.write(&sample("tx-B", "delete_lines", "Audited"))
             .unwrap();
         sink.write(&sample("tx-A", "replace_lines", "Audited"))
             .unwrap();
         let rows = sink.query(Some("tx-A"), None, 100).expect("query ok");
         assert_eq!(rows.len(), 2, "expected 2 rows for tx-A, got {rows:?}");
-        assert!(rows.iter().all(|r| r.transaction_id == "tx-A"));
+        assert!(rows.iter().all(|r| r.operation_id == "tx-A"));
     }
 
     #[test]
     fn query_filters_by_since_ms() {
         let dir = temp_audit_dir("ts-filter");
         let sink = AuditSink::open(&dir).expect("open ok");
-        let mut early = sample("tx-1", "replace_lines", "Committed");
+        let mut early = sample("tx-1", "replace_lines", "Audited");
         early.timestamp_ms = 1_000;
-        let mut late = sample("tx-2", "delete_lines", "Committed");
+        let mut late = sample("tx-2", "delete_lines", "Audited");
         late.timestamp_ms = 5_000;
         sink.write(&early).unwrap();
         sink.write(&late).unwrap();
         let rows = sink.query(None, Some(2_000), 100).expect("query ok");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].transaction_id, "tx-2");
+        assert_eq!(rows[0].operation_id, "tx-2");
     }
 
     #[test]
@@ -437,7 +553,7 @@ mod tests {
         let dir = temp_audit_dir("order");
         let sink = AuditSink::open(&dir).expect("open ok");
         for i in 0..5 {
-            let mut r = sample("tx-order", &format!("tool-{i}"), "Committed");
+            let mut r = sample("tx-order", &format!("tool-{i}"), "Audited");
             r.timestamp_ms = 1_000 + i as i64;
             sink.write(&r).unwrap();
         }
@@ -470,7 +586,7 @@ mod tests {
     fn rollback_restored_false_roundtrips() {
         let dir = temp_audit_dir("rollback-false");
         let sink = AuditSink::open(&dir).expect("open ok");
-        let mut r = sample("tx-rb", "replace_lines", "Failed");
+        let mut r = sample("tx-rb", "replace_lines", "RolledBack");
         r.apply_status = "rolled_back".to_owned();
         r.rollback_restored = Some(false);
         sink.write(&r).unwrap();
@@ -494,7 +610,7 @@ mod tests {
         assert_eq!(removed, 1, "only the row before cutoff should be deleted");
         let rows = sink.query(None, None, 100).expect("query ok");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].transaction_id, "tx-recent");
+        assert_eq!(rows[0].operation_id, "tx-recent");
     }
 
     #[test]
@@ -545,7 +661,7 @@ mod tests {
                 let sink = std::sync::Arc::clone(&sink);
                 std::thread::spawn(move || {
                     for i in 0..50 {
-                        let r = sample(&format!("tx-{tid}-{i}"), "replace_lines", "Committed");
+                        let r = sample(&format!("tx-{tid}-{i}"), "replace_lines", "Audited");
                         sink.write(&r).expect("write ok");
                     }
                 })

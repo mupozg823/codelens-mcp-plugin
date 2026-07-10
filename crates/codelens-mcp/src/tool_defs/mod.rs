@@ -255,23 +255,26 @@ pub(crate) fn is_read_only_surface(surface: ToolSurface) -> bool {
 }
 
 pub(crate) fn is_content_mutation_tool(name: &str) -> bool {
-    // Line-edit family removed (#346 tombstones).
-    matches!(
-        name,
-        "replace_symbol_body"
-            | "insert_before_symbol"
-            | "insert_after_symbol"
-            | "rename_symbol"
-            | "write_memory"
-            | "delete_memory"
-            | "rename_memory"
-            | "archive_memory"
-            | "restore_memory"
-            | "add_queryable_project"
-            | "remove_queryable_project"
-            | "refactor_extract_function"
-            | "refactor_inline_function"
-            | "refactor_move_to_file"
-            | "refactor_change_signature"
-    )
+    generated::tool_is_content_mutation(name)
+}
+
+pub(crate) fn experimental_feature_for_tool(name: &str) -> Option<&'static str> {
+    generated::tool_experimental_feature(name)
+}
+
+pub(crate) fn experimental_tool_enabled(name: &str) -> bool {
+    let Some(feature) = experimental_feature_for_tool(name) else {
+        return true;
+    };
+    if cfg!(test) {
+        return true;
+    }
+    std::env::var("CODELENS_EXPERIMENTAL_FEATURES")
+        .ok()
+        .is_some_and(|configured| {
+            configured
+                .split(',')
+                .map(str::trim)
+                .any(|value| value == feature || value == "all")
+        })
 }

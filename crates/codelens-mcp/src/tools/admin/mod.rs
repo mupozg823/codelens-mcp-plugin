@@ -22,7 +22,8 @@ use std::collections::BTreeSet;
 /// Query the durable audit log.
 ///
 /// Filters:
-/// - `transaction_id` — narrow to one mutation call
+/// - `operation_id` — narrow to one mutation call
+/// - `transaction_id` — deprecated compatibility alias for `operation_id`
 /// - `since_ms` — earliest `timestamp_ms` to include (epoch millis)
 /// - `limit` — max rows to return (default 100)
 ///
@@ -32,7 +33,8 @@ use std::collections::BTreeSet;
 /// the audit trail need to be able to ask the question even when the
 /// sink itself is the broken thing.
 pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
-    let transaction_id = optional_string(arguments, "transaction_id");
+    let operation_id = optional_string(arguments, "operation_id")
+        .or_else(|| optional_string(arguments, "transaction_id"));
     let since_ms = arguments.get("since_ms").and_then(|v| v.as_i64());
     let limit = optional_usize(arguments, "limit", 100).clamp(1, 1000);
 
@@ -42,7 +44,7 @@ pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
                 "sink_available": false,
                 "rows": [],
                 "filters": {
-                    "transaction_id": transaction_id,
+                    "operation_id": operation_id,
                     "since_ms": since_ms,
                     "limit": limit,
                 },
@@ -52,14 +54,15 @@ pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
     };
 
     let rows = sink
-        .query(transaction_id, since_ms, limit)
+        .query(operation_id, since_ms, limit)
         .map_err(|error| CodeLensError::Internal(error.context("audit_log_query")))?;
 
     let serialised: Vec<Value> = rows
         .iter()
         .map(|r| {
             json!({
-                "transaction_id": r.transaction_id,
+                "operation_id": r.operation_id,
+                "transaction_id": r.operation_id,
                 "timestamp_ms": r.timestamp_ms,
                 "principal": r.principal,
                 "tool": r.tool,
@@ -79,7 +82,7 @@ pub fn audit_log_query(state: &AppState, arguments: &Value) -> ToolResult {
             "sink_available": true,
             "rows": serialised,
             "filters": {
-                "transaction_id": transaction_id,
+                "operation_id": operation_id,
                 "since_ms": since_ms,
                 "limit": limit,
             },

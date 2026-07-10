@@ -14,6 +14,25 @@ use crate::protocol::BackendKind;
 use codelens_engine::memory::{self, MemoryPolicy, MemoryTier};
 use serde_json::{Value, json};
 
+fn scoped_memory_dir(
+    state: &AppState,
+    arguments: &Value,
+) -> Result<(std::path::PathBuf, MemoryTier), CodeLensError> {
+    match arguments
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("project")
+    {
+        "project" => Ok((state.memories_dir(), MemoryTier::Project)),
+        "global" => memory::global_memory_dir()
+            .map(|dir| (dir, MemoryTier::Global))
+            .ok_or_else(|| CodeLensError::NotFound("global memory dir not available".into())),
+        scope => Err(CodeLensError::Validation(format!(
+            "unsupported memory scope: {scope}"
+        ))),
+    }
+}
+
 // ── List memories ────────────────────────────────────────────────────────────
 
 pub fn list_memories(state: &AppState, arguments: &Value) -> ToolResult {
@@ -37,6 +56,7 @@ pub fn list_memories(state: &AppState, arguments: &Value) -> ToolResult {
                         "memories": names.iter().map(|n| json!({
                             "name": n,
                             "path": format!("global/{}",  n),
+                            "scope": "global",
                             "tier": "global"
                         })).collect::<Vec<_>>()
                     }),
@@ -62,6 +82,7 @@ pub fn list_memories(state: &AppState, arguments: &Value) -> ToolResult {
                     "count": all.len(),
                     "memories": all.iter().map(|(name, tier)| json!({
                         "name": name,
+                        "scope": tier.as_str(),
                         "tier": tier.as_str(),
                         "path": format!(".codelens/memories/{}.md",  name.trim_start_matches("global/"))
                     })).collect::<Vec<_>>()
@@ -80,6 +101,7 @@ pub fn list_memories(state: &AppState, arguments: &Value) -> ToolResult {
                     "memories": names.iter().map(|n| json!({
                         "name": n,
                         "path": format!(".codelens/memories/{n}.md"),
+                        "scope": "project",
                         "tier": "project"
                     })).collect::<Vec<_>>()
                 }),
@@ -108,6 +130,7 @@ pub fn read_memory(state: &AppState, arguments: &Value) -> ToolResult {
                 json!({
                     "memory_name": effective_name,
                     "content": content,
+                    "scope": tier.as_str(),
                     "tier": tier.as_str()
                 }),
                 success_meta(BackendKind::Memory, 1.0),
@@ -123,7 +146,7 @@ pub fn read_memory(state: &AppState, arguments: &Value) -> ToolResult {
         let content = memory::read_memory(&dir, name)
             .map_err(|_| CodeLensError::NotFound(format!("Memory: {name}")))?;
         Ok((
-            json!({"memory_name": name, "content": content, "tier": scope}),
+            json!({"memory_name": name, "content": content, "scope": scope, "tier": scope}),
             success_meta(BackendKind::Memory, 1.0),
         ))
     }
@@ -164,7 +187,7 @@ pub fn write_memory(state: &AppState, arguments: &Value) -> ToolResult {
     };
 
     Ok((
-        json!({"status": "ok", "memory_name": name, "tier": tier.as_str()}),
+        json!({"status": "ok", "memory_name": name, "scope": tier.as_str(), "tier": tier.as_str()}),
         success_meta(BackendKind::Memory, 1.0),
     ))
 }
@@ -180,14 +203,14 @@ pub fn delete_memory(state: &AppState, arguments: &Value) -> ToolResult {
 
     let global_dir = memory::global_memory_dir();
 
-    match scope {
+    let tier = match scope {
         "global" => {
             if let Some(gdir) = global_dir.as_ref() {
                 memory::delete_memory_tiered(
                     state.project().as_path(),
                     Some(gdir),
                     &format!("global/{name}"),
-                )?;
+                )?
             } else {
                 return Err(CodeLensError::NotFound(
                     "global memory dir not available".into(),
@@ -196,11 +219,12 @@ pub fn delete_memory(state: &AppState, arguments: &Value) -> ToolResult {
         }
         _ => {
             memory::delete_memory(&state.memories_dir(), name)?;
+            MemoryTier::Project
         }
     };
 
     Ok((
-        json!({"status": "ok", "memory_name": name}),
+        json!({"status": "ok", "memory_name": name, "scope": tier.as_str(), "tier": tier.as_str()}),
         success_meta(BackendKind::Memory, 1.0),
     ))
 }
@@ -210,9 +234,10 @@ pub fn delete_memory(state: &AppState, arguments: &Value) -> ToolResult {
 pub fn rename_memory(state: &AppState, arguments: &Value) -> ToolResult {
     let old_name = required_string(arguments, "old_name")?;
     let new_name = required_string(arguments, "new_name")?;
-    memory::rename_memory(&state.memories_dir(), old_name, new_name)?;
+    let (dir, tier) = scoped_memory_dir(state, arguments)?;
+    memory::rename_memory(&dir, old_name, new_name)?;
     Ok((
-        json!({"status": "ok", "old_name": old_name, "new_name": new_name}),
+        json!({"status": "ok", "old_name": old_name, "new_name": new_name, "scope": tier.as_str(), "tier": tier.as_str()}),
         success_meta(BackendKind::Memory, 1.0),
     ))
 }
@@ -221,9 +246,10 @@ pub fn rename_memory(state: &AppState, arguments: &Value) -> ToolResult {
 
 pub fn archive_memory(state: &AppState, arguments: &Value) -> ToolResult {
     let name = required_string(arguments, "memory_name")?;
-    memory::archive_memory(&state.memories_dir(), name)?;
+    let (dir, tier) = scoped_memory_dir(state, arguments)?;
+    memory::archive_memory(&dir, name)?;
     Ok((
-        json!({"status": "archived", "memory_name": name}),
+        json!({"status": "archived", "memory_name": name, "scope": tier.as_str(), "tier": tier.as_str()}),
         success_meta(BackendKind::Memory, 1.0),
     ))
 }
@@ -232,19 +258,21 @@ pub fn archive_memory(state: &AppState, arguments: &Value) -> ToolResult {
 
 pub fn restore_memory(state: &AppState, arguments: &Value) -> ToolResult {
     let name = required_string(arguments, "memory_name")?;
-    memory::restore_archived(&state.memories_dir(), name)?;
+    let (dir, tier) = scoped_memory_dir(state, arguments)?;
+    memory::restore_archived(&dir, name)?;
     Ok((
-        json!({"status": "restored", "memory_name": name}),
+        json!({"status": "restored", "memory_name": name, "scope": tier.as_str(), "tier": tier.as_str()}),
         success_meta(BackendKind::Memory, 1.0),
     ))
 }
 
 // ── List archived (new) ──────────────────────────────────────────────────────
 
-pub fn list_archived(state: &AppState, _arguments: &Value) -> ToolResult {
-    let archived = memory::list_archived(&state.memories_dir())?;
+pub fn list_archived(state: &AppState, arguments: &Value) -> ToolResult {
+    let (dir, tier) = scoped_memory_dir(state, arguments)?;
+    let archived = memory::list_archived(&dir)?;
     Ok((
-        json!({"count": archived.len(), "memories": archived}),
+        json!({"scope": tier.as_str(), "tier": tier.as_str(), "count": archived.len(), "memories": archived}),
         success_meta(BackendKind::Memory, 1.0),
     ))
 }

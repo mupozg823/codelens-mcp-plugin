@@ -233,14 +233,8 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         arguments,
         active_surface,
         visible: &visible,
-        host_context,
-        task_overlay,
         agent_role,
         overlay_preferred_entrypoints: &overlay_plan.preferred_entrypoints,
-        overlay_emphasized_tools: &overlay_plan.emphasized_tools,
-        overlay_avoid_tools: &overlay_plan.avoid_tools,
-        overlay_preferred_executor_bias: overlay_plan.preferred_executor_bias,
-        overlay_routing_notes: &overlay_plan.routing_notes,
     });
     let result = response::prepare_harness_response(response::PrepareHarnessResponseInput {
         detail,

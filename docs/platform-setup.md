@@ -70,10 +70,10 @@ Tagged release binaries and Homebrew installs do not include unreleased commits 
 
 ```bash
 # Read-only daemon for planner/reviewer/ci profiles
-codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
+codelens-mcp /path/to/project --transport http --profile review --daemon-mode read-only --port 7837
 
 # Mutation-enabled daemon for explicit refactor flows
-codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
+codelens-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 ```
 
 Use HTTP as the default for multi-agent harnesses. Keep stdio for single local sessions only.
@@ -92,6 +92,7 @@ binary as `HEAD`:
 ```bash
 bash scripts/redeploy-daemons.sh --build --probe
 bash scripts/daemon-stale-check.sh
+python3 scripts/runtime-snapshot.py --write --check
 .codelens/bin/codelens-mcp-http . --cmd index_embeddings
 python3 scripts/smoke-embedding-coverage.py --binary .codelens/bin/codelens-mcp-http --project .
 ```
@@ -133,7 +134,7 @@ For host-side session closeout, prefer `export_session_markdown(session_id=...)`
 
 For daemon-wide aggregation across currently tracked runtime sessions, enqueue the single shipped eval lane:
 
-1. `start_analysis_job({"kind":"eval_session_audit","profile_hint":"ci-audit"})`
+1. `start_analysis_job({"kind":"eval_session_audit","profile_hint":"review"})`
 2. `get_analysis_job({"job_id":"<job-id>"})`
 3. `get_analysis_section({"analysis_id":"<analysis-id>","section":"audit_pass_rate"})`
 4. `get_analysis_section({"analysis_id":"<analysis-id>","section":"session_rows"})`
@@ -356,11 +357,9 @@ for the read-only examples below.
 
 **Profiles (preferred):**
 
-- `planner-readonly` — bounded planning/report surface
-- `builder-minimal` — workflow-first implementation surface for builder agents
-- `reviewer-graph` — graph-aware review and risk analysis
-- `refactor-full` — preview-first refactoring surface
-- `ci-audit` — diff-aware review/report surface
+- `readonly` — bounded lookup and planning surface
+- `review` — graph-aware review and risk-analysis surface
+- `builder` — preflight-gated implementation and refactoring surface
 
 **Recommended bootstrap order:**
 
@@ -369,16 +368,16 @@ for the read-only examples below.
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-In the generated runtime snapshot, `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
+The previous names (`planner-readonly`, `reviewer-graph`, `builder-minimal`, `refactor-full`, and `ci-audit`) are deprecated input aliases. Use `prepare_harness_session` and role-filtered `tools/list` for the live visible-surface count in the active session.
 
-For `refactor-full`, use a preflight-first path:
+For `builder`, use a preflight-first path:
 
 1. `verify_change_readiness`
 2. `safe_rename_report` or `unresolved_reference_check` for rename-heavy changes
 3. `get_analysis_section` for extra evidence
 4. mutation execution
 
-Recent matching preflight is required before `refactor-full` content mutations execute.
+Recent matching preflight is required before `builder` content mutations execute.
 
 After a builder/refactor pass completes, run `audit_builder_session` on that session id. Treat `warn` as missing process evidence, and `fail` as a contract violation that should block merge/review until explained or rerun.
 
@@ -448,10 +447,9 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 
 **Profiles (preferred):**
 
-- `planner-readonly` — bounded planning/report surface
-- `builder-minimal` — workflow-first implementation surface for Codex and builder agents
-- `reviewer-graph` — graph-aware review and risk analysis
-- `refactor-full` — preview-first refactoring surface
+- `readonly` — bounded lookup and planning surface
+- `review` — graph-aware review and risk-analysis surface
+- `builder` — preflight-gated implementation and refactoring surface
 
 **Recommended Codex bootstrap order:**
 
@@ -460,20 +458,20 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-In the generated runtime snapshot for this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
+The previous profile names remain deprecated input aliases. Use `prepare_harness_session` and role-filtered `tools/list` when you need the exact session-local count.
 
-For `refactor-full`, use a preflight-first path:
+For `builder`, use a preflight-first path:
 
 1. `verify_change_readiness`
 2. `safe_rename_report` or `unresolved_reference_check` for rename-heavy changes
 3. `get_analysis_section` for extra evidence
 4. mutation execution
 
-Recent matching preflight is required before `refactor-full` content mutations execute.
+Recent matching preflight is required before `builder` content mutations execute.
 
 For Codex or other builder agents attached over HTTP, use the same session id with `get_tool_metrics`, `audit_builder_session`, and `export_session_markdown` to review one builder session in isolation instead of the daemon-wide aggregate.
 
-For planner/reviewer agents on `planner-readonly` or `reviewer-graph`, replace the audit call with `audit_planner_session`. `export_session_markdown(session_id=...)` chooses the builder or planner audit summary automatically from the session surface.
+For planner/reviewer agents on `readonly` or `review`, replace the audit call with `audit_planner_session`. `export_session_markdown(session_id=...)` chooses the builder or planner audit summary automatically from the session surface.
 
 If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first builder-heavy call should replay `delegate_tool` plus `delegate_arguments` unchanged, including `handoff_id`.
 
@@ -521,7 +519,7 @@ If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first
 }
 ```
 
-> **Note:** Windsurf has a 100-tool limit across all MCP servers. Prefer `builder-minimal` or `planner-readonly` to keep the surface bounded.
+> **Note:** Windsurf has a 100-tool limit across all MCP servers. Prefer `builder` or `readonly` to keep the surface bounded.
 
 ### 6b. Cline
 
@@ -544,10 +542,10 @@ For remote deployment or multi-agent harness scenarios:
 
 ```bash
 # Read-only shared daemon for planners/reviewers/CI
-codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
+codelens-mcp /path/to/project --transport http --profile review --daemon-mode read-only --port 7837
 
 # Mutation-enabled daemon for explicit refactor passes
-codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
+codelens-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 
 # Client connects to:
 #   POST http://localhost:7837/mcp          (JSON-RPC)
@@ -592,7 +590,7 @@ agent = client.agents.create(
     mcp_servers=[
         MCPServerStdio(
             command="codelens-mcp",
-            args=[".", "--profile", "planner-readonly"],
+            args=[".", "--profile", "readonly"],
         )
     ],
 )
@@ -606,7 +604,10 @@ agent = client.agents.create(
 | -------------------- | ---------- | ------------------------------------------------------------------------------------------------------------- |
 | `CODELENS_LOG`       | `warn`     | Log level (trace/debug/info/warn/error)                                                                       |
 | `CODELENS_PRESET`    | `balanced` | Legacy preset default (overridden by --preset)                                                                |
-| `CODELENS_PROFILE`   | unset      | Preferred role profile (`planner-readonly`, `builder-minimal`, `reviewer-graph`, `refactor-full`, `ci-audit`) |
+| `CODELENS_PROFILE`   | unset      | Preferred role profile (`readonly`, `review`, `builder`; legacy aliases remain deprecated inputs)            |
+| `CODELENS_JOB_DEADLINE_SECS` | `1800` | Maximum durable job runtime before cooperative deadline failure                                      |
+| `CODELENS_JOB_HEARTBEAT_SECS` | `5` | Semantic indexing heartbeat interval at file and embedding-batch checkpoints                           |
+| `CODELENS_JOB_STALE_SECS` | `300` | Startup recovery threshold for queued/running jobs with stale heartbeats                                  |
 | `CLAUDE_PROJECT_DIR` | unset      | Auto-detected project root (set by Claude Code)                                                               |
 | `MCP_PROJECT_DIR`    | unset      | Generic project root override                                                                                 |
 
@@ -614,7 +615,7 @@ agent = client.agents.create(
 
 - Planner/reviewer paths should start with `analyze_change_request`, `impact_report`, `module_boundary_report`, or `dead_code_report`.
 - Refactor paths should start with `refactor_safety_report` or `safe_rename_report`.
-- `refactor-full` mutation execution is preflight-gated. Missing, stale, or blocked verifier evidence is rejected at runtime.
+- `builder` mutation execution is preflight-gated. Missing, stale, or blocked verifier evidence is rejected at runtime.
 - Precise edit paths should opt into `semantic_edit_backend=lsp` when a language server is available. Current product-green LSP authority is `rename`, declaration/definition/implementation/type-definition resolution, and `safe_delete_check`. Guarded delete apply and LSP code-action refactors are conditional paths: they require inspectable minimal `WorkspaceEdit` evidence and must not be advertised as `authoritative_apply` until per-language fixture and external matrix gates are green. IDE integration remains a CodeLens adapter boundary: `semantic_edit_backend=jetbrains` and `semantic_edit_backend=roslyn` are optional local adapters, not bundled core dependencies. They are authoritative only when the adapter returns an inspectable minimal `WorkspaceEdit`; opaque commands, full-file replacements, and unsupported refactors fail closed instead of falling back to approximate text edits.
 - Heavier reports can use `start_analysis_job` and poll via `get_analysis_job`.
 - Expand detail only through `get_analysis_section` or `codelens://analysis/{id}/...` resources.
@@ -627,8 +628,8 @@ agent = client.agents.create(
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:BEGIN -->
 
 - Workspace version: `1.13.34`
-- Presets: `minimal` (26), `balanced` (87), `full` (100)
-- Profiles: active `planner-readonly` (45), `builder-minimal` (44), `reviewer-graph` (49); compatibility aliases `evaluator-compact` (45, v2.0 removal), `refactor-full` (44, v2.0 removal), `ci-audit` (49, v2.0 removal), `workflow-first` (45, v2.0 removal)
+- Presets: `minimal` (26), `balanced` (82), `full` (95)
+- Profiles: `readonly` (44), `builder` (43), `review` (48)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:END -->

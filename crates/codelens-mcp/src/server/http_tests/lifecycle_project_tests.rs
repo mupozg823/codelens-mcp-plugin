@@ -245,7 +245,7 @@ async fn session_profiles_are_isolated_across_tools_list() {
     );
     assert_eq!(
         set_a_payload["data"]["current_profile"],
-        serde_json::json!("builder-minimal"),
+        serde_json::json!("builder"),
         "unexpected set_profile(session A) payload: {set_a_body}"
     );
 
@@ -274,7 +274,7 @@ async fn session_profiles_are_isolated_across_tools_list() {
     );
     assert_eq!(
         set_b_payload["data"]["current_profile"],
-        serde_json::json!("reviewer-graph"),
+        serde_json::json!("review"),
         "unexpected set_profile(session B) payload: {set_b_body}"
     );
 
@@ -294,7 +294,7 @@ async fn session_profiles_are_isolated_across_tools_list() {
         .await
         .unwrap();
     let list_a_body = body_string(list_a).await;
-    assert!(list_a_body.contains("\"active_surface\":\"builder-minimal\""));
+    assert!(list_a_body.contains("\"active_surface\":\"builder\""));
 
     let list_b = app
         .oneshot(
@@ -311,7 +311,7 @@ async fn session_profiles_are_isolated_across_tools_list() {
         .await
         .unwrap();
     let list_b_body = body_string(list_b).await;
-    assert!(list_b_body.contains("\"active_surface\":\"reviewer-graph\""));
+    assert!(list_b_body.contains("\"active_surface\":\"review\""));
 }
 
 #[tokio::test]
@@ -361,11 +361,11 @@ async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
     assert_eq!(payload["success"], serde_json::json!(true));
     assert_eq!(
         payload["data"]["project"]["auto_surface"],
-        serde_json::json!("builder-minimal")
+        serde_json::json!("builder")
     );
     assert_eq!(
         payload["data"]["active_surface"],
-        serde_json::json!("builder-minimal")
+        serde_json::json!("builder")
     );
     assert_eq!(payload["data"]["token_budget"], serde_json::json!(6000));
     assert_eq!(

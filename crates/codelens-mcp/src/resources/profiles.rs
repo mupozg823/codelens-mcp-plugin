@@ -1,14 +1,10 @@
 use crate::tool_defs::{ToolProfile, ToolSurface, preferred_tier_labels};
 use serde_json::{Value, json};
 
-const PROFILE_GUIDE_PROFILES: [ToolProfile; 7] = [
+const PROFILE_GUIDE_PROFILES: [ToolProfile; 3] = [
     ToolProfile::PlannerReadonly,
     ToolProfile::BuilderMinimal,
     ToolProfile::ReviewerGraph,
-    ToolProfile::EvaluatorCompact,
-    ToolProfile::RefactorFull,
-    ToolProfile::CiAudit,
-    ToolProfile::WorkflowFirst,
 ];
 
 pub(crate) fn profile_guide(profile: ToolProfile) -> Value {

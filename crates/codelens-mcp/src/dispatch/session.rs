@@ -17,6 +17,35 @@ pub(super) struct SessionContext {
     pub(super) doom_rapid: bool,
 }
 
+pub(super) struct OperationAudit<'a> {
+    pub(super) state: &'a AppState,
+    pub(super) name: &'a str,
+    pub(super) arguments: &'a serde_json::Value,
+    pub(super) session: &'a crate::session_context::SessionRequestContext,
+    pub(super) active_surface: &'a str,
+    pub(super) operation_id: &'a str,
+}
+
+impl<'a> OperationAudit<'a> {
+    pub(super) fn new(
+        state: &'a AppState,
+        name: &'a str,
+        arguments: &'a serde_json::Value,
+        session: &'a crate::session_context::SessionRequestContext,
+        active_surface: &'a str,
+        operation_id: &'a str,
+    ) -> Self {
+        Self {
+            state,
+            name,
+            arguments,
+            session,
+            active_surface,
+            operation_id,
+        }
+    }
+}
+
 /// Gather doom-loop counts, file-access records, surface, and recent tools.
 pub(super) fn collect_session_context(
     state: &AppState,
@@ -50,18 +79,10 @@ pub(super) fn collect_session_context(
     }
 }
 
-/// Compute the canonical `transaction_id` shared by audit rows and
-/// the response envelope. Format: `{session_id}-{tool}-{args_hash[..16]}`.
-/// Stable for a given (session, tool, args) triple — that means the
-/// agent can recompute it independently and `audit_log_query` joins
-/// across the session/outcome rows for one call.
-pub(super) fn transaction_id_for(
-    session: &crate::session_context::SessionRequestContext,
-    tool: &str,
-    arguments: &serde_json::Value,
-) -> String {
-    let args_hash = crate::util::canonical_sha256_hex(arguments);
-    format!("{}-{}-{}", session.session_id, tool, &args_hash[..16])
+/// Generate the UUID `operation_id` shared by one invocation's audit
+/// transitions, response envelope, and orchestration event.
+pub(super) fn new_operation_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 fn insert_orchestration_event(payload: &mut serde_json::Value, event: serde_json::Value) {
@@ -95,27 +116,27 @@ pub(super) fn session_metadata_for(
     })
 }
 
-/// L3: inject `transaction_id` into the response payload so the agent
-/// can use it as the lookup key for `audit_log_query` (P2-F). The id
-/// is added to `payload.data.transaction_id` when `data` is an object;
-/// otherwise to `payload.transaction_id` directly. An existing key is
-/// not overwritten — the handler may have its own (e.g. workflows
-/// composing multiple primitives).
-fn inject_transaction_id(payload: &mut serde_json::Value, transaction_id: &str) {
+/// Inject the canonical `operation_id` and deprecated `transaction_id`
+/// alias into a mutation response without overwriting handler values.
+fn inject_operation_id(payload: &mut serde_json::Value, operation_id: &str) {
     if let Some(data) = payload.get_mut("data").and_then(|v| v.as_object_mut()) {
+        data.entry("operation_id".to_owned())
+            .or_insert_with(|| serde_json::Value::String(operation_id.to_owned()));
         data.entry("transaction_id".to_owned())
-            .or_insert_with(|| serde_json::Value::String(transaction_id.to_owned()));
+            .or_insert_with(|| serde_json::Value::String(operation_id.to_owned()));
         return;
     }
     if let Some(obj) = payload.as_object_mut() {
+        obj.entry("operation_id".to_owned())
+            .or_insert_with(|| serde_json::Value::String(operation_id.to_owned()));
         obj.entry("transaction_id".to_owned())
-            .or_insert_with(|| serde_json::Value::String(transaction_id.to_owned()));
+            .or_insert_with(|| serde_json::Value::String(operation_id.to_owned()));
     }
 }
 
 /// P2-E: inject the list of file paths whose engine caches were
 /// invalidated by this mutation. Mirrors the placement rules of
-/// [`inject_transaction_id`]: prefer `payload.data.invalidated_paths`,
+/// [`inject_operation_id`]: prefer `payload.data.invalidated_paths`,
 /// fall back to `payload.invalidated_paths`. Existing entries are not
 /// overwritten so handlers that already populate the field (e.g.
 /// future multi-file workflows) keep their own value. An empty `paths`
@@ -139,16 +160,18 @@ fn inject_invalidated_paths(payload: &mut serde_json::Value, paths: &[String]) {
 }
 
 /// Apply graph invalidation, symbol reindex, embedding reindex, audit,
-/// and transaction_id surfacing after a successful content-mutation
+/// and operation-id surfacing after a successful content-mutation
 /// tool call.
 pub(super) fn apply_post_mutation(
-    state: &AppState,
-    name: &str,
-    arguments: &serde_json::Value,
-    session: &crate::session_context::SessionRequestContext,
-    active_surface: &str,
+    operation: &OperationAudit<'_>,
+    audit_sink: &crate::audit_sink::AuditSink,
     payload: &mut serde_json::Value,
-) {
+) -> Result<(), crate::error::CodeLensError> {
+    let state = operation.state;
+    let name = operation.name;
+    let arguments = operation.arguments;
+    let session = operation.session;
+    let operation_id = operation.operation_id;
     state.graph_cache().invalidate();
     state.clear_recent_preflights();
 
@@ -209,9 +232,8 @@ pub(super) fn apply_post_mutation(
         }
     }
 
-    let transaction_id = transaction_id_for(session, name, arguments);
-    record_audit_outcome(state, name, arguments, session, active_surface, payload);
-    inject_transaction_id(payload, &transaction_id);
+    record_audit_outcome(operation, audit_sink, payload)?;
+    inject_operation_id(payload, operation_id);
     inject_invalidated_paths(payload, &invalidated_paths);
     if let Some(run_id) = arguments
         .get("orchestration_run_id")
@@ -235,10 +257,7 @@ pub(super) fn apply_post_mutation(
         };
         let mut extra = serde_json::Map::new();
         extra.insert("tool".to_owned(), serde_json::json!(name));
-        extra.insert(
-            "transaction_id".to_owned(),
-            serde_json::json!(transaction_id),
-        );
+        extra.insert("operation_id".to_owned(), serde_json::json!(operation_id));
         extra.insert("apply_status".to_owned(), serde_json::json!(apply_status));
         extra.insert(
             "modified_files".to_owned(),
@@ -271,6 +290,75 @@ pub(super) fn apply_post_mutation(
             "mutation completed for trusted session"
         );
     }
+    Ok(())
+}
+
+pub(super) fn begin_mutation_operation(
+    operation: &OperationAudit<'_>,
+) -> Result<std::sync::Arc<crate::audit_sink::AuditSink>, crate::error::CodeLensError> {
+    let state = operation.state;
+    let name = operation.name;
+    let arguments = operation.arguments;
+    let session = operation.session;
+    let active_surface = operation.active_surface;
+    let operation_id = operation.operation_id;
+    let sink = state.require_audit_sink()?;
+    let record = crate::audit_sink::AuditRecord {
+        operation_id: operation_id.to_owned(),
+        timestamp_ms: crate::util::now_ms() as i64,
+        principal: crate::principals::resolve_principal_id(session),
+        tool: name.to_owned(),
+        args_hash: crate::util::canonical_sha256_hex(arguments),
+        apply_status: "verifying".to_owned(),
+        state_from: None,
+        state_to: crate::runtime_types::LifecycleState::Verifying
+            .as_str()
+            .to_owned(),
+        evidence_hash: None,
+        rollback_restored: None,
+        error_message: None,
+        session_metadata: Some(session_metadata_for(state, session, active_surface)),
+    };
+    sink.write(&record).map_err(|error| {
+        crate::error::CodeLensError::Internal(anyhow::anyhow!(
+            "failed to begin mutation audit operation {operation_id}: {error}"
+        ))
+    })?;
+    Ok(sink)
+}
+
+pub(super) fn record_audit_rejection(
+    operation: &OperationAudit<'_>,
+    apply_status: &str,
+    state_to: crate::runtime_types::LifecycleState,
+    error: &crate::error::CodeLensError,
+) -> Result<(), crate::error::CodeLensError> {
+    let state = operation.state;
+    let name = operation.name;
+    let arguments = operation.arguments;
+    let session = operation.session;
+    let active_surface = operation.active_surface;
+    let operation_id = operation.operation_id;
+    let sink = state.require_audit_sink()?;
+    let record = crate::audit_sink::AuditRecord {
+        operation_id: operation_id.to_owned(),
+        timestamp_ms: crate::util::now_ms() as i64,
+        principal: crate::principals::resolve_principal_id(session),
+        tool: name.to_owned(),
+        args_hash: crate::util::canonical_sha256_hex(arguments),
+        apply_status: apply_status.to_owned(),
+        state_from: None,
+        state_to: state_to.as_str().to_owned(),
+        evidence_hash: None,
+        rollback_restored: None,
+        error_message: Some(error.to_string()),
+        session_metadata: Some(session_metadata_for(state, session, active_surface)),
+    };
+    sink.write(&record).map_err(|write_error| {
+        crate::error::CodeLensError::Internal(anyhow::anyhow!(
+            "failed to record rejected operation {operation_id}: {write_error}; original error: {error}"
+        ))
+    })
 }
 
 /// ADR-0009 §2 + §3: write a single row to the durable audit_sink
@@ -287,25 +375,22 @@ pub(super) fn apply_post_mutation(
 /// section); else of the entire payload. This lets the audit log
 /// verify replay equivalence without storing user content.
 ///
-/// Failures here are logged at warn but never propagated — losing one
-/// audit row must not break the call.
 fn record_audit_outcome(
-    state: &AppState,
-    name: &str,
-    arguments: &serde_json::Value,
-    session: &crate::session_context::SessionRequestContext,
-    active_surface: &str,
+    operation: &OperationAudit<'_>,
+    sink: &crate::audit_sink::AuditSink,
     payload: &serde_json::Value,
-) {
-    let Some(sink) = state.audit_sink() else {
-        return;
-    };
+) -> Result<(), crate::error::CodeLensError> {
+    let state = operation.state;
+    let name = operation.name;
+    let arguments = operation.arguments;
+    let session = operation.session;
+    let active_surface = operation.active_surface;
+    let operation_id = operation.operation_id;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
     let args_hash = crate::util::canonical_sha256_hex(arguments);
-    let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
 
     // ADR-0009 §3: derive terminal state from the Hybrid apply_status.
     // The handler returned Ok, so the call definitely traversed
@@ -366,7 +451,7 @@ fn record_audit_outcome(
 
     let session_metadata = Some(session_metadata_for(state, session, active_surface));
     let record = crate::audit_sink::AuditRecord {
-        transaction_id,
+        operation_id: operation_id.to_owned(),
         timestamp_ms: now_ms,
         // P2-C resolves the principal id from CODELENS_PRINCIPAL.
         principal: crate::principals::resolve_principal_id(session),
@@ -384,13 +469,11 @@ fn record_audit_outcome(
         error_message,
         session_metadata,
     };
-    if let Err(error) = sink.write(&record) {
-        warn!(
-            tool = name,
-            error = %error,
-            "failed to write audit_sink outcome row"
-        );
-    }
+    sink.write(&record).map_err(|error| {
+        crate::error::CodeLensError::Internal(anyhow::anyhow!(
+            "failed to finish mutation audit operation {operation_id}: {error}"
+        ))
+    })
 }
 
 /// ADR-0009 §3: write one row for a mutation that returned `Err`.
@@ -400,25 +483,24 @@ fn record_audit_outcome(
 /// roll back. Hybrid `RolledBack` is *not* an Err — that case is
 /// handled by `record_audit_outcome` because the handler returns Ok.
 pub(super) fn record_audit_failure(
-    state: &AppState,
-    name: &str,
-    arguments: &serde_json::Value,
-    session: &crate::session_context::SessionRequestContext,
-    active_surface: &str,
+    operation: &OperationAudit<'_>,
+    sink: &crate::audit_sink::AuditSink,
     error: &crate::error::CodeLensError,
-) {
-    let Some(sink) = state.audit_sink() else {
-        return;
-    };
+) -> Result<(), crate::error::CodeLensError> {
+    let state = operation.state;
+    let name = operation.name;
+    let arguments = operation.arguments;
+    let session = operation.session;
+    let active_surface = operation.active_surface;
+    let operation_id = operation.operation_id;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
     let args_hash = crate::util::canonical_sha256_hex(arguments);
-    let transaction_id = format!("{}-{}-{}", session.session_id, name, &args_hash[..16]);
     let session_metadata = Some(session_metadata_for(state, session, active_surface));
     let record = crate::audit_sink::AuditRecord {
-        transaction_id,
+        operation_id: operation_id.to_owned(),
         timestamp_ms: now_ms,
         principal: crate::principals::resolve_principal_id(session),
         tool: name.to_owned(),
@@ -441,74 +523,68 @@ pub(super) fn record_audit_failure(
         error_message: Some(error.to_string()),
         session_metadata,
     };
-    if let Err(io_err) = sink.write(&record) {
-        warn!(
-            tool = name,
-            error = %io_err,
-            "failed to write audit_sink failure row"
-        );
-    }
+    sink.write(&record).map_err(|io_error| {
+        crate::error::CodeLensError::Internal(anyhow::anyhow!(
+            "failed to record mutation failure for operation {operation_id}: {io_error}; original error: {error}"
+        ))
+    })
 }
 
-// `tests` precedes `record_span_fields` because both reach into the
-// `transaction_id_for` family this file owns; reordering the file would
-// rewrite a long `git blame` history. Silence the lint instead.
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use crate::session_context::SessionRequestContext;
     use serde_json::json;
 
-    fn fake_session() -> SessionRequestContext {
-        SessionRequestContext::from_json(&json!({
-            "_session_id": "sess-T",
-        }))
+    #[test]
+    fn operation_id_is_unique_and_uuid_shaped() {
+        let a = new_operation_id();
+        let b = new_operation_id();
+        assert_ne!(a, b, "every invocation needs a distinct operation id");
+        assert!(
+            uuid::Uuid::parse_str(&a).is_ok(),
+            "operation id must be a UUID"
+        );
+        assert!(
+            uuid::Uuid::parse_str(&b).is_ok(),
+            "operation id must be a UUID"
+        );
     }
 
     #[test]
-    fn transaction_id_is_stable_for_same_inputs() {
-        let session = fake_session();
-        let args = json!({"file_path": "src/foo.rs", "lines": [1, 2]});
-        let a = transaction_id_for(&session, "delete_lines", &args);
-        let b = transaction_id_for(&session, "delete_lines", &args);
-        assert_eq!(a, b, "same (session, tool, args) must produce same id");
-    }
-
-    #[test]
-    fn transaction_id_changes_when_args_change() {
-        let session = fake_session();
-        let a = transaction_id_for(&session, "delete_lines", &json!({"k": 1}));
-        let b = transaction_id_for(&session, "delete_lines", &json!({"k": 2}));
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn inject_transaction_id_into_data_subobject() {
+    fn inject_operation_id_into_data_subobject() {
         let mut payload = json!({ "data": { "apply_status": "applied" } });
-        inject_transaction_id(&mut payload, "tx-123");
-        assert_eq!(payload["data"]["transaction_id"], "tx-123");
+        inject_operation_id(&mut payload, "4b6899a0-bf76-4b0d-876e-0708e58d8422");
+        assert_eq!(
+            payload["data"]["operation_id"],
+            "4b6899a0-bf76-4b0d-876e-0708e58d8422"
+        );
+        assert_eq!(
+            payload["data"]["transaction_id"],
+            "4b6899a0-bf76-4b0d-876e-0708e58d8422"
+        );
         assert_eq!(payload["data"]["apply_status"], "applied");
     }
 
     #[test]
-    fn inject_transaction_id_into_root_when_no_data() {
+    fn inject_operation_id_into_root_when_no_data() {
         let mut payload = json!({ "apply_status": "applied" });
-        inject_transaction_id(&mut payload, "tx-123");
+        inject_operation_id(&mut payload, "tx-123");
+        assert_eq!(payload["operation_id"], "tx-123");
         assert_eq!(payload["transaction_id"], "tx-123");
     }
 
     #[test]
-    fn inject_transaction_id_does_not_overwrite_existing() {
+    fn inject_operation_id_does_not_overwrite_legacy_alias() {
         let mut payload = json!({ "data": { "transaction_id": "handler-tx" } });
-        inject_transaction_id(&mut payload, "dispatch-tx");
+        inject_operation_id(&mut payload, "dispatch-tx");
         assert_eq!(payload["data"]["transaction_id"], "handler-tx");
     }
 
     #[test]
-    fn inject_transaction_id_no_op_on_non_object_payload() {
+    fn inject_operation_id_no_op_on_non_object_payload() {
         let mut scalar = json!("just a string");
-        inject_transaction_id(&mut scalar, "tx-123");
+        inject_operation_id(&mut scalar, "tx-123");
         assert_eq!(scalar, json!("just a string"));
     }
 

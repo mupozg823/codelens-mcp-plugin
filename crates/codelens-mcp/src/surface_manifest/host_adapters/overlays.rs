@@ -42,7 +42,7 @@ fn compiled_overlay_preview(
     })
 }
 
-fn overlay_previews_for_host(host: &str) -> Vec<Value> {
+fn compiled_overlays_for_host(host: &str) -> Vec<Value> {
     let Some(host_context) = host_context_for_adapter(host) else {
         return Vec::new();
     };
@@ -60,7 +60,7 @@ fn overlay_previews_for_host(host: &str) -> Vec<Value> {
 }
 
 fn primary_bootstrap_sequence_for_host(host: &str) -> Vec<String> {
-    overlay_previews_for_host(host)
+    compiled_overlays_for_host(host)
         .into_iter()
         .next()
         .and_then(|value| {
@@ -76,77 +76,6 @@ fn primary_bootstrap_sequence_for_host(host: &str) -> Vec<String> {
         .unwrap_or_else(|| vec!["prepare_harness_session".to_owned()])
 }
 
-fn compiled_overlay_markdown_section(host: &str) -> String {
-    let previews = overlay_previews_for_host(host);
-    if previews.is_empty() {
-        return String::new();
-    }
-
-    let mut lines = vec![
-        "## Compiled Routing Overlays".to_owned(),
-        String::new(),
-        format!(
-            "- Primary bootstrap sequence: `{}`",
-            primary_bootstrap_sequence_for_host(host).join("` -> `")
-        ),
-    ];
-
-    for preview in previews {
-        let profile = preview
-            .get("profile")
-            .and_then(|value| value.as_str())
-            .unwrap_or("unknown-profile");
-        let task_overlay = preview
-            .get("task_overlay")
-            .and_then(|value| value.as_str())
-            .unwrap_or("unknown-overlay");
-        let preferred_executor_bias = preview
-            .get("preferred_executor_bias")
-            .and_then(|value| value.as_str())
-            .unwrap_or("any");
-        let agent_role = preview
-            .get("agent_role")
-            .and_then(|value| value.as_str())
-            .unwrap_or("main");
-        let bootstrap_sequence = preview
-            .get("bootstrap_sequence")
-            .and_then(|value| value.as_array())
-            .into_iter()
-            .flatten()
-            .filter_map(|item| item.as_str())
-            .collect::<Vec<_>>();
-        let avoid_tools = preview
-            .get("avoid_tools")
-            .and_then(|value| value.as_array())
-            .into_iter()
-            .flatten()
-            .filter_map(|item| item.as_str())
-            .collect::<Vec<_>>();
-
-        let mut line = format!(
-            "- `{profile}` + `{task_overlay}` + `{agent_role}` [bias: `{preferred_executor_bias}`]: `{}`",
-            bootstrap_sequence.join("` -> `")
-        );
-        if !avoid_tools.is_empty() {
-            line.push_str(&format!(" | avoid: `{}`", avoid_tools.join("`, `")));
-        }
-        lines.push(line);
-    }
-
-    lines.join("\n")
-}
-
-pub(super) fn append_compiled_overlay_section(base: &str, host: &str) -> String {
-    let compiled = compiled_overlay_markdown_section(host);
-    let mut text = base.trim_end().to_owned();
-    if !compiled.is_empty() {
-        text.push_str("\n\n");
-        text.push_str(&compiled);
-    }
-    text.push('\n');
-    text
-}
-
 pub(super) fn managed_host_policy_block(body: &str) -> String {
     format!(
         "<!-- CODELENS_HOST_ROUTING:BEGIN -->\n{}\n<!-- CODELENS_HOST_ROUTING:END -->\n",
@@ -155,8 +84,7 @@ pub(super) fn managed_host_policy_block(body: &str) -> String {
 }
 
 pub(super) fn augment_host_adapter_bundle(host: &str, bundle: &mut Value) {
-    let overlay_previews = overlay_previews_for_host(host);
-    let primary_preview = overlay_previews.first().cloned();
+    let primary_overlay = compiled_overlays_for_host(host).into_iter().next();
     let primary_bootstrap_sequence = primary_bootstrap_sequence_for_host(host);
 
     if let Some(object) = bundle.as_object_mut() {
@@ -165,32 +93,20 @@ pub(super) fn augment_host_adapter_bundle(host: &str, bundle: &mut Value) {
             json!(host_context_for_adapter(host).map(|value| value.as_str())),
         );
         object.insert(
-            "overlay_previews".to_owned(),
-            Value::Array(overlay_previews),
-        );
-        object.insert(
             "primary_bootstrap_sequence".to_owned(),
             json!(primary_bootstrap_sequence),
         );
         object.insert(
             "default_profile".to_owned(),
-            primary_preview
+            primary_overlay
                 .as_ref()
                 .and_then(|value| value.get("profile"))
                 .cloned()
                 .unwrap_or(Value::Null),
         );
         object.insert(
-            "default_task_overlay".to_owned(),
-            primary_preview
-                .as_ref()
-                .and_then(|value| value.get("task_overlay"))
-                .cloned()
-                .unwrap_or(Value::Null),
-        );
-        object.insert(
             "default_agent_role".to_owned(),
-            primary_preview
+            primary_overlay
                 .as_ref()
                 .and_then(|value| value.get("agent_role"))
                 .cloned()

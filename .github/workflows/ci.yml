@@ -42,6 +42,9 @@ jobs:
       - name: surface manifest drift check
         run: python3 scripts/surface-manifest.py --check
 
+      - name: runtime snapshot generator smoke check
+        run: python3 scripts/runtime-snapshot.py --source-only > /tmp/codelens-runtime-snapshot.json
+
       - name: plugin manifest validation
         run: python3 scripts/validate-plugin-manifest.py --check
 

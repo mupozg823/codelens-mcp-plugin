@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Holds project-specific resources that can be reused across rebinds.
-pub(super) struct ProjectRuntimeContext {
+pub(super) struct ProjectContext {
     pub(super) project: ProjectRoot,
     pub(super) symbol_index: Arc<SymbolIndex>,
     pub(super) graph_cache: Arc<GraphCache>,
@@ -22,7 +22,7 @@ pub(super) struct ProjectRuntimeContext {
     pub(super) watcher_error: Option<String>,
 }
 
-impl ProjectRuntimeContext {
+impl ProjectContext {
     pub(super) fn shutdown_resources(&self) {
         if let Some(ref watcher) = self.watcher {
             watcher.stop();
@@ -33,18 +33,18 @@ impl ProjectRuntimeContext {
 
 #[derive(Default)]
 pub(super) struct ProjectContextCache {
-    pub(super) entries: HashMap<String, Arc<ProjectRuntimeContext>>,
+    pub(super) entries: HashMap<String, Arc<ProjectContext>>,
     pub(super) access_order: VecDeque<String>,
 }
 
 impl ProjectContextCache {
-    pub(super) fn get(&mut self, scope: &str) -> Option<Arc<ProjectRuntimeContext>> {
+    pub(super) fn get(&mut self, scope: &str) -> Option<Arc<ProjectContext>> {
         let context = self.entries.get(scope).cloned()?;
         self.touch(scope);
         Some(context)
     }
 
-    pub(super) fn insert(&mut self, scope: String, context: Arc<ProjectRuntimeContext>) {
+    pub(super) fn insert(&mut self, scope: String, context: Arc<ProjectContext>) {
         self.entries.insert(scope.clone(), context);
         self.touch(&scope);
     }
@@ -58,7 +58,7 @@ impl ProjectContextCache {
         &mut self,
         limit: usize,
         protected_scopes: &[&str],
-    ) -> Vec<Arc<ProjectRuntimeContext>> {
+    ) -> Vec<Arc<ProjectContext>> {
         let mut evicted = Vec::new();
         while self.entries.len() > limit {
             let Some(oldest) = self.access_order.pop_front() else {
@@ -89,7 +89,7 @@ impl ProjectContextCache {
 /// project runtime resolved from the context cache.
 pub(crate) enum RequestProjectBinding {
     Default,
-    Context(Arc<ProjectRuntimeContext>),
+    Context(Arc<ProjectContext>),
 }
 
 thread_local! {
@@ -133,7 +133,7 @@ pub(super) fn rebind_request_project(binding: RequestProjectBinding) {
     });
 }
 
-pub(super) fn active_project_context(state: &AppState) -> Option<Arc<ProjectRuntimeContext>> {
+pub(super) fn active_project_context(state: &AppState) -> Option<Arc<ProjectContext>> {
     let request_binding = REQUEST_PROJECT_BINDING.with(|cell| match &*cell.borrow() {
         None => None,
         Some(RequestProjectBinding::Default) => Some(None),
@@ -153,7 +153,7 @@ pub(super) fn active_project_context(state: &AppState) -> Option<Arc<ProjectRunt
 pub(super) fn build_project_runtime_context(
     project: ProjectRoot,
     start_watcher: bool,
-) -> anyhow::Result<ProjectRuntimeContext> {
+) -> anyhow::Result<ProjectContext> {
     let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
     if symbol_index
         .stats()
@@ -200,7 +200,7 @@ pub(super) fn build_project_runtime_context(
     } else {
         None
     };
-    Ok(ProjectRuntimeContext {
+    Ok(ProjectContext {
         project,
         symbol_index,
         graph_cache,
@@ -289,10 +289,7 @@ fn maybe_prewarm_lsp_sessions(symbol_index: &Arc<SymbolIndex>, lsp_pool: &Arc<Ls
     });
 }
 
-pub(super) fn activate_project_context(
-    state: &AppState,
-    context: Option<Arc<ProjectRuntimeContext>>,
-) {
+pub(super) fn activate_project_context(state: &AppState, context: Option<Arc<ProjectContext>>) {
     *state
         .project_override
         .write()
@@ -300,7 +297,7 @@ pub(super) fn activate_project_context(
     let analysis_dir = context
         .as_ref()
         .map(|override_ctx| override_ctx.analysis_dir.clone())
-        .unwrap_or_else(|| state.default_analysis_dir.clone());
+        .unwrap_or_else(|| state.default_context.analysis_dir.clone());
     state.artifact_store.set_analysis_dir(analysis_dir.clone());
     state.job_store.set_jobs_dir(analysis_dir.join("jobs"));
     state.artifact_store.clear();

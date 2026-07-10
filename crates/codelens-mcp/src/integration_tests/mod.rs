@@ -165,6 +165,12 @@ pub(super) fn project_root() -> ProjectRoot {
         seq
     ));
     fs::create_dir_all(&dir).unwrap();
+    fs::create_dir_all(dir.join(".codelens")).unwrap();
+    fs::write(
+        dir.join(".codelens").join("principals.toml"),
+        "[default]\nrole = \"Refactor\"\n",
+    )
+    .unwrap();
     fs::write(dir.join("hello.txt"), "hello world\n").unwrap();
     ProjectRoot::new(dir.to_str().unwrap()).unwrap()
 }

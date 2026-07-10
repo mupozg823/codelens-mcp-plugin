@@ -92,8 +92,8 @@ fn render_attach_instructions_for_codex_emits_copy_ready_targets() {
     assert!(rendered.contains("Avoid:"));
     assert!(rendered.contains("Primary bootstrap sequence:"));
     assert!(rendered.contains("Delegate scaffold contract:"));
-    assert!(rendered.contains("Compiled overlays:"));
-    assert!(rendered.contains("## Compiled Routing Overlays"));
+    assert!(!rendered.contains("Compiled overlays:"));
+    assert!(!rendered.contains("## Compiled Routing Overlays"));
     assert!(rendered.contains("delegate_to_codex_builder"));
     assert!(rendered.contains("handoff_id"));
     assert!(rendered.contains("~/.codex/config.toml"));
@@ -106,21 +106,19 @@ fn render_attach_instructions_for_codex_emits_copy_ready_targets() {
         rendered.contains("copying Claude-specific subagent topology into Codex worktree flows")
     );
     assert!(rendered.contains("Verify the host wiring with `codelens-mcp doctor codex`"));
-    assert!(rendered.contains("builder-minimal / editing"));
-    assert!(rendered.contains("builder-minimal"));
-    assert!(rendered.contains("refactor-full"));
+    assert!(rendered.contains("builder"));
 }
 
 #[test]
 fn render_help_separates_active_profiles_from_compatibility_aliases() {
     let rendered = render_help();
 
-    assert!(rendered.contains("--profile planner-readonly|builder-minimal|reviewer-graph"));
+    assert!(rendered.contains("--profile readonly|review|builder"));
     assert!(rendered.contains("--batch <json>"));
     assert!(rendered.contains(
-        "compatibility aliases: refactor-full, ci-audit, evaluator-compact, workflow-first"
+        "compatibility aliases: planner-readonly, reviewer-graph, builder-minimal, refactor-full, ci-audit, evaluator-compact, workflow-first"
     ));
-    assert!(!rendered.contains("reviewer-graph|refactor-full"));
+    assert!(!rendered.contains("builder|refactor-full"));
 }
 
 #[test]
@@ -135,8 +133,8 @@ fn render_attach_instructions_for_cursor_surfaces_delegate_handoff_contract() {
     assert!(rendered.contains("shipping the full CodeLens surface into every mode"));
     assert!(rendered.contains("Primary bootstrap sequence:"));
     assert!(rendered.contains("Delegate scaffold contract:"));
-    assert!(rendered.contains("Compiled overlays:"));
-    assert!(rendered.contains("## Compiled Routing Overlays"));
+    assert!(!rendered.contains("Compiled overlays:"));
+    assert!(!rendered.contains("## Compiled Routing Overlays"));
     assert!(rendered.contains("delegate_to_codex_builder"));
     assert!(rendered.contains("handoff_id"));
     assert!(rendered.contains(".cursor/rules/codelens-routing.mdc"));
@@ -209,7 +207,7 @@ fn detach_report_removes_codelens_json_entry_and_keeps_other_servers() {
     let report = render_detach_report(&["cursor"], &home, &cwd, true).expect("detach report");
     let updated = std::fs::read_to_string(cwd.join(".cursor/mcp.json")).unwrap();
     assert!(report.contains("Adapter resource: codelens://host-adapters/cursor"));
-    assert!(report.contains("Preferred profiles: planner-readonly, reviewer-graph, ci-audit"));
+    assert!(report.contains("Preferred profiles: readonly, review"));
     assert!(report.contains("Host-native targets: .cursor/rules, AGENTS.md, .cursor/mcp.json, background-agent environment.json"));
     assert!(report.contains("removed CodeLens config entry"));
     assert!(!updated.contains("\"codelens\""));

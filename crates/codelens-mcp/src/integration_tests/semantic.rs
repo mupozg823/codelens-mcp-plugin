@@ -64,7 +64,7 @@ fn refresh_symbol_index_reconciles_embedding_freshness() {
     let index = call_tool(
         &state,
         "index_embeddings",
-        json!({"prewarm_queries": ["hello function"], "prewarm_limit": 4}),
+        json!({"prewarm_queries": ["hello function"], "prewarm_limit": 4, "background": false}),
     );
     assert!(
         tool_data(&index)
@@ -104,6 +104,19 @@ fn refresh_symbol_index_reconciles_embedding_freshness() {
 }
 
 #[test]
+fn index_embeddings_defaults_to_durable_background_job() {
+    let project = project_root();
+    let state = make_state(&project);
+    let response = call_tool(&state, "index_embeddings", json!({}));
+    let data = tool_data(&response);
+
+    assert_eq!(data["background"], true);
+    assert_eq!(data["status"], "queued");
+    assert!(data["job"]["id"].is_string());
+    assert!(data.get("indexed_symbols").is_none());
+}
+
+#[test]
 fn semantic_search_respects_path_hint_scope() -> std::io::Result<()> {
     if !embedding_model_available_for_test() {
         return Ok(());
@@ -123,7 +136,7 @@ fn semantic_search_respects_path_hint_scope() -> std::io::Result<()> {
 
     let state = make_state(&project);
     let _ = call_tool(&state, "refresh_symbol_index", json!({}));
-    let _ = call_tool(&state, "index_embeddings", json!({}));
+    let _ = call_tool(&state, "index_embeddings", json!({"background": false}));
 
     let search = call_tool(
         &state,
@@ -164,7 +177,7 @@ fn embedding_coverage_report_infers_sha_for_clean_legacy_index() {
 
     let state = make_state(&project);
     let _ = call_tool(&state, "refresh_symbol_index", json!({}));
-    let _ = call_tool(&state, "index_embeddings", json!({}));
+    let _ = call_tool(&state, "index_embeddings", json!({"background": false}));
 
     let embeddings_db = project.as_path().join(".codelens/index/embeddings.db");
     let conn = rusqlite::Connection::open(embeddings_db).unwrap();
@@ -212,7 +225,7 @@ fn ranked_context_reports_exact_query_cache_tier_after_repeat_query() {
 
     let state = make_state(&project);
     let _ = call_tool(&state, "refresh_symbol_index", json!({}));
-    let index = call_tool(&state, "index_embeddings", json!({}));
+    let index = call_tool(&state, "index_embeddings", json!({"background": false}));
     assert!(
         tool_data(&index)
             .get("indexed_symbols")

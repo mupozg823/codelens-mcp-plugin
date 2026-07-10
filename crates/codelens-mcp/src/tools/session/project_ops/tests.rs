@@ -126,7 +126,7 @@ fn refresh_index_remediation_marks_hidden_tool_uncallable() {
         remediation["tool_call"]["reason"],
         json!("not_in_active_surface")
     );
-    assert_eq!(remediation["tool_call"]["surface"], json!("reviewer-graph"));
+    assert_eq!(remediation["tool_call"]["surface"], json!("review"));
 }
 
 #[test]

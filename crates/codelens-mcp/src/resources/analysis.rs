@@ -183,7 +183,7 @@ pub(crate) fn analysis_summary_payload(artifact: &AnalysisArtifact) -> Value {
     );
     let summary_resource = analysis_summary_resource(&artifact.id);
     let section_handles = analysis_section_handles(&artifact.id, &artifact.available_sections);
-    let mut payload = json!({
+    let payload = json!({
         "analysis_id": artifact.id,
         "tool_name": artifact.tool_name,
         "surface": artifact.surface,
@@ -204,24 +204,6 @@ pub(crate) fn analysis_summary_payload(artifact: &AnalysisArtifact) -> Value {
         "section_handles": section_handles,
         "created_at_ms": artifact.created_at_ms,
     });
-    if artifact.surface == "ci-audit" {
-        payload["schema_version"] = json!("codelens-ci-audit-v1");
-        payload["report_kind"] = json!(artifact.tool_name);
-        payload["profile"] = json!("ci-audit");
-        payload["machine_summary"] = json!({
-            "finding_count": artifact.top_findings.len(),
-            "next_action_count": artifact.next_actions.len(),
-            "section_count": artifact.available_sections.len(),
-            "blocker_count": artifact.blockers.len(),
-            "verifier_check_count": payload["verifier_checks"].as_array().map(|v| v.len()).unwrap_or(0),
-            "ready_check_count": payload["verifier_checks"].as_array().map(|checks| checks.iter().filter(|check| check.get("status").and_then(|value| value.as_str()) == Some("ready")).count()).unwrap_or(0),
-            "blocked_check_count": payload["verifier_checks"].as_array().map(|checks| checks.iter().filter(|check| check.get("status").and_then(|value| value.as_str()) == Some("blocked")).count()).unwrap_or(0),
-            "quality_focus_count": payload["quality_focus"].as_array().map(|v| v.len()).unwrap_or(0),
-            "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
-            "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
-        });
-        payload["evidence_handles"] = payload["section_handles"].clone();
-    }
     payload
 }
 

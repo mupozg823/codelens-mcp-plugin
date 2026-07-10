@@ -69,6 +69,52 @@ fn rename_memory_moves_file() {
 }
 
 #[test]
+fn global_memory_rename_archive_restore_roundtrip() {
+    let project = project_root();
+    let state = make_state(&project);
+    let suffix = format!("{}-{}", std::process::id(), crate::util::now_ms());
+    let old_name = format!("scope-old-{suffix}");
+    let new_name = format!("scope-new-{suffix}");
+
+    let written = call_tool(
+        &state,
+        "write_memory",
+        json!({"memory_name": old_name, "content": "global data", "scope": "global"}),
+    );
+    assert_eq!(written["data"]["scope"], "global");
+    let renamed = call_tool(
+        &state,
+        "rename_memory",
+        json!({"old_name": old_name, "new_name": new_name, "scope": "global"}),
+    );
+    assert_eq!(renamed["data"]["scope"], "global");
+    let archived = call_tool(
+        &state,
+        "archive_memory",
+        json!({"memory_name": new_name, "scope": "global"}),
+    );
+    assert_eq!(archived["data"]["scope"], "global");
+    let restored = call_tool(
+        &state,
+        "restore_memory",
+        json!({"memory_name": new_name, "scope": "global"}),
+    );
+    assert_eq!(restored["data"]["scope"], "global");
+    let read = call_tool(
+        &state,
+        "read_memory",
+        json!({"memory_name": new_name, "scope": "global"}),
+    );
+    assert_eq!(read["data"]["content"], "global data");
+    let deleted = call_tool(
+        &state,
+        "delete_memory",
+        json!({"memory_name": new_name, "scope": "global"}),
+    );
+    assert_eq!(deleted["data"]["scope"], "global");
+}
+
+#[test]
 fn memory_path_traversal_rejected() {
     let project = project_root();
     let state = make_state(&project);

@@ -12,7 +12,7 @@ impl AppState {
     pub(crate) fn project(&self) -> codelens_engine::ProjectRoot {
         self.active_project_context()
             .map(|context| context.project.clone())
-            .unwrap_or_else(|| self.default_project.clone())
+            .unwrap_or_else(|| self.default_context.project.clone())
     }
 
     /// `true` if the caller has explicitly activated a project (via
@@ -32,7 +32,7 @@ impl AppState {
     pub(crate) fn symbol_index(&self) -> Arc<SymbolIndex> {
         self.active_project_context()
             .map(|context| Arc::clone(&context.symbol_index))
-            .unwrap_or_else(|| Arc::clone(&self.default_symbol_index))
+            .unwrap_or_else(|| Arc::clone(&self.default_context.symbol_index))
     }
 
     pub(crate) fn sparse_symbol_cache(&self) -> Arc<SparseSymbolCache> {
@@ -51,14 +51,14 @@ impl AppState {
     pub(crate) fn graph_cache(&self) -> Arc<GraphCache> {
         self.active_project_context()
             .map(|context| Arc::clone(&context.graph_cache))
-            .unwrap_or_else(|| Arc::clone(&self.default_graph_cache))
+            .unwrap_or_else(|| Arc::clone(&self.default_context.graph_cache))
     }
 
     /// Get the active memories directory.
     pub(crate) fn memories_dir(&self) -> std::path::PathBuf {
         self.active_project_context()
             .map(|context| context.memories_dir.clone())
-            .unwrap_or_else(|| self.default_memories_dir.clone())
+            .unwrap_or_else(|| self.default_context.memories_dir.clone())
     }
 
     /// Get the active analysis cache directory (request-scoped project
@@ -67,20 +67,25 @@ impl AppState {
     pub(crate) fn analysis_dir(&self) -> std::path::PathBuf {
         self.active_project_context()
             .map(|context| context.analysis_dir.clone())
-            .unwrap_or_else(|| self.default_analysis_dir.clone())
+            .unwrap_or_else(|| self.default_context.analysis_dir.clone())
     }
 
     pub(crate) fn audit_dir(&self) -> std::path::PathBuf {
         self.active_project_context()
             .map(|context| context.audit_dir.clone())
-            .unwrap_or_else(|| self.default_audit_dir.clone())
+            .unwrap_or_else(|| self.default_context.audit_dir.clone())
     }
 
     pub(crate) fn watcher_stats(&self) -> Option<codelens_engine::WatcherStats> {
         self.active_project_context()
             .as_ref()
             .and_then(|context| context.watcher.as_ref().map(FileWatcher::stats))
-            .or_else(|| self.default_watcher.as_ref().map(FileWatcher::stats))
+            .or_else(|| {
+                self.default_context
+                    .watcher
+                    .as_ref()
+                    .map(FileWatcher::stats)
+            })
     }
 
     /// Start-failure error of the active context's watcher, if any.
@@ -90,7 +95,7 @@ impl AppState {
     pub(crate) fn watcher_error(&self) -> Option<String> {
         self.active_project_context()
             .map(|context| context.watcher_error.clone())
-            .unwrap_or_else(|| self.default_watcher_error.clone())
+            .unwrap_or_else(|| self.default_context.watcher_error.clone())
     }
 
     pub(crate) fn watcher_running(&self) -> bool {
@@ -107,7 +112,7 @@ impl AppState {
     fn project_context_for_scope(
         &self,
         path: &str,
-    ) -> anyhow::Result<Option<Arc<super::project_runtime::ProjectRuntimeContext>>> {
+    ) -> anyhow::Result<Option<Arc<super::project_runtime::ProjectContext>>> {
         let project = codelens_engine::ProjectRoot::new(path)?;
         let scope = project.as_path().to_string_lossy().to_string();
         if scope == self.default_project_scope() {
@@ -191,8 +196,8 @@ impl AppState {
         project: codelens_engine::ProjectRoot,
         scope: &str,
     ) -> anyhow::Result<(
-        Arc<super::project_runtime::ProjectRuntimeContext>,
-        Vec<Arc<super::project_runtime::ProjectRuntimeContext>>,
+        Arc<super::project_runtime::ProjectContext>,
+        Vec<Arc<super::project_runtime::ProjectContext>>,
     )> {
         let cached = {
             let mut cache = self
@@ -231,6 +236,6 @@ impl AppState {
     pub(crate) fn lsp_pool(&self) -> Arc<LspSessionPool> {
         self.active_project_context()
             .map(|context| Arc::clone(&context.lsp_pool))
-            .unwrap_or_else(|| Arc::clone(&self.default_lsp_pool))
+            .unwrap_or_else(|| Arc::clone(&self.default_context.lsp_pool))
     }
 }

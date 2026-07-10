@@ -34,8 +34,8 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Resource: `codelens://host-adapters/claude-code`
 - Best fit: planner and reviewer orchestration with isolated research and explicit policy control
 - Recommended modes: `solo-local`, `planner-builder`, `reviewer-gate`
-- Preferred profiles: `planner-readonly`, `reviewer-graph`
-- Default compiled overlay: profile=`planner-readonly`, task_overlay=`planning`
+- Preferred profiles: `readonly`, `review`
+- Default profile: `readonly`
 - Primary bootstrap sequence: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `explore_codebase` -> `review_architecture` -> `plan_safe_refactor` -> `start_analysis_job` -> `get_analysis_section`
 - Compiler targets: `CLAUDE.md`, `.mcp.json`, `managed-mcp.json`, `subagent definitions`
 
@@ -44,8 +44,8 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Resource: `codelens://host-adapters/codex`
 - Best fit: builder and refactor execution, parallel worktree-based implementation, and automation
 - Recommended modes: `solo-local`, `planner-builder`, `batch-analysis`
-- Preferred profiles: `builder-minimal`, `refactor-full`, `ci-audit`
-- Default compiled overlay: profile=`builder-minimal`, task_overlay=`editing`
+- Preferred profiles: `builder`, `review`
+- Default profile: `builder`
 - Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics` -> `rename_symbol` -> `replace_symbol_body` -> `insert_before_symbol` -> `insert_after_symbol`
 - Compiler targets: `AGENTS.md`, `~/.codex/config.toml`, `repo-local skill files`
 
@@ -54,8 +54,8 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Resource: `codelens://host-adapters/cursor`
 - Best fit: editor-local iteration with scoped rules plus asynchronous remote execution when needed
 - Recommended modes: `solo-local`, `reviewer-gate`, `batch-analysis`
-- Preferred profiles: `planner-readonly`, `reviewer-graph`, `ci-audit`
-- Default compiled overlay: profile=`reviewer-graph`, task_overlay=`review`
+- Preferred profiles: `readonly`, `review`
+- Default profile: `review`
 - Primary bootstrap sequence: `prepare_harness_session` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session` -> `review_architecture` -> `start_analysis_job` -> `get_analysis_section`
 - Compiler targets: `.cursor/rules`, `AGENTS.md`, `.cursor/mcp.json`, `background-agent environment.json`
 
@@ -64,8 +64,8 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Resource: `codelens://host-adapters/cline`
 - Best fit: human-in-the-loop debugging and foreground execution with explicit approvals
 - Recommended modes: `solo-local`, `planner-builder`
-- Preferred profiles: `builder-minimal`, `reviewer-graph`
-- Default compiled overlay: profile=`builder-minimal`, task_overlay=`editing`
+- Preferred profiles: `builder`, `review`
+- Default profile: `builder`
 - Primary bootstrap sequence: `prepare_harness_session` -> `get_file_diagnostics` -> `verify_change_readiness` -> `trace_request_path` -> `plan_safe_refactor` -> `rename_symbol` -> `replace_symbol_body` -> `insert_before_symbol` -> `insert_after_symbol` -> `explore_codebase`
 - Compiler targets: `mcp_servers.json`, `.clinerules`, `repo instructions`
 
@@ -74,8 +74,8 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Resource: `codelens://host-adapters/windsurf`
 - Best fit: editor-local implementation with a hard MCP tool cap and bounded foreground agent flows
 - Recommended modes: `solo-local`, `reviewer-gate`
-- Preferred profiles: `builder-minimal`, `planner-readonly`
-- Default compiled overlay: profile=`builder-minimal`, task_overlay=`editing`
+- Preferred profiles: `builder`, `readonly`
+- Default profile: `builder`
 - Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics` -> `rename_symbol` -> `replace_symbol_body` -> `insert_before_symbol` -> `insert_after_symbol`
 - Compiler targets: `~/.codeium/windsurf/mcp_config.json`
 
@@ -231,7 +231,7 @@ Generated from the canonical surface manifest. Use this block as the default ope
 
 - Best fit: planner and reviewer orchestration with isolated research and explicit policy control
 - Recommended CodeLens modes: `solo-local`, `planner-builder`, `reviewer-gate`
-- Preferred profiles: `planner-readonly`, `reviewer-graph`
+- Preferred profiles: `readonly`, `review`
 - Native host primitives: `CLAUDE.md`, `subagents and agent teams`, `hooks`, `managed-mcp.json and .mcp.json`, `subagent-scoped MCP servers`
 - Use CodeLens for: bootstrap and bounded architecture review; preflight before dispatching a builder; planner-session audit and handoff artifact production
 - Avoid: defaulting to live bidirectional chat between planner and builder; exposing mutation-heavy surfaces to read-side sessions
@@ -241,17 +241,17 @@ Generated from the canonical surface manifest. Use this block as the default ope
 
 - Best fit: builder and refactor execution, parallel worktree-based implementation, and automation
 - Recommended CodeLens modes: `solo-local`, `planner-builder`, `batch-analysis`
-- Preferred profiles: `builder-minimal`, `refactor-full`, `ci-audit`
+- Preferred profiles: `builder`, `review`
 - Native host primitives: `AGENTS.md`, `skills`, `worktrees`, `shared MCP config`, `CLI, app, and IDE continuity`
 - Use CodeLens for: bounded mutation after verify_change_readiness; session-scoped builder audit; analysis jobs for CI-facing summaries
 - Avoid: forcing CodeLens into trivial single-file lookups; copying Claude-specific subagent topology into Codex worktree flows
-- Routing defaults: `point_lookup=native-first`, `multi_file_build=builder-minimal-after-bootstrap`, `rename_or_broad_refactor=refactor-full-after-preflight`, `ci_summary=analysis-job-first`
+- Routing defaults: `point_lookup=native-first`, `multi_file_build=builder-after-bootstrap`, `rename_or_broad_refactor=builder-after-preflight`, `ci_summary=analysis-job-first`
 
 ### `cursor`
 
 - Best fit: editor-local iteration with scoped rules plus asynchronous remote execution when needed
 - Recommended CodeLens modes: `solo-local`, `reviewer-gate`, `batch-analysis`
-- Preferred profiles: `planner-readonly`, `reviewer-graph`, `ci-audit`
+- Preferred profiles: `readonly`, `review`
 - Native host primitives: `.cursor/rules`, `AGENTS.md`, `custom modes`, `background agents`, `mcp.json`
 - Use CodeLens for: architecture review and diff-aware signoff; analysis jobs for background-agent queues; minimal surface exposure through mode- or rule-specific routing
 - Avoid: assuming foreground and background agents share the same trust boundary; shipping the full CodeLens surface into every mode
@@ -261,21 +261,21 @@ Generated from the canonical surface manifest. Use this block as the default ope
 
 - Best fit: human-in-the-loop debugging and foreground execution with explicit approvals
 - Recommended CodeLens modes: `solo-local`, `planner-builder`
-- Preferred profiles: `builder-minimal`, `reviewer-graph`
+- Preferred profiles: `builder`, `review`
 - Native host primitives: `interactive permissioned terminal execution`, `browser loop`, `workspace checkpoints`, `MCP integrations`
 - Use CodeLens for: review-heavy exploration before write passes; session audit and handoff artifacts when a change must cross sessions
 - Avoid: treating Cline as a headless CI runner; relying on CodeLens where the foreground checkpoint loop already provides the needed safety
-- Routing defaults: `foreground_debug=native-first-with-codelens-escalation`, `write_pass=builder-minimal-after-bootstrap`, `handoff=artifact-required`
+- Routing defaults: `foreground_debug=native-first-with-codelens-escalation`, `write_pass=builder-after-bootstrap`, `handoff=artifact-required`
 
 ### `windsurf`
 
 - Best fit: editor-local implementation with a hard MCP tool cap and bounded foreground agent flows
 - Recommended CodeLens modes: `solo-local`, `reviewer-gate`
-- Preferred profiles: `builder-minimal`, `planner-readonly`
+- Preferred profiles: `builder`, `readonly`
 - Native host primitives: `global MCP config`, `foreground agent loop`, `workspace-local editing`, `100-tool cap across MCP servers`
 - Use CodeLens for: bounded builder execution under a small visible surface; compressed planning when the task escapes single-file scope
 - Avoid: attaching the full CodeLens surface alongside many other MCP servers; using reviewer-heavy profiles as the default editing surface
-- Routing defaults: `foreground_lookup=native-first`, `multi_file_edit=builder-minimal-after-bootstrap`, `wide_surface=deferred-loading-required`, `tool_cap=keep-profile-bounded`
+- Routing defaults: `foreground_lookup=native-first`, `multi_file_edit=builder-after-bootstrap`, `wide_surface=deferred-loading-required`, `tool_cap=keep-profile-bounded`
 
 <!-- SURFACE_MANIFEST_HOST_ADAPTER_GUIDANCE:END -->
 

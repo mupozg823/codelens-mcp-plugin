@@ -1,4 +1,4 @@
-use super::super::overlays::{append_compiled_overlay_section, managed_host_policy_block};
+use super::super::overlays::managed_host_policy_block;
 use serde_json::{Value, json};
 
 const HOST: &str = "cline";
@@ -9,7 +9,7 @@ pub(super) fn bundle() -> Value {
         "resource_uri": format!("codelens://host-adapters/{HOST}"),
         "best_fit": "human-in-the-loop debugging and foreground execution with explicit approvals",
         "recommended_modes": ["solo-local", "planner-builder"],
-        "preferred_profiles": ["builder-minimal", "reviewer-graph"],
+        "preferred_profiles": ["builder", "review"],
         "native_primitives": [
             "interactive permissioned terminal execution",
             "browser loop",
@@ -22,7 +22,7 @@ pub(super) fn bundle() -> Value {
         ],
         "routing_defaults": {
             "foreground_debug": "native-first-with-codelens-escalation",
-            "write_pass": "builder-minimal-after-bootstrap",
+            "write_pass": "builder-after-bootstrap",
             "handoff": "artifact-required"
         },
         "avoid": [
@@ -50,13 +50,13 @@ pub(super) fn bundle() -> Value {
                 "path": ".clinerules",
                 "format": "markdown",
                 "purpose": "Keep CodeLens for reviewer-heavy or handoff-heavy flows, not every approval cycle.",
-                "template": managed_host_policy_block(&append_compiled_overlay_section(r#"## CodeLens Routing
+                "template": managed_host_policy_block(r#"## CodeLens Routing
 
 - Use Cline's normal foreground loop for local debugging, browser checks, and explicit command approvals.
 - Bring in CodeLens after the first local step when the task spans multiple files or needs refactor preflight.
-- Use `reviewer-graph` for exploration and `builder-minimal` for bounded write passes.
+- Use `review` for exploration and `builder` for bounded write passes.
 - If work crosses sessions, export an audit or handoff artifact instead of relying on chat history.
-"#, HOST))
+"#)
             }
         ]
     })

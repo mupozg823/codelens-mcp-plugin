@@ -216,7 +216,7 @@ fn codex_host_adapter_exposes_skill_binding_contract() {
 }
 
 #[test]
-fn host_adapters_expose_agent_role_overlay_contract() {
+fn host_adapters_hide_internal_overlay_contract() {
     let manifest = build_surface_manifest(
         ToolSurface::Profile(ToolProfile::PlannerReadonly),
         RuntimeDaemonMode::ReadOnly,
@@ -237,27 +237,17 @@ fn host_adapters_expose_agent_role_overlay_contract() {
 
     let codex = host_adapter_bundle_for_project("codex", None).expect("codex bundle");
     assert_eq!(codex["default_agent_role"], json!("main"));
-    let previews = codex["overlay_previews"]
-        .as_array()
-        .expect("codex overlay previews");
     assert!(
-        previews
-            .iter()
-            .any(|preview| preview["agent_role"] == json!("subagent")
-                && preview["preferred_entrypoints"]
-                    .as_array()
-                    .is_some_and(|items| items.iter().any(|item| item == "get_ranked_context"))),
-        "codex host adapter must include a subagent worker overlay"
+        codex["primary_bootstrap_sequence"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "verify_change_readiness")),
+        "codex host adapter must expose the compiled bootstrap sequence"
     );
+    assert!(codex.get("overlay_previews").is_none());
+    assert!(codex.get("default_task_overlay").is_none());
 
     let claude = host_adapter_bundle_for_project("claude-code", None).expect("claude bundle");
     assert_eq!(claude["default_agent_role"], json!("main"));
-    assert!(
-        claude["overlay_previews"]
-            .as_array()
-            .expect("claude overlay previews")
-            .iter()
-            .any(|preview| preview["agent_role"] == json!("subagent")),
-        "claude host adapter must distinguish delegated subagent overlays"
-    );
+    assert!(claude.get("overlay_previews").is_none());
+    assert!(claude.get("default_task_overlay").is_none());
 }

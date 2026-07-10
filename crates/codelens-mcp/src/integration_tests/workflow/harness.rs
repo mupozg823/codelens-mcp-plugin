@@ -569,7 +569,7 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     assert!(properties.contains_key("skill_hints"));
     assert!(properties.contains_key("surface_generation"));
     assert!(properties.contains_key("host_environment"));
-    assert!(properties.contains_key("overlay"));
+    assert!(!properties.contains_key("overlay"));
     assert!(properties.contains_key("index_recovery"));
     assert!(properties.contains_key("visible_tools"));
     assert!(properties.contains_key("routing"));
@@ -585,13 +585,6 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     assert!(http_session.contains_key("daemon_binary_drift"));
     assert!(http_session.contains_key("supported_files"));
     assert!(http_session.contains_key("stale_files"));
-    let overlay = schema["properties"]["overlay"]["properties"]
-        .as_object()
-        .expect("overlay properties");
-    assert!(overlay.contains_key("host_context"));
-    assert!(overlay.contains_key("task_overlay"));
-    assert!(overlay.contains_key("agent_role"));
-    assert!(overlay.contains_key("preferred_entrypoints_visible"));
     let routing = schema["properties"]["routing"]["properties"]
         .as_object()
         .expect("routing properties");
@@ -762,12 +755,7 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
         }),
     );
     assert_eq!(payload["success"], json!(true));
-    assert_eq!(payload["data"]["overlay"]["applied"], json!(true));
-    assert_eq!(
-        payload["data"]["overlay"]["host_context"],
-        json!("claude-code")
-    );
-    assert_eq!(payload["data"]["overlay"]["task_overlay"], json!("review"));
+    assert!(payload["data"].get("overlay").is_none());
     assert_eq!(
         payload["data"]["routing"]["preferred_entrypoints_source"],
         json!("overlay")
@@ -778,23 +766,6 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
     assert_eq!(
         payload["data"]["routing"]["recommended_entrypoint"],
         json!("analyze_change_request")
-    );
-    assert!(
-        payload["data"]["overlay"]["avoid_tools"]
-            .as_array()
-            .map(|items| items.iter().any(|value| value == "rename_symbol"))
-            .unwrap_or(false)
-    );
-    assert!(
-        payload["data"]["overlay"]["routing_notes"]
-            .as_array()
-            .map(|items| items.iter().any(|value| {
-                value
-                    .as_str()
-                    .map(|text| text.contains("Review overlay"))
-                    .unwrap_or(false)
-            }))
-            .unwrap_or(false)
     );
 }
 
@@ -818,8 +789,7 @@ fn prepare_harness_session_agent_role_compiles_worker_routing() {
         }),
     );
     assert_eq!(payload["success"], json!(true));
-    assert_eq!(payload["data"]["overlay"]["applied"], json!(true));
-    assert_eq!(payload["data"]["overlay"]["agent_role"], json!("subagent"));
+    assert!(payload["data"].get("overlay").is_none());
     assert_eq!(payload["data"]["routing"]["agent_role"], json!("subagent"));
     assert_eq!(
         payload["data"]["routing"]["preferred_entrypoints_source"],
@@ -833,17 +803,6 @@ fn prepare_harness_session_agent_role_compiles_worker_routing() {
         payload["data"]["routing"]["preferred_entrypoints"]
             .as_array()
             .map(|items| items.iter().any(|value| value == "get_ranked_context"))
-            .unwrap_or(false)
-    );
-    assert!(
-        payload["data"]["overlay"]["routing_notes"]
-            .as_array()
-            .map(|items| items.iter().any(|value| {
-                value
-                    .as_str()
-                    .map(|text| text.contains("Subagent role"))
-                    .unwrap_or(false)
-            }))
             .unwrap_or(false)
     );
 }
@@ -975,11 +934,11 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
                 "recommended_action": "switch_tool_surface",
                 "preferred_executor": "any",
                 "tool_tier": "workflow",
-                "recommended_profile": "builder-minimal",
+                "recommended_profile": "builder",
                 "included_in": [
                     "preset:balanced",
                     "preset:full",
-                    "builder-minimal",
+                    "builder",
                 ],
             }),
             json!({
@@ -1117,7 +1076,7 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
             .as_array()
             .expect("included_in")
             .iter()
-            .any(|value| value == "reviewer-graph"),
+            .any(|value| value == "review"),
         "active profile should still be visible in recovery metadata"
     );
 
@@ -1268,9 +1227,9 @@ fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_field
                 "included_in": [
                     "preset:balanced",
                     "preset:full",
-                    "builder-minimal",
+                    "builder",
                 ],
-                "recommended_profile": "builder-minimal",
+                "recommended_profile": "builder",
             },
             {
                 "tool": "this_tool_does_not_exist_xyz",

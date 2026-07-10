@@ -1,7 +1,6 @@
 use crate::resource_context::VisibleToolContext;
 use crate::tool_defs::{
-    AgentRole, HostContext, TaskOverlay, ToolSurface, preferred_bootstrap_tools,
-    tool_name_requests, tool_request_omissions,
+    AgentRole, ToolSurface, preferred_bootstrap_tools, tool_name_requests, tool_request_omissions,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -10,14 +9,8 @@ pub(super) struct PrepareHarnessRoutingInput<'a> {
     pub(super) arguments: &'a Value,
     pub(super) active_surface: ToolSurface,
     pub(super) visible: &'a VisibleToolContext,
-    pub(super) host_context: Option<HostContext>,
-    pub(super) task_overlay: Option<TaskOverlay>,
     pub(super) agent_role: Option<AgentRole>,
     pub(super) overlay_preferred_entrypoints: &'a [&'static str],
-    pub(super) overlay_emphasized_tools: &'a [&'static str],
-    pub(super) overlay_avoid_tools: &'a [&'static str],
-    pub(super) overlay_preferred_executor_bias: Option<&'static str>,
-    pub(super) overlay_routing_notes: &'a [&'static str],
 }
 
 pub(super) struct PrepareHarnessRouting {
@@ -32,18 +25,7 @@ pub(super) struct PrepareHarnessRouting {
     pub(super) recommended_entrypoint: Option<String>,
     pub(super) recommended_entrypoint_preferred_executor: Option<&'static str>,
     pub(super) visible_executor_counts: BTreeMap<String, usize>,
-    pub(super) overlay_applied: bool,
-    pub(super) overlay_host_context: Option<&'static str>,
-    pub(super) overlay_task_overlay: Option<&'static str>,
     pub(super) overlay_agent_role: Option<&'static str>,
-    pub(super) overlay_preferred_executor_bias: Option<&'static str>,
-    pub(super) overlay_preferred_entrypoints: Vec<String>,
-    pub(super) overlay_preferred_entrypoints_visible: Vec<String>,
-    pub(super) overlay_emphasized_tools: Vec<String>,
-    pub(super) overlay_emphasized_tools_visible: Vec<String>,
-    pub(super) overlay_avoid_tools: Vec<String>,
-    pub(super) overlay_avoid_tools_visible: Vec<String>,
-    pub(super) overlay_routing_notes: Vec<&'static str>,
 }
 
 impl PrepareHarnessRouting {
@@ -110,13 +92,6 @@ pub(super) fn prepare_harness_routing(
     let recommended_entrypoint_preferred_executor = recommended_entrypoint
         .as_deref()
         .map(crate::tool_defs::tool_preferred_executor_label);
-    let overlay_preferred_entrypoints_visible =
-        visible_subset(&overlay_preferred_entrypoints, &visible_tool_names);
-    let overlay_emphasized_tools = to_owned_tools(input.overlay_emphasized_tools);
-    let overlay_emphasized_tools_visible =
-        visible_subset(&overlay_emphasized_tools, &visible_tool_names);
-    let overlay_avoid_tools = to_owned_tools(input.overlay_avoid_tools);
-    let overlay_avoid_tools_visible = visible_subset(&overlay_avoid_tools, &visible_tool_names);
 
     PrepareHarnessRouting {
         visible_tool_names,
@@ -130,20 +105,7 @@ pub(super) fn prepare_harness_routing(
         recommended_entrypoint,
         recommended_entrypoint_preferred_executor,
         visible_executor_counts: visible_executor_counts(input.visible),
-        overlay_applied: input.host_context.is_some()
-            || input.task_overlay.is_some()
-            || input.agent_role.is_some(),
-        overlay_host_context: input.host_context.map(|value| value.as_str()),
-        overlay_task_overlay: input.task_overlay.map(|value| value.as_str()),
         overlay_agent_role: input.agent_role.map(|value| value.as_str()),
-        overlay_preferred_executor_bias: input.overlay_preferred_executor_bias,
-        overlay_preferred_entrypoints: overlay_preferred_entrypoints.clone(),
-        overlay_preferred_entrypoints_visible,
-        overlay_emphasized_tools,
-        overlay_emphasized_tools_visible,
-        overlay_avoid_tools,
-        overlay_avoid_tools_visible,
-        overlay_routing_notes: input.overlay_routing_notes.to_vec(),
     }
 }
 

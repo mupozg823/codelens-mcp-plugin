@@ -22,6 +22,7 @@ __pycache__/
 !/.codelens/
 !/.codelens/eval-session-audit-gate.json
 .codelens-port
+.codelens/runtime-snapshot.json
 
 # Codex CLI local config (per-developer: MCP url, hooks, agent defs)
 .codex/

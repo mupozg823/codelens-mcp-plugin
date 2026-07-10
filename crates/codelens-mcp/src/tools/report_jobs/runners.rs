@@ -427,11 +427,11 @@ fn run_refactor_safety_report_job(
 pub(crate) fn run_analysis_job_from_queue(
     worker_state: &AppState,
     job_id: String,
+    scope: String,
     kind: String,
     arguments: Value,
 ) -> crate::runtime_types::JobLifecycle {
     use crate::runtime_types::JobLifecycle;
-    let scope = worker_state.project_scope_for_arguments(&arguments);
     if worker_state
         .get_analysis_job_for_scope(&scope, &job_id)
         .as_ref()
@@ -490,18 +490,27 @@ pub(crate) fn run_analysis_job_from_queue(
                         result = Some(payload);
                         break;
                     }
-                    Err(e) if attempt < 2 => {
+                    Err(e) => {
                         last_err = Some(e);
+                        let terminal = worker_state
+                            .get_analysis_job_for_scope(&scope, &job_id)
+                            .is_some_and(|job| {
+                                matches!(job.status, JobLifecycle::Cancelled | JobLifecycle::Error)
+                            });
+                        if terminal || attempt == 2 {
+                            break;
+                        }
                         std::thread::sleep(std::time::Duration::from_millis(
                             100 * (attempt as u64 + 1),
                         ));
-                        continue;
-                    }
-                    Err(e) => {
-                        last_err = Some(e);
-                        break;
                     }
                 }
+            }
+            if worker_state
+                .get_analysis_job_for_scope(&scope, &job_id)
+                .is_some_and(|job| job.status == JobLifecycle::Cancelled)
+            {
+                return Ok(JobLifecycle::Cancelled);
             }
             match result.map(Ok).unwrap_or_else(|| Err(last_err.unwrap())) {
                 Ok(payload) if payload.is_object() => {

@@ -188,7 +188,7 @@ fn push_tool_if_in_surface(
     surface: ToolSurface,
     tool: &'static str,
 ) {
-    if is_tool_in_surface(tool, surface) {
+    if is_tool_in_surface(tool, surface) && super::super::experimental_tool_enabled(tool) {
         crate::util::push_unique(items, tool);
     }
 }

@@ -19,6 +19,14 @@ pub(super) fn run_job_kind(state: &AppState, kind: &str, arguments: &Value) -> T
             super::super::reports::verify_change_readiness(state, arguments)
         }
         "eval_session_audit" => super::super::reports::eval_session_audit(state, arguments),
+        #[cfg(feature = "semantic")]
+        "index_embeddings" => crate::dispatch::semantic::index_embeddings_now(state, arguments)
+            .map(|payload| {
+                (
+                    payload,
+                    super::super::success_meta(crate::protocol::BackendKind::Semantic, 0.95),
+                )
+            }),
         _ => Err(CodeLensError::Validation(format!(
             "unsupported analysis job kind `{kind}`"
         ))),
@@ -63,6 +71,9 @@ pub(super) fn estimated_sections_for_kind(kind: &str) -> Vec<String> {
         "analyze_change_request" => vec!["change_request".to_owned()],
         "verify_change_readiness" => vec!["readiness".to_owned()],
         "eval_session_audit" => vec!["audit_pass_rate".to_owned(), "session_rows".to_owned()],
+        "index_embeddings" => {
+            vec!["semantic_index".to_owned(), "query_prewarm".to_owned()]
+        }
         _ => Vec::new(),
     }
 }
@@ -117,13 +128,27 @@ pub(super) fn advance_job_progress(
     current_step: &str,
     delay_ms: u64,
 ) -> Result<bool, String> {
-    if state
-        .get_analysis_job_for_scope(scope, job_id)
-        .as_ref()
-        .map(|job| job.status)
-        == Some(crate::runtime_types::JobLifecycle::Cancelled)
-    {
+    let Some(job) = state.get_analysis_job_for_scope(scope, job_id) else {
+        return Err(format!("unknown job `{job_id}`"));
+    };
+    if job.status == crate::runtime_types::JobLifecycle::Cancelled {
         return Ok(false);
+    }
+    if job
+        .deadline_at_ms
+        .is_some_and(|deadline| crate::util::now_ms() >= deadline)
+    {
+        let _ = state.update_analysis_job(
+            scope,
+            job_id,
+            Some(crate::runtime_types::JobLifecycle::Error),
+            Some(100),
+            Some(Some("deadline exceeded".to_owned())),
+            None,
+            None,
+            Some(Some("job deadline exceeded".to_owned())),
+        );
+        return Err(format!("job `{job_id}` deadline exceeded"));
     }
     state
         .update_analysis_job(

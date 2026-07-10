@@ -261,23 +261,33 @@ async fn authenticate_request(
 /// not a `tools/call` (the only method whose params is a structured
 /// object the dispatch path reads `_session_*` from).
 fn inject_principal_id_into_params(request: &mut JsonRpcRequest, principal_id: &str) {
-    if request.method != "tools/call" {
-        return;
+    match request.method.as_str() {
+        "tools/call" => {
+            let Some(arguments) = request
+                .params
+                .as_mut()
+                .and_then(|params| params.as_object_mut())
+                .and_then(|params| params.get_mut("arguments"))
+                .and_then(|arguments| arguments.as_object_mut())
+            else {
+                return;
+            };
+            arguments.insert(
+                "_session_principal_id".to_owned(),
+                serde_json::Value::String(principal_id.to_owned()),
+            );
+        }
+        "tools/list" | "resources/read" => {
+            let params = request.params.get_or_insert_with(|| serde_json::json!({}));
+            if let Some(params) = params.as_object_mut() {
+                params.insert(
+                    "_session_principal_id".to_owned(),
+                    serde_json::Value::String(principal_id.to_owned()),
+                );
+            }
+        }
+        _ => {}
     }
-    let Some(params) = request.params.as_mut() else {
-        return;
-    };
-    let Some(arguments) = params
-        .as_object_mut()
-        .and_then(|p| p.get_mut("arguments"))
-        .and_then(|a| a.as_object_mut())
-    else {
-        return;
-    };
-    arguments.insert(
-        "_session_principal_id".to_owned(),
-        serde_json::Value::String(principal_id.to_owned()),
-    );
 }
 
 /// Phase 4d (§single-instance guard): probe the target port before
@@ -783,16 +793,16 @@ mod principal_injection_tests {
     }
 
     #[test]
-    fn does_not_inject_when_method_is_not_tools_call() {
+    fn injects_principal_id_into_tools_list_params() {
         let mut request = parse(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#);
         inject_principal_id_into_params(&mut request, "alice@example.com");
-        assert!(
+        assert_eq!(
             request
                 .params
                 .as_ref()
-                .and_then(|p| p.get("_session_principal_id"))
-                .is_none(),
-            "non tools/call methods must not be mutated"
+                .and_then(|params| params.get("_session_principal_id")),
+            Some(&serde_json::json!("alice@example.com")),
+            "tools/list must carry the authenticated principal for role filtering"
         );
     }
 

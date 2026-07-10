@@ -32,6 +32,7 @@ fn start_analysis_job_returns_completed_handle() {
     let final_status = crate::tools::report_jobs::run_analysis_job_from_queue(
         &state,
         job_id.clone(),
+        state.current_project_scope(),
         "impact_report".to_owned(),
         arguments,
     );
@@ -104,6 +105,7 @@ fn start_analysis_job_runs_orchestrate_change_kind() {
     let final_status = crate::tools::report_jobs::run_analysis_job_from_queue(
         &state,
         job_id.clone(),
+        state.current_project_scope(),
         "orchestrate_change".to_owned(),
         arguments,
     );
@@ -214,6 +216,7 @@ fn analysis_job_text_payload_preserves_job_handle_fields() {
     let final_status = crate::tools::report_jobs::run_analysis_job_from_queue(
         &state,
         sync_job_id.clone(),
+        state.current_project_scope(),
         "impact_report".to_owned(),
         json!({"kind": "impact_report", "path": "job_text.py"}),
     );

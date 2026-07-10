@@ -76,10 +76,11 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
     let profile_str = arguments
         .get("profile")
         .and_then(|v| v.as_str())
-        .unwrap_or("planner-readonly");
+        .unwrap_or("readonly");
     let profile = ToolProfile::from_str(profile_str).ok_or_else(|| {
         crate::error::CodeLensError::Validation(format!("unknown profile `{profile_str}`"))
     })?;
+    let compatibility_alias = ToolProfile::compatibility_alias(profile_str);
     let old_surface = state.execution_surface(&session).as_label().to_owned();
     let budget = arguments
         .get("token_budget")
@@ -113,6 +114,12 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
             "status": "ok",
             "previous_surface": old_surface,
             "current_profile": profile.as_str(),
+            "compatibility_alias": compatibility_alias.map(|canonical| json!({
+                "deprecated": true,
+                "provided": profile_str,
+                "canonical": canonical,
+                "removal_target": "v2.0"
+            })),
             "active_surface": ToolSurface::Profile(profile).as_label(),
             "token_budget": budget,
             "note": "Profile changed. Next tools/list call will reflect the role-specific tool surface.",

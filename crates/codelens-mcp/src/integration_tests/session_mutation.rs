@@ -62,7 +62,7 @@ fn set_profile_changes_tools_list() {
         "set_profile",
         json!({"profile": "planner-readonly"}),
     );
-    assert_eq!(profile_resp["data"]["current_profile"], "planner-readonly");
+    assert_eq!(profile_resp["data"]["current_profile"], "readonly");
 
     let list_resp = handle_request(
         &state,
@@ -95,7 +95,7 @@ fn set_profile_changes_tools_list() {
     assert!(expanded_planner_encoded.contains("verify_change_readiness"));
 
     let builder_resp = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
-    assert_eq!(builder_resp["data"]["current_profile"], "builder-minimal");
+    assert_eq!(builder_resp["data"]["current_profile"], "builder");
     let builder_list = handle_request(
         &state,
         crate::protocol::JsonRpcRequest {
@@ -168,10 +168,8 @@ fn refactor_profile_limits_surface_to_approved_mutations() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
 
-    // refactor-full is deprecated and canonicalizes to builder-minimal.
-    // The profile name is preserved but tool surface = BuilderMinimal.
     let profile_resp = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
-    assert_eq!(profile_resp["data"]["current_profile"], "refactor-full");
+    assert_eq!(profile_resp["data"]["current_profile"], "builder");
 
     let list_resp = handle_request(
         &state,

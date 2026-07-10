@@ -64,7 +64,7 @@ pub fn composite_tools(
         Tool::new(
             "verify_change_readiness",
             "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing.",
-            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"orchestration_run_id":{"type":"string"}}}),
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["readonly","review","builder","planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"orchestration_run_id":{"type":"string"}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
         Tool::new(
             "onboard_project",
@@ -124,7 +124,7 @@ pub fn composite_tools(
         Tool::new(
             "start_analysis_job",
             "[CodeLens:Workflow] Start a durable analysis job and return a job handle for polling.",
-            json!({"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["impact_report","dead_code_report","refactor_safety_report","semantic_code_review","orchestrate_change","eval_session_audit"]},"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"target_paths":{"type":"array","items":{"type":"string"}},"mode":{"type":"string","enum":["solo","planner_builder","planner-builder","ci_audit","ci-audit"]},"acceptance":{"type":"array","items":{"type":"string"}},"approval":{"type":"object","properties":{"decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"actor":{"type":"string"},"reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
+            json!({"type":"object","required":["kind"],"properties":{"kind":{"type":"string","enum":["impact_report","dead_code_report","refactor_safety_report","semantic_code_review","orchestrate_change","eval_session_audit"]},"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"target_paths":{"type":"array","items":{"type":"string"}},"mode":{"type":"string","enum":["solo","planner_builder","planner-builder","ci_audit","ci-audit"]},"acceptance":{"type":"array","items":{"type":"string"}},"approval":{"type":"object","properties":{"decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"actor":{"type":"string"},"reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}},"profile_hint":{"type":"string","enum":["readonly","review","builder","planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}}),
         ).with_output_schema(analysis_job_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "get_analysis_job",
@@ -282,23 +282,23 @@ pub fn memory_tools(
         ).with_annotations(destructive.clone()),
         Tool::new(
             "rename_memory",
-            "[CodeLens:Memory] Rename a project memory file.",
-            json!({"type":"object","required":["old_name","new_name"],"properties":{"old_name":{"type":"string"},"new_name":{"type":"string"}}}),
+            "[CodeLens:Memory] Rename a project or global memory file.",
+            json!({"type":"object","required":["old_name","new_name"],"properties":{"old_name":{"type":"string"},"new_name":{"type":"string"},"scope":{"type":"string","enum":["project","global"],"description":"Memory tier to rename within (default project)"}}}),
         ).with_annotations(mut_p.clone()),
         Tool::new(
             "archive_memory",
-            "[CodeLens:Memory] Move a project memory file into the archive.",
-            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string"}}}),
+            "[CodeLens:Memory] Move a project or global memory file into the archive.",
+            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string"},"scope":{"type":"string","enum":["project","global"],"description":"Memory tier to archive from (default project)"}}}),
         ).with_annotations(mut_p.clone()),
         Tool::new(
             "restore_memory",
-            "[CodeLens:Memory] Restore an archived project memory file.",
-            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string","description":"Archived memory name, with or without the archived/ prefix"}}}),
+            "[CodeLens:Memory] Restore an archived project or global memory file.",
+            json!({"type":"object","required":["memory_name"],"properties":{"memory_name":{"type":"string","description":"Archived memory name, with or without the archived/ prefix"},"scope":{"type":"string","enum":["project","global"],"description":"Memory tier to restore into (default project)"}}}),
         ).with_annotations(mut_p.clone()),
         Tool::new(
             "list_archived",
-            "[CodeLens:Memory] List archived project memory files.",
-            json!({"type":"object","properties":{}}),
+            "[CodeLens:Memory] List archived project or global memory files.",
+            json!({"type":"object","properties":{"scope":{"type":"string","enum":["project","global"],"description":"Memory tier to list (default project)"}}}),
         ).with_annotations(ro_p.clone()),
         Tool::new(
             "read_policy",
@@ -369,7 +369,7 @@ pub fn session_tools(
         Tool::new(
             "prepare_harness_session",
             "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — pass project=<absolute repo path> on first use to bind the daemon to that project's symbol index, graph/LSP runtime, analysis cache, and SCIP precise index; then summarize surface, capabilities, visible tools, and optionally auto-recover a stale index in one call.",
-            json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"},"profile":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"preset":{"type":"string","enum":["minimal","balanced","full"]},"token_budget":{"type":"integer","description":"Optional explicit token budget override after activation"},"file_path":{"type":"string","description":"Optional file path for language-specific capability checks"},"detail":{"type":"string","enum":["compact","full"],"description":"compact returns the harness preflight essentials only; full also includes the heavier config snapshot"},"host_context":{"type":"string","enum":["claude-code","codex","cursor","cline","windsurf","vscode","jetbrains","api-agent"],"description":"Optional host hint for advisory routing (surface unchanged)"},"task_overlay":{"type":"string","enum":["planning","editing","review","onboarding","batch-analysis","interactive"],"description":"Optional task-mode hint for advisory routing (surface unchanged)"},"agent_role":{"type":"string","enum":["main","subagent"],"description":"Optional caller role hint for advisory routing (surface unchanged)"},"available_mcp_servers":{"type":"array","items":{"type":"string"},"description":"Optional host-observed MCP server ids; advisory routing only, not trusted"},"available_mcp_tools":{"type":"array","items":{"type":"string"},"description":"Optional host-observed MCP tool ids; advisory routing only, not trusted"},"skill_roots":{"type":"array","items":{"type":"string"},"description":"Optional skill root directories for Codex skill hint scanning"},"memory_roots":{"type":"array","items":{"type":"string"},"description":"Optional memory root directories for root-aware memory routing"},"host_setting_keys":{"type":"array","items":{"type":"string"},"description":"Optional host setting key names (never send secret values)"},"harness_profile":{"type":"string","description":"Optional host harness/profile name (separate from CodeLens profile)"},"task":{"type":"string","description":"Optional task summary used for skill hints"},"objective":{"type":"string","description":"Alias for task"},"preferred_entrypoints":{"type":"array","items":{"type":"string"},"description":"Optional ordered entrypoints to check for visibility (canonical or mcp__codelens__-prefixed names)"},"known_tool_schema_fingerprint":{"type":"string","description":"Optional client-observed tool_schema_fingerprint; a mismatch emits a tool_schema_cache_stale warning"},"auto_refresh_stale":{"type":"boolean","description":"Auto-refresh a stale symbol index during bootstrap (default true)"},"auto_refresh_stale_threshold":{"type":"integer","description":"Max stale file count eligible for auto-refresh; omitted = no cap"}}}),
+            json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"},"profile":{"type":"string","enum":["readonly","review","builder","planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"preset":{"type":"string","enum":["minimal","balanced","full"]},"token_budget":{"type":"integer","description":"Optional explicit token budget override after activation"},"file_path":{"type":"string","description":"Optional file path for language-specific capability checks"},"detail":{"type":"string","enum":["compact","full"],"description":"compact returns the harness preflight essentials only; full also includes the heavier config snapshot"},"host_context":{"type":"string","enum":["claude-code","codex","cursor","cline","windsurf","vscode","jetbrains","api-agent"],"description":"Optional host hint for advisory routing (surface unchanged)"},"task_overlay":{"type":"string","enum":["planning","editing","review","onboarding","batch-analysis","interactive"],"description":"Optional task-mode hint for advisory routing (surface unchanged)"},"agent_role":{"type":"string","enum":["main","subagent"],"description":"Optional caller role hint for advisory routing (surface unchanged)"},"available_mcp_servers":{"type":"array","items":{"type":"string"},"description":"Optional host-observed MCP server ids; advisory routing only, not trusted"},"available_mcp_tools":{"type":"array","items":{"type":"string"},"description":"Optional host-observed MCP tool ids; advisory routing only, not trusted"},"skill_roots":{"type":"array","items":{"type":"string"},"description":"Optional skill root directories for Codex skill hint scanning"},"memory_roots":{"type":"array","items":{"type":"string"},"description":"Optional memory root directories for root-aware memory routing"},"host_setting_keys":{"type":"array","items":{"type":"string"},"description":"Optional host setting key names (never send secret values)"},"harness_profile":{"type":"string","description":"Optional host harness/profile name (separate from CodeLens profile)"},"task":{"type":"string","description":"Optional task summary used for skill hints"},"objective":{"type":"string","description":"Alias for task"},"preferred_entrypoints":{"type":"array","items":{"type":"string"},"description":"Optional ordered entrypoints to check for visibility (canonical or mcp__codelens__-prefixed names)"},"known_tool_schema_fingerprint":{"type":"string","description":"Optional client-observed tool_schema_fingerprint; a mismatch emits a tool_schema_cache_stale warning"},"auto_refresh_stale":{"type":"boolean","description":"Auto-refresh a stale symbol index during bootstrap (default true)"},"auto_refresh_stale_threshold":{"type":"integer","description":"Max stale file count eligible for auto-refresh; omitted = no cap"}}}),
         ).with_output_schema(prepare_harness_session_output_schema()).with_annotations(mutating.clone()),
         Tool::new(
             "register_agent_work",
@@ -429,7 +429,7 @@ pub fn session_tools(
         Tool::new(
             "set_profile",
             "[CodeLens:Session] Switch the active role profile. Preferred for harness-oriented workflows.",
-            json!({"type":"object","required":["profile"],"properties":{"profile":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"token_budget":{"type":"integer","description":"Override token budget for the active profile"}}}),
+            json!({"type":"object","required":["profile"],"properties":{"profile":{"type":"string","enum":["readonly","review","builder","planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"token_budget":{"type":"integer","description":"Override token budget for the active profile"}}}),
         ).with_annotations(mutating.clone()),
         Tool::new(
             "get_capabilities",
@@ -458,8 +458,8 @@ pub fn session_tools(
         ).with_output_schema(session_markdown_output_schema()).with_annotations(ro_p.clone()).with_max_response_tokens(4096),
         Tool::new(
             "audit_log_query",
-            "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by transaction_id and/or since_ms; default limit 100 rows. Requires Admin role.",
-            json!({"type":"object","properties":{"transaction_id":{"type":"string","description":"Stable id from a mutation response (payload.data.transaction_id). Returns the rows for that one call."},"since_ms":{"type":"integer","description":"Earliest timestamp_ms (epoch millis) to include."},"limit":{"type":"integer","description":"Max rows (default 100, capped at 1000)."}}}),
+            "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by operation_id and/or since_ms; default limit 100 rows. Requires Admin role.",
+            json!({"type":"object","properties":{"operation_id":{"type":"string","description":"UUID from a mutation response (payload.data.operation_id). Returns rows for that invocation."},"transaction_id":{"type":"string","description":"DEPRECATED compatibility alias for operation_id."},"since_ms":{"type":"integer","description":"Earliest timestamp_ms (epoch millis) to include."},"limit":{"type":"integer","description":"Max rows (default 100, capped at 1000)."}}}),
         ).with_annotations(ro_a.clone()),
         Tool::new(
             "audit_tool_surface_consistency",

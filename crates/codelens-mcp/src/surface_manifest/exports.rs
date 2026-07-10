@@ -90,13 +90,9 @@ pub(super) fn build_agent_experience() -> Value {
                 "analyze_change_request or get_ranked_context"
             ],
             "role_lattice": [
-                "planner-readonly",
-                "builder-minimal",
-                "reviewer-graph",
-                "refactor-full",
-                "evaluator-compact",
-                "ci-audit",
-                "workflow-first"
+                "readonly",
+                "review",
+                "builder"
             ],
             "delegation_contract": {
                 "preferred_executor_field": "_meta.codelens/preferredExecutor",

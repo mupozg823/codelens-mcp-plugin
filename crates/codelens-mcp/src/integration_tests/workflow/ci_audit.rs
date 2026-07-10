@@ -206,6 +206,7 @@ fn eval_session_audit_aggregates_across_tracked_sessions() {
     let final_status = crate::tools::report_jobs::run_analysis_job_from_queue(
         &state,
         job_id.clone(),
+        state.current_project_scope(),
         "eval_session_audit".to_owned(),
         arguments,
     );
@@ -277,8 +278,8 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     )
     .unwrap();
     let encoded = serde_json::to_string(&list_response).unwrap();
-    assert!(encoded.contains("codelens://profile/planner-readonly/guide"));
-    assert!(encoded.contains("codelens://profile/planner-readonly/guide/full"));
+    assert!(encoded.contains("codelens://profile/readonly/guide"));
+    assert!(encoded.contains("codelens://profile/readonly/guide/full"));
     assert!(encoded.contains("codelens://tools/list/full"));
     assert!(encoded.contains("codelens://surface/manifest"));
     assert!(encoded.contains("codelens://harness/modes"));
@@ -296,7 +297,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(encoded.contains("codelens://analysis/recent"));
     assert!(encoded.contains("codelens://analysis/jobs"));
     assert!(encoded.contains(&format!("codelens://analysis/{analysis_id}/summary")));
-    assert!(encoded.contains("symbiote://profile/planner-readonly/guide"));
+    assert!(encoded.contains("symbiote://profile/readonly/guide"));
     assert!(encoded.contains("symbiote://tools/list/full"));
     assert!(encoded.contains("symbiote://harness/host"));
     assert!(encoded.contains("symbiote://host-adapters/codex"));
@@ -514,14 +515,9 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         harness_host_payload["adapter_resource"],
         json!("codelens://host-adapters/claude-code")
     );
-    assert_eq!(
-        harness_host_payload["default_profile"],
-        json!("planner-readonly")
-    );
-    assert_eq!(
-        harness_host_payload["default_task_overlay"],
-        json!("planning")
-    );
+    assert_eq!(harness_host_payload["default_profile"], json!("readonly"));
+    assert!(harness_host_payload.get("default_task_overlay").is_none());
+    assert!(harness_host_payload.get("overlay_previews").is_none());
     assert_eq!(
         harness_host_payload["detected_host"]["host_id"],
         json!("claude-code")
@@ -559,19 +555,27 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         },
     )
     .unwrap();
+    let codex_host_adapter_value = serde_json::to_value(&codex_host_adapter).unwrap();
+    let codex_host_adapter_text = codex_host_adapter_value["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    let codex_host_adapter_payload: serde_json::Value =
+        serde_json::from_str(codex_host_adapter_text).expect("valid Codex host adapter JSON");
     let codex_host_adapter_body = serde_json::to_string(&codex_host_adapter).unwrap();
-    assert!(codex_host_adapter_body.contains("builder-minimal"));
+    assert_eq!(
+        codex_host_adapter_payload["preferred_profiles"],
+        json!(["builder", "review"])
+    );
     assert!(codex_host_adapter_body.contains("~/.codex/config.toml"));
     assert!(codex_host_adapter_body.contains("AGENTS.md"));
     assert!(codex_host_adapter_body.contains("delegate_to_codex_builder"));
     assert!(codex_host_adapter_body.contains("handoff_id"));
     assert!(codex_host_adapter_body.contains("skill_binding"));
     assert!(codex_host_adapter_body.contains("codelens://host-adapters/codex/skill-catalog"));
-    assert!(codex_host_adapter_body.contains("overlay_previews"));
     assert!(codex_host_adapter_body.contains("primary_bootstrap_sequence"));
-    assert!(codex_host_adapter_body.contains("default_task_overlay"));
-    assert!(codex_host_adapter_body.contains("editing"));
-    assert!(codex_host_adapter_body.contains("## Compiled Routing Overlays"));
+    assert!(!codex_host_adapter_body.contains("overlay_previews"));
+    assert!(!codex_host_adapter_body.contains("default_task_overlay"));
+    assert!(!codex_host_adapter_body.contains("## Compiled Routing Overlays"));
 
     let codex_skill_catalog = handle_request(
         &state,
@@ -602,9 +606,10 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(cursor_host_adapter_body.contains(".cursor/rules/codelens-routing.mdc"));
     assert!(cursor_host_adapter_body.contains("background agents"));
     assert!(cursor_host_adapter_body.contains("handoff_id"));
-    assert!(cursor_host_adapter_body.contains("overlay_previews"));
     assert!(cursor_host_adapter_body.contains("primary_bootstrap_sequence"));
-    assert!(cursor_host_adapter_body.contains("## Compiled Routing Overlays"));
+    assert!(!cursor_host_adapter_body.contains("overlay_previews"));
+    assert!(!cursor_host_adapter_body.contains("default_task_overlay"));
+    assert!(!cursor_host_adapter_body.contains("## Compiled Routing Overlays"));
 
     let windsurf_host_adapter = handle_request(
         &state,
@@ -686,15 +691,11 @@ fn ci_audit_analysis_summary_resource_matches_machine_schema() {
     )
     .unwrap();
     let body = serde_json::to_string(&summary).unwrap();
-    assert!(body.contains("codelens-ci-audit-v1"));
-    assert!(body.contains("machine_summary"));
-    assert!(body.contains("evidence_handles"));
+    assert!(!body.contains("codelens-ci-audit-v1"));
+    assert!(!body.contains("machine_summary"));
     assert!(body.contains("summary_resource"));
     assert!(body.contains("section_handles"));
     assert!(body.contains("blocker_count"));
-    assert!(body.contains("verifier_check_count"));
-    assert!(body.contains("ready_check_count"));
-    assert!(body.contains("blocked_check_count"));
     assert!(body.contains("readiness"));
     assert!(body.contains("verifier_checks"));
     assert!(body.contains("quality_focus"));

@@ -128,7 +128,6 @@ pub(crate) fn build_host_adapters_for_project(project_root: Option<&Path>) -> Va
                     "recommended_modes": bundle["recommended_modes"],
                     "preferred_profiles": bundle["preferred_profiles"],
                     "default_profile": bundle["default_profile"],
-                    "default_task_overlay": bundle["default_task_overlay"],
                     "default_agent_role": bundle["default_agent_role"],
                     "primary_bootstrap_sequence": bundle["primary_bootstrap_sequence"],
                     "native_primitives": bundle["native_primitives"],
@@ -212,10 +211,8 @@ pub(crate) fn harness_host_compat_bundle_for_project(
         "routing_defaults": routing_defaults,
         "guardrails": guardrails,
         "default_profile": adapter.get("default_profile").cloned().unwrap_or(Value::Null),
-        "default_task_overlay": adapter.get("default_task_overlay").cloned().unwrap_or(Value::Null),
         "default_agent_role": adapter.get("default_agent_role").cloned().unwrap_or(Value::Null),
         "skill_binding": adapter.get("skill_binding").cloned().unwrap_or(Value::Null),
-        "overlay_previews": adapter.get("overlay_previews").cloned().unwrap_or_else(|| json!([])),
         "detected_host": {
             "host_id": host,
             "integration_style": "host-adapter-resource",

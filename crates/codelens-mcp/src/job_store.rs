@@ -10,6 +10,18 @@ use crate::util::matches_scope;
 pub(crate) const MAX_ANALYSIS_JOBS: usize = 128;
 const TTL_MS: u64 = 24 * 60 * 60 * 1000;
 
+fn job_deadline_ms() -> u64 {
+    crate::env_compat::env_var_u64("CODELENS_JOB_DEADLINE_SECS")
+        .unwrap_or(30 * 60)
+        .saturating_mul(1000)
+}
+
+pub(crate) fn stale_job_heartbeat_ms() -> u64 {
+    crate::env_compat::env_var_u64("CODELENS_JOB_STALE_SECS")
+        .unwrap_or(5 * 60)
+        .saturating_mul(1000)
+}
+
 pub(crate) struct AnalysisJobStore {
     jobs_dir: Mutex<PathBuf>,
     seq: std::sync::atomic::AtomicU64,
@@ -83,7 +95,7 @@ impl AnalysisJobStore {
         Some(job)
     }
 
-    pub fn cleanup_stale_files(&self, now_ms: u64, project_scope: Option<&str>) {
+    pub fn cleanup_stale_files(&self, now_ms: u64, _project_scope: Option<&str>) {
         let entries = match fs::read_dir(self.jobs_dir()) {
             Ok(e) => e,
             Err(_) => return,
@@ -97,10 +109,7 @@ impl AnalysisJobStore {
                 .ok()
                 .and_then(|b| serde_json::from_slice::<AnalysisJob>(&b).ok());
             match job {
-                Some(job)
-                    if Self::expired(job.updated_at_ms, now_ms)
-                        || !matches_scope(job.project_scope.as_deref(), project_scope) =>
-                {
+                Some(job) if Self::expired(job.updated_at_ms, now_ms) => {
                     let _ = fs::remove_file(&path);
                 }
                 None => {
@@ -109,6 +118,63 @@ impl AnalysisJobStore {
                 _ => {}
             }
         }
+    }
+
+    pub fn recover_stale_running(
+        &self,
+        now_ms: u64,
+        project_scope: Option<&str>,
+        stale_after_ms: u64,
+    ) -> Result<usize, CodeLensError> {
+        let entries = match fs::read_dir(self.jobs_dir()) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(error) => return Err(error.into()),
+        };
+        let mut recovered = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(mut job) = fs::read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<AnalysisJob>(&bytes).ok())
+            else {
+                continue;
+            };
+            if !matches_scope(job.project_scope.as_deref(), project_scope)
+                || !matches!(job.status, JobLifecycle::Queued | JobLifecycle::Running)
+            {
+                continue;
+            }
+            let heartbeat = job.heartbeat_at_ms.max(job.updated_at_ms);
+            if now_ms.saturating_sub(heartbeat) <= stale_after_ms {
+                continue;
+            }
+            job.status = JobLifecycle::Error;
+            job.progress = 100;
+            job.current_step = Some("worker interrupted".to_owned());
+            job.error = Some(format!(
+                "job recovered after stale heartbeat: last heartbeat at {heartbeat}"
+            ));
+            job.updated_at_ms = now_ms;
+            job.heartbeat_at_ms = now_ms;
+            self.write_to_disk(&job)?;
+            self.jobs
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(job.id.clone(), job.clone());
+            let mut order = self
+                .order
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if !order.iter().any(|id| id == &job.id) {
+                order.push_back(job.id.clone());
+            }
+            recovered += 1;
+        }
+        Ok(recovered)
     }
 
     fn prune(&self, now_ms: u64, project_scope: Option<&str>) {
@@ -184,6 +250,9 @@ impl AnalysisJobStore {
             error,
             created_at_ms: now_ms,
             updated_at_ms: now_ms,
+            heartbeat_at_ms: now_ms,
+            deadline_at_ms: Some(now_ms.saturating_add(job_deadline_ms())),
+            cancel_requested_at_ms: None,
         };
         self.write_to_disk(&job)?;
         self.jobs
@@ -220,6 +289,8 @@ impl AnalysisJobStore {
             job.progress = 0;
             job.current_step = Some("cancelled".to_owned());
             job.updated_at_ms = crate::util::now_ms();
+            job.heartbeat_at_ms = job.updated_at_ms;
+            job.cancel_requested_at_ms = Some(job.updated_at_ms);
             // Return previous status so caller can record metrics
             let _ = previous;
         }
@@ -293,6 +364,7 @@ impl AnalysisJobStore {
             job.error = e;
         }
         job.updated_at_ms = crate::util::now_ms();
+        job.heartbeat_at_ms = job.updated_at_ms;
         self.write_to_disk(&job)?;
         self.jobs
             .lock()
@@ -400,6 +472,53 @@ mod tests {
             JobLifecycle::Completed
         );
 
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn recover_stale_running_job_after_worker_crash() {
+        let dir = temp_jobs_dir("recover-stale-running");
+        fs::create_dir_all(&dir).unwrap();
+        let store = AnalysisJobStore::new(dir.clone());
+        let scope = "scope-a";
+        let job = store
+            .store(
+                "impact_report",
+                None,
+                vec!["impact_rows".to_owned()],
+                JobLifecycle::Running,
+                30,
+                Some("running".to_owned()),
+                None,
+                None,
+                scope.to_owned(),
+            )
+            .unwrap();
+        let path = dir.join(format!("{}.json", job.id));
+        let mut disk_job: AnalysisJob = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let now_ms = crate::util::now_ms();
+        disk_job.heartbeat_at_ms = now_ms.saturating_sub(5_000);
+        disk_job.updated_at_ms = disk_job.heartbeat_at_ms;
+        fs::write(&path, serde_json::to_vec_pretty(&disk_job).unwrap()).unwrap();
+
+        let recovered = store
+            .recover_stale_running(now_ms, Some(scope), 1_000)
+            .unwrap();
+
+        assert_eq!(recovered, 1);
+        let recovered_job = store.get(&job.id, Some(scope)).unwrap();
+        assert_eq!(recovered_job.status, JobLifecycle::Error);
+        assert_eq!(
+            recovered_job.current_step.as_deref(),
+            Some("worker interrupted")
+        );
+        assert!(
+            recovered_job
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("heartbeat"))
+        );
         let _ = fs::remove_file(path);
         let _ = fs::remove_dir_all(dir);
     }

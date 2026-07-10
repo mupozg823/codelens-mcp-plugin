@@ -186,7 +186,7 @@ fn planner_builder_handoff_contract() -> Value {
             "example": {
                 "mode": "planner-builder",
                 "from_session_id": "<planner-session-id>",
-                "target_profile": "builder-minimal",
+                "target_profile": "builder",
                 "task": "Implement the bounded change described by the planner",
                 "target_files": ["src/example.rs"],
                 "preflight": {
@@ -389,7 +389,7 @@ fn harness_mode_solo_local() -> Value {
             "recommended_ports": []
         },
         "communication_pattern": "single-agent",
-        "mutation_policy": "same session can plan and edit; refactor-full still requires verifier evidence before mutation",
+        "mutation_policy": "same session can plan and edit; builder still requires verifier evidence before mutation",
         "roles": [
             harness_role(
                 "solo-agent",

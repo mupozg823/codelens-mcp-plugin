@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::analysis_queue::{AnalysisJobRequest, AnalysisWorkerQueue, analysis_job_cost_units};
+use crate::analysis_queue::{AnalysisJobRequest, JobService, analysis_job_cost_units};
 use crate::error::CodeLensError;
 use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisSummary, AnalysisVerifierCheck,
@@ -14,24 +14,45 @@ impl AppState {
 
     pub(crate) fn enqueue_analysis_job(
         &self,
+        project_scope: String,
         job_id: String,
         kind: String,
         arguments: Value,
         profile_hint: Option<String>,
     ) -> Result<(), CodeLensError> {
-        let (depth, weighted_depth, priority_promoted) = self
-            .analysis_queue
-            .get_or_init(|| AnalysisWorkerQueue::new(self))
+        let job_id_for_failure = job_id.clone();
+        let scope_for_failure = project_scope.clone();
+        let queued = self
+            .job_service
+            .get_or_init(|| JobService::new(self))
             .enqueue(AnalysisJobRequest {
                 job_id,
+                project_scope,
                 cost_units: analysis_job_cost_units(&kind),
                 kind,
                 arguments,
                 profile_hint,
-            })?;
-        self.metrics
-            .record_analysis_job_enqueued(depth, weighted_depth, priority_promoted);
-        Ok(())
+            });
+        match queued {
+            Ok((depth, weighted_depth, priority_promoted)) => {
+                self.metrics
+                    .record_analysis_job_enqueued(depth, weighted_depth, priority_promoted);
+                Ok(())
+            }
+            Err(error) => {
+                let _ = self.update_analysis_job(
+                    &scope_for_failure,
+                    &job_id_for_failure,
+                    Some(JobLifecycle::Error),
+                    Some(100),
+                    Some(Some("enqueue failed".to_owned())),
+                    None,
+                    None,
+                    Some(Some(error.to_string())),
+                );
+                Err(error)
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

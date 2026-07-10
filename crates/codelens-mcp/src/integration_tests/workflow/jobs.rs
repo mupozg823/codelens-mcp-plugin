@@ -206,5 +206,8 @@ fn foreign_project_scoped_job_file_is_ignored() {
     fs::write(&job_path, serde_json::to_vec_pretty(&job).unwrap()).unwrap();
 
     assert!(state.get_analysis_job("job-foreign").is_none());
-    assert!(!job_path.exists());
+    assert!(
+        job_path.exists(),
+        "scope filtering must not delete another project's durable job"
+    );
 }

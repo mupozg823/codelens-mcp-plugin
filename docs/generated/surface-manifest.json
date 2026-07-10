@@ -343,7 +343,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 737
+        "estimated_tokens": 745
       },
       {
         "name": "onboard_project",
@@ -451,7 +451,7 @@
         "phase": "eval",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 480
+        "estimated_tokens": 524
       },
       {
         "name": "get_analysis_job",
@@ -460,7 +460,7 @@
         "phase": "eval",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 245
+        "estimated_tokens": 281
       },
       {
         "name": "cancel_analysis_job",
@@ -469,7 +469,7 @@
         "phase": "eval",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 257
+        "estimated_tokens": 293
       },
       {
         "name": "list_analysis_jobs",
@@ -478,7 +478,7 @@
         "phase": "eval",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 316
+        "estimated_tokens": 352
       },
       {
         "name": "list_analysis_artifacts",
@@ -586,7 +586,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 4470
+        "estimated_tokens": 4302
       },
       {
         "name": "register_agent_work",
@@ -694,7 +694,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 137
+        "estimated_tokens": 144
       },
       {
         "name": "get_capabilities",
@@ -748,7 +748,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 191
+        "estimated_tokens": 212
       },
       {
         "name": "audit_tool_surface_consistency",
@@ -838,7 +838,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 102
+        "estimated_tokens": 133
       },
       {
         "name": "archive_memory",
@@ -847,7 +847,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 98
+        "estimated_tokens": 129
       },
       {
         "name": "restore_memory",
@@ -856,7 +856,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 115
+        "estimated_tokens": 147
       },
       {
         "name": "list_archived",
@@ -865,7 +865,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 74
+        "estimated_tokens": 103
       },
       {
         "name": "read_policy",
@@ -944,8 +944,8 @@
   "surfaces": {
     "profiles": [
       {
-        "name": "planner-readonly",
-        "tool_count": 45,
+        "name": "readonly",
+        "tool_count": 44,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -978,7 +978,6 @@
           "diagnose_issues",
           "onboard_project",
           "analyze_change_request",
-          "orchestrate_change",
           "get_analysis_job",
           "get_analysis_section",
           "get_symbols_overview",
@@ -1009,8 +1008,8 @@
         "deprecated": false
       },
       {
-        "name": "builder-minimal",
-        "tool_count": 44,
+        "name": "builder",
+        "tool_count": 43,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1042,7 +1041,6 @@
           "trace_request_path",
           "cleanup_duplicate_logic",
           "refresh_symbol_index",
-          "orchestrate_change",
           "get_ranked_context",
           "bm25_symbol_search",
           "plan_symbol_rename",
@@ -1076,8 +1074,8 @@
         "deprecated": false
       },
       {
-        "name": "reviewer-graph",
-        "tool_count": 49,
+        "name": "review",
+        "tool_count": 48,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1111,7 +1109,6 @@
           "search",
           "overview",
           "analyze_change_request",
-          "orchestrate_change",
           "get_analysis_job",
           "get_analysis_section",
           "get_changed_files",
@@ -1143,271 +1140,6 @@
           "get_file_diagnostics"
         ],
         "deprecated": false
-      },
-      {
-        "name": "evaluator-compact",
-        "tool_count": 45,
-        "preferred_namespaces": [
-          "reports",
-          "symbols",
-          "lsp",
-          "session"
-        ],
-        "preferred_tiers": [
-          "primitive",
-          "analysis"
-        ],
-        "preferred_phases": [
-          "plan",
-          "review"
-        ],
-        "tools": [
-          "get_analysis_job",
-          "get_analysis_section",
-          "get_symbols_overview",
-          "find_symbol",
-          "find_referencing_symbols",
-          "semantic_search",
-          "embedding_coverage_report",
-          "index_embeddings",
-          "get_current_config",
-          "find_declaration",
-          "find_implementations",
-          "get_diagnostics_for_symbol",
-          "activate_project",
-          "prepare_harness_session",
-          "register_agent_work",
-          "list_active_agents",
-          "claim_files",
-          "release_files",
-          "set_preset",
-          "set_profile",
-          "get_tool_metrics",
-          "get_changed_files",
-          "get_ranked_context",
-          "bm25_symbol_search",
-          "get_capabilities",
-          "audit_builder_session",
-          "audit_planner_session",
-          "diagnose",
-          "analyze",
-          "verify_change_readiness",
-          "mermaid_module_graph",
-          "impact_report",
-          "start_analysis_job",
-          "review",
-          "explore_codebase",
-          "review_architecture",
-          "plan_safe_refactor",
-          "review_changes",
-          "diagnose_issues",
-          "search",
-          "overview",
-          "onboard_project",
-          "analyze_change_request",
-          "orchestrate_change",
-          "graph"
-        ],
-        "deprecated": true,
-        "deprecation_target": "v2.0"
-      },
-      {
-        "name": "refactor-full",
-        "tool_count": 44,
-        "preferred_namespaces": [
-          "reports",
-          "symbols",
-          "graph",
-          "session"
-        ],
-        "preferred_tiers": [
-          "workflow"
-        ],
-        "preferred_phases": [
-          "build",
-          "review"
-        ],
-        "tools": [
-          "plan_safe_refactor",
-          "review",
-          "graph",
-          "search",
-          "prepare_harness_session",
-          "diagnose",
-          "analyze",
-          "verify_change_readiness",
-          "explore_codebase",
-          "trace_request_path",
-          "cleanup_duplicate_logic",
-          "overview",
-          "refresh_symbol_index",
-          "analyze_change_request",
-          "orchestrate_change",
-          "get_symbols_overview",
-          "find_symbol",
-          "get_ranked_context",
-          "bm25_symbol_search",
-          "find_referencing_symbols",
-          "plan_symbol_rename",
-          "semantic_search",
-          "embedding_coverage_report",
-          "index_embeddings",
-          "get_callers",
-          "get_callees",
-          "get_current_config",
-          "find_declaration",
-          "find_implementations",
-          "get_diagnostics_for_symbol",
-          "activate_project",
-          "register_agent_work",
-          "list_active_agents",
-          "claim_files",
-          "release_files",
-          "set_preset",
-          "set_profile",
-          "get_capabilities",
-          "get_tool_metrics",
-          "audit_builder_session",
-          "audit_planner_session",
-          "export_session_markdown",
-          "find_tests",
-          "get_file_diagnostics"
-        ],
-        "deprecated": true,
-        "deprecation_target": "v2.0"
-      },
-      {
-        "name": "ci-audit",
-        "tool_count": 49,
-        "preferred_namespaces": [
-          "reports",
-          "graph",
-          "session"
-        ],
-        "preferred_tiers": [
-          "workflow"
-        ],
-        "preferred_phases": [
-          "review",
-          "eval"
-        ],
-        "tools": [
-          "review",
-          "diagnose",
-          "cleanup_duplicate_logic",
-          "prepare_harness_session",
-          "analyze",
-          "verify_change_readiness",
-          "module_boundary_report",
-          "mermaid_module_graph",
-          "impact_report",
-          "refactor_safety_report",
-          "diff_aware_references",
-          "start_analysis_job",
-          "review_architecture",
-          "review_changes",
-          "diagnose_issues",
-          "graph",
-          "analyze_change_request",
-          "orchestrate_change",
-          "search",
-          "overview",
-          "get_analysis_job",
-          "get_analysis_section",
-          "get_changed_files",
-          "get_callers",
-          "get_callees",
-          "find_scoped_references",
-          "get_current_config",
-          "find_declaration",
-          "find_implementations",
-          "get_diagnostics_for_symbol",
-          "activate_project",
-          "register_agent_work",
-          "list_active_agents",
-          "claim_files",
-          "release_files",
-          "set_preset",
-          "set_profile",
-          "audit_builder_session",
-          "audit_planner_session",
-          "export_session_markdown",
-          "get_symbols_overview",
-          "find_symbol",
-          "get_ranked_context",
-          "bm25_symbol_search",
-          "find_referencing_symbols",
-          "get_file_diagnostics",
-          "semantic_search",
-          "embedding_coverage_report",
-          "index_embeddings"
-        ],
-        "deprecated": true,
-        "deprecation_target": "v2.0"
-      },
-      {
-        "name": "workflow-first",
-        "tool_count": 45,
-        "preferred_namespaces": [
-          "workflow",
-          "session"
-        ],
-        "preferred_tiers": [
-          "workflow"
-        ],
-        "preferred_phases": [
-          "plan",
-          "review"
-        ],
-        "tools": [
-          "onboard_project",
-          "analyze_change_request",
-          "orchestrate_change",
-          "search",
-          "overview",
-          "diagnose",
-          "graph",
-          "analyze",
-          "verify_change_readiness",
-          "mermaid_module_graph",
-          "impact_report",
-          "start_analysis_job",
-          "review",
-          "explore_codebase",
-          "review_architecture",
-          "plan_safe_refactor",
-          "review_changes",
-          "diagnose_issues",
-          "get_current_config",
-          "find_declaration",
-          "find_implementations",
-          "get_diagnostics_for_symbol",
-          "activate_project",
-          "prepare_harness_session",
-          "register_agent_work",
-          "list_active_agents",
-          "claim_files",
-          "release_files",
-          "set_preset",
-          "set_profile",
-          "get_capabilities",
-          "get_tool_metrics",
-          "audit_builder_session",
-          "audit_planner_session",
-          "get_symbols_overview",
-          "find_symbol",
-          "get_ranked_context",
-          "bm25_symbol_search",
-          "find_referencing_symbols",
-          "get_changed_files",
-          "get_analysis_job",
-          "get_analysis_section",
-          "semantic_search",
-          "embedding_coverage_report",
-          "index_embeddings"
-        ],
-        "deprecated": true,
-        "deprecation_target": "v2.0"
       }
     ],
     "presets": [
@@ -1454,7 +1186,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 87,
+        "tool_count": 82,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1495,7 +1227,6 @@
           "refresh_symbol_index",
           "onboard_project",
           "analyze_change_request",
-          "orchestrate_change",
           "get_ranked_context",
           "bm25_symbol_search",
           "get_type_hierarchy",
@@ -1508,7 +1239,6 @@
           "find_code_duplicates",
           "classify_symbol",
           "resolve_symbol_target",
-          "query_project",
           "get_capabilities",
           "audit_log_query",
           "audit_tool_surface_consistency",
@@ -1539,9 +1269,6 @@
           "list_active_agents",
           "claim_files",
           "release_files",
-          "add_queryable_project",
-          "remove_queryable_project",
-          "list_queryable_projects",
           "set_preset",
           "set_profile",
           "archive_memory",
@@ -1558,7 +1285,7 @@
       },
       {
         "name": "full",
-        "tool_count": 100,
+        "tool_count": 95,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1602,7 +1329,6 @@
           "refresh_symbol_index",
           "onboard_project",
           "analyze_change_request",
-          "orchestrate_change",
           "get_complexity",
           "get_callers",
           "get_callees",
@@ -1613,7 +1339,6 @@
           "find_code_duplicates",
           "classify_symbol",
           "resolve_symbol_target",
-          "query_project",
           "get_capabilities",
           "audit_builder_session",
           "audit_planner_session",
@@ -1656,9 +1381,6 @@
           "release_files",
           "get_watch_status",
           "prune_index_failures",
-          "add_queryable_project",
-          "remove_queryable_project",
-          "list_queryable_projects",
           "set_preset",
           "set_profile",
           "get_tool_metrics",
@@ -1698,7 +1420,7 @@
           "recommended_ports": []
         },
         "communication_pattern": "single-agent",
-        "mutation_policy": "same session can plan and edit; refactor-full still requires verifier evidence before mutation",
+        "mutation_policy": "same session can plan and edit; builder still requires verifier evidence before mutation",
         "roles": [
           {
             "role": "solo-agent",
@@ -1706,12 +1428,12 @@
             "responsibility": "one session handles both planning and implementation",
             "profiles": [
               {
-                "name": "planner-readonly",
-                "tool_count": 45
+                "name": "readonly",
+                "tool_count": 44
               },
               {
-                "name": "builder-minimal",
-                "tool_count": 44
+                "name": "builder",
+                "tool_count": 43
               }
             ]
           }
@@ -1748,12 +1470,12 @@
             "responsibility": "bootstrap, rank context, and verify change readiness before dispatch",
             "profiles": [
               {
-                "name": "planner-readonly",
-                "tool_count": 45
+                "name": "readonly",
+                "tool_count": 44
               },
               {
-                "name": "reviewer-graph",
-                "tool_count": 49
+                "name": "review",
+                "tool_count": 48
               }
             ]
           },
@@ -1763,12 +1485,12 @@
             "responsibility": "execute bounded edits after preflight, diagnostics, and claims",
             "profiles": [
               {
-                "name": "builder-minimal",
-                "tool_count": 44
+                "name": "builder",
+                "tool_count": 43
               },
               {
-                "name": "refactor-full",
-                "tool_count": 44
+                "name": "builder",
+                "tool_count": 43
               }
             ]
           }
@@ -1810,12 +1532,12 @@
             "responsibility": "diff-aware review, impact analysis, and audit signoff",
             "profiles": [
               {
-                "name": "reviewer-graph",
-                "tool_count": 49
+                "name": "review",
+                "tool_count": 48
               },
               {
-                "name": "ci-audit",
-                "tool_count": 49
+                "name": "review",
+                "tool_count": 48
               }
             ]
           }
@@ -1852,16 +1574,16 @@
             "responsibility": "start durable jobs and consume bounded sections instead of raw full reports",
             "profiles": [
               {
-                "name": "workflow-first",
-                "tool_count": 45
+                "name": "readonly",
+                "tool_count": 44
               },
               {
-                "name": "evaluator-compact",
-                "tool_count": 45
+                "name": "readonly",
+                "tool_count": 44
               },
               {
-                "name": "ci-audit",
-                "tool_count": 49
+                "name": "review",
+                "tool_count": 48
               }
             ]
           }
@@ -1913,12 +1635,12 @@
             "responsibility": "collect structure, diagnostics, and readiness evidence before dispatch",
             "profiles": [
               {
-                "name": "planner-readonly",
-                "tool_count": 45
+                "name": "readonly",
+                "tool_count": 44
               },
               {
-                "name": "reviewer-graph",
-                "tool_count": 49
+                "name": "review",
+                "tool_count": 48
               }
             ]
           },
@@ -1928,12 +1650,12 @@
             "responsibility": "perform bounded mutation only after preflight, diagnostics, and coordination",
             "profiles": [
               {
-                "name": "builder-minimal",
-                "tool_count": 44
+                "name": "builder",
+                "tool_count": 43
               },
               {
-                "name": "refactor-full",
-                "tool_count": 44
+                "name": "builder",
+                "tool_count": 43
               }
             ]
           }
@@ -2056,7 +1778,7 @@
           "example": {
             "mode": "planner-builder",
             "from_session_id": "<planner-session-id>",
-            "target_profile": "builder-minimal",
+            "target_profile": "builder",
             "task": "Implement the bounded change described by the planner",
             "target_files": [
               "src/example.rs"
@@ -2091,12 +1813,12 @@
             "responsibility": "perform diff-aware review, signoff, and audit validation without content mutation",
             "profiles": [
               {
-                "name": "reviewer-graph",
-                "tool_count": 49
+                "name": "review",
+                "tool_count": 48
               },
               {
-                "name": "ci-audit",
-                "tool_count": 49
+                "name": "review",
+                "tool_count": 48
               }
             ]
           }
@@ -2189,16 +1911,16 @@
             "responsibility": "queue durable read-side jobs and consume bounded sections",
             "profiles": [
               {
-                "name": "workflow-first",
-                "tool_count": 45
+                "name": "readonly",
+                "tool_count": 44
               },
               {
-                "name": "evaluator-compact",
-                "tool_count": 45
+                "name": "readonly",
+                "tool_count": 44
               },
               {
-                "name": "ci-audit",
-                "tool_count": 49
+                "name": "review",
+                "tool_count": 48
               }
             ]
           }
@@ -2392,11 +2114,10 @@
           "reviewer-gate"
         ],
         "preferred_profiles": [
-          "planner-readonly",
-          "reviewer-graph"
+          "readonly",
+          "review"
         ],
-        "default_profile": "planner-readonly",
-        "default_task_overlay": "planning",
+        "default_profile": "readonly",
         "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
@@ -2449,12 +2170,10 @@
           "batch-analysis"
         ],
         "preferred_profiles": [
-          "builder-minimal",
-          "refactor-full",
-          "ci-audit"
+          "builder",
+          "review"
         ],
-        "default_profile": "builder-minimal",
-        "default_task_overlay": "editing",
+        "default_profile": "builder",
         "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
@@ -2482,8 +2201,8 @@
         ],
         "routing_defaults": {
           "point_lookup": "native-first",
-          "multi_file_build": "builder-minimal-after-bootstrap",
-          "rename_or_broad_refactor": "refactor-full-after-preflight",
+          "multi_file_build": "builder-after-bootstrap",
+          "rename_or_broad_refactor": "builder-after-preflight",
           "ci_summary": "analysis-job-first"
         },
         "avoid": [
@@ -2541,12 +2260,10 @@
           "batch-analysis"
         ],
         "preferred_profiles": [
-          "planner-readonly",
-          "reviewer-graph",
-          "ci-audit"
+          "readonly",
+          "review"
         ],
-        "default_profile": "reviewer-graph",
-        "default_task_overlay": "review",
+        "default_profile": "review",
         "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
@@ -2597,11 +2314,10 @@
           "planner-builder"
         ],
         "preferred_profiles": [
-          "builder-minimal",
-          "reviewer-graph"
+          "builder",
+          "review"
         ],
-        "default_profile": "builder-minimal",
-        "default_task_overlay": "editing",
+        "default_profile": "builder",
         "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
@@ -2627,7 +2343,7 @@
         ],
         "routing_defaults": {
           "foreground_debug": "native-first-with-codelens-escalation",
-          "write_pass": "builder-minimal-after-bootstrap",
+          "write_pass": "builder-after-bootstrap",
           "handoff": "artifact-required"
         },
         "avoid": [
@@ -2650,11 +2366,10 @@
           "reviewer-gate"
         ],
         "preferred_profiles": [
-          "builder-minimal",
-          "planner-readonly"
+          "builder",
+          "readonly"
         ],
-        "default_profile": "builder-minimal",
-        "default_task_overlay": "editing",
+        "default_profile": "builder",
         "default_agent_role": "main",
         "primary_bootstrap_sequence": [
           "prepare_harness_session",
@@ -2680,7 +2395,7 @@
         ],
         "routing_defaults": {
           "foreground_lookup": "native-first",
-          "multi_file_edit": "builder-minimal-after-bootstrap",
+          "multi_file_edit": "builder-after-bootstrap",
           "wide_surface": "deferred-loading-required",
           "tool_cap": "keep-profile-bounded"
         },
@@ -2784,13 +2499,9 @@
         "analyze_change_request or get_ranked_context"
       ],
       "role_lattice": [
-        "planner-readonly",
-        "builder-minimal",
-        "reviewer-graph",
-        "refactor-full",
-        "evaluator-compact",
-        "ci-audit",
-        "workflow-first"
+        "readonly",
+        "review",
+        "builder"
       ],
       "delegation_contract": {
         "preferred_executor_field": "_meta.codelens/preferredExecutor",
@@ -3319,7 +3030,7 @@
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 87,
+    "visible_tool_count": 82,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": true,

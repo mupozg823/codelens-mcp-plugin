@@ -143,6 +143,9 @@ pub(crate) fn analysis_job_output_schema() -> serde_json::Value {
                 }
             },
             "error": {"type": ["string", "null"]},
+            "heartbeat_at_ms": {"type": ["integer", "null"]},
+            "deadline_at_ms": {"type": ["integer", "null"]},
+            "cancel_requested_at_ms": {"type": ["integer", "null"]},
             "updated_at_ms": {"type": "integer"}
         }
     })

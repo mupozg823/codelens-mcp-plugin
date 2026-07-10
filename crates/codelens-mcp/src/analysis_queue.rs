@@ -16,12 +16,14 @@ pub(crate) fn analysis_job_cost_units(kind: &str) -> usize {
         "orchestrate_change" => 1,
         "refactor_safety_report" => 2,
         "dead_code_report" => 3,
+        "index_embeddings" => 4,
         _ => 2,
     }
 }
 
 pub(crate) struct AnalysisJobRequest {
     pub(crate) job_id: String,
+    pub(crate) project_scope: String,
     pub(crate) kind: String,
     pub(crate) arguments: Value,
     pub(crate) profile_hint: Option<String>,
@@ -35,11 +37,11 @@ struct AnalysisQueueState {
     active_cost_units: usize,
 }
 
-pub(crate) struct AnalysisWorkerQueue {
+pub(crate) struct JobService {
     inner: Arc<(Mutex<AnalysisQueueState>, Condvar)>,
 }
 
-impl AnalysisWorkerQueue {
+impl JobService {
     pub(crate) fn new(state: &AppState) -> Self {
         let inner = Arc::new((
             Mutex::new(AnalysisQueueState {
@@ -97,7 +99,7 @@ impl AnalysisWorkerQueue {
                         }
                     };
                     if let Some((request, remaining_depth, remaining_cost_units)) = request {
-                        let scope = worker_state.project_scope_for_arguments(&request.arguments);
+                        let scope = request.project_scope;
                         if worker_state
                             .get_analysis_job_for_scope(&scope, &request.job_id)
                             .as_ref()
@@ -119,6 +121,7 @@ impl AnalysisWorkerQueue {
                         let final_status = crate::tools::report_jobs::run_analysis_job_from_queue(
                             &worker_state,
                             request.job_id,
+                            scope,
                             request.kind,
                             request.arguments,
                         );

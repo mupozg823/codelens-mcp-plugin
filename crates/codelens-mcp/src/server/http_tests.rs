@@ -26,6 +26,12 @@ fn test_state() -> Arc<AppState> {
         std::thread::current().id(),
     ));
     std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(dir.join(".codelens")).unwrap();
+    std::fs::write(
+        dir.join(".codelens/principals.toml"),
+        "[default]\nrole = \"Refactor\"\n",
+    )
+    .unwrap();
     std::fs::write(dir.join("hello.txt"), "world\n").unwrap();
     let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
     let state = AppState::new(project, crate::tool_defs::ToolPreset::Balanced);
@@ -50,6 +56,12 @@ fn test_state_strict() -> Arc<AppState> {
         std::thread::current().id(),
     ));
     std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(dir.join(".codelens")).unwrap();
+    std::fs::write(
+        dir.join(".codelens/principals.toml"),
+        "[default]\nrole = \"Refactor\"\n",
+    )
+    .unwrap();
     let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
     let state = AppState::new(project, crate::tool_defs::ToolPreset::Balanced);
     Arc::new(state.with_session_store_policy(crate::server::session::SessionPolicy::Strict))

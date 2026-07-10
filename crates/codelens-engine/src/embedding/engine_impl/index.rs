@@ -61,6 +61,17 @@ impl EmbeddingEngine {
     }
 
     pub fn index_from_project(&self, project: &ProjectRoot) -> Result<usize> {
+        self.index_from_project_with_checkpoint(project, |_| Ok(()))
+    }
+
+    pub fn index_from_project_with_checkpoint<F>(
+        &self,
+        project: &ProjectRoot,
+        mut checkpoint: F,
+    ) -> Result<usize>
+    where
+        F: FnMut(usize) -> Result<()>,
+    {
         // Guard against concurrent full reindex (14s+ operation)
         if self
             .indexing
@@ -77,6 +88,7 @@ impl EmbeddingEngine {
             );
         }
         let _guard = IndexingFlagGuard(&self.indexing);
+        checkpoint(0)?;
 
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
@@ -103,10 +115,12 @@ impl EmbeddingEngine {
                 );
                 Ok(())
             })?;
+        checkpoint(0)?;
 
         symbol_db.for_each_file_symbols_with_bytes(|file_path, symbols| {
             current_db_files.insert(file_path.clone());
             if capped {
+                checkpoint(total_seen)?;
                 return Ok(());
             }
 
@@ -119,26 +133,33 @@ impl EmbeddingEngine {
             if relevant_symbols.is_empty() {
                 self.store.delete_by_file(&[file_path.as_str()])?;
                 existing_embeddings.remove(&file_path);
+                checkpoint(total_seen)?;
                 return Ok(());
             }
 
             if total_seen + relevant_symbols.len() > max_symbols {
                 capped = true;
+                checkpoint(total_seen)?;
                 return Ok(());
             }
             total_seen += relevant_symbols.len();
 
             let existing_for_file = existing_embeddings.remove(&file_path).unwrap_or_default();
+            let mut batch_checkpoint = || checkpoint(total_seen);
             total_indexed += self.reconcile_file_embeddings_batched(
                 &file_path,
                 relevant_symbols,
                 source.as_deref(),
                 existing_for_file,
                 &mut batch,
+                &mut batch_checkpoint,
             )?;
+            checkpoint(total_seen)?;
             Ok(())
         })?;
+        checkpoint(total_seen)?;
         total_indexed += batch.flush()?;
+        checkpoint(total_seen)?;
 
         let removed_files: Vec<String> = existing_embeddings
             .into_keys()
@@ -148,6 +169,7 @@ impl EmbeddingEngine {
             let removed_refs: Vec<&str> = removed_files.iter().map(String::as_str).collect();
             self.store.delete_by_file(&removed_refs)?;
         }
+        checkpoint(total_seen)?;
 
         self.record_index_git_sha(project)?;
 

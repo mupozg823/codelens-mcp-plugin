@@ -178,7 +178,7 @@ cat >"$bundle_dir/examples/mcp-stdio.json" <<'EOF'
   "mcpServers": {
     "codelens": {
       "command": "./codelens-mcp",
-      "args": [".", "--profile", "builder-minimal"]
+      "args": [".", "--profile", "builder"]
     }
   }
 }
@@ -198,13 +198,13 @@ EOF
 cat >"$bundle_dir/examples/launch-readonly-http.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-exec ./codelens-mcp /workspace --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
+exec ./codelens-mcp /workspace --transport http --profile review --daemon-mode read-only --port 7837
 EOF
 
 cat >"$bundle_dir/examples/launch-mutation-http.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-exec ./codelens-mcp /workspace --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
+exec ./codelens-mcp /workspace --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 EOF
 
 chmod +x \

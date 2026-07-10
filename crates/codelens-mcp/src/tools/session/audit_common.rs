@@ -22,7 +22,7 @@ pub(super) struct AuditSessionView {
 }
 
 pub(super) fn is_builder_surface(surface: &str) -> bool {
-    matches!(surface, "builder-minimal" | "refactor-full")
+    matches!(surface, "builder" | "builder-minimal" | "refactor-full")
 }
 
 pub(super) fn is_codex_builder_preferred_tool(name: &str) -> bool {
@@ -30,7 +30,10 @@ pub(super) fn is_codex_builder_preferred_tool(name: &str) -> bool {
 }
 
 pub(super) fn is_planner_surface(surface: &str) -> bool {
-    matches!(surface, "planner-readonly" | "reviewer-graph")
+    matches!(
+        surface,
+        "readonly" | "review" | "planner-readonly" | "reviewer-graph"
+    )
 }
 
 pub(super) fn collect_seen_paths(
