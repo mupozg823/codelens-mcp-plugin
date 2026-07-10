@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Final, Sequence, assert_never
 
 import productivity_study_acceptance_syntax as syntax
+from productivity_study_acceptance_types import check_signature_sequence_types
 from productivity_study_home import isolated_study_environment
 
 
@@ -30,26 +31,6 @@ _ANCHOR_GUARD: Final = "scripts/guards/anchor-download-target.mjs"
 _ANCHOR_SURFACES: Final = (
     ("src/components/film-v2/ResultCanvas.tsx", "sequenceSheet!.url"),
     ("src/components/gallery/UserGalleryPanels.tsx", "job.gif_path"),
-)
-_TYPE_ROOT: Final = "src/lib/filmPlanner"
-_TYPE_MODULE: Final = "@/src/lib/filmPlanner/billboardSequenceSheetTypes"
-_TYPE_CONTRACTS: Final = tuple(
-    (
-        "BillboardSequenceSheetPresetId BillboardSequenceSheetLayout "
-        "BillboardSequenceSheetDurationSec BillboardSequenceSheetQuality "
-        "BillboardSequenceSheetOutputFormat BillboardSequenceSheetPreset "
-        "BillboardSequenceCharacterInput BuildBillboardSequenceSheetPlanInput "
-        "BillboardSequenceSheetTextPolicy BillboardSequenceDisplayText "
-        "BillboardSequenceCropPlanItem BillboardSequenceImagePrompt "
-        "CharacterAssetBibleEntry CharacterAssetBible "
-        "BillboardSequenceSheetCell BillboardSequenceSheetPlan"
-    ).split()
-)
-_TYPE_LEAVES: Final = (
-    "billboardSequenceHandoffTypes.ts",
-    "billboardSequenceKlingPrompt.ts",
-    "billboardSequenceSheetRequest.ts",
-    "billboardTakePlanContract.ts",
 )
 _SCIP_ROOT: Final = "crates/codelens-engine/src/scip_backend"
 _SCIP_PRODUCTION: Final = ("mod.rs", "parse.rs", "navigation.rs", "call_graph.rs")
@@ -76,7 +57,7 @@ def run_evaluator_checks(
             case _CheckId.SIGNATURE_ANCHOR_DOWNLOAD:
                 result = _check_signature_anchor_download(candidate)
             case _CheckId.SIGNATURE_SEQUENCE_TYPES_SPLIT:
-                result = _check_signature_sequence_types(candidate)
+                result = check_signature_sequence_types(candidate)
             case _CheckId.CODELENS_SCIP_SPLIT:
                 result = _check_codelens_scip_split(candidate)
             case unreachable:
@@ -156,49 +137,6 @@ def _mutation_check_anchor_guard(candidate: Path) -> tuple[bool, str | None]:
             passed = completed.returncode == 0
             if passed != should_pass:
                 return False, f"candidate anchor guard mishandled {label} mutation"
-    return True, None
-
-
-def _check_signature_sequence_types(candidate: Path) -> tuple[bool, str | None]:
-    types, failure = _read_required(
-        candidate, f"{_TYPE_ROOT}/billboardSequenceSheetTypes.ts"
-    )
-    if failure is not None:
-        return False, failure
-    sheet, failure = _read_required(
-        candidate, f"{_TYPE_ROOT}/billboardSequenceSheet.ts"
-    )
-    if failure is not None:
-        return False, failure
-    for contract in _TYPE_CONTRACTS:
-        definition = rf"\bexport\s+(?:type|interface)\s+{re.escape(contract)}\b"
-        if re.search(definition, types) is None:
-            return False, f"dedicated type contract is missing: {contract}"
-        if re.search(definition, sheet) is not None:
-            return False, f"old sheet declaration remains: {contract}"
-    public_reexport = (
-        rf"export\s+type\s+\*\s+from\s+[\"\']{re.escape(_TYPE_MODULE)}[\"\']"
-    )
-    if re.search(public_reexport, sheet) is None:
-        return False, "sheet module lacks the type-only public re-export"
-    if re.search(r"(?m)^\s*import\s+(?!type\b)", types) is not None:
-        return False, "dedicated types module contains a value import"
-    if re.search(
-        r"(?m)^\s*export\s+(?:const|let|var|function|class|enum|default|\{)", types
-    ):
-        return False, "dedicated types module contains a value export"
-    reverse = r"from\s+[\"\']@/src/lib/filmPlanner/billboardSequenceSheet[\"\']"
-    if re.search(reverse, types) is not None:
-        return False, "dedicated types module imports the runtime sheet module"
-    direct_import = rf"import\s+type\b[^;]*from\s+[\"\']{re.escape(_TYPE_MODULE)}[\"\']"
-    for leaf in _TYPE_LEAVES:
-        source, failure = _read_required(candidate, f"{_TYPE_ROOT}/{leaf}")
-        if failure is not None:
-            return False, failure
-        if re.search(direct_import, source, flags=re.DOTALL) is None:
-            return False, f"leaf module lacks direct type import: {leaf}"
-        if re.search(reverse, source) is not None:
-            return False, f"leaf module retains runtime sheet type import: {leaf}"
     return True, None
 
 
