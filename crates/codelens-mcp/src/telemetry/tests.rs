@@ -10,6 +10,7 @@ fn event<'a>(tool: &'a str, surface: &'a str) -> ToolCallEvent<'a> {
         truncated: false,
         phase: None,
         logical_session_id: None,
+        client_name: None,
         target_paths: &[],
         hints: CallTelemetryHints::default(),
     }

@@ -42,6 +42,8 @@ class ProductivityMetrics:
     builder_tool_events: int
     provenance_status: str
     runtime_event_count: int
+    host_runtime_event_count: int
+    unattributed_runtime_event_count: int
     legacy_unverified_event_count: int
 
 
@@ -90,6 +92,10 @@ def load_metrics(path: Path) -> ProductivityMetrics | None:
         builder_tool_events=int_field(behavior, "codex_builder_tool_events"),
         provenance_status=str_field(provenance_map, "status", "unverified"),
         runtime_event_count=int_field(provenance_map, "runtime_events"),
+        host_runtime_event_count=int_field(provenance_map, "host_runtime_events"),
+        unattributed_runtime_event_count=int_field(
+            provenance_map, "unattributed_runtime_events"
+        ),
         legacy_unverified_event_count=int_field(
             provenance_map, "legacy_unverified_events"
         ),
@@ -208,7 +214,7 @@ def render_markdown(
         "## Telemetry Provenance",
         "",
         f"- Status: `{latest.provenance_status}`",
-        f"- Runtime / legacy-unverified events: `{latest.runtime_event_count}` / `{latest.legacy_unverified_event_count}`",
+        f"- Runtime host-attributed / unattributed / legacy-unverified events: `{latest.host_runtime_event_count}` / `{latest.unattributed_runtime_event_count}` / `{latest.legacy_unverified_event_count}`",
         "",
         "## Audit Coverage Bridge",
         "",
@@ -217,9 +223,13 @@ def render_markdown(
         "## Interpretation",
         "",
     ]
-    if latest.provenance_status != "verified":
+    if latest.provenance_status == "unverified":
         lines.append(
             "- Latest telemetry is unverified and cannot support a productivity claim; collect runtime-marked events before comparing trends."
+        )
+    elif latest.provenance_status == "smoke_only":
+        lines.append(
+            "- Latest telemetry contains unattributed runtime activity, not host-attributed agent activity, and cannot support a productivity claim."
         )
     elif previous is None:
         lines.append("- Only one run is available; collect more runs before claiming trend improvement.")

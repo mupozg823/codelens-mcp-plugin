@@ -32,9 +32,7 @@ def bool_value(value) -> bool:
 
 
 def string_list(value) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, str)]
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
 
 
 def tool_name(event: dict) -> str:
@@ -47,9 +45,12 @@ def session_id(event: dict) -> str:
 
 def recording_origin(event: dict) -> str:
     origin = str_value(event.get("recording_origin"))
-    if origin in {"runtime", "test"}:
-        return origin
-    return "legacy_unverified"
+    return origin if origin in {"runtime", "test"} else "legacy_unverified"
+
+
+def attributed_host_client(event: dict) -> str | None:
+    normalized = (str_value(event.get("client_name")) or "").casefold()
+    return "codex" if "codex" in normalized else "claude" if "claude" in normalized else None
 
 
 def event_index(event: dict) -> int:
@@ -63,6 +64,15 @@ def is_test_pollution(event: dict) -> bool:
     return (
         recording_origin(event) == "test"
         or session_id(event).startswith("test-session-")
+    )
+
+
+def is_attributed_host_runtime_event(event: dict) -> bool:
+    """Return whether a live row is bound to an initialized MCP host session."""
+    return (
+        recording_origin(event) == "runtime"
+        and session_id(event) not in {"<none>", "local"}
+        and attributed_host_client(event) is not None
     )
 
 
@@ -128,13 +138,29 @@ def first_followed_tool(event: dict, following: list[dict]) -> str | None:
 
 def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
     executors = load_manifest_executors(manifest_path)
+    unattributed_runtime_event_count = sum(
+        recording_origin(event) == "runtime" and not is_attributed_host_runtime_event(event)
+        for event in events
+    )
+    productivity_events = [
+        event
+        for event in events
+        if recording_origin(event) != "runtime"
+        or is_attributed_host_runtime_event(event)
+    ]
     by_session: dict[str, list[dict]] = defaultdict(list)
     handoff_consumers: dict[str, dict] = {}
     tool_counts = Counter()
     failed_tools = Counter()
     origin_counts = Counter(recording_origin(event) for event in events)
+    host_runtime_event_counts = Counter(
+        attributed_host_client(event)
+        for event in productivity_events
+        if recording_origin(event) == "runtime"
+    ).most_common()
+    host_runtime_event_count = sum(count for _, count in host_runtime_event_counts)
 
-    for event in events:
+    for event in productivity_events:
         tool_counts[tool_name(event)] += 1
         by_session[session_id(event)].append(event)
         if not bool_value(event.get("success")):
@@ -144,11 +170,13 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
             handoff_consumers[handoff_id] = event
 
     suggestion_events = [
-        event for event in events if string_list(event.get("suggested_next_tools"))
+        event
+        for event in productivity_events
+        if string_list(event.get("suggested_next_tools"))
     ]
     delegate_events = [
         event
-        for event in events
+        for event in productivity_events
         if DELEGATE_TOOL in string_list(event.get("suggested_next_tools"))
         or str_value(event.get("delegate_handoff_id"))
     ]
@@ -216,12 +244,12 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
         )
 
     builder_events = [
-        event for event in events
+        event for event in productivity_events
         if executors.get(tool_name(event)) == "codex-builder"
     ]
     return {
         "behavior": {
-            "total_events": len(events),
+            "total_events": len(productivity_events),
             "session_count": len(by_session),
             "suggestion_events": len(suggestion_events),
             "suggestions_followed": followed,
@@ -243,12 +271,18 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
             "top_failed_tools": failed_tools.most_common(10),
             "provenance": {
                 "status": (
-                    "verified"
+                    "unverified"
+                    if origin_counts["legacy_unverified"] > 0
+                    else "verified"
+                    if host_runtime_event_count > 0
+                    else "smoke_only"
                     if origin_counts["runtime"] > 0
-                    and origin_counts["legacy_unverified"] == 0
                     else "unverified"
                 ),
                 "runtime_events": origin_counts["runtime"],
+                "host_runtime_events": host_runtime_event_count,
+                "unattributed_runtime_events": unattributed_runtime_event_count,
+                "host_runtime_event_counts": host_runtime_event_counts,
                 "legacy_unverified_events": origin_counts["legacy_unverified"],
             },
         }

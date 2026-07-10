@@ -21,6 +21,8 @@ pub(crate) struct PersistedEvent<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) session_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) client_name: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) phase: Option<&'a str>,
     /// Whether this row came from the live server or a test-only writer.
     pub(crate) recording_origin: &'static str,
@@ -49,6 +51,7 @@ impl<'a> PersistedEvent<'a> {
             success: event.success,
             truncated: event.truncated,
             session_id: event.logical_session_id,
+            client_name: event.client_name,
             phase: event.phase,
             recording_origin: if cfg!(test) { "test" } else { "runtime" },
             target_paths: (!event.target_paths.is_empty()).then_some(event.target_paths),

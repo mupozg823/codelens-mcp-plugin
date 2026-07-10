@@ -156,6 +156,7 @@ impl ToolMetricsRegistry {
             truncated: false,
             phase: None,
             logical_session_id: None,
+            client_name: None,
             target_paths: &[],
             hints: Default::default(),
         });

@@ -92,6 +92,9 @@ async fn codex_session_uses_lean_tools_list_contract_by_default() {
     assert!(!body.contains("\"outputSchema\""));
     assert!(!body.contains("\"annotations\""));
     assert!(!body.contains("\"visible_namespaces\""));
+    let session_metrics = state.metrics().session_snapshot_for(&sid);
+    assert_eq!(session_metrics.core.total_calls, 1);
+    assert!(session_metrics.token.tools_list_tokens > 0);
 }
 
 #[tokio::test]

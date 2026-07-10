@@ -25,6 +25,7 @@ fn event<'a>(tool: &'a str, surface: &'a str) -> ToolCallEvent<'a> {
         truncated: false,
         phase: None,
         logical_session_id: None,
+        client_name: None,
         target_paths: &[],
         hints: CallTelemetryHints::default(),
     }
@@ -45,6 +46,7 @@ fn telemetry_writer_persists_single_event() {
         success: true,
         truncated: false,
         session_id: Some("session-a"),
+        client_name: None,
         phase: Some("plan"),
         recording_origin: "test",
         target_paths: None,
@@ -86,6 +88,7 @@ fn telemetry_writer_appends_multiple_events_in_order() {
             success: true,
             truncated: false,
             session_id: None,
+            client_name: None,
             phase: None,
             recording_origin: "test",
             target_paths: None,
@@ -131,6 +134,7 @@ fn telemetry_writer_persists_delegate_hint_fields() {
         success: true,
         truncated: false,
         session_id: Some("planner-a"),
+        client_name: None,
         phase: Some("review"),
         recording_origin: "test",
         target_paths: None,
@@ -221,6 +225,7 @@ fn registry_records_structured_event_without_jsonl_schema_drift() {
         truncated: false,
         phase: Some("review"),
         logical_session_id: Some("session-structured"),
+        client_name: Some("CodexHarness"),
         target_paths: &target_paths,
         hints: CallTelemetryHints {
             suggested_next_tools: &suggested_next_tools,
@@ -241,6 +246,7 @@ fn registry_records_structured_event_without_jsonl_schema_drift() {
     assert_eq!(persisted["tool"], "safe_rename_report");
     assert_eq!(persisted["surface"], "refactor-full");
     assert_eq!(persisted["session_id"], "session-structured");
+    assert_eq!(persisted["client_name"], "CodexHarness");
     assert_eq!(persisted["target_paths"], serde_json::json!(target_paths));
     assert_eq!(persisted["recording_origin"], "test");
     assert_eq!(

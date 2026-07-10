@@ -37,7 +37,7 @@ def run_command(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_print_plan_resolves_crate_local_telemetry_without_writing() -> None:
+def test_print_plan_honors_explicit_telemetry_path_without_writing() -> None:
     with tempfile.TemporaryDirectory(prefix="codelens-productivity-loop-") as raw_tmp:
         temp_root = Path(raw_tmp)
         telemetry_path = (
@@ -50,10 +50,8 @@ def test_print_plan_resolves_crate_local_telemetry_without_writing() -> None:
         )
         output_dir = temp_root / "reports"
 
-        # The resolution ladder only returns candidates that EXIST. The
-        # crate-local telemetry file is untracked runtime state (absent on CI
-        # and on fresh checkouts), so the test provisions it and cleans up
-        # afterward instead of depending on leftover local state.
+        # The telemetry path is untracked runtime state. Pass it explicitly
+        # so a live repo-level telemetry file cannot change this test's plan.
         created_telemetry = not telemetry_path.exists()
         if created_telemetry:
             telemetry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,6 +67,8 @@ def test_print_plan_resolves_crate_local_telemetry_without_writing() -> None:
                     str(output_dir),
                     "--run-id",
                     "test-run",
+                    "--telemetry-path",
+                    str(telemetry_path),
                     "--print-plan",
                 ]
             )
@@ -227,13 +227,54 @@ def test_trend_summary_rejects_legacy_telemetry_as_productivity_evidence() -> No
     assert "cannot support a productivity claim" in rendered
 
 
+def test_trend_summary_rejects_runtime_smoke_only_as_productivity_evidence() -> None:
+    with tempfile.TemporaryDirectory(prefix="codelens-productivity-smoke-only-") as raw_tmp:
+        temp_root = Path(raw_tmp)
+        runs_dir = temp_root / "runs"
+        output_path = temp_root / "summary.md"
+        usage_path = runs_dir / "20260707-110000" / "tool-usage.json"
+        write_tool_usage(usage_path, 0, 0.0)
+        report = json.loads(usage_path.read_text(encoding="utf-8"))
+        report["behavior"]["provenance"] = {
+            "status": "smoke_only",
+            "runtime_events": 2,
+            "host_runtime_events": 0,
+            "unattributed_runtime_events": 2,
+            "host_runtime_event_counts": [],
+            "legacy_unverified_events": 0,
+        }
+        usage_path.write_text(json.dumps(report), encoding="utf-8")
+
+        proc = run_command(
+            [
+                "python3",
+                str(TREND_SCRIPT),
+                "--input-dir",
+                str(runs_dir),
+                "--output",
+                str(output_path),
+            ]
+        )
+
+        assert proc.returncode == 0, (
+            "trend summary should render runtime smoke provenance: "
+            f"stdout={proc.stdout} stderr={proc.stderr}"
+        )
+        rendered = output_path.read_text(encoding="utf-8")
+
+    assert "Status: `smoke_only`" in rendered
+    assert "unattributed runtime activity" in rendered
+    assert "cannot support a productivity claim" in rendered
+
+
 def main() -> int:
     tests = [
-        test_print_plan_resolves_crate_local_telemetry_without_writing,
+        test_print_plan_honors_explicit_telemetry_path_without_writing,
         test_export_audit_default_matches_repo_local_readonly_daemon,
         test_trend_summary_reports_latest_delta_against_previous_run,
         test_trend_summary_bridges_tool_usage_and_runtime_audit_coverage,
         test_trend_summary_rejects_legacy_telemetry_as_productivity_evidence,
+        test_trend_summary_rejects_runtime_smoke_only_as_productivity_evidence,
     ]
     for test in tests:
         try:

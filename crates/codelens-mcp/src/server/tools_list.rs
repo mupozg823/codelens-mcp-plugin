@@ -125,7 +125,8 @@ pub(crate) fn build_tools_list_response(
         surface: surface.as_label(),
         truncated: false,
         phase: None,
-        logical_session_id: None,
+        logical_session_id: Some(request_context.session.session_id.as_str()),
+        client_name: request_context.session.client_name.as_deref(),
         target_paths: &[],
         hints: Default::default(),
     });

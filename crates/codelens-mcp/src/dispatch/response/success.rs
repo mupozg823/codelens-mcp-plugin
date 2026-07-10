@@ -240,6 +240,9 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         truncated,
         phase: harness_phase,
         logical_session_id: Some(logical_session_id),
+        client_name: arguments
+            .get("_session_client_name")
+            .and_then(|value| value.as_str()),
         target_paths: &target_paths,
         hints: CallTelemetryHints {
             suggested_next_tools,

@@ -66,6 +66,7 @@ pub(crate) struct ToolCallEvent<'a> {
     pub(crate) truncated: bool,
     pub(crate) phase: Option<&'a str>,
     pub(crate) logical_session_id: Option<&'a str>,
+    pub(crate) client_name: Option<&'a str>,
     pub(crate) target_paths: &'a [String],
     pub(crate) hints: CallTelemetryHints<'a>,
 }

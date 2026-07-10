@@ -182,7 +182,103 @@ def test_behavior_report_marks_legacy_rows_as_unverified() -> None:
     assert report["behavior"]["provenance"] == {
         "status": "unverified",
         "runtime_events": 0,
+        "host_runtime_events": 0,
+        "unattributed_runtime_events": 0,
+        "host_runtime_event_counts": [],
         "legacy_unverified_events": 1,
+    }
+
+
+def test_behavior_report_excludes_unattributed_runtime_events_from_productivity_metrics() -> None:
+    with tempfile.TemporaryDirectory() as tempdir:
+        telemetry_path = Path(tempdir) / "tool_usage.jsonl"
+        write_jsonl(
+            telemetry_path,
+            [
+                {
+                    "timestamp_ms": 1000,
+                    "tool": "tools/list",
+                    "surface": "review",
+                    "elapsed_ms": 0,
+                    "tokens": 100,
+                    "success": True,
+                    "truncated": False,
+                    "recording_origin": "runtime",
+                },
+                {
+                    "timestamp_ms": 1001,
+                    "tool": "review_changes",
+                    "surface": "review",
+                    "elapsed_ms": 1,
+                    "tokens": 100,
+                    "success": True,
+                    "truncated": False,
+                    "session_id": "9a42c3aa-2741-4672-a02c-c0a3a74a00d2",
+                    "client_name": "CodexHarness",
+                    "recording_origin": "runtime",
+                },
+                {
+                    "timestamp_ms": 1002,
+                    "tool": "start_analysis_job",
+                    "surface": "review",
+                    "elapsed_ms": 1,
+                    "tokens": 100,
+                    "success": True,
+                    "truncated": False,
+                    "session_id": "local",
+                    "recording_origin": "runtime",
+                },
+            ],
+        )
+
+        report = run_analyzer(telemetry_path)
+
+    behavior = report["behavior"]
+    assert behavior["total_events"] == 1
+    assert behavior["session_count"] == 1
+    assert behavior["provenance"] == {
+        "status": "verified",
+        "runtime_events": 3,
+        "host_runtime_events": 1,
+        "unattributed_runtime_events": 2,
+        "host_runtime_event_counts": [["codex", 1]],
+        "legacy_unverified_events": 0,
+    }
+
+
+def test_behavior_report_rejects_unattributed_nonlocal_runtime_rows() -> None:
+    with tempfile.TemporaryDirectory() as tempdir:
+        telemetry_path = Path(tempdir) / "tool_usage.jsonl"
+        write_jsonl(
+            telemetry_path,
+            [
+                {
+                    "timestamp_ms": 1000,
+                    "tool": "review_changes",
+                    "surface": "review",
+                    "elapsed_ms": 1,
+                    "tokens": 100,
+                    "success": True,
+                    "truncated": False,
+                    "session_id": "9a42c3aa-2741-4672-a02c-c0a3a74a00d2",
+                    "client_name": "GenericMcpProbe",
+                    "recording_origin": "runtime",
+                }
+            ],
+        )
+
+        report = run_analyzer(telemetry_path)
+
+    behavior = report["behavior"]
+    assert behavior["total_events"] == 0
+    assert behavior["session_count"] == 0
+    assert behavior["provenance"] == {
+        "status": "smoke_only",
+        "runtime_events": 1,
+        "host_runtime_events": 0,
+        "unattributed_runtime_events": 1,
+        "host_runtime_event_counts": [],
+        "legacy_unverified_events": 0,
     }
 
 
@@ -191,6 +287,8 @@ def main() -> int:
         test_behavior_report_counts_suggestions_and_handoff_consumption,
         test_json_output_handles_missing_default_input,
         test_behavior_report_marks_legacy_rows_as_unverified,
+        test_behavior_report_excludes_unattributed_runtime_events_from_productivity_metrics,
+        test_behavior_report_rejects_unattributed_nonlocal_runtime_rows,
     ]
     for test in tests:
         try:

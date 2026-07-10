@@ -131,8 +131,11 @@ Prioritized architecture moves:
 6. Completed (2026-07-10): route every completed tool call through one
    borrowed `ToolCallEvent` before fanning out to global/session aggregates
    and the opt-in JSONL writer. The persisted schema has a backward-compatible
-   `recording_origin` addition covered by a structured-event regression test;
-   this is a boundary cleanup, not a new event bus.
+   `recording_origin` addition covered by a structured-event regression test.
+   The productivity analyzer separately requires a non-local HTTP session plus
+   a Codex/Claude `client_name`, and excludes generic or unattributed daemon
+   probe/audit rows, so process provenance is not mistaken for productivity
+   proof. This is a boundary cleanup, not a new event bus.
 7. Next: put the same strict measurements around adaptive RRF/rerank and
    hierarchical context changes: compare Recall@k, nDCG/MRR, latency p50/p95,
    and context-token deltas before widening defaults.

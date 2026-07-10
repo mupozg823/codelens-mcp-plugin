@@ -123,12 +123,20 @@ therefore be correlated across logical sessions by shared `handoff_id`.
 The `builder follow-through proxy` still remains useful when a host does
 not preserve that field, so both measurements are reported.
 
-New server rows carry `recording_origin=runtime`. The analyzer excludes
-`recording_origin=test` rows and marks rows without an origin as legacy
-unverified data. Legacy rows remain useful for diagnostics, but the
-productivity summary refuses to treat them as evidence for a productivity
-claim. Unit and integration tests keep telemetry disabled by default; the
-few persistence tests opt in explicitly with an isolated temporary path.
+New server rows carry `recording_origin=runtime`. That field distinguishes a
+live daemon process from test or legacy writers; it is not, by itself, an
+agent-productivity identity. The analyzer excludes `recording_origin=test`
+rows, marks rows without an origin as legacy-unverified data, and keeps
+runtime rows without an initialized-host identity out of productivity metrics.
+An initialized-host row requires a non-local HTTP session ID and the
+`client_name` captured from MCP `clientInfo`. For the paired proof loop, the
+client name must identify a Codex or Claude host; generic clients remain
+unattributed. This distinguishes the comparison cohort from daemon probes,
+local audits, or incomplete older rows. Only those runtime rows with no
+legacy-unverified rows produce `verified` provenance. A run containing only
+unattributed runtime rows is `smoke_only` and cannot support a productivity
+claim. Unit and integration tests keep telemetry disabled by default; the few
+persistence tests opt in explicitly with an isolated temporary path.
 
 ## Productivity Proof Loop
 
@@ -150,16 +158,24 @@ The loop writes a timestamped run under
   against previous loop runs
 - `productivity-proof-loop.md` as the artifact index
 
-Only a `verified` telemetry-provenance status (runtime-marked rows with no
-legacy-unverified rows in the run) supports productivity comparisons. A
-`warn` or `pass` operator gate still describes daemon audit health; it does
-not upgrade unverified tool telemetry into productivity evidence.
+Only a `verified` telemetry-provenance status (runtime-marked rows with a
+non-local HTTP session ID, Codex/Claude `client_name`, and no legacy-unverified
+rows in the run) supports productivity comparisons. A runtime-only daemon
+probe, generic host, or unattributed older row is `smoke_only`, not evidence. A
+`warn` or `pass` operator gate still describes daemon audit health; it does not
+upgrade smoke-only or unverified tool telemetry into productivity evidence.
 
 By default the loop targets the repository-local read-only daemon at
 `http://127.0.0.1:7839/mcp`. It first checks
 `.codelens/telemetry/tool_usage.jsonl`, then
 `crates/codelens-mcp/.codelens/telemetry/tool_usage.jsonl`, so crate-local
 telemetry is not silently missed during dogfooding.
+
+For a launchd-managed daemon, set `CODELENS_TELEMETRY_PATH` to the intended
+repository-local JSONL path (or explicitly opt into telemetry) in the service
+environment. Health probes and local audit commands will intentionally remain
+visible in that file, but the analyzer classifies rows without an initialized
+host identity as unattributed rather than productivity evidence.
 
 ## Daily aggregate snapshots on macOS
 
