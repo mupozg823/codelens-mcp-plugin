@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from productivity_study_agents import AgentInvocation
-from productivity_study_candidate import CandidateCheckoutRequest, disposable_candidate_checkout
+from productivity_study_candidate import CandidateCheckoutRequest, disposable_candidate_checkout, study_process_environment
 from productivity_study_contract import (
     EvidenceRetention,
     IndexMode,
@@ -72,7 +72,8 @@ def build_blind_review_packet(
 
 
 def execute_planned_run(planned: PlannedRun, config: StudyExecutionConfig) -> dict[str, object]:
-    provenance = inspect_codelens_binary(CodelensBinaryRequest(config.codelens_repo, config.codelens_binary))
+    provenance = inspect_codelens_binary(CodelensBinaryRequest(config.codelens_repo, config.codelens_binary, config.artifact_root))
+    runtime_config = replace(config, codelens_binary=provenance.snapshot_path)
     run_id = run_id_for(planned, config.index_mode)
     record_dir = config.artifact_root / config.study_id / run_id
     record_dir.mkdir(parents=True, exist_ok=False)
@@ -82,7 +83,7 @@ def execute_planned_run(planned: PlannedRun, config: StudyExecutionConfig) -> di
         scenario_id=planned.task.task_id,
         task_kind=planned.task.task_kind,
         agent=planned.agent,
-        model=model_for(planned, config),
+        model=model_for(planned, runtime_config),
         cli_version=cli_version(planned.agent.value),
         condition=planned.condition,
         repo_id=planned.task.repo_id,
@@ -90,7 +91,7 @@ def execute_planned_run(planned: PlannedRun, config: StudyExecutionConfig) -> di
         base_sha=planned.task.base_sha,
         target_sha=planned.task.target_sha,
         codelens_sha=provenance.repo_head_sha,
-        codelens_binary=config.codelens_binary,
+        codelens_binary=provenance.snapshot_path,
         policy_sha=policy.sha256,
         index_mode=config.index_mode,
         sequence_order=planned.sequence_order,
@@ -106,8 +107,8 @@ def execute_planned_run(planned: PlannedRun, config: StudyExecutionConfig) -> di
         run_id=f"{run_id}-candidate",
     )
     with disposable_candidate_checkout(request) as candidate:
-        result = execute_in_worktree(planned, config, candidate, raw_path)
-        grade = grade_for(planned, config, candidate, run_id)
+        result = execute_in_worktree(planned, runtime_config, candidate, raw_path)
+        grade = grade_for(planned, runtime_config, candidate, run_id)
     unchanged_policy = policy.matches(config.policy_path)
     retention = retain_minimal_evidence(raw_path, result["failure_excerpt"])
     telemetry_path = result.pop("mcp_telemetry_path", None)
@@ -229,7 +230,7 @@ def model_for(planned: PlannedRun, config: StudyExecutionConfig) -> str:
 
 def cli_version(agent_name: str) -> str:
     completed = subprocess.run(
-        [agent_name, "--version"], check=True, capture_output=True, text=True
+        [agent_name, "--version"], env=study_process_environment(), check=True, capture_output=True, text=True
     )
     return completed.stdout.strip()
 

@@ -8,23 +8,16 @@ import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Iterator
+from typing import Final, Iterator, Mapping
 
 
-GIT_OVERRIDE_KEYS: Final = frozenset(
-    {
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_CEILING_DIRECTORIES",
-        "GIT_COMMON_DIR",
-        "GIT_CONFIG_COUNT",
-        "GIT_DIR",
-        "GIT_INDEX_FILE",
-        "GIT_NAMESPACE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_PREFIX",
-        "GIT_QUARANTINE_PATH",
-        "GIT_WORK_TREE",
-    }
+SAFE_GIT_SETTINGS: Final = (
+    ("GIT_CONFIG_NOSYSTEM", "1"),
+    ("GIT_CONFIG_GLOBAL", os.devnull),
+    ("GIT_TERMINAL_PROMPT", "0"),
+    ("GIT_CONFIG_COUNT", "1"),
+    ("GIT_CONFIG_KEY_0", "core.hooksPath"),
+    ("GIT_CONFIG_VALUE_0", os.devnull),
 )
 
 
@@ -60,7 +53,7 @@ def disposable_candidate_checkout(
             f"candidate destination already exists: {destination}"
         )
     request.run_root.mkdir(parents=True, exist_ok=True)
-    environment = isolated_git_environment()
+    environment = study_process_environment()
     try:
         run_git(request.run_root, environment, "init", "--quiet", str(destination))
         run_git(
@@ -92,14 +85,22 @@ def disposable_candidate_checkout(
             shutil.rmtree(destination)
 
 
-def isolated_git_environment() -> dict[str, str]:
-    return {
-        key: value
-        for key, value in os.environ.items()
-        if key not in GIT_OVERRIDE_KEYS
-        and not key.startswith("GIT_CONFIG_KEY_")
-        and not key.startswith("GIT_CONFIG_VALUE_")
+def study_process_environment(
+    overlays: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Return a process environment with only explicit, inert Git settings."""
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
     }
+    if overlays is not None:
+        git_overlays = tuple(key for key in overlays if key.startswith("GIT_"))
+        if git_overlays:
+            raise CandidateCheckoutError(
+                f"study environment overlays cannot set Git variables: {git_overlays}"
+            )
+        environment.update(overlays)
+    environment.update(SAFE_GIT_SETTINGS)
+    return environment
 
 
 def verify_candidate_repository(

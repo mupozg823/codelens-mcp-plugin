@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-import hashlib
-import os
 import re
-import stat
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Final, TypedDict
 
+from productivity_study_binary_snapshot import (
+    BinarySnapshotError,
+    BinarySnapshotRequest,
+    file_sha256,
+    materialize_binary_snapshot,
+)
+from productivity_study_candidate import study_process_environment
 
 VERSION_PATTERN: Final = re.compile(
     r"^codelens-mcp (?P<version>[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?) "
@@ -21,6 +25,8 @@ VERSION_PATTERN: Final = re.compile(
 
 
 class CodelensBinaryProvenancePayload(TypedDict):
+    requested_path: str
+    snapshot_path: str
     version: str
     embedded_git_sha: str
     dirty: bool
@@ -41,10 +47,13 @@ class CodelensBinaryProvenanceError(RuntimeError):
 class CodelensBinaryRequest:
     repo: Path
     binary: Path
+    artifact_root: Path
 
 
 @dataclass(frozen=True, slots=True)
 class CodelensBinaryProvenance:
+    requested_path: Path
+    snapshot_path: Path
     version: str
     embedded_git_sha: str
     dirty: bool
@@ -54,6 +63,8 @@ class CodelensBinaryProvenance:
 
     def payload(self) -> CodelensBinaryProvenancePayload:
         return {
+            "requested_path": str(self.requested_path),
+            "snapshot_path": str(self.snapshot_path),
             "version": self.version,
             "embedded_git_sha": self.embedded_git_sha,
             "dirty": self.dirty,
@@ -66,29 +77,34 @@ class CodelensBinaryProvenance:
 def inspect_codelens_binary(
     request: CodelensBinaryRequest,
 ) -> CodelensBinaryProvenance:
-    """Parse and bind executable metadata to a clean repository HEAD."""
-    require_executable_regular_file(request.binary)
-    repo_head = git_text(request.repo, "rev-parse", "--verify", "HEAD")
-    if git_text(request.repo, "status", "--porcelain=v1", "--untracked-files=all"):
-        raise CodelensBinaryProvenanceError(
-            f"CodeLens repository contains file mutations: {request.repo}"
+    """Capture, inspect, and bind an immutable executable to a clean HEAD."""
+    repo_head = clean_repo_head(request.repo)
+    try:
+        snapshot = materialize_binary_snapshot(
+            BinarySnapshotRequest(request.binary, request.artifact_root)
         )
-    content_before = file_sha256(request.binary)
+    except BinarySnapshotError as error:
+        raise CodelensBinaryProvenanceError(str(error)) from error
+    if clean_repo_head(request.repo) != repo_head:
+        raise CodelensBinaryProvenanceError(
+            "CodeLens repository HEAD changed during binary snapshot capture"
+        )
     try:
         completed = subprocess.run(
-            [str(request.binary), "--version"],
+            [str(snapshot.snapshot_path), "--version"],
+            env=study_process_environment(),
             check=False,
             capture_output=True,
             text=True,
         )
     except OSError as error:
         raise CodelensBinaryProvenanceError(
-            f"cannot execute CodeLens binary: {request.binary}"
+            f"cannot execute CodeLens binary snapshot: {snapshot.snapshot_path}"
         ) from error
-    content_after = file_sha256(request.binary)
-    if content_before != content_after:
+    content_after = file_sha256(snapshot.snapshot_path)
+    if content_after != snapshot.content_sha256:
         raise CodelensBinaryProvenanceError(
-            f"CodeLens binary mutated during provenance inspection: {request.binary}"
+            f"CodeLens binary snapshot mutated during provenance inspection: {snapshot.snapshot_path}"
         )
     if completed.returncode != 0:
         raise CodelensBinaryProvenanceError(
@@ -111,27 +127,20 @@ def inspect_codelens_binary(
         )
     built_at = match.group("built_at")
     require_timezone_aware_timestamp(built_at)
+    if clean_repo_head(request.repo) != repo_head:
+        raise CodelensBinaryProvenanceError(
+            "CodeLens repository HEAD changed during binary provenance inspection"
+        )
     return CodelensBinaryProvenance(
+        requested_path=snapshot.requested_path,
+        snapshot_path=snapshot.snapshot_path,
         version=match.group("version"),
         embedded_git_sha=embedded_git_sha,
         dirty=dirty,
         built_at=built_at,
-        content_sha256=content_after,
+        content_sha256=snapshot.content_sha256,
         repo_head_sha=repo_head,
     )
-
-
-def require_executable_regular_file(binary: Path) -> None:
-    try:
-        mode = binary.stat().st_mode
-    except OSError as error:
-        raise CodelensBinaryProvenanceError(
-            f"CodeLens binary does not exist: {binary}"
-        ) from error
-    if not stat.S_ISREG(mode) or not os.access(binary, os.X_OK):
-        raise CodelensBinaryProvenanceError(
-            f"CodeLens binary must be an executable regular file: {binary}"
-        )
 
 
 def require_timezone_aware_timestamp(value: str) -> None:
@@ -147,14 +156,24 @@ def require_timezone_aware_timestamp(value: str) -> None:
         )
 
 
-def file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def clean_repo_head(repo: Path) -> str:
+    head = git_text(repo, "rev-parse", "--verify", "HEAD")
+    if git_text(repo, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise CodelensBinaryProvenanceError(
+            f"CodeLens repository contains file mutations: {repo}"
+        )
+    return head
 
 
 def git_text(repo: Path, *args: str) -> str:
     try:
         completed = subprocess.run(
-            ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+            ["git", *args],
+            cwd=repo,
+            env=study_process_environment(),
+            check=True,
+            capture_output=True,
+            text=True,
         )
     except (OSError, subprocess.CalledProcessError) as error:
         raise CodelensBinaryProvenanceError(

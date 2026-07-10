@@ -9,6 +9,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from productivity_study_candidate import study_process_environment
 from productivity_study_contract import Agent, QualityStatus, retain_minimal_evidence
 from productivity_study_events import extract_final_response
 from productivity_study_report import BlindReview, resolve_blind_reviews
@@ -160,7 +161,15 @@ def read_object(path: Path) -> dict[str, object]:
 
 
 def default_executor(_agent: Agent, command: tuple[str, ...], workdir: Path) -> str:
-    completed = subprocess.run(command, cwd=workdir, check=False, capture_output=True, text=True, timeout=300)
+    completed = subprocess.run(
+        command,
+        cwd=workdir,
+        env=study_process_environment(),
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
     return f"{completed.stdout}\n{completed.stderr}"
 
 

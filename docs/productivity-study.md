@@ -47,10 +47,17 @@ native tools as the default for simple local lookup.
   refresh/apply operation is available in the study runner. The CLI defaults
   to the versioned study policy beside the task pack, never a shared home policy.
 - Binary provenance: before creating a run artifact directory, the runner
-  requires a clean executable whose embedded Git SHA matches the clean
-  CodeLens repository HEAD. Version, build timestamp, dirty flag, and binary
+  captures the requested executable into a private content-addressed snapshot
+  under the artifact root and inspects and executes only that snapshot. Its
+  embedded Git SHA must match the clean CodeLens repository HEAD. Requested
+  path, executed snapshot path, version, build timestamp, dirty flag, and
   content SHA-256 are retained in `codelens_binary_provenance`; malformed,
-  mutated, stale, or dirty binaries fail closed.
+  mutated, stale, dirty, symlinked, or colliding binaries fail closed. Runs
+  with identical binary content reuse the same read-only snapshot path.
+- Process isolation: every candidate, evaluator, agent, daemon, grader, and
+  provenance Git subprocess removes ambient `GIT_*` state. The runner keeps
+  `HOME`, `PATH`, and non-Git authentication state, disables system/global Git
+  config and prompts, and forces `core.hooksPath=/dev/null`.
 
 ```mermaid
 flowchart LR
@@ -77,6 +84,7 @@ flowchart LR
 | Codex/Claude usage and rework normalization | `benchmarks/harness/productivity_study_events.py` |
 | Task-pack validation, Latin ordering, evaluator worktrees, hidden grading | `benchmarks/harness/productivity_study_runner.py` |
 | Base-only candidate checkout and Git environment isolation | `benchmarks/harness/productivity_study_candidate.py` |
+| Reusable private content-addressed binary snapshots | `benchmarks/harness/productivity_study_binary_snapshot.py` |
 | Fail-closed CodeLens binary provenance | `benchmarks/harness/productivity_study_provenance.py` |
 | Quality, blind-review, warm-only and Pareto gates | `benchmarks/harness/productivity_study_report.py` |
 | Thin agent CLI invocations | `benchmarks/harness/productivity_study_agents.py` |

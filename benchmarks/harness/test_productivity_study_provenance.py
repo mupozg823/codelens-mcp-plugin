@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -45,7 +46,11 @@ def make_binary(
 
 def inspect(repo: Path, binary: Path) -> provenance.CodelensBinaryProvenance:
     return provenance.inspect_codelens_binary(
-        provenance.CodelensBinaryRequest(repo=repo, binary=binary)
+        provenance.CodelensBinaryRequest(
+            repo=repo,
+            binary=binary,
+            artifact_root=binary.parent / "artifacts",
+        )
     )
 
 
@@ -58,8 +63,16 @@ def test_valid_binary_provenance_captures_build_and_content_identity() -> None:
             binary,
             f"codelens-mcp 1.13.34 (git {head_sha[:7]}, dirty false, built 2026-07-11T00:00:00Z)",
         )
+        original_environment = os.environ.copy()
+        os.environ["GIT_DIR"] = "/tmp/poison.git"
+        os.environ["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = "/tmp/poison-objects"
+        os.environ["GIT_CONFIG_GLOBAL"] = str(root / "malicious.gitconfig")
 
-        result = inspect(repo, binary)
+        try:
+            result = inspect(repo, binary)
+        finally:
+            os.environ.clear()
+            os.environ.update(original_environment)
 
         assert result.version == "1.13.34"
         assert result.embedded_git_sha == head_sha[:7]
@@ -67,6 +80,87 @@ def test_valid_binary_provenance_captures_build_and_content_identity() -> None:
         assert result.built_at == "2026-07-11T00:00:00Z"
         assert len(result.content_sha256) == 64
         assert result.repo_head_sha == head_sha
+        assert result.requested_path == binary
+        assert result.snapshot_path != binary
+        assert result.snapshot_path.is_file()
+        assert result.snapshot_path.read_bytes() == binary.read_bytes()
+        assert result.snapshot_path.stat().st_mode & 0o222 == 0
+        assert result.snapshot_path.parent.stat().st_mode & 0o077 == 0
+        assert result.payload()["requested_path"] == str(binary)
+        assert result.payload()["snapshot_path"] == str(result.snapshot_path)
+
+        reused = inspect(repo, binary)
+
+        assert reused.snapshot_path == result.snapshot_path
+        assert reused.content_sha256 == result.content_sha256
+
+
+def test_snapshot_remains_authoritative_after_original_binary_replacement() -> None:
+    with tempfile.TemporaryDirectory(prefix="codelens-study-provenance-") as raw_tmp:
+        root = Path(raw_tmp)
+        repo, head_sha = make_repo(root)
+        binary = root / "codelens-mcp"
+        expected_version = (
+            f"codelens-mcp 1.13.34 (git {head_sha[:7]}, dirty false, "
+            "built 2026-07-11T00:00:00Z)"
+        )
+        make_binary(binary, expected_version)
+        result = inspect(repo, binary)
+        inspected_bytes = result.snapshot_path.read_bytes()
+
+        binary.unlink()
+        make_binary(binary, "malformed replacement")
+        completed = subprocess.run(
+            [str(result.snapshot_path), "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        assert completed.stdout.strip() == expected_version
+        assert result.snapshot_path.read_bytes() == inspected_bytes
+        assert provenance.file_sha256(result.snapshot_path) == result.content_sha256
+
+
+def test_snapshot_publication_rejects_symlink_directory_and_hash_collisions() -> None:
+    with tempfile.TemporaryDirectory(prefix="codelens-study-provenance-") as raw_tmp:
+        root = Path(raw_tmp)
+        repo, head_sha = make_repo(root)
+        binary = root / "codelens-mcp"
+        make_binary(
+            binary,
+            f"codelens-mcp 1.13.34 (git {head_sha[:7]}, dirty false, built 2026-07-11T00:00:00Z)",
+        )
+        initial = inspect(repo, binary)
+        snapshot = initial.snapshot_path
+
+        snapshot.unlink()
+        snapshot.symlink_to(binary)
+        try:
+            inspect(repo, binary)
+        except provenance.CodelensBinaryProvenanceError as error:
+            assert "snapshot collision" in str(error)
+        else:
+            raise AssertionError("accepted a symlink snapshot collision")
+
+        snapshot.unlink()
+        snapshot.mkdir()
+        try:
+            inspect(repo, binary)
+        except provenance.CodelensBinaryProvenanceError as error:
+            assert "snapshot collision" in str(error)
+        else:
+            raise AssertionError("accepted a directory snapshot collision")
+
+        snapshot.rmdir()
+        snapshot.write_text("corrupt\n", encoding="utf-8")
+        snapshot.chmod(0o500)
+        try:
+            inspect(repo, binary)
+        except provenance.CodelensBinaryProvenanceError as error:
+            assert "snapshot hash" in str(error)
+        else:
+            raise AssertionError("accepted a corrupt content-addressed snapshot")
 
 
 def test_binary_provenance_rejects_untrusted_version_evidence() -> None:
@@ -138,23 +232,26 @@ def test_binary_provenance_rejects_non_executable_and_repo_or_binary_mutation() 
             raise AssertionError("accepted a mutated source repository")
         git(repo, "restore", "README.md")
 
-        self_mutating = root / "self-mutating"
+        real_binary = root / "real-binary"
         make_binary(
-            self_mutating,
+            real_binary,
             f"codelens-mcp 1.0.0 (git {head_sha[:7]}, dirty false, built 2026-07-11T00:00:00Z)",
-            mutate=True,
         )
+        symlink_binary = root / "symlink-binary"
+        symlink_binary.symlink_to(real_binary)
         try:
-            inspect(repo, self_mutating)
+            inspect(repo, symlink_binary)
         except provenance.CodelensBinaryProvenanceError as error:
-            assert "mutated during provenance inspection" in str(error)
+            assert "executable regular file" in str(error)
         else:
-            raise AssertionError("accepted a binary that mutated during inspection")
+            raise AssertionError("accepted a symlink requested binary")
 
 
 def main() -> int:
     tests = (
         test_valid_binary_provenance_captures_build_and_content_identity,
+        test_snapshot_remains_authoritative_after_original_binary_replacement,
+        test_snapshot_publication_rejects_symlink_directory_and_hash_collisions,
         test_binary_provenance_rejects_untrusted_version_evidence,
         test_binary_provenance_rejects_non_executable_and_repo_or_binary_mutation,
     )

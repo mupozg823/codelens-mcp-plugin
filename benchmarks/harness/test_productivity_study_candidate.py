@@ -15,10 +15,16 @@ import productivity_study_candidate as candidate
 import productivity_study_runner as runner
 
 
-def git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def git(
+    repo: Path,
+    *args: str,
+    check: bool = True,
+    environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
         cwd=repo,
+        env=environment,
         check=check,
         capture_output=True,
         text=True,
@@ -58,15 +64,31 @@ def test_candidate_checkout_hides_future_history_wip_and_source_refs() -> None:
             run_id="candidate",
         )
 
-        previous_git_dir = os.environ.get("GIT_DIR")
+        original_environment = os.environ.copy()
+        malicious_global = root / "malicious.gitconfig"
+        malicious_global.write_text(
+            "[core]\n\thooksPath = /tmp/malicious-hooks\n", encoding="utf-8"
+        )
         os.environ["GIT_DIR"] = str(source / ".git")
+        os.environ["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = str(
+            source / ".git" / "objects"
+        )
+        os.environ["GIT_CONFIG_GLOBAL"] = str(malicious_global)
+        os.environ["GIT_CONFIG_COUNT"] = "1"
+        os.environ["GIT_CONFIG_KEY_0"] = "core.hooksPath"
+        os.environ["GIT_CONFIG_VALUE_0"] = "/tmp/injected-hooks"
         try:
             with candidate.disposable_candidate_checkout(request) as checkout:
-                if previous_git_dir is None:
-                    del os.environ["GIT_DIR"]
-                else:
-                    os.environ["GIT_DIR"] = previous_git_dir
-                assert git(checkout, "rev-parse", "HEAD").stdout.strip() == base_sha
+                safe_environment = candidate.study_process_environment()
+                assert (
+                    git(
+                        checkout,
+                        "rev-parse",
+                        "HEAD",
+                        environment=safe_environment,
+                    ).stdout.strip()
+                    == base_sha
+                )
                 assert (checkout / "app.py").read_text(
                     encoding="utf-8"
                 ) == "def answer():\n    return 'wrong'\n"
@@ -78,12 +100,21 @@ def test_candidate_checkout_hides_future_history_wip_and_source_refs() -> None:
                         "-e",
                         f"{target_sha}^{{commit}}",
                         check=False,
+                        environment=safe_environment,
                     ).returncode
                     != 0
                 )
-                assert git(checkout, "remote").stdout.strip() == ""
                 assert (
-                    git(checkout, "for-each-ref", "--format=%(refname)").stdout.strip()
+                    git(checkout, "remote", environment=safe_environment).stdout.strip()
+                    == ""
+                )
+                assert (
+                    git(
+                        checkout,
+                        "for-each-ref",
+                        "--format=%(refname)",
+                        environment=safe_environment,
+                    ).stdout.strip()
                     == ""
                 )
                 (checkout / "app.py").write_text(
@@ -103,10 +134,8 @@ def test_candidate_checkout_hides_future_history_wip_and_source_refs() -> None:
                         allowed_paths=("app.py",),
                     )
         finally:
-            if previous_git_dir is None:
-                os.environ.pop("GIT_DIR", None)
-            else:
-                os.environ["GIT_DIR"] = previous_git_dir
+            os.environ.clear()
+            os.environ.update(original_environment)
 
         assert grade.accepted is True
         assert (run_root / "candidate").exists() is False

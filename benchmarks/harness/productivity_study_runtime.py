@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import socket
 import subprocess
 import time
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from productivity_study_agents import AgentInvocation, build_agent_command
+from productivity_study_candidate import study_process_environment
 from productivity_study_events import AgentTelemetry, extract_final_response, parse_agent_stream
 
 
@@ -78,12 +78,13 @@ def dedicated_daemon(
             process.wait(timeout=5)
 
 
-def daemon_environment(telemetry_path: Path | None) -> dict[str, str] | None:
-    if telemetry_path is None:
-        return None
-    environment = os.environ.copy()
-    environment["CODELENS_TELEMETRY_PATH"] = str(telemetry_path)
-    return environment
+def daemon_environment(telemetry_path: Path | None) -> dict[str, str]:
+    overlays = (
+        {"CODELENS_TELEMETRY_PATH": str(telemetry_path)}
+        if telemetry_path is not None
+        else None
+    )
+    return study_process_environment(overlays)
 
 
 def build_daemon_command(binary: Path, worktree: Path, port: int) -> tuple[str, ...]:
@@ -102,6 +103,7 @@ def unused_local_port() -> int:
 def process_sample(pid: int) -> ProcessSample | None:
     completed = subprocess.run(
         ["ps", "-p", str(pid), "-o", "rss=", "-o", "time="],
+        env=study_process_environment(),
         check=False,
         capture_output=True,
         text=True,
@@ -219,7 +221,14 @@ def run_agent(
     stdout_path = raw_path.with_name("agent.stdout")
     stderr_path = raw_path.with_name("agent.stderr")
     with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
-        process = subprocess.Popen(build_agent_command(invocation), cwd=candidate, stdout=stdout, stderr=stderr, text=True)
+        process = subprocess.Popen(
+            build_agent_command(invocation),
+            cwd=candidate,
+            env=study_process_environment(),
+            stdout=stdout,
+            stderr=stderr,
+            text=True,
+        )
         deadline = started + timeout_seconds
         timed_out = False
         while process.poll() is None:

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Sequence
 
+from productivity_study_candidate import study_process_environment
 from productivity_study_contract import Agent, Condition
 
 
@@ -86,6 +87,7 @@ class PolicySnapshot:
 @contextmanager
 def disposable_worktree(request: WorktreeRequest) -> Iterator[Path]:
     request.run_root.mkdir(parents=True, exist_ok=True)
+    environment = study_process_environment()
     subprocess.run(
         [
             "git",
@@ -96,6 +98,7 @@ def disposable_worktree(request: WorktreeRequest) -> Iterator[Path]:
             request.base_sha,
         ],
         cwd=request.source_repo,
+        env=environment,
         check=True,
         capture_output=True,
         text=True,
@@ -106,6 +109,7 @@ def disposable_worktree(request: WorktreeRequest) -> Iterator[Path]:
         subprocess.run(
             ["git", "worktree", "remove", "--force", str(request.destination)],
             cwd=request.source_repo,
+            env=environment,
             check=True,
             capture_output=True,
             text=True,
@@ -173,6 +177,7 @@ def run_verification_commands(
         completed = subprocess.run(
             ["zsh", "-lc", command],
             cwd=candidate,
+            env=study_process_environment(),
             check=False,
             capture_output=True,
             text=True,
@@ -187,6 +192,7 @@ def run_git_text(repo: Path, *args: str) -> str:
     completed = subprocess.run(
         ["git", *args],
         cwd=repo,
+        env=study_process_environment(),
         check=True,
         capture_output=True,
         text=True,
