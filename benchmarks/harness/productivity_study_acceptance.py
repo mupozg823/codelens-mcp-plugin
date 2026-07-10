@@ -108,20 +108,13 @@ def _check_signature_anchor_download(candidate: Path) -> tuple[bool, str | None]
         tags = [
             tag
             for tag in syntax.extract_jsx_anchor_opening_tags(source)
-            if syntax.anchor_href_matches(tag, href)
-            and re.search(r"\sdownload(?:\s|=|/|>)", tag)
+            if syntax.anchor_has_required_attributes(tag, href)
         ]
         if len(tags) != 1:
             return (
                 False,
                 f"required download anchor must have exactly one match: {relative}",
             )
-        tag = tags[0]
-        if re.search(r'\btarget\s*=\s*["\']_blank["\']', tag) is None:
-            return False, f"download anchor lacks target blank: {relative}"
-        rel = re.search(r'\brel\s*=\s*["\']([^"\']*)["\']', tag)
-        if rel is None or not {"noopener", "noreferrer"}.issubset(rel.group(1).split()):
-            return False, f"download anchor lacks safe rel tokens: {relative}"
     return _mutation_check_anchor_guard(candidate)
 
 

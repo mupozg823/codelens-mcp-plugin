@@ -154,6 +154,65 @@ def test_anchor_check_rejects_duplicate_live_surface_anchor() -> None:
     assert "exactly one" in (result[1] or "")
 
 
+def test_anchor_check_rejects_attribute_value_and_data_attribute_dummies() -> None:
+    sequence = (
+        '<a href={wrong.url} download data-target="_blank" '
+        'data-rel="noopener noreferrer" '
+        'title=\'href={sequenceSheet!.url} target="_blank" '
+        'rel="noopener noreferrer"\'>wrong</a>\n'
+    )
+    with tempfile.TemporaryDirectory(prefix="study-anchor-attrs-") as raw_tmp:
+        candidate = Path(raw_tmp)
+        write_anchor_candidate(
+            candidate,
+            "node scripts/guards/anchor-download-target.mjs",
+            STRICT_GUARD,
+        )
+        write(candidate, "src/components/film-v2/ResultCanvas.tsx", sequence)
+        result = run(candidate)
+
+    assert result[0] is False
+    assert "exactly one" in (result[1] or "")
+
+
+def test_anchor_check_rejects_data_href_as_real_href() -> None:
+    sequence = (
+        '<a data-href={sequenceSheet!.url} download target="_blank" '
+        'rel="noopener noreferrer">wrong</a>\n'
+    )
+    with tempfile.TemporaryDirectory(prefix="study-anchor-data-href-") as raw_tmp:
+        candidate = Path(raw_tmp)
+        write_anchor_candidate(
+            candidate,
+            "node scripts/guards/anchor-download-target.mjs",
+            STRICT_GUARD,
+        )
+        write(candidate, "src/components/film-v2/ResultCanvas.tsx", sequence)
+        result = run(candidate)
+
+    assert result[0] is False
+    assert "exactly one" in (result[1] or "")
+
+
+def test_anchor_check_rejects_duplicate_target_and_rel_attributes() -> None:
+    sequence = (
+        '<a href={sequenceSheet!.url} download target="_blank" target="_self" '
+        'rel="noopener noreferrer" rel="nofollow">wrong</a>\n'
+    )
+    with tempfile.TemporaryDirectory(prefix="study-anchor-duplicates-") as raw_tmp:
+        candidate = Path(raw_tmp)
+        write_anchor_candidate(
+            candidate,
+            "node scripts/guards/anchor-download-target.mjs",
+            STRICT_GUARD,
+        )
+        write(candidate, "src/components/film-v2/ResultCanvas.tsx", sequence)
+        result = run(candidate)
+
+    assert result[0] is False
+    assert "exactly one" in (result[1] or "")
+
+
 def test_anchor_check_rejects_guard_that_accepts_arbitrary_rel() -> None:
     with tempfile.TemporaryDirectory(prefix="study-anchor-rel-") as raw_tmp:
         candidate = Path(raw_tmp)
