@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from productivity_study_agents import AgentInvocation
+from productivity_study_candidate import CandidateCheckoutRequest, disposable_candidate_checkout
 from productivity_study_contract import (
     EvidenceRetention,
     IndexMode,
@@ -20,15 +21,14 @@ from productivity_study_contract import (
     retain_minimal_evidence,
 )
 from productivity_study_mcp_metrics import aggregate_agent_metrics
+from productivity_study_provenance import CodelensBinaryRequest, inspect_codelens_binary
 from productivity_study_runtime import (
     DaemonResourceMonitor,
-    build_daemon_command,
     dedicated_daemon,
     metrics_snapshot,
     open_mcp_session,
     mcp_tool_call,
     run_agent,
-    runtime_cpu_millis,
 )
 from productivity_study_runner import (
     CandidateGrade,
@@ -54,8 +54,8 @@ class StudyExecutionConfig:
     timeout_seconds: int
 
 
-def run_id_for(planned: PlannedRun) -> str:
-    return f"{planned.sequence_order:03d}-{planned.task.task_id.replace('::', '-')}-{planned.agent.value}-{planned.condition.value}"
+def run_id_for(planned: PlannedRun, index_mode: IndexMode) -> str:
+    return f"{planned.sequence_order:03d}-{planned.task.task_id.replace('::', '-')}-{planned.agent.value}-{planned.condition.value}-{index_mode.value}"
 
 
 def build_blind_review_packet(
@@ -72,7 +72,8 @@ def build_blind_review_packet(
 
 
 def execute_planned_run(planned: PlannedRun, config: StudyExecutionConfig) -> dict[str, object]:
-    run_id = run_id_for(planned)
+    provenance = inspect_codelens_binary(CodelensBinaryRequest(config.codelens_repo, config.codelens_binary))
+    run_id = run_id_for(planned, config.index_mode)
     record_dir = config.artifact_root / config.study_id / run_id
     record_dir.mkdir(parents=True, exist_ok=False)
     policy = PolicySnapshot.capture(config.policy_path)
@@ -88,21 +89,23 @@ def execute_planned_run(planned: PlannedRun, config: StudyExecutionConfig) -> di
         repo_path=planned.task.repo_path,
         base_sha=planned.task.base_sha,
         target_sha=planned.task.target_sha,
-        codelens_sha=git_commit(config.codelens_repo),
+        codelens_sha=provenance.repo_head_sha,
         codelens_binary=config.codelens_binary,
         policy_sha=policy.sha256,
         index_mode=config.index_mode,
         sequence_order=planned.sequence_order,
     )
     manifest = StudyManifest.create(identity).to_payload()
+    manifest["codelens_binary_provenance"] = provenance.payload()
     raw_path = record_dir / "agent-stream.raw"
-    request = WorktreeRequest(
-        planned.task.repo_path,
-        planned.task.base_sha,
-        config.artifact_root / "worktrees" / config.study_id,
-        f"{run_id}-candidate",
+    request = CandidateCheckoutRequest(
+        source_repo=planned.task.repo_path,
+        base_sha=planned.task.base_sha,
+        target_sha=planned.task.target_sha,
+        run_root=config.artifact_root / "worktrees" / config.study_id,
+        run_id=f"{run_id}-candidate",
     )
-    with disposable_worktree(request) as candidate:
+    with disposable_candidate_checkout(request) as candidate:
         result = execute_in_worktree(planned, config, candidate, raw_path)
         grade = grade_for(planned, config, candidate, run_id)
     unchanged_policy = policy.matches(config.policy_path)
@@ -227,13 +230,6 @@ def model_for(planned: PlannedRun, config: StudyExecutionConfig) -> str:
 def cli_version(agent_name: str) -> str:
     completed = subprocess.run(
         [agent_name, "--version"], check=True, capture_output=True, text=True
-    )
-    return completed.stdout.strip()
-
-
-def git_commit(repo: Path) -> str:
-    completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
     )
     return completed.stdout.strip()
 

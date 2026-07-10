@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Final, TypedDict
 
 from productivity_study_contract import Agent, IndexMode
-from productivity_study_execution import StudyExecutionConfig, execute_planned_run
+from productivity_study_execution import (
+    StudyExecutionConfig,
+    execute_planned_run,
+    run_id_for,
+)
 from productivity_study_runner import StudyTask, expand_run_plan, load_task_pack
 
 
@@ -29,20 +33,22 @@ class PlanRun(TypedDict):
     index_mode: str
 
 
-def build_plan_payload(study_id: str, tasks: tuple[StudyTask, ...]) -> dict[str, object]:
+def build_plan_payload(
+    study_id: str, tasks: tuple[StudyTask, ...], index_mode: IndexMode
+) -> dict[str, object]:
     plan = expand_run_plan(tasks, tuple(agent.value for agent in Agent))
     runs: list[PlanRun] = []
     for planned in plan:
         runs.append(
             {
-                "run_id": f"{planned.sequence_order:03d}",
+                "run_id": run_id_for(planned, index_mode),
                 "sequence_order": planned.sequence_order,
                 "task_id": planned.task.task_id,
                 "repo_id": planned.task.repo_id,
                 "task_kind": planned.task.task_kind,
                 "agent": planned.agent.value,
                 "condition": planned.condition.value,
-                "index_mode": IndexMode.WARM.value,
+                "index_mode": index_mode.value,
             }
         )
     return {
@@ -99,7 +105,7 @@ def main() -> int:
             ),
         )
     else:
-        payload = build_plan_payload(args.study_id, tasks)
+        payload = build_plan_payload(args.study_id, tasks, IndexMode(args.index_mode))
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 

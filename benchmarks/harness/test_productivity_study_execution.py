@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import sys
+import tempfile
+import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import productivity_study_execution as execution
 import productivity_study_runtime as runtime
-from productivity_study_contract import Agent, Condition
+from productivity_study_contract import Agent, Condition, IndexMode
+from productivity_study_provenance import CodelensBinaryProvenanceError
 from productivity_study_runner import PlannedRun, StudyTask
 
 
@@ -46,16 +49,68 @@ def test_blind_review_packet_omits_agent_and_condition() -> None:
     assert "condition" not in packet
 
 
-def test_run_id_is_deterministic_and_includes_latin_order() -> None:
+def test_run_id_is_deterministic_and_includes_latin_order_and_index_mode() -> None:
     planned = PlannedRun(task(), Agent.CLAUDE, Condition.NAIVE, 7)
 
-    run_id = execution.run_id_for(planned)
+    warm_run_id = execution.run_id_for(planned, IndexMode.WARM)
+    cold_run_id = execution.run_id_for(planned, IndexMode.COLD)
 
-    assert run_id == "007-repo-impact-001-claude-naive-on"
+    assert warm_run_id == "007-repo-impact-001-claude-naive-on-warm"
+    assert cold_run_id == "007-repo-impact-001-claude-naive-on-cold"
+    assert warm_run_id != cold_run_id
+
+
+def test_binary_preflight_failure_leaves_no_record_directory() -> None:
+    with tempfile.TemporaryDirectory(prefix="codelens-study-preflight-") as raw_tmp:
+        root = Path(raw_tmp)
+        codelens_repo = root / "codelens"
+        codelens_repo.mkdir()
+        subprocess.run(["git", "init", "--quiet"], cwd=codelens_repo, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "study@example.test"],
+            cwd=codelens_repo,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Study Test"],
+            cwd=codelens_repo,
+            check=True,
+        )
+        (codelens_repo / "README.md").write_text("study\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=codelens_repo, check=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", "base"], cwd=codelens_repo, check=True)
+        binary = root / "codelens-mcp"
+        binary.write_text("#!/bin/sh\nprintf 'malformed-version\\n'\n", encoding="utf-8")
+        binary.chmod(0o755)
+        policy_path = root / "policy.json"
+        policy_path.write_text("{}\n", encoding="utf-8")
+        planned = PlannedRun(
+            task(repo_id="missing-source"), Agent.CODEX, Condition.BASELINE, 0
+        )
+        config = execution.StudyExecutionConfig(
+            study_id="preflight",
+            artifact_root=root / "artifacts",
+            policy_path=policy_path,
+            codelens_repo=codelens_repo,
+            codelens_binary=binary,
+            index_mode=IndexMode.WARM,
+            codex_model="pinned-codex",
+            claude_model="pinned-claude",
+            timeout_seconds=1,
+        )
+
+        try:
+            execution.execute_planned_run(planned, config)
+        except CodelensBinaryProvenanceError as error:
+            assert "malformed" in str(error)
+        else:
+            raise AssertionError("malformed CodeLens binary provenance was accepted")
+
+        assert (config.artifact_root / config.study_id).exists() is False
 
 
 def test_dedicated_daemon_command_binds_only_the_candidate_worktree() -> None:
-    command = execution.build_daemon_command(
+    command = runtime.build_daemon_command(
         Path("/tmp/codelens-mcp"), Path("/tmp/candidate"), 17839
     )
 
@@ -73,9 +128,9 @@ def test_dedicated_daemon_command_binds_only_the_candidate_worktree() -> None:
 
 
 def test_process_cpu_parser_handles_minutes_and_days() -> None:
-    assert execution.runtime_cpu_millis("01:02") == 62_000
-    assert execution.runtime_cpu_millis("1-00:00:01") == 86_401_000
-    assert execution.runtime_cpu_millis("00:00.04") == 40
+    assert runtime.runtime_cpu_millis("01:02") == 62_000
+    assert runtime.runtime_cpu_millis("1-00:00:01") == 86_401_000
+    assert runtime.runtime_cpu_millis("00:00.04") == 40
 
 
 def test_metrics_envelope_unwraps_compact_data_without_defaulting_to_zero() -> None:
@@ -123,7 +178,8 @@ def test_fixed_policy_keeps_codelens_first_for_complex_treatments() -> None:
 def main() -> int:
     tests = [
         test_blind_review_packet_omits_agent_and_condition,
-        test_run_id_is_deterministic_and_includes_latin_order,
+        test_run_id_is_deterministic_and_includes_latin_order_and_index_mode,
+        test_binary_preflight_failure_leaves_no_record_directory,
         test_dedicated_daemon_command_binds_only_the_candidate_worktree,
         test_process_cpu_parser_handles_minutes_and_days,
         test_metrics_envelope_unwraps_compact_data_without_defaulting_to_zero,

@@ -21,8 +21,10 @@ native tools as the default for simple local lookup.
   conditions add the explicit CodeLens MCP config, while permission mode still
   follows each task's read-only contract.
 - Agents: Codex and Claude with model and CLI version written per run.
-- Isolation: every task begins in a detached historical-base worktree; current
-  source worktree WIP and production data are excluded.
+- Isolation: every candidate begins in a standalone depth-one Git repository
+  fetched at the exact historical base SHA. It has no source remote, refs, or
+  access to the hidden target commit; current source WIP and production data
+  are excluded. Only the evaluator uses a target-aware detached worktree.
 - Pilot: 8 tasks (4 task kinds × CodeLens and SignatureStudio) × 3 conditions
   × 2 agents = 48 runs. The full study expands only after the pilot gate.
 - Primary comparison: warm-index paired runs. Cold start is an overhead lane,
@@ -44,11 +46,16 @@ native tools as the default for simple local lookup.
 - Policy: the policy SHA is captured before a run and checked after it. No
   refresh/apply operation is available in the study runner. The CLI defaults
   to the versioned study policy beside the task pack, never a shared home policy.
+- Binary provenance: before creating a run artifact directory, the runner
+  requires a clean executable whose embedded Git SHA matches the clean
+  CodeLens repository HEAD. Version, build timestamp, dirty flag, and binary
+  content SHA-256 are retained in `codelens_binary_provenance`; malformed,
+  mutated, stale, or dirty binaries fail closed.
 
 ```mermaid
 flowchart LR
   P["Pinned task pack\nhistorical base + target"] --> L["Latin-square run plan\nCodex × Claude × 3 conditions"]
-  L --> W["Disposable candidate worktree"]
+  L --> W["Standalone base-only candidate repo\ndepth-one, no target refs"]
   W --> A["Native agent CLI stream\nJSONL / stream-json"]
   A --> T["Normalize usage, tool calls, rework, wall time"]
   A --> D["Dedicated CodeLens daemon\nagent-session metrics + CPU/RSS"]
@@ -68,7 +75,9 @@ flowchart LR
 | --- | --- |
 | Immutable manifest and minimal evidence retention | `benchmarks/harness/productivity_study_contract.py` |
 | Codex/Claude usage and rework normalization | `benchmarks/harness/productivity_study_events.py` |
-| Task-pack validation, Latin ordering, worktree isolation, hidden grading | `benchmarks/harness/productivity_study_runner.py` |
+| Task-pack validation, Latin ordering, evaluator worktrees, hidden grading | `benchmarks/harness/productivity_study_runner.py` |
+| Base-only candidate checkout and Git environment isolation | `benchmarks/harness/productivity_study_candidate.py` |
+| Fail-closed CodeLens binary provenance | `benchmarks/harness/productivity_study_provenance.py` |
 | Quality, blind-review, warm-only and Pareto gates | `benchmarks/harness/productivity_study_report.py` |
 | Thin agent CLI invocations | `benchmarks/harness/productivity_study_agents.py` |
 | Dedicated daemon, structured telemetry, CPU/RSS sampling | `benchmarks/harness/productivity_study_runtime.py` |
@@ -103,6 +112,10 @@ python3 benchmarks/harness/productivity_study_cli.py \
 The runner is deliberately single-sequence. Execute the planned Latin order;
 do not parallelize runs against a shared daemon or auto-refresh routing policy
 between them.
+
+`--index-mode warm` and `--index-mode cold` produce distinct run IDs. Plan and
+execute with the same explicit mode; cold runs remain a separate overhead lane
+and cannot overwrite or be pooled with warm primary runs.
 
 After a read/review run, complete both blinded evaluations with the same pinned
 models. This command deletes the packet and evaluator raw streams after it
