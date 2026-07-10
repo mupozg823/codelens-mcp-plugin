@@ -14,6 +14,7 @@
   - 실제 구현은 [`benchmarks/harness/README.md`](/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/harness/README.md)에 둡니다
   - 루트의 `harness-eval.py`, `codex-task-runner.py`, `claude-task-runner.py` 등은 기존 경로 호환용 wrapper입니다
   - 소비자 하네스 bootstrap/session overhead는 여기서만 측정합니다
+  - 실제 과업 완료·토큰·재작업·자원 사용의 정책 근거는 `productivity-study-v1`로만 수집합니다. historical `session-eval`과 synthetic benchmark는 진단/보고용이며 policy promotion 입력이 아닙니다. 실행 계약은 [`docs/productivity-study.md`](../docs/productivity-study.md)입니다.
 
 ## 디렉토리 구조
 

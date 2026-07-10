@@ -1,0 +1,189 @@
+{
+  "schema_version": "productivity-study-task-pack-v1",
+  "tasks": [
+    {
+      "task_id": "codelens::lookup::001",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_path": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "task_kind": "simple-local-lookup",
+      "base_sha": "dee32eefaf0f4362e3619f6f6dcb581557d0c233",
+      "target_sha": "7b7e1440089075f17e370b106a19cecba8df1b83",
+      "read_only": true,
+      "prompt": "Read-only task. Locate the CodeLens engine setting that controls the reranker blend. Report the exact symbol and module, its accepted range, default/fallback behavior, and how invalid environment input is handled. Do not edit files.",
+      "verification_commands": [],
+      "allowed_paths": [],
+      "hidden_test_paths": [],
+      "hidden_rubric": [
+        "Names the reranker-blend symbol and its implementation module.",
+        "States the inclusive accepted range and the fallback/default value.",
+        "Explains invalid environment parsing and the final blend filtering behavior."
+      ]
+    },
+    {
+      "task_id": "codelens::impact-review::001",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_path": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "task_kind": "multi-file-impact-review",
+      "base_sha": "8eeb042642305263db9820493ecd1a848a45fc59",
+      "target_sha": "7cfaa06cd5c2b4591f98fa5e2cab6bda88a9d521",
+      "read_only": true,
+      "prompt": "Read-only task. Review how Rust `super::` and `self::` imports are resolved in the import graph. Identify the smallest implementation and test locations that a fix would need, explain the false-cycle risk, and state the regression cases that must remain valid. Do not edit files.",
+      "verification_commands": [],
+      "allowed_paths": [],
+      "hidden_test_paths": [],
+      "hidden_rubric": [
+        "Identifies both the circular-analysis and import resolver change locations.",
+        "Explains why `super::` or `self::` item imports must resolve from the source module.",
+        "Preserves a genuine cycle while preventing the relative-import false cycle."
+      ]
+    },
+    {
+      "task_id": "codelens::defect-repair::001",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_path": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "task_kind": "defect-repair",
+      "base_sha": "7cfaa06cd5c2b4591f98fa5e2cab6bda88a9d521",
+      "target_sha": "0a45d545be05e155b3c6bb7f6c39823b561afe2f",
+      "read_only": false,
+      "prompt": "Fix stale persisted analysis after resolver or parser logic changes. On opening an existing index, invalidate only stale analysis when the stored analyzer version differs; retain normal behavior after the version has been recorded. Keep the implementation and targeted test changes within the allowed paths.",
+      "verification_commands": [
+        "cargo test -p codelens-engine analyzer_version_bump_wipes_stale_analysis_on_reopen"
+      ],
+      "allowed_paths": [
+        "crates/codelens-engine/src/db/mod.rs",
+        "crates/codelens-engine/src/db/tests.rs"
+      ],
+      "hidden_test_paths": [
+        "crates/codelens-engine/src/db/tests.rs"
+      ],
+      "hidden_rubric": [
+        "Existing persisted analysis is invalidated when analyzer metadata changes.",
+        "The stored version is updated so a subsequent reopen is a no-op.",
+        "The hidden targeted regression test and allowed-diff constraint pass."
+      ]
+    },
+    {
+      "task_id": "codelens::safe-refactor::001",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_path": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "task_kind": "safe-refactor",
+      "base_sha": "33d9cdaaa9d2fa76c673c2a2636446eb709dd6e6",
+      "target_sha": "5611766c07a0dd87845a05da62b7c346c7c4c045",
+      "read_only": false,
+      "prompt": "Safely split the oversized SCIP backend implementation into cohesive modules while preserving the existing public `ScipBackend` behavior and feature compatibility. Keep visibility as narrow as possible and make only the allowed path changes.",
+      "verification_commands": [
+        "cargo test -p codelens-engine scip_backend",
+        "cargo check -p codelens-engine",
+        "cargo fmt --check"
+      ],
+      "allowed_paths": [
+        "crates/codelens-engine/src/scip_backend.rs",
+        "crates/codelens-engine/src/scip_backend/call_graph.rs",
+        "crates/codelens-engine/src/scip_backend/mod.rs",
+        "crates/codelens-engine/src/scip_backend/navigation.rs",
+        "crates/codelens-engine/src/scip_backend/parse.rs",
+        "crates/codelens-engine/src/scip_backend/tests.rs"
+      ],
+      "hidden_test_paths": [
+        "crates/codelens-engine/src/scip_backend/tests.rs"
+      ],
+      "hidden_rubric": [
+        "The public `ScipBackend` surface remains usable.",
+        "Implementation responsibilities move into focused modules with narrow visibility.",
+        "The supplied compile, test, and format commands pass."
+      ]
+    },
+    {
+      "task_id": "signaturestudio::lookup::001",
+      "repo_id": "signaturestudio",
+      "repo_path": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "task_kind": "simple-local-lookup",
+      "base_sha": "da35b2e184774a1bf9aa609fb23e88dacf886010",
+      "target_sha": "7f50396fac9c027b6ab7a6e2f88ede6a1e542dde",
+      "read_only": true,
+      "prompt": "Read-only task. Locate the plan-id normalization used for billboard sequence sheets. Report the exact helper, the order of Unicode normalization and sanitization, and how its output affects duration/plan lookup. Do not edit files.",
+      "verification_commands": [],
+      "allowed_paths": [],
+      "hidden_test_paths": [],
+      "hidden_rubric": [
+        "Identifies the exact plan-id helper and its module.",
+        "Correctly orders NFC normalization before sanitization.",
+        "Explains the downstream duration or plan lookup dependency."
+      ]
+    },
+    {
+      "task_id": "signaturestudio::impact-review::001",
+      "repo_id": "signaturestudio",
+      "repo_path": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "task_kind": "multi-file-impact-review",
+      "base_sha": "428b13a3102f2d2e0cb2d0dd6305b449044a06bb",
+      "target_sha": "4ad207e00b5948fea7de54f14dc5c495ec69720a",
+      "read_only": true,
+      "prompt": "Read-only task. Review the billboard API routes for repeated authorization plumbing. Identify the shared helper and all route-level behavior that a safe deduplication must preserve, including the ordering of user lookup, permission checks, rate limiting, headers, and error responses. Do not edit files.",
+      "verification_commands": [],
+      "allowed_paths": [],
+      "hidden_test_paths": [],
+      "hidden_rubric": [
+        "Identifies the shared billboard authorization helper and all affected routes.",
+        "Preserves user lookup, plan authorization, permission, rate-limit, header, and error behavior in order.",
+        "Does not recommend a change that broadens authorization or weakens rate limits."
+      ]
+    },
+    {
+      "task_id": "signaturestudio::defect-repair::001",
+      "repo_id": "signaturestudio",
+      "repo_path": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "task_kind": "defect-repair",
+      "base_sha": "851a82f6aca1d5632ecd3555ba11984dd0ffc072",
+      "target_sha": "8bec214c7cd24f5cec7155f3626f33f70f99a6da",
+      "read_only": false,
+      "prompt": "Fix cross-origin download links opened in a new tab so they use an appropriate `rel` value. Add a focused repository guard and apply the minimal safe changes to the allowed UI surfaces and package scripts.",
+      "verification_commands": [
+        "npm run guard:anchor-download",
+        "npx tsc --noEmit"
+      ],
+      "allowed_paths": [
+        "package.json",
+        "scripts/guards/anchor-download-target.mjs",
+        "src/components/film-v2/ResultCanvas.tsx",
+        "src/components/gallery/UserGalleryPanels.tsx"
+      ],
+      "hidden_test_paths": [
+        "scripts/guards/anchor-download-target.mjs"
+      ],
+      "hidden_rubric": [
+        "New-tab cross-origin download links use the required safe relationship attribute.",
+        "The focused guard is registered and passes.",
+        "The allowed UI and package-surface diff is the only candidate change."
+      ]
+    },
+    {
+      "task_id": "signaturestudio::safe-refactor::001",
+      "repo_id": "signaturestudio",
+      "repo_path": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "task_kind": "safe-refactor",
+      "base_sha": "5485c8b94a05f4cb14007f20f5b25f7a623fec44",
+      "target_sha": "8547e2b33c2bcc70becb7076697e122d64c16536",
+      "read_only": false,
+      "prompt": "Safely extract billboard sequence-sheet types into a dedicated type module. Preserve public imports and runtime behavior, use type-only imports where appropriate, and restrict changes to the allowed paths.",
+      "verification_commands": [
+        "npx tsc --noEmit",
+        "npm test -- src/__tests__/billboardSequenceSheet.test.ts"
+      ],
+      "allowed_paths": [
+        "src/lib/filmPlanner/billboardSequenceHandoffTypes.ts",
+        "src/lib/filmPlanner/billboardSequenceKlingPrompt.ts",
+        "src/lib/filmPlanner/billboardSequenceSheet.ts",
+        "src/lib/filmPlanner/billboardSequenceSheetRequest.ts",
+        "src/lib/filmPlanner/billboardSequenceSheetTypes.ts",
+        "src/lib/filmPlanner/billboardTakePlanContract.ts"
+      ],
+      "hidden_test_paths": [],
+      "hidden_rubric": [
+        "Sequence-sheet types are extracted into the dedicated type module.",
+        "Existing public imports remain compatible through exports or type-only imports.",
+        "Runtime behavior and the supplied typecheck/test commands remain valid."
+      ]
+    }
+  ]
+}

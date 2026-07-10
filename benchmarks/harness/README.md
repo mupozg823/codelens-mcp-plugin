@@ -16,6 +16,17 @@
 - `coverage-gap-runner.py`
 - `apply-routing-policy.py`
 - `export-routing-policy.py`
+- `productivity_study_contract.py`
+- `productivity_study_events.py`
+- `productivity_study_runner.py`
+- `productivity_study_report.py`
+- `productivity_study_agents.py`
+- `productivity_study_runtime.py`
+- `productivity_study_mcp_metrics.py`
+- `productivity_study_execution.py`
+- `productivity_study_review.py`
+- `productivity_study_report_runner.py`
+- `productivity_study_cli.py`
 
 원칙:
 - CodeLens MCP 제품 측정은 상위 `benchmarks/` 루트에 둔다.
@@ -34,3 +45,4 @@
 - expensive post-processing 단계(`mcp_preflight`, `harness_eval`, `routing_policy_refresh`)는 같은 `run_dir`에서 completed checkpoint가 있으면 재사용할 수 있다.
 - 이 디렉터리의 truth artifact는 더 이상 개별 `prompt`, `session-entry`, `harness-eval` 파일이 아니라, 그 파일들을 가리키는 `run-manifest.json`이다.
 - Codex preflight는 이제 low-level `tools/list -> activate_project -> get_capabilities` choreography를 하네스 밖에서 중복하지 않고, 공식 세션 도구 `prepare_harness_session`을 우선 사용한다. 구버전 서버만 legacy round-trip fallback을 탄다.
+- `productivity-study-v1`는 기존 compatibility runner와 별도다. historical-base worktree, three conditions, raw transcript/telemetry deletion, hidden acceptance, blinded double review, agent별 warm-only Pareto gate를 사용하며 이 평가 중 routing policy를 refresh/apply하지 않는다. 상세 contract는 [`docs/productivity-study.md`](../../docs/productivity-study.md)다.

@@ -401,6 +401,13 @@ history summary, a latest-vs-previous productivity trend summary, and an
 operator gate verdict under
 `.codelens/reports/productivity/`.
 
+This is runtime-health and telemetry-provenance evidence, not a proof that
+CodeLens improves completed agent work. Policy-changing productivity claims use
+the isolated three-condition, Codex/Claude study described in
+[`docs/productivity-study.md`](docs/productivity-study.md); its pilot and full
+cohorts must pass quality and Pareto gates before README claims or routing
+defaults change.
+
 See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
 
 ### Distribution Channels
