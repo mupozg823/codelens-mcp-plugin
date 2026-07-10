@@ -86,7 +86,7 @@ def reviewer_command(agent: Agent, model: str, prompt: str, workdir: Path) -> tu
             return (
                 "claude", "--print", "--output-format", "stream-json",
                 "--no-session-persistence", "--model", model, "--permission-mode",
-                "plan", prompt,
+                "plan", "--strict-mcp-config", prompt,
             )
 
 
