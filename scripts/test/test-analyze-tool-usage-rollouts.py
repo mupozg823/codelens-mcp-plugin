@@ -42,7 +42,7 @@ def test_codex_rollout_report_counts_recommended_entrypoint_followthrough() -> N
     assert behavior["suggestions_missed"] == 0
 
 
-def test_codex_rollout_report_labels_missed_followup_routes() -> None:
+def test_codex_rollout_report_classifies_alternative_codelens_routes() -> None:
     with tempfile.TemporaryDirectory() as tempdir:
         rollout_path = Path(tempdir) / "rollout-test.jsonl"
         write_jsonl(
@@ -72,15 +72,10 @@ def test_codex_rollout_report_labels_missed_followup_routes() -> None:
     behavior = report["behavior"]
     assert behavior["suggestion_events"] == 2
     assert behavior["suggestions_followed"] == 0
-    assert behavior["suggestions_missed"] == 2
-    assert behavior["missed_label_counts"] == [
-        ["workflow_alternative", 1],
-        ["rebootstrap_or_health_check", 1],
-    ]
-    assert [row["route_label"] for row in behavior["missed_suggestions"]] == [
-        "workflow_alternative",
-        "rebootstrap_or_health_check",
-    ]
+    assert behavior["suggestions_missed"] == 0
+    assert behavior["suggestions_diverted"] == 2
+    assert behavior["missed_label_counts"] == []
+    assert behavior["missed_suggestions"] == []
 
 
 def test_codex_rollout_report_labels_user_clarification_after_suggestion() -> None:
@@ -290,7 +285,7 @@ def test_codex_rollout_report_classifies_mixed_branch_transfer() -> None:
 def main() -> int:
     tests = [
         test_codex_rollout_report_counts_recommended_entrypoint_followthrough,
-        test_codex_rollout_report_labels_missed_followup_routes,
+        test_codex_rollout_report_classifies_alternative_codelens_routes,
         test_codex_rollout_report_labels_user_clarification_after_suggestion,
         test_codex_rollout_report_labels_native_fallback_after_suggestion,
         test_codex_rollout_report_estimates_external_transfer_tokens,

@@ -17,6 +17,7 @@ DEFAULT_TELEMETRY_PATH = Path(".codelens/telemetry/tool_usage.jsonl")
 DEFAULT_MANIFEST_PATH = Path("docs/generated/surface-manifest.json")
 DELEGATE_TOOL = "delegate_to_codex_builder"
 FOLLOW_WINDOW = 5
+BOOTSTRAP_TOOLS = {"tools/list", "prepare_harness_session"}
 
 
 def str_value(value) -> str | None:
@@ -25,10 +26,6 @@ def str_value(value) -> str | None:
 
 def int_value(value, default: int = 0) -> int:
     return value if isinstance(value, int) else default
-
-
-def bool_value(value) -> bool:
-    return value if isinstance(value, bool) else False
 
 
 def string_list(value) -> list[str]:
@@ -58,13 +55,8 @@ def event_index(event: dict) -> int:
 
 
 def is_test_pollution(event: dict) -> bool:
-    """Telemetry rows leaked by cargo-test runs (parallel env-var races or
-    fixture sessions) — they poison real-usage metrics like the suggestion
-    follow rate, so the loader drops them at ingest."""
-    return (
-        recording_origin(event) == "test"
-        or session_id(event).startswith("test-session-")
-    )
+    # Test rows must not influence live-host productivity evidence.
+    return recording_origin(event) == "test" or session_id(event).startswith("test-session-")
 
 
 def is_attributed_host_runtime_event(event: dict) -> bool:
@@ -138,32 +130,20 @@ def first_followed_tool(event: dict, following: list[dict]) -> str | None:
 
 def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
     executors = load_manifest_executors(manifest_path)
-    unattributed_runtime_event_count = sum(
-        recording_origin(event) == "runtime" and not is_attributed_host_runtime_event(event)
-        for event in events
-    )
-    productivity_events = [
-        event
-        for event in events
-        if recording_origin(event) != "runtime"
-        or is_attributed_host_runtime_event(event)
-    ]
+    productivity_events = [event for event in events if recording_origin(event) != "runtime" or is_attributed_host_runtime_event(event)]
     by_session: dict[str, list[dict]] = defaultdict(list)
     handoff_consumers: dict[str, dict] = {}
     tool_counts = Counter()
     failed_tools = Counter()
     origin_counts = Counter(recording_origin(event) for event in events)
-    host_runtime_event_counts = Counter(
-        attributed_host_client(event)
-        for event in productivity_events
-        if recording_origin(event) == "runtime"
-    ).most_common()
+    host_runtime_event_counts = Counter(attributed_host_client(event) for event in productivity_events if recording_origin(event) == "runtime").most_common()
     host_runtime_event_count = sum(count for _, count in host_runtime_event_counts)
+    task_observed = any(is_attributed_host_runtime_event(event) and tool_name(event) not in BOOTSTRAP_TOOLS for event in events)
 
     for event in productivity_events:
         tool_counts[tool_name(event)] += 1
         by_session[session_id(event)].append(event)
-        if not bool_value(event.get("success")):
+        if event.get("success") is not True:
             failed_tools[tool_name(event)] += 1
         handoff_id = str_value(event.get("handoff_id"))
         if handoff_id and handoff_id not in handoff_consumers:
@@ -181,6 +161,8 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
         or str_value(event.get("delegate_handoff_id"))
     ]
     followed = 0
+    diverted = 0
+    unresolved = 0
     missed: list[dict] = []
     missed_labels = Counter()
     missed_branches = Counter()
@@ -195,14 +177,18 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
             if delegate_handoff_id is not None
             else None
         )
-        delegate_followed = (
-            consumer is not None and event_index(consumer) > event_index(event)
-        )
+        delegate_followed = consumer is not None and event_index(consumer) > event_index(event)
         if direct_tool or delegate_followed:
             followed += 1
         else:
             next_codelens_tools = [tool_name(candidate) for candidate in following[:3]]
             next_external_tools = string_list(event.get("next_external_tools"))[:3]
+            if not next_external_tools:
+                if next_codelens_tools:
+                    diverted += 1
+                else:
+                    unresolved += 1
+                continue
             route_label = missed_route_label(next_codelens_tools, next_external_tools)
             transfer = external_transfer(event)
             branch = agent_branch(event)
@@ -254,9 +240,9 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
             "suggestion_events": len(suggestion_events),
             "suggestions_followed": followed,
             "suggestions_missed": len(missed),
-            "suggestion_follow_rate": (
-                followed / len(suggestion_events) if suggestion_events else 0.0
-            ),
+            "suggestions_diverted": diverted,
+            "suggestions_unresolved": unresolved,
+            "suggestion_follow_rate": followed / len(suggestion_events) if suggestion_events else 0.0,
             "delegate_emissions": len(delegate_events),
             "delegate_handoffs_consumed": len(correlations),
             "codex_builder_tool_events": len(builder_events),
@@ -279,9 +265,20 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
                     if origin_counts["runtime"] > 0
                     else "unverified"
                 ),
+                "evidence_status": (
+                    "unverified"
+                    if origin_counts["legacy_unverified"] > 0
+                    else "task_observed"
+                    if task_observed
+                    else "bootstrap_only"
+                    if host_runtime_event_count > 0
+                    else "smoke_only"
+                    if origin_counts["runtime"] > 0
+                    else "unverified"
+                ),
                 "runtime_events": origin_counts["runtime"],
                 "host_runtime_events": host_runtime_event_count,
-                "unattributed_runtime_events": unattributed_runtime_event_count,
+                "unattributed_runtime_events": origin_counts["runtime"] - host_runtime_event_count,
                 "host_runtime_event_counts": host_runtime_event_counts,
                 "legacy_unverified_events": origin_counts["legacy_unverified"],
             },

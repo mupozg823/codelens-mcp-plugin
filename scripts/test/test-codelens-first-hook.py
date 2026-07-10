@@ -99,7 +99,7 @@ def test_a_symbol_advisory_allows_with_context() -> None:
         assert hso["permissionDecision"] == "allow", hso
         ctx = hso["additionalContext"]
         assert "handleRequest" in ctx
-        assert "mcp__codelens__find_symbol" in ctx
+        assert 'mcp__codelens__search(mode="symbol", name="handleRequest")' in ctx
         assert len(ctx) <= 300, f"advisory context must stay bounded: {len(ctx)}"
 
 
@@ -142,7 +142,7 @@ def test_d_strict_symbol_denies_with_reason() -> None:
         hso = out["hookSpecificOutput"]
         assert hso["permissionDecision"] == "deny", hso
         reason = hso["permissionDecisionReason"]
-        assert 'mcp__codelens__find_symbol(name="handleRequest")' in reason
+        assert 'mcp__codelens__search(mode="symbol", name="handleRequest", include_body=true)' in reason
         assert "strict" in reason
 
 
@@ -271,7 +271,7 @@ def test_m_bash_rg_symbol_strict_denies_whole_command() -> None:
         out = json.loads(proc.stdout)
         hso = out["hookSpecificOutput"]
         assert hso["permissionDecision"] == "deny", hso
-        assert 'mcp__codelens__find_symbol(name="computeBudget")' in hso["permissionDecisionReason"]
+        assert 'mcp__codelens__search(mode="symbol", name="computeBudget", include_body=true)' in hso["permissionDecisionReason"]
 
 
 def test_n_bash_grep_multi_alternative_passes_silently() -> None:
@@ -463,7 +463,7 @@ def test_x_strict_repeat_deny_is_terse() -> None:
         r2 = json.loads(second.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
         assert len(r1) > 300, f"first deny should carry the full procedure: {len(r1)}"
         assert len(r2) < 220, f"repeat deny must be terse: {len(r2)}"
-        assert 'mcp__codelens__find_symbol(name="computeBudget")' in r2
+        assert 'mcp__codelens__search(mode="symbol", name="computeBudget")' in r2
 
 
 def test_y_strict_lowercase_downgrades_to_single_advisory() -> None:

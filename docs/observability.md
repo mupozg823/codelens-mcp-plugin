@@ -147,6 +147,13 @@ of separate ad hoc analyzer, audit, summary, and gate commands:
 bash scripts/run-productivity-proof-loop.sh .
 ```
 
+For a paired evaluation task, start each host in a fresh MCP session and pass
+that exact ID to keep retries and other agents out of the run artifact:
+
+```bash
+bash scripts/run-productivity-proof-loop.sh . --session-id <mcp-session-id>
+```
+
 The loop writes a timestamped run under
 `.codelens/reports/productivity/runs/` and stores daemon audit snapshots under
 `.codelens/reports/productivity/history/`. Each run contains:
@@ -160,10 +167,23 @@ The loop writes a timestamped run under
 
 Only a `verified` telemetry-provenance status (runtime-marked rows with a
 non-local HTTP session ID, Codex/Claude `client_name`, and no legacy-unverified
-rows in the run) supports productivity comparisons. A runtime-only daemon
-probe, generic host, or unattributed older row is `smoke_only`, not evidence. A
-`warn` or `pass` operator gate still describes daemon audit health; it does not
-upgrade smoke-only or unverified tool telemetry into productivity evidence.
+rows in the run) verifies host attribution. It supports productivity
+comparisons only when the separate `evidence_status` is `task_observed`:
+attributed `tools/list` or `prepare_harness_session` bootstrap traffic is
+`bootstrap_only`, not a productivity result. A runtime-only daemon probe,
+generic host, or unattributed older row is
+`smoke_only`, not evidence. A `warn` or `pass` operator gate still describes
+daemon audit health; it does not upgrade bootstrap-only, smoke-only, or
+unverified tool telemetry into productivity evidence.
+
+Suggested-route follow-through is a four-way observation, not a binary pass
+rate: the suggested tool/handoff is `followed`; a different CodeLens tool is
+`diverted`; no subsequent observed action is `unresolved`; and an observed
+external fallback is `missed`. The rendered `Direct follow rate` counts only
+the first category, so it must be read alongside the other three and never as
+task-success or productivity evidence by itself. The trend summary treats an
+increase in external-fallback `missed` routes as a regression signal; it does
+not gate a run solely because direct follow rate changes.
 
 By default the loop targets the repository-local read-only daemon at
 `http://127.0.0.1:7839/mcp`. It first checks

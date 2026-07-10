@@ -106,9 +106,12 @@ def write_tool_usage(path: Path, total_events: int, follow_rate: float) -> None:
             f'"suggestion_follow_rate":{follow_rate},'
             '"suggestions_followed":2,'
             '"suggestions_missed":2,'
+            '"suggestions_diverted":0,'
+            '"suggestions_unresolved":0,'
             '"delegate_emissions":1,'
             '"delegate_handoffs_consumed":1,'
-            '"codex_builder_tool_events":1'
+            '"codex_builder_tool_events":1,'
+            '"provenance":{"status":"verified","evidence_status":"task_observed","runtime_events":4,"host_runtime_events":4,"unattributed_runtime_events":0,"legacy_unverified_events":0}'
             "}}\n"
         ),
         encoding="utf-8",
@@ -120,8 +123,8 @@ def test_trend_summary_reports_latest_delta_against_previous_run() -> None:
         temp_root = Path(raw_tmp)
         runs_dir = temp_root / "runs"
         output_path = temp_root / "summary.md"
-        write_tool_usage(runs_dir / "20260707-100000" / "tool-usage.json", 40, 0.25)
-        write_tool_usage(runs_dir / "20260707-110000" / "tool-usage.json", 31, 0.50)
+        write_tool_usage(runs_dir / "20260707-100000" / "tool-usage.json", 40, 0.50)
+        write_tool_usage(runs_dir / "20260707-110000" / "tool-usage.json", 31, 0.25)
 
         proc = run_command(
             [
@@ -142,7 +145,9 @@ def test_trend_summary_reports_latest_delta_against_previous_run() -> None:
         assert "Runs analyzed: `2`" in rendered
         assert "Latest run: `20260707-110000`" in rendered
         assert "Tool events: `31` (`-9`)" in rendered
-        assert "Suggestion follow rate: `50.0%` (`+25.0pp`)" in rendered
+        assert "Suggestions followed/diverted/unresolved/missed: `2` / `0` / `0` / `2` (`+0` missed)" in rendered
+        assert "Direct suggestion follow rate: `25.0%` (`-25.0pp`)" in rendered
+        assert "Latest run had no external-fallback regression" in rendered
 
 
 def test_trend_summary_bridges_tool_usage_and_runtime_audit_coverage() -> None:
@@ -223,7 +228,7 @@ def test_trend_summary_rejects_legacy_telemetry_as_productivity_evidence() -> No
         )
         rendered = output_path.read_text(encoding="utf-8")
 
-    assert "Status: `unverified`" in rendered
+    assert "Attribution status: `unverified`" in rendered
     assert "cannot support a productivity claim" in rendered
 
 
@@ -237,6 +242,7 @@ def test_trend_summary_rejects_runtime_smoke_only_as_productivity_evidence() -> 
         report = json.loads(usage_path.read_text(encoding="utf-8"))
         report["behavior"]["provenance"] = {
             "status": "smoke_only",
+            "evidence_status": "smoke_only",
             "runtime_events": 2,
             "host_runtime_events": 0,
             "unattributed_runtime_events": 2,
@@ -262,7 +268,7 @@ def test_trend_summary_rejects_runtime_smoke_only_as_productivity_evidence() -> 
         )
         rendered = output_path.read_text(encoding="utf-8")
 
-    assert "Status: `smoke_only`" in rendered
+    assert "Attribution status: `smoke_only`" in rendered
     assert "unattributed runtime activity" in rendered
     assert "cannot support a productivity claim" in rendered
 

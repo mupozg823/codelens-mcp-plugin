@@ -134,8 +134,11 @@ Prioritized architecture moves:
    `recording_origin` addition covered by a structured-event regression test.
    The productivity analyzer separately requires a non-local HTTP session plus
    a Codex/Claude `client_name`, and excludes generic or unattributed daemon
-   probe/audit rows, so process provenance is not mistaken for productivity
-   proof. This is a boundary cleanup, not a new event bus.
+   probe/audit rows. A separate `evidence_status` keeps host-attributed
+   `tools/list` and `prepare_harness_session` bootstrap traffic as
+   `bootstrap_only` until a task tool call is observed, so process provenance
+   is not mistaken for productivity proof.
+   This is a boundary cleanup, not a new event bus.
 7. Next: put the same strict measurements around adaptive RRF/rerank and
    hierarchical context changes: compare Recall@k, nDCG/MRR, latency p50/p95,
    and context-token deltas before widening defaults.

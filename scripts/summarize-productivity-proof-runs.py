@@ -36,11 +36,14 @@ class ProductivityMetrics:
     suggestion_events: int
     suggestions_followed: int
     suggestions_missed: int
+    suggestions_diverted: int
+    suggestions_unresolved: int
     suggestion_follow_rate: float
     delegate_emissions: int
     handoffs_consumed: int
     builder_tool_events: int
     provenance_status: str
+    evidence_status: str
     runtime_event_count: int
     host_runtime_event_count: int
     unattributed_runtime_event_count: int
@@ -86,11 +89,14 @@ def load_metrics(path: Path) -> ProductivityMetrics | None:
         suggestion_events=int_field(behavior, "suggestion_events"),
         suggestions_followed=int_field(behavior, "suggestions_followed"),
         suggestions_missed=int_field(behavior, "suggestions_missed"),
+        suggestions_diverted=int_field(behavior, "suggestions_diverted"),
+        suggestions_unresolved=int_field(behavior, "suggestions_unresolved"),
         suggestion_follow_rate=float_field(behavior, "suggestion_follow_rate"),
         delegate_emissions=int_field(behavior, "delegate_emissions"),
         handoffs_consumed=int_field(behavior, "delegate_handoffs_consumed"),
         builder_tool_events=int_field(behavior, "codex_builder_tool_events"),
         provenance_status=str_field(provenance_map, "status", "unverified"),
+        evidence_status=str_field(provenance_map, "evidence_status", "unknown"),
         runtime_event_count=int_field(provenance_map, "runtime_events"),
         host_runtime_event_count=int_field(provenance_map, "host_runtime_events"),
         unattributed_runtime_event_count=int_field(
@@ -206,14 +212,15 @@ def render_markdown(
         f"- Tool events: `{latest.total_events}` (`{delta_int(latest.total_events, previous_events)}`)",
         f"- Sessions: `{latest.session_count}` (`{delta_int(latest.session_count, previous_sessions)}`)",
         f"- Suggestion events: `{latest.suggestion_events}`",
-        f"- Suggestions followed/missed: `{latest.suggestions_followed}` / `{latest.suggestions_missed}` (`{delta_int(latest.suggestions_missed, previous_missed)}` missed)",
-        f"- Suggestion follow rate: `{pct(latest.suggestion_follow_rate)}` (`{delta_rate(latest.suggestion_follow_rate, previous_follow_rate)}`)",
+        f"- Suggestions followed/diverted/unresolved/missed: `{latest.suggestions_followed}` / `{latest.suggestions_diverted}` / `{latest.suggestions_unresolved}` / `{latest.suggestions_missed}` (`{delta_int(latest.suggestions_missed, previous_missed)}` missed)",
+        f"- Direct suggestion follow rate: `{pct(latest.suggestion_follow_rate)}` (`{delta_rate(latest.suggestion_follow_rate, previous_follow_rate)}`)",
         f"- Delegate emissions / handoffs consumed: `{latest.delegate_emissions}` / `{latest.handoffs_consumed}`",
         f"- Builder tool events: `{latest.builder_tool_events}` (`{delta_int(latest.builder_tool_events, previous_builder)}`)",
         "",
         "## Telemetry Provenance",
         "",
-        f"- Status: `{latest.provenance_status}`",
+        f"- Attribution status: `{latest.provenance_status}`",
+        f"- Productivity evidence: `{latest.evidence_status}`",
         f"- Runtime host-attributed / unattributed / legacy-unverified events: `{latest.host_runtime_event_count}` / `{latest.unattributed_runtime_event_count}` / `{latest.legacy_unverified_event_count}`",
         "",
         "## Audit Coverage Bridge",
@@ -223,22 +230,24 @@ def render_markdown(
         "## Interpretation",
         "",
     ]
-    if latest.provenance_status == "unverified":
+    if latest.evidence_status in {"unverified", "unknown"}:
         lines.append(
             "- Latest telemetry is unverified and cannot support a productivity claim; collect runtime-marked events before comparing trends."
         )
-    elif latest.provenance_status == "smoke_only":
+    elif latest.evidence_status == "smoke_only":
         lines.append(
             "- Latest telemetry contains unattributed runtime activity, not host-attributed agent activity, and cannot support a productivity claim."
         )
+    elif latest.evidence_status == "bootstrap_only":
+        lines.append(
+            "- Latest telemetry verifies host attribution only for bootstrap traffic and cannot support a productivity claim; collect a task tool call."
+        )
     elif previous is None:
-        lines.append("- Only one run is available; collect more runs before claiming trend improvement.")
-    elif latest.suggestion_follow_rate < previous.suggestion_follow_rate:
-        lines.append("- Suggestion follow rate regressed versus the previous run.")
+        lines.append("- Only one task-observed run is available; collect more runs before claiming trend improvement.")
     elif latest.suggestions_missed > previous.suggestions_missed:
         lines.append("- Missed suggestions increased; inspect `tool-usage.txt` before claiming improvement.")
     else:
-        lines.append("- Latest run did not regress on follow rate or missed suggestions versus the previous run.")
+        lines.append("- Latest run had no external-fallback regression; direct follow rate alone is not a productivity result.")
     if latest.builder_tool_events == 0:
         lines.append("- Builder coverage is still absent in tool telemetry.")
     return "\n".join(lines).rstrip() + "\n"

@@ -12,11 +12,14 @@ def render_telemetry_report(report: dict) -> None:
     print(f"  Suggestion events  : {behavior['suggestion_events']}")
     print(f"  Suggestions followed: {behavior['suggestions_followed']}")
     print(f"  Suggestions missed : {behavior['suggestions_missed']}")
-    print(f"  Follow rate        : {behavior['suggestion_follow_rate'] * 100:.1f}%")
+    print(f"  Suggestions diverted: {behavior.get('suggestions_diverted', 0)}")
+    print(f"  Suggestions unresolved: {behavior.get('suggestions_unresolved', 0)}")
+    print(f"  Direct follow rate : {behavior['suggestion_follow_rate'] * 100:.1f}%")
     print(f"  Delegate emissions : {behavior['delegate_emissions']}")
     print(f"  Handoffs consumed  : {behavior['delegate_handoffs_consumed']}")
     print(f"  Builder tool events: {behavior['codex_builder_tool_events']}")
-    print(f"  Provenance         : {provenance['status']}")
+    print(f"  Attribution status : {provenance['status']}")
+    print(f"  Productivity evidence: {provenance['evidence_status']}")
     print(
         "  Runtime / legacy rows: "
         f"{provenance['runtime_events']} / {provenance['legacy_unverified_events']}"

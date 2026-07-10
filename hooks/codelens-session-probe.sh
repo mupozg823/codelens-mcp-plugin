@@ -34,8 +34,8 @@ else
   BIND_LINE="첫 호출 전 prepare_harness_session(project=\"$GIT_ROOT\") 필수 (공유 데몬 오바인딩 방지)."
 fi
 cat <<EOF
-🔍 CodeLens 데몬 alive(:7839). 심볼 조회(정의·참조·구조·영향)는 rg 대신 CodeLens:
-ToolSearch "select:mcp__codelens__find_symbol,mcp__codelens__find_referencing_symbols" 로드 → $BIND_LINE
+🔍 CodeLens 데몬 alive(:7839). 심볼 조회(정의·참조·구조·영향)는 rg 대신 CodeLens verb:
+mcp__codelens__search(mode=symbol|refs|semantic|ranked) · graph(mode=callers|impact) · overview(mode=file) — 미노출 시 ToolSearch "select:mcp__codelens__search,mcp__codelens__graph" 로드 → $BIND_LINE
 rg/grep 은 텍스트 감사 전용 (심볼형 grep 은 strict 게이트가 세션당 3회 차단 — 예외 마커: [cl-text]/[cl-fallback]).
 EOF
 exit 0

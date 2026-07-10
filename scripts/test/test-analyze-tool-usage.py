@@ -113,11 +113,11 @@ def test_behavior_report_counts_suggestions_and_handoff_consumption() -> None:
     assert behavior["total_events"] == 5
     assert behavior["suggestion_events"] == 3
     assert behavior["suggestions_followed"] == 2
-    assert behavior["suggestions_missed"] == 1
+    assert behavior["suggestions_missed"] == 0
+    assert behavior["suggestions_unresolved"] == 1
     assert behavior["delegate_emissions"] == 1
     assert behavior["delegate_handoffs_consumed"] == 1
-    assert behavior["missed_label_counts"] == [["no_codelens_followup", 1]]
-    assert behavior["missed_suggestions"][0]["route_label"] == "no_codelens_followup"
+    assert behavior["missed_label_counts"] == []
     assert behavior["handoff_correlations"] == [
         {
             "handoff_id": "codelens-handoff-test",
@@ -185,7 +185,7 @@ def test_behavior_report_marks_legacy_rows_as_unverified() -> None:
         "host_runtime_events": 0,
         "unattributed_runtime_events": 0,
         "host_runtime_event_counts": [],
-        "legacy_unverified_events": 1,
+        "legacy_unverified_events": 1, "evidence_status": "unverified",
     }
 
 
@@ -242,7 +242,7 @@ def test_behavior_report_excludes_unattributed_runtime_events_from_productivity_
         "host_runtime_events": 1,
         "unattributed_runtime_events": 2,
         "host_runtime_event_counts": [["codex", 1]],
-        "legacy_unverified_events": 0,
+        "legacy_unverified_events": 0, "evidence_status": "task_observed",
     }
 
 
@@ -278,7 +278,7 @@ def test_behavior_report_rejects_unattributed_nonlocal_runtime_rows() -> None:
         "host_runtime_events": 0,
         "unattributed_runtime_events": 1,
         "host_runtime_event_counts": [],
-        "legacy_unverified_events": 0,
+        "legacy_unverified_events": 0, "evidence_status": "smoke_only",
     }
 
 

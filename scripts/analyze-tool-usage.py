@@ -50,7 +50,7 @@ def analyze(data: dict) -> None:
     print(f"  Call coverage    : {coverage * 100:.1f}%")
 
     if zero_call:
-        print(f"\n  ⚠️  ZERO-CALL TOOLS (candidates for removal):")
+        print("\n  ⚠️  ZERO-CALL TOOLS (candidates for removal):")
         for name in zero_call:
             print(f"      • {name}")
 
@@ -58,14 +58,14 @@ def analyze(data: dict) -> None:
         sorted_tools = sorted(tools, key=lambda t: t.get("calls", 0), reverse=True)
         total_calls = sum(t.get("calls", 0) for t in tools)
 
-        print(f"\n  🔥 TOP 5 HOT TOOLS:")
+        print("\n  🔥 TOP 5 HOT TOOLS:")
         for t in sorted_tools[:5]:
             pct = (t["calls"] / total_calls * 100) if total_calls else 0
             print(
                 f"      {t['tool']:30} {t['calls']:4} calls ({pct:5.1f}%)"
             )
 
-        print(f"\n  🥶 TOP 5 COLD TOOLS (called but barely):")
+        print("\n  🥶 TOP 5 COLD TOOLS (called but barely):")
         for t in sorted_tools[-5:]:
             pct = (t["calls"] / total_calls * 100) if total_calls else 0
             print(
@@ -87,13 +87,13 @@ def analyze(data: dict) -> None:
             else:
                 buckets["100+"] += 1
 
-        print(f"\n  📊 CALL DISTRIBUTION:")
+        print("\n  📊 CALL DISTRIBUTION:")
         for label in ["zero", "1-5", "6-20", "21-100", "100+"]:
             if label in buckets:
                 print(f"      {label:8}: {buckets[label]:3} tools")
 
     # Recommendations
-    print(f"\n  💡 RECOMMENDATIONS:")
+    print("\n  💡 RECOMMENDATIONS:")
     if coverage < 0.5:
         print("      • Coverage < 50%: Strong candidate for aggressive tool surface diet.")
     elif coverage < 0.7:
@@ -147,6 +147,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", nargs="?")
     parser.add_argument("--telemetry-path", type=Path)
+    parser.add_argument("--session-id")
     parser.add_argument("--codex-rollout-path", type=Path, action="append")
     parser.add_argument("--manifest-path", type=Path, default=DEFAULT_MANIFEST_PATH)
     parser.add_argument("--format", choices=["text", "json"], default="text")
@@ -176,7 +177,10 @@ def main() -> None:
         telemetry_path = DEFAULT_TELEMETRY_PATH
 
     if telemetry_path is not None:
-        report = analyze_telemetry(load_telemetry(telemetry_path), args.manifest_path)
+        events = load_telemetry(telemetry_path)
+        if args.session_id is not None:
+            events = [event for event in events if event.get("session_id") == args.session_id]
+        report = analyze_telemetry(events, args.manifest_path)
         if args.format == "json":
             write_or_print(json.dumps(report, indent=2, sort_keys=True), args.output)
         else:

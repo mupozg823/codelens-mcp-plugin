@@ -425,10 +425,10 @@ def emit(decision: str, *, reason: str | None = None, context: str | None = None
 def advisory_context(symbol: str) -> str:
     return (
         f"CodeLens index detected. For symbol lookups like {symbol}, prefer "
-        f'mcp__codelens__find_symbol(name="{symbol}") or '
-        "mcp__codelens__find_referencing_symbols — bounded ranked results cost "
-        "fewer tokens than raw grep. Set CODELENS_FIRST_MODE=off to silence, "
-        "=strict to enforce."
+        f'mcp__codelens__search(mode="symbol", name="{symbol}") or '
+        'mcp__codelens__search(mode="refs", symbol_name="…") — ranked '
+        "results cost fewer tokens than raw grep. Set CODELENS_FIRST_MODE=off "
+        "to silence, =strict to enforce."
     )
 
 
@@ -437,18 +437,19 @@ def strict_reason(symbol: str, root: str, deny_no: int) -> str:
         # Terse repeat: the model already saw the full procedure this session.
         return (
             f"[codelens-first strict {deny_no}/{MAX_DENIES_PER_SESSION}] "
-            f"'{symbol}' → mcp__codelens__find_symbol(name=\"{symbol}\") / "
-            "find_referencing_symbols. Escapes: `# [cl-text]` · `# [cl-fallback]`."
+            f"'{symbol}' → mcp__codelens__search(mode=\"symbol\", name=\"{symbol}\") / "
+            "search(mode=\"refs\", symbol_name=…). Escapes: `# [cl-text]` · `# [cl-fallback]`."
         )
     return (
         f"[codelens-first strict {deny_no}/{MAX_DENIES_PER_SESSION}] "
         f"'{symbol}' is a symbol lookup — one CodeLens call replaces the "
-        "grep→Read chain. Steps: ① ToolSearch \"select:mcp__codelens__find_symbol,"
-        "mcp__codelens__get_ranked_context,mcp__codelens__find_referencing_symbols\" "
+        "grep→Read chain. Steps: ① if mcp__codelens__search is not in your tool "
+        "list: ToolSearch \"select:mcp__codelens__search,mcp__codelens__graph\" "
         f"② if CodeLens is not bound yet this session: prepare_harness_session(project=\"{root}\") "
-        f"③ mcp__codelens__find_symbol(name=\"{symbol}\") (body via include_body=true); "
-        "callers/refs via find_referencing_symbols when loaded, else "
-        f"get_ranked_context(query=\"{symbol}\", max_tokens=…). Escapes: append "
+        f"③ mcp__codelens__search(mode=\"symbol\", name=\"{symbol}\", include_body=true); "
+        "refs via search(mode=\"refs\", symbol_name=…); callers/impact via "
+        "graph(mode=\"callers\"|\"impact\"), else "
+        f"search(mode=\"ranked\", query=\"{symbol}\"). Escapes: append "
         "`# [cl-text]` for a plain text audit, `# [cl-fallback]` if CodeLens "
         "failed or returned nothing."
     )

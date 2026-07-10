@@ -15,6 +15,7 @@ Options:
   --telemetry-path PATH  tool_usage.jsonl to analyze. If omitted, the script
                         checks CODELENS_TELEMETRY_PATH, repo-root telemetry,
                         then crates/codelens-mcp telemetry.
+  --session-id ID        Analyze one logical MCP session only.
   --output-dir DIR       Output root (default: .codelens/reports/productivity)
   --run-id ID            Stable run id for reproducible paths
   --history-limit N      Number of audit snapshots to include in trend/gate
@@ -38,6 +39,7 @@ TELEMETRY_PATH="${CODELENS_TELEMETRY_PATH:-}"
 OUTPUT_DIR=""
 RUN_ID="${CODELENS_PRODUCTIVITY_RUN_ID:-}"
 HISTORY_LIMIT="${CODELENS_PRODUCTIVITY_HISTORY_LIMIT:-14}"
+SESSION_ID="${CODELENS_PRODUCTIVITY_SESSION_ID:-}"
 SKIP_AUDIT=0
 PRINT_PLAN=0
 
@@ -53,6 +55,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--telemetry-path)
 		TELEMETRY_PATH="${2:-}"
+		shift 2
+		;;
+	--session-id)
+		SESSION_ID="${2:-}"
 		shift 2
 		;;
 	--output-dir)
@@ -164,6 +170,7 @@ history_dir=$HISTORY_DIR
 tool_usage_json=$TOOL_USAGE_JSON
 tool_usage_text=$TOOL_USAGE_TEXT
 audit_json=$AUDIT_JSON
+session_id=${SESSION_ID:-<all>}
 history_summary=$SUMMARY_MD
 operator_gate=$GATE_MD
 productivity_summary=$PRODUCTIVITY_SUMMARY_MD
@@ -180,18 +187,15 @@ fi
 mkdir -p "$RUN_DIR" "$HISTORY_DIR"
 
 pushd "$REPO_ROOT" >/dev/null
+ANALYZER_ARGS=()
 if [[ -n "$RESOLVED_TELEMETRY_PATH" && -f "$RESOLVED_TELEMETRY_PATH" ]]; then
-	python3 "$ANALYZER" \
-		--telemetry-path "$RESOLVED_TELEMETRY_PATH" \
-		--format json \
-		--output "$TOOL_USAGE_JSON"
-	python3 "$ANALYZER" \
-		--telemetry-path "$RESOLVED_TELEMETRY_PATH" \
-		> "$TOOL_USAGE_TEXT"
-else
-	python3 "$ANALYZER" --format json --output "$TOOL_USAGE_JSON"
-	python3 "$ANALYZER" > "$TOOL_USAGE_TEXT"
+	ANALYZER_ARGS+=(--telemetry-path "$RESOLVED_TELEMETRY_PATH")
 fi
+if [[ -n "$SESSION_ID" ]]; then
+	ANALYZER_ARGS+=(--session-id "$SESSION_ID")
+fi
+python3 "$ANALYZER" "${ANALYZER_ARGS[@]}" --format json --output "$TOOL_USAGE_JSON"
+python3 "$ANALYZER" "${ANALYZER_ARGS[@]}" > "$TOOL_USAGE_TEXT"
 
 if [[ "$SKIP_AUDIT" == "0" ]]; then
 	bash "$EXPORT_AUDIT" "$AUDIT_JSON" \
@@ -228,6 +232,7 @@ python3 "$PRODUCTIVITY_SUMMARY_SCRIPT" \
 	printf -- '- Repository: `%s`\n' "$REPO_ROOT"
 	printf -- '- MCP URL: `%s`\n' "$MCP_URL"
 	printf -- '- Telemetry path: `%s`\n' "${RESOLVED_TELEMETRY_PATH:-none}"
+	printf -- '- Session ID: `%s`\n' "${SESSION_ID:-all}"
 	printf -- '- Run ID: `%s`\n\n' "$RUN_ID"
 	printf '## Artifacts\n\n'
 	printf -- '- Tool usage JSON: `%s`\n' "$TOOL_USAGE_JSON"
