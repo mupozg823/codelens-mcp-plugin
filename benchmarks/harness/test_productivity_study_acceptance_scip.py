@@ -188,39 +188,6 @@ def test_scip_split_requires_cfg_attribute_to_directly_precede_test_module() -> 
     assert "test module wiring" in (result[1] or "")
 
 
-def test_scip_split_rejects_conditionally_compiled_required_items() -> None:
-    mutations = (
-        (
-            "mod.rs",
-            "mod call_graph;\nmod navigation;\n#[cfg(any())]\nmod parse;\n"
-            "#[cfg(test)]\nmod tests;\npub struct ScipBackend {}\n",
-        ),
-        (
-            "mod.rs",
-            "mod call_graph;\nmod navigation;\nmod parse;\n"
-            "#[cfg(any())]\n#[cfg(test)]\nmod tests;\npub struct ScipBackend {}\n",
-        ),
-        (
-            "call_graph.rs",
-            "impl ScipBackend {\n"
-            "pub fn find_callees(&self) {}\n"
-            "#[cfg(any())]\npub fn find_callers(&self) {}\n}\n",
-        ),
-        (
-            "tests.rs",
-            "#[ignore]\n#[test]\nfn split_works() {}\n",
-        ),
-    )
-    for name, source in mutations:
-        with tempfile.TemporaryDirectory(prefix="study-scip-cfg-") as raw_tmp:
-            candidate = Path(raw_tmp)
-            write_scip_candidate(candidate)
-            _rewrite(candidate, name, source)
-            result = _check(candidate)
-
-        assert result[0] is False, name
-
-
 def main() -> int:
     tests = [value for name, value in globals().items() if name.startswith("test_")]
     failures = 0

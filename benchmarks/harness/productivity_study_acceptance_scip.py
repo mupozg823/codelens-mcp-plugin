@@ -16,6 +16,7 @@ _SCIP_PARSE_HELPERS: Final = (
     "is_function_like_symbol",
     "body_end_line",
 )
+_CLOSING_DELIMITER: Final = {")": "(", "]": "[", "}": "{"}
 
 
 def check_codelens_scip_split(candidate: Path) -> tuple[bool, str | None]:
@@ -30,6 +31,8 @@ def check_codelens_scip_split(candidate: Path) -> tuple[bool, str | None]:
             return False, failure
         sources[name] = source
     masked = {name: _mask_rust_noncode(source) for name, source in sources.items()}
+    if any(_has_inner_conditional(source) for source in masked.values()):
+        return False, "SCIP source contains a conditional inner attribute"
 
     module = masked["mod.rs"]
     for name in ("call_graph", "navigation", "parse"):
@@ -109,9 +112,14 @@ def _has_top_level(masked: str, pattern: str) -> bool:
 def _has_live_test(masked: str) -> bool:
     pattern = r"(?m)^[ \t]*#\s*\[\s*test\s*\][ \t]*(?:\r?\n[ \t]*)?fn\s+\w+"
     return any(
-        not _has_preceding_attribute(masked, match.start())
+        _at_top_level(masked, match.start())
+        and not _has_preceding_attribute(masked, match.start())
         for match in re.finditer(pattern, masked)
     )
+
+
+def _has_inner_conditional(masked: str) -> bool:
+    return re.search(r"#!\s*\[\s*(?:r#)?cfg(?:_attr)?\b", masked) is not None
 
 
 def _has_preceding_attribute(masked: str, position: int) -> bool:
@@ -127,28 +135,35 @@ def _has_preceding_attribute(masked: str, position: int) -> bool:
         elif masked[cursor] == "[":
             depth -= 1
             if depth == 0:
+                while cursor > 0 and masked[cursor - 1].isspace():
+                    cursor -= 1
                 return cursor > 0 and masked[cursor - 1] == "#"
     return False
 
 
 def _at_top_level(masked: str, position: int) -> bool:
-    depth = 0
+    stack: list[str] = []
     for character in masked[:position]:
-        if character == "{":
-            depth += 1
-        elif character == "}":
-            depth -= 1
-    return depth == 0
+        if character in "({[":
+            stack.append(character)
+        elif character in ")}]":
+            if not stack or _CLOSING_DELIMITER[character] != stack.pop():
+                return False
+    return not stack
 
 
 def _matching_brace(masked: str, opening: int) -> int | None:
-    depth = 0
-    for cursor in range(opening, len(masked)):
-        if masked[cursor] == "{":
-            depth += 1
-        elif masked[cursor] == "}":
-            depth -= 1
-            if depth == 0:
+    if opening >= len(masked) or masked[opening] != "{":
+        return None
+    stack = ["{"]
+    for cursor in range(opening + 1, len(masked)):
+        character = masked[cursor]
+        if character in "({[":
+            stack.append(character)
+        elif character in ")}]":
+            if not stack or _CLOSING_DELIMITER[character] != stack.pop():
+                return None
+            if not stack:
                 return cursor
     return None
 
