@@ -85,6 +85,8 @@ def test_print_only_launchd_installer_completes_without_stdin_hang() -> None:
         )
         assert "dev.codelens.mcp-readonly" in proc.stdout
         assert "dev.codelens.mcp-mutation" in proc.stdout
+        assert "<string>review</string>" in proc.stdout
+        assert "<string>builder</string>" in proc.stdout
         assert "CODELENS_MODEL_DIR" in proc.stdout
         assert not list(agents_dir.glob("*.plist"))
 

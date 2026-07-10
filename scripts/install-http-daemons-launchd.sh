@@ -14,8 +14,8 @@ Also writes repo-local host attach overrides into `.codelens/config.json`
 so `codelens-mcp attach/status/doctor` reuse the same host -> URL contract.
 
 Defaults in this repository follow the repo-local operating contract:
-  - readonly: reviewer-graph on :7839
-  - mutation: refactor-full on :7838
+  - readonly: review on :7839
+  - mutation: builder on :7838
 
 Options:
   --label-prefix PREFIX       launchd label prefix (default: dev.codelens.mcp)
@@ -23,8 +23,8 @@ Options:
   --launch-agents-dir DIR     directory for generated plist files (default: ~/Library/LaunchAgents)
   --readonly-port N           read-only daemon port (default: 7839)
   --mutation-port N           mutation daemon port (default: 7838)
-  --readonly-profile NAME     read-only profile (default: reviewer-graph)
-  --mutation-profile NAME     mutation profile (default: refactor-full)
+  --readonly-profile NAME     read-only profile (default: review)
+  --mutation-profile NAME     mutation profile (default: builder)
   --readonly-log-level LEVEL  CODELENS_LOG for read-only daemon (default: warn)
   --mutation-log-level LEVEL  CODELENS_LOG for mutation daemon (default: warn)
   --effort-level LEVEL        CODELENS_EFFORT_LEVEL for both daemons (default: high)
@@ -68,8 +68,8 @@ BIN_PATH=""
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 READONLY_PORT=7839
 MUTATION_PORT=7838
-READONLY_PROFILE="reviewer-graph"
-MUTATION_PROFILE="refactor-full"
+READONLY_PROFILE="review"
+MUTATION_PROFILE="builder"
 READONLY_LOG_LEVEL="warn"
 MUTATION_LOG_LEVEL="warn"
 EFFORT_LEVEL="high"
@@ -482,9 +482,9 @@ principals_scaffold_content() {
 # X-Codelens-Principal header in dev mode); stdio falls back to the
 # CODELENS_PRINCIPAL env var.
 #
-# Without this file a mutation-capable daemon maps every principal to
-# Refactor (permissive default). This starter denies mutations by
-# default: keep [default] at ReadOnly and grant Refactor/Admin per id.
+# Mutation-capable runtimes require this file and otherwise resolve every
+# principal to ReadOnly. Keep [default] at ReadOnly and grant
+# Refactor/Admin per id.
 
 # Role for any principal id not listed below, and for requests that
 # carry no principal id at all.
