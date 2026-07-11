@@ -15,6 +15,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
+import socket
 import stat
 import subprocess
 import tempfile
@@ -27,6 +30,42 @@ INSTALL_SCRIPT = REPO_ROOT / "scripts" / "install-http-daemons-launchd.sh"
 def write_fake_executable(path: Path) -> None:
     path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+def write_launchctl_shim(shim_dir: Path, log_path: Path) -> None:
+    """A PATH-injected fake `launchctl` that records each invocation and exits 0,
+    so the --load path can be exercised without touching real launchd."""
+    shim = shim_dir / "launchctl"
+    shim.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$*" >> "$LAUNCHCTL_SHIM_LOG"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    shim.chmod(shim.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def open_listener(port: int) -> socket.socket:
+    """Bind + listen on 127.0.0.1:port; stands in for a stale daemon still
+    occupying an expected port after bootout."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", port))
+    sock.listen(16)
+    return sock
+
+
+def run_installer_with_env(
+    args: list[str], env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(INSTALL_SCRIPT), *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env=env,
+    )
 
 
 def write_fake_repo(path: Path) -> None:
@@ -233,12 +272,157 @@ def test_write_launchd_installer_reports_clear_error_on_corrupt_config_json() ->
         )
 
 
+def test_load_aborts_before_bootstrap_when_port_busy() -> None:
+    # --load must bootout the old instance, then WAIT for the port to release
+    # before bootstrapping. If the port is still occupied, it must abort before
+    # bootstrap (never spawn an instance that yields exit(0) into a permanent
+    # KeepAlive-SuccessfulExit=false down). launchctl is shimmed; the port is a
+    # real ephemeral listener held for the whole run.
+    with tempfile.TemporaryDirectory(prefix="codelens-launchd-installer-") as raw_tmp:
+        tmp = Path(raw_tmp)
+        fake_repo = tmp / "repo"
+        bin_path = tmp / "codelens-mcp-http"
+        model_dir = tmp / "models"
+        agents_dir = tmp / "LaunchAgents"
+        write_fake_repo(fake_repo)
+        write_fake_executable(bin_path)
+        model_dir.mkdir()
+        agents_dir.mkdir()
+
+        shim_dir = tmp / "shim"
+        shim_dir.mkdir()
+        shim_log = tmp / "launchctl.log"
+        write_launchctl_shim(shim_dir, shim_log)
+
+        env = dict(os.environ)
+        env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
+        env["LAUNCHCTL_SHIM_LOG"] = str(shim_log)
+        env["CODELENS_PORT_RELEASE_SECS"] = "1"
+        label_prefix = f"codelens-test-fixture-{os.getpid()}"
+
+        with contextlib.closing(open_listener(0)) as ro_sock, contextlib.closing(
+            open_listener(0)
+        ) as mu_sock:
+            readonly_port = str(ro_sock.getsockname()[1])
+            mutation_port = str(mu_sock.getsockname()[1])
+            proc = run_installer_with_env(
+                [
+                    str(fake_repo),
+                    "--no-build",
+                    "--load",
+                    "--label-prefix",
+                    label_prefix,
+                    "--bin-path",
+                    str(bin_path),
+                    "--model-dir",
+                    str(model_dir),
+                    "--launch-agents-dir",
+                    str(agents_dir),
+                    "--readonly-port",
+                    readonly_port,
+                    "--mutation-port",
+                    mutation_port,
+                ],
+                env,
+            )
+
+        combined = proc.stdout + proc.stderr
+        shim_calls = shim_log.read_text(encoding="utf-8") if shim_log.exists() else ""
+        assert proc.returncode != 0, (
+            "installer --load exited 0 despite the port never releasing.\n"
+            f"returncode={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}"
+        )
+        assert "still occupied" in combined, (
+            "expected a port-release timeout diagnostic before bootstrap.\n"
+            f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        )
+        assert "bootout" in shim_calls, (
+            f"expected bootout first; shim calls:\n{shim_calls}"
+        )
+        assert "bootstrap" not in shim_calls, (
+            "installer bootstrapped despite the port still being occupied.\n"
+            f"shim calls:\n{shim_calls}"
+        )
+
+
+def test_load_bootstraps_after_ports_release() -> None:
+    # Happy path: when both ports are free after bootout, --load must run the
+    # port-release barrier and then bootstrap both daemons. The "ensuring port"
+    # barrier log is absent in the unfixed script (RED/GREEN signal).
+    with tempfile.TemporaryDirectory(prefix="codelens-launchd-installer-") as raw_tmp:
+        tmp = Path(raw_tmp)
+        fake_repo = tmp / "repo"
+        bin_path = tmp / "codelens-mcp-http"
+        model_dir = tmp / "models"
+        agents_dir = tmp / "LaunchAgents"
+        write_fake_repo(fake_repo)
+        write_fake_executable(bin_path)
+        model_dir.mkdir()
+        agents_dir.mkdir()
+
+        shim_dir = tmp / "shim"
+        shim_dir.mkdir()
+        shim_log = tmp / "launchctl.log"
+        write_launchctl_shim(shim_dir, shim_log)
+
+        # Two free ports: reserve ephemeral numbers, then release them.
+        with contextlib.closing(open_listener(0)) as p1, contextlib.closing(
+            open_listener(0)
+        ) as p2:
+            readonly_port = str(p1.getsockname()[1])
+            mutation_port = str(p2.getsockname()[1])
+
+        env = dict(os.environ)
+        env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
+        env["LAUNCHCTL_SHIM_LOG"] = str(shim_log)
+        env["CODELENS_PORT_RELEASE_SECS"] = "3"
+        label_prefix = f"codelens-test-fixture-{os.getpid()}"
+
+        proc = run_installer_with_env(
+            [
+                str(fake_repo),
+                "--no-build",
+                "--load",
+                "--label-prefix",
+                label_prefix,
+                "--bin-path",
+                str(bin_path),
+                "--model-dir",
+                str(model_dir),
+                "--launch-agents-dir",
+                str(agents_dir),
+                "--readonly-port",
+                readonly_port,
+                "--mutation-port",
+                mutation_port,
+            ],
+            env,
+        )
+
+        combined = proc.stdout + proc.stderr
+        shim_calls = shim_log.read_text(encoding="utf-8") if shim_log.exists() else ""
+        assert proc.returncode == 0, (
+            "installer --load should complete when the ports are free.\n"
+            f"returncode={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}"
+        )
+        assert "ensuring port" in combined.lower(), (
+            "installer --load did not run the port-release barrier before bootstrap.\n"
+            f"stdout={proc.stdout}\nstderr={proc.stderr}"
+        )
+        assert shim_calls.count("bootstrap") == 2, (
+            "expected both daemons to be bootstrapped after release.\n"
+            f"shim calls:\n{shim_calls}"
+        )
+
+
 def main() -> int:
     tests = [
         test_print_only_launchd_installer_completes_without_stdin_hang,
         test_write_launchd_installer_updates_config_without_stdin_hang,
         test_launchd_plist_keepalive_prevents_successful_exit_respawn_loop,
         test_write_launchd_installer_reports_clear_error_on_corrupt_config_json,
+        test_load_aborts_before_bootstrap_when_port_busy,
+        test_load_bootstraps_after_ports_release,
     ]
     failures: list[str] = []
     for test in tests:

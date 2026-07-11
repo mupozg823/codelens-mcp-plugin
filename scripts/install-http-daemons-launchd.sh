@@ -54,6 +54,14 @@ Options:
                               until [principal."<id>"] entries grant Refactor/Admin.
   -h, --help                  show help
 
+Environment:
+  CODELENS_PORT_RELEASE_SECS  with --load, seconds to wait for the old daemon to
+                              release its port after bootout before bootstrap
+                              (default: 15). On timeout the install aborts BEFORE
+                              bootstrap so a fresh instance never meets the busy
+                              port and yields exit(0) into a KeepAlive
+                              SuccessfulExit=false permanent-down.
+
 Examples:
   bash scripts/install-http-daemons-launchd.sh .
   bash scripts/install-http-daemons-launchd.sh . --load
@@ -84,6 +92,7 @@ LOAD_AFTER_WRITE=0
 NO_BUILD=0
 PRINT_ONLY=0
 PRINCIPALS_SCAFFOLD=0
+PORT_RELEASE_SECS="${CODELENS_PORT_RELEASE_SECS:-15}"
 
 is_int_in_range() {
 	local value="$1"
@@ -100,6 +109,58 @@ import sys
 
 print(html.escape(sys.argv[1], quote=True))
 ' "$1"
+}
+
+# 0 = a daemon is still accepting on 127.0.0.1:port, non-zero = free. Uses the
+# bash /dev/tcp builtin (no lsof/nc) so it is identical on macOS and Linux CI.
+port_is_listening() {
+	local port="$1"
+	(exec 3<>"/dev/tcp/127.0.0.1/${port}") >/dev/null 2>&1
+}
+
+# Block until 127.0.0.1:port is released or timeout_secs elapses. Returns 0 when
+# free; returns 1 on timeout so the caller aborts BEFORE bootstrap — a new
+# instance meeting the busy port yields exit(0) (transport_http.rs:330) which
+# KeepAlive SuccessfulExit=false never respawns (silent permanent-down).
+wait_for_port_release() {
+	local port="$1"
+	local timeout_secs="$2"
+	local label="$3"
+	[[ -z "$port" ]] && return 0
+	echo "==> Ensuring port $port is free before bootstrapping $label"
+	if ! port_is_listening "$port"; then
+		return 0
+	fi
+	echo "==> Port $port still held after bootout; waiting up to ${timeout_secs}s for release"
+	local release_deadline=$(( $(date +%s) + timeout_secs ))
+	while port_is_listening "$port"; do
+		if [[ $(date +%s) -ge $release_deadline ]]; then
+			echo "==> ERROR: port $port still occupied ${timeout_secs}s after bootout of $label;" >&2
+			echo "    bootstrapping now would spawn an instance that yields exit(0) on the busy port" >&2
+			echo "    (transport_http.rs:330), which KeepAlive SuccessfulExit=false never respawns." >&2
+			return 1
+		fi
+		sleep 1
+	done
+	echo "==> Port $port released; proceeding to bootstrap $label"
+	return 0
+}
+
+# bootout the old instance, wait for its port to release, then bootstrap. The
+# wait closes the 2026-07-10 gap where a bootout->bootstrap with no barrier let
+# the fresh instance meet the still-busy port and yield exit(0) permanently.
+load_one_daemon() {
+	local plist="$1"
+	local port="$2"
+	local label="$3"
+	local domain
+	domain="gui/$(id -u)"
+	launchctl bootout "$domain" "$plist" >/dev/null 2>&1 || true
+	if ! wait_for_port_release "$port" "$PORT_RELEASE_SECS" "$label"; then
+		echo "==> Aborting --load before bootstrapping $label; kill the stale listener on port $port and re-run" >&2
+		exit 4
+	fi
+	launchctl bootstrap "$domain" "$plist"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -558,12 +619,9 @@ echo "==> Mutation: profile=$MUTATION_PROFILE port=$MUTATION_PORT"
 echo "==> Logs: $LOG_DIR"
 
 if [[ "$LOAD_AFTER_WRITE" == "1" ]]; then
-	user_domain="gui/$(id -u)"
-	for plist in "$readonly_plist" "$mutation_plist"; do
-		launchctl bootout "$user_domain" "$plist" >/dev/null 2>&1 || true
-		launchctl bootstrap "$user_domain" "$plist"
-	done
-	echo "==> Loaded both agents with launchctl bootstrap $user_domain"
+	load_one_daemon "$readonly_plist" "$READONLY_PORT" "$readonly_label"
+	load_one_daemon "$mutation_plist" "$MUTATION_PORT" "$mutation_label"
+	echo "==> Loaded both agents with launchctl bootstrap gui/$(id -u)"
 else
 	echo "==> Next step:"
 	echo "    launchctl bootstrap gui/$(id -u) $readonly_plist"
