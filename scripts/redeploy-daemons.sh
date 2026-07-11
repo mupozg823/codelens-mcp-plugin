@@ -32,6 +32,13 @@ Options:
   --wait-secs N               LISTEN wait timeout in seconds (default: 12)
   --help                      print this help
 
+Environment:
+  CODELENS_PORT_RELEASE_SECS  after bootout, seconds to wait for the old daemon
+                              to release its port before bootstrap (default: 15).
+                              On timeout the redeploy aborts BEFORE bootstrap so a
+                              fresh instance never meets the busy port and yields
+                              exit(0) into a KeepAlive=SuccessfulExit=false down.
+
 Examples:
   bash scripts/redeploy-daemons.sh                    # quick post-build redeploy
   bash scripts/redeploy-daemons.sh --build --probe    # build + redeploy + health probe
@@ -50,6 +57,7 @@ SKIP_MUTATION=0
 DO_BUILD=0
 DO_PROBE=0
 WAIT_SECS=12
+PORT_RELEASE_SECS="${CODELENS_PORT_RELEASE_SECS:-15}"
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -76,6 +84,43 @@ SOURCE_BIN="${SOURCE_BIN:-${REPO_ROOT}/target/release/codelens-mcp}"
 TARGET_BIN="${TARGET_BIN:-${REPO_ROOT}/.codelens/bin/codelens-mcp-http}"
 
 log() { printf '[redeploy] %s\n' "$*"; }
+
+# 0 = something is accepting on 127.0.0.1:port (a daemon still holds it),
+# non-zero = nothing is listening. Uses the bash /dev/tcp builtin so it needs
+# no lsof/nc and behaves identically on macOS and Linux CI.
+port_is_listening() {
+	local port="$1"
+	(exec 3<>"/dev/tcp/127.0.0.1/${port}") >/dev/null 2>&1
+}
+
+# Block until 127.0.0.1:port stops accepting connections (the old daemon has
+# released its listening socket) or timeout_secs elapses. Returns 0 once the
+# port is free; returns 1 on timeout with a diagnostic — the caller MUST abort
+# before bootstrap rather than spawn an instance that would yield exit(0).
+wait_for_port_release() {
+	local port="$1"
+	local timeout_secs="$2"
+	local label="$3"
+	[[ -z "${port}" ]] && return 0
+	log "ensuring port ${port} is free before bootstrapping ${label}"
+	if ! port_is_listening "${port}"; then
+		return 0
+	fi
+	log "port ${port} still held after bootout; waiting up to ${timeout_secs}s for release"
+	local release_deadline=$(( $(date +%s) + timeout_secs ))
+	while port_is_listening "${port}"; do
+		if [[ $(date +%s) -ge ${release_deadline} ]]; then
+			log "ERROR: port ${port} still occupied ${timeout_secs}s after bootout of ${label} —" >&2
+			log "       bootstrapping now would spawn an instance that yields exit(0) on the busy" >&2
+			log "       port (transport_http.rs:330), which KeepAlive SuccessfulExit=false never" >&2
+			log "       respawns. Kill the stale listener (lsof -nP -iTCP:${port} -sTCP:LISTEN) and re-run." >&2
+			return 1
+		fi
+		sleep 1
+	done
+	log "port ${port} released; proceeding to bootstrap ${label}"
+	return 0
+}
 
 if [[ $DO_BUILD -eq 1 ]]; then
 	# Apple Silicon dev-machine native CPU tuning. `-C target-cpu=native`
@@ -161,6 +206,20 @@ for label in "${KICK_LABELS[@]}"; do
 			launchctl print "gui/${UID_VAL}/${label}" >/dev/null 2>&1 || break
 			sleep 1
 		done
+		# 2026-07-10 incident: bootout is async at the socket layer too — the
+		# launchd label can disappear while the old process still holds the
+		# listening socket. Bootstrapping now spawns a fresh instance that meets
+		# the occupied port and yields exit(0) (transport_http.rs:330); with
+		# KeepAlive SuccessfulExit=false (PR #378) launchd never respawns it,
+		# leaving a silent permanent-down. Block until the port is released.
+		case "${label}" in
+		*-readonly) label_port="${READONLY_PORT}" ;;
+		*-mutation) label_port="${MUTATION_PORT}" ;;
+		*) label_port="" ;;
+		esac
+		if ! wait_for_port_release "${label_port}" "${PORT_RELEASE_SECS}" "${label}"; then
+			exit 4
+		fi
 		bootstrap_ok=0
 		for attempt in 1 2 3; do
 			if launchctl bootstrap "gui/${UID_VAL}" "${plist}" 2>/dev/null; then
