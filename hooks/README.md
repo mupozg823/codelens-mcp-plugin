@@ -5,6 +5,11 @@
 > **Warning:** `hooks/hooks.json` is loaded and **activated automatically** when the
 > CodeLens plugin is installed. Every hook listed here runs for all users of the
 > plugin. Keep it minimal and cheap.
+>
+> **Double-wiring:** if you registered `codelens-first.py` directly in your user
+> `settings.json` (the pre-plugin setup), remove that entry when installing the
+> plugin — otherwise the hook fires **twice** per `Grep`/`Bash` call and burns
+> the per-session advisory/deny throttle at double speed.
 
 Currently it registers one `PreToolUse` hook on two matchers: the native
 `Grep` tool, and `Bash` (for shell-invoked `grep`/`rg`):
@@ -92,11 +97,18 @@ The hook will never break your `Grep`.
 ## Manual-only helper scripts (not registered in `hooks.json`)
 
 `hooks/codelens-session-probe.sh` is a host-side `SessionStart` hook (register
-it in your own `settings.json`, not here): it injects one bounded line telling
-the model whether the CodeLens daemon is alive and whether the project is
-auto-bound via an `.mcp.json` `x-codelens-project` header. It stays **silent**
-for projects that don't use CodeLens (no `.codelens/` index and no header) —
-zero token cost outside CodeLens projects.
+it in your own `settings.json`, not here — matcher `startup|clear|compact`
+recommended): it injects one bounded line (≤350 bytes) telling the model
+whether the CodeLens daemon is alive and whether the project is auto-bound via
+an `.mcp.json` `x-codelens-project` header. Verb-routing detail is delegated to
+the host's always-on rules, not repeated here. It stays **silent** for projects
+that don't use CodeLens (no `.codelens/` index and no header) — zero token cost
+outside CodeLens projects — and also for `source: "resume"` events, which
+continue an existing context that already carries the original injection.
+Documented exception: a session started directly in `$HOME` matches the global
+`~/.codelens` data directory and does fire (unlike `codelens-first.py`, which
+excludes it as a project-index marker), because home sessions are harness work
+that does use CodeLens.
 
 `hooks/post-edit-diagnostics.sh` and `hooks/clang-linker.sh` are **opt-in
 examples**, deliberately left out of `hooks.json`. If they were auto-activated,
