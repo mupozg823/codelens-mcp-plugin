@@ -138,6 +138,12 @@ pub(super) fn prepare_harness_index_recovery(state: &AppState, arguments: &Value
     match state.symbol_index().refresh_all() {
         Ok(after) => {
             state.graph_cache().invalidate();
+            // Mirror `refresh_symbol_index`: the sparse cache's fingerprint can
+            // collide across a same-tick re-scan, so drop this project's sparse
+            // entries here too or recovery would keep serving stale symbols.
+            state
+                .sparse_symbol_cache()
+                .invalidate_project(&state.current_project_scope());
             json!({
                 "enabled": true,
                 "threshold": threshold,
@@ -155,5 +161,60 @@ pub(super) fn prepare_harness_index_recovery(state: &AppState, arguments: &Value
             "error": error.to_string(),
             "before": index_stats_payload(&before),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppState, prepare_harness_index_recovery};
+    use crate::sparse_symbol_cache::{SparseSymbolCacheKey, SparseSymbolIndexFingerprint};
+    use crate::symbol_retrieval::SparseSymbolIndex;
+    use codelens_engine::ProjectRoot;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    // Exercise the recovery refresh path end to end: an indexed file is edited
+    // on disk so `stats()` reports it stale, a sparse entry is warmed under the
+    // project scope, then recovery runs. The refresh must drop that sparse
+    // entry — the same gap `refresh_symbol_index` had at the second call site.
+    #[test]
+    fn recovery_refresh_invalidates_sparse_cache() {
+        let dir = tempfile::tempdir().expect("recovery tempdir");
+        let file = dir.path().join("lib.rs");
+        std::fs::write(&file, "fn original() {}\n").expect("write source");
+        let project = ProjectRoot::new_exact(dir.path()).expect("project root");
+        let state = AppState::new_minimal(project, crate::tool_defs::ToolPreset::Full);
+
+        // Seed the index, then edit the file so recovery sees a stale file and
+        // takes the refresh branch.
+        state.symbol_index().refresh_all().expect("initial index");
+        std::fs::write(&file, "fn original() {}\nfn added() {}\n").expect("edit source");
+
+        // Warm the sparse cache for this project scope with an arbitrary
+        // fingerprint — invalidation must clear it regardless of fingerprint.
+        let scope = state.current_project_scope();
+        let key = SparseSymbolCacheKey::new(scope.clone(), None);
+        let fingerprint = SparseSymbolIndexFingerprint::for_test(1, Some(1_000));
+        state.sparse_symbol_cache().store(
+            key.clone(),
+            fingerprint,
+            Arc::new(SparseSymbolIndex::new(Vec::new())),
+        );
+        assert!(
+            state.sparse_symbol_cache().get(&key, fingerprint).is_some(),
+            "precondition: sparse entry is warm before recovery"
+        );
+
+        let result = prepare_harness_index_recovery(&state, &json!({ "auto_refresh_stale": true }));
+
+        assert_eq!(
+            result.get("status").and_then(|v| v.as_str()),
+            Some("refreshed"),
+            "recovery must take the refresh branch for a stale file: {result}"
+        );
+        assert!(
+            state.sparse_symbol_cache().get(&key, fingerprint).is_none(),
+            "recovery refresh must invalidate the project's sparse cache"
+        );
     }
 }

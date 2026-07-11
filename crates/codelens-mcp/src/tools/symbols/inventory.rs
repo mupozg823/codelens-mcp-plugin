@@ -20,6 +20,13 @@ use serde_json::{Value, json};
 pub fn refresh_symbol_index(state: &AppState, _arguments: &Value) -> ToolResult {
     let stats = state.symbol_index().refresh_all()?;
     state.graph_cache().invalidate();
+    // A forced re-scan can land in the same wall-clock tick as the sparse
+    // cache's `(file_count, max_indexed_at)` fingerprint, which would let the
+    // BM25/ranked path keep serving the pre-refresh snapshot. Drop this
+    // project's sparse entries so the next query rebuilds from fresh symbols.
+    state
+        .sparse_symbol_cache()
+        .invalidate_project(&state.current_project_scope());
     #[cfg(feature = "semantic")]
     let mut payload = json!(stats);
     #[cfg(not(feature = "semantic"))]
