@@ -1,5 +1,12 @@
 use super::*;
 
+// 2026-07 tool-surface diet: audit_builder_session left the reviewer-graph
+// core surface, and set_profile sets the active surface, so a reviewer-graph
+// session can no longer call it. planner-readonly is a non-builder surface that
+// retains audit_builder_session, so it exercises the "not applicable for a
+// non-builder session" path with the same derived status. The codex-builder-
+// preferred case needs cleanup_duplicate_logic (now builder-only), so it runs
+// on builder-minimal. See docs/operations/tool-surface-diet-2026-07.md.
 #[test]
 fn audit_builder_session_is_not_applicable_for_non_builder_session() {
     let project = project_root();
@@ -8,7 +15,7 @@ fn audit_builder_session_is_not_applicable_for_non_builder_session() {
     let _ = call_tool_with_session(
         &state,
         "set_profile",
-        json!({"profile": "reviewer-graph"}),
+        json!({"profile": "planner-readonly"}),
         "reviewer-session",
     );
 
@@ -33,13 +40,13 @@ fn audit_builder_session_applies_to_codex_builder_preferred_tool() {
     let _ = call_tool_with_session(
         &state,
         "set_profile",
-        json!({"profile": "reviewer-graph"}),
+        json!({"profile": "builder-minimal"}),
         "codex-builder-preferred",
     );
     let _ = call_tool_with_session(
         &state,
         "prepare_harness_session",
-        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        json!({"profile": "builder-minimal", "detail": "compact"}),
         "codex-builder-preferred",
     );
     let _ = call_tool_with_session(

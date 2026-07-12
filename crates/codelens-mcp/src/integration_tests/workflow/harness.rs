@@ -158,9 +158,14 @@ fn prepare_harness_session_warns_when_diagnostics_recipe_is_missing() {
     );
 }
 
+// 2026-07 tool-surface diet: semantic_search left the reviewer-graph
+// curated core surface, so the "does not nag" assertion now targets
+// builder-minimal, which still lists semantic_search. The behaviour under
+// test — a surface that exposes semantic_search must not emit the
+// "switch surfaces" warning — is unchanged.
 #[cfg(feature = "semantic")]
 #[test]
-fn prepare_harness_session_reviewer_graph_does_not_report_semantic_surface_gap() {
+fn prepare_harness_session_builder_minimal_does_not_report_semantic_surface_gap() {
     let project = project_root();
     fs::write(
         project.as_path().join("review_surface.rs"),
@@ -172,14 +177,14 @@ fn prepare_harness_session_reviewer_graph_does_not_report_semantic_surface_gap()
     let payload = call_tool(
         &state,
         "prepare_harness_session",
-        json!({"profile": "reviewer-graph", "detail": "full"}),
+        json!({"profile": "builder-minimal", "detail": "full"}),
     );
 
     assert_eq!(payload["success"], json!(true));
     assert_ne!(
         payload["data"]["capabilities"]["semantic_search_status"],
         json!("not_in_active_surface"),
-        "reviewer-graph should expose semantic_search; any semantic warning should be about assets or index state"
+        "builder-minimal should expose semantic_search; any semantic warning should be about assets or index state"
     );
     assert!(
         !payload["data"]["warnings"]
@@ -190,7 +195,7 @@ fn prepare_harness_session_reviewer_graph_does_not_report_semantic_surface_gap()
                     .any(|warning| warning["code"] == "semantic_not_in_active_surface")
             })
             .unwrap_or(false),
-        "prepare_harness_session must not tell reviewer-graph users to switch surfaces for semantic_search"
+        "prepare_harness_session must not tell builder-minimal users to switch surfaces for semantic_search"
     );
 }
 
@@ -895,7 +900,7 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
             "detail": "compact",
             "preferred_entrypoints": [
                 "review_changes",
-                "refresh_symbol_index",
+                "get_callers",
                 "this_tool_does_not_exist_xyz",
             ],
         }),
@@ -929,11 +934,11 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
         omitted_entrypoints,
         &vec![
             json!({
-                "tool": "refresh_symbol_index",
+                "tool": "get_callers",
                 "reason": "not_in_active_surface",
                 "recommended_action": "switch_tool_surface",
                 "preferred_executor": "any",
-                "tool_tier": "workflow",
+                "tool_tier": "analysis",
                 "recommended_profile": "builder",
                 "included_in": [
                     "preset:balanced",
@@ -1031,7 +1036,7 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
             "preferred_entrypoints": [
                 "review_changes",
                 "diff_aware_references",
-                "refresh_symbol_index",
+                "get_callers",
             ],
         }),
     );
@@ -1082,7 +1087,7 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
 
     let hidden_surface_tool = omitted
         .iter()
-        .find(|entry| entry["tool"] == "refresh_symbol_index")
+        .find(|entry| entry["tool"] == "get_callers")
         .expect("tool outside reviewer-graph");
     assert_eq!(
         hidden_surface_tool["reason"],
@@ -1109,7 +1114,7 @@ fn prepare_harness_session_normalizes_mcp_prefixed_entrypoints() {
             "detail": "compact",
             "preferred_entrypoints": [
                 "mcp__codelens__review_changes",
-                "mcp__codelens__refresh_symbol_index",
+                "mcp__codelens__get_callers",
                 "mcp__codelens__this_tool_does_not_exist_xyz",
             ],
         }),
@@ -1133,11 +1138,11 @@ fn prepare_harness_session_normalizes_mcp_prefixed_entrypoints() {
         .expect("preferred_entrypoints_omitted array");
     let hidden_surface_tool = omitted
         .iter()
-        .find(|entry| entry["tool"] == "refresh_symbol_index")
+        .find(|entry| entry["tool"] == "get_callers")
         .expect("known hidden entrypoint should be normalized");
     assert_eq!(
         hidden_surface_tool["requested_tool"],
-        json!("mcp__codelens__refresh_symbol_index")
+        json!("mcp__codelens__get_callers")
     );
     assert_eq!(
         hidden_surface_tool["reason"],
@@ -1184,7 +1189,7 @@ fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_field
                     "detail": "compact",
                     "preferred_entrypoints": [
                         "review_changes",
-                        "refresh_symbol_index",
+                        "get_callers",
                         "this_tool_does_not_exist_xyz",
                     ],
                 }
@@ -1219,11 +1224,11 @@ fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_field
         data["routing"]["preferred_entrypoints_omitted"],
         json!([
             {
-                "tool": "refresh_symbol_index",
+                "tool": "get_callers",
                 "reason": "not_in_active_surface",
                 "recommended_action": "switch_tool_surface",
                 "preferred_executor": "any",
-                "tool_tier": "workflow",
+                "tool_tier": "analysis",
                 "included_in": [
                     "preset:balanced",
                     "preset:full",

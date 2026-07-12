@@ -53,16 +53,21 @@ fn eval_session_audit_routes_codex_builder_preferred_tool_to_builder_lane() {
     .unwrap();
     let state = make_state(&project);
 
+    // 2026-07 tool-surface diet: cleanup_duplicate_logic is builder-only, so
+    // the audited session runs on builder-minimal (records the codex-builder-
+    // preferred tool → routed to the builder lane). get_analysis_section left
+    // reviewer-graph and is planner-only now, so switch to planner-readonly
+    // before reading the analysis sections.
     let _ = call_tool_with_session(
         &state,
         "set_profile",
-        json!({"profile": "reviewer-graph"}),
+        json!({"profile": "builder-minimal"}),
         "eval-codex-builder-preferred",
     );
     let _ = call_tool_with_session(
         &state,
         "prepare_harness_session",
-        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        json!({"profile": "builder-minimal", "detail": "compact"}),
         "eval-codex-builder-preferred",
     );
     let _ = call_tool_with_session(
@@ -74,6 +79,12 @@ fn eval_session_audit_routes_codex_builder_preferred_tool_to_builder_lane() {
 
     let (payload, _) = crate::tools::reports::eval_session_audit(&state, &json!({})).unwrap();
     let analysis_id = payload["analysis_id"].as_str().unwrap();
+
+    let _ = call_tool(
+        &state,
+        "set_profile",
+        json!({"profile": "planner-readonly"}),
+    );
 
     let summary = call_tool(
         &state,

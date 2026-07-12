@@ -66,7 +66,7 @@ CodeLens는 host가 대화를 소유하고, `codelens-mcp`가 MCP tool 표면과
 - Registered tool definitions: `100`
 - Tool output schemas: `57 / 100`
 - Supported language families: `34` across `56` extensions
-- Profiles: `readonly` (44), `builder` (43), `review` (48)
+- Profiles: `readonly` (44), `builder` (43), `review` (20)
 - Presets: `minimal` (26), `balanced` (82), `full` (95)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 

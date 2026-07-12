@@ -316,31 +316,55 @@ fn tools_list_resource_summary_matches_default_tools_list_count() {
     );
 }
 
+fn graph_namespace_listing(state: &crate::AppState) -> String {
+    let list_resp = handle_request(
+        state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(102)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"namespace": "graph"})),
+        },
+    )
+    .unwrap();
+    serde_json::to_string(&list_resp).unwrap()
+}
+
 #[test]
 fn graph_profiles_expose_call_graph_primitives_by_namespace() {
-    for profile in ["reviewer-graph", "refactor-full", "ci-audit"] {
+    // refactor-full canonicalizes to the builder surface, which still
+    // lists the raw call-graph primitives directly.
+    {
         let project = project_root();
         let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
-        let _ = call_tool(&state, "set_profile", json!({"profile": profile}));
-
-        let list_resp = handle_request(
-            &state,
-            crate::protocol::JsonRpcRequest {
-                jsonrpc: "2.0".to_owned(),
-                id: Some(json!(102)),
-                method: "tools/list".to_owned(),
-                params: Some(json!({"namespace": "graph"})),
-            },
-        )
-        .unwrap();
-        let encoded = serde_json::to_string(&list_resp).unwrap();
+        let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+        let encoded = graph_namespace_listing(&state);
         assert!(
             encoded.contains("\"get_callers\""),
-            "{profile} graph namespace should include get_callers"
+            "refactor-full graph namespace should include get_callers"
         );
         assert!(
             encoded.contains("\"get_callees\""),
-            "{profile} graph namespace should include get_callees"
+            "refactor-full graph namespace should include get_callees"
+        );
+        assert!(!encoded.contains("\"find_symbol\""));
+    }
+
+    // reviewer-graph / ci-audit are the curated core surface (2026-07
+    // tool-surface diet): the `graph` verb façade is the listed call-graph
+    // entrypoint, while raw get_callers/get_callees stay dispatch-only.
+    for profile in ["reviewer-graph", "ci-audit"] {
+        let project = project_root();
+        let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+        let _ = call_tool(&state, "set_profile", json!({"profile": profile}));
+        let encoded = graph_namespace_listing(&state);
+        assert!(
+            encoded.contains("\"name\":\"graph\""),
+            "{profile} graph namespace should expose the graph verb façade"
+        );
+        assert!(
+            !encoded.contains("\"get_callers\""),
+            "{profile} core surface should not list raw get_callers after the 2026-07 diet"
         );
         assert!(!encoded.contains("\"find_symbol\""));
     }
@@ -602,7 +626,10 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     assert!(encoded.contains("\"name\":\"review\""));
     assert!(encoded.contains("\"name\":\"graph\""));
     assert!(encoded.contains("\"name\":\"diagnose\""));
-    assert!(encoded.contains("\"cleanup_duplicate_logic\""));
+    // cleanup_duplicate_logic left the reviewer-graph core surface (2026-07
+    // diet), so it is no longer in the reviewer bootstrap slice; the retained
+    // bootstrap member prepare_harness_session still anchors the deferred list.
+    assert!(encoded.contains("\"name\":\"prepare_harness_session\""));
     assert!(!encoded.contains("\"analyze_change_impact\""));
     assert!(!encoded.contains("\"audit_security_context\""));
     assert!(!encoded.contains("\"find_symbol\""));
@@ -780,8 +807,11 @@ fn tools_list_exposes_preferred_executor_per_tool() {
 fn tools_list_exposes_schema_refresh_identity_for_dogfood() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    // builder-minimal still lists cleanup_duplicate_logic (it left the
+    // reviewer-graph core surface in the 2026-07 diet); this test only needs
+    // a surface that exposes the tool to verify its refreshed input schema.
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
-        crate::tool_defs::ToolProfile::ReviewerGraph,
+        crate::tool_defs::ToolProfile::BuilderMinimal,
     ));
 
     let response = handle_request(

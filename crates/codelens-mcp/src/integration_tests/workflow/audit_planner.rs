@@ -1,5 +1,13 @@
 use super::*;
 
+// 2026-07 tool-surface diet: audit_planner_session (and set_profile) left the
+// reviewer-graph core surface. set_profile sets the active surface, so a test
+// that switches to reviewer-graph can no longer call audit_planner_session
+// (blocked as "not_in_active_surface"). These audits target the planner path,
+// and audit classification is surface-label based (is_planner_surface treats
+// "readonly" and "review" identically), so the planner-readonly surface —
+// which retains audit_planner_session — exercises the same logic with the same
+// derived status. See docs/operations/tool-surface-diet-2026-07.md.
 #[test]
 fn audit_planner_session_is_not_applicable_for_non_planner_session() {
     let project = project_root();
@@ -75,7 +83,7 @@ fn audit_planner_session_warns_when_bootstrap_is_missing() {
     let _ = call_tool_with_session(
         &state,
         "set_profile",
-        json!({"profile": "reviewer-graph"}),
+        json!({"profile": "planner-readonly"}),
         "planner-warn",
     );
     let _ = call_tool_with_session(
@@ -115,13 +123,13 @@ fn audit_planner_session_warns_when_change_evidence_is_missing() {
     let _ = call_tool_with_session(
         &state,
         "set_profile",
-        json!({"profile": "reviewer-graph"}),
+        json!({"profile": "planner-readonly"}),
         "planner-change-evidence",
     );
     let _ = call_tool_with_session(
         &state,
         "prepare_harness_session",
-        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        json!({"profile": "planner-readonly", "detail": "compact"}),
         "planner-change-evidence",
     );
     let _ = call_tool_with_session(
@@ -160,13 +168,13 @@ fn audit_planner_session_counts_composite_workflow_as_read_side_evidence() {
     let _ = call_tool_with_session(
         &state,
         "set_profile",
-        json!({"profile": "reviewer-graph"}),
+        json!({"profile": "planner-readonly"}),
         "planner-composite-evidence",
     );
     let _ = call_tool_with_session(
         &state,
         "prepare_harness_session",
-        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        json!({"profile": "planner-readonly", "detail": "compact"}),
         "planner-composite-evidence",
     );
     let _ = call_tool_with_session(
@@ -253,7 +261,7 @@ fn audit_planner_session_fails_on_mutation_attempt() {
     let _ = call_tool_with_session(
         &state,
         "set_profile",
-        json!({"profile": "reviewer-graph"}),
+        json!({"profile": "planner-readonly"}),
         "planner-fail",
     );
     let payload = call_tool_with_session(
@@ -348,16 +356,18 @@ fn export_session_markdown_appends_planner_audit_summary() {
     fs::write(project.as_path().join("planner_md.py"), "print('md')\n").unwrap();
     let state = make_state(&project);
 
+    // planner-readonly records planner-surface activity for the audited
+    // session (its last timeline surface drives the "## Planner Audit" title).
     let _ = call_tool_with_session(
         &state,
         "set_profile",
-        json!({"profile": "reviewer-graph"}),
+        json!({"profile": "planner-readonly"}),
         "planner-md",
     );
     let _ = call_tool_with_session(
         &state,
         "prepare_harness_session",
-        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        json!({"profile": "planner-readonly", "detail": "compact"}),
         "planner-md",
     );
     let _ = call_tool_with_session(
@@ -372,6 +382,12 @@ fn export_session_markdown_appends_planner_audit_summary() {
         json!({"changed_files": ["planner_md.py"], "task": "review markdown"}),
         "planner-md",
     );
+
+    // export_session_markdown left the reviewer/planner surfaces in the 2026-07
+    // diet (builder-only now), so switch the calling surface to builder-minimal
+    // before exporting. The audited session keeps its planner timeline, so the
+    // export still emits a "## Planner Audit" section.
+    let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
     let markdown = call_tool(
         &state,

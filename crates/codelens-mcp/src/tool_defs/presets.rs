@@ -336,70 +336,48 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "verify_change_readiness",
 ];
 
+// Curated default `review` surface (:7839) — the core set from the
+// 2026-07 tool-surface diet, step 1. Reduced from 49 → 20 to match the
+// 14-day usage telemetry (docs/operations/tool-surface-diet-2026-07.md).
+//
+// Reversible and non-destructive: the 33 tools dropped here are NOT
+// deleted — their tools.toml definitions and dispatch arms stay intact,
+// so every one remains callable via `tools/call`; they are simply no
+// longer advertised on the default listed surface. The paired
+// `preset_tags["reviewer-graph"]` entries in tools.toml are kept in
+// lockstep so `regen-tool-defs.py::validate_preset_tags` stays green.
+//
+// Composition is locked by
+// `reviewer_graph_core_surface_contains_alwaysload_and_verb_facades`:
+//   - 5 canonical verb façades (named by the codelens-first hook deny
+//     message + rules/harness.md — hiding them would break that guidance)
+//   - 9 always-load entrypoints (v1.13.34 CHANGELOG)
+//   - 6 change-safety / diagnostics tools kept by the usage +
+//     "change safety" strategy axis
 pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
-    // Verb facades (Phase-1/2 read-only consolidation)
+    // Verb facades (canonical mode-routing entrypoints)
     "search",
     "graph",
-    "review",
     "overview",
     "diagnose",
-    "analyze",
-    // Session
-    "activate_project",
+    "review",
+    // Always-load spine (bootstrap + precision ladder + change safety)
     "prepare_harness_session",
-    "register_agent_work",
-    "list_active_agents",
-    "claim_files",
-    "release_files",
-    "get_current_config",
-    "set_profile",
-    "set_preset",
-    "audit_builder_session",
-    "audit_planner_session",
-    "export_session_markdown",
-    // Workflow-first entrypoints
-    "review_architecture",
-    "cleanup_duplicate_logic",
+    "explore_codebase",
     "review_changes",
-    "diagnose_issues",
-    // Symbol exploration
+    "review_architecture",
+    "verify_change_readiness",
     "find_symbol",
+    "find_referencing_symbols",
     "get_symbols_overview",
     "get_ranked_context",
-    "find_referencing_symbols",
-    // #350: target of find_symbol / D1-trio fallback hints — must be
-    // present wherever those emitters are, or the hint chain dead-ends.
-    "bm25_symbol_search",
-    "find_scoped_references",
-    // Reviewer sessions need NL retrieval for architecture and risk
-    // evidence. Deferred loading still keeps it out of the initial
-    // tool prompt unless the host loads the symbols namespace/tier.
-    "semantic_search",
-    "embedding_coverage_report",
-    "index_embeddings",
-    // Diagnostics
+    // Change-safety + diagnostics core
     "get_file_diagnostics",
-    // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
-    "find_declaration",
-    "find_implementations",
-    "get_diagnostics_for_symbol",
-    // Graph / impact
-    "get_callers",
-    "get_callees",
-    "get_changed_files",
-    // Workflow composites
-    "orchestrate_change",
-    "analyze_change_request",
     "impact_report",
-    "refactor_safety_report",
-    "verify_change_readiness",
     "diff_aware_references",
-    "module_boundary_report",
-    "mermaid_module_graph",
-    // Async analysis
-    "start_analysis_job",
-    "get_analysis_job",
-    "get_analysis_section",
+    "safe_rename_report",
+    "refresh_symbol_index",
+    "get_capabilities",
 ];
 
 // ── Deprecated profile tool lists removed (v1.13.27 diet).
@@ -516,6 +494,14 @@ mod deprecation_tests {
     /// (find_symbol miss hint, the D1 LSP read trio) must also expose
     /// the hint targets, or the suggested recovery chain dead-ends on
     /// "not available in active surface".
+    ///
+    /// Scope note (2026-07 tool-surface diet): the reviewer-graph surface
+    /// is intentionally exempt from this invariant. It is now the curated
+    /// core-20 default where the recovery targets (`bm25_symbol_search`,
+    /// the D1 LSP trio) are dropped from the *listed* surface but stay
+    /// callable via `tools/call` — the hint chain resolves through
+    /// dispatch, not the listing. The invariant still holds for the
+    /// planner/builder surfaces, which keep the full emitter+target set.
     #[test]
     fn fallback_hint_targets_are_present_wherever_their_emitters_are() {
         const EMITTERS: &[&str] = &["find_symbol", "find_declaration", "find_implementations"];
@@ -523,7 +509,6 @@ mod deprecation_tests {
         for (label, surface) in [
             ("planner-readonly", PLANNER_READONLY_TOOLS),
             ("builder-minimal", BUILDER_MINIMAL_TOOLS),
-            ("reviewer-graph", REVIEWER_GRAPH_TOOLS),
         ] {
             let has_emitter = EMITTERS.iter().any(|tool| surface.contains(tool));
             assert!(has_emitter, "{label} unexpectedly lost all hint emitters");
@@ -534,5 +519,50 @@ mod deprecation_tests {
                 );
             }
         }
+    }
+
+    /// 2026-07 tool-surface diet, step 1: the default `review` surface is
+    /// the curated core-20. Lock its composition so a later edit can't
+    /// silently drop an always-load entrypoint or a canonical verb façade
+    /// (both are load-bearing — always-load per the v1.13.34 CHANGELOG,
+    /// verbs per the codelens-first hook + rules/harness.md guidance), and
+    /// so the diet cap of 20 holds.
+    #[test]
+    fn reviewer_graph_core_surface_contains_alwaysload_and_verb_facades() {
+        const ALWAYS_LOAD: &[&str] = &[
+            "prepare_harness_session",
+            "explore_codebase",
+            "review_changes",
+            "review_architecture",
+            "verify_change_readiness",
+            "find_symbol",
+            "find_referencing_symbols",
+            "get_symbols_overview",
+            "get_ranked_context",
+        ];
+        const VERB_FACADES: &[&str] = &["search", "graph", "overview", "diagnose", "review"];
+        for tool in ALWAYS_LOAD {
+            assert!(
+                REVIEWER_GRAPH_TOOLS.contains(tool),
+                "core review surface must retain always-load entrypoint `{tool}`"
+            );
+        }
+        for verb in VERB_FACADES {
+            assert!(
+                REVIEWER_GRAPH_TOOLS.contains(verb),
+                "core review surface must retain canonical verb façade `{verb}`"
+            );
+        }
+        assert!(
+            REVIEWER_GRAPH_TOOLS.len() <= 20,
+            "core review surface must stay within the diet cap of 20 (got {})",
+            REVIEWER_GRAPH_TOOLS.len()
+        );
+        let unique: std::collections::BTreeSet<_> = REVIEWER_GRAPH_TOOLS.iter().collect();
+        assert_eq!(
+            unique.len(),
+            REVIEWER_GRAPH_TOOLS.len(),
+            "core review surface has duplicate entries"
+        );
     }
 }

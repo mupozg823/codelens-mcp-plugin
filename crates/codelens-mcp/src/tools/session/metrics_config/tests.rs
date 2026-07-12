@@ -114,19 +114,20 @@ fn semantic_search_status_is_available_only_for_available_variant() {
     assert!(!SemanticSearchStatus::FeatureDisabled.is_available());
 }
 
-/// Phase 4a AC4: core Codex profiles must now expose
+/// Phase 4a AC4: the planner/builder profiles must expose
 /// `semantic_search` and `index_embeddings`. This guards against
 /// accidental removal in future preset edits.
+///
+/// reviewer-graph is intentionally excluded as of the 2026-07 tool-surface
+/// diet: NL retrieval left its curated core-20 listed surface (still
+/// callable via `tools/call`), so the "must expose" invariant now covers
+/// only the two surfaces that keep semantic_search listed.
 #[cfg(feature = "semantic")]
 #[test]
 fn core_codex_profiles_expose_semantic_search() {
     use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
 
-    for profile in [
-        ToolProfile::PlannerReadonly,
-        ToolProfile::BuilderMinimal,
-        ToolProfile::ReviewerGraph,
-    ] {
+    for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
         let surface = ToolSurface::Profile(profile);
         assert!(
             is_tool_in_surface("semantic_search", surface),

@@ -1349,11 +1349,10 @@ fn lsp_read_trio_visible_on_read_surfaces() {
             crate::tool_defs::tools().iter().any(|t| t.name == name),
             "{name} must be registered in tools.toml"
         );
-        for profile in [
-            ToolProfile::PlannerReadonly,
-            ToolProfile::ReviewerGraph,
-            ToolProfile::BuilderMinimal,
-        ] {
+        // 2026-07 tool-surface diet: the LSP read trio left the curated
+        // reviewer-graph core-20 (still callable via tools/call), so the
+        // "visible on read surface" invariant now covers planner + builder.
+        for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
             assert!(
                 is_tool_in_surface(name, ToolSurface::Profile(profile)),
                 "{name} must be visible on {profile:?}"

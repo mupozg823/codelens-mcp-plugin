@@ -99,8 +99,11 @@ fn extras_warning_ignores_non_object_extras() {
 
 #[test]
 fn refresh_index_remediation_marks_hidden_tool_uncallable() {
+    // planner-readonly is the surface that hides refresh_symbol_index: the
+    // 2026-07 tool-surface diet added it to the reviewer-graph core, so the
+    // "not_in_active_surface" remediation path is now exercised via planner.
     let remediation = refresh_symbol_index_remediation_for_surface(
-        ToolSurface::Profile(ToolProfile::ReviewerGraph),
+        ToolSurface::Profile(ToolProfile::PlannerReadonly),
         RefreshSymbolIndexRemediation::StaleOnly,
     );
 
@@ -126,7 +129,7 @@ fn refresh_index_remediation_marks_hidden_tool_uncallable() {
         remediation["tool_call"]["reason"],
         json!("not_in_active_surface")
     );
-    assert_eq!(remediation["tool_call"]["surface"], json!("review"));
+    assert_eq!(remediation["tool_call"]["surface"], json!("readonly"));
 }
 
 #[test]
@@ -154,9 +157,11 @@ fn refresh_index_recommended_action_matches_surface_callability() {
         )),
         "refresh_symbol_index"
     );
+    // planner-readonly hides refresh_symbol_index after the 2026-07 diet
+    // (it now lives on the reviewer-graph core surface).
     assert_eq!(
         refresh_symbol_index_recommended_action_for_surface(ToolSurface::Profile(
-            ToolProfile::ReviewerGraph
+            ToolProfile::PlannerReadonly
         )),
         "run_reindex_command"
     );

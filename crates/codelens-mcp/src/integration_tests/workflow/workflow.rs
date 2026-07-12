@@ -38,9 +38,12 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
         .map(|tool| tool.name)
         .take(4)
         .collect::<Vec<_>>();
+    // 2026-07 tool-surface diet: cleanup_duplicate_logic left the reviewer
+    // core surface, so the bootstrap-ranked front is now the three verb
+    // façades followed by prepare_harness_session.
     assert_eq!(
         reviewer_tools,
-        vec!["review", "graph", "diagnose", "cleanup_duplicate_logic"]
+        vec!["review", "graph", "diagnose", "prepare_harness_session"]
     );
 }
 
