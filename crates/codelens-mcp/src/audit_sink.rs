@@ -47,7 +47,7 @@ pub struct AuditRecord {
     pub session_metadata: Option<serde_json::Value>,
 }
 
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 6;
 
 const CREATE_SQL: &str = "
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -75,17 +75,6 @@ WHEN NEW.apply_status NOT IN ('verifying', 'applied', 'rolled_back', 'no_op', 'd
 BEGIN
     SELECT RAISE(ABORT, 'invalid audit lifecycle value');
 END;
-
-CREATE TABLE IF NOT EXISTS memory_audit_log (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    event       TEXT NOT NULL,
-    tier        TEXT NOT NULL,
-    path        TEXT NOT NULL,
-    timestamp_ms INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_memory_audit_tier ON memory_audit_log(tier);
-CREATE INDEX IF NOT EXISTS idx_memory_audit_ts ON memory_audit_log(timestamp_ms);
 ";
 
 /// Append-only audit log backed by SQLite.
@@ -254,36 +243,6 @@ impl AuditSink {
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
-
-    /// Record a memory lifecycle event into the `memory_audit_log` table.
-    pub fn record_memory_event(
-        &self,
-        event: &codelens_engine::memory::MemoryAuditEvent,
-    ) -> Result<()> {
-        use codelens_engine::memory::MemoryAuditEvent;
-        let (event_type, tier, path) = match event {
-            MemoryAuditEvent::Created { tier, path } => ("Created", tier.as_str(), path.as_str()),
-            MemoryAuditEvent::Updated { tier, path } => ("Updated", tier.as_str(), path.as_str()),
-            MemoryAuditEvent::Deleted { tier, path } => ("Deleted", tier.as_str(), path.as_str()),
-            MemoryAuditEvent::Archived { tier, path } => ("Archived", tier.as_str(), path.as_str()),
-            MemoryAuditEvent::Restored { tier, path } => ("Restored", tier.as_str(), path.as_str()),
-        };
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("audit_log mutex poisoned: {e}"))?;
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-        conn.execute(
-            "INSERT INTO memory_audit_log (event, tier, path, timestamp_ms)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![event_type, tier, path, now_ms],
-        )
-        .with_context(|| format!("failed to record memory audit event: {event_type}"))?;
-        Ok(())
-    }
 }
 
 fn validate_record(record: &AuditRecord) -> Result<()> {
@@ -316,16 +275,6 @@ fn validate_record(record: &AuditRecord) -> Result<()> {
             record.state_from,
             record.state_to
         )
-    }
-}
-
-/// Implement AuditRecorder for AuditSink so the engine can record
-/// memory lifecycle events without a direct dependency on the MCP crate.
-impl codelens_engine::memory::AuditRecorder for AuditSink {
-    fn record(&self, event: &codelens_engine::memory::MemoryAuditEvent) {
-        if let Err(e) = self.record_memory_event(event) {
-            tracing::warn!(error = %e, "failed to record memory audit event");
-        }
     }
 }
 
@@ -418,6 +367,15 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
                      CREATE INDEX IF NOT EXISTS idx_audit_log_operation ON audit_log(operation_id);",
                 )
                 .context("failed to migrate audit operation-id index")?;
+            }
+            5 => {
+                // v5 → v6: drop the retired memory_audit_log table. The
+                // memory lifecycle audit path was never wired to any
+                // producer, so the table and its indexes are removed.
+                // DROP TABLE cascades to the table's indexes; other audit
+                // tables and their rows are untouched.
+                conn.execute_batch("DROP TABLE IF EXISTS memory_audit_log;")
+                    .context("failed to drop retired memory_audit_log table")?;
             }
             other => anyhow::bail!(
                 "audit_log schema at unexpected version {other}; current code targets {SCHEMA_VERSION}"
@@ -672,5 +630,86 @@ mod tests {
         }
         let rows = sink.query(None, None, 1000).expect("query ok");
         assert_eq!(rows.len(), 100);
+    }
+
+    #[test]
+    fn migration_v5_to_v6_drops_memory_audit_log_and_preserves_audit_data() {
+        // A v5 database still carries the retired memory_audit_log table.
+        // Opening it must migrate to v6: drop that table while leaving
+        // audit_log and its rows untouched.
+        let dir = temp_audit_dir("migrate-v6-drop");
+        let db_path = dir.join("audit_log.sqlite");
+        {
+            let conn = Connection::open(&db_path).expect("seed open");
+            conn.execute_batch(
+                "CREATE TABLE audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_id TEXT NOT NULL,
+                    timestamp_ms INTEGER NOT NULL,
+                    principal TEXT,
+                    tool TEXT NOT NULL,
+                    args_hash TEXT NOT NULL,
+                    apply_status TEXT NOT NULL,
+                    state_from TEXT,
+                    state_to TEXT NOT NULL,
+                    evidence_hash TEXT,
+                    rollback_restored INTEGER,
+                    error_message TEXT,
+                    session_metadata TEXT
+                );
+                CREATE TABLE memory_audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event TEXT NOT NULL,
+                    tier TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    timestamp_ms INTEGER NOT NULL
+                );
+                PRAGMA user_version = 5;",
+            )
+            .expect("seed v5 schema");
+            conn.execute(
+                "INSERT INTO audit_log \
+                 (operation_id, timestamp_ms, tool, args_hash, apply_status, state_to) \
+                 VALUES ('op-keep', 1700000000000, 'replace_lines', 'deadbeef', 'applied', 'Audited')",
+                [],
+            )
+            .expect("seed audit row");
+            conn.execute(
+                "INSERT INTO memory_audit_log (event, tier, path, timestamp_ms) \
+                 VALUES ('Created', 'project', '/mem/x.md', 1700000000000)",
+                [],
+            )
+            .expect("seed memory audit row");
+        }
+
+        let sink = AuditSink::open(&dir).expect("open migrates v5 -> v6");
+        let conn = sink.conn.lock().expect("lock conn");
+
+        let memory_table_count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='memory_audit_log'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("count memory_audit_log");
+        assert_eq!(
+            memory_table_count, 0,
+            "memory_audit_log must be dropped at v6"
+        );
+
+        let audit_rows: i64 = conn
+            .query_row("SELECT count(*) FROM audit_log", [], |r| r.get(0))
+            .expect("count audit_log");
+        assert_eq!(audit_rows, 1, "existing audit_log rows must be preserved");
+
+        let preserved_op: String = conn
+            .query_row("SELECT operation_id FROM audit_log", [], |r| r.get(0))
+            .expect("read preserved row");
+        assert_eq!(preserved_op, "op-keep");
+
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .expect("read user_version");
+        assert_eq!(version, 6, "schema should be upgraded to v6");
     }
 }

@@ -2,20 +2,10 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 
-use super::audit::{AuditRecorder, MemoryAuditEvent};
-use super::paths::{MemoryTier, collect_memory_files, resolve_memory_path};
+use super::paths::{collect_memory_files, resolve_memory_path};
 use super::policy::{ARCHIVE_DIRNAME, MemoryPolicy};
 
 pub fn archive_memory(memories_dir: &Path, name: &str) -> Result<()> {
-    archive_memory_rec(memories_dir, name, None)
-}
-
-/// Archive a memory entry with optional audit recording.
-pub fn archive_memory_rec(
-    memories_dir: &Path,
-    name: &str,
-    recorder: Option<&dyn AuditRecorder>,
-) -> Result<()> {
     let policy = MemoryPolicy::load(memories_dir);
     if policy.is_read_only(name) {
         bail!("memory '{name}' is read-only and cannot be archived");
@@ -30,14 +20,7 @@ pub fn archive_memory_rec(
     if dest.exists() {
         bail!("archive already contains an entry for: {name}");
     }
-    let path_str = source.to_string_lossy().to_string();
     std::fs::rename(&source, &dest)?;
-    if let Some(rec) = recorder {
-        rec.record(&MemoryAuditEvent::Archived {
-            tier: MemoryTier::Project,
-            path: path_str,
-        });
-    }
     Ok(())
 }
 
@@ -57,17 +40,7 @@ pub fn list_archived(memories_dir: &Path) -> Result<Vec<String>> {
 }
 
 /// Restore an archived memory entry.
-/// Records an audit event via `recorder` when provided.
 pub fn restore_archived(memories_dir: &Path, name: &str) -> Result<()> {
-    restore_archived_rec(memories_dir, name, None)
-}
-
-/// Restore an archived memory entry with optional audit recording.
-pub fn restore_archived_rec(
-    memories_dir: &Path,
-    name: &str,
-    recorder: Option<&dyn AuditRecorder>,
-) -> Result<()> {
     let short_name = name.trim_start_matches("archived/");
     let archive_dir = memories_dir.join(ARCHIVE_DIRNAME);
     let source = resolve_memory_path(&archive_dir, short_name)?;
@@ -78,13 +51,6 @@ pub fn restore_archived_rec(
     if dest.exists() {
         bail!("a memory with the name '{short_name}' already exists; delete it first");
     }
-    let path_str = dest.to_string_lossy().to_string();
     std::fs::rename(&source, &dest)?;
-    if let Some(rec) = recorder {
-        rec.record(&MemoryAuditEvent::Restored {
-            tier: MemoryTier::Project,
-            path: path_str,
-        });
-    }
     Ok(())
 }

@@ -2,7 +2,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
-use super::audit::{AuditRecorder, MemoryAuditEvent};
 use super::frontmatter::{MemoryMetadata, parse_frontmatter};
 use super::paths::{MemoryTier, collect_memory_files, resolve_memory_path, resolve_memory_tier};
 use super::policy::{MemoryPolicy, POLICY_FILE_BASENAME, POLICY_FILENAME};
@@ -146,23 +145,11 @@ pub fn write_memory(memories_dir: &Path, name: &str, content: &str) -> Result<()
 }
 
 /// Write content to a memory file, resolving the tier automatically.
-/// Records an audit event via `recorder` when provided.
 pub fn write_memory_tiered(
     project_dir: &Path,
     global_dir: Option<&Path>,
     name: &str,
     content: &str,
-) -> Result<MemoryTier> {
-    write_memory_tiered_rec(project_dir, global_dir, name, content, None)
-}
-
-/// Write content to a memory file with optional audit recording.
-pub fn write_memory_tiered_rec(
-    project_dir: &Path,
-    global_dir: Option<&Path>,
-    name: &str,
-    content: &str,
-    recorder: Option<&dyn AuditRecorder>,
 ) -> Result<MemoryTier> {
     // Explicit global prefix
     let (effective_name, force_tier) = if let Some(stripped) = name.strip_prefix("global/") {
@@ -191,22 +178,7 @@ pub fn write_memory_tiered_rec(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let is_new = !path.exists();
     std::fs::write(&path, content)?;
-    if let Some(rec) = recorder {
-        let event = if is_new {
-            MemoryAuditEvent::Created {
-                tier: loc.tier,
-                path: path.to_string_lossy().to_string(),
-            }
-        } else {
-            MemoryAuditEvent::Updated {
-                tier: loc.tier,
-                path: path.to_string_lossy().to_string(),
-            }
-        };
-        rec.record(&event);
-    }
     Ok(loc.tier)
 }
 
@@ -228,21 +200,10 @@ pub fn delete_memory(memories_dir: &Path, name: &str) -> Result<()> {
 }
 
 /// Delete a memory file from the appropriate tier.
-/// Records an audit event via `recorder` when provided.
 pub fn delete_memory_tiered(
     project_dir: &Path,
     global_dir: Option<&Path>,
     name: &str,
-) -> Result<MemoryTier> {
-    delete_memory_tiered_rec(project_dir, global_dir, name, None)
-}
-
-/// Delete a memory file from the appropriate tier with optional audit recording.
-pub fn delete_memory_tiered_rec(
-    project_dir: &Path,
-    global_dir: Option<&Path>,
-    name: &str,
-    recorder: Option<&dyn AuditRecorder>,
 ) -> Result<MemoryTier> {
     let effective_name = name.trim_start_matches("global/");
     let loc = resolve_memory_tier(name, project_dir, global_dir);
@@ -256,14 +217,7 @@ pub fn delete_memory_tiered_rec(
     if !loc.path.is_file() {
         bail!("memory not found: {}", effective_name);
     }
-    let path_str = loc.path.to_string_lossy().to_string();
     std::fs::remove_file(&loc.path)?;
-    if let Some(rec) = recorder {
-        rec.record(&MemoryAuditEvent::Deleted {
-            tier: loc.tier,
-            path: path_str,
-        });
-    }
     Ok(loc.tier)
 }
 
