@@ -180,35 +180,33 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
 
     // Try SCIP diagnostics first (if available).
     #[cfg(feature = "scip-backend")]
-    if let Some(backend) = state.scip() {
-        use codelens_engine::PreciseBackend as _;
-        if let Ok(scip_diags) = backend.diagnostics(&file_path)
-            && !scip_diags.is_empty()
-        {
-            let limited: Vec<_> = scip_diags.into_iter().take(max_results).collect();
-            let count = limited.len();
-            let diags_json: Vec<serde_json::Value> = limited
-                .iter()
-                .map(|d| {
-                    json!({
-                        "file_path": d.file_path,
-                        "line": d.line,
-                        "column": d.column,
-                        "severity": format!("{:?}", d.severity),
-                        "message": d.message,
-                        "source": "scip",
-                        "code": d.code,
-                    })
+    if let Some(backend) = state.scip()
+        && let Ok(scip_diags) = backend.diagnostics(&file_path)
+        && !scip_diags.is_empty()
+    {
+        let limited: Vec<_> = scip_diags.into_iter().take(max_results).collect();
+        let count = limited.len();
+        let diags_json: Vec<serde_json::Value> = limited
+            .iter()
+            .map(|d| {
+                json!({
+                    "file_path": d.file_path,
+                    "line": d.line,
+                    "column": d.column,
+                    "severity": format!("{:?}", d.severity),
+                    "message": d.message,
+                    "source": "scip",
+                    "code": d.code,
                 })
-                .collect();
-            let mut payload = json!({
-                "diagnostics": diags_json,
-                "count": count,
-                "backend": "scip",
-            });
-            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
-            return Ok((payload, success_meta(BackendKind::Scip, 0.95)));
-        }
+            })
+            .collect();
+        let mut payload = json!({
+            "diagnostics": diags_json,
+            "count": count,
+            "backend": "scip",
+        });
+        insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+        return Ok((payload, success_meta(BackendKind::Scip, 0.95)));
     }
 
     // Fall back to LSP diagnostics.

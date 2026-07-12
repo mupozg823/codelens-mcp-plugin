@@ -244,7 +244,6 @@ pub(crate) fn run_find_symbol(state: &AppState, arguments: &Value) -> ToolResult
     // Try SCIP precise definitions first (if available), then tree-sitter.
     #[cfg(feature = "scip-backend")]
     if let Some(backend) = scip_backend {
-        use codelens_engine::PreciseBackend as _;
         let scip_file = file_path.unwrap_or("");
         if let Ok(defs) = backend.find_definitions(name, scip_file, 0)
             && !defs.is_empty()

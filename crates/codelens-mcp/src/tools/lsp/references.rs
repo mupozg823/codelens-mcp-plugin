@@ -428,9 +428,12 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         }
         // oxc failed or empty — try SCIP if available, then fall through to tree-sitter
 
+        // Left nested rather than collapsed into a let-chain: the SCIP
+        // references block below is long enough that a multi-condition
+        // guard reads worse than the explicit nesting.
         #[cfg(feature = "scip-backend")]
+        #[allow(clippy::collapsible_if)]
         if let Some(backend) = state.scip() {
-            use codelens_engine::PreciseBackend as _;
             if backend.has_index_for(&file_path) {
                 precise_available = true;
                 precise_source = Some("scip");

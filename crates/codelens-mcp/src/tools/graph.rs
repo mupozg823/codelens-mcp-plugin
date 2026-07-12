@@ -594,24 +594,23 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         #[cfg(feature = "scip-backend")]
         let mut value = value;
         #[cfg(feature = "scip-backend")]
-        if let (Some(target_file), Some(backend)) = (file_path, state.scip()) {
-            use codelens_engine::PreciseBackend as _;
-            if backend.has_index_for(target_file) {
-                let scip_entries = backend.find_callees(function_name, target_file);
-                if !scip_entries.is_empty() {
-                    let existing: std::collections::HashSet<(String, usize)> = value
-                        .iter()
-                        .map(|edge| (edge.name.clone(), edge.line))
-                        .collect();
-                    let mut merged: Vec<_> = scip_entries
-                        .into_iter()
-                        .filter(|entry| !existing.contains(&(entry.name.clone(), entry.line)))
-                        .collect();
-                    merged.append(&mut value);
-                    value = merged;
-                    if value.len() > max_results {
-                        value.truncate(max_results);
-                    }
+        if let (Some(target_file), Some(backend)) = (file_path, state.scip())
+            && backend.has_index_for(target_file)
+        {
+            let scip_entries = backend.find_callees(function_name, target_file);
+            if !scip_entries.is_empty() {
+                let existing: std::collections::HashSet<(String, usize)> = value
+                    .iter()
+                    .map(|edge| (edge.name.clone(), edge.line))
+                    .collect();
+                let mut merged: Vec<_> = scip_entries
+                    .into_iter()
+                    .filter(|entry| !existing.contains(&(entry.name.clone(), entry.line)))
+                    .collect();
+                merged.append(&mut value);
+                value = merged;
+                if value.len() > max_results {
+                    value.truncate(max_results);
                 }
             }
         }

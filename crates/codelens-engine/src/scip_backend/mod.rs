@@ -1,4 +1,4 @@
-//! SCIP (Source Code Intelligence Protocol) backend implementing [`PreciseBackend`].
+//! SCIP (Source Code Intelligence Protocol) backend providing precise navigation.
 //!
 //! Loads a SCIP index file (`index.scip`) and provides type-aware definitions,
 //! references, hover docs, and diagnostics. This is the "precise path" that
@@ -10,7 +10,7 @@
 //! - `mod.rs` — `ScipBackend` struct + `load` / `detect` / `*_count`.
 //! - `parse.rs` — occurrence + symbol parse helpers (no state).
 //! - `call_graph.rs` — `find_callees` / `find_callers` enclosing-scope walks.
-//! - `navigation.rs` — `PreciseBackend` impl + `resolve_scip_symbols`.
+//! - `navigation.rs` — precise navigation methods + `resolve_scip_symbols`.
 //! - `tests.rs` — fixture builders + 12 unit tests (gated behind `cfg(test)`).
 
 mod call_graph;
