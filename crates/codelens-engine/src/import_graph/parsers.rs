@@ -10,16 +10,25 @@ pub(super) static PY_FROM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^\s*from\s+([A-Za-z0-9_\.]+)\s+import\s+").unwrap());
 
 // ── JavaScript / TypeScript ───────────────────────────────────────────────────
-pub(super) static JS_IMPORT_FROM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?m)\bimport\s+[^;]*?\sfrom\s+["']([^"']+)["']"#).unwrap());
+// `JS_IMPORT_FROM_RE` / `JS_REEXPORT_FROM_RE` are the single source of truth
+// for the `import … from "mod"` / `export … from "mod"` forms. They are shared
+// with `call_graph::js_imports`, which additionally reads the `clause` group to
+// build its binding index. Both expose two named groups: `clause` (the binding
+// spec) and `module` (the specifier). The three module-only forms below capture
+// `module` alone. All five name the specifier `module` so `extract_js_imports`
+// can read it uniformly.
+pub(crate) static JS_IMPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)\bimport\s+(?P<clause>[^;]+?)\s+from\s+["'](?P<module>[^"']+)["']"#).unwrap()
+});
 pub(super) static JS_IMPORT_SIDE_EFFECT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?m)\bimport\s+["']([^"']+)["']"#).unwrap());
+    LazyLock::new(|| Regex::new(r#"(?m)\bimport\s+["'](?P<module>[^"']+)["']"#).unwrap());
 pub(super) static JS_REQUIRE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"require\(\s*["']([^"']+)["']\s*\)"#).unwrap());
+    LazyLock::new(|| Regex::new(r#"require\(\s*["'](?P<module>[^"']+)["']\s*\)"#).unwrap());
 pub(super) static JS_DYNAMIC_IMPORT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"import\(\s*["']([^"']+)["']\s*\)"#).unwrap());
-pub(super) static JS_REEXPORT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?m)\bexport\s+[^;]*?\sfrom\s+["']([^"']+)["']"#).unwrap());
+    LazyLock::new(|| Regex::new(r#"import\(\s*["'](?P<module>[^"']+)["']\s*\)"#).unwrap());
+pub(crate) static JS_REEXPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)\bexport\s+(?P<clause>[^;]+?)\s+from\s+["'](?P<module>[^"']+)["']"#).unwrap()
+});
 
 // ── Go ────────────────────────────────────────────────────────────────────────
 pub(super) static GO_SINGLE_RE: LazyLock<Regex> =
@@ -159,10 +168,10 @@ pub(super) fn extract_js_imports(content: &str) -> Vec<String> {
         &*JS_IMPORT_SIDE_EFFECT_RE,
         &*JS_REQUIRE_RE,
         &*JS_DYNAMIC_IMPORT_RE,
-        &*JS_REEXPORT_RE,
+        &*JS_REEXPORT_FROM_RE,
     ] {
         for capture in regex.captures_iter(content) {
-            let Some(module) = capture.get(1) else {
+            let Some(module) = capture.name("module") else {
                 continue;
             };
             imports.push(module.as_str().trim().to_owned());

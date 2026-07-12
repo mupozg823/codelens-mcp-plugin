@@ -1,18 +1,10 @@
+use crate::import_graph::parsers::{JS_IMPORT_FROM_RE, JS_REEXPORT_FROM_RE};
 use crate::project::ProjectRoot;
-use regex::Regex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
 
 use super::types::CallEdge;
-
-static JS_IMPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)\bimport\s+([^;]+?)\s+from\s+["']([^"']+)["']"#).expect("import regex")
-});
-static JS_REEXPORT_FROM_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)\bexport\s+([^;]+?)\s+from\s+["']([^"']+)["']"#).expect("re-export regex")
-});
 
 #[derive(Debug)]
 pub(crate) struct LocalBindingScope {
@@ -235,4 +227,54 @@ pub(crate) fn filter_external_import_edges(
         }
         true
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_js_import_binding_index;
+    use crate::project::ProjectRoot;
+    use std::path::PathBuf;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-js-imports-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn shared_regex_parses_import_and_reexport_clauses() {
+        // Regression guard for the seam where `call_graph` consumes the
+        // import/reexport regexes shared with `import_graph::parsers`: the
+        // `clause` group must still yield binding names and the `module`
+        // group the specifier, for both `import … from` and `export … from`.
+        let dir = temp_dir("shared-regex");
+        let barrel = dir.join("barrel.ts");
+        std::fs::write(
+            &barrel,
+            "import { foo as bar } from './impl';\nexport { baz } from './other';\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("impl.ts"), "export const foo = 1;\n").unwrap();
+        std::fs::write(dir.join("other.ts"), "export const baz = 2;\n").unwrap();
+
+        let project = ProjectRoot::new(&dir).unwrap();
+        let index = build_js_import_binding_index(&project, &[barrel]);
+        let bindings = index.get("barrel.ts").expect("barrel bindings");
+
+        // `import { foo as bar } from './impl'` → local `bar` ← imported `foo`.
+        let bar = bindings.get("bar").expect("import binding `bar`");
+        assert_eq!(bar.imported_name.as_deref(), Some("foo"));
+        // `export { baz } from './other'` → local `baz` ← imported `baz`.
+        let baz = bindings.get("baz").expect("reexport binding `baz`");
+        assert_eq!(baz.imported_name.as_deref(), Some("baz"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

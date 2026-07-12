@@ -2,10 +2,9 @@ use super::*;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
-// `mod.rs` no longer pulls `PreciseBackend` / `IntelligenceSource` into
-// scope (they're only needed by `navigation.rs` now). Re-import here so
-// trait-method lookup resolves for the fixtures below.
-use crate::ir::{IntelligenceSource, PreciseBackend};
+// `IntelligenceSource` is needed by the fixtures below; the SCIP navigation
+// methods are inherent on `ScipBackend`, so no trait import is required.
+use crate::ir::IntelligenceSource;
 
 /// Build a minimal SCIP index in memory for testing.
 fn build_test_index() -> Index {

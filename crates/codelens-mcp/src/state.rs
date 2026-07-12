@@ -360,8 +360,6 @@ mod tests {
     #[test]
     #[cfg(feature = "scip-backend")]
     fn switch_project_rebinds_scip_backend_to_active_project() {
-        use codelens_engine::PreciseBackend as _;
-
         let project_a = temp_project_root("scip-a");
         let project_b = temp_project_root("scip-b");
         write_scip_index(&project_a, "a_only.rs");
