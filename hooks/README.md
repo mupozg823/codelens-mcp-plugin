@@ -5,6 +5,11 @@
 > **Warning:** `hooks/hooks.json` is loaded and **activated automatically** when the
 > CodeLens plugin is installed. Every hook listed here runs for all users of the
 > plugin. Keep it minimal and cheap.
+>
+> **Double-wiring:** if you registered `codelens-first.py` directly in your user
+> `settings.json` (the pre-plugin setup), remove that entry when installing the
+> plugin — otherwise the hook fires **twice** per `Grep`/`Bash` call and burns
+> the per-session advisory/deny throttle at double speed.
 
 Currently it registers one `PreToolUse` hook on two matchers: the native
 `Grep` tool, and `Bash` (for shell-invoked `grep`/`rg`):
@@ -36,7 +41,7 @@ given the escape markers and the per-session deny cap below.
 | Mode                 | Behaviour on a symbol-like Grep pattern                                  |
 | -------------------- | ----------------------------------------------------------------------- |
 | `advisory` (default) | `allow` + `additionalContext` suggesting the CodeLens call. Non-blocking.|
-| `strict`             | `deny` **high-confidence** symbols (snake_case/camelCase/`::`) with the concrete CodeLens procedure, ≤3 denies/session (repeats are terse one-liners). Ambiguous lowercase words downgrade to a single advisory. |
+| `strict`             | `deny` **high-confidence** symbols (snake_case/camelCase/`::`) with the concrete CodeLens procedure, ≤10 denies/session (repeats are terse one-liners). Ambiguous lowercase words downgrade to a single advisory. |
 | `off`                | Do nothing.                                                             |
 
 **Strict safeguards** — `strict` only denies when *all* of these pass
@@ -71,10 +76,11 @@ are passed through unconditionally, in every mode (`strict` included).
 
 **Throttle** — in `advisory` mode, at most **2** suggestions are emitted per
 session (tracked in `$TMPDIR/codelens-first-<session_id>`), so the advice does
-not become nagging. In `strict` mode: **≤3 denies**/session
+not become nagging. In `strict` mode: **≤10 denies**/session
 (`$TMPDIR/codelens-first-deny-<session_id>`; deny #2+ uses a terse one-line
-reason to keep injected-token cost flat) and **≤1 advisory** for
-ambiguous-symbol downgrades.
+reason to keep injected-token cost flat — raised from 3 on 2026-07-12 after
+14-day metrics showed the old cap was the gate's main leak: 143 `deny_capped`
+passes vs 46 denies) and **≤1 advisory** for ambiguous-symbol downgrades.
 
 **Metrics** — when `~/.claude/metrics/` already exists (the hook never creates
 it), every decision appends a JSONL record to `codelens-first.jsonl` there
@@ -92,11 +98,21 @@ The hook will never break your `Grep`.
 ## Manual-only helper scripts (not registered in `hooks.json`)
 
 `hooks/codelens-session-probe.sh` is a host-side `SessionStart` hook (register
-it in your own `settings.json`, not here): it injects one bounded line telling
-the model whether the CodeLens daemon is alive and whether the project is
-auto-bound via an `.mcp.json` `x-codelens-project` header. It stays **silent**
-for projects that don't use CodeLens (no `.codelens/` index and no header) —
-zero token cost outside CodeLens projects.
+it in your own `settings.json`, not here — matcher `startup|clear|compact`
+recommended): it injects one bounded line (≤350 bytes) telling the model
+whether the CodeLens daemon is alive and whether the project is auto-bound via
+an `.mcp.json` `x-codelens-project` header. Verb-routing detail is delegated to
+the host's always-on rules, not repeated here. It stays **silent** for projects
+that don't use CodeLens (no `.codelens/` index and no header) — zero token cost
+outside CodeLens projects — and also for `source: "resume"` events, which
+continue an existing context that already carries the original injection.
+Documented exception: a session started directly in `$HOME` matches the global
+`~/.codelens` data directory and does fire (unlike `codelens-first.py`, which
+excludes it as a project-index marker), because home sessions are harness work
+that does use CodeLens. The home-session message instructs binding to the
+*target repo* being queried, never to `$HOME` itself — a
+`prepare_harness_session(project=$HOME)` call attempts to index the whole home
+tree and times out (measured 2026-07-12).
 
 `hooks/post-edit-diagnostics.sh` and `hooks/clang-linker.sh` are **opt-in
 examples**, deliberately left out of `hooks.json`. If they were auto-activated,

@@ -14,9 +14,12 @@
 # MODES (env CODELENS_FIRST_MODE)
 #   advisory (default) : symbol-like Grep/Bash-grep → allow + advice (throttled ≤2/session)
 #   strict             : HIGH-CONFIDENCE symbol lookup (snake_case/camelCase/`::`)
-#                        → deny + concrete CodeLens procedure, capped at ≤3
+#                        → deny + concrete CodeLens procedure, capped at ≤10
 #                        denies/session (repeat denials use a terse one-liner to
-#                        keep the injected-token cost flat). Ambiguous
+#                        keep the injected-token cost flat; 2026-07-12 metrics:
+#                        cap=3 leaked 143 deny_capped passes vs 46 denies over
+#                        14 days — the cap, not the classifier, was the leak).
+#                        Ambiguous
 #                        identifiers (plain lowercase words) downgrade to a
 #                        single advisory. strict only ever denies when every
 #                        safeguard passes (fail-open otherwise):
@@ -69,7 +72,7 @@ import time
 SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
 MAX_ADVISORIES_PER_SESSION = 2
 MAX_ADVISORIES_STRICT = 1
-MAX_DENIES_PER_SESSION = 3
+MAX_DENIES_PER_SESSION = 10
 GATE_MAX_LEVELS = 5
 CARD_URL = os.environ.get(
     "CODELENS_CARD_URL", "http://127.0.0.1:7839/.well-known/mcp.json"
@@ -483,6 +486,10 @@ def run() -> None:
     sid = (session if isinstance(session, str) else "")[:8]
 
     if tool_name == "Grep":
+        if tool_input.get("-i"):
+            # Case-insensitive = text audit — Bash grep already passes on -i;
+            # the native Grep tool carries the same signal as an input field.
+            return
         if path_is_single_file(tool_input.get("path"), cwd):
             return
         gpath = tool_input.get("path")
