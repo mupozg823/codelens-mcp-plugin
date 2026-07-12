@@ -12,6 +12,9 @@
 #  - 예외: $HOME 직접 세션은 $HOME/.codelens(전역 데이터 디렉토리)에 매칭되어 발화한다.
 #    codelens-first.py 는 이를 프로젝트 인덱스에서 제외하지만, 홈 세션=하네스 작업장으로
 #    CodeLens 를 실사용하므로 프로브는 의도적으로 발화를 유지한다 (문서화된 예외).
+#    단, 안내 메시지는 $HOME 자체 바인딩을 지시하지 않는다 — prepare_harness_session(project=$HOME)
+#    은 홈 트리 전체 인덱싱을 시도해 타임아웃한다(2026-07-12 실측). 홈 세션은 조회 대상
+#    레포 경로로 바인딩하도록 안내한다.
 #
 # 참고: 이 스크립트는 host 측 훅이다 (사용자 settings.json 의 SessionStart 에
 # 등록). 플러그인 hooks.json 에는 포함되지 않는다.
@@ -43,6 +46,8 @@ fi
 
 if [ "$HAS_HEADER" = "1" ]; then
   echo "🔍 CodeLens alive(:7839) — .mcp.json 헤더 자동 바인딩(prepare_harness_session 생략 가능). 심볼 라우팅 상세=rules/harness.md CodeLens-First."
+elif [ "$GIT_ROOT" = "$HOME" ]; then
+  echo "🔍 CodeLens alive(:7839) — 홈 세션: \$HOME 자체 바인딩 금지(홈 전체 인덱싱→타임아웃). 코드 조회 전 대상 레포로 prepare_harness_session(project=<레포 절대경로>) 바인딩. 상세=rules/harness.md."
 else
   echo "🔍 CodeLens alive(:7839) — 첫 호출 전 prepare_harness_session(project=\"$GIT_ROOT\") 필수(공유 데몬 오바인딩 방지). 미노출 시 ToolSearch \"select:mcp__codelens__search,mcp__codelens__graph\". 상세=rules/harness.md."
 fi

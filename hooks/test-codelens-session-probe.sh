@@ -74,10 +74,16 @@ check "미사용 프로젝트: 침묵" "EMPTY" "$OUT"
 OUT=$(cd "$IDX" && echo '{"source":"startup"}' | CODELENS_CARD_URL="$DOWN" zsh "$PROBE")
 check "데몬 다운: 폴백 안내 1줄" "데몬 다운.*쉘 폴백 허용" "$OUT"
 
+# ── 7. 홈 세션 (GIT_ROOT == HOME) — $HOME 자체 바인딩 지시 금지 ──
+HOMEDIR="$TMP/home"; mkdir -p "$HOMEDIR/.codelens"
+OUT=$(cd "$HOMEDIR" && echo '{"source":"startup"}' | HOME="$HOMEDIR" CODELENS_CARD_URL="$ALIVE" zsh "$PROBE")
+check "홈 세션: 대상 레포 바인딩 안내" "대상 레포로 prepare_harness_session" "$OUT"
+check "홈 세션: 플레이스홀더 안내(자기 경로 미지시)" "project=<레포 절대경로>" "$OUT"
+
 rm -rf "$TMP"
 echo
 if [ "$FAILS" -gt 0 ]; then
   echo "❌ ${FAILS}건 실패"
   exit 1
 fi
-echo "✅ session-probe 9케이스 전체 통과"
+echo "✅ session-probe 11케이스 전체 통과"
