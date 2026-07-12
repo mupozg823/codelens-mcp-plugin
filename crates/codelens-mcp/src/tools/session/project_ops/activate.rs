@@ -30,20 +30,12 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_else(|| path.to_owned()),
                 ),
-                Err(e) => {
-                    return Err(crate::error::CodeLensError::NotFound(format!(
-                        "failed to switch project: {e}"
-                    )));
-                }
+                Err(e) => return Err(switch_project_error(e)),
             }
         } else {
             match state.switch_project(path) {
                 Ok(name) => Some(name),
-                Err(e) => {
-                    return Err(crate::error::CodeLensError::NotFound(format!(
-                        "failed to switch project: {e}"
-                    )));
-                }
+                Err(e) => return Err(switch_project_error(e)),
             }
         }
     } else {
@@ -143,6 +135,18 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
+}
+
+/// Preserve a structured `CodeLensError` (e.g. `HomeRootRejected`) raised deep
+/// in the bind path instead of flattening every failure into `NotFound`, so
+/// the caller still receives the machine-readable recovery hint.
+fn switch_project_error(error: anyhow::Error) -> crate::error::CodeLensError {
+    match error.downcast::<crate::error::CodeLensError>() {
+        Ok(structured) => structured,
+        Err(other) => {
+            crate::error::CodeLensError::NotFound(format!("failed to switch project: {other}"))
+        }
+    }
 }
 
 #[cfg(feature = "semantic")]

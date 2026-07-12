@@ -443,4 +443,48 @@ mod tests {
         );
         assert_eq!(ctx_a.lsp_pool.session_count(), 0);
     }
+
+    #[test]
+    fn activation_reaps_runtime_of_deleted_root_and_preserves_live_root() {
+        let default_project = temp_project_root("reap-default");
+        let project_a = temp_project_root("reap-a");
+        let project_b = temp_project_root("reap-b");
+        let project_c = temp_project_root("reap-c");
+        let state = AppState::new_minimal(default_project, ToolPreset::Balanced);
+
+        // Cache runtimes for A and B.
+        state
+            .switch_project(project_a.as_path().to_str().unwrap())
+            .unwrap();
+        state
+            .switch_project(project_b.as_path().to_str().unwrap())
+            .unwrap();
+
+        let scope_a = project_a.as_path().to_string_lossy().to_string();
+        let scope_b = project_b.as_path().to_string_lossy().to_string();
+        {
+            let cache = state.project_context_cache.lock().unwrap();
+            assert!(cache.entries.contains_key(&scope_a));
+            assert!(cache.entries.contains_key(&scope_b));
+        }
+
+        // Simulate a removed git worktree: delete A's root directory on disk
+        // while B's remains. Its cached runtime is now the FD-leaking orphan.
+        std::fs::remove_dir_all(project_a.as_path()).unwrap();
+
+        // Any subsequent activation sweeps the registry.
+        state
+            .switch_project(project_c.as_path().to_str().unwrap())
+            .unwrap();
+
+        let cache = state.project_context_cache.lock().unwrap();
+        assert!(
+            !cache.entries.contains_key(&scope_a),
+            "runtime for the deleted root A must be reaped"
+        );
+        assert!(
+            cache.entries.contains_key(&scope_b),
+            "runtime for the still-present root B must be preserved"
+        );
+    }
 }

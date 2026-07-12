@@ -114,6 +114,9 @@ impl AppState {
         path: &str,
     ) -> anyhow::Result<Option<Arc<super::project_runtime::ProjectContext>>> {
         let project = codelens_engine::ProjectRoot::new(path)?;
+        super::project_runtime::home_binding_guard(project.as_path())
+            .map_err(anyhow::Error::new)?;
+        self.reap_deleted_project_runtimes();
         let scope = project.as_path().to_string_lossy().to_string();
         if scope == self.default_project_scope() {
             return Ok(None);
@@ -160,6 +163,9 @@ impl AppState {
     /// Switch the active project at runtime. Creates a new index and graph cache.
     pub(crate) fn switch_project(&self, path: &str) -> anyhow::Result<String> {
         let project = codelens_engine::ProjectRoot::new(path)?;
+        super::project_runtime::home_binding_guard(project.as_path())
+            .map_err(anyhow::Error::new)?;
+        self.reap_deleted_project_runtimes();
         let scope = project.as_path().to_string_lossy().to_string();
         let name = project
             .as_path()
@@ -230,6 +236,31 @@ impl AppState {
         let evicted = cache
             .evict_until_within_limit(crate::state::PROJECT_CONTEXT_CACHE_LIMIT, &protected_refs);
         Ok((built, evicted))
+    }
+
+    /// Sweep the per-project runtime registry and drop cached contexts whose
+    /// root directory no longer exists (e.g. a removed git worktree). Removing
+    /// the map entry lets the SQLite symbol-index handle the dead root was
+    /// pinning close once any in-flight request still holding an `Arc` also
+    /// finishes — active Arcs expire naturally, this only unlinks the map
+    /// entry. Runs at project activation/binding; cost is one `Path::exists`
+    /// per cached entry (cache is capped at `PROJECT_CONTEXT_CACHE_LIMIT`).
+    fn reap_deleted_project_runtimes(&self) {
+        let reaped = {
+            let mut cache = self
+                .project_context_cache
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            cache.reap_deleted_roots()
+        };
+        for context in &reaped {
+            tracing::info!(
+                project = %context.project.as_path().display(),
+                "reaped project runtime whose root directory no longer exists"
+            );
+        }
+        // `reaped` drops here: for a runtime no live request still references,
+        // this releases the last Arc and closes its SQLite handle.
     }
 
     /// Access the LSP session pool. Pool uses internal per-session locking.
