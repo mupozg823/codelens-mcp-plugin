@@ -443,12 +443,20 @@ def strict_reason(symbol: str, root: str, deny_no: int) -> str:
             f"'{symbol}' → mcp__codelens__search(mode=\"symbol\", name=\"{symbol}\") / "
             "search(mode=\"refs\", symbol_name=…). Escapes: `# [cl-text]` · `# [cl-fallback]`."
         )
+    # Home sessions: never instruct binding to $HOME itself —
+    # prepare_harness_session(project=$HOME) indexes the whole home tree and
+    # times out (same rule as codelens-session-probe.sh, measured 2026-07-12).
+    home = _home_dir()
+    if home is not None and _canonical(root) == home:
+        bind = "<the target repo's absolute path — never $HOME>"
+    else:
+        bind = f'"{root}"'
     return (
         f"[codelens-first strict {deny_no}/{MAX_DENIES_PER_SESSION}] "
         f"'{symbol}' is a symbol lookup — one CodeLens call replaces the "
         "grep→Read chain. Steps: ① if mcp__codelens__search is not in your tool "
         "list: ToolSearch \"select:mcp__codelens__search,mcp__codelens__graph\" "
-        f"② if CodeLens is not bound yet this session: prepare_harness_session(project=\"{root}\") "
+        f"② if CodeLens is not bound yet this session: prepare_harness_session(project={bind}) "
         f"③ mcp__codelens__search(mode=\"symbol\", name=\"{symbol}\", include_body=true); "
         "refs via search(mode=\"refs\", symbol_name=…); callers/impact via "
         "graph(mode=\"callers\"|\"impact\"), else "
