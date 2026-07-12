@@ -160,11 +160,16 @@ pub(super) fn ensure_session_project(
     // sessions bound to different projects no longer serialize on one lock,
     // and a switch no longer clears another session's artifact/job/preflight
     // state mid-flight.
-    let guard = state.bind_request_project_scope(bound_project).map_err(|error| {
-        CodeLensError::Validation(format!(
-            "session project `{bound_project}` is not active and automatic rebind failed: {error}"
-        ))
-    })?;
+    let guard = state
+        .bind_request_project_scope(bound_project)
+        .map_err(|error| match error.downcast::<CodeLensError>() {
+            // Preserve a structured rejection (e.g. HomeRootRejected) so the
+            // client still receives its machine-readable recovery hint.
+            Ok(structured) => structured,
+            Err(other) => CodeLensError::Validation(format!(
+                "session project `{bound_project}` is not active and automatic rebind failed: {other}"
+            )),
+        })?;
     Ok(Some(guard))
 }
 

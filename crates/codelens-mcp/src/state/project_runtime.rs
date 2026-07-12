@@ -1,8 +1,9 @@
 use super::AppState;
+use crate::error::CodeLensError;
 use codelens_engine::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Holds project-specific resources that can be reused across rebinds.
@@ -81,6 +82,74 @@ impl ProjectContextCache {
         }
         evicted
     }
+
+    /// Remove cached runtimes whose project root directory no longer exists on
+    /// disk (e.g. a removed git worktree) and return them so the caller can
+    /// observe/log the reap. Dropping the last `Arc` to a removed context
+    /// releases the SQLite symbol-index handle the dead root was still holding
+    /// open. Live roots are never touched.
+    pub(super) fn reap_deleted_roots(&mut self) -> Vec<Arc<ProjectContext>> {
+        let dead: Vec<String> = self
+            .entries
+            .iter()
+            .filter(|(_, context)| !context.project.as_path().exists())
+            .map(|(scope, _)| scope.clone())
+            .collect();
+        let mut reaped = Vec::with_capacity(dead.len());
+        for scope in dead {
+            if let Some(context) = self.entries.remove(&scope) {
+                self.access_order.retain(|entry| entry != &scope);
+                reaped.push(context);
+            }
+        }
+        reaped
+    }
+}
+
+/// Reject a bind/activation whose canonical root is the process user's home
+/// directory. Indexing the entire home tree pins the daemon and was the cause
+/// of `prepare_harness_session(project=$HOME)` client-timeout hangs; a repo
+/// *inside* home (`/Users/x/repo`) is unaffected — only the home root itself
+/// is refused.
+///
+/// Pure over its inputs (`home` and `allow_home` are injected rather than read
+/// from the environment) so the policy is unit-testable without touching
+/// process state. `home == None` means the home directory could not be
+/// determined — fail open rather than guess.
+pub(super) fn ensure_project_root_not_home(
+    candidate: &Path,
+    home: Option<&Path>,
+    allow_home: bool,
+) -> Result<(), CodeLensError> {
+    if allow_home {
+        return Ok(());
+    }
+    let Some(home) = home else {
+        return Ok(());
+    };
+    if canonical_or_owned(candidate) == canonical_or_owned(home) {
+        return Err(CodeLensError::HomeRootRejected {
+            root: candidate.display().to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Canonicalize `path`, falling back to the path as-given when it cannot be
+/// resolved (e.g. it does not exist yet). Canonicalization collapses symlinks
+/// and `.`/`..` so `/Users/x` and `/Users/x/` (or a `/var`→`/private/var`
+/// symlink on macOS) compare equal.
+fn canonical_or_owned(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Production entry point for the home-root guard: reads `$HOME` and the
+/// `CODELENS_ALLOW_HOME_PROJECT` escape hatch from the environment and
+/// delegates to [`ensure_project_root_not_home`].
+pub(super) fn home_binding_guard(candidate: &Path) -> Result<(), CodeLensError> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let allow_home = crate::env_compat::env_var_bool("CODELENS_ALLOW_HOME_PROJECT") == Some(true);
+    ensure_project_root_not_home(candidate, home.as_deref(), allow_home)
 }
 
 /// Request-scoped project binding. `Default` pins the daemon's startup
@@ -423,5 +492,110 @@ mod prewarm_tests {
             &[],
         );
         assert_eq!(commands, vec!["pyright-langserver", "rust-analyzer"]);
+    }
+}
+
+#[cfg(test)]
+mod home_guard_tests {
+    use super::{ensure_project_root_not_home, home_binding_guard};
+    use crate::error::CodeLensError;
+
+    fn temp_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-home-guard-{label}-{}-{:?}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            std::thread::current().id(),
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn rejects_exact_home_root() {
+        let home = temp_dir("home");
+        let err = ensure_project_root_not_home(&home, Some(&home), false)
+            .expect_err("home root must be rejected");
+        match err {
+            CodeLensError::HomeRootRejected { root } => {
+                assert!(root.contains("codelens-home-guard-home"), "{root}");
+            }
+            other => panic!("expected HomeRootRejected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn allows_subrepo_of_home() {
+        let home = temp_dir("home-sub");
+        let repo = home.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(
+            ensure_project_root_not_home(&repo, Some(&home), false).is_ok(),
+            "a repo inside home must pass"
+        );
+    }
+
+    #[test]
+    fn escape_hatch_flag_allows_home_root() {
+        let home = temp_dir("home-flag");
+        assert!(
+            ensure_project_root_not_home(&home, Some(&home), true).is_ok(),
+            "allow_home must bypass the rejection"
+        );
+    }
+
+    #[test]
+    fn missing_home_fails_open() {
+        let candidate = temp_dir("home-none");
+        assert!(
+            ensure_project_root_not_home(&candidate, None, false).is_ok(),
+            "an undeterminable home directory must not reject any bind"
+        );
+    }
+
+    #[test]
+    fn env_escape_hatch_toggles_home_binding_guard() {
+        let _lock = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let home = temp_dir("home-env");
+        let prev_home = std::env::var_os("HOME");
+        let prev_allow = std::env::var_os("CODELENS_ALLOW_HOME_PROJECT");
+        let prev_allow_symbiote = std::env::var_os("SYMBIOTE_ALLOW_HOME_PROJECT");
+        // SAFETY: env mutation is serialized under TEST_ENV_LOCK and restored below.
+        unsafe {
+            std::env::set_var("HOME", &home);
+            std::env::remove_var("CODELENS_ALLOW_HOME_PROJECT");
+            std::env::remove_var("SYMBIOTE_ALLOW_HOME_PROJECT");
+        }
+        assert!(
+            home_binding_guard(&home).is_err(),
+            "home root must be rejected when the escape hatch is unset"
+        );
+        // SAFETY: see above.
+        unsafe {
+            std::env::set_var("CODELENS_ALLOW_HOME_PROJECT", "1");
+        }
+        assert!(
+            home_binding_guard(&home).is_ok(),
+            "escape hatch env must allow the home root"
+        );
+        // SAFETY: restore the prior process environment.
+        unsafe {
+            match prev_home {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+            match prev_allow {
+                Some(v) => std::env::set_var("CODELENS_ALLOW_HOME_PROJECT", v),
+                None => std::env::remove_var("CODELENS_ALLOW_HOME_PROJECT"),
+            }
+            match prev_allow_symbiote {
+                Some(v) => std::env::set_var("SYMBIOTE_ALLOW_HOME_PROJECT", v),
+                None => std::env::remove_var("SYMBIOTE_ALLOW_HOME_PROJECT"),
+            }
+        }
     }
 }

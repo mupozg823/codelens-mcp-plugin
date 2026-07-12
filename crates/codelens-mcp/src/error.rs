@@ -32,6 +32,17 @@ pub enum CodeLensError {
     )]
     ProjectBindingRequired { tool: String },
 
+    /// A bind/activation request targeted the process user's home directory
+    /// as the project root. Indexing the entire home tree pins the daemon
+    /// (a huge symbol index over thousands of files) and was the cause of
+    /// `prepare_harness_session(project=$HOME)` client-timeout hangs. A repo
+    /// *inside* home is unaffected — only the home root itself is refused.
+    /// Escape hatch: `CODELENS_ALLOW_HOME_PROJECT=1`.
+    #[error(
+        "home_root_rejected: refusing to bind project root `{root}` because it is the process user's home directory; indexing the whole home tree is unsupported and pins the daemon. Bind the specific repo's absolute path instead. Operator override: CODELENS_ALLOW_HOME_PROJECT=1."
+    )]
+    HomeRootRejected { root: String },
+
     // ── Capability errors ─────────────────────────────────────────────
     /// Feature not available (e.g., semantic search without embeddings).
     #[cfg(feature = "semantic")]
@@ -105,6 +116,7 @@ impl CodeLensError {
             Self::Validation(_) => -32003,
             #[cfg(feature = "http")]
             Self::ProjectBindingRequired { .. } => -32003,
+            Self::HomeRootRejected { .. } => -32003,
             // Capability errors
             #[cfg(feature = "semantic")]
             Self::FeatureUnavailable(_) => -32002,
@@ -155,6 +167,10 @@ impl CodeLensError {
             Self::ProjectBindingRequired { .. } => Some(RecoveryHint::FallbackTool {
                 tool: "prepare_harness_session".to_owned(),
                 reason: "bind this session to a workspace: pass project=<absolute workspace root> (or attach the x-codelens-project header), then retry the mutation".to_owned(),
+            }),
+            Self::HomeRootRejected { .. } => Some(RecoveryHint::FallbackTool {
+                tool: "prepare_harness_session".to_owned(),
+                reason: "bind the specific repo's absolute path; indexing the whole home tree is unsupported. Operator override: CODELENS_ALLOW_HOME_PROJECT=1".to_owned(),
             }),
             Self::Timeout { .. } => Some(RecoveryHint::FallbackTool {
                 tool: "start_analysis_job".to_owned(),
@@ -524,6 +540,32 @@ mod tests {
                     "{reason}"
                 );
                 assert!(reason.contains("x-codelens-project"), "{reason}");
+            }
+            other => panic!("expected FallbackTool recovery hint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn home_root_rejected_carries_code_and_recovery_hint() {
+        let err = CodeLensError::HomeRootRejected {
+            root: "/Users/dev".to_owned(),
+        };
+        assert_eq!(err.jsonrpc_code(), -32003);
+        let message = err.to_string();
+        assert!(message.starts_with("home_root_rejected:"), "{message}");
+        assert!(message.contains("/Users/dev"), "{message}");
+        assert!(message.contains("CODELENS_ALLOW_HOME_PROJECT"), "{message}");
+        match err.recovery_hint() {
+            Some(RecoveryHint::FallbackTool { tool, reason }) => {
+                assert_eq!(tool, "prepare_harness_session");
+                assert!(
+                    reason.contains("bind the specific repo's absolute path"),
+                    "{reason}"
+                );
+                assert!(
+                    reason.contains("indexing the whole home tree is unsupported"),
+                    "{reason}"
+                );
             }
             other => panic!("expected FallbackTool recovery hint, got {other:?}"),
         }
