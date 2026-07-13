@@ -127,13 +127,15 @@ fn workflow_guidance_miss_tracks_origin_without_counting_profile_switch() {
     let metrics_after_switch = call_tool(&state, "get_tool_metrics", json!({}));
     assert_eq!(
         metrics_after_switch["data"]["session"]["composite_guidance_missed_count"],
-        json!(0)
+        json!(0),
+        "unexpected miss already counted before the post-switch find_symbol call; full metrics = {metrics_after_switch:#}"
     );
     assert!(
         metrics_after_switch["data"]["session"]["profile_switch_count"]
             .as_u64()
             .unwrap_or_default()
-            >= 1
+            >= 1,
+        "profile_switch_count did not register the set_profile call; full metrics = {metrics_after_switch:#}"
     );
 
     let _ = call_tool(
@@ -147,7 +149,8 @@ fn workflow_guidance_miss_tracks_origin_without_counting_profile_switch() {
         metrics["data"]["session"]["composite_guidance_missed_count"]
             .as_u64()
             .unwrap_or_default()
-            >= 1
+            >= 1,
+        "expected the post-switch find_symbol call to resolve the pending composite guidance as a miss; full metrics = {metrics:#}"
     );
     assert!(
         metrics["data"]["derived_kpis"]["composite_guidance_miss_rate"]
