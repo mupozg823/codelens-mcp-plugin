@@ -89,6 +89,13 @@ jobs:
       - name: cargo check (scip-backend)
         run: cargo check --workspace --features scip-backend
 
+      # 2026-07-19: `semantic` gates real handler code (e.g. the
+      # find_code_duplicates G6.1 noise filter) that no other feature
+      # combination compiles — without this variant that code is
+      # invisible to CI.
+      - name: cargo check (semantic)
+        run: cargo check --workspace --features semantic
+
       - name: cargo check (semantic-off)
         run: cargo check --workspace --no-default-features
 
@@ -104,6 +111,9 @@ jobs:
       - name: cargo clippy (scip-backend)
         run: cargo clippy --workspace --features scip-backend -- -D warnings
 
+      - name: cargo clippy (semantic)
+        run: cargo clippy --workspace --features semantic -- -D warnings
+
       - name: cargo clippy (semantic-off)
         run: cargo clippy --workspace --no-default-features -- -D warnings
 
@@ -115,6 +125,9 @@ jobs:
 
       - name: cargo test (http)
         run: cargo nextest run --workspace --features http
+
+      - name: cargo test (semantic)
+        run: cargo nextest run --workspace --features semantic
 
       - name: cargo test (semantic-off)
         run: cargo nextest run --workspace --no-default-features

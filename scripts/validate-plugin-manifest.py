@@ -17,8 +17,26 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PLUGIN_MANIFEST = ".claude-plugin/plugin.json"
 MARKETPLACE_MANIFEST = ".claude-plugin/marketplace.json"
+CARGO_MANIFEST = "Cargo.toml"
 REQUIRED_PLUGIN_FIELDS = ("name", "version", "description", "mcpServers")
 REQUIRED_MARKET_FIELDS = ("name", "owner", "plugins")
+
+
+def workspace_version(repo_root: Path) -> str | None:
+    """Return [workspace.package].version from the root Cargo.toml, if present."""
+    path = repo_root / CARGO_MANIFEST
+    if not path.exists():
+        return None
+    in_section = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_section = stripped == "[workspace.package]"
+            continue
+        if in_section and stripped.startswith("version"):
+            _, _, value = stripped.partition("=")
+            return value.strip().strip('"')
+    return None
 
 
 def _load_json(path: Path, label: str):
@@ -40,6 +58,15 @@ def collect_manifest_errors(repo_root: Path) -> list[str]:
         for field in REQUIRED_PLUGIN_FIELDS:
             if field not in plugin:
                 errors.append(f"{PLUGIN_MANIFEST}: missing required field '{field}'")
+
+        # A1 reversed (2026-07-19): plugin.json tracks the crate version.
+        expected = workspace_version(repo_root)
+        actual = plugin.get("version")
+        if expected and isinstance(actual, str) and actual != expected:
+            errors.append(
+                f"{PLUGIN_MANIFEST}: version '{actual}' must equal workspace "
+                f"version '{expected}' (release flow bumps both together)"
+            )
 
         servers = plugin.get("mcpServers")
         if servers is not None and not isinstance(servers, dict):

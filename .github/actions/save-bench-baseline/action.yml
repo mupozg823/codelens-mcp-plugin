@@ -1,0 +1,30 @@
+name: 'Save bench baseline'
+description: >-
+  Snapshots the current Criterion benchmark results as a new bench-baseline
+  JSON via scripts/bench-compare.py --save-baseline, then uploads it as the
+  bench-baseline artifact for downstream comparison runs. Shared by
+  benchmark.yml's baseline job and nightly-benchmarks.yml. Must run after the
+  workflow's own "Run benchmarks" (cargo bench) step.
+
+inputs:
+  retention-days:
+    description: >-
+      Artifact retention period in days (1-90), forwarded verbatim to
+      actions/upload-artifact's retention-days input. Empty string (default)
+      omits the override and falls back to the repository/org default
+      retention setting.
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Save baseline JSON
+      shell: bash
+      run: python3 scripts/bench-compare.py --save-baseline main
+    - name: Upload baseline artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bench-baseline
+        path: .bench-baselines/main.json
+        retention-days: ${{ inputs.retention-days }}

@@ -25,10 +25,7 @@ jobs:
         run: cargo install cargo-criterion
 
       - name: Download baseline
-        uses: actions/download-artifact@v4
-        with:
-          name: bench-baseline
-          path: .bench-baselines
+        uses: ./.github/actions/download-bench-baseline
         continue-on-error: true
 
       - name: Run benchmarks
@@ -36,15 +33,10 @@ jobs:
           cargo bench -p codelens-engine --bench search_paths -- --noplot
           cargo bench -p codelens-engine --bench indexing -- --noplot
 
-      - name: Save new baseline
-        run: python3 scripts/bench-compare.py --save-baseline main
-
-      - name: Upload baseline
-        uses: actions/upload-artifact@v4
+      - name: Save and upload baseline
+        uses: ./.github/actions/save-bench-baseline
         with:
-          name: bench-baseline
-          path: .bench-baselines/main.json
-          retention-days: 30
+          retention-days: '30'
 
       - name: Compare against previous baseline
         if: hashFiles('.bench-baselines/main.json') != ''

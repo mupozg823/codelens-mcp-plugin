@@ -44,13 +44,8 @@ jobs:
         # nightly-benchmarks.yml + build.yml already use `--bench <name>`;
         # this mirrors that pattern.
         run: cargo bench --benches -p codelens-engine -- --save-baseline main
-      - name: Save baseline JSON
-        run: python3 scripts/bench-compare.py --save-baseline main
-      - name: Upload baseline artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bench-baseline
-          path: .bench-baselines/main.json
+      - name: Save and upload baseline
+        uses: ./.github/actions/save-bench-baseline
 
   compare:
     name: Compare benchmarks
@@ -63,11 +58,7 @@ jobs:
         with:
           shared-key: bench
       - name: Download baseline
-        id: download
-        uses: actions/download-artifact@v4
-        with:
-          name: bench-baseline
-          path: .bench-baselines
+        uses: ./.github/actions/download-bench-baseline
         # Allow failure on first PR after baseline workflow creation
         continue-on-error: true
       - name: Run benchmarks

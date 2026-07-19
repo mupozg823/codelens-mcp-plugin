@@ -1,0 +1,17 @@
+name: 'Download bench baseline'
+description: >-
+  Downloads the bench-baseline artifact (Criterion baseline JSON produced by
+  a prior baseline-saving run) into .bench-baselines/. Shared by
+  benchmark.yml's compare job and nightly-benchmarks.yml. Callers should set
+  continue-on-error: true on the step that uses this action, since the
+  artifact legitimately does not exist yet on the very first run (e.g. the
+  first PR after this workflow is introduced).
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download baseline
+      uses: actions/download-artifact@v4
+      with:
+        name: bench-baseline
+        path: .bench-baselines
