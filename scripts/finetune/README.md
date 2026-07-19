@@ -96,3 +96,56 @@ adapter, or `--no-semantic` for an HTTP-only daemon.
 Do not promote a LoRA candidate only because semantic search improves. The
 candidate must pass hybrid retrieval, external retrieval, role retrieval, and
 session replay gates without regressing the current baseline.
+
+## Dense Hard Negatives (opt-in)
+
+Mine dense hard negatives, then wire them into training as explicit MNRL
+triplets. The mining script defers all ML imports so `--dry-run` only emits a
+plan JSON (CI-safe):
+
+```bash
+# Plan only (no ML deps imported):
+python3 scripts/finetune/mine_hard_negatives.py --dry-run
+
+# Real mining in an ML environment:
+python3 scripts/finetune/mine_hard_negatives.py \
+  --train-data scripts/finetune/curated_1k_pairs.jsonl \
+  --output scripts/finetune/hard_negatives.jsonl \
+  --num-negatives 5
+```
+
+Defaults use `sampling_strategy='top'`, `num_negatives=5`, and
+`relative_margin=0.05` (the false-negative guard). Feed the output to training
+with `--hard-negatives`; each mined negative becomes a `[query, positive,
+negative]` triplet run as a second MNRL objective alongside the in-batch pairs.
+The dry-run `training-plan.json` gains a `hard_negatives` block (used/path/rows/
+params); when the flag is omitted it reports `used: false, loss_input:
+in_batch_only`, leaving every existing plan field unchanged.
+
+```bash
+python3 scripts/finetune/train_codelens_lora.py --dry-run \
+  --hard-negatives scripts/finetune/hard_negatives.jsonl
+```
+
+## LLM Synthetic NL Queries (opt-in)
+
+`build_nl_augmentation.py --synth-queries` adds an E5-Mistral 2-step synthesis
+stage (brainstorm retrieval task types, then a query per type) behind a
+pluggable generator. The default `stub` backend performs no model/network call;
+it writes a plan of `(snippet, prompt, expected schema)` records for a later,
+user-approved generation pass:
+
+```bash
+python3 scripts/finetune/build_nl_augmentation.py --synth-queries --dry-run \
+  --synth-input scripts/finetune/synthetic_nl_pairs.jsonl \
+  --synth-output scripts/finetune/output/nl-synth-plan.jsonl
+```
+
+## Semantic Near-Duplicate Audit
+
+`contamination_audit.py` adds an embedding-cosine near-duplicate stage on top of
+the exact/normalized/copied detectors. It reports a `semantic_near_duplicates`
+section and, when it runs, fails on any training↔benchmark pair at/above
+`--semantic-threshold` (default `0.9`). If sentence-transformers or the model is
+unavailable the stage degrades to `SKIPPED` with a reason, so the fail-closed
+gates still hold in dependency-free CI.

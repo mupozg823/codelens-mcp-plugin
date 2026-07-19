@@ -293,6 +293,190 @@ def augment_from_docstrings(pairs_path: Path, stats: Counter) -> list[dict]:
     return augmented
 
 
+# ---------------------------------------------------------------------------
+# LLM synthetic query stage (P2)
+#
+# E5-Mistral 2-step synthesis: (1) brainstorm retrieval task types for a code
+# snippet, then (2) generate one natural-language query per task type. This runs
+# behind a pluggable generator so real backends ('anthropic', 'local') can be
+# added later. The default 'stub' backend performs NO model or network call — it
+# only emits a plan of (snippet, prompt, expected schema) records for a real,
+# user-approved generation pass. --dry-run therefore stays free of any ML/network
+# dependency (stdlib only).
+# ---------------------------------------------------------------------------
+
+SYNTH_PLAN_SCHEMA_VERSION = "codelens-nl-synth-plan-v1"
+
+BRAINSTORM_PROMPT_TEMPLATE = (
+    "You are curating retrieval training data for a code search model.\n"
+    "Given the code snippet below, brainstorm a short list of distinct retrieval "
+    "task types a developer might use to find it (for example: 'natural language "
+    "intent', 'error-symptom lookup', 'API-usage example').\n\n"
+    "Snippet ({language}):\n{snippet}\n\n"
+    "Return a JSON list of task-type strings."
+)
+
+QUERY_PROMPT_TEMPLATE = (
+    "For the retrieval task type '{task_type}', write ONE concise natural-language "
+    "search query (3-15 words) a developer would type to find the code snippet "
+    "below. Return only the query text.\n\n"
+    "Snippet ({language}):\n{snippet}"
+)
+
+# Contract a real backend must satisfy when it fills `generated_query`.
+EXPECTED_QUERY_SCHEMA = {
+    "query": "str",
+    "positive": "str",
+    "language": "str",
+    "augmentation": "llm_synth",
+    "task_type": "str",
+    "backend": "str",
+}
+
+
+class SynthGenerator:
+    """Pluggable NL-query synthesis backend interface.
+
+    Backends implement the same two-method signature:
+
+        brainstorm_task_types(snippet, language) -> list[str]
+        generate(snippet, task_type, prompt)     -> str | None
+
+    The 'stub' backend never calls a model; it exists so the pipeline shape is
+    validated in CI. Real backends ('anthropic', 'local') plug in behind this
+    interface and are only invoked outside --dry-run after explicit user
+    approval.
+    """
+
+    name = "base"
+
+    def brainstorm_task_types(self, snippet: str, language: str) -> list[str]:
+        raise NotImplementedError
+
+    def generate(self, snippet: str, task_type: str, prompt: str) -> str | None:
+        raise NotImplementedError
+
+
+class StubSynthGenerator(SynthGenerator):
+    name = "stub"
+
+    # Deterministic task-type seeds shape the plan without an LLM.
+    DEFAULT_TASK_TYPES = (
+        "natural_language_intent",
+        "error_symptom_lookup",
+        "api_usage_example",
+    )
+
+    def brainstorm_task_types(self, snippet: str, language: str) -> list[str]:
+        return list(self.DEFAULT_TASK_TYPES)
+
+    def generate(self, snippet: str, task_type: str, prompt: str) -> str | None:
+        # Stub emits no query — real generation happens in a separate,
+        # user-approved run. Returning None keeps --dry-run output LLM-free.
+        return None
+
+
+def synth_generator(backend: str) -> SynthGenerator:
+    """Return the query-synthesis backend.
+
+    Only 'stub' is wired for dry-run/CI. Future 'anthropic'/'local' backends
+    subclass SynthGenerator and are dispatched here.
+    """
+    if backend == "stub":
+        return StubSynthGenerator()
+    raise SystemExit(
+        f"synth backend '{backend}' is not wired; only 'stub' is available for "
+        "dry-run. Real LLM backends run separately after user approval."
+    )
+
+
+def passes_quality_filters(query: str | None, seen: set[str]) -> bool:
+    """Quality gate hook for synthesized queries (length / language / dedup).
+
+    Wires the filter *positions* a real backend run enforces. In stub/dry-run
+    there are no generated queries, so this is exercised only once a real
+    backend fills `generated_query`.
+    """
+    if not query:
+        return False
+    words = query.split()
+    if len(words) < 3 or len(words) > 15:  # length filter
+        return False
+    # TODO(P2): plug language detection (e.g. fasttext/langid) here to drop
+    # non-English synthesized queries before dedup.
+    key = query.lower()
+    if key in seen:  # dedup filter
+        return False
+    seen.add(key)
+    return True
+
+
+def build_synth_plan(
+    source_path: Path,
+    generator: SynthGenerator,
+    *,
+    max_snippets: int = 0,
+) -> list[dict]:
+    """Plan LLM-synthesized NL queries via the E5-Mistral 2-step pattern.
+
+    Emits one record per (snippet, task_type) with both prompts and the expected
+    output schema. `generated_query` is None under the stub backend; a real
+    backend fills it and the caller runs `passes_quality_filters` before keeping
+    it.
+    """
+    plan: list[dict] = []
+    seen_queries: set[str] = set()
+    for index, obj in enumerate(iter_jsonl(source_path)):
+        if max_snippets and index >= max_snippets:
+            break
+        positive = obj.get("positive", "")
+        language = obj.get("language", "unknown")
+        if not positive:
+            continue
+        for task_type in generator.brainstorm_task_types(positive, language):
+            query_prompt = QUERY_PROMPT_TEMPLATE.format(
+                task_type=task_type, snippet=positive, language=language
+            )
+            candidate = generator.generate(positive, task_type, query_prompt)
+            kept = passes_quality_filters(candidate, seen_queries)
+            plan.append(
+                {
+                    "snippet": positive,
+                    "language": language,
+                    "task_type": task_type,
+                    "backend": generator.name,
+                    "brainstorm_prompt": BRAINSTORM_PROMPT_TEMPLATE.format(
+                        snippet=positive, language=language
+                    ),
+                    "query_prompt": query_prompt,
+                    "expected_schema": EXPECTED_QUERY_SCHEMA,
+                    "generated_query": candidate,  # None under the stub backend
+                    "quality_passed": kept,
+                }
+            )
+    return plan
+
+
+def run_synth_stage(args) -> Path:
+    generator = synth_generator(args.synth_backend)
+    source = args.synth_input
+    if not source.exists():
+        raise SystemExit(f"synth input not found: {source}")
+    plan = build_synth_plan(
+        source, generator, max_snippets=args.synth_max_snippets
+    )
+    output = args.synth_output
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with open(output, "w", encoding="utf-8") as handle:
+        for record in plan:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    print(
+        f"[synth] schema={SYNTH_PLAN_SCHEMA_VERSION} backend={generator.name} "
+        f"dry_run={args.dry_run} records_planned={len(plan)} -> {output}"
+    )
+    return output
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="NL query augmentation for MRR improvement"
@@ -310,11 +494,55 @@ def parse_args():
     parser.add_argument(
         "--max-per-source", type=int, default=50000, help="Max pairs per source file"
     )
+    # LLM synthetic query stage (P2)
+    parser.add_argument(
+        "--synth-queries",
+        action="store_true",
+        help="Run the LLM synthetic-query planning stage instead of the "
+        "rule-based augmentation flow.",
+    )
+    parser.add_argument(
+        "--synth-backend",
+        default="stub",
+        help="Synthesis backend (only 'stub' is wired for dry-run/CI).",
+    )
+    parser.add_argument(
+        "--synth-input",
+        type=Path,
+        default=SCRIPT_DIR / "synthetic_nl_pairs.jsonl",
+        help="Source JSONL of {query, positive} rows to plan synthesis over.",
+    )
+    parser.add_argument(
+        "--synth-output",
+        type=Path,
+        default=SCRIPT_DIR / "output" / "nl-synth-plan.jsonl",
+        help="Where to write the synthesis plan JSONL.",
+    )
+    parser.add_argument(
+        "--synth-max-snippets",
+        type=int,
+        default=200,
+        help="Cap snippets planned (0 = all).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Plan-only: emit the synthesis plan without any LLM/network call.",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    if args.synth_queries:
+        run_synth_stage(args)
+        if args.dry_run:
+            return
+        # Non-dry-run real generation is gated separately (user-approved
+        # backend); the stub backend produces no queries to merge here.
+        return
+
     all_augmented = []
     stats = Counter()
 

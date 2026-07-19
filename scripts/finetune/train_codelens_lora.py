@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import random
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -58,6 +59,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
     parser.add_argument("--query-field", default="query")
     parser.add_argument("--positive-field", default="positive")
+    parser.add_argument(
+        "--hard-negatives",
+        default="",
+        help=(
+            "Optional JSONL of mined hard negatives (query/positive/negative or "
+            "negative_1..N). When provided, explicit-negative triplets are added "
+            "as a second MNRL objective alongside the in-batch positive pairs. "
+            "Produce this file with mine_hard_negatives.py."
+        ),
+    )
     parser.add_argument("--rank", type=int, default=16)
     parser.add_argument("--alpha", type=int, default=32)
     parser.add_argument("--dropout", type=float, default=0.05)
@@ -120,6 +131,115 @@ def load_pairs(
             if max_rows > 0 and len(pairs) >= max_rows:
                 break
     return pairs
+
+
+class HardNegativeExample(NamedTuple):
+    query: str
+    positive: str
+    negatives: list[str]
+
+
+_ENUMERATED_NEGATIVE_RE = re.compile(r"^negative_(\d+)$")
+
+
+def extract_negatives(obj: dict[str, Any]) -> list[str]:
+    """Collect explicit negatives from one hard-negative row.
+
+    Accepts a single `negative` string, a `negatives` list, and enumerated
+    `negative_1..N` columns — the shapes emitted by sentence-transformers
+    `mine_hard_negatives` and the existing feedback_pairs.jsonl schema.
+    """
+    negatives: list[str] = []
+    single = obj.get("negative")
+    if isinstance(single, str) and single.strip():
+        negatives.append(single.strip())
+    if isinstance(obj.get("negatives"), list):
+        negatives.extend(
+            str(item).strip() for item in obj["negatives"] if str(item).strip()
+        )
+    enumerated = sorted(
+        (key for key in obj if _ENUMERATED_NEGATIVE_RE.match(key)),
+        key=lambda key: int(_ENUMERATED_NEGATIVE_RE.match(key).group(1)),
+    )
+    for key in enumerated:
+        value = obj.get(key)
+        if isinstance(value, str) and value.strip():
+            negatives.append(value.strip())
+    # Preserve order while dropping duplicates.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for negative in negatives:
+        if negative not in seen:
+            seen.add(negative)
+            deduped.append(negative)
+    return deduped
+
+
+def load_hard_negatives(
+    path: str | Path,
+    *,
+    query_field: str = "query",
+    positive_field: str = "positive",
+    max_rows: int = 0,
+) -> list[HardNegativeExample]:
+    data_path = Path(path)
+    if not data_path.exists():
+        raise SystemExit(f"Hard-negative data not found: {data_path}")
+
+    examples: list[HardNegativeExample] = []
+    with data_path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise SystemExit(
+                    f"Invalid JSONL row {data_path}:{line_number}: {exc}"
+                )
+            query = str(obj.get(query_field, "")).strip()
+            positive = str(obj.get(positive_field, "")).strip()
+            negatives = extract_negatives(obj)
+            if not query or not positive or not negatives:
+                continue
+            examples.append(
+                HardNegativeExample(query=query, positive=positive, negatives=negatives)
+            )
+            if max_rows > 0 and len(examples) >= max_rows:
+                break
+    return examples
+
+
+def hard_negatives_summary(args: argparse.Namespace) -> dict[str, Any]:
+    """Describe the hard-negative wiring for the training plan.
+
+    Reads only the JSONL (no ML deps), so it stays valid under --dry-run.
+    """
+    path = getattr(args, "hard_negatives", "") or ""
+    if not path:
+        return {
+            "used": False,
+            "path": None,
+            "rows": 0,
+            "total_negatives": 0,
+            "max_negatives_per_row": 0,
+            "loss_input": "in_batch_only",
+        }
+    examples = load_hard_negatives(
+        path,
+        query_field=args.query_field,
+        positive_field=args.positive_field,
+    )
+    total_negatives = sum(len(example.negatives) for example in examples)
+    max_negatives = max((len(example.negatives) for example in examples), default=0)
+    return {
+        "used": True,
+        "path": str(path),
+        "rows": len(examples),
+        "total_negatives": total_negatives,
+        "max_negatives_per_row": max_negatives,
+        "loss_input": "explicit_negatives_plus_in_batch",
+    }
 
 
 def training_stats(pairs: list[TrainingPair]) -> dict[str, Any]:
@@ -255,6 +375,7 @@ def write_training_plan(
         "batch_size": args.batch_size,
         "learning_rate": args.lr,
         "seed": args.seed,
+        "hard_negatives": hard_negatives_summary(args),
         **manifest,
     }
     plan_path = output_dir / "training-plan.json"
@@ -362,13 +483,50 @@ def train(args: argparse.Namespace, pairs: list[TrainingPair]) -> None:
         shuffle=True,
         batch_size=args.batch_size,
     )
-    loss_fn = deps["losses"].MultipleNegativesRankingLoss(model=model)
+    train_objectives = [
+        (dataloader, deps["losses"].MultipleNegativesRankingLoss(model=model))
+    ]
+
+    # Optional dense hard negatives: each mined negative becomes an explicit
+    # MNRL triplet [query, positive, negative]. They run as a *separate*
+    # objective so the triplet columns stay consistent within their own
+    # DataLoader (mixing 2-column pairs and 3-column triplets in one loader
+    # breaks collation); the in-batch positives of both objectives still act as
+    # implicit negatives.
+    if args.hard_negatives:
+        hard_examples = load_hard_negatives(
+            args.hard_negatives,
+            query_field=args.query_field,
+            positive_field=args.positive_field,
+        )
+        triplets = [
+            deps["InputExample"](texts=[example.query, example.positive, negative])
+            for example in hard_examples
+            for negative in example.negatives
+        ]
+        if triplets:
+            hard_dataloader = deps["DataLoader"](
+                triplets,
+                shuffle=True,
+                batch_size=args.batch_size,
+            )
+            train_objectives.append(
+                (
+                    hard_dataloader,
+                    deps["losses"].MultipleNegativesRankingLoss(model=model),
+                )
+            )
+            print(
+                f"Hard-negative triplets: {len(triplets):,} "
+                f"from {len(hard_examples):,} mined rows"
+            )
 
     model_output = Path(args.output_dir) / "model"
     model_output.mkdir(parents=True, exist_ok=True)
-    warmup_steps = int(len(dataloader) * args.epochs * 0.1)
+    total_steps = sum(len(loader) for loader, _ in train_objectives)
+    warmup_steps = int(total_steps * args.epochs * 0.1)
     model.fit(
-        train_objectives=[(dataloader, loss_fn)],
+        train_objectives=train_objectives,
         epochs=args.epochs,
         warmup_steps=warmup_steps,
         output_path=str(model_output),

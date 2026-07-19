@@ -1771,6 +1771,55 @@ fn store_scoped_search_filters_with_vec_metadata() {
 }
 
 #[test]
+fn store_model_name_change_recreates_and_drops_rows() {
+    // Locks the re-embedding trigger contract: `model-manifest.json`'s
+    // `model_name` flows through `configured_model_name_for_dir` and
+    // `load_codesearch_model` into `SqliteVecStore::new` as `model_name`, which
+    // is persisted in the `meta` table under key 'model'. Reopening with a
+    // different model_name makes `needs_recreate` true, dropping every indexed
+    // row so the project is re-embedded from scratch under the new model
+    // identity. This runs without the ONNX model — it exercises the store
+    // directly, not the embedding runtime.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("embeddings.db");
+    let chunks = vec![EmbeddingChunk {
+        file_path: "main.py".to_owned(),
+        symbol_name: "hello".to_owned(),
+        kind: "function".to_owned(),
+        line: 1,
+        signature: "def hello():".to_owned(),
+        name_path: "hello".to_owned(),
+        text: "hello".to_owned(),
+        embedding: vec![1.0, 0.0],
+        doc_embedding: None,
+    }];
+
+    let store_a = super::vec_store::SqliteVecStore::new(db_path.as_path(), 2, "model-A").unwrap();
+    store_a.insert(&chunks).unwrap();
+    assert_eq!(store_a.count().unwrap(), 1);
+    drop(store_a);
+
+    // Same model identity → indexed rows survive the reopen.
+    let store_same =
+        super::vec_store::SqliteVecStore::new(db_path.as_path(), 2, "model-A").unwrap();
+    assert_eq!(
+        store_same.count().unwrap(),
+        1,
+        "same model_name must preserve the existing embedding index"
+    );
+    drop(store_same);
+
+    // Changed model_name (e.g. a new manifest model_name after a checkpoint
+    // swap) → every row is dropped, forcing a full re-embed.
+    let store_b = super::vec_store::SqliteVecStore::new(db_path.as_path(), 2, "model-B").unwrap();
+    assert_eq!(
+        store_b.count().unwrap(),
+        0,
+        "changed model_name must drop the index to trigger re-embedding"
+    );
+}
+
+#[test]
 fn store_fetches_embeddings_for_scored_chunks() {
     let _lock = MODEL_LOCK.lock().unwrap();
     skip_without_embedding_model!();

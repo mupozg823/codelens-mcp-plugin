@@ -37,6 +37,24 @@ def parse_args():
     parser.add_argument("--external-benchmark", default=str(DEFAULT_EXTERNAL))
     parser.add_argument("--role-benchmark", default=str(DEFAULT_ROLE))
     parser.add_argument("--output", default=str(SCRIPT_DIR / "contamination-audit-report.json"))
+    parser.add_argument(
+        "--semantic-model",
+        default="sentence-transformers/all-MiniLM-L12-v2",
+        help="Model for the semantic near-duplicate stage.",
+    )
+    parser.add_argument(
+        "--semantic-threshold",
+        type=float,
+        default=0.9,
+        help="Cosine similarity at/above which a training↔benchmark query pair "
+        "is flagged as a semantic near-duplicate.",
+    )
+    parser.add_argument(
+        "--semantic-max-queries",
+        type=int,
+        default=5000,
+        help="Cap training queries embedded for the semantic stage (0 = all).",
+    )
     return parser.parse_args()
 
 
@@ -133,7 +151,96 @@ def build_benchmark_indexes(rows: list[dict]):
     return by_exact, by_norm, by_object
 
 
-def audit_manifest(manifest_path: Path, benchmark_sets: list[tuple[str, Path]]) -> dict:
+def semantic_near_duplicate_audit(
+    training_queries: list[dict],
+    benchmark_rows_list: list[dict],
+    *,
+    model_name: str,
+    threshold: float,
+    max_queries: int = 0,
+) -> dict:
+    """Embedding-cosine near-duplicate detector (training vs eval benchmarks).
+
+    Gracefully degrades to SKIPPED (with a reason) when sentence-transformers or
+    the model is unavailable, so the fail-closed exact/normalized/copied gates
+    are never broken. In an ML-capable environment it is an enforced gate: any
+    pair at/above `threshold` is reported and fails the audit.
+    """
+    result: dict = {
+        "status": "SKIPPED",
+        "reason": "",
+        "model": model_name,
+        "threshold": threshold,
+        "pairs_flagged": 0,
+        "near_duplicates": [],
+    }
+
+    if not training_queries or not benchmark_rows_list:
+        result["reason"] = "no training or benchmark queries to compare"
+        return result
+
+    try:
+        from sentence_transformers import SentenceTransformer, util
+    except ImportError:
+        result["reason"] = "sentence-transformers not installed"
+        return result
+
+    try:
+        model = SentenceTransformer(model_name)
+    except Exception as exc:  # noqa: BLE001 — degrade on any load failure
+        result["reason"] = f"model unavailable: {exc}"
+        return result
+
+    considered = training_queries
+    if max_queries and len(considered) > max_queries:
+        considered = considered[:max_queries]
+
+    train_texts = [row["query"] for row in considered]
+    bench_texts = [row["query"] for row in benchmark_rows_list]
+
+    train_emb = model.encode(
+        train_texts, convert_to_tensor=True, normalize_embeddings=True
+    )
+    bench_emb = model.encode(
+        bench_texts, convert_to_tensor=True, normalize_embeddings=True
+    )
+    cosine = util.cos_sim(train_emb, bench_emb)
+
+    near_duplicates: list[dict] = []
+    for train_idx, train_row in enumerate(considered):
+        row_scores = cosine[train_idx]
+        best_idx = int(row_scores.argmax())
+        best_score = float(row_scores[best_idx])
+        if best_score >= threshold:
+            bench_row = benchmark_rows_list[best_idx]
+            near_duplicates.append(
+                {
+                    "artifact": train_row.get("artifact"),
+                    "line": train_row.get("line"),
+                    "train_query": train_row["query"],
+                    "benchmark_query": bench_row["query"],
+                    "benchmark_source": bench_row.get("source"),
+                    "cosine": round(best_score, 4),
+                }
+            )
+
+    result["status"] = "RUN"
+    result["reason"] = ""
+    result["queries_compared"] = len(considered)
+    result["benchmark_queries"] = len(bench_texts)
+    result["pairs_flagged"] = len(near_duplicates)
+    result["near_duplicates"] = near_duplicates[:200]
+    return result
+
+
+def audit_manifest(
+    manifest_path: Path,
+    benchmark_sets: list[tuple[str, Path]],
+    *,
+    semantic_model: str = "sentence-transformers/all-MiniLM-L12-v2",
+    semantic_threshold: float = 0.9,
+    semantic_max_queries: int = 0,
+) -> dict:
     manifest = load_json(manifest_path)
     benchmarks = []
     for source, path in benchmark_sets:
@@ -144,6 +251,7 @@ def audit_manifest(manifest_path: Path, benchmark_sets: list[tuple[str, Path]]) 
     overlap_counts = Counter()
     failures = []
     findings = []
+    training_queries: list[dict] = []
 
     for artifact_key, artifact_path in manifest_query_artifacts(manifest):
         if not artifact_path.exists():
@@ -154,6 +262,9 @@ def audit_manifest(manifest_path: Path, benchmark_sets: list[tuple[str, Path]]) 
             if not isinstance(query, str) or not query.strip():
                 continue
             query_norm = normalize_query(query).lower()
+            training_queries.append(
+                {"artifact": artifact_key, "line": line_no, "query": query}
+            )
             parsed_positive = parse_row_positive(row)
 
             exact_matches = exact_index.get(query, [])
@@ -212,6 +323,22 @@ def audit_manifest(manifest_path: Path, benchmark_sets: list[tuple[str, Path]]) 
             f"copied benchmark row objects detected ({overlap_counts['copied_benchmark_object']} rows)"
         )
 
+    semantic = semantic_near_duplicate_audit(
+        training_queries,
+        benchmarks,
+        model_name=semantic_model,
+        threshold=semantic_threshold,
+        max_queries=semantic_max_queries,
+    )
+    # Enforced only when the stage actually runs; SKIPPED never fails the gate,
+    # so the exact/normalized/copied fail-closed contract stays intact in
+    # dependency-free environments.
+    if semantic["status"] == "RUN" and semantic["pairs_flagged"]:
+        failures.append(
+            f"semantic near-duplicate queries detected "
+            f"({semantic['pairs_flagged']} rows >= {semantic_threshold} cosine)"
+        )
+
     return {
         "schema_version": "codelens-contamination-audit-v1",
         "manifest": str(manifest_path),
@@ -223,6 +350,7 @@ def audit_manifest(manifest_path: Path, benchmark_sets: list[tuple[str, Path]]) 
         "overlap_counts": dict(sorted(overlap_counts.items())),
         "findings": findings[:200],
         "finding_count": len(findings),
+        "semantic_near_duplicates": semantic,
         "failures": failures,
         "passed": not failures,
     }
@@ -239,7 +367,13 @@ def main():
         ("external", Path(args.external_benchmark).expanduser().resolve()),
         ("role", Path(args.role_benchmark).expanduser().resolve()),
     ]
-    report = audit_manifest(manifest_path, benchmark_sets)
+    report = audit_manifest(
+        manifest_path,
+        benchmark_sets,
+        semantic_model=args.semantic_model,
+        semantic_threshold=args.semantic_threshold,
+        semantic_max_queries=args.semantic_max_queries,
+    )
     output_path = Path(args.output).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
