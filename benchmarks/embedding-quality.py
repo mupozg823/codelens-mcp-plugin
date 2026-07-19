@@ -631,6 +631,7 @@ _IGNORE_PATTERNS = shutil.ignore_patterns(
     "coverage",
     "__pycache__",
     ".venv",
+    ".venv-*",
     "venv",
     ".pytest_cache",
 )

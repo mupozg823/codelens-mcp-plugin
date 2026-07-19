@@ -192,6 +192,7 @@ def copy_project_for_benchmark(source_project: str) -> str:
             "coverage",
             "__pycache__",
             ".venv",
+            ".venv-*",
             "venv",
             ".pytest_cache",
         ),
