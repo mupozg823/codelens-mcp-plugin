@@ -113,7 +113,14 @@ rcgen = "0.13"
 
 [profile.release]
 lto = true
-strip = true
+# Keep the Mach-O symbol table + minimal line tables so the deployed daemon can
+# be symbolicated in place (sample + atos) during a live incident. A P0 spin
+# (main-thread busy loop, 11.8 CPU-h) was un-diagnosable because the shipped
+# binary was fully stripped. On macOS the DWARF stays in the .o files (unpacked
+# split-debuginfo), so this adds negligible size to the deployed binary while
+# preserving function-name resolution.
+strip = false
+debug = "line-tables-only"
 codegen-units = 1
 opt-level = 3
 panic = "abort"
