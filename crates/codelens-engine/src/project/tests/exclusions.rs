@@ -130,6 +130,22 @@ fn excludes_generated_lock_and_backup_artifacts() {
 }
 
 #[test]
+fn excludes_suffixed_virtualenv_directories() {
+    // Dogfooding regression: a `.venv-finetune` uv env added 24K+ files and
+    // ~1.1M foreign symbols to this repo's own index because EXCLUDED_DIRS
+    // only matched `.venv`/`venv` exactly.
+    assert!(is_excluded(Path::new(
+        ".venv-finetune/lib/python3.11/site-packages/torch/nn.py"
+    )));
+    assert!(is_excluded(Path::new("scripts/.venv311/bin/activate.py")));
+    assert!(is_excluded(Path::new(".venv/lib/python3.12/os.py")));
+
+    // Files merely named with a `.venv` stem are not directories on the path.
+    assert!(!is_excluded(Path::new("src/venv_manager.py")));
+    assert!(!is_excluded(Path::new("docs/venv-setup.md")));
+}
+
+#[test]
 fn project_config_excludes_opt_in_vendor_paths() {
     let (_td, temp) = tempfile_dir();
     fs::create_dir_all(temp.join(".codelens")).expect("mkdir codelens");

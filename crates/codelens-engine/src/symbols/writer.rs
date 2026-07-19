@@ -11,8 +11,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn should_bulk_rebuild_symbol_index(before: &IndexStats, candidate_count: usize) -> bool {
-    before.indexed_files > candidate_count.saturating_add(512)
-        && before.stale_files > candidate_count.saturating_div(2).max(256)
+    let large_overhang = before.indexed_files > candidate_count.saturating_add(512);
+    let stale_heavy = before.stale_files > candidate_count.saturating_div(2).max(256);
+    // A discovery-set shrink (new exclude patterns, project reconfiguration)
+    // leaves stale_files at 0 while indexed_files dwarfs the candidate set.
+    // The per-file delete fallback then has to walk tens of thousands of
+    // orphan rows in one transaction, which cannot finish inside an MCP
+    // request window — rebuild wholesale instead.
+    let discovery_shrink =
+        before.indexed_files > candidate_count.saturating_mul(4).saturating_add(512);
+    large_overhang && (stale_heavy || discovery_shrink)
 }
 
 /// Analyze a single file: read, hash, parse symbols/imports/calls.
@@ -361,5 +369,32 @@ mod tests {
         };
 
         assert!(!should_bulk_rebuild_symbol_index(&before, 1_978));
+    }
+
+    #[test]
+    fn bulk_rebuild_triggers_for_discovery_shrink_with_zero_stale() {
+        // New exclude patterns shrink discovery from 24,965 to 724 files while
+        // stale_files stays 0 — the per-file delete fallback would walk 24k
+        // orphan rows in one transaction and time out.
+        let before = IndexStats {
+            indexed_files: 24_965,
+            supported_files: 24_965,
+            stale_files: 0,
+        };
+
+        assert!(should_bulk_rebuild_symbol_index(&before, 724));
+    }
+
+    #[test]
+    fn bulk_rebuild_does_not_trigger_for_mild_shrink_with_zero_stale() {
+        // Deleting a subdirectory is a mild shrink; the per-file delete
+        // fallback handles it fine and preserves incremental freshness.
+        let before = IndexStats {
+            indexed_files: 2_400,
+            supported_files: 2_400,
+            stale_files: 0,
+        };
+
+        assert!(!should_bulk_rebuild_symbol_index(&before, 2_000));
     }
 }

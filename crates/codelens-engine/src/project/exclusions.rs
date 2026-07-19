@@ -53,7 +53,12 @@ pub const EXCLUDED_DIRS: &[&str] = &[
 pub fn is_excluded(path: &Path) -> bool {
     if path.components().any(|component| {
         let value = component.as_os_str().to_string_lossy();
-        EXCLUDED_DIRS.contains(&value.as_ref()) || value.starts_with("backup-")
+        EXCLUDED_DIRS.contains(&value.as_ref())
+            || value.starts_with("backup-")
+            // Suffixed virtualenvs (`.venv-finetune`, `.venv311`) are as much
+            // dependency trees as `.venv` itself — a single one can add 20K+
+            // files and a million foreign symbols to the index.
+            || value.starts_with(".venv")
     }) {
         return true;
     }
