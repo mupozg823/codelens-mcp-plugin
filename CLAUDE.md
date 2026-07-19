@@ -6,7 +6,7 @@ This repo **is** the CodeLens MCP server. The routing/workflow blocks below are 
 
 ## Repository Architecture
 
-Cargo workspace, edition 2024, `version = "1.13.22"` shared via `[workspace.package]`:
+Cargo workspace, edition 2024, version shared via `[workspace.package]` (current number lives in `Cargo.toml` / the generated Surface Snapshot — do not hardcode it in prose):
 
 - **`crates/codelens-engine`** — pure library: tree-sitter extractors, SQLite FTS5 + sqlite-vec store, hybrid retrieval (BM25 + ONNX embeddings), call/import graph, refactor primitives (rename/move/inline/edit-transaction), LSP client, optional SCIP backend. No MCP-specific code.
 - **`crates/codelens-mcp`** — MCP server binary. Owns the dispatch table, tool surfaces (presets/profiles), workflow orchestration, response envelope (token compression, suggested_next_tools, doom-loop detection), HTTP/stdio transports, and integration tests. The bin target is `codelens-mcp`; **lib target does not exist** — `cargo test -p codelens-mcp --lib` fails.
@@ -19,7 +19,7 @@ Three concepts that show up across files and require reading several to understa
 
 ### Symbol-query path lives behind one seam
 
-`get_ranked_context`, `find_symbol`, and `get_symbols_overview` all dispatch through a single deep module: `crates/codelens-mcp/src/tools/symbol_query/`. Each tool's `pub fn` in `tools/symbols/handlers.rs` is a 3-line entry that constructs a `SymbolQueryRequest` variant and calls `SymbolQueryPipeline::run`. The orchestration body (query analysis → retrieval → rank fusion → SCIP enrichment → payload shaping) lives **inside** the pipeline module, not in `handlers.rs`.
+`get_ranked_context`, `find_symbol`, and `get_symbols_overview` all dispatch through a single deep module: `crates/codelens-mcp/src/tools/symbol_query/`. The three tool entry points are renamed re-exports in `tools/symbols/mod.rs` (`run_find_symbol as find_symbol`, `run_ranked_context as get_ranked_context`, `run_symbols_overview as get_symbols_overview`). The orchestration body (query analysis → retrieval → rank fusion → SCIP enrichment → payload shaping) lives **inside** the pipeline module, not in `symbols/`.
 
 Module layout (post-PR-F/G/H):
 
@@ -34,7 +34,7 @@ crates/codelens-mcp/src/tools/
 │   ├── sparse_retriever.rs          ← BM25F + context-window-adaptive budget + flatten_symbols
 │   └── rank_fusion.rs               ← stage-4 helpers (5 fn + RankFusionPolicy, all pub(super))
 └── symbols/
-    ├── handlers.rs                  ← 31 LOC: 3 thin pipeline stubs only
+    ├── mod.rs                       ← renamed re-exports of the 3 pipeline entry fns
     ├── bm25_search.rs               ← bm25_symbol_search + suggested_follow_up + confidence_tier
     ├── fuzzy_search.rs              ← search_symbols_fuzzy (hybrid + semantic boost)
     ├── inventory.rs                 ← refresh_symbol_index + get_complexity + get_project_structure
@@ -117,6 +117,10 @@ cycle, and macOS xattr/codesign (`OS_REASON_CODESIGNING`) recovery live in
 - **`cargo install codelens-mcp` is BM25 + SCIP only, no semantic.** Default features are `["scip-backend"]` (ADR-0012 set them to `[]` in v1.10.0; v1.13.17 added `scip-backend` to the default set when SCIP became on-by-default). The `cargo install --force` upgrade path won't auto-add `semantic` or `http` — both still need explicit `--features`.
 - **Surface manifest version markers.** `Workspace version: \`1.x.y\``strings inside non-marker README/docs sections trigger`canonical*truth_violations()`in`scripts/surface-manifest.py`. Keep version claims inside `SURFACE_MANIFEST*\*` blocks only.
 - **Tools.toml entries without preset membership are invisible.** A new analysis tool added to `tools.toml` must be inserted into one of the preset constants in `tool_defs/presets.rs` to surface in any `tools/list` response, even though it remains directly callable via `tools/call`.
+
+## Routing Overlay Semantics
+
+The compiled routing overlays below are **profile-conditional guidance**: each labeled overlay (e.g. `reviewer-graph` + `review`) lists tools that become callable once the session is on that profile, so entries like `audit_planner_session` are valid inside the reviewer-graph overlay even though they are excluded from the default surface. This repo's own default session binds `claude-code` and sends no `x-codelens-profile`, so its active surface is the **Balanced** preset — only the unlabeled _Primary bootstrap sequence_ is guaranteed callable without first switching profiles. (This paragraph lives outside the `CODELENS_HOST_ROUTING` markers on purpose; never hand-edit inside them.)
 
 <!-- CODELENS_HOST_ROUTING:BEGIN -->
 

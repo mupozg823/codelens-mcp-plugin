@@ -2,7 +2,7 @@
   "name": "codelens",
   "display_name": "CodeLens MCP",
   "description": "Compressed context provider for planner/reviewer/refactor agent harnesses",
-  "version": "1.0.0",
+  "version": "1.13.34",
   "license": "Apache-2.0",
   "repository": "https://github.com/mupozg823/codelens-mcp-plugin",
   "homepage": "https://github.com/mupozg823/codelens-mcp-plugin",

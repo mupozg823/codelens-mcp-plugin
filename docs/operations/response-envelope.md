@@ -115,3 +115,18 @@ Missing required params fail immediately with `MissingParam` error (no handler e
 
 Responses include `_meta["anthropic/maxResultSizeChars"]` per MCP spec (Claude Code v2.1.91+).
 Values scale by tool tier: Workflow=200K, Analysis=100K, Primitive=50K chars.
+
+## Tool Schema Fingerprint (compatibility contract)
+
+`prepare_harness_session` returns `surface_generation.tool_schema_fingerprint`: a
+canonical-JSON SHA-256 over the session's **visible** tool set — each tool's
+`name` + `inputSchema` pair (`tool_schema_generation.rs`). Descriptions and
+output schemas are excluded, so cosmetic copy edits do not rotate the value.
+
+The fingerprint changes when the visible surface composition changes
+(preset/profile switch, surface-diet edits) or when any visible tool's input
+schema changes (`tools.toml` + regen). Client action on mismatch: reissue
+`tools/list` or reconnect (`refresh_action: reissue_tools_list_or_reconnect`).
+Clients may echo the last-seen value via the `known_tool_schema_fingerprint`
+argument of `prepare_harness_session`; a mismatch emits a
+`tool_schema_cache_stale` warning instead of failing the call.

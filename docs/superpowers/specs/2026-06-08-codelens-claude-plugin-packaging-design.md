@@ -35,6 +35,7 @@ skills and agent.
 ## Assumptions accepted
 
 - **A1 — Plugin versioning**: `plugin.json.version` is an **independent plugin semver starting at `1.0.0`**, decoupled from the crate version (`1.13.32`). The manifest changes rarely; coupling it to every crate bump adds churn.
+  - **REVERSED (2026-07-19, user-approved)**: in practice the shipped manifest was silently synced to the crate version (`1.13.34`, commit d6496858) and the marketplace already advertises that number — resetting to an independent 1.x line would look like a downgrade to installed consumers. The coupling is now the official policy: `plugin.json.version` MUST equal the `[workspace.package]` version, and `scripts/validate-plugin-manifest.py` enforces the equality as a CI gate (release flow must bump both together).
 - **A2 — CI gate**: a `scripts/validate-plugin-manifest.py --check` step is added to `ci.yml`, mirroring the existing `regen-tool-defs.py --check` / `surface-manifest.py --check` deterministic-drift gates.
 - **A3 — Failure mode**: "binary not on PATH" surfaces as a Claude Code MCP connection failure. The manifest cannot auto-detect this; it is handled by a README prerequisite section + pointer to `codelens-mcp doctor`. Accepted limitation.
 

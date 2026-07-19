@@ -66,8 +66,8 @@ CodeLens는 host가 대화를 소유하고, `codelens-mcp`가 MCP tool 표면과
 - Registered tool definitions: `100`
 - Tool output schemas: `57 / 100`
 - Supported language families: `34` across `56` extensions
-- Profiles: `readonly` (44), `builder` (43), `review` (20)
-- Presets: `minimal` (26), `balanced` (82), `full` (95)
+- Profiles: `readonly` (40), `builder` (39), `review` (20)
+- Presets: `minimal` (22), `balanced` (69), `full` (95)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
@@ -136,11 +136,17 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 
 > The default `cargo install codelens-mcp` build was switched to `default = []` in 1.10.0 (ADR-0012) so a fresh install boots without the ~80 MB ONNX sidecar. Existing users running `cargo install --force` will see the change in the startup banner.
 
-Latest release: [GitHub Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). For local release comparisons, use `git tag --sort=-v:refname | head -1` instead of copying a fixed tag into docs.
+최신 릴리스: [GitHub Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). 로컬에서 릴리스를 비교할 때는 문서에 고정 태그를 그대로 복사하지 말고 `git tag --sort=-v:refname | head -1`을 사용하세요.
 
-Runtime smoke proof: [`docs/quickstart-transcript.md`](docs/quickstart-transcript.md) captures install -> doctor/status -> index -> coverage -> retrieve from an isolated temp prefix.
+<sub>English: Latest release: [GitHub Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest). For local release comparisons, use `git tag --sort=-v:refname | head -1` instead of copying a fixed tag into docs.</sub>
 
-Public repo, release-page, and plugin-marketplace descriptions should use the same short product line as this README. Localized deployment copy for country/language-specific pages lives in [`docs/release-distribution.md#localized-deployment-page-copy`](docs/release-distribution.md#localized-deployment-page-copy).
+런타임 smoke 증빙: [`docs/quickstart-transcript.md`](docs/quickstart-transcript.md)는 격리된 임시 prefix에서 install -> doctor/status -> index -> coverage -> retrieve 흐름을 기록합니다.
+
+<sub>English: Runtime smoke proof: [`docs/quickstart-transcript.md`](docs/quickstart-transcript.md) captures install -> doctor/status -> index -> coverage -> retrieve from an isolated temp prefix.</sub>
+
+공개 저장소, 릴리스 페이지, plugin marketplace 설명은 이 README와 동일한 짧은 제품 소개 문구를 사용해야 합니다. 국가/언어별 페이지용 현지화 배포 문구는 [`docs/release-distribution.md#localized-deployment-page-copy`](docs/release-distribution.md#localized-deployment-page-copy)에 있습니다.
+
+<sub>English: Public repo, release-page, and plugin-marketplace descriptions should use the same short product line as this README. Localized deployment copy for country/language-specific pages lives in [`docs/release-distribution.md#localized-deployment-page-copy`](docs/release-distribution.md#localized-deployment-page-copy).</sub>
 
 ### Install Channel Matrix
 
@@ -160,59 +166,91 @@ Important:
 
 ## Claude Code Plugin
 
-CodeLens ships as a Claude Code plugin that wires the MCP server plus the
-CodeLens-specific skills and read-only explorer agent in one install.
+CodeLens는 Claude Code plugin 형태로도 제공되며, 설치 한 번으로 MCP 서버와
+CodeLens 전용 skill들, 읽기 전용 explorer agent를 함께 연결합니다.
 
-**Prerequisite — install the binary first.** The plugin connects to a
+<sub>English: CodeLens ships as a Claude Code plugin that wires the MCP server plus the
+CodeLens-specific skills and read-only explorer agent in one install.</sub>
+
+**사전 조건 — 바이너리를 먼저 설치하세요.** plugin은 `PATH`에 있는
+`codelens-mcp` 바이너리에 연결할 뿐, plugin 시스템 자체가 바이너리를
+빌드해주지는 않습니다. 권장 경로는 installer 또는 GitHub Release tarball이며,
+여기에는 semantic 모델이 번들되어 있어 `semantic_search`와 hybrid retrieval이
+별도 설정 없이 바로 동작합니다:
+
+<sub>English: **Prerequisite — install the binary first.** The plugin connects to a
 `codelens-mcp` binary on your `PATH`; the plugin system does not build it.
 The recommended path is the installer or a GitHub Release tarball, which
 bundle the semantic model so `semantic_search` and hybrid retrieval work
-out of the box:
+out of the box:</sub>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
 ```
 
-A leaner `cargo install codelens-mcp` also works but provides BM25 + AST +
+더 가벼운 `cargo install codelens-mcp`도 동작하지만 BM25 + AST + call-graph만
+제공합니다(semantic 모델 없음; `--features semantic`와 모델 디렉터리를
+추가하기 전까지 `semantic_search`는 자연스럽게 비활성 상태로 남습니다 —
+[Install Channel Matrix](#install-channel-matrix) 참고).
+
+<sub>English: A leaner `cargo install codelens-mcp` also works but provides BM25 + AST +
 call-graph only (no semantic model; `semantic_search` is gracefully absent
 until you add `--features semantic` and a model directory — see the
-[Install Channel Matrix](#install-channel-matrix)).
+[Install Channel Matrix](#install-channel-matrix)).</sub>
 
-**Install the plugin:**
+**plugin 설치:**
+
+<sub>English: Install the plugin:</sub>
 
 ```text
 /plugin marketplace add mupozg823/codelens-mcp-plugin
 /plugin install codelens@codelens
 ```
 
-**What you get:** the `mcp__codelens__*` tools, the `codelens-analyze`,
-`codelens-review`, and `codelens-onboard` skills, and the read-only
-`codelens-explorer` agent.
+**제공되는 것:** `mcp__codelens__*` tool들, `codelens-analyze`·`codelens-review`·
+`codelens-onboard` skill, 그리고 읽기 전용 `codelens-explorer` agent입니다.
 
-**If the tools don't appear** after install, the binary isn't on your
-`PATH`. Verify the install with:
+<sub>English: **What you get:** the `mcp__codelens__*` tools, the `codelens-analyze`,
+`codelens-review`, and `codelens-onboard` skills, and the read-only
+`codelens-explorer` agent.</sub>
+
+설치 후 **tool이 보이지 않는다면** 바이너리가 `PATH`에 없다는 뜻입니다.
+다음으로 설치를 확인하세요:
+
+<sub>English: **If the tools don't appear** after install, the binary isn't on your
+`PATH`. Verify the install with:</sub>
 
 ```bash
 codelens-mcp doctor claude-code
 ```
 
-**Optional — post-edit diagnostics.** The repo ships
+**선택 사항 — 편집 후 진단.** 이 저장소는 편집된 각 파일에 대해 CodeLens
+진단을 실행하는 `hooks/post-edit-diagnostics.sh`를 제공합니다. 이 hook은
+plugin에 의해 **자동 설치되지 않습니다**. 사용하려면 Claude Code 설정에서
+`Edit` matcher에 대해 해당 스크립트를 가리키는 `PostToolUse` hook을
+추가하세요.
+
+<sub>English: **Optional — post-edit diagnostics.** The repo ships
 `hooks/post-edit-diagnostics.sh`, which runs CodeLens diagnostics on each
 edited file. It is **not** auto-installed by the plugin. To enable it, add a
 `PostToolUse` hook for the `Edit` matcher pointing at that script in your
-Claude Code settings.
+Claude Code settings.</sub>
 
 ## Setup
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and fill in the values for your environment:
+`.env.example`을 `.env`로 복사한 뒤 사용 환경에 맞게 값을 채우세요:
+
+<sub>English: Copy `.env.example` to `.env` and fill in the values for your environment:</sub>
 
 ```bash
 cp .env.example .env
 ```
 
-Key variables include `CODELENS_MODEL_DIR` for semantic search, `CODELENS_OTEL_ENDPOINT` for telemetry, and `CODELENS_PROJECT_BRIDGES_ON` to opt into project-specific NL→code bridges.
+주요 변수로는 semantic search용 `CODELENS_MODEL_DIR`, telemetry용 `CODELENS_OTEL_ENDPOINT`, 프로젝트별 NL→code bridge를 활성화하는 `CODELENS_PROJECT_BRIDGES_ON`이 있습니다.
+
+<sub>English: Key variables include `CODELENS_MODEL_DIR` for semantic search, `CODELENS_OTEL_ENDPOINT` for telemetry, and `CODELENS_PROJECT_BRIDGES_ON` to opt into project-specific NL→code bridges.</sub>
 
 ### Claude Code / Cursor
 
@@ -229,11 +267,25 @@ Key variables include `CODELENS_MODEL_DIR` for semantic search, `CODELENS_OTEL_E
 
 ### Shared HTTP Daemon (Multi-Agent)
 
-Running every editor or agent as its own stdio subprocess spawns **one `codelens-mcp` instance per session**, each with its own index and embedding state. Measured on a typical developer laptop with Claude Code + Codex Desktop + Cursor attached to the same project, this adds up to **200–300 MB** of duplicated resident memory for effectively the same data. The HTTP daemon collapses that into a single shared process.
+모든 editor나 agent를 각자의 stdio subprocess로 실행하면 **세션마다 별도의
+`codelens-mcp` 인스턴스**가 뜨고, 각각 자체 index와 embedding 상태를 갖게
+됩니다. 동일 프로젝트에 Claude Code + Codex Desktop + Cursor를 붙인 일반적인
+개발자 노트북에서 측정한 결과, 사실상 같은 데이터를 위해 **200–300 MB**의
+중복 상주 메모리가 발생합니다. HTTP daemon은 이를 하나의 공유 프로세스로
+통합합니다.
 
-If you installed from crates.io or built from source and need HTTP transport, make sure the binary was built with the `http` feature. The prebuilt release assets and the installer fallback should ship HTTP support.
+<sub>English: Running every editor or agent as its own stdio subprocess spawns **one `codelens-mcp` instance per session**, each with its own index and embedding state. Measured on a typical developer laptop with Claude Code + Codex Desktop + Cursor attached to the same project, this adds up to **200–300 MB** of duplicated resident memory for effectively the same data. The HTTP daemon collapses that into a single shared process.</sub>
 
-Minimal setup:
+crates.io로 설치했거나 소스에서 직접 빌드했고 HTTP transport가 필요하다면,
+바이너리가 `http` feature를 포함해 빌드되었는지 확인하세요. 미리 빌드된
+release 자산과 installer fallback에는 기본적으로 HTTP 지원이 포함되어
+있습니다.
+
+<sub>English: If you installed from crates.io or built from source and need HTTP transport, make sure the binary was built with the `http` feature. The prebuilt release assets and the installer fallback should ship HTTP support.</sub>
+
+최소 설정:
+
+<sub>English: Minimal setup:</sub>
 
 ```bash
 # Start once, keep running in the background
@@ -243,11 +295,17 @@ codelens-mcp /path/to/project --transport http --profile review --daemon-mode re
 codelens-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 ```
 
-Those ports are the public generic example. In this repository's local launchd
-workflow, the repo-local dual-daemon installer uses `:7839` for the read-only
-daemon and `:7838` for the mutation daemon.
+위 포트 번호는 공개용 일반 예시입니다. 이 저장소의 로컬 launchd workflow에서는
+저장소 로컬 dual-daemon installer가 읽기 전용 daemon에 `:7839`, mutation
+daemon에 `:7838`을 사용합니다.
 
-Every MCP client then attaches by URL instead of spawning a subprocess:
+<sub>English: Those ports are the public generic example. In this repository's local launchd
+workflow, the repo-local dual-daemon installer uses `:7839` for the read-only
+daemon and `:7838` for the mutation daemon.</sub>
+
+이후 모든 MCP client는 subprocess를 새로 띄우는 대신 URL로 붙습니다:
+
+<sub>English: Every MCP client then attaches by URL instead of spawning a subprocess:</sub>
 
 ```json
 {
@@ -257,9 +315,13 @@ Every MCP client then attaches by URL instead of spawning a subprocess:
 }
 ```
 
-If you are following this repository's local launchd workflow, replace the
+이 저장소의 로컬 launchd workflow를 따르고 있다면, 위의 읽기 전용 예시 URL을
+`http://127.0.0.1:7839/mcp`로 바꾸세요. `:7837` 주소는 이 섹션 전체에서
+사용되는 공개용 일반 예시로 그대로 남습니다.
+
+<sub>English: If you are following this repository's local launchd workflow, replace the
 read-only example URL above with `http://127.0.0.1:7839/mcp`. The `:7837`
-address remains the public generic example used throughout this section.
+address remains the public generic example used throughout this section.</sub>
 
 #### When to prefer HTTP vs stdio
 
@@ -271,9 +333,18 @@ address remains the public generic example used throughout this section.
 | CI / one-shot script                                 | stdio                     | `--oneshot` matches short-lived commands                               |
 | Mutation-heavy workflow needing isolation            | **HTTP with two daemons** | Read-only port for planners, mutation-enabled port for refactor agents |
 
-For shared HTTP deployments, treat CodeLens coordination as advisory evidence rather than a central lock manager. The practical pattern is: bootstrap with `prepare_harness_session`, register intent with `register_agent_work`, claim mutation targets with `claim_files`, and let `verify_change_readiness` surface `overlapping_claims` as a `caution` signal before edits.
+HTTP를 공유하는 배포 환경에서는 CodeLens의 coordination을 중앙 lock manager가
+아니라 참고용 증거(advisory evidence)로 취급하세요. 실무 패턴은 다음과
+같습니다: `prepare_harness_session`으로 부트스트랩하고, `register_agent_work`로
+작업 의도를 등록하고, `claim_files`로 mutation 대상을 claim한 뒤, 편집 전에
+`verify_change_readiness`가 `overlapping_claims`를 `caution` 신호로 드러내도록
+합니다.
 
-What the standalone binary does and does not cover:
+<sub>English: For shared HTTP deployments, treat CodeLens coordination as advisory evidence rather than a central lock manager. The practical pattern is: bootstrap with `prepare_harness_session`, register intent with `register_agent_work`, claim mutation targets with `claim_files`, and let `verify_change_readiness` surface `overlapping_claims` as a `caution` signal before edits.</sub>
+
+standalone 바이너리가 다루는 것과 다루지 않는 것:
+
+<sub>English: What the standalone binary does and does not cover:</sub>
 
 - `CodeLens only` is enough for stdio use, HTTP daemon use, role-based surfaces, mutation gates, and coordination tools.
 - `Semantic retrieval` needs the packaged model sidecar at `./models/codesearch/` next to the binary, an installed prefix sidecar such as `../models/codesearch/`, or an explicit `CODELENS_MODEL_DIR`. Release packaging fails closed if the model payload is incomplete; release CI can point at a staged model root with `CODELENS_RELEASE_MODELS_DIR`. macOS release binaries enable the `coreml` feature so the INT8 ONNX model can use the CoreML execution provider instead of silently falling back to CPU.
@@ -281,7 +352,9 @@ What the standalone binary does and does not cover:
 - `SCIP precise navigation` needs a binary built with `--features scip-backend` and an external SCIP index.
 - `Claude -> Codex` live delegation is not a CodeLens feature. It additionally needs Claude configured with a `codex` MCP server and a working Codex CLI install.
 
-Recommended operating policy:
+권장 운영 정책:
+
+<sub>English: Recommended operating policy:</sub>
 
 - one mutation-enabled agent per worktree
 - additional agents stay planner/reviewer/read-only on the same daemon
@@ -298,31 +371,50 @@ Recommended operating policy:
 
 #### Auto-start on macOS (launchd)
 
-For this repository, prefer the installer script over hand-editing plist files:
+이 저장소에서는 plist 파일을 직접 편집하기보다 installer 스크립트를 사용하는 것을 권장합니다:
+
+<sub>English: For this repository, prefer the installer script over hand-editing plist files:</sub>
 
 ```bash
 bash scripts/install-http-daemons-launchd.sh . --load
 ```
 
-That installs two repo-local launchd agents from a current
-`--features http,semantic` build by default:
+이 스크립트는 기본적으로 현재 `--features http,semantic` 빌드로부터 저장소
+로컬 launchd agent 두 개를 설치합니다:
+
+<sub>English: That installs two repo-local launchd agents from a current
+`--features http,semantic` build by default:</sub>
 
 - `dev.codelens.mcp-readonly` -> `review` on `:7839`
 - `dev.codelens.mcp-mutation` -> `builder` on `:7838`
 
-> **Build flag reminder (v1.10.1+)**: the installer builds the daemon
+> **빌드 플래그 참고 (v1.10.1+)**: installer는 기본적으로 daemon을
+> `http,semantic`으로 빌드하며, 저장소 로컬 모델 sidecar가 존재하면
+> plist에 `CODELENS_MODEL_DIR`을 기록합니다. `--no-semantic`은 HTTP 전용
+> daemon을 의도적으로 원할 때만 사용하세요. 전체 feature-flag matrix는
+> [`docs/release-verification.md`](docs/release-verification.md#feature-flag-matrix-build-time-requirements)를
+> 참고하세요.
+>
+> <sub>English: **Build flag reminder (v1.10.1+)**: the installer builds the daemon
 > with `http,semantic` by default and writes `CODELENS_MODEL_DIR` into
 > the plists when the repo-local model sidecar exists. Use `--no-semantic`
 > only when you intentionally want an HTTP-only daemon. See
 > [`docs/release-verification.md`](docs/release-verification.md#feature-flag-matrix-build-time-requirements)
-> for the full feature-flag matrix.
+> for the full feature-flag matrix.</sub>
 
-It also updates `.codelens/config.json` with repo-local `host_attach` URL
+또한 `.codelens/config.json`에 저장소 로컬 `host_attach` URL override를
+갱신하여 `codelens-mcp attach`, `status`, `doctor`가 동일한 host-to-daemon
+계약을 재사용하도록 합니다.
+
+<sub>English: It also updates `.codelens/config.json` with repo-local `host_attach` URL
 overrides so `codelens-mcp attach`, `status`, and `doctor` reuse the same
-host-to-daemon contract.
+host-to-daemon contract.</sub>
 
-Generic single-daemon example, if you want to hand-edit a plist instead of
-using the installer above:
+위 installer 대신 plist를 직접 편집하고 싶다면 참고할 수 있는 일반적인 단일
+daemon 예시입니다:
+
+<sub>English: Generic single-daemon example, if you want to hand-edit a plist instead of
+using the installer above:</sub>
 
 ```xml
 <!-- ~/Library/LaunchAgents/dev.codelens.mcp.plist -->
@@ -349,18 +441,26 @@ launchctl load ~/Library/LaunchAgents/dev.codelens.mcp.plist
 launchctl list | grep codelens   # confirm it's running
 ```
 
-For the separate daily aggregate audit snapshot, install the operator job with:
+별도의 일일 집계 audit snapshot을 위해서는 다음으로 operator job을 설치하세요:
+
+<sub>English: For the separate daily aggregate audit snapshot, install the operator job with:</sub>
 
 ```bash
 bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
 ```
 
-That scheduled job keeps JSON snapshots as the canonical history and refreshes
-`.codelens/reports/daily/latest-summary.md` plus
-`.codelens/reports/daily/latest-gate.md` after each run by default.
+이 예약 job은 JSON snapshot을 정본 기록으로 유지하며, 기본적으로 실행할
+때마다 `.codelens/reports/daily/latest-summary.md`와
+`.codelens/reports/daily/latest-gate.md`를 갱신합니다.
 
-For an ad hoc operator snapshot without launchd, run:
+<sub>English: That scheduled job keeps JSON snapshots as the canonical history and refreshes
+`.codelens/reports/daily/latest-summary.md` plus
+`.codelens/reports/daily/latest-gate.md` after each run by default.</sub>
+
+launchd 없이 일회성 operator snapshot을 얻으려면 다음을 실행하세요:
+
+<sub>English: For an ad hoc operator snapshot without launchd, run:</sub>
 
 ```bash
 bash scripts/export-eval-session-audit.sh
@@ -369,39 +469,59 @@ bash scripts/export-eval-session-audit.sh --history-summary-path .codelens/repor
 bash scripts/export-eval-session-audit.sh --history-gate-path .codelens/reports/daily/latest-gate.md
 ```
 
-To summarize recent daily snapshots into a drift/trend report, run:
+최근 일일 snapshot들을 drift/trend 리포트로 요약하려면 다음을 실행하세요:
+
+<sub>English: To summarize recent daily snapshots into a drift/trend report, run:</sub>
 
 ```bash
 bash scripts/summarize-eval-session-audit-history.sh
 bash scripts/summarize-eval-session-audit-history.sh --limit 7
 ```
 
-To turn that history into an operator `pass` / `warn` / `fail` verdict, run:
+그 기록을 operator `pass` / `warn` / `fail` 판정으로 바꾸려면 다음을 실행하세요:
+
+<sub>English: To turn that history into an operator `pass` / `warn` / `fail` verdict, run:</sub>
 
 ```bash
 bash scripts/eval-session-audit-operator-gate.sh
 bash scripts/eval-session-audit-operator-gate.sh --fail-on-warn
 ```
 
-If `.codelens/eval-session-audit-gate.json` exists, the gate script loads it
-automatically. CLI flags and env vars still override the repo-local policy.
+`.codelens/eval-session-audit-gate.json`이 존재하면 gate 스크립트가 이를
+자동으로 로드합니다. CLI 플래그와 환경 변수는 여전히 저장소 로컬 정책보다
+우선합니다.
 
-The export script can also refresh that gate artifact automatically after each
+<sub>English: If `.codelens/eval-session-audit-gate.json` exists, the gate script loads it
+automatically. CLI flags and env vars still override the repo-local policy.</sub>
+
+export 스크립트는 각 JSON snapshot 이후 해당 gate artifact를 자동으로 갱신할
+수도 있어서, 예약된 operator가 `latest-gate.md`를 최신 상태로 유지하기 위해
+별도의 wrapper job을 둘 필요가 없습니다.
+
+<sub>English: The export script can also refresh that gate artifact automatically after each
 JSON snapshot, so scheduled operators do not need a second wrapper job just to
-keep `latest-gate.md` current.
+keep `latest-gate.md` current.</sub>
 
-To collect a full productivity evidence bundle for a real agent loop, run:
+실제 agent 루프에 대한 전체 생산성 증거 묶음을 수집하려면 다음을 실행하세요:
+
+<sub>English: To collect a full productivity evidence bundle for a real agent loop, run:</sub>
 
 ```bash
 bash scripts/run-productivity-proof-loop.sh .
 ```
 
-That command writes tool-usage analysis, a live daemon audit snapshot, recent
+이 명령은 `.codelens/reports/productivity/` 아래에 tool 사용 분석, 실시간
+daemon audit snapshot, 최근 기록 요약, 최신-이전 비교 생산성 trend 요약,
+operator gate 판정을 기록합니다.
+
+<sub>English: That command writes tool-usage analysis, a live daemon audit snapshot, recent
 history summary, a latest-vs-previous productivity trend summary, and an
 operator gate verdict under
-`.codelens/reports/productivity/`.
+`.codelens/reports/productivity/`.</sub>
 
-See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
+Codex, Windsurf, VS Code 등 다른 플랫폼은 [docs/platform-setup.md](docs/platform-setup.md)를 참고하세요.
+
+<sub>English: See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.</sub>
 
 ### Distribution Channels
 
@@ -427,12 +547,18 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ## Token Economics for Fable-Class Models
 
-Frontier agent models (Claude Fable 5: $10/$50 per MTok) re-pay every persisted
+프론티어급 agent 모델(Claude Fable 5: MTok당 $10/$50)은 저장된 모든 tool 응답을
+다음 턴마다 입력으로 다시 지불합니다 — 응답 바이트는 일회성이 아니라 반복되는
+비용입니다. CodeLens는 agent 소비 경제성을 아키텍처의 1급 관심사로 다루며,
+이는 Anthropic의 공식 tool 설계 가이드(tool 응답은 10K 토큰에서 경고, text
+channel은 host가 주입하고 카운트하는 대상)에 근거합니다:
+
+<sub>English: Frontier agent models (Claude Fable 5: $10/$50 per MTok) re-pay every persisted
 tool response as input on each subsequent turn — response bytes are a recurring
 cost, not a one-time one. CodeLens treats agent-consumption economics as a
 first-class architectural concern, grounded in Anthropic's official tool-design
 guidance (tool responses warn at 10K tokens; the text channel is what the host
-injects and counts):
+injects and counts):</sub>
 
 | Lever | What it does | Measured |
 | --- | --- | --- |
@@ -442,15 +568,21 @@ injects and counts):
 | **5-stage adaptive compression** | Budget-aware summarization with machine-readable truncation warnings and expansion handles | Responses stay under host limits without silent data loss |
 | **Warm-LSP precision, zero cold start** | `CODELENS_LSP_PREWARM=auto` pre-warms the project's language servers in the background; the default reference path upgrades to compiler-grade answers only when warm | `cold_start_incurred: false` on the hot path; readiness-calibrated confidence (a server still indexing degrades to 0.7 instead of lying at 0.95) |
 
-Result: mechanical high-frequency agent loops (dynamic workflows, subagent
+결과적으로 기계적인 고빈도 agent 루프(dynamic workflow, subagent fan-out,
+ultracode 세션)는 envelope scaffold에 대한 frontier 모델급 token 오버헤드를
+지불하지 않으면서도 grep 수준의 지연시간으로 컴파일러에 준하는 정밀도를 얻습니다.
+
+<sub>English: Result: mechanical high-frequency agent loops (dynamic workflows, subagent
 fan-outs, ultracode sessions) get compiler-adjacent precision at grep-class
-latency without paying frontier-model token overhead on envelope scaffold.
+latency without paying frontier-model token overhead on envelope scaffold.</sub>
 
 ## Key Features
 
 ### Problem-First Workflows
 
-Instead of starting from the full raw tool registry, begin with the workflow-first entrypoints:
+전체 raw tool registry에서 시작하는 대신, workflow 우선 entrypoint부터 시작하세요:
+
+<sub>English: Instead of starting from the full raw tool registry, begin with the workflow-first entrypoints:</sub>
 
 | Workflow                | Tool                      | When                                  |
 | ----------------------- | ------------------------- | ------------------------------------- |
@@ -470,11 +602,15 @@ Instead of starting from the full raw tool registry, begin with the workflow-fir
 | `review`   | Review-heavy   | Graph-aware review, risk analysis, and signoff  |
 | `builder`  | Mutation core  | Preflight-gated implementation and refactoring  |
 
-Compatibility aliases (`planner-readonly`, `reviewer-graph`, `builder-minimal`, `refactor-full`, `ci-audit`, `evaluator-compact`, `workflow-first`) remain parseable through the v1.13 deprecation window, carry `v2.0` removal metadata in the manifest, and canonicalize to the core trio for profile filtering.
+호환성 alias(`planner-readonly`, `reviewer-graph`, `builder-minimal`, `refactor-full`, `ci-audit`, `evaluator-compact`, `workflow-first`)는 v1.13 deprecation 기간 동안 계속 파싱 가능하며, manifest에 `v2.0` 제거 메타데이터를 포함하고, profile filtering 시 핵심 3종으로 정규화됩니다.
+
+<sub>English: Compatibility aliases (`planner-readonly`, `reviewer-graph`, `builder-minimal`, `refactor-full`, `ci-audit`, `evaluator-compact`, `workflow-first`) remain parseable through the v1.13 deprecation window, carry `v2.0` removal metadata in the manifest, and canonicalize to the core trio for profile filtering.</sub>
 
 ### Adaptive Token Compression
 
-5-stage budget-aware compression automatically adjusts response size. The per-request `max_tokens` parameter is honoured by the envelope budget logic; earlier versions silently capped at the profile default even when the caller explicitly asked for a larger budget.
+5단계 예산 인지형 compression이 응답 크기를 자동으로 조정합니다. 요청별 `max_tokens` 파라미터는 envelope budget 로직에서 존중됩니다. 이전 버전에서는 caller가 명시적으로 더 큰 budget을 요청해도 profile 기본값으로 조용히 제한되었습니다.
+
+<sub>English: 5-stage budget-aware compression automatically adjusts response size. The per-request `max_tokens` parameter is honoured by the envelope budget logic; earlier versions silently capped at the profile default even when the caller explicitly asked for a larger budget.</sub>
 
 - **Stage 1** (<75% budget): Full detail pass-through
 - **Stage 2-3** (75-95%): Structured summarization
@@ -482,7 +618,9 @@ Compatibility aliases (`planner-readonly`, `reviewer-graph`, `builder-minimal`, 
 
 ### Analysis Handles
 
-Heavy reports run as durable async jobs. Agents poll for completion and expand only needed sections:
+무거운 리포트는 durable async job으로 실행됩니다. Agent는 완료 여부를 poll하고 필요한 섹션만 확장합니다:
+
+<sub>English: Heavy reports run as durable async jobs. Agents poll for completion and expand only needed sections:</sub>
 
 ```
 start_analysis_job → get_analysis_job → get_analysis_section("impact")
@@ -490,7 +628,9 @@ start_analysis_job → get_analysis_job → get_analysis_section("impact")
 
 ### Mutation Safety
 
-Refactor flows require verification before code changes:
+Refactor 흐름은 코드 변경 전에 검증을 요구합니다:
+
+<sub>English: Refactor flows require verification before code changes:</sub>
 
 ```
 verify_change_readiness → "ready" → rename_symbol
@@ -499,9 +639,13 @@ verify_change_readiness → "ready" → rename_symbol
 
 ## What CodeLens Does Well (vs native grep/ls)
 
-A complement to the existing routing matrix in `CLAUDE.md`. The cases below
+`CLAUDE.md`에 있는 기존 routing matrix를 보완하는 내용입니다. 아래 사례들은
+self-dogfood 세션과 외부 프로젝트 세션에서 반복적으로 나타난 것들입니다
+(측정 노트는 `benchmarks/cl-positive-findings-2026-05-03.md` 참고).
+
+<sub>English: A complement to the existing routing matrix in `CLAUDE.md`. The cases below
 have shown up repeatedly across self-dogfood and external project sessions
-(see `benchmarks/cl-positive-findings-2026-05-03.md` for measurement notes).
+(see `benchmarks/cl-positive-findings-2026-05-03.md` for measurement notes).</sub>
 
 | Task                       | CodeLens                                                      | Native fallback               | Why CL wins                                                                                                |
 | -------------------------- | ------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -509,10 +653,14 @@ have shown up repeatedly across self-dogfood and external project sessions
 | Pre-merge change review    | `review_changes(changed_files=[…])`                           | manual diff inspection        | quantified 4-axis verifier (diagnostics / refs / tests / mutation), `readiness_score` 0–1, `blocker_count` |
 | Function definition lookup | `find_symbol(name=…)`                                         | `grep -rn "def X"`            | exact symbol kind + signature + nearby tests in one response                                               |
 
-For the full _when not_ matrix (where `Grep` / `Read` win), keep the
+`Grep` / `Read`가 더 나은 전체 _when not_ matrix는 `CLAUDE.md`의 "Tool
+Routing — honest scenario matrix"를 정본으로 유지하세요. 이 섹션은 "이런
+경우에도 CodeLens를 쓸 수 있나?"라는 반복적인 궁금증만 보완합니다.
+
+<sub>English: For the full _when not_ matrix (where `Grep` / `Read` win), keep the
 `CLAUDE.md` "Tool Routing — honest scenario matrix" as the single source
 of truth. This section only fixes the recurring "I can use CodeLens for
-this?" gap.
+this?" gap.</sub>
 
 ## Language Support
 
@@ -538,7 +686,9 @@ The canonical family/extension inventory is generated from `codelens_engine::lan
 
 ## Semantic Search
 
-Optional embedding-based code search (feature-gated: `semantic`):
+선택적인 embedding 기반 code search입니다 (feature-gated: `semantic`):
+
+<sub>English: Optional embedding-based code search (feature-gated: `semantic`):</sub>
 
 - **Sidecar MiniLM-L12 CodeSearchNet** model (ONNX INT8) — load from `CODELENS_MODEL_DIR` or next to the binary
 - Hybrid ranking: semantic supplements structural in `get_ranked_context`
@@ -574,6 +724,10 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 
 ## Enterprise Features
 
+CodeLens는 프로덕션 운영과 감사를 위한 엔터프라이즈 기능을 함께 제공합니다.
+
+<sub>English: Enterprise-oriented capabilities CodeLens ships for production operation and auditing.</sub>
+
 | Feature                    | Status                                                                     |
 | -------------------------- | -------------------------------------------------------------------------- |
 | Config policy              | `.codelens/config.json` per-project feature flags                          |
@@ -602,7 +756,18 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 | Enterprise       | Config policy, rate limit, OTel, SBOM                     | None                            |
 | Offline          | Works offline with a staged sidecar model                 | Depends on backend              |
 
-**Adversarial 5-lens architecture evaluation (2026-07-03, both codebases read
+**적대적 5-lens 아키텍처 평가 (2026-07-03, 두 코드베이스를 독립 심사자가 강제
+양방향 반박 방식으로 검토):** CodeLens는 5개 축 중 3개에서 구조적 우위를
+보입니다 — agent 소비 경제성(8.5 vs 5.0), 운영 견고성 및 확장성(8.5 vs 5.5),
+안전성/거버넌스(8.5 vs 4.0: fail-closed 정책 로딩을 갖춘 identity 기반 RBAC,
+verifier-first mutation gate, principal 귀속 audit trail 대 정적 deny 레이어).
+Serena는 현재 실전 semantic 정밀도(8.5 vs 6.5 — 대부분 성숙도 격차이며 LSP
+protocol-parity + quiescence-calibration + pre-warm 작업으로 좁혀지는
+중)와 언어 커버리지 한계비용(8.0 vs 6.5)에서 앞섭니다. Serena가 이기는
+지점을 포함한 정직한 상세 내용은 [docs/comparison.md](docs/comparison.md)에
+있습니다.
+
+<sub>English: **Adversarial 5-lens architecture evaluation (2026-07-03, both codebases read
 by independent judges with forced two-way refutation):** CodeLens holds a
 structural advantage on 3 of 5 axes — agent-consumption economics (8.5 vs 5.0),
 operational robustness & scale (8.5 vs 5.5), and safety/governance (8.5 vs 4.0:
@@ -612,9 +777,11 @@ Serena leads today on delivered semantic precision (8.5 vs 6.5 — largely a
 maturity gap, being closed by the LSP protocol-parity + quiescence-calibration +
 pre-warm work) and on language-coverage marginal cost (8.0 vs 6.5). Honest
 detail, including where Serena wins, in
-[docs/comparison.md](docs/comparison.md).
+[docs/comparison.md](docs/comparison.md).</sub>
 
-See [docs/serena-comparison.md](docs/serena-comparison.md) for detailed gap analysis.
+상세한 격차 분석은 [docs/serena-comparison.md](docs/serena-comparison.md)를 참고하세요.
+
+<sub>English: See [docs/serena-comparison.md](docs/serena-comparison.md) for detailed gap analysis.</sub>
 
 ## Building
 
@@ -646,10 +813,16 @@ cargo test -p codelens-mcp --no-default-features   # semantic=off path
 
 ## Harness Architecture
 
-CodeLens is designed as a **harness coprocessor** — it doesn't replace your agent, it makes your agent's harness smarter.
+CodeLens는 **harness coprocessor**로 설계되었습니다 — agent를 대체하는 것이
+아니라 agent의 harness를 더 똑똑하게 만듭니다.
 
-For the current production-readiness contract, evidence gates, and known gaps,
-see [`docs/product-readiness.md`](docs/product-readiness.md).
+<sub>English: CodeLens is designed as a **harness coprocessor** — it doesn't replace your agent, it makes your agent's harness smarter.</sub>
+
+현재의 production-readiness 계약, 증거 gate, 알려진 gap은
+[`docs/product-readiness.md`](docs/product-readiness.md)를 참고하세요.
+
+<sub>English: For the current production-readiness contract, evidence gates, and known gaps,
+see [`docs/product-readiness.md`](docs/product-readiness.md).</sub>
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -678,14 +851,18 @@ see [`docs/product-readiness.md`](docs/product-readiness.md).
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Each agent role sees a different tool surface:**
+**각 agent 역할은 서로 다른 tool surface를 봅니다:**
+
+<sub>English: Each agent role sees a different tool surface:</sub>
 
 - **Planner** gets `analyze_change_request`, `onboard_project` — compressed context, no mutations
 - **Builder** gets `find_symbol`, `get_ranked_context` — minimal surface, focused implementation
 - **Reviewer** gets `impact_report`, `diff_aware_references` — graph-aware bounded reviews
 - **Refactor** gets `safe_rename_report`, `verify_change_readiness` — gate-protected mutations
 
-**Harness primitives built in:**
+**내장된 harness primitive:**
+
+<sub>English: Harness primitives built in:</sub>
 
 - **Analysis handles** — agents expand only the section they need, not the full report
 - **Mutation gates** — verification required before code changes, preventing blind rewrites
@@ -730,7 +907,9 @@ python3 benchmarks/lint-datasets.py --project .     # dataset hygiene
 
 ## Contributing
 
-Contributions are welcome! Please open an issue first to discuss what you'd like to change.
+기여를 환영합니다! 변경하고 싶은 내용이 있다면 먼저 issue를 열어 논의해 주세요.
+
+<sub>English: Contributions are welcome! Please open an issue first to discuss what you'd like to change.</sub>
 
 ```bash
 # Development workflow
