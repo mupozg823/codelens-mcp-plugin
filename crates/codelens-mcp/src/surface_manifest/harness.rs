@@ -102,27 +102,28 @@ fn planner_builder_handoff_contract() -> Value {
             )
         ],
         "coordination_discipline": {
-            "required_for": "non-local-http builder sessions that mutate files",
+            "ownership": "host-owned",
+            "required_for": "optional — multi-agent coordination is owned by the host harness as of the 2026-07 tool-surface diet step 2, so CodeLens no longer requires register/claim/release evidence and audit_builder_session does not downgrade sessions that omit it",
             "steps": [
                 harness_contract_step(
                     5,
                     "register_agent_work",
-                    true,
-                    "before mutation dispatch",
+                    false,
+                    "optional, only when the host delegates coordination to CodeLens",
                     "publish session identity, worktree, branch, and intent"
                 ),
                 harness_contract_step(
                     6,
                     "claim_files",
-                    true,
-                    "before mutation execution",
+                    false,
+                    "optional, only when the host delegates coordination to CodeLens",
                     "publish advisory file reservations for the intended change set"
                 ),
                 harness_contract_step(
                     10,
                     "release_files",
-                    true,
-                    "after completion",
+                    false,
+                    "optional, only when a CodeLens-side claim was taken",
                     "explicitly release claims instead of waiting for TTL expiry"
                 )
             ],

@@ -81,6 +81,10 @@ async fn analysis_jobs_follow_session_bound_project_scope() {
         .unwrap();
     assert_eq!(activate_b.status(), StatusCode::OK);
 
+    // 2026-07 tool-surface diet (stage 1): start_analysis_job left the
+    // reviewer-graph core surface; it lives on the planner surface. This test
+    // verifies project-scope isolation for analysis jobs (profile-agnostic), so
+    // session B runs on planner-readonly where start_analysis_job is listed.
     let set_profile_b = app
         .clone()
         .oneshot(
@@ -90,7 +94,7 @@ async fn analysis_jobs_follow_session_bound_project_scope() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid_b)
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"set_profile","arguments":{"profile":"reviewer-graph"}}}"#,
+                    r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"set_profile","arguments":{"profile":"planner-readonly"}}}"#,
                 ))
                 .unwrap(),
         )

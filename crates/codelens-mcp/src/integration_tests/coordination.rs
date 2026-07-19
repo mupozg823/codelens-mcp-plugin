@@ -199,8 +199,13 @@ fn verify_change_readiness_reports_overlapping_claims_without_blocking_mutation(
     )
     .unwrap();
     let state = make_state(&project);
-    let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
+    // 2026-07 tool-surface diet, step 2: register_agent_work and claim_files
+    // left the builder-minimal surface, so the coordination setup runs on the
+    // default Full preset (where the host-coordination tools stay callable).
+    // The profile switch below still gates the verify_change_readiness +
+    // create_text_file portion this test actually exercises; the claim state
+    // is project-scoped, so it persists across the surface change.
     let _ = call_tool_with_session(
         &state,
         "register_agent_work",
@@ -221,6 +226,8 @@ fn verify_change_readiness_reports_overlapping_claims_without_blocking_mutation(
         }),
         "session-a",
     );
+
+    let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
 
     let readiness = call_tool_with_session(
         &state,

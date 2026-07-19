@@ -241,11 +241,14 @@ async fn initialize_profile_sets_http_session_surface_and_tools_list() {
     let body = body_string(resp).await;
     assert!(body.contains("\"active_surface\":\"review\""));
     assert!(body.contains("\"get_ranked_context\""));
-    assert!(body.contains("\"get_callers\""));
-    assert!(body.contains("\"start_analysis_job\""));
+    // 2026-07 tool-surface diet (stage 1): get_callers, start_analysis_job, and
+    // cleanup_duplicate_logic left the reviewer-graph core-20 surface. A
+    // {"full":true} listing on a reviewer-graph session is that profile's member
+    // set, so these raw tools are no longer listed here (they stay callable via
+    // tools/call under Full or their owning profiles). Assert the retained
+    // core-20 members instead — mirrors the non-http graph_profiles twin.
     assert!(body.contains("\"review_architecture\""));
     assert!(body.contains("\"review_changes\""));
-    assert!(body.contains("\"cleanup_duplicate_logic\""));
     assert!(!body.contains("\"analyze_change_impact\""));
     assert!(!body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"assess_change_readiness\""));

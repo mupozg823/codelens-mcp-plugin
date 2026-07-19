@@ -265,12 +265,24 @@ fn audit_builder_session_passes_for_happy_path_http_builder() {
     assert_eq!(audit["data"]["status"], json!("pass"));
 }
 
+// 2026-07 tool-surface diet step 2 moved the agent-coordination tools
+// (register_agent_work / claim_files / release_files) off every default preset
+// surface because multi-agent coordination is a host-harness-owned capability,
+// not a CodeLens duplicate (docs/operations/tool-surface-diet-2026-07.md
+// "결정 확정"). A profile-bound HTTP builder therefore cannot emit coordination
+// evidence, so its absence must NOT downgrade the builder audit. This test is
+// the reflection of that prior decision, not a reduction of the audit contract:
+// the mutation-preflight and diagnostics axes stay strict (this session runs
+// verifier + pre/post diagnostics), and only the coordination axis is reported
+// host-owned. It replaces the former
+// `audit_builder_session_warns_when_http_coordination_is_missing`, which encoded
+// the now-obsolete "missing coordination => warn" contract.
 #[cfg(feature = "http")]
 #[test]
-fn audit_builder_session_warns_when_http_coordination_is_missing() {
+fn audit_builder_session_treats_missing_http_coordination_as_host_owned() {
     let project = project_root();
     fs::write(
-        project.as_path().join("http_warn.py"),
+        project.as_path().join("http_host_owned.py"),
         "def old():\n    return 1\n",
     )
     .unwrap();
@@ -290,44 +302,81 @@ fn audit_builder_session_warns_when_http_coordination_is_missing() {
     let _ = call_tool_with_session(
         &state,
         "get_symbols_overview",
-        json!({"path": "http_warn.py"}),
+        json!({"path": "http_host_owned.py"}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_file_diagnostics",
+        json!({"file_path": "http_host_owned.py"}),
         &session_id,
     );
     let _ = call_tool_with_session(
         &state,
         "verify_change_readiness",
-        json!({"task": "update http warn file", "changed_files": ["http_warn.py"]}),
+        json!({"task": "update http host-owned file", "changed_files": ["http_host_owned.py"]}),
         &session_id,
     );
+    // Intentionally NO register_agent_work / claim_files / release_files:
+    // coordination is host-owned, so its absence must not degrade the audit.
     let payload = call_tool_with_session(
         &state,
         "replace_symbol_body",
         json!({
-            "relative_path": "http_warn.py",
+            "relative_path": "http_host_owned.py",
             "symbol_name": "old",
             "new_body": "    return 2"
         }),
         &session_id,
     );
     assert_eq!(payload["success"], json!(true));
+    let _ = call_tool_with_session(
+        &state,
+        "get_file_diagnostics",
+        json!({"file_path": "http_host_owned.py"}),
+        &session_id,
+    );
 
     let audit = call_tool(
         &state,
         "audit_builder_session",
         json!({"session_id": session_id}),
     );
-    assert_eq!(audit["data"]["status"], json!("warn"));
+
+    // Missing coordination evidence does not degrade the audit.
+    assert_eq!(audit["data"]["status"], json!("pass"));
+
+    // The coordination axis is reported host-owned (not_applicable), never WARN.
+    let checks = audit["data"]["checks"]
+        .as_array()
+        .expect("audit checks array");
+    for code in ["coordination_registration", "coordination_claim"] {
+        let check = checks
+            .iter()
+            .find(|check| check["code"] == json!(code))
+            .unwrap_or_else(|| panic!("missing {code} check"));
+        assert_eq!(
+            check["status"],
+            json!("not_applicable"),
+            "{code} must not downgrade when coordination is host-owned"
+        );
+        assert_eq!(
+            check["evidence"]["coordination"],
+            json!("host-owned"),
+            "{code} must be marked host-owned"
+        );
+    }
+
+    // No coordination code leaks into findings.
     assert!(
         audit["data"]["findings"]
             .as_array()
-            .map(|findings| {
-                findings
-                    .iter()
-                    .any(|finding| finding["code"] == json!("coordination_registration"))
-                    && findings
-                        .iter()
-                        .any(|finding| finding["code"] == json!("coordination_claim"))
-            })
-            .unwrap_or(false)
+            .map(|findings| findings.iter().all(|finding| {
+                finding["code"] != json!("coordination_registration")
+                    && finding["code"] != json!("coordination_claim")
+                    && finding["code"] != json!("coordination_release")
+            }))
+            .unwrap_or(true),
+        "coordination must not appear in findings once it is host-owned"
     );
 }

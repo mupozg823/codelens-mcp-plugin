@@ -655,6 +655,26 @@ async fn unbound_session_responses_carry_project_binding_hint() {
         .unwrap()
         .to_owned();
 
+    // 2026-07 tool-surface diet, step 2: list_memories left every default preset
+    // surface (Balanced included), so switch this session to Full to exercise the
+    // unbound-session project_binding advisory hint on a memory read. The session
+    // stays unbound (set_preset does not bind a project), so the hint still fires.
+    let _ = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"set_preset","arguments":{"preset":"full"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
     let list = app
         .clone()
         .oneshot(

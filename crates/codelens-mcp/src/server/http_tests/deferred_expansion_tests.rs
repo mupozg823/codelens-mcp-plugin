@@ -53,8 +53,7 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
                                 "detail": "compact",
                                 "preferred_entrypoints": [
                                     "review_changes",
-                                    "diff_aware_references",
-                                    "get_analysis_section"
+                                    "diff_aware_references"
                                 ]
                             }
                         }
@@ -87,21 +86,6 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
             }
         }),
         "deferred recovery must expose the least-privilege tools/list request a host can replay"
-    );
-    let section_recovery = omitted
-        .iter()
-        .find(|entry| entry["tool"] == "get_analysis_section")
-        .expect("get_analysis_section should be deferred before tier expansion");
-    assert_eq!(
-        section_recovery["tool_loading_request"],
-        json!({
-            "method": "tools/list",
-            "params": {
-                "namespace": "reports",
-                "tier": "primitive"
-            }
-        }),
-        "primitive recovery must not over-expand the whole reports namespace"
     );
 
     let listing_params = recovery["tool_loading_request"]["params"].clone();
@@ -169,79 +153,17 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
     );
     assert!(!allowed_body.contains("hidden by deferred loading"));
     let analysis_payload = first_tool_payload(&allowed_body);
-    let analysis_id = analysis_payload["data"]["analysis_id"]
-        .as_str()
-        .expect("diff_aware_references analysis_id")
-        .to_owned();
-
-    let section_listing_params = section_recovery["tool_loading_request"]["params"].clone();
-    let section_expand = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/mcp")
-                .header("content-type", "application/json")
-                .header("mcp-session-id", &sid)
-                .body(axum::body::Body::from(
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": 5,
-                        "method": "tools/list",
-                        "params": section_listing_params,
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(section_expand.status(), StatusCode::OK);
-    let section_expand_body = body_string(section_expand).await;
-    assert!(section_expand_body.contains("\"selected_namespace\":\"reports\""));
-    assert!(section_expand_body.contains("\"selected_tier\":\"primitive\""));
-    assert!(section_expand_body.contains("\"get_analysis_section\""));
+    // 2026-07 tool-surface diet (stage 1): get_analysis_section (planner-only,
+    // reports/primitive tier) left the reviewer-graph surface, so the
+    // reports-namespace primitive-tier recovery + expansion path is no longer
+    // exercisable on this surface. Primitive tier/namespace recovery stays
+    // covered by the sibling deferred_* tests; the load-bearing assertion here
+    // is the workflow-tier recovery contract for diff_aware_references above,
+    // which the expansion + call verified.
     assert!(
-        !section_expand_body.contains("\"impact_report\""),
-        "primitive scoped expansion should not expose workflow reports: {section_expand_body}"
+        analysis_payload["data"]["analysis_id"].as_str().is_some(),
+        "diff_aware_references must return an analysis_id: {allowed_body}"
     );
-
-    let section = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/mcp")
-                .header("content-type", "application/json")
-                .header("mcp-session-id", &sid)
-                .body(axum::body::Body::from(
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": 6,
-                        "method": "tools/call",
-                        "params": {
-                            "name": "get_analysis_section",
-                            "arguments": {
-                                "analysis_id": analysis_id,
-                                "section": "diff_references"
-                            }
-                        }
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(section.status(), StatusCode::OK);
-    let section_body = body_string(section).await;
-    assert!(
-        section_body.contains("\\\"success\\\": true")
-            || section_body.contains("\\\"success\\\":true"),
-        "get_analysis_section body: {section_body}"
-    );
-    assert!(!section_body.contains("hidden by deferred loading"));
 }
 
 #[tokio::test]

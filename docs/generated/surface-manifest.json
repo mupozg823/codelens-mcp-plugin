@@ -370,7 +370,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 290
+        "estimated_tokens": 384
       },
       {
         "name": "module_boundary_report",
@@ -901,7 +901,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 212
+        "estimated_tokens": 268
       },
       {
         "name": "classify_symbol",
@@ -945,7 +945,7 @@
     "profiles": [
       {
         "name": "readonly",
-        "tool_count": 44,
+        "tool_count": 40,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -994,10 +994,6 @@
           "find_implementations",
           "get_diagnostics_for_symbol",
           "activate_project",
-          "register_agent_work",
-          "list_active_agents",
-          "claim_files",
-          "release_files",
           "set_preset",
           "set_profile",
           "get_capabilities",
@@ -1009,7 +1005,7 @@
       },
       {
         "name": "builder",
-        "tool_count": 43,
+        "tool_count": 39,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1061,10 +1057,6 @@
           "find_implementations",
           "get_diagnostics_for_symbol",
           "activate_project",
-          "register_agent_work",
-          "list_active_agents",
-          "claim_files",
-          "release_files",
           "set_preset",
           "set_profile",
           "get_tool_metrics",
@@ -1117,7 +1109,7 @@
     "presets": [
       {
         "name": "minimal",
-        "tool_count": 26,
+        "tool_count": 22,
         "preferred_namespaces": [
           "symbols",
           "filesystem",
@@ -1139,10 +1131,6 @@
           "get_file_diagnostics",
           "activate_project",
           "prepare_harness_session",
-          "register_agent_work",
-          "list_active_agents",
-          "claim_files",
-          "release_files",
           "set_preset",
           "set_profile",
           "get_ranked_context",
@@ -1158,7 +1146,7 @@
       },
       {
         "name": "balanced",
-        "tool_count": 82,
+        "tool_count": 69,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1237,22 +1225,9 @@
           "list_analysis_jobs",
           "list_analysis_artifacts",
           "activate_project",
-          "register_agent_work",
-          "list_active_agents",
-          "claim_files",
-          "release_files",
           "set_preset",
           "set_profile",
-          "archive_memory",
-          "restore_memory",
-          "list_archived",
-          "read_policy",
-          "get_file_diagnostics",
-          "list_memories",
-          "read_memory",
-          "write_memory",
-          "delete_memory",
-          "rename_memory"
+          "get_file_diagnostics"
         ]
       },
       {
@@ -1401,11 +1376,11 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 44
+                "tool_count": 40
               },
               {
                 "name": "builder",
-                "tool_count": 43
+                "tool_count": 39
               }
             ]
           }
@@ -1443,7 +1418,7 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 44
+                "tool_count": 40
               },
               {
                 "name": "review",
@@ -1458,11 +1433,11 @@
             "profiles": [
               {
                 "name": "builder",
-                "tool_count": 43
+                "tool_count": 39
               },
               {
                 "name": "builder",
-                "tool_count": 43
+                "tool_count": 39
               }
             ]
           }
@@ -1547,11 +1522,11 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 44
+                "tool_count": 40
               },
               {
                 "name": "readonly",
-                "tool_count": 44
+                "tool_count": 40
               },
               {
                 "name": "review",
@@ -1608,7 +1583,7 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 44
+                "tool_count": 40
               },
               {
                 "name": "review",
@@ -1623,11 +1598,11 @@
             "profiles": [
               {
                 "name": "builder",
-                "tool_count": 43
+                "tool_count": 39
               },
               {
                 "name": "builder",
-                "tool_count": 43
+                "tool_count": 39
               }
             ]
           }
@@ -1663,27 +1638,28 @@
           }
         ],
         "coordination_discipline": {
-          "required_for": "non-local-http builder sessions that mutate files",
+          "ownership": "host-owned",
+          "required_for": "optional \u2014 multi-agent coordination is owned by the host harness as of the 2026-07 tool-surface diet step 2, so CodeLens no longer requires register/claim/release evidence and audit_builder_session does not downgrade sessions that omit it",
           "steps": [
             {
               "order": 5,
               "tool": "register_agent_work",
-              "required": true,
-              "when": "before mutation dispatch",
+              "required": false,
+              "when": "optional, only when the host delegates coordination to CodeLens",
               "purpose": "publish session identity, worktree, branch, and intent"
             },
             {
               "order": 6,
               "tool": "claim_files",
-              "required": true,
-              "when": "before mutation execution",
+              "required": false,
+              "when": "optional, only when the host delegates coordination to CodeLens",
               "purpose": "publish advisory file reservations for the intended change set"
             },
             {
               "order": 10,
               "tool": "release_files",
-              "required": true,
-              "when": "after completion",
+              "required": false,
+              "when": "optional, only when a CodeLens-side claim was taken",
               "purpose": "explicitly release claims instead of waiting for TTL expiry"
             }
           ],
@@ -1884,11 +1860,11 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 44
+                "tool_count": 40
               },
               {
                 "name": "readonly",
-                "tool_count": 44
+                "tool_count": 40
               },
               {
                 "name": "review",
@@ -3000,7 +2976,7 @@
       "streamable-http"
     ],
     "active_surface": "preset:balanced",
-    "visible_tool_count": 82,
+    "visible_tool_count": 69,
     "daemon_mode": "standard",
     "supports_http": true,
     "supports_semantic": true,

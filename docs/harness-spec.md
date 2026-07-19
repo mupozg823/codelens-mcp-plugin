@@ -30,8 +30,8 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `planner-builder`
 - Intent: Planner/reviewer session prepares bounded evidence, then a mutation-enabled builder session executes the change under explicit coordination.
 - Roles:
-  - `planner-reviewer`: `readonly` (44), `review` (20); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
-  - `builder-refactor`: `builder` (43), `builder` (43); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
+  - `planner-reviewer`: `readonly` (40), `review` (20); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
+  - `builder-refactor`: `builder` (39), `builder` (39); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
 
 **Preflight Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: planner or builder bootstrap | purpose: establish session-local project view, visible surface, and health summary
@@ -40,10 +40,10 @@ This document is generated from the same canonical manifest that powers the runt
 - 4. `verify_change_readiness` | required=`true` | when: once for the full change set before mutation | purpose: produce readiness status, blockers, and overlapping claim evidence
 
 **Coordination Discipline**
-- Required for: non-local-http builder sessions that mutate files
-- 5. `register_agent_work` | required=`true` | when: before mutation dispatch | purpose: publish session identity, worktree, branch, and intent
-- 6. `claim_files` | required=`true` | when: before mutation execution | purpose: publish advisory file reservations for the intended change set
-- 10. `release_files` | required=`true` | when: after completion | purpose: explicitly release claims instead of waiting for TTL expiry
+- Required for: optional — multi-agent coordination is owned by the host harness as of the 2026-07 tool-surface diet step 2, so CodeLens no longer requires register/claim/release evidence and audit_builder_session does not downgrade sessions that omit it
+- 5. `register_agent_work` | required=`false` | when: optional, only when the host delegates coordination to CodeLens | purpose: publish session identity, worktree, branch, and intent
+- 6. `claim_files` | required=`false` | when: optional, only when the host delegates coordination to CodeLens | purpose: publish advisory file reservations for the intended change set
+- 10. `release_files` | required=`false` | when: optional, only when a CodeLens-side claim was taken | purpose: explicitly release claims instead of waiting for TTL expiry
 - TTL policy: `expected_duration_x_1_5` | default/max=`600`/`3600` | same TTL for registration and claims=`true`
 
 **Mutation Execution**
@@ -141,7 +141,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `batch-analysis`
 - Intent: Long-running read-only analyses should move through durable jobs and bounded sections rather than raw full-report expansion.
 - Roles:
-  - `analysis-runner`: `readonly` (44), `readonly` (44), `review` (20); mutate=`false`; queue durable read-side jobs and consume bounded sections
+  - `analysis-runner`: `readonly` (40), `readonly` (40), `review` (20); mutate=`false`; queue durable read-side jobs and consume bounded sections
 
 **Analysis Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: before job creation | purpose: establish the analysis surface and runtime health view

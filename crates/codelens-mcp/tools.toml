@@ -812,8 +812,8 @@ task = { type = "string" }
 mode = { type = "string", enum = ["solo", "planner_builder", "ci_audit"] }
 target_paths = { type = "array", items = { type = "string" }, description = "Scope paths (max 16)" }
 acceptance = { type = "array", items = { type = "string" }, description = "Acceptance criteria items (max 12)" }
-profile_hint = { type = "string" }
-approval = { type = "object", description = "Approval payload: { decision: granted|denied, actor?, reason?, actions? }" }
+profile_hint = { type = "string", enum = ["readonly", "review", "builder", "planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit"] }
+approval = { type = "object", description = "Approval payload: { decision: granted|denied, actor?, reason?, approved_actions? }", properties = { decision = { type = "string", enum = ["requested", "request", "granted", "approved", "approve", "denied", "rejected", "deny"] }, actor = { type = "string" }, reason = { type = "string" }, approved_actions = { type = "array", items = { type = "string" } } } }
 worktree = { type = "string" }
 requester = { type = "string" }
 
@@ -1269,7 +1269,7 @@ auto_refresh_stale_threshold = { type = "integer", description = "Max stale file
 name = "register_agent_work"
 category = "session"
 namespace = "session"
-preset_tags = ["minimal", "planner-readonly", "builder-minimal"]
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Session] Register the current agent intent, branch, and worktree for advisory multi-agent coordination."
 annotations = "mut_coord"
 output_schema = "register_agent_work_output_schema"
@@ -1291,7 +1291,7 @@ ttl_secs = { type = "integer", description = "Optional advisory TTL in seconds (
 name = "list_active_agents"
 category = "session"
 namespace = "session"
-preset_tags = ["minimal", "planner-readonly", "builder-minimal"]
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Session] List active agent registrations and their claimed paths for the current project scope."
 annotations = "ro_p"
 output_schema = "list_active_agents_output_schema"
@@ -1306,7 +1306,7 @@ properties = {}
 name = "claim_files"
 category = "session"
 namespace = "session"
-preset_tags = ["minimal", "planner-readonly", "builder-minimal"]
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Session] Advisory file claim for the active session. Claims downgrade readiness to caution for overlapping sessions but never hard-block writes."
 annotations = "mut_coord"
 output_schema = "claim_files_output_schema"
@@ -1326,7 +1326,7 @@ ttl_secs = { type = "integer", description = "Optional advisory TTL in seconds (
 name = "release_files"
 category = "session"
 namespace = "session"
-preset_tags = ["minimal", "planner-readonly", "builder-minimal"]
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Session] Release previously claimed files for the active session."
 annotations = "mut_coord"
 output_schema = "release_files_output_schema"
@@ -1673,7 +1673,7 @@ feature_gate = "semantic"
 
 [tool.input_schema]
 type = "object"
-properties = { threshold = { type = "number", minimum = 0, maximum = 1, description = "Cosine similarity threshold (default 0.85)" }, max_pairs = { type = "integer", minimum = 1, maximum = 500, description = "Cap on returned duplicate pairs (default 20)" } }
+properties = { threshold = { type = "number", minimum = 0, maximum = 1, description = "Cosine similarity threshold (default 0.85)" }, max_pairs = { type = "integer", minimum = 1, maximum = 500, description = "Cap on returned duplicate pairs (default 20)" }, include_config_code_pairs = { type = "boolean", description = "Include config-vs-config / config-vs-code structural-key pairs (CI YAML env/runs_on, shared keys) that are suppressed by default as G6.1 noise (default false)" } }
 
 # ─────
 
@@ -1712,7 +1712,7 @@ properties = { threshold_days = { type = "integer", minimum = 1, maximum = 3650,
 name = "list_memories"
 category = "memory"
 namespace = "memory"
-preset_tags = []
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Memory] List project or global memory files under .codelens/memories."
 annotations = "ro_p"
 output_schema = "memory_list_output_schema"
@@ -1727,7 +1727,7 @@ properties = { topic = { type = "string", description = "Optional topic to filte
 name = "read_memory"
 category = "memory"
 namespace = "memory"
-preset_tags = []
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Memory] Read a named project or global memory file."
 annotations = "ro_p"
 
@@ -1742,7 +1742,7 @@ properties = { memory_name = { type = "string" }, scope = { type = "string", enu
 name = "write_memory"
 category = "memory"
 namespace = "memory"
-preset_tags = []
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Memory] Create or overwrite a project or global memory file."
 annotations = "mutating"
 
@@ -1757,7 +1757,7 @@ properties = { memory_name = { type = "string" }, content = { type = "string" },
 name = "delete_memory"
 category = "memory"
 namespace = "memory"
-preset_tags = []
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Memory] Delete a project or global memory file."
 annotations = "destructive"
 
@@ -1772,7 +1772,7 @@ properties = { memory_name = { type = "string" }, scope = { type = "string", enu
 name = "rename_memory"
 category = "memory"
 namespace = "memory"
-preset_tags = []
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Memory] Rename a project or global memory file."
 annotations = "mut_p"
 
@@ -1787,7 +1787,7 @@ properties = { old_name = { type = "string" }, new_name = { type = "string" }, s
 name = "archive_memory"
 category = "memory"
 namespace = "session"
-preset_tags = []
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Memory] Move a project or global memory file into the archive."
 annotations = "mut_p"
 
@@ -1802,7 +1802,7 @@ properties = { memory_name = { type = "string" }, scope = { type = "string", enu
 name = "restore_memory"
 category = "memory"
 namespace = "session"
-preset_tags = []
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Memory] Restore an archived project or global memory file."
 annotations = "mut_p"
 
@@ -1817,7 +1817,7 @@ properties = { memory_name = { type = "string", description = "Archived memory n
 name = "list_archived"
 category = "memory"
 namespace = "session"
-preset_tags = []
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Memory] List archived project or global memory files."
 annotations = "ro_p"
 
@@ -1831,7 +1831,7 @@ properties = { scope = { type = "string", enum = ["project", "global"], descript
 name = "read_policy"
 category = "memory"
 namespace = "session"
-preset_tags = []
+preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Memory] Read parsed project or global memory policy."
 annotations = "ro_p"
 

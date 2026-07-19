@@ -157,10 +157,6 @@ pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     "analyze",
     "activate_project",
     "prepare_harness_session",
-    "register_agent_work",
-    "list_active_agents",
-    "claim_files",
-    "release_files",
     "get_current_config",
     "set_preset",
     "set_profile",
@@ -205,6 +201,32 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "audit_builder_session",
     "audit_planner_session",
     "export_session_markdown",
+    // ── 2026-07 tool-surface diet, step 2: four host-owned subsystems
+    //    (docs/operations/tool-surface-diet-2026-07.md "결정 확정", 2026-07-19).
+    //    Non-destructive and reversible: tools.toml definitions + dispatch
+    //    arms stay intact, so every one is still callable via `tools/call`
+    //    under the Full preset (or after `set_preset full`); they are only
+    //    dropped from the default listed surfaces. The paired
+    //    `preset_tags = ["balanced-excluded"]` entries in tools.toml are kept
+    //    in lockstep so `regen-tool-defs.py::validate_preset_tags` stays green.
+    // Memory subsystem (host harness owns memory) — was preset_tags = []
+    // (already off Minimal/planner/builder/reviewer), now also off Balanced.
+    "list_memories",
+    "read_memory",
+    "write_memory",
+    "delete_memory",
+    "rename_memory",
+    "archive_memory",
+    "restore_memory",
+    "list_archived",
+    "read_policy",
+    // Agent coordination (host harness owns multi-agent coordination) —
+    // also removed from MINIMAL_TOOLS / PLANNER_READONLY_TOOLS /
+    // BUILDER_MINIMAL_TOOLS above.
+    "register_agent_work",
+    "list_active_agents",
+    "claim_files",
+    "release_files",
 ];
 
 pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
@@ -218,10 +240,6 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     // Session
     "activate_project",
     "prepare_harness_session",
-    "register_agent_work",
-    "list_active_agents",
-    "claim_files",
-    "release_files",
     "get_current_config",
     "get_capabilities",
     "set_profile",
@@ -281,10 +299,6 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "analyze",
     "activate_project",
     "prepare_harness_session",
-    "register_agent_work",
-    "list_active_agents",
-    "claim_files",
-    "release_files",
     "get_current_config",
     "get_capabilities",
     "set_profile",
@@ -349,8 +363,10 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
 //
 // Composition is locked by
 // `reviewer_graph_core_surface_contains_alwaysload_and_verb_facades`:
-//   - 5 canonical verb façades (named by the codelens-first hook deny
-//     message + rules/harness.md — hiding them would break that guidance)
+//   - 5 canonical verb façades (search/graph are named directly by the
+//     codelens-first hook deny message + rules/harness.md; the other
+//     three complete the documented mode-routing façade family —
+//     hiding any of them would break that guidance)
 //   - 9 always-load entrypoints (v1.13.34 CHANGELOG)
 //   - 6 change-safety / diagnostics tools kept by the usage +
 //     "change safety" strategy axis
@@ -524,8 +540,9 @@ mod deprecation_tests {
     /// 2026-07 tool-surface diet, step 1: the default `review` surface is
     /// the curated core-20. Lock its composition so a later edit can't
     /// silently drop an always-load entrypoint or a canonical verb façade
-    /// (both are load-bearing — always-load per the v1.13.34 CHANGELOG,
-    /// verbs per the codelens-first hook + rules/harness.md guidance), and
+    /// (both are load-bearing — always-load per the v1.13.34 CHANGELOG;
+    /// search/graph are named by the codelens-first hook + rules/harness.md,
+    /// the other façades by the documented mode-routing family), and
     /// so the diet cap of 20 holds.
     #[test]
     fn reviewer_graph_core_surface_contains_alwaysload_and_verb_facades() {

@@ -79,7 +79,7 @@ pub fn composite_tools(
         Tool::new(
             "orchestrate_change",
             "[CodeLens:Workflow] Advisory dry-run change-orchestration plan for a described task — preflight evidence, a session-scoped in-memory approval gate, and audit events. Performs no file mutation itself; the plan is enforced only when a later mutation call passes the returned orchestration_run_id. Returns run_id and final state (approval_required / executing / cancelled / failed).",
-            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"mode":{"type":"string","enum":["solo","planner_builder","ci_audit"]},"target_paths":{"type":"array","items":{"type":"string"},"description":"Scope paths (max 16)"},"acceptance":{"type":"array","items":{"type":"string"},"description":"Acceptance criteria items (max 12)"},"profile_hint":{"type":"string"},"approval":{"type":"object","description":"Approval payload: { decision: granted|denied, actor?, reason?, actions? }"},"worktree":{"type":"string"},"requester":{"type":"string"}}}),
+            json!({"type":"object","required":["task"],"properties":{"task":{"type":"string"},"mode":{"type":"string","enum":["solo","planner_builder","ci_audit"]},"target_paths":{"type":"array","items":{"type":"string"},"description":"Scope paths (max 16)"},"acceptance":{"type":"array","items":{"type":"string"},"description":"Acceptance criteria items (max 12)"},"profile_hint":{"type":"string","enum":["readonly","review","builder","planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"approval":{"type":"object","description":"Approval payload: { decision: granted|denied, actor?, reason?, approved_actions? }","properties":{"decision":{"type":"string","enum":["requested","request","granted","approved","approve","denied","rejected","deny"]},"actor":{"type":"string"},"reason":{"type":"string"},"approved_actions":{"type":"array","items":{"type":"string"}}}},"worktree":{"type":"string"},"requester":{"type":"string"}}}),
         ).with_annotations(ro_w.clone()),
         Tool::new(
             "module_boundary_report",
@@ -328,7 +328,7 @@ pub fn semantic_tools(
         Tool::new(
             "find_code_duplicates",
             "[CodeLens:Audit] Find near-duplicate symbol pairs across the workspace using cosine similarity above a threshold (default 0.85). Returns symbol pairs and their similarity score. Useful for DRY cleanup planning at the codebase level. Requires the embedding index (semantic feature). Schema-only re-registration; handler has lived in `dispatch/table.rs` since v1.13.6.",
-            json!({"type":"object","properties":{"threshold":{"type":"number","minimum":0,"maximum":1,"description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on returned duplicate pairs (default 20)"}}}),
+            json!({"type":"object","properties":{"threshold":{"type":"number","minimum":0,"maximum":1,"description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on returned duplicate pairs (default 20)"},"include_config_code_pairs":{"type":"boolean","description":"Include config-vs-config / config-vs-code structural-key pairs (CI YAML env/runs_on, shared keys) that are suppressed by default as G6.1 noise (default false)"}}}),
         ).with_annotations(ro_a.clone()),
         Tool::new(
             "classify_symbol",

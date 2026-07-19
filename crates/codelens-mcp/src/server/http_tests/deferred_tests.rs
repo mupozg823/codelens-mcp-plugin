@@ -59,7 +59,11 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     assert!(body.contains("\"name\":\"review\""));
     assert!(body.contains("\"name\":\"graph\""));
     assert!(body.contains("\"name\":\"diagnose\""));
-    assert!(body.contains("\"cleanup_duplicate_logic\""));
+    // 2026-07 tool-surface diet (stage 1): cleanup_duplicate_logic left the
+    // reviewer-graph core surface, mirroring the non-http twin
+    // `deferred_tools_list_defaults_to_preferred_namespaces_only`. The retained
+    // bootstrap member prepare_harness_session anchors the deferred slice.
+    assert!(body.contains("\"name\":\"prepare_harness_session\""));
     assert!(!body.contains("\"analyze_change_impact\""));
     assert!(!body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"find_symbol\""));
@@ -230,9 +234,14 @@ async fn deferred_session_blocks_hidden_tool_calls_until_namespace_is_loaded() {
 
 #[tokio::test]
 async fn deferred_namespace_load_allows_listed_graph_tool_call() {
+    // 2026-07 tool-surface diet (stage 1): the raw call-graph primitive
+    // get_callers left the reviewer-graph core surface and is now a builder
+    // tool. This test exercises "load a namespace -> call a listed graph tool",
+    // which only holds on a profile that still lists the raw primitives, so it
+    // runs on the builder surface (refactor-full canonicalizes to builder).
     let state = test_state();
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
-        crate::tool_defs::ToolProfile::ReviewerGraph,
+        crate::tool_defs::ToolProfile::RefactorFull,
     ));
     let app = build_router(state.clone());
 
@@ -244,7 +253,7 @@ async fn deferred_namespace_load_allows_listed_graph_tool_call() {
                 .uri("/mcp")
                 .header("content-type", "application/json")
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA"},"profile":"reviewer-graph","deferredToolLoading":true}}"#,
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA"},"profile":"refactor-full","deferredToolLoading":true}}"#,
                 ))
                 .unwrap(),
         )

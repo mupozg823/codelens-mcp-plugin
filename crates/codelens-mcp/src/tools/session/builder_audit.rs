@@ -459,64 +459,73 @@ pub(crate) fn build_builder_session_audit(
         );
     }
 
-    let requires_coordination = has_mutation && view.non_local_http;
-    if requires_coordination {
+    // Coordination evidence (register_agent_work / claim_files / release_files)
+    // is host-owned and optional as of the 2026-07 tool-surface diet step 2:
+    // the agent-coordination tools were dropped from every default preset
+    // surface because multi-agent coordination is the host harness's
+    // responsibility, not a CodeLens duplicate
+    // (docs/operations/tool-surface-diet-2026-07.md "결정 확정"). A profile-bound
+    // HTTP builder can therefore no longer call them, so their absence MUST NOT
+    // degrade the audit. We still surface the evidence when it exists
+    // (informational PASS) but mark the axis host-owned when it does not — never
+    // WARN. Only the coordination axis is relaxed here; the mutation-preflight
+    // and diagnostics axes above stay strict.
+    let coordination_axis_active = has_mutation && view.non_local_http;
+    if coordination_axis_active {
+        let has_registration = has_registration_call || active_registration.is_some();
         add_check(
             &mut checks,
             &mut findings,
-            if has_registration_call || active_registration.is_some() {
+            if has_registration {
                 CHECK_PASS
             } else {
-                CHECK_WARN
+                CHECK_NA
             },
             "coordination_registration",
-            if has_registration_call || active_registration.is_some() {
+            if has_registration {
                 "register_agent_work evidence exists for the HTTP builder session."
             } else {
-                "HTTP builder session mutated files without register_agent_work evidence."
+                "Coordination registration is host-owned; the CodeLens surface no longer requires register_agent_work evidence."
             },
             json!({
+                "coordination": if has_registration { "observed" } else { "host-owned" },
                 "timeline_registration_call": has_registration_call,
                 "active_registration": active_registration.is_some(),
             }),
         );
+        let has_claim = has_claim_call || active_claim.is_some();
         add_check(
             &mut checks,
             &mut findings,
-            if has_claim_call || active_claim.is_some() {
-                CHECK_PASS
-            } else {
-                CHECK_WARN
-            },
+            if has_claim { CHECK_PASS } else { CHECK_NA },
             "coordination_claim",
-            if has_claim_call || active_claim.is_some() {
+            if has_claim {
                 "claim_files evidence exists for the HTTP builder session."
             } else {
-                "HTTP builder session mutated files without claim_files evidence."
+                "Coordination claims are host-owned; the CodeLens surface no longer requires claim_files evidence."
             },
             json!({
+                "coordination": if has_claim { "observed" } else { "host-owned" },
                 "timeline_claim_call": has_claim_call,
                 "active_claim": active_claim.is_some(),
                 "claimed_paths": active_claim_paths,
             }),
         );
+        let release_clean = active_claim.is_none() || has_release_call;
         add_check(
             &mut checks,
             &mut findings,
-            if active_claim.is_none() {
-                CHECK_PASS
-            } else {
-                CHECK_WARN
-            },
+            if release_clean { CHECK_PASS } else { CHECK_NA },
             "coordination_release",
             if active_claim.is_none() {
                 "No active file claim remains for the audited session."
             } else if has_release_call {
-                "release_files was called but an active claim still remains."
+                "release_files was recorded for the HTTP builder session."
             } else {
-                "Active claim remains and no release_files evidence was found."
+                "Claim lifecycle is host-owned; releasing advisory claims is the host harness's responsibility."
             },
             json!({
+                "coordination": if release_clean { "observed" } else { "host-owned" },
                 "timeline_release_call": has_release_call,
                 "active_claim": active_claim,
             }),
@@ -527,24 +536,24 @@ pub(crate) fn build_builder_session_audit(
             &mut findings,
             CHECK_NA,
             "coordination_registration",
-            "Coordination registration is only required for non-local HTTP mutation sessions.",
-            json!({}),
+            "Coordination registration is host-owned and not tracked for local or non-mutation sessions.",
+            json!({"coordination": "host-owned"}),
         );
         add_check(
             &mut checks,
             &mut findings,
             CHECK_NA,
             "coordination_claim",
-            "Coordination claims are only required for non-local HTTP mutation sessions.",
-            json!({}),
+            "Coordination claims are host-owned and not tracked for local or non-mutation sessions.",
+            json!({"coordination": "host-owned"}),
         );
         add_check(
             &mut checks,
             &mut findings,
             CHECK_NA,
             "coordination_release",
-            "Claim release is only required when a non-local HTTP mutation session holds claims.",
-            json!({}),
+            "Claim release is host-owned and not tracked for local or non-mutation sessions.",
+            json!({"coordination": "host-owned"}),
         );
     }
 
@@ -602,24 +611,9 @@ pub(crate) fn build_builder_session_audit(
     }) {
         crate::util::push_unique_string(&mut recommended_next_tools, "get_file_diagnostics");
     }
-    if findings
-        .iter()
-        .any(|finding| finding["code"] == "coordination_registration")
-    {
-        crate::util::push_unique_string(&mut recommended_next_tools, "register_agent_work");
-    }
-    if findings
-        .iter()
-        .any(|finding| finding["code"] == "coordination_claim")
-    {
-        crate::util::push_unique_string(&mut recommended_next_tools, "claim_files");
-    }
-    if findings
-        .iter()
-        .any(|finding| finding["code"] == "coordination_release")
-    {
-        crate::util::push_unique_string(&mut recommended_next_tools, "release_files");
-    }
+    // Coordination is host-owned (2026-07 tool-surface diet step 2): it never
+    // produces a finding, so we do not recommend register_agent_work /
+    // claim_files / release_files as remediation.
 
     let session_summary = json!({
         "session_id": view.session_id,

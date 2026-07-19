@@ -257,6 +257,27 @@ async fn init_session(app: &axum::Router, project_header: Option<&str>) -> Strin
 }
 
 async fn call_write_memory(app: &axum::Router, sid: &str, memory_name: &str) -> String {
+    // 2026-07 tool-surface diet, step 2: write_memory left every default preset
+    // surface (Balanced included) and is now callable only on the Full surface.
+    // Switch this session to Full first so the project-binding gate under test
+    // (#347) — not the surface gate — is what governs the mutation. set_preset
+    // is not a content mutation, so it is never blocked on an unbound session.
+    let _ = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"set_preset","arguments":{"preset":"full"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
     let resp = app
         .clone()
         .oneshot(
