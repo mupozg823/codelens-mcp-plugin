@@ -662,6 +662,15 @@ def copy_project_for_benchmark(source_project: str) -> str:
                 shutil.copy2(entry, target, follow_symlinks=False)
 
     _copy_dir(source, bench_project)
+    # RBAC (ADR-0009): the deterministic copy excludes .codelens entirely,
+    # which also drops principals.toml — the mutation-capable bench runtime
+    # then resolves every principal to ReadOnly and index_embeddings is
+    # denied. Stage a minimal Refactor-default mapping for the scratch copy.
+    bench_codelens = bench_project / ".codelens"
+    bench_codelens.mkdir(parents=True, exist_ok=True)
+    (bench_codelens / "principals.toml").write_text(
+        '[default]\nrole = "Refactor"\n', encoding="utf-8"
+    )
     return str(bench_project)
 
 
@@ -1443,7 +1452,11 @@ def main():
     runtime_model = snapshot_runtime_model(capabilities.get("payload") or {})
 
     index_embeddings = require_tool_success(
-        "index_embeddings", run_tool("index_embeddings", {}, timeout=1800)
+        # background=false: the one-shot CLI process exits after replying, so a
+        # queued background indexing job would be killed before it embeds
+        # anything and every later query sees an empty index.
+        "index_embeddings",
+        run_tool("index_embeddings", {"background": False}, timeout=1800),
     )
 
     requested_methods = parse_requested_methods(ARGS.methods)

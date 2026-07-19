@@ -196,6 +196,14 @@ def copy_project_for_benchmark(source_project: str) -> str:
             ".pytest_cache",
         ),
     )
+    # RBAC (ADR-0009): the copy excludes .codelens (and its principals.toml);
+    # stage a minimal Refactor-default mapping so index_embeddings is not
+    # denied on the mutation-capable bench runtime.
+    bench_codelens = bench_project / ".codelens"
+    bench_codelens.mkdir(parents=True, exist_ok=True)
+    (bench_codelens / "principals.toml").write_text(
+        '[default]\nrole = "Refactor"\n', encoding="utf-8"
+    )
     return str(bench_project)
 
 
@@ -389,7 +397,11 @@ def main():
     capabilities = require_tool_success("get_capabilities", run_tool("get_capabilities", {}))
     capability_data = payload_data(capabilities.get("payload") or {}) or {}
     runtime_model = snapshot_runtime_model(capabilities.get("payload") or {})
-    require_tool_success("index_embeddings", run_tool("index_embeddings", {}, timeout=600))
+    # background=false: one-shot CLI would kill a queued job on exit.
+    require_tool_success(
+        "index_embeddings",
+        run_tool("index_embeddings", {"background": False}, timeout=600),
+    )
     methods = [
         evaluate_method(
             "semantic_search",

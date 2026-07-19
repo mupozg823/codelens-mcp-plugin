@@ -194,6 +194,14 @@ def copy_project_for_benchmark(
     )
     for relative_path in ignore_paths or []:
         remove_relative_path(bench_project, relative_path)
+    # RBAC (ADR-0009): the copy excludes .codelens (and its principals.toml);
+    # stage a minimal Refactor-default mapping so index_embeddings is not
+    # denied on the mutation-capable bench runtime.
+    bench_codelens = bench_project / ".codelens"
+    bench_codelens.mkdir(parents=True, exist_ok=True)
+    (bench_codelens / "principals.toml").write_text(
+        '[default]\nrole = "Refactor"\n', encoding="utf-8"
+    )
     return str(bench_project)
 
 
@@ -378,7 +386,13 @@ def main():
         if path_exists and project_path:
             index_result = require_tool_success(
                 "index_embeddings",
-                run_tool(project_path, "index_embeddings", {}, timeout=600),
+                # background=false: one-shot CLI would kill a queued job on exit.
+                run_tool(
+                    project_path,
+                    "index_embeddings",
+                    {"background": False},
+                    timeout=600,
+                ),
                 context=repo["repo_id"],
             )
             validate_expected_file_suffixes(
