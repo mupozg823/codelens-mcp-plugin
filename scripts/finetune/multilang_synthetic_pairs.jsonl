@@ -30,7 +30,6 @@
 {"query": "run database migration", "positive": "function migrate (migrate) in db/migrate.ts: export async function migrate(): Promise<void>", "language": "typescript"}
 {"query": "run database migration in TypeScript", "positive": "function migrate (migrate) in db/migrate.ts: export async function migrate(): Promise<void>", "language": "typescript"}
 {"query": "how to run database migration", "positive": "function migrate (migrate) in db/migrate.ts: export async function migrate(): Promise<void>", "language": "typescript"}
-{"query": "hash password with bcrypt", "positive": "function hashPassword (hash password) in lib/auth.ts: export async function hashPassword(password: string): Promise<string>", "language": "typescript"}
 {"query": "hash password with bcrypt in TypeScript", "positive": "function hashPassword (hash password) in lib/auth.ts: export async function hashPassword(password: string): Promise<string>", "language": "typescript"}
 {"query": "verify JWT token", "positive": "function verifyToken (verify token) in lib/auth.ts: export function verifyToken(token: string): TokenPayload", "language": "typescript"}
 {"query": "verify JWT token in TypeScript", "positive": "function verifyToken (verify token) in lib/auth.ts: export function verifyToken(token: string): TokenPayload", "language": "typescript"}

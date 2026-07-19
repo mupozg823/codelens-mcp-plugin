@@ -15,7 +15,6 @@
 {"query": "configure CORS middleware", "positive": "function setup_cors (setup cors) in app/middleware.py: def setup_cors(app: FastAPI, origins: list[str]) -> None"}
 {"query": "execute raw SQL query safely", "positive": "function execute_raw (execute raw) in db/utils.py: async def execute_raw(query: str, params: dict) -> list[dict]"}
 {"query": "handle image gallery with lightbox", "positive": "function ImageGallery (image gallery) in components/ImageGallery.tsx: function ImageGallery({ images, onSelect }: GalleryProps)"}
-{"query": "merge class names conditionally", "positive": "function cn in utils/cn.ts: function cn(...inputs: ClassValue[]): string"}
 {"query": "load dataset from CSV file", "positive": "function load_dataset (load dataset) in data/loader.py: def load_dataset(path: str, sep: str = ',') -> pd.DataFrame"}
 {"query": "validate JSON against schema", "positive": "function validate_schema (validate schema) in utils/validation.py: def validate_schema(data: dict, schema: dict) -> ValidationResult"}
 {"query": "handle graceful shutdown signal", "positive": "function shutdown_signal (shutdown signal) in src/server.rs: pub async fn shutdown_signal()"}
@@ -28,7 +27,6 @@
 {"query": "define custom query in repository", "positive": "function findByEmail (find by email) in src/main/java/com/example/repos/UserRepository.java: Optional<User> findByEmail(String email)"}
 {"query": "write JSON response to client", "positive": "function WriteJSON (write json) in handlers/helpers.go: func WriteJSON(w http.ResponseWriter, status int, data interface{}) error"}
 {"query": "add middleware layer to router", "positive": "function with_middleware (with middleware) in src/middleware/mod.rs: pub fn with_middleware(router: Router) -> Router"}
-{"query": "run database migrations at startup", "positive": "function run_migrations (run migrations) in src/db/migrate.rs: pub async fn run_migrations(pool: &PgPool) -> Result<()>"}
 {"query": "extract bearer token from request", "positive": "function extract_token (extract token) in src/middleware/auth.rs: pub fn extract_token(headers: &HeaderMap) -> Result<String>"}
 {"query": "create database migration", "positive": "function change in db/migrate/20260408_create_users.rb: def change"}
 {"query": "apply discount coupon to order", "positive": "function applyCoupon (apply coupon) in services/orders.ts: async function applyCoupon(orderId: string, code: string): Promise<Discount>"}
@@ -78,7 +76,6 @@
 {"query": "create toast notification popup", "positive": "function showToast (show toast) in lib/toast.ts: function showToast(message: string, type?: ToastType): void"}
 {"query": "connect to WebSocket server", "positive": "function useWebSocket (use web socket) in hooks/useWebSocket.ts: function useWebSocket(url: string, options?: WSOptions): WebSocketState"}
 {"query": "generate confusion matrix plot", "positive": "function plot_confusion_matrix (plot confusion matrix) in ml/visualization.py: def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, labels: list[str]) -> Figure"}
-{"query": "publish message to Kafka topic", "positive": "function Publish in messaging/kafka.go: func (p *Producer) Publish(ctx context.Context, topic string, msg []byte) error"}
 {"query": "classify text sentiment", "positive": "function predict_sentiment (predict sentiment) in nlp/sentiment.py: def predict_sentiment(text: str, model: SentimentModel) -> SentimentResult"}
 {"query": "handle graceful server shutdown", "positive": "function Shutdown in server/server.go: func (s *Server) Shutdown(ctx context.Context) error"}
 {"query": "add authentication before action", "positive": "function authenticate_user (authenticate user) in app/controllers/application_controller.rb: before_action :authenticate_user!"}
@@ -109,7 +106,6 @@
 {"query": "display progress bar for long operations", "positive": "function ProgressBar (progress bar) in components/ProgressBar.tsx: function ProgressBar({ value, max, label }: ProgressBarProps)"}
 {"query": "handle POST request with body validation", "positive": "function create_user (create user) in routes/users.py: async def create_user(data: CreateUserRequest, db: Session = Depends(get_db)) -> UserResponse"}
 {"query": "memoize expensive computation result", "positive": "function useMemoizedValue (use memoized value) in hooks/useMemoized.ts: function useMemoizedValue<T>(factory: () => T, deps: DependencyList): T"}
-{"query": "hash password using bcrypt", "positive": "function HashPassword (hash password) in auth/password.go: func HashPassword(password string) (string, error)"}
 {"query": "create event listener", "positive": "class SendWelcomeEmail (send welcome email) in app/Listeners/SendWelcomeEmail.php: class SendWelcomeEmail implements ShouldQueue"}
 {"query": "create model factory", "positive": "class UserFactory (user factory) in database/factories/UserFactory.php: class UserFactory extends Factory"}
 {"query": "execute database query with context", "positive": "function QueryContext (query context) in db/query.go: func QueryContext(ctx context.Context, db *sql.DB, query string, args ...interface{}) (*sql.Rows, error)"}
@@ -202,7 +198,6 @@
 {"query": "create controller with actions", "positive": "class UsersController (users controller) in app/controllers/users_controller.rb: class UsersController < ApplicationController"}
 {"query": "manage form state with validation", "positive": "function useForm (use form) in hooks/useForm.ts: function useForm<T>(initialValues: T, validate: ValidateFn<T>): FormState<T>"}
 {"query": "simulate user click event", "positive": "function clickButton (click button) in test/helpers.ts: async function clickButton(label: string): Promise<void>"}
-{"query": "validate JWT and return claims", "positive": "function verify_jwt (verify jwt) in src/auth/jwt.rs: pub fn verify_jwt(token: &str, secret: &[u8]) -> Result<Claims>"}
 {"query": "implement step wizard form", "positive": "function useWizard (use wizard) in hooks/useWizard.ts: function useWizard(steps: WizardStep[]): WizardState"}
 {"query": "create JWT authentication filter", "positive": "class JwtFilter (jwt filter) in src/main/java/com/example/security/JwtFilter.java: public class JwtFilter extends OncePerRequestFilter"}
 {"query": "create test user fixture", "positive": "function createTestUser (create test user) in test/fixtures.ts: function createTestUser(overrides?: Partial<User>): User"}

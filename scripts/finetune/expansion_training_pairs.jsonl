@@ -6,8 +6,6 @@
 {"query": "mutation gate preflight", "positive": "function evaluate_mutation_gate in crates/codelens-mcp/src/mutation_gate.rs"}
 {"query": "mutation gate preflight mutation_gate", "positive": "function evaluate_mutation_gate in crates/codelens-mcp/src/mutation_gate.rs"}
 {"query": "mutation gate preflight gate_preflight", "positive": "function evaluate_mutation_gate in crates/codelens-mcp/src/mutation_gate.rs"}
-{"query": "cosine similarity calculation", "positive": "function cosine_similarity in crates/codelens-core/src/embedding.rs"}
-{"query": "cosine similarity calculation cosine_similarity", "positive": "function cosine_similarity in crates/codelens-core/src/embedding.rs"}
 {"query": "cosine similarity calculation similarity_calculation", "positive": "function cosine_similarity in crates/codelens-core/src/embedding.rs"}
 {"query": "dispatch tool routing", "positive": "function dispatch_tool in crates/codelens-mcp/src/dispatch.rs"}
 {"query": "dispatch tool routing dispatch_tool", "positive": "function dispatch_tool in crates/codelens-mcp/src/dispatch.rs"}

@@ -115,7 +115,12 @@ def manifest_query_artifacts(manifest: dict) -> list[tuple[str, Path]]:
             continue
         path = Path(raw_path)
         if not path.is_absolute():
-            path = (ROOT / raw_path).resolve()
+            # Pipeline manifests store paths relative to scripts/finetune
+            # (build_runtime_training_pipeline.py SCRIPT_DIR); older manifests
+            # used repo-root-relative paths. Accept both.
+            root_candidate = (ROOT / raw_path).resolve()
+            script_candidate = (SCRIPT_DIR / raw_path).resolve()
+            path = root_candidate if root_candidate.exists() else script_candidate
         artifacts.append((key, path))
     return artifacts
 

@@ -6,7 +6,6 @@
 {"query": "accept commands from stdin pipe", "positive": "function run_stdio (run stdio) in src/server/transport_stdio.rs: pub async fn run_stdio(state: AppState)"}
 {"query": "handle stdin based communication protocol", "positive": "function run_stdio (run stdio) in src/server/transport_stdio.rs: pub async fn run_stdio(state: AppState)"}
 {"query": "process line-by-line input from console", "positive": "function run_stdio (run stdio) in src/server/transport_stdio.rs: pub async fn run_stdio(state: AppState)"}
-{"query": "create embedding vectors for every symbol in the project", "positive": "function index_from_project (index from project) in src/embedding.rs: pub fn index_from_project(project_root: &Path) -> Result<usize>"}
 {"query": "generate vector representations of all code symbols", "positive": "function index_from_project (index from project) in src/embedding.rs: pub fn index_from_project(project_root: &Path) -> Result<usize>"}
 {"query": "vectorize codebase for semantic search", "positive": "function index_from_project (index from project) in src/embedding.rs: pub fn index_from_project(project_root: &Path) -> Result<usize>"}
 {"query": "batch embed all functions and classes", "positive": "function index_from_project (index from project) in src/embedding.rs: pub fn index_from_project(project_root: &Path) -> Result<usize>"}
@@ -32,7 +31,6 @@
 {"query": "determine the purpose category of a code symbol", "positive": "function classify_symbol (classify symbol) in src/embedding.rs: pub fn classify_symbol(name: &str, body: &str) -> String"}
 {"query": "label a function as utility, handler, parser, etc", "positive": "function classify_symbol (classify symbol) in src/embedding.rs: pub fn classify_symbol(name: &str, body: &str) -> String"}
 {"query": "auto-tag function by its semantic role", "positive": "function classify_symbol (classify symbol) in src/embedding.rs: pub fn classify_symbol(name: &str, body: &str) -> String"}
-{"query": "split camelCase or snake_case name into separate words", "positive": "function split_identifier (split identifier) in src/embedding.rs: pub fn split_identifier(name: &str) -> String"}
 {"query": "break apart compound identifier into tokens", "positive": "function split_identifier (split identifier) in src/embedding.rs: pub fn split_identifier(name: &str) -> String"}
 {"query": "tokenize variable name by case boundaries or underscores", "positive": "function split_identifier (split identifier) in src/embedding.rs: pub fn split_identifier(name: &str) -> String"}
 {"query": "decompose getName into get and name", "positive": "function split_identifier (split identifier) in src/embedding.rs: pub fn split_identifier(name: &str) -> String"}
@@ -40,7 +38,6 @@
 {"query": "handle request to create semantic search index", "positive": "function index_embeddings_handler (index embeddings handler) in src/dispatch.rs: pub fn index_embeddings_handler(state: &AppState, args: Value) -> Result<Value>"}
 {"query": "process the index_embeddings tool call", "positive": "function index_embeddings_handler (index embeddings handler) in src/dispatch.rs: pub fn index_embeddings_handler(state: &AppState, args: Value) -> Result<Value>"}
 {"query": "search for code that looks similar using vector similarity", "positive": "function find_similar_code_handler (find similar code handler) in src/dispatch.rs: pub fn find_similar_code_handler(state: &AppState, args: Value) -> Result<Value>"}
-{"query": "find duplicate or near-duplicate code snippets via embeddings", "positive": "function find_similar_code_handler (find similar code handler) in src/dispatch.rs: pub fn find_similar_code_handler(state: &AppState, args: Value) -> Result<Value>"}
 {"query": "detect code clones using semantic similarity", "positive": "function find_similar_code_handler (find similar code handler) in src/dispatch.rs: pub fn find_similar_code_handler(state: &AppState, args: Value) -> Result<Value>"}
 {"query": "rename a symbol across all files in the project", "positive": "function rename_symbol (rename symbol) in src/rename.rs: pub fn rename_symbol(index: &SymbolIndex, old: &str, new: &str) -> Result<RenameResult>"}
 {"query": "refactor variable name globally with scope awareness", "positive": "function rename_symbol (rename symbol) in src/rename.rs: pub fn rename_symbol(index: &SymbolIndex, old: &str, new: &str) -> Result<RenameResult>"}
@@ -55,7 +52,6 @@
 {"query": "evaluate whether a code change is safe to proceed", "positive": "function evaluate_mutation_gate (evaluate mutation gate) in src/mutation_gate.rs: pub fn evaluate_mutation_gate(state: &AppState, files: &[String]) -> MutationGateResult"}
 {"query": "run preflight readiness check before code modification", "positive": "function evaluate_mutation_gate (evaluate mutation gate) in src/mutation_gate.rs: pub fn evaluate_mutation_gate(state: &AppState, files: &[String]) -> MutationGateResult"}
 {"query": "assess risk and readiness before applying edits", "positive": "function evaluate_mutation_gate (evaluate mutation gate) in src/mutation_gate.rs: pub fn evaluate_mutation_gate(state: &AppState, files: &[String]) -> MutationGateResult"}
-{"query": "save embedding vector to sqlite database", "positive": "function insert_batch (insert batch) in src/embedding.rs: pub fn insert_batch(store: &SqliteVecStore, entries: &[(String, Vec<f32>)]) -> Result<()>"}
 {"query": "bulk write vectors to the embedding store", "positive": "function insert_batch (insert batch) in src/embedding.rs: pub fn insert_batch(store: &SqliteVecStore, entries: &[(String, Vec<f32>)]) -> Result<()>"}
 {"query": "persist computed embeddings into vector database", "positive": "function insert_batch (insert batch) in src/embedding.rs: pub fn insert_batch(store: &SqliteVecStore, entries: &[(String, Vec<f32>)]) -> Result<()>"}
 {"query": "handle the classify_symbol tool request", "positive": "function classify_symbol_handler (classify symbol handler) in src/dispatch.rs: pub fn classify_symbol_handler(state: &AppState, args: Value) -> Result<Value>"}
@@ -119,7 +115,6 @@
 {"query": "discover community structure in the code dependency graph", "positive": "function detect_communities (detect communities) in src/community.rs: pub fn detect_communities(graph: &CallGraph) -> Vec<Community>"}
 {"query": "cluster related functions into logical modules", "positive": "function detect_communities (detect communities) in src/community.rs: pub fn detect_communities(graph: &CallGraph) -> Vec<Community>"}
 {"query": "group tightly coupled code into architectural clusters", "positive": "function detect_communities (detect communities) in src/community.rs: pub fn detect_communities(graph: &CallGraph) -> Vec<Community>"}
-{"query": "compute modularity score for a graph partition", "positive": "function calculate_modularity (calculate modularity) in src/community.rs: pub fn calculate_modularity(graph: &CallGraph, communities: &[Community]) -> f64"}
 {"query": "measure quality of community detection clustering", "positive": "function calculate_modularity (calculate modularity) in src/community.rs: pub fn calculate_modularity(graph: &CallGraph, communities: &[Community]) -> f64"}
 {"query": "find shared directory prefix for files in the same cluster", "positive": "function common_path_prefix (common path prefix) in src/community.rs: fn common_path_prefix(paths: &[&str]) -> String"}
 {"query": "compute the longest common path among grouped files", "positive": "function common_path_prefix (common path prefix) in src/community.rs: fn common_path_prefix(paths: &[&str]) -> String"}
@@ -143,7 +138,6 @@
 {"query": "how long is the mutation gate check valid for", "positive": "function preflight_ttl_ms (preflight ttl ms) in src/state.rs: pub fn preflight_ttl_ms(&self) -> u64"}
 {"query": "convert absolute file path to project-relative path", "positive": "function normalize_path_for_project (normalize path for project) in src/state.rs: pub fn normalize_path_for_project(&self, path: &str) -> String"}
 {"query": "strip project root prefix from file path", "positive": "function normalize_path_for_project (normalize path for project) in src/state.rs: pub fn normalize_path_for_project(&self, path: &str) -> String"}
-{"query": "identify which type of mutation gate failure occurred", "positive": "function mutation_gate_failure (mutation gate failure) in src/mutation_gate.rs: fn mutation_gate_failure(kind: MutationFailureKind) -> MutationGateFailure"}
 {"query": "classify the reason a preflight check failed", "positive": "function mutation_gate_failure (mutation gate failure) in src/mutation_gate.rs: fn mutation_gate_failure(kind: MutationFailureKind) -> MutationGateFailure"}
 {"query": "construct a successful tool response with follow-up suggestions", "positive": "function build_success_response (build success response) in src/dispatch_response.rs: pub fn build_success_response(input: SuccessResponseInput) -> Value"}
 {"query": "create OK response payload with next tool recommendations", "positive": "function build_success_response (build success response) in src/dispatch_response.rs: pub fn build_success_response(input: SuccessResponseInput) -> Value"}
@@ -162,7 +156,6 @@
 {"query": "add or replace a symbol vector in the database", "positive": "function upsert (upsert) in src/embedding.rs: pub fn upsert(store: &SqliteVecStore, id: &str, vector: &[f32]) -> Result<()>"}
 {"query": "check if path should be excluded from indexing", "positive": "function is_excluded (is excluded) in src/project.rs: pub fn is_excluded(path: &str) -> bool"}
 {"query": "filter out node_modules and build directories from scanning", "positive": "function is_excluded (is excluded) in src/project.rs: pub fn is_excluded(path: &str) -> bool"}
-{"query": "get current unix timestamp in milliseconds", "positive": "function now_ms (now ms) in src/state.rs: pub fn now_ms() -> u64"}
 {"query": "determine what kind of mutation check this tool needs", "positive": "function is_symbol_aware_mutation_tool (is symbol aware mutation tool) in src/mutation_gate.rs: pub fn is_symbol_aware_mutation_tool(tool: &str) -> bool"}
 {"query": "check if the tool modifies code in a symbol-aware way", "positive": "function is_symbol_aware_mutation_tool (is symbol aware mutation tool) in src/mutation_gate.rs: pub fn is_symbol_aware_mutation_tool(tool: &str) -> bool"}
 {"query": "refresh symbol index for a file after it was modified", "positive": "function refresh_file (refresh file) in src/symbols/writer.rs: pub fn refresh_file(&self, relative_path: &str) -> Result<usize>"}
