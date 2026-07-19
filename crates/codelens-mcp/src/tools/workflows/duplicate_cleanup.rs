@@ -155,7 +155,7 @@ fn is_same_file_cross_symbol_data_noise(pair: &DuplicatePair) -> bool {
     is_data_symbol_kind(&pair.kind_a) && is_data_symbol_kind(&pair.kind_b)
 }
 
-pub(super) fn duplicate_quality_scan_limit(
+pub(crate) fn duplicate_quality_scan_limit(
     include_config_code_pairs: bool,
     include_local_same_symbol_pairs: bool,
     max_pairs: usize,
@@ -165,6 +165,35 @@ pub(super) fn duplicate_quality_scan_limit(
     } else {
         max_pairs.saturating_mul(8).clamp(max_pairs, 2048)
     }
+}
+
+/// F17: config-noise filter for the `find_code_duplicates` /
+/// `review(mode=dupes)` surface. Reuses the cleanup config-noise
+/// suppression ([`is_config_code_duplicate_noise`], G6.1) so CI-YAML
+/// structural-key pairs (`env`, `runs_on`, shared `uses`) don't dominate
+/// the top results. Unlike the cleanup workflow it does **not** apply the
+/// same-file / signature-only filters — those are cleanup-planning
+/// heuristics, not raw-audit concerns, so the raw duplicate surface keeps
+/// its original behavior apart from config suppression. Passing
+/// `include_config_code_pairs = true` restores the fully unfiltered output.
+pub(crate) fn filter_find_code_duplicate_pairs(
+    project: &ProjectRoot,
+    pairs: Vec<DuplicatePair>,
+    max_pairs: usize,
+    include_config_code_pairs: bool,
+) -> Vec<DuplicatePair> {
+    filter_duplicate_pairs_for_cleanup(
+        project,
+        None,
+        pairs,
+        max_pairs,
+        include_config_code_pairs,
+        // Preserve the raw-audit surface: same-file and signature-only pairs
+        // are cleanup-workflow-only filters, not applied here.
+        true,
+        true,
+    )
+    .pairs
 }
 
 pub(super) fn filter_duplicate_pairs_for_cleanup(
@@ -395,6 +424,73 @@ mod tests {
             "cross-symbol variable noise restored when local pairs included"
         );
         assert_eq!(filtered.suppressed_same_file_cross_symbol_pairs, 0);
+    }
+
+    #[test]
+    fn find_code_duplicate_pairs_suppress_config_noise_by_default() {
+        // F17: review(mode=dupes) / find_code_duplicates must apply the same
+        // G6.1 config-noise suppression that cleanup uses, so CI-YAML
+        // structural-key pairs (env / runs_on) don't dominate the top
+        // results. It must NOT inherit the same-file / signature-only cleanup
+        // filters — those are cleanup-planning concerns, not raw duplicate audit.
+        let project = temp_project();
+        let pairs = vec![
+            duplicate_pair_with_symbols(
+                ".github/workflows/build.yml",
+                "runs_on",
+                ".github/workflows/release.yml",
+                "runs_on",
+            ),
+            duplicate_pair_with_symbols("crates/a.rs", "foo", "crates/b.rs", "bar"),
+        ];
+        let filtered = filter_find_code_duplicate_pairs(&project, pairs, 20, false);
+        assert_eq!(
+            filtered.len(),
+            1,
+            "config-config noise suppressed by default"
+        );
+        assert_eq!(filtered[0].file_a, "crates/a.rs");
+    }
+
+    #[test]
+    fn find_code_duplicate_pairs_include_config_restores_original() {
+        let project = temp_project();
+        let pairs = vec![duplicate_pair_with_symbols(
+            ".github/workflows/build.yml",
+            "runs_on",
+            ".github/workflows/release.yml",
+            "runs_on",
+        )];
+        let filtered = filter_find_code_duplicate_pairs(&project, pairs, 20, true);
+        assert_eq!(
+            filtered.len(),
+            1,
+            "config-config restored when include_config_code_pairs=true"
+        );
+    }
+
+    #[test]
+    fn find_code_duplicate_pairs_preserve_same_file_and_signature_only() {
+        // The dupes surface only gains config suppression; it must keep the
+        // same-file and signature-only pairs the cleanup workflow filters out.
+        let project = temp_project();
+        let same_file = duplicate_pair_with_symbols(
+            "crates/x.rs",
+            "guidance_payload",
+            "crates/x.rs",
+            "guidance_payload",
+        );
+        let mut sig_only =
+            duplicate_pair_with_symbols("crates/a.rs", "wrap_a", "crates/b.rs", "wrap_b");
+        sig_only.body_token_jaccard = Some(0.2);
+        sig_only.signature_only_match = true;
+        let filtered =
+            filter_find_code_duplicate_pairs(&project, vec![same_file, sig_only], 20, false);
+        assert_eq!(
+            filtered.len(),
+            2,
+            "same-file and signature-only pairs preserved on the dupes surface"
+        );
     }
 
     #[test]

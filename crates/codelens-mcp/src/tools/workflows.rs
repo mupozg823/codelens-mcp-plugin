@@ -5,7 +5,7 @@ use crate::tool_runtime::{ToolHandler, ToolResult};
 use serde_json::{Value, json};
 
 #[cfg(feature = "semantic")]
-mod duplicate_cleanup;
+pub(crate) mod duplicate_cleanup;
 
 #[cfg(feature = "semantic")]
 use crate::protocol::BackendKind;

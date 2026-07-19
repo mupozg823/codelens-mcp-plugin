@@ -134,6 +134,31 @@ pub(super) fn has_decorator(lines: &[&str], symbol_line: usize) -> bool {
     }
 }
 
+/// #F18: non-source config/data files (`.toml`/`.yml`/`.yaml`/`.json`) are
+/// indexed as import-graph nodes but are never "imported" the way source
+/// modules are, so a DB-backed graph (`build_import_graph` over every
+/// indexed path) always reports them as orphans. They are configuration,
+/// not dead code. The extension set mirrors the structured/config filetypes
+/// the duplicate detector already treats specially
+/// (`embedding::duplicates::structured_filetype_floor`).
+pub(super) fn is_non_source_config_file(file: &str) -> bool {
+    matches!(
+        Path::new(file)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("toml" | "yml" | "yaml" | "json")
+    )
+}
+
+/// Pass-1 verdict for a file: it is a dead-code candidate when nothing
+/// imports it and it is neither a recognised entry point nor a non-source
+/// config/data file (see [`is_non_source_config_file`]).
+fn is_pass1_dead_file(file: &str, has_no_importers: bool) -> bool {
+    has_no_importers && !is_entry_point_file(file) && !is_non_source_config_file(file)
+}
+
 pub fn find_dead_code(
     project: &ProjectRoot,
     max_results: usize,
@@ -166,7 +191,7 @@ pub fn find_dead_code_v2(
     // ── Pass 1: unreferenced files ────────────────────────────────────────────
     let graph = cache.get_or_build(project)?;
     for (file, node) in graph.iter() {
-        if node.imported_by.is_empty() && !is_entry_point_file(file) {
+        if is_pass1_dead_file(file, node.imported_by.is_empty()) {
             results.push(DeadCodeEntryV2 {
                 file: file.clone(),
                 symbol: None,
@@ -288,6 +313,33 @@ mod tests {
             );
             assert_eq!(confidence_tier_for_file(path), CONFIDENCE_HIGH);
         }
+    }
+
+    #[test]
+    fn pass1_excludes_non_source_config_files() {
+        // F18: config/data files (.toml/.yml/.yaml/.json) are indexed as
+        // import-graph nodes but are never "imported" the way source modules
+        // are, so a DB-backed graph reports them as orphans on every run.
+        // They are configuration, not dead code — Pass 1 must not flag them.
+        for config in [
+            ".cargo/config.toml",
+            ".cargo/audit.toml",
+            ".codex/agents/reviewer.toml",
+            "config/app.yml",
+            "config/app.yaml",
+            "tsconfig.json",
+        ] {
+            assert!(
+                !is_pass1_dead_file(config, true),
+                "{config:?} is config, not dead code"
+            );
+        }
+        // A genuinely unreferenced *source* file is still reported.
+        assert!(is_pass1_dead_file("src/orphan.rs", true));
+        assert!(is_pass1_dead_file("app/unused.py", true));
+        // Entry points and imported files remain excluded.
+        assert!(!is_pass1_dead_file("src/lib.rs", true));
+        assert!(!is_pass1_dead_file("src/used.rs", false));
     }
 
     #[test]

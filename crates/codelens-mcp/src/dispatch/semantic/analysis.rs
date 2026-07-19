@@ -54,15 +54,41 @@ pub(in crate::dispatch) fn find_code_duplicates_handler(
         .get("max_pairs")
         .and_then(|v| v.as_u64())
         .unwrap_or(20) as usize;
+    // F17: mirror cleanup_duplicate_logic's G6.1 config-noise suppression so
+    // CI-YAML structural-key pairs don't dominate the top results. Opt back
+    // into the original unfiltered behavior with include_config_code_pairs.
+    let include_config_code_pairs = arguments
+        .get("include_config_code_pairs")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let guard = state.embedding_engine();
     let engine = guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
-    let pairs = engine.find_duplicates(threshold, max_pairs)?;
+    // Over-fetch before suppression so the max_pairs budget still fills with
+    // real code duplicates that would otherwise sit below the cutoff once the
+    // config pairs are removed.
+    let scan_limit = crate::tools::workflows::duplicate_cleanup::duplicate_quality_scan_limit(
+        include_config_code_pairs,
+        true,
+        max_pairs,
+    );
+    let raw_pairs = engine.find_duplicates(threshold, scan_limit)?;
+    let pairs = crate::tools::workflows::duplicate_cleanup::filter_find_code_duplicate_pairs(
+        &state.project(),
+        raw_pairs,
+        max_pairs,
+        include_config_code_pairs,
+    );
     Ok((
-        json!({"threshold": threshold, "duplicates": pairs, "count": pairs.len()}),
+        json!({
+            "threshold": threshold,
+            "include_config_code_pairs": include_config_code_pairs,
+            "duplicates": pairs,
+            "count": pairs.len()
+        }),
         tools::success_meta(BackendKind::Semantic, 0.80),
     ))
 }
