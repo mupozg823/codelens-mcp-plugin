@@ -194,12 +194,21 @@ fn session_scoped_preflight_does_not_cross_sessions() {
         json!(false),
         "expected rejection, got: {payload}"
     );
+    // CI-only RBAC denials surfaced here (role=ReadOnly despite the fixture
+    // staging a Refactor principals.toml) — capture the discovery inputs so
+    // the failure names the divergence: fixture file state vs the audit dir
+    // the principals cache actually keyed on.
+    let principals_path = project.as_path().join(".codelens/principals.toml");
     assert!(
         payload["error"]
             .as_str()
             .unwrap_or("")
             .contains("requires a fresh preflight"),
-        "expected fresh-preflight rejection, got: {payload}"
+        "expected fresh-preflight rejection, got: {payload}; audit_dir={:?}; \
+         principals_file={:?} => {:?}",
+        state.audit_dir(),
+        principals_path,
+        std::fs::read_to_string(&principals_path)
     );
 }
 
