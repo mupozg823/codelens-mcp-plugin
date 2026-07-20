@@ -235,7 +235,10 @@ def check_embedding_coverage(url: str, headers: dict[str, str]):
                 "params": {
                     "clientInfo": {"name": "mcp-doctor", "version": "0"},
                     "project": str(repo_root),
-                    "profile": "reviewer-graph",
+                    # Stage-2 surface diet removed embedding_coverage_report
+                    # from the reviewer/review surfaces; planner-readonly is
+                    # the read-only surface that still exposes it.
+                    "profile": "planner-readonly",
                     "deferredToolLoading": True,
                 },
             },
