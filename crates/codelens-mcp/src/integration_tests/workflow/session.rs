@@ -158,7 +158,13 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
         .expect("builder event should persist the replayed handoff_id");
     assert_ne!(planner_event["session_id"], builder_event["session_id"]);
 
-    let _ = std::fs::remove_dir_all(telemetry_path.parent().unwrap());
+    // telemetry_path lives directly in std::env::temp_dir() — its parent IS
+    // the system temp dir. remove_dir_all(parent) deleted every concurrent
+    // test's fixture (symbols.db mid-write -> "database is locked",
+    // principals.toml -> RBAC ReadOnly denials, audit dirs -> "audit sink
+    // unavailable"), which was the dominant root cause of the rotating
+    // CI-macOS flake. Delete only this test's own file.
+    let _ = std::fs::remove_file(&telemetry_path);
 }
 
 #[test]
