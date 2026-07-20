@@ -101,6 +101,14 @@ impl AuditSink {
         let path = audit_dir.join("audit_log.sqlite");
         let conn = Connection::open(&path)
             .with_context(|| format!("failed to open audit_log.sqlite at {}", path.display()))?;
+        // Without a busy_timeout the default is 0ms: a concurrent opener of
+        // the same audit log (four daemons share one project audit dir; CI
+        // runs parallel test processes) fails schema init/migration with an
+        // immediate SQLITE_BUSY — observed as "failed to migrate audit_log
+        // schema" rejections ahead of the preflight gate. Match the symbol
+        // index policy (db/mod.rs).
+        conn.execute_batch("PRAGMA busy_timeout = 30000;")
+            .context("failed to set audit_log busy_timeout")?;
         conn.execute_batch(CREATE_SQL)
             .context("failed to initialise audit_log schema")?;
         migrate_schema(&conn).context("failed to migrate audit_log schema")?;
