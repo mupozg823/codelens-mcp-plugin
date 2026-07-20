@@ -4,7 +4,10 @@ use std::collections::HashSet;
 use std::path::Path;
 
 #[cfg(feature = "semantic")]
-use super::RetrievalQueryAnalysis;
+// Sibling-module import on purpose: pulling this through `super`
+// (mod.rs re-export) forms a mod.rs ↔ bridge.rs import cycle in the
+// architecture graph.
+use super::intent::RetrievalQueryAnalysis;
 
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_query_for_embedding_search(
@@ -187,7 +190,7 @@ fn bridge_nl_to_code_vocabulary(query: &str, project_bridges: &[(String, String)
 #[cfg(all(test, feature = "semantic"))]
 mod ablation_flag_tests {
     use super::bridge_nl_to_code_vocabulary;
-    use crate::tools::query_analysis::TEST_ENV_LOCK;
+    use crate::env_compat::TEST_ENV_LOCK;
 
     fn with_env<F: FnOnce()>(key: &str, value: Option<&str>, f: F) {
         let _guard = TEST_ENV_LOCK.lock().unwrap();

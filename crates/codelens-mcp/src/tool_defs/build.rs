@@ -140,3 +140,28 @@ fn build_tools() -> Vec<Tool> {
 
     tools
 }
+
+pub(crate) fn tool_tier(name: &str) -> ToolTier {
+    tool_definition(name)
+        .and_then(|tool| tool.annotations.as_ref())
+        .and_then(|annotations| annotations.tier)
+        .unwrap_or(ToolTier::Primitive)
+}
+
+pub(crate) fn tool_tier_label(name: &str) -> &'static str {
+    match tool_tier(name) {
+        ToolTier::Primitive => "primitive",
+        ToolTier::Analysis => "analysis",
+        ToolTier::Workflow => "workflow",
+    }
+}
+
+#[cfg(feature = "http")]
+pub(crate) fn parse_tier_label(value: &str) -> Option<ToolTier> {
+    match value {
+        "primitive" => Some(ToolTier::Primitive),
+        "analysis" => Some(ToolTier::Analysis),
+        "workflow" => Some(ToolTier::Workflow),
+        _ => None,
+    }
+}

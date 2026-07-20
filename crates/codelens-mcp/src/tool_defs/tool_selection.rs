@@ -1,6 +1,10 @@
-use super::{
-    ALL_PRESETS, ALL_PROFILES, ToolSurface, is_tool_in_surface, tool_definition, tool_namespace,
-    tool_preferred_executor_label, tool_tier_label,
+// Sibling-module imports on purpose: pulling these through `super`
+// (mod.rs re-exports) forms a mod.rs ↔ tool_selection.rs import cycle
+// in the architecture graph.
+use super::build::{tool_definition, tool_tier_label};
+use super::presets::{
+    ALL_PRESETS, ALL_PROFILES, ToolSurface, is_tool_in_surface, tool_namespace,
+    tool_preferred_executor_label,
 };
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -251,7 +255,7 @@ pub(crate) fn tool_selection_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tool_defs::ToolProfile;
+    use crate::tool_defs::presets::ToolProfile;
 
     #[test]
     fn parse_select_expression_accepts_toolsearch_style_query() {

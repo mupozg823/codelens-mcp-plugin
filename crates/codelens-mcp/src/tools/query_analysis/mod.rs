@@ -24,7 +24,6 @@ mod tests;
 #[cfg(all(test, feature = "semantic"))]
 mod entrypoint_tests;
 
-// Shared test lock for env var mutation tests across this module.
-// Env vars are process-global, so tests that set/unset them must serialize.
-#[cfg(all(test, feature = "semantic"))]
-pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+// Env-var mutation tests serialize on the crate-wide
+// `crate::env_compat::TEST_ENV_LOCK` — a module-local lock here let
+// tests guarded by different locks race on the process-global env.
