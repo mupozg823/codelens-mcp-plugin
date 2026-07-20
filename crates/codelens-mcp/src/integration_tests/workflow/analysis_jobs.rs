@@ -649,3 +649,68 @@ fn analysis_reads_update_session_metrics() {
         json!(1)
     );
 }
+
+#[test]
+fn refresh_symbol_index_default_stays_synchronous() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("sync_refresh.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    // The sync contract is load-bearing: callers assert on the returned
+    // stats payload (and the #358 zero_supported_files warning shape).
+    let payload = call_tool(&state, "refresh_symbol_index", json!({}));
+    assert_eq!(payload["success"], json!(true), "got: {payload}");
+    assert!(
+        payload["data"]["indexed_files"].as_u64().is_some(),
+        "default call must return synchronous stats, got: {payload}"
+    );
+    assert!(
+        payload["data"].get("job").is_none(),
+        "default call must not queue a job, got: {payload}"
+    );
+}
+
+#[test]
+fn refresh_symbol_index_background_queues_and_completes_job() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("bg_refresh.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let queued = call_tool(&state, "refresh_symbol_index", json!({"background": true}));
+    assert_eq!(queued["success"], json!(true), "got: {queued}");
+    assert_eq!(queued["data"]["background"], json!(true), "got: {queued}");
+    assert_eq!(queued["data"]["status"], json!("queued"), "got: {queued}");
+    let job_id = queued["data"]["job"]["id"]
+        .as_str()
+        .expect("queued job id")
+        .to_owned();
+    assert_eq!(
+        queued["data"]["poll"]["arguments"]["job_id"],
+        json!(job_id),
+        "poll handle must target the queued job, got: {queued}"
+    );
+
+    // Drive the queued job synchronously on the test thread (same code path
+    // as the background worker) to avoid worker-timing flakiness.
+    let final_status = crate::tools::report_jobs::run_analysis_job_from_queue(
+        &state,
+        job_id.clone(),
+        state.current_project_scope(),
+        "refresh_symbol_index".to_owned(),
+        json!({"background": true}),
+    );
+    assert_eq!(final_status, crate::runtime_types::JobLifecycle::Completed);
+
+    let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+    assert_eq!(poll["success"], json!(true), "got: {poll}");
+    assert_eq!(poll["data"]["status"], json!("completed"), "got: {poll}");
+    assert_eq!(poll["data"]["progress"], json!(100), "got: {poll}");
+}

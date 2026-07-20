@@ -420,12 +420,13 @@ name = "refresh_symbol_index"
 category = "symbol"
 namespace = "session"
 preset_tags = ["builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale."
+description = "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale. Pass background=true for large re-scans that would exceed the request timeout."
 annotations = "mut_w"
 
 [tool.input_schema]
 type = "object"
-properties = {}
+[tool.input_schema.properties]
+background = { type = "boolean", description = "Run as a durable background job and poll with get_analysis_job (default false: synchronous stats response)" }
 
 # ─────
 

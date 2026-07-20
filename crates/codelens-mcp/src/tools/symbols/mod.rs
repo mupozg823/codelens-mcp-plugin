@@ -15,6 +15,8 @@ pub(crate) use crate::tools::symbol_query::{
 pub use bm25_search::bm25_symbol_search;
 pub use fuzzy_search::search_symbols_fuzzy;
 pub use inventory::{get_complexity, refresh_symbol_index};
+// Job-queue runner (report_jobs) drives the synchronous body directly.
+pub(crate) use inventory::refresh_symbol_index_now;
 
 #[cfg(test)]
 mod tests {

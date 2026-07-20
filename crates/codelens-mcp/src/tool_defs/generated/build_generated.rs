@@ -538,8 +538,8 @@ pub fn symbol_tools(
         ).with_annotations(ro_a.clone()),
         Tool::new(
             "refresh_symbol_index",
-            "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale.",
-            json!({"type":"object","properties":{}}),
+            "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale. Pass background=true for large re-scans that would exceed the request timeout.",
+            json!({"type":"object","properties":{"background":{"type":"boolean","description":"Run as a durable background job and poll with get_analysis_job (default false: synchronous stats response)"}}}),
         ).with_annotations(mut_w.clone()),
     ]
 }

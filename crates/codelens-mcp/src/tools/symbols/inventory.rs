@@ -10,14 +10,69 @@
 //! `SymbolIndex` / `graph_cache` / `embedding_ref` triplet on
 //! `AppState`.
 
-use super::super::{AppState, ToolResult, optional_string, required_string, success_meta};
+use super::super::{
+    AppState, ToolResult, optional_bool, optional_string, required_string, success_meta,
+};
 use super::formatter::count_branches;
 use crate::protocol::BackendKind;
 use crate::tools::symbol_query::sparse_retriever::flatten_symbols;
 use codelens_engine::{SymbolKind, read_file};
 use serde_json::{Value, json};
 
-pub fn refresh_symbol_index(state: &AppState, _arguments: &Value) -> ToolResult {
+/// Thin entry point: `background: true` queues a durable job (mirroring
+/// `index_embeddings`) so large re-scans — e.g. a discovery-set shrink
+/// pruning tens of thousands of orphan rows — survive the MCP request
+/// timeout; the default stays the synchronous stats contract.
+pub fn refresh_symbol_index(state: &AppState, arguments: &Value) -> ToolResult {
+    // Unlike index_embeddings (background by default), the sync default is
+    // load-bearing here: existing callers assert on the returned stats and
+    // the #358 zero_supported_files warning payload.
+    let background = optional_bool(arguments, "background", false);
+    if background {
+        return queue_refresh_symbol_index_job(state, arguments);
+    }
+    refresh_symbol_index_now(state, arguments)
+}
+
+fn queue_refresh_symbol_index_job(state: &AppState, arguments: &Value) -> ToolResult {
+    let scope = state.current_project_scope();
+    let job = state.store_analysis_job(
+        &scope,
+        "refresh_symbol_index",
+        None,
+        vec!["symbol_index".to_owned()],
+        crate::runtime_types::JobLifecycle::Queued,
+        0,
+        Some("queued".to_owned()),
+        None,
+        None,
+    )?;
+    let job_id = job.id.clone();
+    // No `_job_id`/`_project_scope` injection: unlike index_embeddings_now,
+    // refresh_symbol_index_now has no checkpoint hook that would read them.
+    state.enqueue_analysis_job(
+        scope,
+        job.id.clone(),
+        "refresh_symbol_index".to_owned(),
+        arguments.clone(),
+        None,
+    )?;
+
+    Ok((
+        json!({
+            "background": true,
+            "status": "queued",
+            "job": job,
+            "poll": {
+                "tool": "get_analysis_job",
+                "arguments": { "job_id": job_id }
+            }
+        }),
+        success_meta(BackendKind::TreeSitter, 0.90),
+    ))
+}
+
+pub(crate) fn refresh_symbol_index_now(state: &AppState, _arguments: &Value) -> ToolResult {
     let stats = state.symbol_index().refresh_all()?;
     state.graph_cache().invalidate();
     // A forced re-scan can land in the same wall-clock tick as the sparse

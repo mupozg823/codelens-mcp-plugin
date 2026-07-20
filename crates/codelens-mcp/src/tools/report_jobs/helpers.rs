@@ -19,6 +19,10 @@ pub(super) fn run_job_kind(state: &AppState, kind: &str, arguments: &Value) -> T
             super::super::reports::verify_change_readiness(state, arguments)
         }
         "eval_session_audit" => super::super::reports::eval_session_audit(state, arguments),
+        // Always compiled (no semantic gate): the symbol index is a base
+        // capability. No progress checkpoints — refresh_all has no callback
+        // hook, so the job reports queued -> worker started -> completed.
+        "refresh_symbol_index" => crate::tools::symbols::refresh_symbol_index_now(state, arguments),
         #[cfg(feature = "semantic")]
         "index_embeddings" => crate::dispatch::semantic::index_embeddings_now(state, arguments)
             .map(|payload| {
@@ -74,6 +78,7 @@ pub(super) fn estimated_sections_for_kind(kind: &str) -> Vec<String> {
         "index_embeddings" => {
             vec!["semantic_index".to_owned(), "query_prewarm".to_owned()]
         }
+        "refresh_symbol_index" => vec!["symbol_index".to_owned()],
         _ => Vec::new(),
     }
 }
