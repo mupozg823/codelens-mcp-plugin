@@ -39,7 +39,17 @@ if [ "$HAS_INDEX" = "0" ] && [ "$HAS_HEADER" = "0" ]; then
   exit 0
 fi
 
-if ! curl -sf -m 0.7 "$CARD_URL" -o /dev/null 2>/dev/null; then
+# 단발 0.7s 프로브는 데몬 생존 중에도 일시 부하로 실패해 오탐 "다운"을 주입,
+# 심볼 게이트가 세션 내내 꺼진다(2026-07-15 실측: 2.5일 무중단 데몬을 다운 보고).
+# 재시도 1회 포함 총 예산 ~1.9s — 훅 timeout 3s 이내 유지 필수.
+ALIVE=0
+for t in 0.7 1.2; do
+  if curl -sf -m "$t" "$CARD_URL" -o /dev/null 2>/dev/null; then
+    ALIVE=1
+    break
+  fi
+done
+if [ "$ALIVE" = "0" ]; then
   echo "🔍 CodeLens 데몬 다운(:7839) — 쉘 폴백 허용, 심볼 게이트 자동 비활성."
   exit 0
 fi

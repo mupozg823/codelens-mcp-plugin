@@ -144,6 +144,9 @@ def test_d_strict_symbol_denies_with_reason() -> None:
         reason = hso["permissionDecisionReason"]
         assert 'mcp__codelens__search(mode="symbol", name="handleRequest", include_body=true)' in reason
         assert "strict" in reason
+        # Stale-index recovery must be taught in the full procedure — mid-session
+        # post-edit staleness drives most [cl-fallback] retries (2026-07-19 audit).
+        assert "refresh_symbol_index" in reason
 
 
 def test_e_third_advisory_is_throttled() -> None:
@@ -412,23 +415,36 @@ def test_u_worktree_cwd_passes() -> None:
 
 
 def test_v_strict_deny_capped_per_session() -> None:
+    # Cap pinned to 3 via CODELENS_FIRST_MAX_DENIES so the test stays
+    # deterministic across production cap changes (the 2026-07-12 3→10 bump
+    # silently broke the previous hardcoded expectation). After exhaustion the
+    # FIRST capped event emits one allow+context notice (cap lifted, CodeLens
+    # still preferred); later capped events stay silent.
     with tempfile.TemporaryDirectory() as raw, tempfile.TemporaryDirectory() as raw_tmp:
         project = make_codelens_project(Path(raw))
         tmpdir = Path(raw_tmp)  # shared deny-counter state across calls
+        env = {**_ALIVE, "CODELENS_FIRST_MAX_DENIES": "3"}
         decisions = []
-        for _ in range(5):
+        outputs = []
+        for _ in range(6):
             proc = run_hook(
                 bash_event(project, 'rg "computeBudget" src/', "sess-v"),
                 tmpdir=tmpdir,
                 mode="strict",
-                env_overrides=_ALIVE,
+                env_overrides=env,
             )
             if proc.stdout:
                 out = json.loads(proc.stdout)
                 decisions.append(out["hookSpecificOutput"]["permissionDecision"])
+                outputs.append(out["hookSpecificOutput"])
             else:
                 decisions.append("")
-        assert decisions == ["deny", "deny", "deny", "", ""], decisions
+                outputs.append({})
+        assert decisions == ["deny", "deny", "deny", "allow", "", ""], decisions
+        lift_ctx = outputs[3].get("additionalContext", "")
+        assert "deny cap (3) reached" in lift_ctx, lift_ctx
+        assert 'mcp__codelens__search(mode="symbol", name="computeBudget")' in lift_ctx
+        assert len(lift_ctx) <= 340, f"cap-lift notice must stay bounded: {len(lift_ctx)}"
 
 
 def test_w_strict_daemon_down_fails_open() -> None:
@@ -568,7 +584,12 @@ def test_ac_metric_file_rotates_past_size_cap() -> None:
         assert len(new_lines) < len(old_lines) + 1, (
             f"rotation must have trimmed old lines, got {len(new_lines)}"
         )
-        assert json.loads(new_lines[-1])["d"] == "advise", "the new record must still land"
+        last = json.loads(new_lines[-1])
+        assert last["d"] == "advise", "the new record must still land"
+        # Per-project attribution (2026-07-19 audit gap): records carry the
+        # project basename, never an absolute path.
+        assert last["p"] == "project", last
+        assert "/" not in last["p"]
 
 
 def main() -> int:

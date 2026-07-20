@@ -15,10 +15,20 @@
 #   advisory (default) : symbol-like Grep/Bash-grep → allow + advice (throttled ≤2/session)
 #   strict             : HIGH-CONFIDENCE symbol lookup (snake_case/camelCase/`::`)
 #                        → deny + concrete CodeLens procedure, capped at ≤10
-#                        denies/session (repeat denials use a terse one-liner to
-#                        keep the injected-token cost flat; 2026-07-12 metrics:
-#                        cap=3 leaked 143 deny_capped passes vs 46 denies over
-#                        14 days — the cap, not the classifier, was the leak).
+#                        denies/session (env CODELENS_FIRST_MAX_DENIES overrides —
+#                        tests pin small caps deterministically). Repeat denials
+#                        use a terse one-liner to keep the injected-token cost
+#                        flat (2026-07-12 metrics: cap=3 leaked 143 deny_capped
+#                        passes vs 46 denies over 14 days — the cap, not the
+#                        classifier, was the leak). The first capped event after
+#                        exhaustion emits ONE allow+context notice (cap lifted,
+#                        CodeLens still preferred); later capped events stay
+#                        silent (2026-07-19 metrics: 476 silent deny_capped
+#                        passes carried zero guidance). The full deny procedure
+#                        also teaches the stale-index recovery path
+#                        (refresh_symbol_index → retry → [cl-fallback]) since
+#                        mid-session post-edit staleness, not permanent index
+#                        rot, drives most fallbacks.
 #                        Ambiguous
 #                        identifiers (plain lowercase words) downgrade to a
 #                        single advisory. strict only ever denies when every
@@ -72,7 +82,10 @@ import time
 SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
 MAX_ADVISORIES_PER_SESSION = 2
 MAX_ADVISORIES_STRICT = 1
-MAX_DENIES_PER_SESSION = 10
+try:
+    MAX_DENIES_PER_SESSION = int(os.environ.get("CODELENS_FIRST_MAX_DENIES", "10"))
+except ValueError:
+    MAX_DENIES_PER_SESSION = 10
 GATE_MAX_LEVELS = 5
 CARD_URL = os.environ.get(
     "CODELENS_CARD_URL", "http://127.0.0.1:7839/.well-known/mcp.json"
@@ -366,15 +379,39 @@ def deny_allows(session_id: object) -> bool:
     return _counter("codelens-first-deny", session_id, MAX_DENIES_PER_SESSION)
 
 
-def _deny_count(session_id: object) -> int:
+def _deny_state_path(session_id: object) -> str:
     tmpdir = os.environ.get("TMPDIR") or "/tmp"
     sid = session_id if isinstance(session_id, str) and session_id else "unknown"
     sid = re.sub(r"[^A-Za-z0-9_.-]", "_", sid)
+    return os.path.join(tmpdir, f"codelens-first-deny-{sid}")
+
+
+def _deny_count(session_id: object) -> int:
     try:
-        with open(os.path.join(tmpdir, f"codelens-first-deny-{sid}"), encoding="utf-8") as fh:
+        with open(_deny_state_path(session_id), encoding="utf-8") as fh:
             return int(fh.read().strip() or "1")
     except (OSError, ValueError):
         return 1
+
+
+def cap_lift_pending(session_id: object) -> bool:
+    """True exactly once per session — on the first capped event after the deny
+    limit is exhausted (counter == limit). Bumps the counter past the limit so
+    every later capped event stays silent."""
+    state = _deny_state_path(session_id)
+    try:
+        with open(state, encoding="utf-8") as fh:
+            count = int(fh.read().strip() or "0")
+    except (OSError, ValueError):
+        return False
+    if count != MAX_DENIES_PER_SESSION:
+        return False
+    try:
+        with open(state, "w", encoding="utf-8") as fh:
+            fh.write(str(count + 1))
+    except OSError:
+        pass
+    return True
 
 
 def daemon_alive() -> bool:
@@ -460,9 +497,22 @@ def strict_reason(symbol: str, root: str, deny_no: int) -> str:
         f"③ mcp__codelens__search(mode=\"symbol\", name=\"{symbol}\", include_body=true); "
         "refs via search(mode=\"refs\", symbol_name=…); callers/impact via "
         "graph(mode=\"callers\"|\"impact\"), else "
-        f"search(mode=\"ranked\", query=\"{symbol}\"). Escapes: append "
-        "`# [cl-text]` for a plain text audit, `# [cl-fallback]` if CodeLens "
-        "failed or returned nothing."
+        f"search(mode=\"ranked\", query=\"{symbol}\"). Empty/stale results "
+        "(common right after edits): call mcp__codelens__refresh_symbol_index() "
+        "once and retry before falling back. Escapes: append `# [cl-text]` for "
+        "a plain text audit, `# [cl-fallback]` if CodeLens still fails or "
+        "returns nothing."
+    )
+
+
+def cap_lifted_context(symbol: str) -> str:
+    """One-time notice on cap exhaustion — grep unblocks, but the redirect
+    guidance should not silently vanish with it."""
+    return (
+        f"[codelens-first] deny cap ({MAX_DENIES_PER_SESSION}) reached — grep "
+        "is no longer blocked this session. CodeLens still answers symbol "
+        f'lookups cheaper: mcp__codelens__search(mode="symbol", name="{symbol}"); '
+        "stale/empty results → mcp__codelens__refresh_symbol_index(), retry."
     )
 
 
@@ -492,6 +542,9 @@ def run() -> None:
     # Short session prefix in metric records — lets the offline reporter join
     # decisions to the session transcript for redirect→conversion measurement.
     sid = (session if isinstance(session, str) else "")[:8]
+    # Project basename (never the absolute path) — 2026-07-19 audit could not
+    # attribute fallback retries per project without it.
+    proj = os.path.basename(root) or root
 
     if tool_name == "Grep":
         if tool_input.get("-i"):
@@ -509,7 +562,7 @@ def run() -> None:
         if isinstance(command, str) and (
             "[cl-text]" in command or "[cl-fallback]" in command
         ):
-            metric({"s": sid, "d": "pass", "why": "marker", "tool": tool_name})
+            metric({"s": sid, "d": "pass", "why": "marker", "tool": tool_name, "p": proj})
             return
         symbol = bash_symbol_candidate(command, cwd, root)
 
@@ -517,27 +570,31 @@ def run() -> None:
         return
 
     if isinstance(cwd, str) and "/worktrees/" in cwd:
-        metric({"s": sid, "d": "pass", "why": "worktree", "sym": symbol})
+        metric({"s": sid, "d": "pass", "why": "worktree", "sym": symbol, "p": proj})
         return
 
     if mode == "strict" and high_confidence_symbol(symbol):
         if not daemon_alive():
-            metric({"s": sid, "d": "pass", "why": "daemon_down", "sym": symbol})
+            metric({"s": sid, "d": "pass", "why": "daemon_down", "sym": symbol, "p": proj})
             return
         if not deny_allows(session):
-            metric({"s": sid, "d": "pass", "why": "deny_capped", "sym": symbol})
+            if cap_lift_pending(session):
+                metric({"s": sid, "d": "advise", "why": "cap_lifted", "sym": symbol, "p": proj})
+                emit("allow", context=cap_lifted_context(symbol))
+            else:
+                metric({"s": sid, "d": "pass", "why": "deny_capped", "sym": symbol, "p": proj})
             return
         deny_no = _deny_count(session)
-        metric({"s": sid, "d": "deny", "sym": symbol, "n": deny_no, "tool": tool_name})
+        metric({"s": sid, "d": "deny", "sym": symbol, "n": deny_no, "tool": tool_name, "p": proj})
         emit("deny", reason=strict_reason(symbol, root, deny_no))
         return
 
     # advisory (default, ambiguous-symbol strict downgrade, unrecognised values)
     if throttle_allows(session, mode):
-        metric({"s": sid, "d": "advise", "sym": symbol, "tool": tool_name})
+        metric({"s": sid, "d": "advise", "sym": symbol, "tool": tool_name, "p": proj})
         emit("allow", context=advisory_context(symbol))
     else:
-        metric({"s": sid, "d": "pass", "why": "advise_capped", "sym": symbol})
+        metric({"s": sid, "d": "pass", "why": "advise_capped", "sym": symbol, "p": proj})
 
 
 def main() -> int:
