@@ -188,12 +188,17 @@ fn session_scoped_preflight_does_not_cross_sessions() {
         }),
         "session-b",
     );
-    assert_eq!(payload["success"], json!(false));
+    assert_eq!(
+        payload["success"],
+        json!(false),
+        "expected rejection, got: {payload}"
+    );
     assert!(
         payload["error"]
             .as_str()
             .unwrap_or("")
-            .contains("requires a fresh preflight")
+            .contains("requires a fresh preflight"),
+        "expected fresh-preflight rejection, got: {payload}"
     );
 }
 

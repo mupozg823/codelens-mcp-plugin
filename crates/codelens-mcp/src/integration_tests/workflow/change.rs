@@ -100,12 +100,17 @@ fn refactor_surface_requires_preflight_before_replace_symbol_body() {
             "new_body": "    return 2"
         }),
     );
-    assert_eq!(payload["success"], json!(false));
+    assert_eq!(
+        payload["success"],
+        json!(false),
+        "expected rejection, got: {payload}"
+    );
     assert!(
         payload["error"]
             .as_str()
             .unwrap_or("")
-            .contains("requires a fresh preflight")
+            .contains("requires a fresh preflight"),
+        "expected fresh-preflight rejection, got: {payload}"
     );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
