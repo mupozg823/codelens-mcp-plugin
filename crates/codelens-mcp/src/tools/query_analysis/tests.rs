@@ -150,7 +150,8 @@ fn embedding_search_query_applies_project_specific_bridge_from_project_file() {
     unsafe { std::env::set_var("CODELENS_PROJECT_BRIDGES_ON", "1") };
 
     let dir = std::env::temp_dir().join(format!(
-        "codelens-query-bridge-{}",
+        "codelens-query-bridge-{}-{}",
+        std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")

@@ -11,7 +11,8 @@ use super::semantic::SemanticSearchStatus;
 #[test]
 fn lsp_binary_exists_finds_via_env_override() {
     let tempdir = std::env::temp_dir().join(format!(
-        "codelens-phase4a-lsp-{}",
+        "codelens-phase4a-lsp-{}-{}",
+        std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())

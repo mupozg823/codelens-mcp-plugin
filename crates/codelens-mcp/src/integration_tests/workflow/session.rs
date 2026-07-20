@@ -66,7 +66,8 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let telemetry_path = std::env::temp_dir().join(format!(
-        "codelens-delegate-telemetry-{}-{:?}.jsonl",
+        "codelens-delegate-telemetry-{}-{}-{:?}.jsonl",
+        std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

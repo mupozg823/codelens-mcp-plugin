@@ -17,15 +17,9 @@ use std::time::Duration;
 use tower::ServiceExt;
 
 fn test_state() -> Arc<AppState> {
-    let dir = std::env::temp_dir().join(format!(
-        "codelens-http-test-{}-{:?}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos(),
-        std::thread::current().id(),
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
+    // Shared fixture: (nanos, thread_id) alone collides across parallel
+    // nextest processes — see fixtures::unique_suffix.
+    let dir = temp_project_dir("http-state");
     std::fs::create_dir_all(dir.join(".codelens")).unwrap();
     std::fs::write(
         dir.join(".codelens/principals.toml"),
@@ -47,15 +41,7 @@ fn test_state_with_compat(compat_mode: ServerCompatMode) -> Arc<AppState> {
 /// Like `test_state` but forces the strict session policy (#300 guard #11),
 /// without depending on the `CODELENS_SESSION_STRICT` process env.
 fn test_state_strict() -> Arc<AppState> {
-    let dir = std::env::temp_dir().join(format!(
-        "codelens-http-test-strict-{}-{:?}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos(),
-        std::thread::current().id(),
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = temp_project_dir("http-state-strict");
     std::fs::create_dir_all(dir.join(".codelens")).unwrap();
     std::fs::write(
         dir.join(".codelens/principals.toml"),
