@@ -103,31 +103,35 @@ fn workflow_guidance_miss_tracks_origin_without_counting_profile_switch() {
     .unwrap();
     let state = make_state(&project);
 
-    let _ = call_tool(
-        &state,
-        "find_symbol",
-        json!({"name": "alpha", "file_path": "guided_miss.py", "include_body": false}),
-    );
-    let _ = call_tool(
-        &state,
-        "find_referencing_symbols",
-        json!({"file_path": "guided_miss.py", "symbol_name": "alpha", "max_results": 10}),
-    );
-    let _ = call_tool(
-        &state,
-        "read_file",
-        json!({"relative_path": "guided_miss.py"}),
-    );
-    let _ = call_tool(
-        &state,
-        "set_profile",
-        json!({"profile": "planner-readonly"}),
-    );
+    // Guidance emission only happens on the success path — a setup call
+    // failing (e.g. under CI resource contention) silently breaks the
+    // low-level chain and the final miss assert fails with no clue. Assert
+    // each step so a CI failure names the call that actually broke.
+    for (tool, arguments) in [
+        (
+            "find_symbol",
+            json!({"name": "alpha", "file_path": "guided_miss.py", "include_body": false}),
+        ),
+        (
+            "find_referencing_symbols",
+            json!({"file_path": "guided_miss.py", "symbol_name": "alpha", "max_results": 10}),
+        ),
+        ("read_file", json!({"relative_path": "guided_miss.py"})),
+        ("set_profile", json!({"profile": "planner-readonly"})),
+    ] {
+        let result = call_tool(&state, tool, arguments);
+        assert_eq!(
+            result["success"],
+            json!(true),
+            "setup call {tool} failed: {result}"
+        );
+    }
 
     let metrics_after_switch = call_tool(&state, "get_tool_metrics", json!({}));
     assert_eq!(
         metrics_after_switch["data"]["session"]["composite_guidance_missed_count"],
-        json!(0)
+        json!(0),
+        "profile switch must not count as a miss, got: {metrics_after_switch}"
     );
     assert!(
         metrics_after_switch["data"]["session"]["profile_switch_count"]
@@ -136,10 +140,15 @@ fn workflow_guidance_miss_tracks_origin_without_counting_profile_switch() {
             >= 1
     );
 
-    let _ = call_tool(
+    let followup = call_tool(
         &state,
         "find_symbol",
         json!({"name": "alpha", "file_path": "guided_miss.py", "include_body": false}),
+    );
+    assert_eq!(
+        followup["success"],
+        json!(true),
+        "follow-up find_symbol failed: {followup}"
     );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
@@ -147,13 +156,15 @@ fn workflow_guidance_miss_tracks_origin_without_counting_profile_switch() {
         metrics["data"]["session"]["composite_guidance_missed_count"]
             .as_u64()
             .unwrap_or_default()
-            >= 1
+            >= 1,
+        "expected a guidance miss, got: {metrics}"
     );
     assert!(
         metrics["data"]["derived_kpis"]["composite_guidance_miss_rate"]
             .as_f64()
             .unwrap_or_default()
-            > 0.0
+            > 0.0,
+        "expected a positive miss rate, got: {metrics}"
     );
     let missed_by_origin = metrics["data"]["session"]["composite_guidance_missed_by_origin"]
         .as_object()
