@@ -156,6 +156,38 @@ fn current_head_git_sha(project_root: &std::path::Path) -> Option<String> {
     }
 }
 
+/// Whether the tree diff between two commits touches binary-relevant
+/// paths (`crates/`, `Cargo.toml`, `Cargo.lock`) — the same path set
+/// `scripts/daemon-stale-check.sh` uses for its "binary-equivalent"
+/// verdict. `None` when git or either sha is unavailable (fail-open:
+/// the caller keeps the mismatch warning).
+fn binary_relevant_delta_between(
+    project_root: &std::path::Path,
+    binary_sha: &str,
+    head_sha: &str,
+) -> Option<bool> {
+    if binary_sha == "unknown" || binary_sha.len() < 4 || head_sha.len() < 4 {
+        return None;
+    }
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .arg("diff")
+        .arg("--name-only")
+        .arg(format!("{binary_sha}..{head_sha}"))
+        .arg("--")
+        .arg("crates")
+        .arg("Cargo.toml")
+        .arg("Cargo.lock")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    Some(!stdout.trim().is_empty())
+}
+
 fn git_root_for_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
     let output = std::process::Command::new("git")
         .arg("-C")
@@ -227,6 +259,7 @@ fn classify_drift(
     mtime_stale: bool,
     head_git_sha: Option<&str>,
     binary_git_sha: &str,
+    binary_relevant_delta: Option<bool>,
 ) -> (bool, Option<&'static str>, Option<&'static str>) {
     let head_mismatch = matches!(
         head_git_sha,
@@ -236,6 +269,13 @@ fn classify_drift(
                 && binary_git_sha != "unknown"
                 && !shas_share_prefix(head, binary_git_sha)
     );
+    // Binary-equivalent lag (hook/doc/test-only commits between the binary
+    // sha and HEAD) produces a byte-identical rebuild; warning on it only
+    // prompts pointless daemon churn that drops live MCP sessions. Mirrors
+    // scripts/daemon-stale-check.sh's "in sync (binary-equivalent)" verdict.
+    // `None` = classification unavailable (git failed, sha unreachable) —
+    // fail open and keep the warning.
+    let head_mismatch = head_mismatch && binary_relevant_delta != Some(false);
     let stale = mtime_stale || head_mismatch;
     let reason_code = match (mtime_stale, head_mismatch) {
         (true, _) => Some("stale_daemon_binary"),
@@ -264,6 +304,11 @@ pub(crate) struct DriftEvidence {
     pub(crate) executable_path: std::path::PathBuf,
     pub(crate) modified_seconds: u64,
     pub(crate) head_git_sha: Option<String>,
+    /// Whether commits between the binary sha and HEAD touch
+    /// binary-relevant paths (`crates/`, `Cargo.toml`, `Cargo.lock`).
+    /// `Some(false)` downgrades the head-mismatch warning; `None` keeps
+    /// it (fail-open).
+    pub(crate) binary_relevant_delta: Option<bool>,
 }
 
 /// Pure JSON shaping from already-collected evidence. Kept side-effect
@@ -279,6 +324,7 @@ pub(crate) fn build_drift_payload(
         evidence.mtime_stale,
         evidence.head_git_sha.as_deref(),
         BUILD_GIT_SHA,
+        evidence.binary_relevant_delta,
     );
     let status = if stale_daemon { "stale" } else { "ok" };
     let recommended_action = if stale_daemon {
@@ -359,13 +405,22 @@ pub(crate) fn daemon_binary_drift_payload(
             });
         }
     };
+    let head_git_sha = project_root
+        .filter(|root| should_compare_project_head(root, &executable_path))
+        .and_then(current_head_git_sha);
+    // Only pay for the git tree-diff when the shas actually disagree.
+    let binary_relevant_delta = match (project_root, head_git_sha.as_deref()) {
+        (Some(root), Some(head)) if !shas_share_prefix(head, BUILD_GIT_SHA) => {
+            binary_relevant_delta_between(root, BUILD_GIT_SHA, head)
+        }
+        _ => None,
+    };
     let evidence = DriftEvidence {
         mtime_stale: modified_seconds > daemon_started_seconds,
-        head_git_sha: project_root
-            .filter(|root| should_compare_project_head(root, &executable_path))
-            .and_then(current_head_git_sha),
+        head_git_sha,
         executable_path,
         modified_seconds,
+        binary_relevant_delta,
     };
     build_drift_payload(&evidence, daemon_started_at)
 }
@@ -373,8 +428,8 @@ pub(crate) fn daemon_binary_drift_payload(
 #[cfg(test)]
 mod tests {
     use super::{
-        BUILD_GIT_SHA, DriftEvidence, build_drift_payload, classify_drift, format_rfc3339_utc,
-        parse_rfc3339_utc_seconds, should_compare_project_head,
+        BUILD_GIT_SHA, DriftEvidence, binary_relevant_delta_between, build_drift_payload,
+        classify_drift, format_rfc3339_utc, parse_rfc3339_utc_seconds, should_compare_project_head,
     };
     use serde_json::json;
     use std::process::Command;
@@ -433,7 +488,7 @@ mod tests {
 
     #[test]
     fn classify_drift_reports_head_mismatch_when_binary_sha_lags_head() {
-        let (stale, code, reason) = classify_drift(false, Some("237e4465"), "f7885f9b");
+        let (stale, code, reason) = classify_drift(false, Some("237e4465"), "f7885f9b", None);
         assert!(stale, "head mismatch must trigger stale=true");
         assert_eq!(code, Some("head_git_sha_mismatch"));
         assert!(reason.unwrap().contains("does not match project HEAD"));
@@ -441,7 +496,7 @@ mod tests {
 
     #[test]
     fn classify_drift_clears_when_head_matches_binary() {
-        let (stale, code, reason) = classify_drift(false, Some("237e4465"), "237e4465");
+        let (stale, code, reason) = classify_drift(false, Some("237e4465"), "237e4465", None);
         assert!(!stale);
         assert_eq!(code, None);
         assert_eq!(reason, None);
@@ -449,7 +504,7 @@ mod tests {
 
     #[test]
     fn classify_drift_prefers_mtime_stale_signal_over_head_mismatch() {
-        let (stale, code, reason) = classify_drift(true, Some("237e4465"), "f7885f9b");
+        let (stale, code, reason) = classify_drift(true, Some("237e4465"), "f7885f9b", None);
         assert!(stale);
         assert_eq!(
             code,
@@ -461,25 +516,128 @@ mod tests {
 
     #[test]
     fn classify_drift_treats_unknown_sentinel_as_no_signal() {
-        let (stale, code, _) = classify_drift(false, Some("unknown"), "f7885f9b");
+        let (stale, code, _) = classify_drift(false, Some("unknown"), "f7885f9b", None);
         assert!(!stale, "unknown HEAD must not trigger mismatch");
         assert_eq!(code, None);
 
-        let (stale, code, _) = classify_drift(false, Some("237e4465"), "unknown");
+        let (stale, code, _) = classify_drift(false, Some("237e4465"), "unknown", None);
         assert!(!stale, "unknown binary SHA must not trigger mismatch");
         assert_eq!(code, None);
     }
 
     #[test]
     fn classify_drift_skips_when_head_unavailable() {
-        let (stale, code, _) = classify_drift(false, None, "f7885f9b");
+        let (stale, code, _) = classify_drift(false, None, "f7885f9b", None);
         assert!(!stale);
         assert_eq!(code, None);
     }
 
     #[test]
+    fn classify_drift_downgrades_nonbinary_head_lag() {
+        // Hook/doc/test-only commits between the binary sha and HEAD:
+        // byte-identical rebuild, warning suppressed (mirrors
+        // daemon-stale-check.sh "in sync (binary-equivalent)").
+        let (stale, code, reason) =
+            classify_drift(false, Some("237e4465"), "f7885f9b", Some(false));
+        assert!(!stale, "non-binary lag must not report stale");
+        assert_eq!(code, None);
+        assert_eq!(reason, None);
+    }
+
+    #[test]
+    fn classify_drift_keeps_warning_for_binary_relevant_lag() {
+        let (stale, code, _) = classify_drift(false, Some("237e4465"), "f7885f9b", Some(true));
+        assert!(stale);
+        assert_eq!(code, Some("head_git_sha_mismatch"));
+    }
+
+    #[test]
+    fn classify_drift_fails_open_when_delta_unknown() {
+        let (stale, code, _) = classify_drift(false, Some("237e4465"), "f7885f9b", None);
+        assert!(stale, "unknown delta must keep the warning (fail-open)");
+        assert_eq!(code, Some("head_git_sha_mismatch"));
+    }
+
+    #[test]
+    fn classify_drift_nonbinary_lag_does_not_mask_mtime_staleness() {
+        let (stale, code, _) = classify_drift(true, Some("237e4465"), "f7885f9b", Some(false));
+        assert!(stale, "mtime staleness is an independent signal");
+        assert_eq!(code, Some("stale_daemon_binary"));
+    }
+
+    #[test]
+    fn binary_relevant_delta_between_classifies_real_commits() {
+        // End-to-end against a real throwaway git repo: doc-only lag is
+        // Some(false), crates-touching lag is Some(true), bogus shas None.
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-build-info-git-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        std::fs::create_dir_all(dir.join("crates")).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t")
+                .output()
+                .expect("git runs");
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join("crates/lib.rs"), "fn a() {}\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        let base = git(&["rev-parse", "--short=7", "HEAD"]);
+
+        std::fs::write(dir.join("README.md"), "docs only\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "docs"]);
+        let docs_head = git(&["rev-parse", "--short=7", "HEAD"]);
+        assert_eq!(
+            binary_relevant_delta_between(&dir, &base, &docs_head),
+            Some(false),
+            "doc-only lag must classify as binary-equivalent"
+        );
+
+        std::fs::write(dir.join("crates/lib.rs"), "fn a() {}\nfn b() {}\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "code"]);
+        let code_head = git(&["rev-parse", "--short=7", "HEAD"]);
+        assert_eq!(
+            binary_relevant_delta_between(&dir, &base, &code_head),
+            Some(true),
+            "crates-touching lag must keep the warning"
+        );
+
+        assert_eq!(
+            binary_relevant_delta_between(&dir, "unknown", &code_head),
+            None
+        );
+        assert_eq!(
+            binary_relevant_delta_between(&dir, "deadbeef", &code_head),
+            None,
+            "unreachable sha must fail open"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn classify_drift_skips_when_head_string_is_empty() {
-        let (stale, code, _) = classify_drift(false, Some(""), "f7885f9b");
+        let (stale, code, _) = classify_drift(false, Some(""), "f7885f9b", None);
         assert!(!stale);
         assert_eq!(code, None);
     }
@@ -493,7 +651,7 @@ mod tests {
     fn classify_drift_treats_unequal_length_shas_with_common_prefix_as_match() {
         // 7 chars (HEAD via --short=7) vs 8 chars (build via --short
         // widened by git collision-avoidance). Same commit.
-        let (stale, code, reason) = classify_drift(false, Some("f28620a"), "f28620a5");
+        let (stale, code, reason) = classify_drift(false, Some("f28620a"), "f28620a5", None);
         assert!(
             !stale,
             "common-prefix shas must not trigger head_git_sha_mismatch"
@@ -502,7 +660,7 @@ mod tests {
         assert_eq!(reason, None);
 
         // Symmetric: 8 chars (HEAD) vs 7 chars (binary).
-        let (stale, code, _) = classify_drift(false, Some("f28620a5"), "f28620a");
+        let (stale, code, _) = classify_drift(false, Some("f28620a5"), "f28620a", None);
         assert!(!stale);
         assert_eq!(code, None);
     }
@@ -512,14 +670,14 @@ mod tests {
     #[test]
     fn classify_drift_still_detects_real_mismatch_with_different_prefix() {
         // Different commits, different first chars.
-        let (stale, code, _) = classify_drift(false, Some("f28620a"), "abcd1234");
+        let (stale, code, _) = classify_drift(false, Some("f28620a"), "abcd1234", None);
         assert!(stale, "different prefixes must still trigger mismatch");
         assert_eq!(code, Some("head_git_sha_mismatch"));
 
         // Same first 3 chars but diverging by char 4 — below the 4-char
         // minimum we still treat as mismatch (the rule requires at least
         // 4 matching chars to be considered a prefix relationship).
-        let (stale, code, _) = classify_drift(false, Some("f28000a"), "f28620a5");
+        let (stale, code, _) = classify_drift(false, Some("f28000a"), "f28620a5", None);
         assert!(stale);
         assert_eq!(code, Some("head_git_sha_mismatch"));
     }
@@ -531,6 +689,7 @@ mod tests {
             executable_path: std::path::PathBuf::from("/tmp/codelens-mcp"),
             modified_seconds: 1_779_032_712,
             head_git_sha: None,
+            binary_relevant_delta: None,
         };
         let payload = build_drift_payload(&evidence, "2026-05-18T06:25:12Z");
         assert_eq!(payload["status"], json!("stale"));
@@ -551,6 +710,7 @@ mod tests {
             executable_path: std::path::PathBuf::from("/usr/local/bin/codelens-mcp"),
             modified_seconds: 1_779_032_000,
             head_git_sha: Some(BUILD_GIT_SHA.to_owned()),
+            binary_relevant_delta: None,
         };
         let payload = build_drift_payload(&evidence, "2026-05-18T06:25:12Z");
         assert_eq!(payload["status"], json!("ok"));
@@ -569,6 +729,7 @@ mod tests {
             executable_path: std::path::PathBuf::from("/tmp/codelens-mcp"),
             modified_seconds: 1_779_032_000,
             head_git_sha: Some("ffffffff".to_owned()),
+            binary_relevant_delta: None,
         };
         let payload = build_drift_payload(&evidence, "2026-05-18T06:25:12Z");
         if BUILD_GIT_SHA == "unknown" {
