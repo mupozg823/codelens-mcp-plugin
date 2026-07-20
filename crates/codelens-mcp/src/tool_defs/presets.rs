@@ -336,6 +336,12 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "semantic_search",
     "embedding_coverage_report",
     "index_embeddings",
+    // Poll-handle coherence: index_embeddings / refresh_symbol_index
+    // background responses direct the caller to get_analysis_job — a
+    // surface that advertises the queueing tools must expose the poll
+    // tool too (live-verified gap: builder sessions could queue but
+    // not poll).
+    "get_analysis_job",
     "plan_symbol_rename",
     // Pending-D3 symbolic edit core (#346): callable on builder surfaces
     // but schemaless (not in tools.toml) until the ADR-0009/D3 re-listing
@@ -392,6 +398,12 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "impact_report",
     "diff_aware_references",
     "safe_rename_report",
+    // Known scope cut: refresh_symbol_index background responses point at
+    // get_analysis_job, which this surface does NOT expose (diet cap 20,
+    // enforced by reviewer_graph_core_surface_contains_alwaysload_and_
+    // verb_facades). Reviewer sessions needing background refresh should
+    // switch to builder-minimal/planner-readonly; the sync default works
+    // here unchanged.
     "refresh_symbol_index",
     "get_capabilities",
 ];

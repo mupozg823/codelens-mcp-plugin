@@ -31,7 +31,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Intent: Planner/reviewer session prepares bounded evidence, then a mutation-enabled builder session executes the change under explicit coordination.
 - Roles:
   - `planner-reviewer`: `readonly` (40), `review` (20); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
-  - `builder-refactor`: `builder` (39), `builder` (39); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
+  - `builder-refactor`: `builder` (40), `builder` (40); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
 
 **Preflight Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: planner or builder bootstrap | purpose: establish session-local project view, visible surface, and health summary

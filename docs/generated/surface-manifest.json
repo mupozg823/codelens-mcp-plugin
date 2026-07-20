@@ -1005,7 +1005,7 @@
       },
       {
         "name": "builder",
-        "tool_count": 39,
+        "tool_count": 40,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1045,6 +1045,7 @@
           "get_capabilities",
           "audit_builder_session",
           "audit_planner_session",
+          "get_analysis_job",
           "get_symbols_overview",
           "find_symbol",
           "find_referencing_symbols",
@@ -1380,7 +1381,7 @@
               },
               {
                 "name": "builder",
-                "tool_count": 39
+                "tool_count": 40
               }
             ]
           }
@@ -1433,11 +1434,11 @@
             "profiles": [
               {
                 "name": "builder",
-                "tool_count": 39
+                "tool_count": 40
               },
               {
                 "name": "builder",
-                "tool_count": 39
+                "tool_count": 40
               }
             ]
           }
@@ -1598,11 +1599,11 @@
             "profiles": [
               {
                 "name": "builder",
-                "tool_count": 39
+                "tool_count": 40
               },
               {
                 "name": "builder",
-                "tool_count": 39
+                "tool_count": 40
               }
             ]
           }
