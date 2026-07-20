@@ -40,25 +40,43 @@ def split_identifier(name: str) -> str:
     return " ".join(w.lower() for w in s.split() if w)
 
 
-def build_runtime_positive(name: str, kind: str, signature: str, file_path: str) -> str:
-    """Replicate build_embedding_text() from embedding.rs EXACTLY.
+def build_runtime_positive(
+    name: str,
+    kind: str,
+    signature: str,
+    file_path: str,
+    parent: str = "",
+) -> str:
+    """Replicate build_embedding_text() from embedding/prompt.rs EXACTLY.
 
-    Tests confirm:
-      - "function hello in main.py: def hello():"
-      - "class MyClass (My Class) in app.py: class MyClass:"
-      - "variable CONFIG in config.py"  (no signature)
+    Current runtime format (filename-only file ctx + parent + module dir):
+      "{kind} {name} ({split})[ (in {parent})][ [{dir}]] in {filename}: {signature}"
     """
     split = split_identifier(name)
-    if split != name.lower():
+    # Runtime compares split_identifier(name) != name — any uppercase or
+    # underscore in the name yields a split suffix.
+    if split != name:
         name_with_split = f"{name} ({split})"
     else:
         name_with_split = name
 
-    file_ctx = f" in {file_path}" if file_path else ""
+    parent_ctx = f" (in {parent})" if parent else ""
+
+    # Module ctx: parent directory name, skipping generic "src"/"crates".
+    module_ctx = ""
+    if "/" in file_path:
+        segments = file_path.split("/")
+        if len(segments) >= 2:
+            dir_name = segments[-2]
+            if dir_name not in ("src", "crates"):
+                module_ctx = f" [{dir_name}]"
+
+    filename = file_path.rsplit("/", 1)[-1] if file_path else ""
+    file_ctx = f" in {filename}" if filename else ""
 
     if signature:
-        return f"{kind} {name_with_split}{file_ctx}: {signature}"
-    return f"{kind} {name_with_split}{file_ctx}"
+        return f"{kind} {name_with_split}{parent_ctx}{module_ctx}{file_ctx}: {signature}"
+    return f"{kind} {name_with_split}{parent_ctx}{module_ctx}{file_ctx}"
 
 
 def extract_short_name(func_name: str) -> str:
@@ -82,6 +100,21 @@ def extract_signature(func_code: str, language: str) -> str:
     first_line = func_code.split("\n")[0].strip()
     # Truncate overly long signatures
     return first_line[:150]
+
+
+def clean_query(doc: str) -> str:
+    """Strip comment markers (Go `//`, block `/* */`, javadoc `*`) and
+    collapse whitespace — CSN docstrings keep raw comment syntax for some
+    languages, which would leak marker tokens into NL queries."""
+    lines = []
+    for line in doc.splitlines():
+        stripped = line.strip()
+        stripped = re.sub(r"^/{2,}\s?", "", stripped)
+        stripped = re.sub(r"^/\*+\s?", "", stripped)
+        stripped = re.sub(r"\*/\s*$", "", stripped)
+        stripped = re.sub(r"^\*\s?", "", stripped)
+        lines.append(stripped)
+    return " ".join(" ".join(lines).split()).strip()
 
 
 def is_quality_query(query: str) -> bool:
@@ -167,18 +200,23 @@ def download_and_convert():
 
             # Build EXACT runtime format
             short_name = extract_short_name(func_name)
+            parent = func_name.rsplit(".", 1)[0] if "." in func_name else ""
             signature = extract_signature(code, lang)
             positive = build_runtime_positive(
-                short_name, "function", signature, file_path
+                short_name, "function", signature, file_path, parent
             )
 
-            query = doc.strip()[:MAX_QUERY_LEN]
+            query = clean_query(doc)[:MAX_QUERY_LEN]
 
             all_pairs.append(
                 {
                     "query": query,
                     "positive": positive,
                     "language": lang,
+                    "name": short_name,
+                    "parent": parent,
+                    "file_path": file_path,
+                    "signature": signature,
                 }
             )
             count += 1

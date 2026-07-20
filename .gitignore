@@ -92,3 +92,6 @@ index.scip
 
 # local finetune ML env (uv venv)
 .venv-finetune/
+
+# regenerable 10MB CSN artifact (scripts/finetune/download_csn_original.py)
+scripts/finetune/csn_runtime_format.jsonl
