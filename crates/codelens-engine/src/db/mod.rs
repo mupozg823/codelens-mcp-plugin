@@ -134,14 +134,18 @@ impl IndexDb {
             // `busy_timeout` first — every subsequent PRAGMA (especially
             // `journal_mode = WAL`, which takes a schema-level write lock)
             // would otherwise fail with `SQLITE_BUSY` immediately under
-            // contention. See #332 (Error code 5). `page_size` is a silent
+            // contention. See #332 (Error code 5); 5s still produced
+            // intermittent Error 5 at AppState init on loaded CI macOS
+            // runners (parallel `cargo test --features http`), and
+            // production shares one symbols.db across four daemons — 30s
+            // trades slow-lock latency for hard failures. `page_size` is a silent
             // no-op on existing files and applies only at DB creation, so
             // its placement after `busy_timeout` is harmless. `mmap_size`/
             // `cache_size`/`wal_autocheckpoint` are tuned for the 1+ GB
             // symbol index on 16 KB Apple Silicon pages (cold-start page-
             // fault burst was the main pain point).
             conn.execute_batch(
-                "PRAGMA busy_timeout = 5000; PRAGMA page_size = 16384; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000; PRAGMA auto_vacuum = INCREMENTAL;",
+                "PRAGMA busy_timeout = 30000; PRAGMA page_size = 16384; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000; PRAGMA auto_vacuum = INCREMENTAL;",
             )?;
             let mut db = Self { conn };
             db.migrate()?;
@@ -164,7 +168,7 @@ impl IndexDb {
         // Read-only path: mmap + larger page cache shrinks the cold-start
         // b-tree-traversal page-fault burst on 1+ GB indexes (16 KB pages).
         conn.execute_batch(
-            "PRAGMA busy_timeout = 5000; PRAGMA mmap_size = 268435456; PRAGMA cache_size = -32000;",
+            "PRAGMA busy_timeout = 30000; PRAGMA mmap_size = 268435456; PRAGMA cache_size = -32000;",
         )?;
         Ok(Some(Self { conn }))
     }
