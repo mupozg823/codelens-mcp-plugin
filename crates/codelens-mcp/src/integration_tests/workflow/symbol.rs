@@ -63,12 +63,17 @@ fn rename_symbol_requires_symbol_aware_preflight() {
             "dry_run": true
         }),
     );
-    assert_eq!(payload["success"], json!(false));
+    assert_eq!(
+        payload["success"],
+        json!(false),
+        "expected rejection, got: {payload}"
+    );
+    // CI-only intermittent failures land on this assert with no visibility
+    // into the actual rejection; keep the full payload in the message.
+    let error_text = payload["error"].as_str().unwrap_or("");
     assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("symbol-aware preflight")
+        error_text.contains("symbol-aware preflight"),
+        "expected symbol-aware preflight rejection, got: {payload}"
     );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
