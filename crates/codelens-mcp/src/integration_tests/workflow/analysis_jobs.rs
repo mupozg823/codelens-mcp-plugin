@@ -707,7 +707,15 @@ fn refresh_symbol_index_background_queues_and_completes_job() {
         "refresh_symbol_index".to_owned(),
         json!({"background": true}),
     );
-    assert_eq!(final_status, crate::runtime_types::JobLifecycle::Completed);
+    // On mismatch, surface the stored job record — it carries the runner's
+    // actual error note, which the bare lifecycle enum hides (CI-only
+    // failures are otherwise undiagnosable).
+    if final_status != crate::runtime_types::JobLifecycle::Completed {
+        let job_record = state
+            .get_analysis_job(&job_id)
+            .map(|job| serde_json::to_value(job).unwrap_or_default());
+        panic!("job did not complete: status={final_status:?}, record={job_record:?}");
+    }
 
     let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
     assert_eq!(poll["success"], json!(true), "got: {poll}");
