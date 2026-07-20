@@ -215,29 +215,42 @@ pub(super) fn extract_kotlin_imports(content: &str) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn extract_rust_imports(content: &str) -> Vec<String> {
+/// Same extraction as `extract_rust_imports`, but each import is paired with the
+/// byte offset of the regex match that produced it. Used by `super::cfg_test` to
+/// drop imports that sit inside a `#[cfg(test)]`-gated item.
+pub(super) fn rust_imports_with_offsets(content: &str) -> Vec<(String, usize)> {
     let mut imports = Vec::new();
 
     for cap in RS_MOD_RE.captures_iter(content) {
+        let Some(whole) = cap.get(0) else { continue };
         if let Some(m) = cap.get(1) {
-            imports.push(m.as_str().to_owned());
+            imports.push((m.as_str().to_owned(), whole.start()));
         }
     }
 
     for cap in RS_USE_RE.captures_iter(content) {
+        let Some(whole) = cap.get(0) else { continue };
+        let start = whole.start();
         let base = cap.get(1).map(|m| m.as_str()).unwrap_or("");
         if let Some(brace) = cap.get(2) {
             for item in brace.as_str().split(',') {
                 let item = item.trim();
                 if !item.is_empty() {
-                    imports.push(format!("{base}::{item}"));
+                    imports.push((format!("{base}::{item}"), start));
                 }
             }
         } else if !base.is_empty() {
-            imports.push(base.to_owned());
+            imports.push((base.to_owned(), start));
         }
     }
     imports
+}
+
+pub(super) fn extract_rust_imports(content: &str) -> Vec<String> {
+    rust_imports_with_offsets(content)
+        .into_iter()
+        .map(|(module, _)| module)
+        .collect()
 }
 
 pub(super) fn extract_ruby_imports(content: &str) -> Vec<String> {

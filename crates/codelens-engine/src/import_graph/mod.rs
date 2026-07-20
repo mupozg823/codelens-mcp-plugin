@@ -1,3 +1,4 @@
+pub(crate) mod cfg_test;
 pub(crate) mod parsers;
 mod resolvers;
 
