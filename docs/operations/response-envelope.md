@@ -20,7 +20,28 @@ Thresholds are adjusted by effort level offset (Low=-10, Medium=0, High=+10):
 - Stage 2 (75-85%): light structured content summarization
 - Stage 3 (85-95%): aggressive summarization
 - Stage 4 (95-100%): minimal skeleton + truncated flag
-- Stage 5 (>100%): hard truncation with error payload
+- Stage 5 (>100%): degrade to a summary stub — `data_preview` (depth-0 summary,
+  arrays clipped to 3 with `<field>_omitted_count` markers) + the final enriched
+  `recovery_hint`, `compression_stage: 5`, `token_estimate`, `effective_budget`.
+  The explicit `error` framing appears only when even the depth-0 skeleton
+  exceeds the preview cap (genuine total loss).
+
+Stage-5 contract details (the text channel is the only channel for hosts that
+ignore `structuredContent`, e.g. Claude Code — issue #4427):
+
+- The stub is finalized **after** recovery-hint enrichment, so the text always
+  carries the final hint — including the artifact-aware retarget (only
+  artifact-backed reports advertise `get_analysis_section`; primitive symbol
+  results get a concrete omitted-count + narrowing action instead) and the
+  `unresolved_only` grep cue.
+- Tools **without an `output_schema`** (including the `search`/`graph`/`review`/
+  `overview`/`diagnose`/`analyze` verb facades) derive the `data_preview` and
+  the enrichment signals from a depth-0 summary of the raw payload. They still
+  emit no `structuredContent` — the summary lives only inside the text stub.
+- The preview cap is `min(effective_budget × 3 chars, 25 000 − 5 000 headroom)`:
+  coordinated with the host's fixed truncated-result cap
+  (`anthropic/maxResultSizeChars` = 25 000 for truncated responses) so the stub
+  can never be clipped mid-JSON by the host.
 
 ## Lean Response Contract (token-frugal envelope)
 
@@ -115,6 +136,8 @@ Missing required params fail immediately with `MissingParam` error (no handler e
 
 Responses include `_meta["anthropic/maxResultSizeChars"]` per MCP spec (Claude Code v2.1.91+).
 Values scale by tool tier: Workflow=200K, Analysis=100K, Primitive=50K chars.
+Truncated (stage ≥ 2) responses use a fixed 25K-char cap — the stage-5 preview
+cap budgets against this same constant (see Adaptive Token Compression above).
 
 ## Tool Schema Fingerprint (compatibility contract)
 

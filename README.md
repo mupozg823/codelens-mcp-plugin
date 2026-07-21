@@ -594,6 +594,10 @@ latency without paying frontier-model token overhead on envelope scaffold.</sub>
 | Diagnose issues         | `diagnose_issues`         | File, symbol, or directory diagnosis  |
 | Cleanup duplicate logic | `cleanup_duplicate_logic` | Duplicate or removable logic cleanup  |
 
+세밀한 읽기 계열 도구는 6개의 mode-routed verb facade — `search`(symbol/refs/defn/impl/bm25/fuzzy/semantic/ranked…), `graph`(callers/callees/types/trace/impact), `review`(architecture/changes/boundary/dead/dupes), `overview`, `diagnose`, `analyze`(job start/status/section) — 뒤로 통합되어 부트스트랩 노출이 ~9개 항목으로 줄었습니다. 흡수된 개별 도구 ID는 전부 등록·호출 가능한 상태로 유지됩니다 (#377).
+
+<sub>English: Fine-grained read tools are consolidated behind six mode-routed verb facades (`search`, `graph`, `review`, `overview`, `diagnose`, `analyze`), cutting bootstrap exposure to ~9 entries while every absorbed tool ID stays registered and callable.</sub>
+
 ### Role-Based Surfaces
 
 | Profile    | Tools Visible  | Use Case                                        |
@@ -614,7 +618,8 @@ latency without paying frontier-model token overhead on envelope scaffold.</sub>
 
 - **Stage 1** (<75% budget): Full detail pass-through
 - **Stage 2-3** (75-95%): Structured summarization
-- **Stage 4-5** (>95%): Skeleton + truncation with expansion handles
+- **Stage 4** (95-100%): Skeleton + truncated flag
+- **Stage 5** (>100%): 오류가 아닌 **요약으로 강등** — `data_preview`(depth-0 요약) + 보정된 `recovery_hint`를 text 채널에 임베드. output_schema 없는 도구도 payload에서 프리뷰를 도출하며, 프리뷰 상한은 호스트의 truncated 결과 상한(25K chars)과 공유 상수로 조정되어 mid-JSON 절단이 구조적으로 불가능합니다. 상세: [docs/operations/response-envelope.md](docs/operations/response-envelope.md)
 
 ### Analysis Handles
 
