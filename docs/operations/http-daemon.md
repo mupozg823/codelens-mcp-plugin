@@ -57,3 +57,68 @@ sleep 4 && pgrep -fl codelens-mcp
 ```
 
 If `pgrep` shows nothing after restart, the binary is missing `--features http` (see the Feature Flag Matrix in `../../CLAUDE.md`) — check `.codelens/reports/launchd/dev.codelens.mcp-readonly.err.log`. If the err log shows `last exit reason = OS_REASON_CODESIGNING`, the xattr/codesign step was skipped.
+## Drift signals (why the daemon asks to be restarted)
+
+`prepare_harness_session` / `get_capabilities` can attach a `restart_recommended`
+warning. Two **independent** signals feed it (`crates/codelens-mcp/src/build_info.rs`):
+
+| `reason_code` | Trigger | Meaning |
+| ------------- | ------- | ------- |
+| `stale_daemon_binary` | on-disk executable mtime is newer than the daemon's start time | the daemon outlived its own binary — a rebuild landed but the process was never restarted |
+| `head_git_sha_mismatch` | daemon's compile-time `BUILD_GIT_SHA` differs from the project's HEAD | a commit merged after the binary was built is silently absent |
+
+Precedence: `stale_daemon_binary` wins the `reason_code` slot when both fire, so
+existing consumers keep their semantics.
+
+Three refinements keep this signal from crying wolf:
+
+- **Common-prefix SHA comparison** (issue #221). `git rev-parse --short` widens
+  its output on prefix collisions, so the two sides can describe the same commit
+  at different widths. SHAs match when one is a prefix of the other, subject to a
+  4-character minimum.
+- **`"unknown"` sentinel** — emitted by `build.rs` for non-git builds — is treated
+  as *no signal*, not as a mismatch.
+- **Binary-relevant classification.** Commits that touch only hooks, docs, scripts,
+  or `.github/` produce a byte-identical rebuild; warning on them prompts a restart
+  that drops live MCP sessions for no gain. The daemon runs
+  `git diff --name-only <binary_sha>..<HEAD> -- crates Cargo.toml Cargo.lock` — the
+  same path set `scripts/daemon-stale-check.sh` uses for its "binary-equivalent"
+  verdict — and suppresses `head_git_sha_mismatch` when that diff is empty.
+  **Fail-open:** if git is unavailable or either SHA is unreachable the
+  classification is unknown and the warning is kept. The mtime signal is never
+  suppressed by this path.
+
+The HEAD comparison only runs when the daemon executable and the project resolve
+to the **same git root** (`should_compare_project_head`). Because the repo-local
+daemons run from `.codelens/bin/` inside this repo, the comparison is active here;
+a daemon installed outside the project tree simply reports no HEAD signal. Set
+`CODELENS_HEAD_GIT_SHA_OVERRIDE` to force the comparison on.
+
+## launchd exit 78: the spawn-failure wedge
+
+Symptom — every service is dead at once and refuses to come back:
+
+```
+launchctl print "gui/$(id -u)/dev.codelens.mcp-readonly" | grep -E 'state|last exit'
+# state = not running
+# last exit code = 78
+```
+
+`launchctl kickstart -k` reports success and schedules a spawn, but no process
+ever appears (`pgrep -fl codelens-mcp` stays empty) while running the same binary
+by hand works fine. Once launchd has wedged this way, kickstart cannot clear it —
+only a full re-registration does:
+
+```bash
+for label in dev.codelens.mcp-readonly dev.codelens.mcp-mutation \
+             dev.codelens.mcp-dev-readonly dev.codelens.mcp-dev-mutation; do
+  launchctl bootout "gui/$(id -u)/$label" 2>/dev/null
+  launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$label.plist"
+done
+sleep 4 && pgrep -fl codelens-mcp
+```
+
+Note that `com.apple.provenance` reappears on the binary after modern macOS
+touches it; its presence alone is **not** the blocker here. Reach for the
+xattr/codesign path only when the err log actually names
+`OS_REASON_CODESIGNING` (see above) — otherwise re-registration is the cure.
