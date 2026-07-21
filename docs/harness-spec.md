@@ -30,7 +30,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `planner-builder`
 - Intent: Planner/reviewer session prepares bounded evidence, then a mutation-enabled builder session executes the change under explicit coordination.
 - Roles:
-  - `planner-reviewer`: `readonly` (40), `review` (20); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
+  - `planner-reviewer`: `readonly` (42), `review` (22); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
   - `builder-refactor`: `builder` (40), `builder` (40); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
 
 **Preflight Sequence**
@@ -100,7 +100,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `reviewer-gate`
 - Intent: Read-only reviewer or CI-facing session validates a builder session and exports a human-readable signoff artifact.
 - Roles:
-  - `reviewer`: `review` (20), `review` (20); mutate=`false`; perform diff-aware review, signoff, and audit validation without content mutation
+  - `reviewer`: `review` (22), `review` (22); mutate=`false`; perform diff-aware review, signoff, and audit validation without content mutation
 
 **Read Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: before the first reviewer workflow | purpose: bind the reviewer session to the project and bounded read-side surface
@@ -141,7 +141,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `batch-analysis`
 - Intent: Long-running read-only analyses should move through durable jobs and bounded sections rather than raw full-report expansion.
 - Roles:
-  - `analysis-runner`: `readonly` (40), `readonly` (40), `review` (20); mutate=`false`; queue durable read-side jobs and consume bounded sections
+  - `analysis-runner`: `readonly` (42), `readonly` (42), `review` (22); mutate=`false`; queue durable read-side jobs and consume bounded sections
 
 **Analysis Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: before job creation | purpose: establish the analysis surface and runtime health view

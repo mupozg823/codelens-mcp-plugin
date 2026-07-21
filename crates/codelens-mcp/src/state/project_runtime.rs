@@ -282,14 +282,15 @@ pub(super) fn build_project_runtime_context(
     })
 }
 
-/// P1.3: decide which LSP servers to pre-warm.
+/// P1.3 / P3: decide which LSP servers to pre-warm.
 ///
-/// `mode` is `CODELENS_LSP_PREWARM`:
-/// - unset / empty / `off` — disabled (opt-in feature; spawning language
-///   servers costs memory and must be a deployment decision).
+/// `mode` is the resolved pre-warm mode (see [`resolve_prewarm_mode`]; `off`
+/// never reaches here):
 /// - `auto` — derive from the index's per-extension file counts: the top
 ///   extensions (≥ `AUTO_MIN_FILES` files) that map to a default LSP server,
-///   deduplicated by server command, capped at `AUTO_MAX_SERVERS`.
+///   deduplicated by server command, capped at `AUTO_MAX_SERVERS`. This is the
+///   default when `CODELENS_LSP_PREWARM` is unset. Binaries absent from `PATH`
+///   are dropped afterwards by [`filter_available_commands`].
 /// - anything else — comma-separated explicit server commands
 ///   (e.g. `pyright-langserver,rust-analyzer`), passed through verbatim with
 ///   their default args. Whitelisting happens at spawn time in the pool.
@@ -330,17 +331,73 @@ fn prewarm_commands(mode: &str, language_counts: &[(String, usize)]) -> Vec<Stri
     commands
 }
 
+/// Resolve the effective pre-warm mode from the raw `CODELENS_LSP_PREWARM`
+/// value. Pre-warm is now **auto by default** (language-detected): an unset or
+/// empty variable enables `auto` so a freshly bound project warms the language
+/// servers for its dominant languages without any configuration. `off`
+/// (case-insensitive) fully disables it; any explicit value is honored verbatim
+/// for backward compatibility. Returns `None` when pre-warm is disabled.
+///
+/// Pure — no I/O, no env reads — so the default/off/explicit policy is
+/// unit-testable.
+fn resolve_prewarm_mode(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Some("auto".to_owned());
+    }
+    if trimmed.eq_ignore_ascii_case("off") {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
+/// In `auto` mode, keep only servers whose binary is resolvable so an
+/// uninstalled language server for a dominant language does not spawn-fail on
+/// every bind. Explicit modes are passed through verbatim — the caller named
+/// those servers on purpose, and the spawn path already fails open on a missing
+/// binary. `binary_available` is injected so the filter is unit-testable
+/// without touching `PATH`.
+fn filter_available_commands(
+    commands: Vec<String>,
+    mode: &str,
+    binary_available: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    if !mode.eq_ignore_ascii_case("auto") {
+        return commands;
+    }
+    commands
+        .into_iter()
+        .filter(|command| binary_available(command))
+        .collect()
+}
+
+/// Is `command` resolvable as an executable? A path with a separator is checked
+/// directly; a bare command name is looked up across `PATH`. Used only to gate
+/// auto pre-warm, so a false negative merely skips a would-be optimization.
+fn lsp_binary_on_path(command: &str) -> bool {
+    let candidate = std::path::Path::new(command);
+    if candidate.is_absolute() || command.contains(std::path::MAIN_SEPARATOR) {
+        return candidate.is_file();
+    }
+    let Some(paths) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&paths).any(|dir| dir.join(command).is_file())
+}
+
 /// Read the pre-warm policy from the environment and warm the chosen servers
 /// on a background thread. Never blocks the bind path; failures (missing
 /// binary, non-whitelisted command) are logged and skipped — pre-warm is an
-/// optimization, not a correctness dependency.
+/// optimization, not a correctness dependency. Defaults to language-detected
+/// `auto` (see [`resolve_prewarm_mode`]); `CODELENS_LSP_PREWARM=off` disables.
 fn maybe_prewarm_lsp_sessions(symbol_index: &Arc<SymbolIndex>, lsp_pool: &Arc<LspSessionPool>) {
-    let mode = std::env::var("CODELENS_LSP_PREWARM").unwrap_or_default();
-    if mode.trim().is_empty() || mode.trim().eq_ignore_ascii_case("off") {
+    let raw = std::env::var("CODELENS_LSP_PREWARM").unwrap_or_default();
+    let Some(mode) = resolve_prewarm_mode(&raw) else {
         return;
-    }
+    };
     let language_counts = symbol_index.language_counts().unwrap_or_default();
     let commands = prewarm_commands(&mode, &language_counts);
+    let commands = filter_available_commands(commands, &mode, lsp_binary_on_path);
     if commands.is_empty() {
         return;
     }
@@ -446,13 +503,61 @@ mod request_binding_tests {
 
 #[cfg(test)]
 mod prewarm_tests {
-    use super::prewarm_commands;
+    use super::{filter_available_commands, prewarm_commands, resolve_prewarm_mode};
 
     fn counts(entries: &[(&str, usize)]) -> Vec<(String, usize)> {
         entries
             .iter()
             .map(|(ext, count)| ((*ext).to_owned(), *count))
             .collect()
+    }
+
+    #[test]
+    fn unset_or_empty_mode_defaults_to_auto() {
+        // P3: pre-warm is now auto-by-default — an unset/empty env resolves to
+        // `auto` so a bound project warms its dominant-language servers with no
+        // configuration.
+        assert_eq!(resolve_prewarm_mode(""), Some("auto".to_owned()));
+        assert_eq!(resolve_prewarm_mode("   "), Some("auto".to_owned()));
+    }
+
+    #[test]
+    fn off_mode_disables_prewarm() {
+        // `off` (case/whitespace-insensitive) is the only full-disable switch.
+        assert_eq!(resolve_prewarm_mode("off"), None);
+        assert_eq!(resolve_prewarm_mode("  OFF  "), None);
+    }
+
+    #[test]
+    fn explicit_mode_is_honored_verbatim_for_backward_compat() {
+        // Existing explicit deployments keep working unchanged.
+        assert_eq!(resolve_prewarm_mode("auto"), Some("auto".to_owned()));
+        assert_eq!(
+            resolve_prewarm_mode(" pyright-langserver,rust-analyzer "),
+            Some("pyright-langserver,rust-analyzer".to_owned())
+        );
+    }
+
+    #[test]
+    fn auto_mode_filters_out_absent_binaries() {
+        // Auto must not spawn-fail on a server that isn't installed: a dominant
+        // language whose binary is absent from PATH is dropped.
+        let commands = vec![
+            "pyright-langserver".to_owned(),
+            "rust-analyzer".to_owned(),
+        ];
+        let filtered = filter_available_commands(commands, "auto", |cmd| cmd == "rust-analyzer");
+        assert_eq!(filtered, vec!["rust-analyzer".to_owned()]);
+    }
+
+    #[test]
+    fn explicit_mode_skips_availability_filter() {
+        // An explicitly-named server is respected even when absent — the spawn
+        // path fails open, and the operator chose it deliberately.
+        let commands = vec!["pyright-langserver".to_owned()];
+        let filtered =
+            filter_available_commands(commands.clone(), "pyright-langserver", |_| false);
+        assert_eq!(filtered, commands);
     }
 
     #[test]

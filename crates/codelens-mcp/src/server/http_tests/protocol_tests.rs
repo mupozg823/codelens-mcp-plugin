@@ -172,6 +172,90 @@ async fn post_unknown_uuid_session_resurrects_under_lenient() {
     );
 }
 
+// Issue #252: a `--profile`-launched daemon sets the global startup surface,
+// which a fresh `initialize` inherits. A resurrected session (idle timeout /
+// restart) with NO `x-codelens-profile` seed must inherit that SAME startup
+// surface, not silently drop to the SessionState::new Balanced default —
+// otherwise the daemon's `--profile builder` stops being reflected after the
+// first eviction.
+#[tokio::test]
+async fn resurrected_session_without_profile_inherits_daemon_startup_surface() {
+    let state = test_state();
+    // Simulate `codelens-mcp --transport http --profile builder`.
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::BuilderMinimal,
+    ));
+    let app = build_router(state.clone());
+    let sid = uuid::Uuid::new_v4().to_string();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                // Deliberately NO x-codelens-profile header.
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()
+            .get("x-codelens-session-resurrected")
+            .and_then(|value| value.to_str().ok()),
+        Some("1"),
+        "precondition: the request must actually hit the resurrect path"
+    );
+    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    assert_eq!(
+        session.surface(),
+        crate::tool_defs::ToolSurface::Profile(crate::tool_defs::ToolProfile::BuilderMinimal),
+        "resurrected session must inherit the daemon's --profile startup surface, not Balanced"
+    );
+}
+
+// Issue #252 companion: when the resurrection request DOES carry an explicit
+// `x-codelens-profile` seed, that wins over the daemon startup surface — the
+// seed path (apply_seed) must still take precedence, so the inheritance fix
+// only fills the no-seed gap.
+#[tokio::test]
+async fn resurrected_session_profile_header_overrides_startup_surface() {
+    let state = test_state();
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::BuilderMinimal,
+    ));
+    let app = build_router(state.clone());
+    let sid = uuid::Uuid::new_v4().to_string();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .header("x-codelens-profile", "reviewer-graph")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    assert_eq!(
+        session.surface(),
+        crate::tool_defs::ToolSurface::Profile(crate::tool_defs::ToolProfile::ReviewerGraph),
+        "an explicit profile seed must override the daemon startup surface on resurrection"
+    );
+}
+
 // #300 guard #11: under strict policy an unknown session keeps the spec 404
 // envelope (also the first assertion of the envelope body contract).
 #[tokio::test]

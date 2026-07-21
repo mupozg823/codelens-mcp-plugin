@@ -351,8 +351,11 @@ fn graph_profiles_expose_call_graph_primitives_by_namespace() {
     }
 
     // reviewer-graph / ci-audit are the curated core surface (2026-07
-    // tool-surface diet): the `graph` verb façade is the listed call-graph
-    // entrypoint, while raw get_callers/get_callees stay dispatch-only.
+    // tool-surface diet): the `graph` verb façade is the primary call-graph
+    // entrypoint. The #350 hint-chain fix (live E2E 2026-07-21) additionally
+    // lists the raw get_callers/get_callees here — they are the
+    // `cross_file_callers_hint` target `find_referencing_symbols` emits, and a
+    // profile surface can only make them callable by listing them.
     for profile in ["reviewer-graph", "ci-audit"] {
         let project = project_root();
         let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -363,8 +366,12 @@ fn graph_profiles_expose_call_graph_primitives_by_namespace() {
             "{profile} graph namespace should expose the graph verb façade"
         );
         assert!(
-            !encoded.contains("\"get_callers\""),
-            "{profile} core surface should not list raw get_callers after the 2026-07 diet"
+            encoded.contains("\"get_callers\""),
+            "{profile} core surface should list get_callers (the #350 cross_file_callers_hint target)"
+        );
+        assert!(
+            encoded.contains("\"get_callees\""),
+            "{profile} core surface should list get_callees alongside get_callers (#350)"
         );
         assert!(!encoded.contains("\"find_symbol\""));
     }
@@ -398,6 +405,33 @@ fn get_callers_input_schema_exposes_file_path_hint() {
     assert!(
         callers["outputSchema"]["properties"]["confidence_basis"].is_object(),
         "get_callers should expose call-graph output schema"
+    );
+}
+
+#[test]
+fn find_referencing_symbols_schema_advertises_full_results_and_sample_limit() {
+    // The handler has long accepted full_results / sample_limit, but they were
+    // undiscoverable until advertised in the input schema (P2a).
+    let tool = crate::tool_defs::tool_definition("find_referencing_symbols")
+        .expect("find_referencing_symbols tool definition");
+    let props = &tool.input_schema["properties"];
+    assert!(
+        props["full_results"].is_object(),
+        "find_referencing_symbols must advertise full_results in its input schema"
+    );
+    assert_eq!(
+        props["full_results"]["type"],
+        json!("boolean"),
+        "full_results must be typed boolean"
+    );
+    assert!(
+        props["sample_limit"].is_object(),
+        "find_referencing_symbols must advertise sample_limit in its input schema"
+    );
+    assert_eq!(
+        props["sample_limit"]["type"],
+        json!("integer"),
+        "sample_limit must be typed integer"
     );
 }
 

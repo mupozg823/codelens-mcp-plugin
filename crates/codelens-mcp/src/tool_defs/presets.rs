@@ -261,6 +261,11 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     // #350: target of find_symbol / D1-trio fallback hints — must be
     // present wherever those emitters are, or the hint chain dead-ends.
     "bm25_symbol_search",
+    // #350: `find_referencing_symbols` emits `cross_file_callers_hint` →
+    // `get_callers`, so this read surface must expose it (and its sibling
+    // get_callees) or the recovery chain dead-ends on "not available".
+    "get_callers",
+    "get_callees",
     // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
     "find_declaration",
     "find_implementations",
@@ -358,7 +363,9 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
 
 // Curated default `review` surface (:7839) — the core set from the
 // 2026-07 tool-surface diet, step 1. Reduced from 49 → 20 to match the
-// 14-day usage telemetry (docs/operations/tool-surface-diet-2026-07.md).
+// 14-day usage telemetry (docs/operations/tool-surface-diet-2026-07.md),
+// then lifted to 22 by the #350 hint-chain fix (get_callers/get_callees are
+// the `cross_file_callers_hint` targets and must be callable here).
 //
 // Reversible and non-destructive: the 33 tools dropped here are NOT
 // deleted — their tools.toml definitions and dispatch arms stay intact,
@@ -376,6 +383,8 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
 //   - 9 always-load entrypoints (v1.13.34 CHANGELOG)
 //   - 6 change-safety / diagnostics tools kept by the usage +
 //     "change safety" strategy axis
+//   - 2 call-graph hint targets (get_callers/get_callees) added by the #350
+//     hint-chain fix so `cross_file_callers_hint` resolves on this surface
 pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     // Verb facades (canonical mode-routing entrypoints)
     "search",
@@ -398,6 +407,14 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "impact_report",
     "diff_aware_references",
     "safe_rename_report",
+    // #350: `find_referencing_symbols` (above) emits `cross_file_callers_hint`
+    // → `get_callers`; the `graph` verb façade alone did not satisfy the raw
+    // hint target, so the review surface dead-ended on "not available in active
+    // surface `review`" (live E2E 2026-07-21). List the two call-graph
+    // primitives here so the hint chain resolves; this lifts the diet core-20
+    // to 22 (see the composition test below).
+    "get_callers",
+    "get_callees",
     // Known scope cut: refresh_symbol_index background responses point at
     // get_analysis_job, which this surface does NOT expose (diet cap 20,
     // enforced by reviewer_graph_core_surface_contains_alwaysload_and_
@@ -582,9 +599,14 @@ mod deprecation_tests {
                 "core review surface must retain canonical verb façade `{verb}`"
             );
         }
+        // #350 hint-chain fix (live E2E 2026-07-21): get_callers/get_callees are
+        // the `cross_file_callers_hint` targets emitted by
+        // `find_referencing_symbols`, so they must be callable here — which for a
+        // profile surface means listed. That lifts the diet core-20 to 22; the
+        // cap still guards against unbounded re-bloat of this curated surface.
         assert!(
-            REVIEWER_GRAPH_TOOLS.len() <= 20,
-            "core review surface must stay within the diet cap of 20 (got {})",
+            REVIEWER_GRAPH_TOOLS.len() <= 22,
+            "core review surface must stay within the diet cap of 22 (got {})",
             REVIEWER_GRAPH_TOOLS.len()
         );
         let unique: std::collections::BTreeSet<_> = REVIEWER_GRAPH_TOOLS.iter().collect();
@@ -593,5 +615,26 @@ mod deprecation_tests {
             REVIEWER_GRAPH_TOOLS.len(),
             "core review surface has duplicate entries"
         );
+    }
+
+    /// #350 hint-chain (live E2E 2026-07-21): `find_referencing_symbols` emits
+    /// `cross_file_callers_hint` → `get_callers`, so every read surface that can
+    /// run it must also expose the raw call-graph primitives, or the suggested
+    /// recovery dead-ends on "not available in active surface". Locks
+    /// get_callers/get_callees onto the planner, builder, and reviewer surfaces.
+    #[test]
+    fn call_graph_hint_targets_listed_on_read_surfaces() {
+        for (label, surface) in [
+            ("planner-readonly", PLANNER_READONLY_TOOLS),
+            ("builder-minimal", BUILDER_MINIMAL_TOOLS),
+            ("reviewer-graph", REVIEWER_GRAPH_TOOLS),
+        ] {
+            for target in ["get_callers", "get_callees"] {
+                assert!(
+                    surface.contains(&target),
+                    "{label} must expose `{target}` — the cross_file_callers_hint target (#350)"
+                );
+            }
+        }
     }
 }

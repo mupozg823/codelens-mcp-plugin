@@ -1206,11 +1206,13 @@ fn write_mock_pyright_references_lsp(project: &ProjectRoot) -> std::path::PathBu
     mock_path
 }
 
-/// The default reference path (symbol_name only, no `use_lsp`) must upgrade
-/// to precise LSP references once the file's language server is already warm
-/// in the pool — closing the tree-sitter gap on Python type-annotation refs.
+/// Regression [C]: the default reference path (symbol_name only, no `use_lsp`)
+/// must return the same deterministic tree-sitter result whether or not the
+/// file's language server is warm. Warming pyright must NOT make the next
+/// default call route through LSP — that warmth-dependent hijack (which also
+/// dropped the full_results marker) was the regression.
 #[test]
-fn default_path_routes_through_warm_pyright_session() {
+fn default_path_stays_deterministic_when_pyright_session_is_warm() {
     let project = project_root();
     write_mock_pyright_references_lsp(&project);
     fs::write(
@@ -1229,32 +1231,37 @@ fn default_path_routes_through_warm_pyright_session() {
     );
     assert_eq!(warm["success"], json!(true), "warm-up call: {warm}");
 
-    // Default path: the warm-LSP stage must detect the resident session and
-    // route through precise LSP references instead of tree-sitter.
+    // Default path with full_results (the parent's exact probe [C]): with a
+    // warm session resident, the answer must still be the tree-sitter result —
+    // no LSP hijack, no warm-LSP routing note — AND full_results must be honored
+    // so the array is not clipped/flagged truncated (regression [C]+[D]).
     let payload = call_tool(
         &state,
         "find_referencing_symbols",
-        json!({ "file_path": "widget.py", "symbol_name": "Widget" }),
+        json!({ "file_path": "widget.py", "symbol_name": "Widget", "full_results": true }),
     );
     assert_eq!(payload["success"], json!(true), "default call: {payload}");
-    assert_eq!(
+    assert_ne!(
         payload["data"]["backend"],
         json!("lsp"),
-        "warm session must route the default path through LSP: {payload}"
-    );
-    assert_eq!(
-        payload["data"]["routing_note"]["stage"],
-        json!("warm_lsp_default_path"),
-        "routing note must mark the warm-LSP stage: {payload}"
-    );
-    assert_eq!(
-        payload["data"]["evidence"]["signals"]["precise_used"],
-        json!(true),
-        "warm-routed references are precise: {payload}"
+        "a warm session must not hijack the default path into LSP: {payload}"
     );
     assert!(
-        payload["data"]["count"].as_u64().unwrap_or(0) >= 1,
-        "warm pyright must return at least the annotation reference: {payload}"
+        payload["data"].get("routing_note").is_none(),
+        "the deterministic default path emits no warm-LSP routing note: {payload}"
+    );
+    // full_results must be honored on the (non-hijacked) tree-sitter path so the
+    // response summarizer preserves the array instead of clipping + truncating.
+    assert_eq!(
+        payload["data"]["full_results"],
+        json!(true),
+        "full_results marker must be attached so the array is preserved: {payload}"
+    );
+    // It advertises use_lsp=true as the precision opt-in instead of routing.
+    assert_eq!(
+        payload["data"]["lsp_precision_hint"]["code"],
+        json!("lsp_precision_available"),
+        "default path must surface the use_lsp precision hint: {payload}"
     );
 }
 
@@ -1284,7 +1291,7 @@ fn default_path_emits_cold_lsp_hint_for_python_without_warm_server() {
     );
     assert_eq!(
         payload["data"]["lsp_precision_hint"]["code"],
-        json!("lsp_server_cold"),
+        json!("lsp_precision_available"),
         "cold Python default path must emit the annotation-aware hint: {payload}"
     );
     assert_eq!(
@@ -1294,14 +1301,16 @@ fn default_path_emits_cold_lsp_hint_for_python_without_warm_server() {
     );
 }
 
-/// Real-pyright variant of the warm-routing test. Skips cleanly when the
-/// binary is absent so CI without pyright stays green; when installed, proves
-/// the type-annotation references tree-sitter misses land via the LSP path.
+/// Regression [C], real-pyright variant. Skips cleanly when the binary is
+/// absent so CI without pyright stays green; when installed, proves that even a
+/// genuinely warm pyright session does NOT hijack the default path — the answer
+/// stays the deterministic tree-sitter result (use_lsp=true remains the opt-in
+/// for precise annotation-aware references).
 #[test]
-fn default_path_routes_through_real_warm_pyright_when_installed() {
+fn default_path_stays_deterministic_with_real_warm_pyright_when_installed() {
     if !codelens_engine::lsp_binary_exists("pyright-langserver") {
         eprintln!(
-            "skipping default_path_routes_through_real_warm_pyright_when_installed: pyright-langserver not installed"
+            "skipping default_path_stays_deterministic_with_real_warm_pyright_when_installed: pyright-langserver not installed"
         );
         return;
     }
@@ -1326,14 +1335,14 @@ fn default_path_routes_through_real_warm_pyright_when_installed() {
         json!({ "file_path": "annotated.py", "symbol_name": "Service" }),
     );
     assert_eq!(payload["success"], json!(true), "{payload}");
-    assert_eq!(
+    assert_ne!(
         payload["data"]["backend"],
         json!("lsp"),
-        "real warm pyright must route the default path through LSP: {payload}"
+        "a real warm pyright must not hijack the default path into LSP: {payload}"
     );
     assert!(
-        payload["data"]["count"].as_u64().unwrap_or(0) >= 2,
-        "pyright must capture the annotation references tree-sitter misses: {payload}"
+        payload["data"].get("routing_note").is_none(),
+        "the deterministic default path emits no warm-LSP routing note: {payload}"
     );
 }
 

@@ -241,10 +241,45 @@ pub(crate) fn scip_stale_warning_payload(stale: &ScipStaleness) -> serde_json::V
         "code": "scip_index_stale",
         "message": "SCIP index pre-dates one or more resolved source files; reported line / body / signature may not match current source. Regenerate the index before trusting precise-tier results.",
         "recommended_action": "regenerate_scip_index",
+        // Issue #251: the recovery hint must name the exact, runnable
+        // regeneration path or callers cannot act on it. `scripts/generate-scip-index.sh`
+        // is the documented wrapper (see probe_status.rs); it detects the
+        // project languages and rewrites `index.scip` at the project root,
+        // which is what `ScipBackend::detect` loads.
+        "regenerate_command": "scripts/generate-scip-index.sh",
+        "regenerate_command_detail": "Wraps `rust-analyzer scip .` and writes a fresh index.scip at the project root, then restart the daemon (or the next scip() access reloads it). NOTE: `refresh_symbol_index` refreshes only the tree-sitter symbol index and does NOT rebuild the SCIP precise index — it will not clear this warning.",
         "action_target": "scip_backend",
         "index_path": stale.index_path,
         "stale_files": stale_files_payload,
     })
+}
+
+/// Issue #251: strengthen the stale-index warning when the stale SCIP tier
+/// resolved strictly fewer references than the tree-sitter text scan. The
+/// stale index has dropped call sites, so a bare "stale" note under-sells the
+/// accuracy loss — annotate the concrete undercount (`scip_count` vs
+/// `text_backend_count`) so the caller knows the returned set was widened to
+/// the tree-sitter result. Built on top of `scip_stale_warning_payload` so the
+/// runnable `regenerate_command` recovery hint is carried through unchanged.
+#[cfg(feature = "scip-backend")]
+pub(crate) fn scip_stale_undercount_warning_payload(
+    stale: &ScipStaleness,
+    scip_count: usize,
+    text_backend_count: usize,
+) -> serde_json::Value {
+    let mut payload = scip_stale_warning_payload(stale);
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("severity".to_owned(), json!("undercount"));
+        map.insert("scip_count".to_owned(), json!(scip_count));
+        map.insert("text_backend_count".to_owned(), json!(text_backend_count));
+        map.insert(
+            "undercount_note".to_owned(),
+            json!(
+                "Stale SCIP resolved fewer references than the tree-sitter text scan — the stale index has dropped call sites. Returning the fuller text set at reduced confidence; regenerate the SCIP index to restore precise-tier navigation."
+            ),
+        );
+    }
+    payload
 }
 
 #[cfg(feature = "scip-backend")]
@@ -442,11 +477,53 @@ mod tests {
         assert_eq!(payload["code"], "scip_index_stale");
         assert_eq!(payload["recommended_action"], "regenerate_scip_index");
         assert_eq!(payload["action_target"], "scip_backend");
+        // Issue #251: the hint must carry a runnable regeneration command
+        // and disambiguate it from `refresh_symbol_index` (which does not
+        // rebuild SCIP), or a caller cannot actually clear the warning.
+        assert_eq!(
+            payload["regenerate_command"],
+            "scripts/generate-scip-index.sh"
+        );
+        assert!(
+            payload["regenerate_command_detail"]
+                .as_str()
+                .unwrap()
+                .contains("refresh_symbol_index"),
+            "detail must warn that refresh_symbol_index does not rebuild SCIP"
+        );
         assert_eq!(payload["index_path"], "/tmp/index.scip");
         assert_eq!(payload["stale_files"][0]["file_path"], "src/a.rs");
         assert_eq!(
             payload["stale_files"][0]["newer_than_index_by_seconds"],
             1234
+        );
+    }
+
+    #[test]
+    fn undercount_warning_annotates_counts_and_keeps_recovery_hint() {
+        // Issue #251: when stale SCIP under-resolves vs the tree-sitter text
+        // scan, the strengthened warning must carry both counts AND still
+        // carry the runnable regeneration command from the base payload.
+        let stale = super::ScipStaleness {
+            index_path: "/tmp/index.scip".to_owned(),
+            stale_files: vec![("src/a.rs".to_owned(), 42)],
+        };
+        let payload = super::scip_stale_undercount_warning_payload(&stale, 12, 16);
+        assert_eq!(payload["code"], "scip_index_stale");
+        assert_eq!(payload["severity"], "undercount");
+        assert_eq!(payload["scip_count"], 12);
+        assert_eq!(payload["text_backend_count"], 16);
+        // Recovery hint survives the strengthening so the caller still knows
+        // how to actually clear the staleness.
+        assert_eq!(
+            payload["regenerate_command"],
+            "scripts/generate-scip-index.sh"
+        );
+        assert!(
+            payload["undercount_note"]
+                .as_str()
+                .unwrap()
+                .contains("fewer references")
         );
     }
 

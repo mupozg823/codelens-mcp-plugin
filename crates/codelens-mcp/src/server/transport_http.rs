@@ -496,8 +496,23 @@ async fn mcp_post_handler(
             crate::server::session::SessionPolicy::Lenient => {
                 let seed = crate::server::session::SessionSeed::from_headers(&headers);
                 match store.get_or_resurrect(sid, &seed) {
-                    Some((_session, true)) => {
+                    Some((session, true)) => {
                         session_resurrected = true;
+                        // Issue #252: a freshly-resurrected SessionState defaults
+                        // to the Balanced preset. When the request carried no
+                        // `x-codelens-profile` seed, `apply_seed` leaves that
+                        // default in place, so a resurrected session on a
+                        // `--profile`-launched daemon silently drops to Balanced
+                        // instead of the daemon's startup surface — the same
+                        // surface a fresh `initialize` inherits via
+                        // `initialize_surface_and_budget`. Mirror that no-profile
+                        // branch here so startup `--profile` survives idle-timeout
+                        // / restart resurrection. A seed-provided profile already
+                        // set the surface in `apply_seed`, so only fill the gap.
+                        if seed.requested_profile.is_none() {
+                            session.set_surface(*state.surface());
+                            session.set_token_budget(state.token_budget());
+                        }
                         tracing::info!(
                             session_id = sid.as_str(),
                             "resurrected stale MCP session (#300): daemon restart or idle timeout — recovered without lockout"

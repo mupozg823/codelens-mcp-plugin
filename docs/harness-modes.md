@@ -35,7 +35,7 @@ Single-agent local work without cross-agent coordination overhead.
 - Daemon shape: `single-session`
 - Recommended ports: none
 - Roles:
-  - `solo-agent`: `readonly` (40), `builder` (40); mutate=`false`; one session handles both planning and implementation
+  - `solo-agent`: `readonly` (42), `builder` (40); mutate=`false`; one session handles both planning and implementation
 - Recommended flow:
   - `prepare_harness_session`
   - `explore_codebase`
@@ -56,7 +56,7 @@ Primary multi-agent pattern: read-only planning/review paired with mutation-enab
 - Daemon shape: `dual-daemon`
 - Recommended ports: `7837`, `7838`
 - Roles:
-  - `planner-reviewer`: `readonly` (40), `review` (20); mutate=`false`; bootstrap, rank context, and verify change readiness before dispatch
+  - `planner-reviewer`: `readonly` (42), `review` (22); mutate=`false`; bootstrap, rank context, and verify change readiness before dispatch
   - `builder-refactor`: `builder` (40), `builder` (40); mutate=`true`; execute bounded edits after preflight, diagnostics, and claims
 - Recommended flow:
   - `prepare_harness_session`
@@ -84,7 +84,7 @@ Read-only signoff lane that checks builder output before merge or handoff.
 - Daemon shape: `read-only-daemon`
 - Recommended ports: `7837`
 - Roles:
-  - `reviewer`: `review` (20), `review` (20); mutate=`false`; diff-aware review, impact analysis, and audit signoff
+  - `reviewer`: `review` (22), `review` (22); mutate=`false`; diff-aware review, impact analysis, and audit signoff
 - Recommended flow:
   - `prepare_harness_session`
   - `review_changes or impact_report`
@@ -106,7 +106,7 @@ Asynchronous analysis lane for repo-wide or long-running read-side jobs.
 - Daemon shape: `read-only-daemon`
 - Recommended ports: `7837`
 - Roles:
-  - `analysis-runner`: `readonly` (40), `readonly` (40), `review` (20); mutate=`false`; start durable jobs and consume bounded sections instead of raw full reports
+  - `analysis-runner`: `readonly` (42), `readonly` (42), `review` (22); mutate=`false`; start durable jobs and consume bounded sections instead of raw full reports
 - Recommended flow:
   - `prepare_harness_session`
   - `start_analysis_job`

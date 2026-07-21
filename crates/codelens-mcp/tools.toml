@@ -451,6 +451,8 @@ symbol_name = { type = "string", description = "Symbol name (default: tree-sitte
 line = { type = "integer", description = "Line number (triggers LSP path)" }
 column = { type = "integer", description = "Column number (triggers LSP path)" }
 use_lsp = { type = "boolean", description = "Force LSP lookup (slower but type-aware, requires LSP server)" }
+full_results = { type = "boolean", description = "Tree-sitter path only: return every reference instead of the sampled preview, and keep the full array through response summarization (default: false)." }
+sample_limit = { type = "integer", description = "Tree-sitter path only: max references returned when full_results is false (default: 8)." }
 command = { type = "string" }
 args = { type = "array", items = { type = "string" } }
 max_results = { type = "integer" }
@@ -675,7 +677,7 @@ properties = { ref = { type = "string" }, include_untracked = { type = "boolean"
 name = "get_callers"
 category = "analysis"
 namespace = "graph"
-preset_tags = ["builder-minimal"]
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Analysis] Find functions that call a function. Returns bounded call-graph edges with backend/confidence metadata."
 annotations = "ro_a"
 output_schema = "get_callers_output_schema"
@@ -695,7 +697,7 @@ max_results = { type = "integer" }
 name = "get_callees"
 category = "analysis"
 namespace = "graph"
-preset_tags = ["builder-minimal"]
+preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Analysis] Find functions called by a function. Use path when duplicate function names exist."
 annotations = "ro_a"
 output_schema = "get_callees_output_schema"

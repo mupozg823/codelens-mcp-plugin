@@ -900,7 +900,7 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
             "detail": "compact",
             "preferred_entrypoints": [
                 "review_changes",
-                "get_callers",
+                "find_tests",
                 "this_tool_does_not_exist_xyz",
             ],
         }),
@@ -934,11 +934,11 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
         omitted_entrypoints,
         &vec![
             json!({
-                "tool": "get_callers",
+                "tool": "find_tests",
                 "reason": "not_in_active_surface",
                 "recommended_action": "switch_tool_surface",
                 "preferred_executor": "any",
-                "tool_tier": "analysis",
+                "tool_tier": "primitive",
                 "recommended_profile": "builder",
                 "included_in": [
                     "preset:balanced",
@@ -1036,7 +1036,7 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
             "preferred_entrypoints": [
                 "review_changes",
                 "diff_aware_references",
-                "get_callers",
+                "find_tests",
             ],
         }),
     );
@@ -1087,7 +1087,7 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
 
     let hidden_surface_tool = omitted
         .iter()
-        .find(|entry| entry["tool"] == "get_callers")
+        .find(|entry| entry["tool"] == "find_tests")
         .expect("tool outside reviewer-graph");
     assert_eq!(
         hidden_surface_tool["reason"],
@@ -1114,7 +1114,7 @@ fn prepare_harness_session_normalizes_mcp_prefixed_entrypoints() {
             "detail": "compact",
             "preferred_entrypoints": [
                 "mcp__codelens__review_changes",
-                "mcp__codelens__get_callers",
+                "mcp__codelens__find_tests",
                 "mcp__codelens__this_tool_does_not_exist_xyz",
             ],
         }),
@@ -1138,11 +1138,11 @@ fn prepare_harness_session_normalizes_mcp_prefixed_entrypoints() {
         .expect("preferred_entrypoints_omitted array");
     let hidden_surface_tool = omitted
         .iter()
-        .find(|entry| entry["tool"] == "get_callers")
+        .find(|entry| entry["tool"] == "find_tests")
         .expect("known hidden entrypoint should be normalized");
     assert_eq!(
         hidden_surface_tool["requested_tool"],
-        json!("mcp__codelens__get_callers")
+        json!("mcp__codelens__find_tests")
     );
     assert_eq!(
         hidden_surface_tool["reason"],
@@ -1189,7 +1189,7 @@ fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_field
                     "detail": "compact",
                     "preferred_entrypoints": [
                         "review_changes",
-                        "get_callers",
+                        "find_tests",
                         "this_tool_does_not_exist_xyz",
                     ],
                 }
@@ -1224,11 +1224,11 @@ fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_field
         data["routing"]["preferred_entrypoints_omitted"],
         json!([
             {
-                "tool": "get_callers",
+                "tool": "find_tests",
                 "reason": "not_in_active_surface",
                 "recommended_action": "switch_tool_surface",
                 "preferred_executor": "any",
-                "tool_tier": "analysis",
+                "tool_tier": "primitive",
                 "included_in": [
                     "preset:balanced",
                     "preset:full",

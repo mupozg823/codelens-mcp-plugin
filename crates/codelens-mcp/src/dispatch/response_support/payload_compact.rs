@@ -219,6 +219,7 @@ fn summarize_bootstrap_text_data(source: &Map<String, Value>) -> Value {
 pub(super) fn summarize_text_object(source: &Map<String, Value>, depth: usize) -> Value {
     const MAX_OBJECT_ITEMS: usize = 8;
 
+    let preserve_full = full_results_preserved(source);
     let mut summarized = Map::new();
     let mut array_shrunk = false;
     // #211: previously the loop broke on the first cap hit and only
@@ -227,11 +228,26 @@ pub(super) fn summarize_text_object(source: &Map<String, Value>, depth: usize) -
     // response carries a `_omitted_keys` list and downstream agents
     // can request the missing fields explicitly.
     let mut omitted_keys: Vec<String> = Vec::new();
-    for (index, (key, value)) in source.iter().enumerate() {
-        if index >= MAX_OBJECT_ITEMS {
+    // full_results declares the response COMPLETE, so the 8-key object cap
+    // must not fire: dropping a trailing annotation key (e.g. `unknown_args`,
+    // `deprecation_warnings`) would set `truncated: true` even though the
+    // primary result array is intact — a false clip signal the caller
+    // explicitly opted out of. `kept_index` counts only the keys that
+    // actually consume a cap slot, so the protected result array is free.
+    let mut kept_index = 0usize;
+    for (key, value) in source.iter() {
+        // full_results: the primary result array is the complete, un-sampled
+        // set — keep it verbatim and never flag the parent truncated. Checked
+        // ahead of the 8-key cap so the result array survives a wide payload.
+        if preserve_full && is_full_results_protected_array(key, value) {
+            summarized.insert(key.clone(), value.clone());
+            continue;
+        }
+        if !preserve_full && kept_index >= MAX_OBJECT_ITEMS {
             omitted_keys.push(key.clone());
             continue;
         }
+        kept_index += 1;
         if let Value::Array(items) = value
             && items.len() > TEXT_CHANNEL_MAX_ARRAY_ITEMS
         {
@@ -289,6 +305,7 @@ pub(super) fn summarize_structured_content(value: &Value, depth: usize) -> Value
             } else {
                 usize::MAX
             };
+            let preserve_full = full_results_preserved(map);
             let mut summarized = serde_json::Map::with_capacity(map.len().min(max_items));
             // Track sibling `<key>_omitted_count` markers so an agent
             // sees both the top-level `truncation_warning` AND the
@@ -299,7 +316,9 @@ pub(super) fn summarize_structured_content(value: &Value, depth: usize) -> Value
                 if index >= max_items {
                     break;
                 }
-                if should_preserve_structured_array(key, item) {
+                if should_preserve_structured_array(key, item)
+                    || (preserve_full && is_full_results_protected_array(key, item))
+                {
                     summarized.insert(key.clone(), item.clone());
                     continue;
                 }
@@ -334,6 +353,26 @@ fn should_preserve_structured_array(key: &str, value: &Value) -> bool {
             | "preferred_entrypoints_omitted"
             | "preferred_entrypoints_with_executors"
     ) && value.is_array()
+}
+
+/// A `full_results: true` marker signals the tool deliberately returned the
+/// complete, un-sampled set (e.g. `find_referencing_symbols` with
+/// `full_results=true`). The summarizers honor it by keeping the primary result
+/// array intact instead of clipping it to `TEXT_CHANNEL_MAX_ARRAY_ITEMS`.
+/// Default responses never set the marker, so their sampling / `truncated`
+/// contract is unchanged.
+fn full_results_preserved(source: &Map<String, Value>) -> bool {
+    source
+        .get("full_results")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// The single result array protected by a `full_results` marker. Scoped to the
+/// reference list so the marker cannot accidentally shield unrelated arrays
+/// sharing the same payload.
+fn is_full_results_protected_array(key: &str, value: &Value) -> bool {
+    key == "references" && value.is_array()
 }
 
 #[cfg(test)]
@@ -406,6 +445,216 @@ mod lean_scaffold_tests {
         assert!(
             matches!(r.routing_hint, Some(RoutingHint::Async)),
             "async routing is an actionable decision — must survive"
+        );
+    }
+}
+
+#[cfg(test)]
+mod full_results_preservation_tests {
+    use super::*;
+
+    /// Mirrors the `find_referencing_symbols` tree-sitter payload shape. When
+    /// `full_results` is set the handler adds the marker the summarizers honor.
+    fn references_payload(count: usize, full_results: bool) -> Value {
+        let refs: Vec<Value> = (0..count)
+            .map(|n| {
+                json!({
+                    "file_path": format!("src/mod_{n}.rs"),
+                    "line": n + 1,
+                    "column": 4,
+                    "is_declaration": false,
+                })
+            })
+            .collect();
+        let mut payload = json!({
+            "references": refs,
+            "count": count,
+            "returned_count": count,
+            "sampled": false,
+            "include_context": false,
+            "evidence": {"basis": "tree_sitter_text_references"},
+        });
+        if full_results {
+            payload
+                .as_object_mut()
+                .unwrap()
+                .insert("full_results".to_owned(), Value::Bool(true));
+        }
+        payload
+    }
+
+    #[test]
+    fn full_results_keeps_every_reference_in_text_channel() {
+        // 17 refs (>15) with full_results=true: the always-on text summarizer
+        // must NOT clip the array to TEXT_CHANNEL_MAX_ARRAY_ITEMS and must not
+        // flag the parent truncated — count/returned_count/sampled stay honest.
+        let summarized = summarize_text_data_for_response(&references_payload(17, true));
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("references")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(17),
+            "full_results must preserve every reference in the text channel"
+        );
+        assert!(
+            obj.get("truncated").is_none(),
+            "preserved full_results array must not flag truncated, got {obj:?}"
+        );
+        assert_eq!(obj.get("count").and_then(Value::as_i64), Some(17));
+        assert_eq!(obj.get("returned_count").and_then(Value::as_i64), Some(17));
+        assert_eq!(obj.get("sampled").and_then(Value::as_bool), Some(false));
+    }
+
+    #[test]
+    fn without_full_results_text_channel_still_clips_and_flags() {
+        // Default path (no marker): the existing sampling / `truncated`
+        // contract is unchanged — the array clips to 3 and the parent flags.
+        let summarized = summarize_text_data_for_response(&references_payload(17, false));
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("references")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(TEXT_CHANNEL_MAX_ARRAY_ITEMS),
+            "default path must keep clipping to the text-channel cap"
+        );
+        assert_eq!(
+            obj.get("truncated").and_then(Value::as_bool),
+            Some(true),
+            "default clip must still flag truncated"
+        );
+        assert_eq!(obj.get("count").and_then(Value::as_i64), Some(17));
+    }
+
+    #[test]
+    fn full_results_survives_structured_content_budget_layer() {
+        // The over-budget structuredContent path (summarize_structured_content)
+        // must also preserve the array and emit no `references_omitted_count`.
+        let summarized = summarize_structured_content(&references_payload(17, true), 0);
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("references")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(17)
+        );
+        assert!(
+            obj.get("references_omitted_count").is_none(),
+            "preserved array must not advertise an omitted count, got {obj:?}"
+        );
+        assert_eq!(obj.get("count").and_then(Value::as_i64), Some(17));
+        assert_eq!(obj.get("returned_count").and_then(Value::as_i64), Some(17));
+    }
+
+    #[test]
+    fn without_full_results_structured_content_clips_and_marks_omitted() {
+        let summarized = summarize_structured_content(&references_payload(17, false), 0);
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("references")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(TEXT_CHANNEL_MAX_ARRAY_ITEMS)
+        );
+        assert_eq!(
+            obj.get("references_omitted_count").and_then(Value::as_i64),
+            Some((17 - TEXT_CHANNEL_MAX_ARRAY_ITEMS) as i64)
+        );
+    }
+
+    /// The real tree-sitter `find_referencing_symbols` full_results payload can
+    /// carry more than the 8-key text-object cap once optional annotation keys
+    /// (`lsp_precision_hint`, `unknown_args`, `deprecation_warnings`) are
+    /// present. The cap must NOT drop those trailing keys and flag the response
+    /// truncated when the caller asked for the complete result.
+    fn wide_full_results_payload() -> Value {
+        let mut payload = references_payload(17, true);
+        let map = payload.as_object_mut().unwrap();
+        map.insert(
+            "lsp_precision_hint".to_owned(),
+            json!({"code": "lsp_server_cold", "server": "typescript-language-server"}),
+        );
+        map.insert("unknown_args".to_owned(), json!(["threshold"]));
+        map.insert("deprecation_warnings".to_owned(), json!(["file_path is deprecated"]));
+        payload
+    }
+
+    #[test]
+    fn full_results_wide_payload_keeps_all_keys_without_truncated() {
+        // 10 keys (> the 8-key cap) with full_results=true: the primary array
+        // is preserved AND no key is omitted, so `data.truncated` must not be
+        // set — the caller declared this the complete result. (P2 leftover:
+        // the cap previously dropped `unknown_args`/`deprecation_warnings` and
+        // set truncated even though the references array was intact.)
+        let summarized = summarize_text_data_for_response(&wide_full_results_payload());
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("references").and_then(Value::as_array).map(Vec::len),
+            Some(17),
+            "references must survive verbatim"
+        );
+        assert!(
+            obj.get("truncated").is_none(),
+            "full_results must not flag truncated for cap-driven key omission, got {obj:?}"
+        );
+        assert!(
+            obj.get("_omitted_keys").is_none(),
+            "full_results must not omit any key, got {obj:?}"
+        );
+        // The annotation keys the caller needs must all survive.
+        assert!(obj.contains_key("unknown_args"), "annotation key kept");
+        assert!(
+            obj.contains_key("deprecation_warnings"),
+            "deprecation warnings kept"
+        );
+        assert!(obj.contains_key("lsp_precision_hint"), "lsp hint kept");
+    }
+
+    #[test]
+    fn default_wide_payload_still_caps_keys_and_flags_truncated() {
+        // Same wide shape WITHOUT the full_results marker: the 8-key cap must
+        // still fire, dropping the trailing keys and flagging truncated — the
+        // P2 fix must not weaken the default sampling/omission contract.
+        let mut payload = wide_full_results_payload();
+        payload.as_object_mut().unwrap().remove("full_results");
+        let summarized = summarize_text_data_for_response(&payload);
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("truncated").and_then(Value::as_bool),
+            Some(true),
+            "default path over the key cap must still flag truncated"
+        );
+        assert!(
+            obj.get("_omitted_keys")
+                .and_then(Value::as_array)
+                .is_some_and(|keys| !keys.is_empty()),
+            "default path must record the dropped keys"
+        );
+    }
+
+    #[test]
+    fn marker_only_protects_the_reference_array() {
+        // A sibling large array (`callers`) sharing a full_results payload must
+        // still clip — the marker guards only the primary result array.
+        let mut payload = references_payload(17, true);
+        payload.as_object_mut().unwrap().insert(
+            "callers".to_owned(),
+            json!((0..17).map(|n| json!({"name": n})).collect::<Vec<_>>()),
+        );
+        let obj = summarize_structured_content(&payload, 0);
+        let obj = obj.as_object().expect("object");
+        assert_eq!(
+            obj.get("references")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(17),
+            "references stays protected"
+        );
+        assert_eq!(
+            obj.get("callers").and_then(Value::as_array).map(Vec::len),
+            Some(TEXT_CHANNEL_MAX_ARRAY_ITEMS),
+            "an unrelated array must not ride the marker"
         );
     }
 }

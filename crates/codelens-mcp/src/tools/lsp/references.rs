@@ -1,14 +1,17 @@
 use super::super::{
-    AppState, ToolResult, default_lsp_args_for_command, default_lsp_command_for_path,
-    optional_bool, optional_string, optional_usize, parse_lsp_args, success_meta,
+    AppState, ToolResult, default_lsp_command_for_path, optional_bool, optional_string,
+    optional_usize, parse_lsp_args, success_meta,
 };
 use super::rename::resolve_symbol_position;
 use super::shared::{enhance_lsp_error, insert_response_annotations, resolve_path_argument};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::tool_evidence::{meta_degraded, meta_for_backend};
-use codelens_engine::{LspRequest, extract_word_at_position, find_referencing_symbols_via_text};
+use codelens_engine::{
+    LspRequest, extract_word_at_position, find_referencing_symbols_via_text, get_callers,
+};
 use serde_json::{Value, json};
+use std::time::{Duration, Instant};
 
 fn compact_text_references(
     references: Vec<codelens_engine::TextReference>,
@@ -175,36 +178,146 @@ fn insert_structural_ts_evidence(
     );
 }
 
-/// Warm-LSP precision stage for the default reference path.
-///
-/// The default path (symbol_name only, no `use_lsp`) is latency-sensitive and
-/// must never trigger an LSP cold start (2-30s). This stage only upgrades to
-/// precise LSP references when the file's language server is **already** warm
-/// in the pool. For Python it closes the tree-sitter extractor gap on import
-/// and type-annotation references (CLAUDE.md "Known accuracy limits").
-#[derive(Debug, PartialEq, Eq)]
-enum WarmLspStage {
-    /// A warm server is resident — route through precise LSP references.
-    UseLsp { command: String },
-    /// The language has an LSP mapping but the server is cold — stay on
-    /// tree-sitter and surface a hint toward `use_lsp=true`.
-    ColdHint { command: String },
-    /// No LSP mapping for this language — plain tree-sitter, no hint.
-    NoMapping,
+/// P4: oxc_semantic resolves references only within the requested file, so an
+/// exported JS/TS symbol used only in sibling modules resolves to just its own
+/// definition (`is_self_only`). Merge the import_graph backend's cross-file
+/// callers (`get_callers` over a project-wide scan) so those usages surface in
+/// the reference set. Rows are deduped against the oxc results (and each other)
+/// by `(file_path, line)`; a same-file caller oxc already reported is dropped.
+/// Returns the additional reference rows (empty when import_graph finds none).
+fn cross_file_ts_caller_rows(
+    state: &AppState,
+    symbol_name: &str,
+    target_file: &str,
+    oxc_lines: &std::collections::HashSet<usize>,
+    max_results: usize,
+) -> Vec<Value> {
+    let project = state.project();
+    let target_rel = project
+        .resolve(target_file)
+        .map(|resolved| project.to_relative(resolved))
+        .unwrap_or_else(|_| target_file.to_owned());
+    // `file_path: None` makes get_callers scan the whole project (import_graph
+    // resolution), which is exactly the cross-file set oxc cannot see.
+    let callers = match get_callers(
+        &project,
+        symbol_name,
+        None,
+        max_results,
+        Some(state.graph_cache().as_ref()),
+    ) {
+        Ok(callers) => callers,
+        Err(_) => return Vec::new(),
+    };
+    let seen: std::collections::HashSet<(String, usize)> = oxc_lines
+        .iter()
+        .map(|line| (target_rel.clone(), *line))
+        .collect();
+    merge_caller_rows_dedup(callers, seen, max_results)
 }
 
-/// Pure routing decision, isolated from pool I/O so warmth can be injected in
-/// tests. `lsp_command` is the file's default LSP binary (if any); `is_warm`
-/// reports whether that binary already has a live pool session and is only
-/// consulted when a mapping exists.
-fn decide_warm_lsp_stage(
-    lsp_command: Option<String>,
-    is_warm: impl FnOnce(&str) -> bool,
-) -> WarmLspStage {
-    match lsp_command {
-        Some(command) if is_warm(&command) => WarmLspStage::UseLsp { command },
-        Some(command) => WarmLspStage::ColdHint { command },
-        None => WarmLspStage::NoMapping,
+/// Pure merge/dedup for [`cross_file_ts_caller_rows`]: keep only JS/TS caller
+/// rows, drop any `(file, line)` already present in `seen` (the oxc same-file
+/// results) or already emitted, cap at `max_results`, and tag each row with the
+/// merging backend so the evidence is self-describing. Isolated from the
+/// project-scanning `get_callers` I/O so the union/dedup contract is
+/// unit-testable with synthetic callers.
+fn merge_caller_rows_dedup(
+    callers: Vec<codelens_engine::CallerEntry>,
+    mut seen: std::collections::HashSet<(String, usize)>,
+    max_results: usize,
+) -> Vec<Value> {
+    let mut rows = Vec::new();
+    for entry in callers {
+        if !is_js_ts_path(&entry.file) {
+            continue;
+        }
+        if !seen.insert((entry.file.clone(), entry.line)) {
+            continue;
+        }
+        rows.push(json!({
+            "file_path": entry.file,
+            "line": entry.line,
+            "enclosing_function": entry.function,
+            "kind": "cross_file_caller",
+            "resolution": entry.resolution,
+            "confidence": entry.confidence,
+            "backend": "import_graph",
+        }));
+        if rows.len() >= max_results {
+            break;
+        }
+    }
+    rows
+}
+
+/// P3: bounded cold-start wait for the explicit `use_lsp=true` path.
+///
+/// A `use_lsp=true` request against a COLD language server used to spawn it,
+/// read back whatever the still-indexing server had (frequently zero
+/// references), and fall through to a 0.7-confidence tree-sitter answer — a
+/// silent recall miss on a machine where the server is installed and would
+/// answer correctly once warm. This runs the reference query and, when the
+/// server had to cold-start and returned nothing, retries on a bounded schedule
+/// (total ≈ [`LSP_COLD_WAIT`]) until it returns results, reports quiescent
+/// (genuinely no references), or the session dies. The wait blocks the request
+/// thread but is hard-capped — never unbounded.
+const LSP_COLD_WAIT: Duration = Duration::from_secs(10);
+const LSP_COLD_POLL: Duration = Duration::from_millis(500);
+
+fn lsp_references_with_cold_wait(
+    pool: &codelens_engine::LspSessionPool,
+    request: &LspRequest,
+) -> anyhow::Result<Vec<codelens_engine::LspReference>> {
+    let (mut refs, cold_started) = pool.find_referencing_symbols_tracking_spawn(request)?;
+    if !refs.is_empty() || !cold_started {
+        return Ok(refs);
+    }
+    let deadline = Instant::now() + LSP_COLD_WAIT;
+    while refs.is_empty() && Instant::now() < deadline {
+        std::thread::sleep(LSP_COLD_POLL);
+        // Each request drains the server's pending notifications, so this both
+        // retries the query and harvests the latest quiescence signal.
+        match pool.find_referencing_symbols(request) {
+            Ok(retry) => refs = retry,
+            Err(_) => break,
+        }
+        if !refs.is_empty() {
+            break;
+        }
+        match pool.warm_session_quiescence(&request.command, &request.args) {
+            // Finished indexing but still empty ⇒ truly no references. Session
+            // gone ⇒ nothing more to wait for. Either way, stop early.
+            Some(Some(true)) | None => break,
+            _ => {}
+        }
+    }
+    Ok(refs)
+}
+
+/// Only probe the text baseline when the LSP count is this low or below —
+/// a healthy multi-reference LSP result needs no cross-check, and the probe
+/// runs a project text scan we would rather not pay on every explicit call.
+const LSP_UNDERREPORT_PROBE_MAX: usize = 3;
+
+/// Regression [B]: decide whether an LSP reference count is implausibly low
+/// versus the tree-sitter text scan. `true` means the text scan found more than
+/// twice what LSP returned — the signal that the server under-reported (a cold
+/// or partial index, or a declaration-only answer) and the fuller text set
+/// should win at reduced confidence. Pure so the threshold is unit-testable.
+fn lsp_underreports_vs_text(lsp_count: usize, text_count: usize) -> bool {
+    text_count > lsp_count && lsp_count.saturating_mul(2) < text_count
+}
+
+/// Attach the `full_results` completeness marker so response summarization
+/// preserves the entire reference array instead of clipping it to the preview
+/// cap (and falsely flagging `truncated`). Every path that returns the complete
+/// set — the tree-sitter scan, the LSP fallback, and the P4 cross-file merge
+/// (regression [D]) — routes through this one seam so the invariant is uniform
+/// and unit-testable. A no-op when `full_results` was not requested.
+fn mark_full_results(payload: &mut Value, full_results: bool) {
+    if full_results && let Some(map) = payload.as_object_mut() {
+        map.insert("full_results".to_owned(), json!(true));
     }
 }
 
@@ -236,19 +349,6 @@ fn lsp_confidence_for_quiescence(
         ),
         Some(true) => (0.95, None, quiescent_basis),
         None => (0.95, None, unknown_basis),
-    }
-}
-
-/// Factual `routing_note` prose for the warm-LSP stage. The warmth probe and
-/// the reference request are separate lock acquisitions, so a warm server can
-/// die in between and be respawned mid-request; `cold_start_incurred` reflects
-/// what actually happened for this call so the note never over-claims "no cold
-/// start". Kept pure so the flag→prose mapping is unit-testable.
-fn warm_lsp_routing_rationale(cold_start_incurred: bool) -> &'static str {
-    if cold_start_incurred {
-        "The warmth probe passed but the LSP session had died and was respawned mid-request, so a cold start was incurred before precise references were returned."
-    } else {
-        "A warm LSP server was already resident, so the default path routed through precise LSP references to capture import and type-annotation usages tree-sitter misses. No cold start was incurred."
     }
 }
 
@@ -339,6 +439,73 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                                 .map(|k| k.eq_ignore_ascii_case("definition"))
                         })
                         .unwrap_or(false);
+                // P4: a self-only oxc result is the exact symptom of the
+                // single-file scope gap — the symbol's cross-file callers (if
+                // any) are invisible. Merge the import_graph backend's
+                // cross-file callers so an exported-but-externally-used symbol
+                // is not misreported as self-only/unused. When callers are
+                // found the answer changes shape (hybrid, non-degraded), so
+                // return the merged payload directly.
+                if is_self_only {
+                    let oxc_lines: std::collections::HashSet<usize> =
+                        refs_limited.iter().map(|reference| reference.line).collect();
+                    let cross_rows = cross_file_ts_caller_rows(
+                        state,
+                        sym_name,
+                        &file_path,
+                        &oxc_lines,
+                        max_results,
+                    );
+                    if !cross_rows.is_empty() {
+                        let mut references: Vec<Value> = refs_limited
+                            .iter()
+                            .filter_map(|reference| serde_json::to_value(reference).ok())
+                            .collect();
+                        let cross_file_count = cross_rows.len();
+                        references.extend(cross_rows);
+                        let merged_count = references.len();
+                        let meta = success_meta(BackendKind::Hybrid, 0.9);
+                        let evidence = crate::tool_evidence::tool_evidence(
+                            "references",
+                            &meta,
+                            "oxc_semantic_plus_import_graph_cross_file",
+                            crate::tool_evidence::precision_signals(
+                                true,
+                                true,
+                                Some("oxc_semantic+import_graph"),
+                                None,
+                                merged_count,
+                            ),
+                        );
+                        let mut payload = json!({
+                            "references": references,
+                            "count": merged_count,
+                            "returned_count": merged_count,
+                            "sampled": false,
+                            "backend": "oxc_semantic+import_graph",
+                            "evidence": evidence,
+                            "precision_note": "oxc_semantic resolved same-file references; import_graph (get_callers) cross-file callers were merged in, so this count spans files.",
+                            "cross_file_merge": {
+                                "backend": "import_graph",
+                                "basis": "get_callers_import_graph",
+                                "cross_file_caller_count": cross_file_count,
+                                "message": "A low oxc_semantic count was augmented with import_graph cross-file callers; do not read the pre-merge single-file count as unused.",
+                            },
+                        });
+                        // Regression [D]: the merge produces the complete
+                        // reference set, so honor full_results the same way the
+                        // tree-sitter path does — preserve every merged row.
+                        mark_full_results(&mut payload, full_results);
+                        if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
+                            insert_response_annotations(
+                                &mut payload,
+                                &unknown_args,
+                                &deprecation_warnings,
+                            );
+                        }
+                        return Ok((payload, meta));
+                    }
+                }
                 let structural_evidence = is_self_only
                     .then(|| {
                         structural_ts_reference_evidence(state, &file_path, sym_name, max_results)
@@ -453,6 +620,72 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         state.project().as_path(),
                         &scip_candidate_files,
                     );
+                    // Issue #251: a STALE SCIP index can silently drop call
+                    // sites, so its precise count under-reports the true
+                    // reference set (live E2E 2026-07-21: 12 of 16). Before
+                    // serving the stale precise tier, cross-check the
+                    // tree-sitter text scan; when it finds strictly more
+                    // references the stale index has lost call sites, so
+                    // return the fuller set at reduced confidence with a
+                    // strengthened staleness warning instead of the
+                    // undercount. Mirrors the LSP-underreport-vs-text fallback
+                    // below. Fresh indexes skip this probe (staleness None), so
+                    // the extra text scan only runs on the rare stale path.
+                    if let Some(stale) = scip_staleness.as_ref()
+                        && let Ok(text_refs) = find_referencing_symbols_via_text(
+                            &state.project(),
+                            sym_name,
+                            Some(&file_path),
+                            max_results,
+                        )
+                        && text_refs.len() > count
+                    {
+                        let scip_count = count;
+                        let text_count = text_refs.len();
+                        let (references, total_count, sampled) = compact_text_references(
+                            text_refs,
+                            include_context,
+                            full_results,
+                            sample_limit,
+                        );
+                        let meta =
+                            meta_degraded("hybrid", 0.6, "scip_stale_undercount_vs_text");
+                        let evidence = crate::tool_evidence::tool_evidence(
+                            "references",
+                            &meta,
+                            "scip_stale_undercount_text_fallback",
+                            crate::tool_evidence::precision_signals(
+                                true,
+                                false,
+                                Some("scip"),
+                                Some("tree_sitter"),
+                                total_count,
+                            ),
+                        );
+                        let stale_warning =
+                            crate::tools::scip_health::scip_stale_undercount_warning_payload(
+                                stale, scip_count, text_count,
+                            );
+                        let mut payload = json!({
+                            "references": references,
+                            "count": total_count,
+                            "returned_count": references.len(),
+                            "sampled": sampled,
+                            "include_context": include_context,
+                            "backend": "tree_sitter",
+                            "evidence": evidence,
+                            "scip_index_stale_warning": stale_warning,
+                        });
+                        mark_full_results(&mut payload, full_results);
+                        if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
+                            insert_response_annotations(
+                                &mut payload,
+                                &unknown_args,
+                                &deprecation_warnings,
+                            );
+                        }
+                        return Ok((payload, meta));
+                    }
                     let (meta, confidence_basis) = if scip_staleness.is_some() {
                         (
                             crate::tool_evidence::meta_degraded(
@@ -526,110 +759,26 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             }
         }
 
-        // Warm-LSP precision stage: upgrade to precise LSP references *only*
-        // when the file's language server is already warm in the pool. Never
-        // cold-starts here — that would break the default path's latency
-        // contract. Closes the tree-sitter gap on Python (pyright) import and
-        // type-annotation references. oxc/SCIP stages above are unchanged.
-        let lsp_command = default_lsp_command_for_path(&file_path);
-        let lsp_args: Vec<String> = lsp_command
-            .as_deref()
-            .map(default_lsp_args_for_command)
-            .unwrap_or_default();
-        let mut cold_lsp_hint: Option<Value> = None;
-        match decide_warm_lsp_stage(lsp_command, |command| {
-            state.lsp_pool().has_warm_session(command, &lsp_args)
-        }) {
-            WarmLspStage::UseLsp { command } => {
-                // The warmth probe above just confirmed this server was
-                // resident, so the request below almost always reuses the live
-                // session. `find_referencing_symbols_tracking_spawn` also
-                // reports whether it actually had to spawn — covering the rare
-                // TOCTOU case where the server died between the probe and this
-                // call and was respawned mid-request — so the routing_note can
-                // state truthfully whether a cold start occurred. If the
-                // symbol position cannot be resolved or the server returns
-                // nothing, fall through to tree-sitter (no hint — it is warm).
-                if let Some((line, column)) = resolve_symbol_position(state, sym_name, &file_path)
-                    && let Ok((refs, cold_start_incurred)) = state
-                        .lsp_pool()
-                        .find_referencing_symbols_tracking_spawn(&LspRequest {
-                            command: command.clone(),
-                            args: lsp_args.clone(),
-                            file_path: file_path.clone(),
-                            line,
-                            column,
-                            max_results,
-                        })
-                    && !refs.is_empty()
-                {
-                    let precise_count = refs.len();
-                    // P1.1b: the request's read loop just harvested any
-                    // pending serverStatus notifications, so the pool now
-                    // holds the freshest readiness state for this server.
-                    let quiescence = state
-                        .lsp_pool()
-                        .warm_session_quiescence(&command, &lsp_args)
-                        .flatten();
-                    let (confidence, degraded_reason, confidence_basis) =
-                        lsp_confidence_for_quiescence(
-                            quiescence,
-                            "lsp_precise_warm_quiescent",
-                            "lsp_precise_warm_routed",
-                        );
-                    let meta = match degraded_reason {
-                        Some(reason) => meta_degraded("lsp", confidence, reason),
-                        None => meta_for_backend("lsp", confidence),
-                    };
-                    let evidence = crate::tool_evidence::tool_evidence(
-                        "references",
-                        &meta,
-                        confidence_basis,
-                        crate::tool_evidence::precision_signals(
-                            true,
-                            true,
-                            Some("lsp"),
-                            None,
-                            precise_count,
-                        ),
-                    );
-                    let mut payload = json!({
-                        "references": refs,
-                        "count": precise_count,
-                        "returned_count": precise_count,
-                        "sampled": false,
-                        "backend": "lsp",
-                        "evidence": evidence,
-                        "routing_note": {
-                            "stage": "warm_lsp_default_path",
-                            "server": command,
-                            "cold_start_incurred": cold_start_incurred,
-                            "server_quiescent": quiescence,
-                            "rationale": warm_lsp_routing_rationale(cold_start_incurred),
-                        },
-                    });
-                    if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
-                        insert_response_annotations(
-                            &mut payload,
-                            &unknown_args,
-                            &deprecation_warnings,
-                        );
-                    }
-                    return Ok((payload, meta));
-                }
-            }
-            WarmLspStage::ColdHint { command } => {
-                cold_lsp_hint = Some(json!({
-                    "code": "lsp_server_cold",
+        // Regression [C]: the default path (no explicit use_lsp) must return the
+        // same result whether or not a language server happens to be warm. A
+        // prior warm-LSP hijack routed warm servers through LSP here, producing
+        // a different — and often under-complete — result than the cold
+        // tree-sitter path for the SAME request, and silently dropping the
+        // full_results marker (n=3, truncated=true). The default path now stays
+        // on tree-sitter unconditionally; when the language has a server
+        // mapping it only advertises that use_lsp=true adds annotation-aware
+        // precision (explicit opt-in), so warmth never changes the answer.
+        let cold_lsp_hint: Option<Value> =
+            default_lsp_command_for_path(&file_path).map(|command| {
+                json!({
+                    "code": "lsp_precision_available",
                     "server": command,
                     "message": format!(
-                        "tree-sitter references can miss import and type-annotation usages for this language. `{command}` is not warm, so the default path stayed on tree-sitter to preserve latency. Re-run with use_lsp=true for annotation-aware precise references."
+                        "tree-sitter references can miss import and type-annotation usages for this language. Re-run with use_lsp=true for annotation-aware precise references via `{command}`."
                     ),
                     "recommended_action": "retry_with_use_lsp_true",
-                }));
-            }
-            WarmLspStage::NoMapping => {}
-        }
+                })
+            });
 
         return Ok(find_referencing_symbols_via_text(
             &state.project(),
@@ -661,6 +810,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 "include_context": include_context,
                 "evidence": evidence,
             });
+            mark_full_results(&mut payload, full_results);
             if let Some(hint) = cold_lsp_hint
                 && let Some(map) = payload.as_object_mut()
             {
@@ -695,17 +845,21 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
 
     if let Some(command) = command {
         let args = parse_lsp_args(arguments, &command);
-        let lsp_result = state
-            .lsp_pool()
-            .find_referencing_symbols(&LspRequest {
-                command: command.clone(),
-                args: args.clone(),
-                file_path: file_path.clone(),
-                line,
-                column,
-                max_results,
-            })
-            .map_err(|e| enhance_lsp_error(e, &command));
+        // P3: an explicit use_lsp request must not silently miss references
+        // just because the server was cold — wait (bounded) for the freshly
+        // spawned server to finish indexing and retry, instead of returning
+        // the empty first read. Warm servers pay nothing; the wait is capped.
+        let request = LspRequest {
+            command: command.clone(),
+            args: args.clone(),
+            file_path: file_path.clone(),
+            line,
+            column,
+            max_results,
+        };
+        let pool = state.lsp_pool();
+        let lsp_result =
+            lsp_references_with_cold_wait(&pool, &request).map_err(|e| enhance_lsp_error(e, &command));
 
         match lsp_result {
             Ok(value) => {
@@ -723,6 +877,69 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     None
                 };
                 let structural_count = structural_evidence_count(&structural_evidence);
+                // Regression [B]: when NO TS structural evidence already covers a
+                // low LSP count, cross-check against the tree-sitter text scan
+                // and prefer the fuller set at reduced confidence — a low LSP
+                // count is often an under-report (cold / partial index, or a
+                // declaration-only answer). The structural-evidence path below
+                // owns the TS case with its own degrade, so gate on
+                // `structural_count == 0` to leave it untouched.
+                if structural_count == 0
+                    && precise_count <= LSP_UNDERREPORT_PROBE_MAX
+                    && let Some(symbol_name) = symbol_name_param
+                    && let Ok(text_refs) = find_referencing_symbols_via_text(
+                        &state.project(),
+                        symbol_name,
+                        Some(&file_path),
+                        max_results,
+                    )
+                    && lsp_underreports_vs_text(precise_count, text_refs.len())
+                {
+                    let text_count = text_refs.len();
+                    let (references, total_count, sampled) = compact_text_references(
+                        text_refs,
+                        include_context,
+                        full_results,
+                        sample_limit,
+                    );
+                    let meta =
+                        meta_degraded("hybrid", 0.6, "lsp_underreport_vs_text_backend");
+                    let evidence = crate::tool_evidence::tool_evidence(
+                        "references",
+                        &meta,
+                        "lsp_underreport_text_fallback",
+                        crate::tool_evidence::precision_signals(
+                            true,
+                            false,
+                            Some("lsp"),
+                            Some("tree_sitter"),
+                            total_count,
+                        ),
+                    );
+                    let mut payload = json!({
+                        "references": references,
+                        "count": total_count,
+                        "returned_count": references.len(),
+                        "sampled": sampled,
+                        "include_context": include_context,
+                        "backend": "tree_sitter",
+                        "evidence": evidence,
+                        "lsp_underreport_warning": {
+                            "code": "lsp_underreport_vs_text_backend",
+                            "lsp_count": precise_count,
+                            "text_count": text_count,
+                            "message": "The LSP backend resolved far fewer references than the tree-sitter text scan (likely a cold or partial index, or a declaration-only result). Returning the fuller text-backend set at reduced confidence; re-run once the language server is warm for precise references.",
+                            "recommended_action": "retry_when_lsp_warm",
+                        },
+                    });
+                    mark_full_results(&mut payload, full_results);
+                    insert_response_annotations(
+                        &mut payload,
+                        &unknown_args,
+                        &deprecation_warnings,
+                    );
+                    return Ok((payload, meta));
+                }
                 // P1.1b: same readiness calibration as the warm default path.
                 // The request above harvested any pending serverStatus
                 // notifications, so this is the freshest readiness state.
@@ -812,6 +1029,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 "include_context": include_context,
                 "evidence": evidence,
             });
+            mark_full_results(&mut payload, full_results);
             insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
             (payload, meta)
         })?,
@@ -820,59 +1038,6 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
 
 #[cfg(test)]
 mod warm_lsp_routing_tests {
-    use super::{WarmLspStage, decide_warm_lsp_stage, warm_lsp_routing_rationale};
-
-    #[test]
-    fn rationale_claims_no_cold_start_only_when_session_was_reused() {
-        let reused = warm_lsp_routing_rationale(false);
-        assert!(
-            reused.contains("No cold start was incurred"),
-            "reused-session note must state no cold start: {reused}"
-        );
-        assert!(
-            !reused.to_ascii_lowercase().contains("respawn"),
-            "reused-session note must not mention a respawn: {reused}"
-        );
-    }
-
-    #[test]
-    fn rationale_admits_cold_start_when_session_respawned() {
-        let respawned = warm_lsp_routing_rationale(true);
-        assert!(
-            respawned.contains("cold start was incurred"),
-            "respawn note must admit the cold start: {respawned}"
-        );
-        assert!(
-            !respawned.contains("No cold start was incurred"),
-            "respawn note must not falsely claim no cold start: {respawned}"
-        );
-    }
-
-    #[test]
-    fn warm_server_routes_to_lsp() {
-        let decision = decide_warm_lsp_stage(Some("pyright-langserver".to_owned()), |cmd| {
-            assert_eq!(cmd, "pyright-langserver");
-            true
-        });
-        assert_eq!(
-            decision,
-            WarmLspStage::UseLsp {
-                command: "pyright-langserver".to_owned()
-            }
-        );
-    }
-
-    #[test]
-    fn cold_server_falls_back_with_hint() {
-        let decision = decide_warm_lsp_stage(Some("pyright-langserver".to_owned()), |_| false);
-        assert_eq!(
-            decision,
-            WarmLspStage::ColdHint {
-                command: "pyright-langserver".to_owned()
-            }
-        );
-    }
-
     #[test]
     fn quiescence_calibration_degrades_only_verified_indexing() {
         use super::lsp_confidence_for_quiescence;
@@ -891,14 +1056,128 @@ mod warm_lsp_routing_tests {
             lsp_confidence_for_quiescence(None, "quiescent_basis", "unknown_basis");
         assert_eq!((confidence, reason, basis), (0.95, None, "unknown_basis"));
     }
+}
+
+#[cfg(test)]
+mod cross_file_merge_tests {
+    use super::merge_caller_rows_dedup;
+    use codelens_engine::CallerEntry;
+    use serde_json::Value;
+    use std::collections::HashSet;
+
+    fn caller(file: &str, function: &str, line: usize) -> CallerEntry {
+        CallerEntry {
+            file: file.to_owned(),
+            function: function.to_owned(),
+            line,
+            confidence: 0.9,
+            resolution: Some("import_map"),
+        }
+    }
 
     #[test]
-    fn unmapped_language_stays_plain_tree_sitter_without_probing() {
-        // Warmth must not be probed at all when there is no LSP mapping —
-        // the closure panics if consulted, proving the short-circuit.
-        let decision = decide_warm_lsp_stage(None, |_| {
-            panic!("warmth must not be probed without a mapping")
-        });
-        assert_eq!(decision, WarmLspStage::NoMapping);
+    fn merges_cross_file_callers_and_tags_backend() {
+        // The oxc self-only result is the definition at src/actions.ts:3.
+        // import_graph reports two cross-file callers — both must merge in and
+        // be tagged with the import_graph backend so the evidence is
+        // self-describing.
+        let seen: HashSet<(String, usize)> = [("src/actions.ts".to_owned(), 3)].into();
+        let callers = vec![
+            caller("src/handler.ts", "handleRequest", 12),
+            caller("src/page.tsx", "render", 40),
+        ];
+        let rows = merge_caller_rows_dedup(callers, seen, 20);
+        assert_eq!(rows.len(), 2, "both cross-file callers must merge, got {rows:?}");
+        for row in &rows {
+            assert_eq!(row["backend"], Value::String("import_graph".to_owned()));
+            assert_eq!(row["kind"], Value::String("cross_file_caller".to_owned()));
+            assert!(row["file_path"].is_string() && row["line"].is_u64());
+        }
+    }
+
+    #[test]
+    fn dedups_same_file_oxc_line_and_duplicate_callers() {
+        // A same-file caller oxc already reported (src/actions.ts:3) must not be
+        // re-added, and a duplicate (file, line) among the import_graph rows
+        // must collapse to one — the merged set is a true union.
+        let seen: HashSet<(String, usize)> = [("src/actions.ts".to_owned(), 3)].into();
+        let callers = vec![
+            caller("src/actions.ts", "applyAction", 3), // already in oxc result
+            caller("src/handler.ts", "handleRequest", 12),
+            caller("src/handler.ts", "handleRequest", 12), // duplicate
+        ];
+        let rows = merge_caller_rows_dedup(callers, seen, 20);
+        assert_eq!(
+            rows.len(),
+            1,
+            "same-file oxc line and duplicate caller must be deduped, got {rows:?}"
+        );
+        assert_eq!(rows[0]["file_path"], Value::String("src/handler.ts".to_owned()));
+    }
+
+    #[test]
+    fn drops_non_js_ts_callers_and_respects_cap() {
+        // Non-JS/TS callers are not part of the oxc reference surface and must
+        // be filtered; the result is capped at max_results.
+        let seen: HashSet<(String, usize)> = HashSet::new();
+        let callers = vec![
+            caller("src/native.rs", "call_it", 5), // non-TS — dropped
+            caller("src/a.ts", "a", 1),
+            caller("src/b.ts", "b", 2),
+            caller("src/c.ts", "c", 3),
+        ];
+        let rows = merge_caller_rows_dedup(callers, seen, 2);
+        assert_eq!(rows.len(), 2, "cap must bound the merged rows, got {rows:?}");
+        assert!(
+            rows.iter().all(|r| r["file_path"].as_str().unwrap().ends_with(".ts")),
+            "non-JS/TS caller must be filtered, got {rows:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod regression_fix_tests {
+    use super::{lsp_underreports_vs_text, mark_full_results};
+    use serde_json::{Value, json};
+
+    #[test]
+    fn lsp_underreport_guard_fires_only_below_half_the_text_count() {
+        // Regression [B]: pyright returned only the definition (1) while the
+        // text scan found the full 17 — the guard must fire and prefer text.
+        assert!(lsp_underreports_vs_text(1, 17));
+        // 2 vs 5: LSP is below half → under-report.
+        assert!(lsp_underreports_vs_text(2, 5));
+    }
+
+    #[test]
+    fn lsp_underreport_guard_stays_quiet_when_counts_agree() {
+        // At or above half the text count the LSP result is plausibly complete —
+        // no fallback, no confidence downgrade.
+        assert!(!lsp_underreports_vs_text(3, 5), "3 is >50% of 5");
+        assert!(!lsp_underreports_vs_text(5, 5), "equal counts agree");
+        assert!(!lsp_underreports_vs_text(1, 1), "both minimal — no signal");
+        assert!(!lsp_underreports_vs_text(0, 0), "empty on both sides");
+        assert!(
+            !lsp_underreports_vs_text(20, 10),
+            "LSP finding more than text is never an under-report"
+        );
+    }
+
+    #[test]
+    fn mark_full_results_sets_marker_only_when_requested() {
+        // Regression [D]: the merge/fallback paths must attach the completeness
+        // marker when full_results is requested so summarization preserves the
+        // whole array (no n=3/truncated clip); a non-full_results call is
+        // untouched so the default sampling contract is preserved.
+        let mut requested = json!({"references": [1, 2, 3], "count": 3});
+        mark_full_results(&mut requested, true);
+        assert_eq!(requested.get("full_results"), Some(&Value::Bool(true)));
+
+        let mut default = json!({"references": [1, 2, 3], "count": 3});
+        mark_full_results(&mut default, false);
+        assert!(
+            default.get("full_results").is_none(),
+            "default path must not gain the marker, got {default:?}"
+        );
     }
 }
