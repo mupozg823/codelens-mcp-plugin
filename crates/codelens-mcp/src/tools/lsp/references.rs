@@ -251,45 +251,111 @@ fn merge_caller_rows_dedup(
     rows
 }
 
-/// P3: bounded cold-start wait for the explicit `use_lsp=true` path.
+/// P3/P8: bounded cold-start wait for the explicit `use_lsp=true` path.
 ///
 /// A `use_lsp=true` request against a COLD language server used to spawn it,
-/// read back whatever the still-indexing server had (frequently zero
-/// references), and fall through to a 0.7-confidence tree-sitter answer — a
-/// silent recall miss on a machine where the server is installed and would
-/// answer correctly once warm. This runs the reference query and, when the
-/// server had to cold-start and returned nothing, retries on a bounded schedule
-/// (total ≈ [`LSP_COLD_WAIT`]) until it returns results, reports quiescent
-/// (genuinely no references), or the session dies. The wait blocks the request
-/// thread but is hard-capped — never unbounded.
+/// read back whatever the still-indexing server had, and fall through to a
+/// tree-sitter answer — a silent recall miss on a machine where the server is
+/// installed and would answer correctly once warm.
+///
+/// The original P3 wait only fired when the cold read came back **empty**, which
+/// is right for rust-analyzer (it returns nothing until quiescent) but wrong for
+/// pyright/tsserver: those resolve **same-file** references off the just-opened
+/// document immediately, so a cold read returns a non-empty but incomplete set
+/// (frequently the declaration alone) while the cross-file references only land
+/// after the background workspace scan completes ~a beat later. That non-empty
+/// short-circuit returned the declaration-only set, and the downstream
+/// under-report guard then served the tree-sitter text set — so `use_lsp=true`
+/// never delivered the precise cross-file answer it exists to provide.
+///
+/// P8 converges on the reference set instead of merely on non-emptiness: it
+/// keeps polling while the count is still **growing** (the index producing more
+/// references) and stops once the set is stable. Convergence is decided by, in
+/// priority order, (1) a structured readiness signal when the server emits one
+/// (rust-analyzer `experimental/serverStatus` quiescence), else (2) the result
+/// already spanning multiple files (the cross-file set has landed and held
+/// steady), else (3) a bounded settle window for no-signal servers so a
+/// genuinely single-file symbol still returns promptly. The whole wait is
+/// hard-capped at [`LSP_COLD_WAIT`] and only runs on a cold start whose first
+/// read is single-file — a warm session (already fully indexed) or a cold read
+/// that already spans multiple files pays nothing.
 const LSP_COLD_WAIT: Duration = Duration::from_secs(10);
 const LSP_COLD_POLL: Duration = Duration::from_millis(500);
+/// Consecutive no-growth polls tolerated for a no-readiness-signal server
+/// (pyright/tsserver) whose result is still confined to a single file, before
+/// the set is accepted as a genuinely-local symbol. Any growth resets this, so a
+/// cross-file set that lands late keeps the wait alive until it stabilizes
+/// (still bounded by [`LSP_COLD_WAIT`]). Sized off the measured worst case:
+/// pyright lands its cross-file set on the first poll, but
+/// typescript-language-server was observed returning the declaration alone for
+/// two polls before the cross-file set appeared on the third — so the window
+/// must clear at least two no-growth polls before giving up. If a server on a
+/// large project is even slower, the set never grows in time, we return the
+/// (still single-file) result, and the existing under-report guard degrades
+/// gracefully to the tree-sitter text set — no correctness loss, only a missed
+/// precision opportunity.
+const LSP_LOCAL_SETTLE_POLLS: u32 = 4;
+
+/// True once the reference set touches more than one distinct file — the signal
+/// that a server's cross-file scan has actually produced results (as opposed to
+/// the same-file-only set available immediately off the open document).
+fn reference_set_spans_multiple_files(refs: &[codelens_engine::LspReference]) -> bool {
+    let mut first: Option<&str> = None;
+    for reference in refs {
+        match first {
+            None => first = Some(reference.file_path.as_str()),
+            Some(seen) if seen != reference.file_path.as_str() => return true,
+            _ => {}
+        }
+    }
+    false
+}
 
 fn lsp_references_with_cold_wait(
     pool: &codelens_engine::LspSessionPool,
     request: &LspRequest,
 ) -> anyhow::Result<Vec<codelens_engine::LspReference>> {
     let (mut refs, cold_started) = pool.find_referencing_symbols_tracking_spawn(request)?;
-    if !refs.is_empty() || !cold_started {
+    // Warm session ⇒ its one-time workspace index is complete, so the first read
+    // is authoritative. A cold read that already spans multiple files has the
+    // cross-file set already. Either way, no wait.
+    if !cold_started || reference_set_spans_multiple_files(&refs) {
         return Ok(refs);
     }
     let deadline = Instant::now() + LSP_COLD_WAIT;
-    while refs.is_empty() && Instant::now() < deadline {
+    let mut no_growth_polls: u32 = 0;
+    while Instant::now() < deadline {
         std::thread::sleep(LSP_COLD_POLL);
         // Each request drains the server's pending notifications, so this both
         // retries the query and harvests the latest quiescence signal.
-        match pool.find_referencing_symbols(request) {
-            Ok(retry) => refs = retry,
-            Err(_) => break,
+        let retry = match pool.find_referencing_symbols(request) {
+            Ok(retry) => retry,
+            Err(_) => break, // session died — return the best set so far
+        };
+        if retry.len() > refs.len() {
+            // The background index produced more references — keep the fuller
+            // set and reset the settle window; the set is still growing.
+            refs = retry;
+            no_growth_polls = 0;
+            continue;
         }
-        if !refs.is_empty() {
-            break;
-        }
+        no_growth_polls += 1;
         match pool.warm_session_quiescence(&request.command, &request.args) {
-            // Finished indexing but still empty ⇒ truly no references. Session
-            // gone ⇒ nothing more to wait for. Either way, stop early.
+            // Server verified fully indexed, or the session is gone: no more
+            // references are coming — stop with what we have.
             Some(Some(true)) | None => break,
-            _ => {}
+            // Server explicitly still indexing (rust-analyzer): keep waiting for
+            // the set to land, regardless of the no-signal settle window.
+            Some(Some(false)) => continue,
+            // Live but no structured readiness signal (pyright/tsserver): fall
+            // through to the stabilization heuristic.
+            Some(None) => {}
+        }
+        // No structured signal. A multi-file set that stopped growing is the
+        // complete cross-file answer. A still-single-file set gets a bounded
+        // settle window before we accept it as a genuinely-local symbol.
+        if reference_set_spans_multiple_files(&refs) || no_growth_polls >= LSP_LOCAL_SETTLE_POLLS {
+            break;
         }
     }
     Ok(refs)
@@ -1050,6 +1116,13 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     "evidence": evidence,
                 });
                 insert_structural_ts_evidence(&mut payload, structural_evidence, precise_count);
+                // The explicit `use_lsp=true` LSP-primary return is the sixth
+                // reference path (tree-sitter default, LSP fallback, P4 merge,
+                // text fallback, scip_precise are the others). Route it through
+                // the same completeness seam so a full_results=true request keeps
+                // the whole precise array instead of the summarizer clipping it
+                // to n=3 + flagging truncated.
+                mark_full_results(&mut payload, full_results);
                 if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
                     insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
                 }
@@ -1213,8 +1286,38 @@ mod cross_file_merge_tests {
 
 #[cfg(test)]
 mod regression_fix_tests {
-    use super::{lsp_underreports_vs_text, mark_full_results};
+    use super::{lsp_underreports_vs_text, mark_full_results, reference_set_spans_multiple_files};
+    use codelens_engine::LspReference;
     use serde_json::{Value, json};
+
+    fn reference(file: &str) -> LspReference {
+        LspReference {
+            file_path: file.to_owned(),
+            line: 1,
+            column: 1,
+            end_line: 1,
+            end_column: 5,
+        }
+    }
+
+    #[test]
+    fn spans_multiple_files_detects_the_cross_file_boundary() {
+        // P8: the cold-wait convergence hinges on this — a same-file-only set is
+        // a possibly-incomplete cold read; the first out-of-file reference is the
+        // signal the workspace scan has produced the cross-file set.
+        assert!(
+            !reference_set_spans_multiple_files(&[]),
+            "empty set spans no files"
+        );
+        assert!(
+            !reference_set_spans_multiple_files(&[reference("core.py"), reference("core.py")]),
+            "declaration-only / same-file set must not count as cross-file"
+        );
+        assert!(
+            reference_set_spans_multiple_files(&[reference("core.py"), reference("alpha.py")]),
+            "a reference in a second file is the cross-file signal"
+        );
+    }
 
     #[test]
     fn lsp_underreport_guard_fires_only_below_half_the_text_count() {

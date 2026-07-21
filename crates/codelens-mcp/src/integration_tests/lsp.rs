@@ -1346,6 +1346,92 @@ fn default_path_stays_deterministic_with_real_warm_pyright_when_installed() {
     );
 }
 
+/// P8 (real pyright): an explicit `use_lsp=true` query must return the COMPLETE
+/// cross-file reference set, not the declaration-only cold read. Before P8 the
+/// bounded cold-wait short-circuited on pyright's non-empty-but-incomplete first
+/// read (the declaration alone, resolved off the just-opened document); the
+/// under-report guard then served the tree-sitter text set, so `use_lsp=true`
+/// never delivered a precise LSP answer. This drives a real pyright over a
+/// three-file fixture (one definition referenced from two other files) and
+/// asserts the precise backend spans every referencing file. Skips cleanly when
+/// pyright is absent so CI without it stays green.
+#[test]
+fn use_lsp_returns_complete_cross_file_references_with_real_pyright() {
+    if !codelens_engine::lsp_binary_exists("pyright-langserver") {
+        eprintln!(
+            "skipping use_lsp_returns_complete_cross_file_references_with_real_pyright: pyright-langserver not installed"
+        );
+        return;
+    }
+    let project = project_root();
+    // Same-file references resolve immediately off the open document; the
+    // cross-file references in alpha.py/beta.py only land after pyright's
+    // background workspace scan — exactly the race P8's convergence wait closes.
+    fs::write(
+        project.as_path().join("core.py"),
+        "def process(value):\n    return value + 1\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("alpha.py"),
+        "from core import process\n\n\ndef run_alpha():\n    return process(1)\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("beta.py"),
+        "from core import process\n\n\ndef run_beta():\n    return process(2)\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({
+            "file_path": "core.py",
+            "symbol_name": "process",
+            "use_lsp": true,
+            "full_results": true,
+        }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+
+    // The precise LSP backend must be the one that answered — not the
+    // tree-sitter text fallback the under-report guard used to serve.
+    assert_eq!(
+        payload["data"]["evidence"]["active_backend"],
+        json!("lsp"),
+        "precise LSP backend must serve the answer, not a fallback: {payload}"
+    );
+    assert_eq!(
+        payload["data"]["evidence"]["signals"]["precise_used"],
+        json!(true),
+        "the precise LSP result must be used, not the text fallback: {payload}"
+    );
+    assert!(
+        payload["data"].get("lsp_underreport_warning").is_none(),
+        "a complete cross-file LSP result must not trip the under-report guard: {payload}"
+    );
+
+    // Completeness: references must span every referencing file, not just the
+    // declaration's own file (the cold-read short-circuit symptom).
+    let refs = payload["data"]["references"]
+        .as_array()
+        .unwrap_or_else(|| panic!("references array missing: {payload}"));
+    let mut files: Vec<String> = refs
+        .iter()
+        .filter_map(|r| r["file_path"].as_str().map(str::to_owned))
+        .collect();
+    files.sort();
+    files.dedup();
+    for expected in ["alpha.py", "beta.py", "core.py"] {
+        assert!(
+            files.iter().any(|f| f.ends_with(expected)),
+            "cross-file references must include {expected}; got files={files:?}: {payload}"
+        );
+    }
+}
+
 #[test]
 fn lsp_read_trio_visible_on_read_surfaces() {
     use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
