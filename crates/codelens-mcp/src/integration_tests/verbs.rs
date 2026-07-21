@@ -77,6 +77,58 @@ fn search_verb_unknown_mode_lists_valid_modes() {
     );
 }
 
+/// ADR-0016 (acceptance f): with get_callers/get_callees no longer *listed* on
+/// the reviewer-graph surface, the `graph` verb façade and the P4 refs merge
+/// must keep working — both route through the callability gate, which now
+/// accepts registered-but-unlisted targets as hidden aliases.
+#[test]
+fn reviewer_graph_facade_and_refs_work_without_listed_call_graph_primitives() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("reviewer_graph.py"),
+        "def sink():\n    pass\n\ndef source():\n    sink()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    // Precondition: the raw primitive is unlisted on this surface.
+    assert!(
+        !crate::tool_defs::is_tool_in_surface(
+            "get_callers",
+            crate::tool_defs::ToolSurface::Profile(crate::tool_defs::ToolProfile::ReviewerGraph),
+        ),
+        "test premise: get_callers must be unlisted on reviewer-graph"
+    );
+
+    // graph(mode=callers) façade → resolves to the hidden get_callers target.
+    let graph_payload = call_tool(
+        &state,
+        "graph",
+        json!({ "mode": "callers", "function_name": "sink" }),
+    );
+    assert_eq!(
+        graph_payload["success"],
+        json!(true),
+        "graph(mode=callers) must still delegate to get_callers on reviewer-graph: {graph_payload}"
+    );
+
+    // find_referencing_symbols (listed) with its P4 import_graph merge path.
+    let refs_payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "symbol_name": "sink", "relative_path": "reviewer_graph.py" }),
+    );
+    assert_eq!(
+        refs_payload["success"],
+        json!(true),
+        "find_referencing_symbols must keep working on reviewer-graph: {refs_payload}"
+    );
+}
+
 // ── Phase-2 verbs (overview / diagnose / analyze) ────────────────────
 
 #[test]
@@ -142,8 +194,14 @@ fn analyze_verb_list_mode_delegates_to_list_analysis_jobs() {
     );
 }
 
+/// ADR-0016 (item 3 / acceptance f): a verb façade delegates to its resolved
+/// target through the same callability gate. `cancel_analysis_job` is
+/// registered but not listed on planner-readonly, so under the hidden-alias
+/// contract the façade now *reaches* it (returning the target handler's own
+/// job-not-found result) instead of bouncing off the listing gate. The
+/// "not available in active surface" denial is reserved for unregistered names.
 #[test]
-fn analyze_verb_cancel_mode_enforces_target_surface_access() {
+fn analyze_verb_cancel_mode_reaches_callable_hidden_target() {
     let project = project_root();
     let state = make_state(&project);
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
@@ -159,12 +217,12 @@ fn analyze_verb_cancel_mode_enforces_target_surface_access() {
     assert_eq!(
         payload["success"],
         json!(false),
-        "planner surface must reject an analyze mode whose target is hidden: {payload}"
+        "cancelling a missing job must still fail (job-not-found), just not via the listing gate: {payload}"
     );
     let error = payload["error"].as_str().unwrap_or_default();
     assert!(
-        error.contains("cancel_analysis_job") && error.contains("not available in active surface"),
-        "facade must report target surface denial instead of invoking the target: {error}"
+        !error.contains("not available in active surface"),
+        "the façade must invoke the now-callable hidden target, not deny it by listing: {error}"
     );
 }
 

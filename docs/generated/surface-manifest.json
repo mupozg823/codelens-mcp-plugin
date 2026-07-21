@@ -945,7 +945,7 @@
     "profiles": [
       {
         "name": "readonly",
-        "tool_count": 42,
+        "tool_count": 40,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -989,8 +989,6 @@
           "embedding_coverage_report",
           "index_embeddings",
           "get_changed_files",
-          "get_callers",
-          "get_callees",
           "get_current_config",
           "find_declaration",
           "find_implementations",
@@ -1070,7 +1068,7 @@
       },
       {
         "name": "review",
-        "tool_count": 22,
+        "tool_count": 20,
         "preferred_namespaces": [
           "reports",
           "graph",
@@ -1099,8 +1097,6 @@
           "search",
           "overview",
           "refresh_symbol_index",
-          "get_callers",
-          "get_callees",
           "get_symbols_overview",
           "find_symbol",
           "get_ranked_context",
@@ -1381,7 +1377,7 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 42
+                "tool_count": 40
               },
               {
                 "name": "builder",
@@ -1423,11 +1419,11 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 42
+                "tool_count": 40
               },
               {
                 "name": "review",
-                "tool_count": 22
+                "tool_count": 20
               }
             ]
           },
@@ -1485,11 +1481,11 @@
             "profiles": [
               {
                 "name": "review",
-                "tool_count": 22
+                "tool_count": 20
               },
               {
                 "name": "review",
-                "tool_count": 22
+                "tool_count": 20
               }
             ]
           }
@@ -1527,15 +1523,15 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 42
+                "tool_count": 40
               },
               {
                 "name": "readonly",
-                "tool_count": 42
+                "tool_count": 40
               },
               {
                 "name": "review",
-                "tool_count": 22
+                "tool_count": 20
               }
             ]
           }
@@ -1588,11 +1584,11 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 42
+                "tool_count": 40
               },
               {
                 "name": "review",
-                "tool_count": 22
+                "tool_count": 20
               }
             ]
           },
@@ -1767,11 +1763,11 @@
             "profiles": [
               {
                 "name": "review",
-                "tool_count": 22
+                "tool_count": 20
               },
               {
                 "name": "review",
-                "tool_count": 22
+                "tool_count": 20
               }
             ]
           }
@@ -1865,15 +1861,15 @@
             "profiles": [
               {
                 "name": "readonly",
-                "tool_count": 42
+                "tool_count": 40
               },
               {
                 "name": "readonly",
-                "tool_count": 42
+                "tool_count": 40
               },
               {
                 "name": "review",
-                "tool_count": 22
+                "tool_count": 20
               }
             ]
           }

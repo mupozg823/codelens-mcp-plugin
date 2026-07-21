@@ -257,6 +257,21 @@ pub(crate) fn dispatch_tool(
         result = Err(audit_error);
     }
 
+    // Hidden-alias observability (ADR-0016): a registered tool that is not
+    // listed on the active surface stays callable — registration + the
+    // mutation gate govern callability, the preset/profile listing governs
+    // discovery only. Flag such calls with a `surface_note` so hosts can
+    // observe the aliasing. It is not an error, and verb-facade calls (whose
+    // outer name *is* listed) are unaffected; only a direct call to an unlisted
+    // registered tool is tagged.
+    if let Ok((payload, _)) = &mut result
+        && !crate::tool_defs::is_tool_in_surface(name, ctx.surface)
+        && let Some(map) = payload.as_object_mut()
+    {
+        map.entry("surface_note".to_owned())
+            .or_insert_with(|| serde_json::json!("hidden_alias"));
+    }
+
     // #347: shared-daemon project trap. An HTTP session that never
     // declared its workspace is pinned to the daemon's default project —
     // usually NOT the caller's repo. Attach a loud hint to every

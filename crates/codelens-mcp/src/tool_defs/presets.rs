@@ -261,11 +261,12 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     // #350: target of find_symbol / D1-trio fallback hints — must be
     // present wherever those emitters are, or the hint chain dead-ends.
     "bm25_symbol_search",
-    // #350: `find_referencing_symbols` emits `cross_file_callers_hint` →
-    // `get_callers`, so this read surface must expose it (and its sibling
-    // get_callees) or the recovery chain dead-ends on "not available".
-    "get_callers",
-    "get_callees",
+    // #350 / ADR-0016: `find_referencing_symbols` emits
+    // `cross_file_callers_hint` → `get_callers`. The hint chain now resolves
+    // through *callability*, not listing — get_callers/get_callees are
+    // registered in tools.toml and stay dispatchable here as hidden aliases
+    // (see dispatch/access.rs::is_tool_registered), so they no longer occupy a
+    // listed slot on this read surface. They remain listed on builder-minimal.
     // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
     "find_declaration",
     "find_implementations",
@@ -363,9 +364,10 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
 
 // Curated default `review` surface (:7839) — the core set from the
 // 2026-07 tool-surface diet, step 1. Reduced from 49 → 20 to match the
-// 14-day usage telemetry (docs/operations/tool-surface-diet-2026-07.md),
-// then lifted to 22 by the #350 hint-chain fix (get_callers/get_callees are
-// the `cross_file_callers_hint` targets and must be callable here).
+// 14-day usage telemetry (docs/operations/tool-surface-diet-2026-07.md).
+// ADR-0016 keeps this at ≤20: the #350 call-graph hint targets
+// (get_callers/get_callees) resolve through hidden-alias callability rather
+// than a listed slot, so the surface holds the core-20 cap.
 //
 // Reversible and non-destructive: the 33 tools dropped here are NOT
 // deleted — their tools.toml definitions and dispatch arms stay intact,
@@ -383,8 +385,6 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
 //   - 9 always-load entrypoints (v1.13.34 CHANGELOG)
 //   - 6 change-safety / diagnostics tools kept by the usage +
 //     "change safety" strategy axis
-//   - 2 call-graph hint targets (get_callers/get_callees) added by the #350
-//     hint-chain fix so `cross_file_callers_hint` resolves on this surface
 pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     // Verb facades (canonical mode-routing entrypoints)
     "search",
@@ -407,14 +407,13 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "impact_report",
     "diff_aware_references",
     "safe_rename_report",
-    // #350: `find_referencing_symbols` (above) emits `cross_file_callers_hint`
-    // → `get_callers`; the `graph` verb façade alone did not satisfy the raw
-    // hint target, so the review surface dead-ended on "not available in active
-    // surface `review`" (live E2E 2026-07-21). List the two call-graph
-    // primitives here so the hint chain resolves; this lifts the diet core-20
-    // to 22 (see the composition test below).
-    "get_callers",
-    "get_callees",
+    // #350 / ADR-0016: `find_referencing_symbols` (above) emits
+    // `cross_file_callers_hint` → `get_callers`. That hint no longer requires a
+    // listed slot here: get_callers/get_callees are registered in tools.toml
+    // and stay callable as hidden aliases on this surface (dispatch/access.rs
+    // ::is_tool_registered), so the recovery chain resolves through dispatch,
+    // not the listing. Keeping them off the listed surface restores the diet
+    // core-20 cap (ADR-0016 ≤20; P1 had temporarily lifted it to 22).
     // Known scope cut: refresh_symbol_index background responses point at
     // get_analysis_job, which this surface does NOT expose (diet cap 20,
     // enforced by reviewer_graph_core_surface_contains_alwaysload_and_
@@ -471,6 +470,13 @@ pub(crate) fn is_tool_in_surface(name: &str, surface: ToolSurface) -> bool {
     }
 }
 
+/// Listed-callable membership for a surface (surface listing ∪ deprecated-alias
+/// resolution). Since ADR-0016 decoupled runtime callability from listing
+/// (`dispatch/access.rs::is_tool_registered`), this predicate is no longer a
+/// runtime gate — it survives only as a doc/overlay-integrity invariant helper
+/// (host-adapter overlay tests assert overlays reference listed tools), so it
+/// is test-only.
+#[cfg(test)]
 pub(crate) fn is_tool_callable_in_surface(name: &str, surface: ToolSurface) -> bool {
     is_tool_in_surface(name, surface)
         || deprecated_workflow_alias(name)
@@ -599,14 +605,13 @@ mod deprecation_tests {
                 "core review surface must retain canonical verb façade `{verb}`"
             );
         }
-        // #350 hint-chain fix (live E2E 2026-07-21): get_callers/get_callees are
-        // the `cross_file_callers_hint` targets emitted by
-        // `find_referencing_symbols`, so they must be callable here — which for a
-        // profile surface means listed. That lifts the diet core-20 to 22; the
-        // cap still guards against unbounded re-bloat of this curated surface.
+        // ADR-0016: the #350 call-graph hint targets (get_callers/get_callees)
+        // resolve through hidden-alias callability, not a listed slot, so the
+        // curated review surface holds the diet core-20 cap. (P1 had
+        // temporarily lifted it to 22 by listing the two primitives directly.)
         assert!(
-            REVIEWER_GRAPH_TOOLS.len() <= 22,
-            "core review surface must stay within the diet cap of 22 (got {})",
+            REVIEWER_GRAPH_TOOLS.len() <= 20,
+            "core review surface must stay within the diet cap of 20 (got {})",
             REVIEWER_GRAPH_TOOLS.len()
         );
         let unique: std::collections::BTreeSet<_> = REVIEWER_GRAPH_TOOLS.iter().collect();
@@ -617,24 +622,44 @@ mod deprecation_tests {
         );
     }
 
-    /// #350 hint-chain (live E2E 2026-07-21): `find_referencing_symbols` emits
-    /// `cross_file_callers_hint` → `get_callers`, so every read surface that can
-    /// run it must also expose the raw call-graph primitives, or the suggested
-    /// recovery dead-ends on "not available in active surface". Locks
-    /// get_callers/get_callees onto the planner, builder, and reviewer surfaces.
+    /// #350 / ADR-0016 hidden-alias contract: `find_referencing_symbols` emits
+    /// `cross_file_callers_hint` → `get_callers`. The hint no longer dead-ends
+    /// on read surfaces because the targets resolve through *callability*, not
+    /// listing: get_callers/get_callees are registered in tools.toml, so
+    /// `dispatch/access.rs::is_tool_registered` keeps them dispatchable as
+    /// hidden aliases even on planner-readonly / reviewer-graph, which no longer
+    /// spend a listed slot on them. builder-minimal still lists them outright.
     #[test]
-    fn call_graph_hint_targets_listed_on_read_surfaces() {
+    fn call_graph_hint_targets_callable_on_read_surfaces() {
+        // Registration = callability under the ADR-0016 gate: the two hint
+        // targets must exist in tools.toml so hidden-alias dispatch resolves.
+        for target in ["get_callers", "get_callees"] {
+            assert!(
+                crate::tool_defs::tool_definition(target).is_some(),
+                "call-graph hint target `{target}` must be registered so it stays \
+                 callable as a hidden alias on read surfaces (#350 / ADR-0016)"
+            );
+        }
+        // Restored diet cap: the two primitives are dropped from the *listed*
+        // planner / reviewer surfaces (they resolve via hidden-alias dispatch),
+        // while builder-minimal keeps them listed for mid-edit call-graph work.
         for (label, surface) in [
             ("planner-readonly", PLANNER_READONLY_TOOLS),
-            ("builder-minimal", BUILDER_MINIMAL_TOOLS),
             ("reviewer-graph", REVIEWER_GRAPH_TOOLS),
         ] {
             for target in ["get_callers", "get_callees"] {
                 assert!(
-                    surface.contains(&target),
-                    "{label} must expose `{target}` — the cross_file_callers_hint target (#350)"
+                    !surface.contains(&target),
+                    "{label} must NOT list `{target}` — it resolves via hidden-alias \
+                     callability, keeping the surface within the ≤20 diet cap"
                 );
             }
+        }
+        for target in ["get_callers", "get_callees"] {
+            assert!(
+                BUILDER_MINIMAL_TOOLS.contains(&target),
+                "builder-minimal must keep `{target}` listed for mid-edit call-graph work"
+            );
         }
     }
 }

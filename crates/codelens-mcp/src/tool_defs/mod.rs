@@ -13,11 +13,15 @@ pub(crate) use presets::{
     ALL_PRESETS, ALL_PROFILES, AgentRole, HostContext, SurfaceCompilerInput, TaskOverlay,
     ToolPreset, ToolProfile, ToolSurface, apply_tool_deprecation_meta,
     compile_surface_overlay_for_agent, default_budget_for_preset, default_budget_for_profile,
-    default_listed_tool_names, deprecated_workflow_alias, is_tool_callable_in_surface,
-    is_tool_in_surface, tool_anthropic_always_load, tool_anthropic_search_hint, tool_deprecation,
-    tool_feature_gate, tool_namespace, tool_phase_label, tool_preferred_executor,
-    tool_preferred_executor_label, whitelist_preset_member_union,
+    default_listed_tool_names, deprecated_workflow_alias, is_tool_in_surface,
+    tool_anthropic_always_load, tool_anthropic_search_hint, tool_deprecation, tool_feature_gate,
+    tool_namespace, tool_phase_label, tool_preferred_executor, tool_preferred_executor_label,
+    whitelist_preset_member_union,
 };
+// ADR-0016 decoupled runtime callability from listing, leaving
+// `is_tool_callable_in_surface` a test-only doc/overlay-integrity helper.
+#[cfg(test)]
+pub(crate) use presets::is_tool_callable_in_surface;
 
 // Re-exports from build
 #[cfg(feature = "http")]

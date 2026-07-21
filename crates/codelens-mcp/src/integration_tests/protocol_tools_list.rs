@@ -351,11 +351,12 @@ fn graph_profiles_expose_call_graph_primitives_by_namespace() {
     }
 
     // reviewer-graph / ci-audit are the curated core surface (2026-07
-    // tool-surface diet): the `graph` verb façade is the primary call-graph
-    // entrypoint. The #350 hint-chain fix (live E2E 2026-07-21) additionally
-    // lists the raw get_callers/get_callees here — they are the
-    // `cross_file_callers_hint` target `find_referencing_symbols` emits, and a
-    // profile surface can only make them callable by listing them.
+    // tool-surface diet, ADR-0016 ≤20): the `graph` verb façade is the primary
+    // call-graph entrypoint and is listed. The raw get_callers/get_callees are
+    // NOT listed here — the #350 `cross_file_callers_hint` target now resolves
+    // through hidden-alias callability (dispatch/access.rs), not a listed slot,
+    // which is what keeps this surface within the ≤20 cap. They remain callable
+    // (asserted separately in the security suite).
     for profile in ["reviewer-graph", "ci-audit"] {
         let project = project_root();
         let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -366,12 +367,12 @@ fn graph_profiles_expose_call_graph_primitives_by_namespace() {
             "{profile} graph namespace should expose the graph verb façade"
         );
         assert!(
-            encoded.contains("\"get_callers\""),
-            "{profile} core surface should list get_callers (the #350 cross_file_callers_hint target)"
+            !encoded.contains("\"name\":\"get_callers\""),
+            "{profile} core surface must NOT list raw get_callers — it resolves via hidden-alias callability (ADR-0016 ≤20)"
         );
         assert!(
-            encoded.contains("\"get_callees\""),
-            "{profile} core surface should list get_callees alongside get_callers (#350)"
+            !encoded.contains("\"name\":\"get_callees\""),
+            "{profile} core surface must NOT list raw get_callees — it resolves via hidden-alias callability (ADR-0016 ≤20)"
         );
         assert!(!encoded.contains("\"find_symbol\""));
     }

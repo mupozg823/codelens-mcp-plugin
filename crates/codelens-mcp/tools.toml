@@ -677,7 +677,9 @@ properties = { ref = { type = "string" }, include_untracked = { type = "boolean"
 name = "get_callers"
 category = "analysis"
 namespace = "graph"
-preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+# ADR-0016: planner-readonly / reviewer-graph reach this via hidden-alias
+# callability (dispatch/access.rs), so only builder-minimal lists it.
+preset_tags = ["builder-minimal"]
 description = "[CodeLens:Analysis] Find functions that call a function. Returns bounded call-graph edges with backend/confidence metadata."
 annotations = "ro_a"
 output_schema = "get_callers_output_schema"
@@ -697,7 +699,9 @@ max_results = { type = "integer" }
 name = "get_callees"
 category = "analysis"
 namespace = "graph"
-preset_tags = ["planner-readonly", "builder-minimal", "reviewer-graph"]
+# ADR-0016: planner-readonly / reviewer-graph reach this via hidden-alias
+# callability (dispatch/access.rs), so only builder-minimal lists it.
+preset_tags = ["builder-minimal"]
 description = "[CodeLens:Analysis] Find functions called by a function. Use path when duplicate function names exist."
 annotations = "ro_a"
 output_schema = "get_callees_output_schema"

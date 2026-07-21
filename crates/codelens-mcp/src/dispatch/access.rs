@@ -3,9 +3,25 @@ use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{
     ToolSurface, is_content_mutation_tool, is_deferred_control_tool, is_read_only_surface,
-    is_tool_callable_in_surface, preferred_namespaces, preferred_tier_labels, tool_namespace,
+    is_tool_in_surface, preferred_namespaces, preferred_tier_labels, tool_namespace,
     tool_tier_label,
 };
+
+/// ADR-0016 hidden-alias escape: a tool is callable irrespective of the active
+/// surface's *listing* when it is defined in `tools.toml`, when it is a
+/// schemaless edit-core tool carried by a preset membership list (e.g.
+/// `rename_symbol`, pending the ADR-0009/D3 re-listing), or when it is a
+/// deprecated workflow alias. This is an *additive* allowance on top of surface
+/// listing — see `validate_tool_access`. It deliberately does NOT widen the set
+/// of dispatchable names beyond what the server already handled under the Full
+/// preset (unknown / tombstoned names keep flowing to the dispatch layer's
+/// unknown-tool path there); it only lets a *registered-but-unlisted* tool
+/// through on the narrower profile surfaces, as a hidden alias.
+fn is_registered_tool(name: &str) -> bool {
+    crate::tool_defs::tool_definition(name).is_some()
+        || crate::tool_defs::deprecated_workflow_alias(name).is_some()
+        || crate::tool_defs::whitelist_preset_member_union().contains(name)
+}
 
 fn is_deferred_namespace_access_allowed(
     name: &str,
@@ -78,7 +94,15 @@ pub(crate) fn validate_tool_access(
         )));
     }
 
-    if !is_tool_callable_in_surface(name, surface) {
+    // Callability gate (ADR-0016): listing OR registration, not listing alone.
+    // A surface-listed tool passes as before (this also preserves the Full
+    // preset's "everything the server can handle passes" behavior, so unknown /
+    // tombstoned names keep flowing to the dispatch layer's unknown-tool path).
+    // A registered-but-unlisted tool passes as a hidden alias — callable, and
+    // flagged by a `surface_note` on success (dispatch/mod.rs). Only a name that
+    // is neither listed nor registered is rejected here; the mutation gate below
+    // keeps its own precedence.
+    if !is_tool_in_surface(name, surface) && !is_registered_tool(name) {
         return Err(CodeLensError::Validation(format!(
             "Tool `{name}` is not available in active surface `{active_surface}`"
         )));
