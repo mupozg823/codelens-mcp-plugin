@@ -7,6 +7,16 @@
       "headers": {
         "x-codelens-project": "/Users/bagjaeseog/codelens-mcp-plugin"
       }
+    },
+    "serena": {
+      "type": "stdio",
+      "command": "/Users/bagjaeseog/.local/bin/serena",
+      "args": [
+        "start-mcp-server",
+        "--context=claude-code",
+        "--enable-web-dashboard", "false",
+        "--project", "/Users/bagjaeseog/codelens-mcp-plugin"
+      ]
     }
   }
 }
