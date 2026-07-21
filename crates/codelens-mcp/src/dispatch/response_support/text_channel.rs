@@ -510,6 +510,7 @@ mod text_channel_tests {
         let (text, structured, info) = bounded_result_payload(
             r#"{"ok":true}"#.to_owned(),
             Some(json!({"ok": true})),
+            None, // payload (unused off stage 5)
             10,   // payload tokens
             1000, // budget
             0,    // medium effort
@@ -532,6 +533,7 @@ mod text_channel_tests {
                 "callers": (0..300).map(|n| json!({"name": n})).collect::<Vec<_>>(),
                 "count": 300,
             })),
+            None,   // payload (schema tool — signal comes from structured_content)
             12_000, // payload tokens (over budget)
             4_000,  // budget
             10,     // high effort
@@ -616,6 +618,7 @@ mod text_channel_tests {
         let (_text, summarized, info) = bounded_result_payload(
             "{\"success\":true}".to_owned(),
             Some(structured),
+            None,
             9_100,
             10_000,
             0,

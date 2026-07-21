@@ -20,4 +20,4 @@ pub(crate) use routing_hint::{apply_contextual_guidance, routing_hint_for_payloa
 pub(crate) use success_signals::{attach_index_freshness, record_verifier_preflight};
 pub(crate) use suggestions::build_suggested_next_calls;
 pub(crate) use text_channel::text_payload_for_response;
-pub(crate) use truncation::{bounded_result_payload, enrich_recovery_hint_for_signals};
+pub(crate) use truncation::bounded_result_payload;

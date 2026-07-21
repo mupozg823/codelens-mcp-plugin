@@ -31,6 +31,12 @@ pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> Stri
     }
 }
 
+/// Host-side result cap for truncated responses. Anything the compressor
+/// emits above this is cut mid-JSON by the host, so producers (the stage-5
+/// preview cap in `truncation.rs`) must budget against it, not just against
+/// the token budget.
+pub(crate) const TRUNCATED_RESULT_SIZE_CHARS: usize = 25_000;
+
 /// Determine `_meta["anthropic/maxResultSizeChars"]` based on tool tier.
 /// Claude Code v2.1.91+ respects this annotation to keep up to 500K chars.
 pub(crate) fn max_result_size_chars_for_tool(name: &str, truncated: bool) -> usize {
@@ -38,7 +44,7 @@ pub(crate) fn max_result_size_chars_for_tool(name: &str, truncated: bool) -> usi
     use crate::tool_defs::tool_tier;
 
     if truncated {
-        return 25_000;
+        return TRUNCATED_RESULT_SIZE_CHARS;
     }
 
     match tool_tier(name) {

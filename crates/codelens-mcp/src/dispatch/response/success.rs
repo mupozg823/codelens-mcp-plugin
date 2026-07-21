@@ -9,10 +9,9 @@ use serde_json::Value;
 use crate::dispatch::response_support::{
     apply_contextual_guidance, attach_index_freshness, bounded_result_payload, budget_hint,
     build_suggested_next_calls, compact_response_payload, delegate_hint_telemetry_fields,
-    effective_budget_for_tool, enrich_recovery_hint_for_signals,
-    inject_delegate_to_codex_builder_hint, max_result_size_chars_for_tool,
-    record_verifier_preflight, routing_hint_for_payload, success_jsonrpc_response,
-    text_payload_for_response, trim_scaffold_for_lean,
+    effective_budget_for_tool, inject_delegate_to_codex_builder_hint,
+    max_result_size_chars_for_tool, record_verifier_preflight, routing_hint_for_payload,
+    success_jsonrpc_response, text_payload_for_response, trim_scaffold_for_lean,
 };
 
 pub(crate) struct SuccessResponseInput<'a> {
@@ -201,20 +200,20 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
 
     let effort_offset = state.effort_level().compression_threshold_offset();
     let text = text_payload_for_response(&resp, structured_content.as_ref(), lean);
+    // `bounded_result_payload` enriches the recovery hint internally (T5
+    // artifact-over-promise retarget + S2 unresolved-only grep cue) so the
+    // stage-5 TEXT stub is finalized AFTER enrichment and carries the FINAL
+    // hint — hosts that ignore `structuredContent` (Claude Code, #4427) see it.
+    // `resp.data` is passed so a no-schema tool (structured_content == None)
+    // can still derive its `data_preview` + enrichment signals from the payload.
     let (text, mut structured_content, truncation_info) = bounded_result_payload(
         text,
         structured_content,
+        resp.data.as_ref(),
         payload_estimate,
         effective_budget,
         effort_offset,
     );
-    // S2: when the response was clipped AND structured signals show the
-    // call-graph extractor only emitted unresolved edges, replace the
-    // generic budget-narrowing recovery hint with a grep-fallback cue
-    // that names the symbol — retrying with smaller max_results would
-    // not recover edges the extractor failed to discover.
-    let truncation_info = truncation_info
-        .map(|info| enrich_recovery_hint_for_signals(info, structured_content.as_ref()));
     let truncated = truncation_info.is_some();
     // Surface the truncation envelope at the top level of structured_content
     // so an agent does not have to reach into the data envelope to discover
@@ -262,4 +261,112 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
 
     let max_result_size = max_result_size_chars_for_tool(name, truncated);
     success_jsonrpc_response(id, name, text, structured_content, Some(max_result_size))
+}
+
+#[cfg(test)]
+mod no_schema_stage5_dispatch_tests {
+    use super::*;
+    use crate::protocol::BackendKind;
+    use crate::tool_defs::{ToolPreset, ToolSurface};
+    use crate::tool_runtime::success_meta;
+    use codelens_engine::ProjectRoot;
+    use serde_json::json;
+
+    fn temp_state() -> crate::AppState {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-success-stage5-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".codelens")).unwrap();
+        std::fs::write(
+            dir.join(".codelens").join("principals.toml"),
+            "[default]\nrole = \"Refactor\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("hello.txt"), "hello world\n").unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        crate::AppState::new_minimal(project, ToolPreset::Full)
+    }
+
+    #[test]
+    fn no_schema_tool_stage5_text_stub_embeds_payload_preview_end_to_end() {
+        // End-to-end through `build_success_response`: `search` has NO
+        // output_schema, so `structured_content` is None. A large-array payload
+        // over a tiny budget must (a) still emit NO structuredContent (the
+        // gating at success.rs:95 is unchanged) and (b) put a payload-derived
+        // `data_preview` + enriched `recovery_hint` into the TEXT stub — not a
+        // bare error stub = total data loss.
+        let state = temp_state();
+        let payload = json!({
+            "matches": (0..400)
+                .map(|n| json!({"name": format!("sym_{n}"), "file_path": format!("src/m_{n}.rs")}))
+                .collect::<Vec<_>>(),
+            "count": 400,
+        });
+        let args = json!({});
+        let response = build_success_response(SuccessResponseInput {
+            name: "search",
+            payload,
+            meta: success_meta(BackendKind::TreeSitter, 0.9),
+            state: &state,
+            surface: ToolSurface::Preset(ToolPreset::Balanced),
+            active_surface: "balanced",
+            arguments: &args,
+            logical_session_id: "test-session",
+            recent_tools: Vec::new(),
+            gate_allowance: None,
+            compact: false,
+            lean: false,
+            harness_phase: None,
+            request_budget: 400,
+            start: std::time::Instant::now(),
+            id: Some(json!(1)),
+            doom_loop_count: 0,
+            doom_loop_rapid: false,
+        });
+
+        let value = serde_json::to_value(&response).expect("serialize response");
+        // No-schema tool: the structuredContent channel must stay absent.
+        assert!(
+            value["result"].get("structuredContent").is_none()
+                || value["result"]["structuredContent"].is_null(),
+            "no-schema tool must not emit structuredContent"
+        );
+        let text = value["result"]["content"][0]["text"]
+            .as_str()
+            .expect("text content present");
+        let parsed: serde_json::Value =
+            serde_json::from_str(text).expect("stage-5 text stub is valid JSON");
+        assert_eq!(parsed["compression_stage"], json!(5), "stub: {text}");
+        assert!(
+            parsed["data_preview"].is_object(),
+            "no-schema stage-5 stub must carry a payload-derived preview: {text}"
+        );
+        assert!(
+            parsed["data_preview"]["matches"]
+                .as_array()
+                .expect("preview matches array")
+                .len()
+                <= 3
+        );
+        let hint = parsed["recovery_hint"]
+            .as_str()
+            .expect("enriched recovery_hint embedded in stub");
+        assert!(
+            hint.contains("matches"),
+            "hint names the clipped field: {hint}"
+        );
+        assert!(
+            !hint.contains("get_analysis_section"),
+            "primitive payload drops the artifact over-promise: {hint}"
+        );
+        assert!(
+            parsed.get("error").is_none(),
+            "degrade-to-summary: no error key when a preview exists: {text}"
+        );
+    }
 }

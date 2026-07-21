@@ -1,6 +1,14 @@
 use serde_json::{Map, Value, json};
 
+use super::budget::TRUNCATED_RESULT_SIZE_CHARS;
 use super::payload_compact::{TEXT_CHANNEL_MAX_ARRAY_ITEMS, summarize_structured_content};
+
+/// Headroom the stage-5 stub scaffold + enriched recovery_hint occupy on top
+/// of the embedded `data_preview`. The preview cap must leave this much room
+/// under the host's truncated-result cap, or the host clips the stub mid-JSON
+/// and the agent loses compression_stage, recovery_hint AND preview at once —
+/// strictly worse than a bare stub.
+const STAGE5_STUB_HEADROOM_CHARS: usize = 5_000;
 
 /// Adaptive compression based on OpenDev 5-stage strategy (arxiv:2603.05344).
 /// Thresholds are adjusted by effort level offset (Low=-10, Medium=0, High=+10).
@@ -14,9 +22,20 @@ use super::payload_compact::{TEXT_CHANNEL_MAX_ARRAY_ITEMS, summarize_structured_
 /// passes through (stage 1), `truncation_info` is `None`. Stages 2–5 emit
 /// a `TruncationInfo` carrying the stage, original payload size estimate,
 /// effective budget, and a human-readable recovery hint.
+///
+/// `payload` is the raw response envelope (`resp.data`). It is used ONLY at
+/// stage 5 and ONLY when `structured_content` is `None` (a no-schema tool):
+/// the depth-0 payload summary then feeds both the `data_preview` and the
+/// hint-enrichment signals, so hosts that ignore `structuredContent` still
+/// degrade to a usable SUMMARY instead of a bare error stub = total data loss.
+///
+/// Stage-5 text finalization is DEFERRED to the end of this function: the stub
+/// must embed the ENRICHED recovery_hint, so `enrich_recovery_hint_for_signals`
+/// runs here (before `finalize_stage5_text_stub`) rather than in the caller.
 pub(crate) fn bounded_result_payload(
     mut text: String,
     mut structured_content: Option<Value>,
+    payload: Option<&Value>,
     payload_estimate: usize,
     effective_budget: usize,
     effort_offset: i32,
@@ -33,6 +52,13 @@ pub(crate) fn bounded_result_payload(
 
     let max_chars = effective_budget * 8;
     let stage: u8;
+
+    // Stage-5 deferred pieces. The text stub is finalized after hint
+    // enrichment (below), so stage 5 records its `data_preview` candidate and
+    // the signal source it enriched from instead of emitting the final text
+    // inline. `None` for stages 1–4.
+    let mut stage5_preview: Option<Value> = None;
+    let mut stage5_signal: Option<Value> = None;
 
     if usage_pct <= t1 {
         // Stage 1: pass through
@@ -65,41 +91,44 @@ pub(crate) fn bounded_result_payload(
             text.push_str("...[truncated]");
         }
     } else {
-        // Stage 5: hard truncation — summarize structured to minimal skeleton
+        // Stage 5: hard truncation — summarize structured to minimal skeleton.
         stage = 5;
-        // Hosts that ignore `structuredContent` (Claude Code, issue #4427)
-        // receive ONLY the text channel — a bare stub here means total data
-        // loss even though the depth-0 summary (arrays clipped to 3) usually
-        // fits well under budget. Embed that summary as `data_preview` when
-        // it stays within ~75% of the budget; fall back to the bare stub
-        // only when even the skeleton is too large.
-        let mut preview: Option<Value> = None;
+        // Summarize structured content for the `structuredContent` channel
+        // exactly as today (schema tools only). No-schema tools keep `None`
+        // here — the structuredContent gating at the caller is unchanged.
         if let Some(existing) = structured_content.as_ref() {
-            let summarized = summarize_structured_content(existing, 0);
-            let preview_cap_chars = effective_budget.saturating_mul(3);
-            let fits = serde_json::to_string(&summarized)
-                .map(|s| s.len() <= preview_cap_chars)
+            structured_content = Some(summarize_structured_content(existing, 0));
+        }
+        // Signal source feeding BOTH the enriched hint and `data_preview`: the
+        // summarized structured content when a schema exists; otherwise a
+        // depth-0 summary of the raw payload. Hosts that ignore
+        // `structuredContent` (Claude Code, issue #4427) receive ONLY the text
+        // channel — a bare stub here means total data loss even though the
+        // depth-0 summary (arrays clipped to 3) usually fits well under budget.
+        let signal = structured_content.clone().or_else(|| {
+            payload
+                .filter(|value| !value.is_null())
+                .map(|value| summarize_structured_content(value, 0))
+        });
+        if let Some(signal) = signal.as_ref() {
+            // Two caps, both mandatory: the token-budget-derived cap, AND the
+            // host's fixed truncated-result cap minus stub headroom. The
+            // budget cap alone is unsafe — at effective_budget > ~8.3K tokens
+            // budget*3 exceeds the 25K-char host cap, and a preview that fits
+            // the former but not the latter gets clipped mid-JSON by the host
+            // (unparseable, total loss on the text-only channel).
+            let preview_cap_chars = effective_budget
+                .saturating_mul(3)
+                .min(TRUNCATED_RESULT_SIZE_CHARS - STAGE5_STUB_HEADROOM_CHARS);
+            let fits = serde_json::to_string(signal)
+                .map(|serialized| serialized.len() <= preview_cap_chars)
                 .unwrap_or(false);
             if fits {
-                preview = Some(summarized.clone());
+                stage5_preview = Some(signal.clone());
             }
-            structured_content = Some(summarized);
         }
-        let mut stub = json!({
-            "success": true,
-            "truncated": true,
-            "compression_stage": 5,
-            "error": format!(
-                "Response too large ({} tokens, budget {}). Narrow with path, max_tokens, or depth.",
-                payload_estimate, effective_budget
-            ),
-            "token_estimate": payload_estimate,
-        });
-        if let Some(preview) = preview {
-            stub["data_preview"] = preview;
-        }
-        text = serde_json::to_string(&stub)
-            .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned());
+        stage5_signal = signal;
+        // text stub finalized below, after hint enrichment.
     }
 
     let info = if stage >= 2 {
@@ -112,7 +141,74 @@ pub(crate) fn bounded_result_payload(
     } else {
         None
     };
+
+    // Enrich the recovery hint from structured signals BEFORE the stage-5 text
+    // stub is finalized, so the stub carries the FINAL hint. Stages < 4
+    // early-return inside the enricher. Stages 2–4 use the summarized
+    // structured content (unchanged); stage 5 uses `stage5_signal`, which falls
+    // back to the payload-derived summary so no-schema tools get the same
+    // T5/S2 retargeting.
+    let info = info.map(|info| {
+        let signal_source = if stage == 5 {
+            stage5_signal.as_ref()
+        } else {
+            structured_content.as_ref()
+        };
+        enrich_recovery_hint_for_signals(info, signal_source)
+    });
+
+    if stage == 5 {
+        text = finalize_stage5_text_stub(
+            info.as_ref(),
+            stage5_preview.as_ref(),
+            payload_estimate,
+            effective_budget,
+        );
+    }
+
     (text, structured_content, info)
+}
+
+/// Finalize the stage-5 text stub — the SINGLE source of truth for its JSON.
+///
+/// Built AFTER `enrich_recovery_hint_for_signals` so it always carries the
+/// FINAL recovery_hint. Hosts that ignore `structuredContent` (Claude Code,
+/// issue #4427) see ONLY this text channel, so it degrades to a SUMMARY
+/// (`data_preview` + enriched `recovery_hint`, no `error`) whenever a preview
+/// fits, and reserves the `error` framing for genuine total loss (no preview).
+fn finalize_stage5_text_stub(
+    info: Option<&TruncationInfo>,
+    preview: Option<&Value>,
+    payload_estimate: usize,
+    effective_budget: usize,
+) -> String {
+    let mut stub = json!({
+        "success": true,
+        "truncated": true,
+        "compression_stage": 5,
+        "token_estimate": payload_estimate,
+        "effective_budget": effective_budget,
+    });
+    if let Some(info) = info {
+        stub["recovery_hint"] = Value::String(info.recovery_hint.clone());
+    }
+    match preview {
+        Some(preview) => {
+            // A usable preview exists → this is a summary, not an error. The
+            // narrowing guidance already lives in `recovery_hint`.
+            stub["data_preview"] = preview.clone();
+        }
+        None => {
+            // Genuine total loss: even the depth-0 skeleton exceeded the cap.
+            // Keep the explicit error framing so the summary case stays
+            // distinguishable from real data loss.
+            stub["error"] = Value::String(format!(
+                "Response too large ({payload_estimate} tokens, budget {effective_budget}). Narrow with path, max_tokens, or depth."
+            ));
+        }
+    }
+    serde_json::to_string(&stub)
+        .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned())
 }
 
 /// Top-level metadata describing what the adaptive compressor did.
@@ -241,11 +337,22 @@ fn clipped_primitive_recovery_hint(
     omitted: u64,
 ) -> String {
     let max_items = TEXT_CHANNEL_MAX_ARRAY_ITEMS;
+    // The summarizer length-caps string VALUES but clones object KEYS verbatim,
+    // and `field` is a key — clamp it so a pathological key cannot balloon the
+    // hint past the budget the stub exists to honor.
+    let field = truncate_chars(field, 80);
     format!(
         "Response over budget ({estimate} tokens vs {budget}); result arrays clipped to {max_items} items each ({field} dropped {omitted}). \
          Narrow scope to recover them — pass path / a more specific symbol name, or lower the result cap (max_matches / max_results). \
          Primitive symbol results are not stored as artifacts and expose no pagination cursor, so there is no section handle to page through."
     )
+}
+
+fn truncate_chars(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => &s[..byte_idx],
+        None => s,
+    }
 }
 
 /// Largest `<field>_omitted_count` marker in the summarized payload, returned as
@@ -306,7 +413,7 @@ mod stage5_preview_tests {
             "count": 4,
         });
         let (text, structured_out, info) =
-            bounded_result_payload("x".repeat(60_000), Some(structured), 12_000, 4_000, 0);
+            bounded_result_payload("x".repeat(60_000), Some(structured), None, 12_000, 4_000, 0);
         assert_eq!(info.as_ref().map(|i| i.stage), Some(5));
         assert!(structured_out.is_some());
         let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -332,6 +439,7 @@ mod stage5_preview_tests {
         let (text, _, info) = bounded_result_payload(
             "x".repeat(60_000),
             Some(serde_json::Value::Object(huge)),
+            None,
             12_000,
             4_000,
             0,
@@ -343,6 +451,202 @@ mod stage5_preview_tests {
             text.len() <= 4_000,
             "bare stub must stay tiny, got {}",
             text.len()
+        );
+    }
+
+    #[test]
+    fn stage5_no_schema_tool_embeds_payload_preview() {
+        // #4427 no-schema gap: `structured_content` is None (the tool has no
+        // output_schema), but the raw payload carries a large array. The text
+        // stub must derive `data_preview` from the payload — NOT a bare stub —
+        // so hosts that ignore structuredContent still receive data.
+        let payload = json!({
+            "matches": (0..200)
+                .map(|n| json!({"name": format!("sym_{n}")}))
+                .collect::<Vec<_>>(),
+            "count": 200,
+        });
+        let (text, structured_out, info) =
+            bounded_result_payload("x".repeat(60_000), None, Some(&payload), 12_000, 4_000, 0);
+        assert_eq!(info.as_ref().map(|i| i.stage), Some(5));
+        assert!(
+            structured_out.is_none(),
+            "no-schema tools must NOT emit structuredContent (gating unchanged)"
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["compression_stage"], 5);
+        let preview = &parsed["data_preview"];
+        assert!(
+            preview.is_object(),
+            "no-schema stage-5 text must carry a payload-derived data_preview, got: {text}"
+        );
+        assert!(preview["matches"].as_array().unwrap().len() <= 3);
+        assert_eq!(
+            preview["matches_omitted_count"],
+            json!(197),
+            "payload-derived preview must record the clipped count"
+        );
+    }
+
+    #[test]
+    fn stage5_text_stub_carries_enriched_hint() {
+        // Primitive clip (matches_omitted_count, no artifact handle): the TEXT
+        // stub must carry the ENRICHED recovery_hint — naming the omitted count
+        // and dropping the get_analysis_section over-promise that only
+        // artifact-backed tools support.
+        let payload = json!({
+            "function": "resolve_target",
+            "matches": (0..130).map(|n| json!({"name": n})).collect::<Vec<_>>(),
+            "count": 130,
+        });
+        let (text, _structured, _info) =
+            bounded_result_payload("x".repeat(60_000), None, Some(&payload), 12_000, 4_000, 0);
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let hint = parsed["recovery_hint"]
+            .as_str()
+            .expect("stage-5 text stub must carry a recovery_hint");
+        assert!(
+            hint.contains("127"),
+            "hint must name the omitted count, got: {hint}"
+        );
+        assert!(
+            hint.contains("matches"),
+            "hint must name the clipped field, got: {hint}"
+        );
+        assert!(
+            !hint.contains("get_analysis_section"),
+            "primitive clip must drop the artifact over-promise, got: {hint}"
+        );
+    }
+
+    #[test]
+    fn stage5_text_stub_keeps_artifact_hint() {
+        // Artifact payload (analysis_id + section list): the TEXT stub's
+        // recovery_hint must still advertise get_analysis_section — a real
+        // recovery path for artifact-backed reports.
+        let payload = json!({
+            "analysis_id": "analysis-abc123",
+            "available_sections": ["overview", "findings"],
+            "top_findings": (0..80)
+                .map(|n| json!(format!("finding {n}")))
+                .collect::<Vec<_>>(),
+        });
+        let (text, _structured, _info) =
+            bounded_result_payload("x".repeat(60_000), None, Some(&payload), 12_000, 4_000, 0);
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let hint = parsed["recovery_hint"]
+            .as_str()
+            .expect("stage-5 text stub must carry a recovery_hint");
+        assert!(
+            hint.contains("get_analysis_section"),
+            "artifact payload must keep the get_analysis_section hint, got: {hint}"
+        );
+    }
+
+    #[test]
+    fn stage5_with_preview_has_no_error_key() {
+        // Degrade-to-summary: when a preview fits, the stub is a summary, not an
+        // error — success/truncated stay true and the `error` key is dropped.
+        let payload = json!({
+            "matches": (0..50).map(|n| json!({"name": n})).collect::<Vec<_>>(),
+            "count": 50,
+        });
+        let (text, _s, _i) =
+            bounded_result_payload("x".repeat(60_000), None, Some(&payload), 12_000, 4_000, 0);
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            parsed.get("data_preview").is_some(),
+            "a preview must be present for this payload: {text}"
+        );
+        assert!(
+            parsed.get("error").is_none(),
+            "degrade-to-summary: no error key when a preview exists, got: {text}"
+        );
+        assert_eq!(parsed["success"], json!(true));
+        assert_eq!(parsed["truncated"], json!(true));
+    }
+
+    #[test]
+    fn stage5_preview_cap_respects_truncated_host_result_cap() {
+        // The host clips truncated responses at TRUNCATED_RESULT_SIZE_CHARS
+        // regardless of token budget. At effective_budget=16_000 the
+        // budget-derived cap (48_000 chars) exceeds the host cap — a ~30KB
+        // depth-0 summary "fits" the budget cap but would be cut mid-JSON by
+        // the host (unparseable, total loss). The preview must be refused and
+        // the final stub stay parseable and under the host cap.
+        let mut wide = serde_json::Map::new();
+        for i in 0..160 {
+            wide.insert(format!("section_{i}"), json!("y".repeat(180)));
+        }
+        let payload = serde_json::Value::Object(wide);
+        let (text, _s, info) =
+            bounded_result_payload("x".repeat(400_000), None, Some(&payload), 60_000, 16_000, 0);
+        assert_eq!(info.as_ref().map(|i| i.stage), Some(5));
+        let parsed: serde_json::Value = serde_json::from_str(&text)
+            .expect("stage-5 stub must stay parseable JSON under the host cap");
+        assert!(
+            parsed.get("data_preview").is_none(),
+            "a summary larger than the host cap headroom must not be embedded"
+        );
+        assert!(
+            text.len() <= super::super::budget::TRUNCATED_RESULT_SIZE_CHARS,
+            "final stub ({} chars) must stay within the truncated host cap",
+            text.len()
+        );
+    }
+
+    #[test]
+    fn stage5_final_stub_stays_within_truncated_host_cap_with_preview() {
+        // A preview just under the cap plus scaffold + enriched hint must still
+        // serialize under the host's truncated-result cap — the headroom
+        // constant exists exactly for that scaffold.
+        let payload = json!({
+            "function": "resolve_target",
+            "matches": (0..400)
+                .map(|n| json!({"name": format!("symbol_number_{n}"), "file": format!("src/module_{n}.rs")}))
+                .collect::<Vec<_>>(),
+            "count": 400,
+            "confidence_basis": "unresolved_only",
+        });
+        let (text, _s, info) =
+            bounded_result_payload("x".repeat(400_000), None, Some(&payload), 60_000, 16_000, 0);
+        assert_eq!(info.as_ref().map(|i| i.stage), Some(5));
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            parsed.get("data_preview").is_some(),
+            "this compact summary must fit the preview cap: {text}"
+        );
+        assert!(
+            text.len() <= super::super::budget::TRUNCATED_RESULT_SIZE_CHARS,
+            "stub with preview + enriched hint ({} chars) must stay within the host cap",
+            text.len()
+        );
+    }
+
+    #[test]
+    fn stage5_bare_stub_keeps_error_key() {
+        // No preview fits (the depth-0 skeleton itself blows the cap) → genuine
+        // data loss keeps the explicit error framing.
+        let mut huge = serde_json::Map::new();
+        for i in 0..200 {
+            huge.insert(format!("field_{i}"), json!("y".repeat(240)));
+        }
+        let (text, _s, _i) = bounded_result_payload(
+            "x".repeat(60_000),
+            None,
+            Some(&serde_json::Value::Object(huge)),
+            12_000,
+            4_000,
+            0,
+        );
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            parsed.get("data_preview").is_none(),
+            "no preview should fit for this payload: {text}"
+        );
+        assert!(
+            parsed.get("error").is_some(),
+            "bare stub (total loss) must keep the error key, got: {text}"
         );
     }
 }
@@ -433,6 +737,25 @@ mod tool_aware_recovery_hint_tests {
         // Guard the premise this track fixes: the tool-agnostic stage-5 hint
         // advertises `get_analysis_section`, which only artifact tools support.
         assert!(recovery_hint_for_stage(5, 12_000, 4_000).contains("get_analysis_section"));
+    }
+
+    #[test]
+    fn pathological_field_key_is_clamped_in_hint() {
+        // The summarizer caps string VALUES but clones object KEYS verbatim,
+        // and the hint embeds a key as `field` — a pathological key must not
+        // balloon the hint past the budget the stub exists to honor.
+        let long_key = "k".repeat(50_000);
+        let structured = json!({
+            format!("{long_key}_omitted_count"): 42,
+            long_key.clone(): [1, 2, 3],
+        });
+        let enriched = enrich_recovery_hint_for_signals(stage5_info(), Some(&structured));
+        assert!(
+            enriched.recovery_hint.len() < 1_000,
+            "hint must stay bounded for pathological keys, got {} chars",
+            enriched.recovery_hint.len()
+        );
+        assert!(enriched.recovery_hint.contains("42"));
     }
 
     #[test]
