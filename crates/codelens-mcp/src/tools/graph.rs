@@ -435,6 +435,7 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         "top_k",
         "max_depth",
         "project_root",
+        "full_results",
     ];
     let function_name = required_string(arguments, "function_name")?;
     let (file_path, deprecation_warnings) = optional_path_scope(arguments);
@@ -444,6 +445,7 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         &["limit", "top_k"],
         50,
     );
+    let full_results = optional_bool(arguments, "full_results", false);
     let unknown_args =
         crate::tool_runtime::collect_unknown_args(arguments, CALLERS_TOOL_KNOWN_ARGS);
     let graph_cache = state.graph_cache();
@@ -551,6 +553,10 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
             map.insert("unknown_args".to_owned(), json!(unknown_args));
         }
         insert_deprecation_warnings(&mut payload, deprecation_warnings);
+        // full_results=true: reuse the find_referencing_symbols seam so the
+        // `callers` array survives response summarization verbatim instead of
+        // being clipped to the preview cap (production defect: count=16, n=3).
+        crate::tools::lsp::references::mark_full_results(&mut payload, full_results);
         (payload, meta)
     })?)
 }
@@ -565,6 +571,7 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         "top_k",
         "max_depth",
         "project_root",
+        "full_results",
     ];
     let function_name = required_string(arguments, "function_name")?;
     let (file_path, deprecation_warnings) = optional_path_scope(arguments);
@@ -574,6 +581,7 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         &["limit", "top_k"],
         50,
     );
+    let full_results = optional_bool(arguments, "full_results", false);
     let unknown_args =
         crate::tool_runtime::collect_unknown_args(arguments, CALLEES_TOOL_KNOWN_ARGS);
     let graph_cache = state.graph_cache();
@@ -683,6 +691,10 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
             map.insert("unknown_args".to_owned(), json!(unknown_args));
         }
         insert_deprecation_warnings(&mut payload, deprecation_warnings);
+        // full_results=true: reuse the find_referencing_symbols seam so the
+        // `callees` array survives response summarization verbatim instead of
+        // being clipped to the preview cap.
+        crate::tools::lsp::references::mark_full_results(&mut payload, full_results);
         (payload, meta)
     })?)
 }

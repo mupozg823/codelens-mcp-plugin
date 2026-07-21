@@ -264,6 +264,7 @@ symbol = { type = "string", description = "Symbol or entrypoint (mode=trace|type
 path = { type = "string", description = "File or directory scope" }
 max_results = { type = "integer" }
 max_depth = { type = "integer", description = "Trace depth (mode=trace)" }
+full_results = { type = "boolean", description = "mode=callers|callees only: return the full edge array through response summarization instead of the sampled preview (default: false). Passed through to the target tool; ignored by other modes." }
 
 # ─────
 
@@ -692,6 +693,7 @@ function_name = { type = "string" }
 path = { type = "string", description = "Optional file scope for caller search" }
 file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 max_results = { type = "integer" }
+full_results = { type = "boolean", description = "Return every caller through response summarization instead of the sampled preview, keeping the full array intact and not flagging truncation (default: false). Still bounded by max_results." }
 
 # ─────
 
@@ -709,7 +711,7 @@ output_schema = "get_callees_output_schema"
 [tool.input_schema]
 type = "object"
 required = ["function_name"]
-properties = { function_name = { type = "string" }, path = { type = "string" }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, max_results = { type = "integer" } }
+properties = { function_name = { type = "string" }, path = { type = "string" }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, max_results = { type = "integer" }, full_results = { type = "boolean", description = "Return every callee through response summarization instead of the sampled preview, keeping the full array intact and not flagging truncation (default: false). Still bounded by max_results." } }
 
 # ─────
 

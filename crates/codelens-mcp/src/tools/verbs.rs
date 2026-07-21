@@ -239,6 +239,37 @@ mod tests {
     }
 
     #[test]
+    fn graph_facade_forwards_full_results_to_call_graph_targets() {
+        // mode=callers|callees must carry `full_results` through to the target
+        // tool unchanged (the routing key `mode` is the only stripped arg), so
+        // the full-array preservation contract reaches get_callers/get_callees.
+        for (mode, expected_target) in [("callers", "get_callers"), ("callees", "get_callees")] {
+            let (target, inner) = resolve_verb_target(
+                "graph",
+                &serde_json::json!({
+                    "mode": mode,
+                    "function_name": "f",
+                    "full_results": true,
+                }),
+            )
+            .unwrap()
+            .expect("graph is a verb facade");
+            assert_eq!(target, expected_target);
+            assert_eq!(
+                inner.get("full_results"),
+                Some(&Value::Bool(true)),
+                "full_results must pass through to {expected_target}"
+            );
+            assert!(inner.get("mode").is_none(), "routing key stripped");
+            assert_eq!(
+                inner.get("function_name").and_then(Value::as_str),
+                Some("f"),
+                "other args survive the facade"
+            );
+        }
+    }
+
+    #[test]
     fn verb_mode_names_are_unique_per_verb() {
         for (verb, modes) in [
             ("search", SEARCH_MODES),

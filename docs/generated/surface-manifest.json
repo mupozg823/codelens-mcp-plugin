@@ -280,7 +280,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 263
+        "estimated_tokens": 324
       },
       {
         "name": "analyze",
@@ -307,7 +307,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 454
+        "estimated_tokens": 514
       },
       {
         "name": "get_callees",
@@ -316,7 +316,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 439
+        "estimated_tokens": 499
       },
       {
         "name": "find_scoped_references",

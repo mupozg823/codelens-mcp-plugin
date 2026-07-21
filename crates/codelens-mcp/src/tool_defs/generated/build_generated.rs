@@ -20,7 +20,7 @@ pub fn analysis_tools(
         Tool::new(
             "graph",
             "[CodeLens:Verb] Structural relationships — who calls, what breaks, how it flows. mode=callers | callees | types (hierarchy) | trace (request path) | impact (blast radius) | diff-refs (changed-file references). Remaining parameters pass through to the target tool unchanged.",
-            json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["callers","callees","types","trace","impact","diff-refs"],"description":"Which graph analysis to run; other params pass through to the target tool"},"function_name":{"type":"string","description":"Function of interest (mode=callers|callees)"},"symbol":{"type":"string","description":"Symbol or entrypoint (mode=trace|types|impact)"},"path":{"type":"string","description":"File or directory scope"},"max_results":{"type":"integer"},"max_depth":{"type":"integer","description":"Trace depth (mode=trace)"}}}),
+            json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["callers","callees","types","trace","impact","diff-refs"],"description":"Which graph analysis to run; other params pass through to the target tool"},"function_name":{"type":"string","description":"Function of interest (mode=callers|callees)"},"symbol":{"type":"string","description":"Symbol or entrypoint (mode=trace|types|impact)"},"path":{"type":"string","description":"File or directory scope"},"max_results":{"type":"integer"},"max_depth":{"type":"integer","description":"Trace depth (mode=trace)"},"full_results":{"type":"boolean","description":"mode=callers|callees only: return the full edge array through response summarization instead of the sampled preview (default: false). Passed through to the target tool; ignored by other modes."}}}),
         ).with_annotations(ro_w.clone()),
         Tool::new(
             "analyze",
@@ -35,12 +35,12 @@ pub fn analysis_tools(
         Tool::new(
             "get_callers",
             "[CodeLens:Analysis] Find functions that call a function. Returns bounded call-graph edges with backend/confidence metadata.",
-            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"path":{"type":"string","description":"Optional file scope for caller search"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"path":{"type":"string","description":"Optional file scope for caller search"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"max_results":{"type":"integer"},"full_results":{"type":"boolean","description":"Return every caller through response summarization instead of the sampled preview, keeping the full array intact and not flagging truncation (default: false). Still bounded by max_results."}}}),
         ).with_output_schema(get_callers_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "get_callees",
             "[CodeLens:Analysis] Find functions called by a function. Use path when duplicate function names exist.",
-            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","required":["function_name"],"properties":{"function_name":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string","description":"DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0."},"max_results":{"type":"integer"},"full_results":{"type":"boolean","description":"Return every callee through response summarization instead of the sampled preview, keeping the full array intact and not flagging truncation (default: false). Still bounded by max_results."}}}),
         ).with_output_schema(get_callees_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "find_scoped_references",

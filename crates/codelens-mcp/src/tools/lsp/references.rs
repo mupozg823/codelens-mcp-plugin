@@ -309,13 +309,50 @@ fn lsp_underreports_vs_text(lsp_count: usize, text_count: usize) -> bool {
     text_count > lsp_count && lsp_count.saturating_mul(2) < text_count
 }
 
+/// Decide the SCIP-undercount-vs-text fallback for `find_referencing_symbols`.
+/// Returns `(degraded_reason, confidence_basis)` when the tree-sitter text scan
+/// strictly out-counts the SCIP precise result — the signal SCIP lost call
+/// sites, whether from a STALE index (#251) or a FRESH-index coverage gap where
+/// rust-analyzer's SCIP export omits references in targets outside the default
+/// check set (`[[bench]]` / examples / cfg-gated code; live E2E 2026-07-21:
+/// scip 12 vs text 16, the 3+ missing rows living in `benches/indexing.rs`).
+/// `None` means SCIP's count is complete (>= text), so the 0.98 precise tier
+/// stands. `stale` only selects the label so downstream can tell a stale index
+/// from a coverage gap; both variants serve the fuller text set. Unlike the
+/// 2×-threshold LSP guard, ANY strict undercount fires — a precise backend that
+/// silently drops even one real reference must not win at 0.98. Pure so the
+/// firing condition and the stale/fresh split are unit-testable without a live
+/// index.
+#[cfg(feature = "scip-backend")]
+fn scip_undercount_fallback(
+    scip_count: usize,
+    text_count: usize,
+    stale: bool,
+) -> Option<(&'static str, &'static str)> {
+    if text_count > scip_count {
+        Some(if stale {
+            (
+                "scip_stale_undercount_vs_text",
+                "scip_stale_undercount_text_fallback",
+            )
+        } else {
+            ("scip_undercount_vs_text", "scip_undercount_text_fallback")
+        })
+    } else {
+        None
+    }
+}
+
 /// Attach the `full_results` completeness marker so response summarization
-/// preserves the entire reference array instead of clipping it to the preview
-/// cap (and falsely flagging `truncated`). Every path that returns the complete
-/// set — the tree-sitter scan, the LSP fallback, and the P4 cross-file merge
-/// (regression [D]) — routes through this one seam so the invariant is uniform
-/// and unit-testable. A no-op when `full_results` was not requested.
-fn mark_full_results(payload: &mut Value, full_results: bool) {
+/// preserves the entire primary result array instead of clipping it to the
+/// preview cap (and falsely flagging `truncated`). Every reference path — the
+/// tree-sitter scan, the LSP fallback, and the P4 cross-file merge (regression
+/// [D]) — routes through this one seam, and `get_callers` / `get_callees` reuse
+/// it for their `callers` / `callees` arrays. The summarizer selects the actual
+/// protected key from the payload (see `full_results_primary_key` in
+/// `payload_compact`), so this seam only stamps the boolean. A no-op when
+/// `full_results` was not requested.
+pub(crate) fn mark_full_results(payload: &mut Value, full_results: bool) {
     if full_results && let Some(map) = payload.as_object_mut() {
         map.insert("full_results".to_owned(), json!(true));
     }
@@ -447,8 +484,10 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 // found the answer changes shape (hybrid, non-degraded), so
                 // return the merged payload directly.
                 if is_self_only {
-                    let oxc_lines: std::collections::HashSet<usize> =
-                        refs_limited.iter().map(|reference| reference.line).collect();
+                    let oxc_lines: std::collections::HashSet<usize> = refs_limited
+                        .iter()
+                        .map(|reference| reference.line)
+                        .collect();
                     let cross_rows = cross_file_ts_caller_rows(
                         state,
                         sym_name,
@@ -620,25 +659,28 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         state.project().as_path(),
                         &scip_candidate_files,
                     );
-                    // Issue #251: a STALE SCIP index can silently drop call
-                    // sites, so its precise count under-reports the true
-                    // reference set (live E2E 2026-07-21: 12 of 16). Before
-                    // serving the stale precise tier, cross-check the
-                    // tree-sitter text scan; when it finds strictly more
-                    // references the stale index has lost call sites, so
-                    // return the fuller set at reduced confidence with a
-                    // strengthened staleness warning instead of the
-                    // undercount. Mirrors the LSP-underreport-vs-text fallback
-                    // below. Fresh indexes skip this probe (staleness None), so
-                    // the extra text scan only runs on the rare stale path.
-                    if let Some(stale) = scip_staleness.as_ref()
-                        && let Ok(text_refs) = find_referencing_symbols_via_text(
-                            &state.project(),
-                            sym_name,
-                            Some(&file_path),
-                            max_results,
-                        )
-                        && text_refs.len() > count
+                    // Issue #251 + P7: a SCIP precise reference count below the
+                    // tree-sitter text scan means SCIP lost call sites — a
+                    // STALE index dropped them (#251) or rust-analyzer's SCIP
+                    // export never covered them (FRESH-index coverage gap:
+                    // `[[bench]]` / example / cfg-gated targets outside the
+                    // default check set; live E2E 2026-07-21: scip 12 vs text
+                    // 16, the missing rows in `benches/indexing.rs`). Either way
+                    // the 0.98 precise tier silently under-reports, so
+                    // cross-check the text scan on EVERY precise result — not
+                    // just the stale path — and when text finds strictly more,
+                    // serve the fuller set at reduced confidence with a warning
+                    // naming both counts. `scip_undercount_fallback` keeps the
+                    // firing condition + stale/fresh label split pure. The extra
+                    // text scan on the fresh path is the cost of not trusting an
+                    // under-covering precise index.
+                    if let Ok(text_refs) = find_referencing_symbols_via_text(
+                        &state.project(),
+                        sym_name,
+                        Some(&file_path),
+                        max_results,
+                    ) && let Some((degraded_reason, confidence_basis)) =
+                        scip_undercount_fallback(count, text_refs.len(), scip_staleness.is_some())
                     {
                         let scip_count = count;
                         let text_count = text_refs.len();
@@ -648,12 +690,11 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                             full_results,
                             sample_limit,
                         );
-                        let meta =
-                            meta_degraded("hybrid", 0.6, "scip_stale_undercount_vs_text");
+                        let meta = meta_degraded("hybrid", 0.6, degraded_reason);
                         let evidence = crate::tool_evidence::tool_evidence(
                             "references",
                             &meta,
-                            "scip_stale_undercount_text_fallback",
+                            confidence_basis,
                             crate::tool_evidence::precision_signals(
                                 true,
                                 false,
@@ -662,10 +703,6 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                                 total_count,
                             ),
                         );
-                        let stale_warning =
-                            crate::tools::scip_health::scip_stale_undercount_warning_payload(
-                                stale, scip_count, text_count,
-                            );
                         let mut payload = json!({
                             "references": references,
                             "count": total_count,
@@ -674,8 +711,33 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                             "include_context": include_context,
                             "backend": "tree_sitter",
                             "evidence": evidence,
-                            "scip_index_stale_warning": stale_warning,
                         });
+                        if let Some(map) = payload.as_object_mut() {
+                            match scip_staleness.as_ref() {
+                                Some(stale) => {
+                                    map.insert(
+                                        "scip_index_stale_warning".to_owned(),
+                                        crate::tools::scip_health::scip_stale_undercount_warning_payload(
+                                            stale, scip_count, text_count,
+                                        ),
+                                    );
+                                }
+                                None => {
+                                    map.insert(
+                                        "scip_undercount_warning".to_owned(),
+                                        json!({
+                                            "code": "scip_undercount_vs_text",
+                                            "scip_count": scip_count,
+                                            "text_count": text_count,
+                                            "message": format!(
+                                                "SCIP precise backend returned {scip_count} references but the tree-sitter text scan found {text_count}. rust-analyzer's SCIP export does not cover some references (e.g. benchmark/example/cfg-gated targets outside the default check set), so the precise count under-reports. Serving the fuller tree-sitter set at reduced confidence."
+                                            ),
+                                            "recommended_action": "trust_text_superset",
+                                        }),
+                                    );
+                                }
+                            }
+                        }
                         mark_full_results(&mut payload, full_results);
                         if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
                             insert_response_annotations(
@@ -747,6 +809,13 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                             crate::tools::scip_health::scip_stale_warning_payload(stale),
                         );
                     }
+                    // P7 add-1: the SCIP precise path is the 5th complete-result
+                    // path (tree-sitter default, LSP fallback, P4 merge, text
+                    // fallback are the other four). Route it through the same
+                    // seam so full_results=true preserves every precise row
+                    // through response summarization instead of clipping to the
+                    // preview cap (defect: full_results=true still returned n=3).
+                    mark_full_results(&mut payload, full_results);
                     if !unknown_args.is_empty() || !deprecation_warnings.is_empty() {
                         insert_response_annotations(
                             &mut payload,
@@ -858,8 +927,8 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             max_results,
         };
         let pool = state.lsp_pool();
-        let lsp_result =
-            lsp_references_with_cold_wait(&pool, &request).map_err(|e| enhance_lsp_error(e, &command));
+        let lsp_result = lsp_references_with_cold_wait(&pool, &request)
+            .map_err(|e| enhance_lsp_error(e, &command));
 
         match lsp_result {
             Ok(value) => {
@@ -902,8 +971,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         full_results,
                         sample_limit,
                     );
-                    let meta =
-                        meta_degraded("hybrid", 0.6, "lsp_underreport_vs_text_backend");
+                    let meta = meta_degraded("hybrid", 0.6, "lsp_underreport_vs_text_backend");
                     let evidence = crate::tool_evidence::tool_evidence(
                         "references",
                         &meta,
@@ -933,11 +1001,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         },
                     });
                     mark_full_results(&mut payload, full_results);
-                    insert_response_annotations(
-                        &mut payload,
-                        &unknown_args,
-                        &deprecation_warnings,
-                    );
+                    insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
                     return Ok((payload, meta));
                 }
                 // P1.1b: same readiness calibration as the warm default path.
@@ -1087,7 +1151,11 @@ mod cross_file_merge_tests {
             caller("src/page.tsx", "render", 40),
         ];
         let rows = merge_caller_rows_dedup(callers, seen, 20);
-        assert_eq!(rows.len(), 2, "both cross-file callers must merge, got {rows:?}");
+        assert_eq!(
+            rows.len(),
+            2,
+            "both cross-file callers must merge, got {rows:?}"
+        );
         for row in &rows {
             assert_eq!(row["backend"], Value::String("import_graph".to_owned()));
             assert_eq!(row["kind"], Value::String("cross_file_caller".to_owned()));
@@ -1112,7 +1180,10 @@ mod cross_file_merge_tests {
             1,
             "same-file oxc line and duplicate caller must be deduped, got {rows:?}"
         );
-        assert_eq!(rows[0]["file_path"], Value::String("src/handler.ts".to_owned()));
+        assert_eq!(
+            rows[0]["file_path"],
+            Value::String("src/handler.ts".to_owned())
+        );
     }
 
     #[test]
@@ -1127,9 +1198,14 @@ mod cross_file_merge_tests {
             caller("src/c.ts", "c", 3),
         ];
         let rows = merge_caller_rows_dedup(callers, seen, 2);
-        assert_eq!(rows.len(), 2, "cap must bound the merged rows, got {rows:?}");
+        assert_eq!(
+            rows.len(),
+            2,
+            "cap must bound the merged rows, got {rows:?}"
+        );
         assert!(
-            rows.iter().all(|r| r["file_path"].as_str().unwrap().ends_with(".ts")),
+            rows.iter()
+                .all(|r| r["file_path"].as_str().unwrap().ends_with(".ts")),
             "non-JS/TS caller must be filtered, got {rows:?}"
         );
     }
@@ -1178,6 +1254,43 @@ mod regression_fix_tests {
         assert!(
             default.get("full_results").is_none(),
             "default path must not gain the marker, got {default:?}"
+        );
+    }
+
+    #[cfg(feature = "scip-backend")]
+    #[test]
+    fn scip_undercount_fallback_fires_on_fresh_and_stale_and_labels_them() {
+        use super::scip_undercount_fallback;
+        // AC (f): a FRESH index whose SCIP count (12) trails the text scan (16)
+        // must fire the fallback — the coverage-gap case the stale-only guard
+        // missed (live probe: benches/indexing.rs rows SCIP never indexed) —
+        // and carry the fresh reason so downstream can tell it from a stale
+        // index.
+        assert_eq!(
+            scip_undercount_fallback(12, 16, false),
+            Some(("scip_undercount_vs_text", "scip_undercount_text_fallback")),
+            "fresh undercount must fire with the coverage-gap reason"
+        );
+        // A STALE index keeps its distinct #251 reason.
+        assert_eq!(
+            scip_undercount_fallback(12, 16, true),
+            Some((
+                "scip_stale_undercount_vs_text",
+                "scip_stale_undercount_text_fallback"
+            )),
+            "stale undercount keeps the #251 reason"
+        );
+        // Complete or over-complete SCIP counts never fall back — the 0.98
+        // precise tier stands, fresh or stale.
+        assert_eq!(
+            scip_undercount_fallback(16, 16, false),
+            None,
+            "equal counts: precise tier stands"
+        );
+        assert_eq!(
+            scip_undercount_fallback(20, 16, true),
+            None,
+            "SCIP over-count never triggers a text fallback"
         );
     }
 }
