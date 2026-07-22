@@ -1,5 +1,9 @@
 use super::*;
 
+mod failures;
+mod metrics;
+mod parity;
+
 // ── Verb facade tests (search / graph / review) ──────────────────────
 //
 // Phase-1 consolidation: read-only tool families are reachable behind

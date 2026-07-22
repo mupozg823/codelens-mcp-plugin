@@ -1,7 +1,7 @@
 //! Low-level call, surface, and session recording helpers.
 #![allow(clippy::collapsible_if)]
 
-use super::{MAX_TIMELINE, has_low_level_chain, is_workflow_tool, push_latency_sample};
+use super::{MAX_TIMELINE, has_low_level_chain, push_latency_sample};
 use crate::telemetry::{
     SessionMetrics, SurfaceMetrics, ToolCallEvent, ToolInvocation, ToolMetrics,
 };
@@ -59,10 +59,14 @@ pub(super) fn record_session_call(session: &mut SessionMetrics, event: &ToolCall
     if event.tool == "tools/list" {
         session.token.tools_list_tokens += event.tokens;
     }
-    if is_workflow_tool(event.tool) {
-        session.call_type.composite_calls += 1;
-    } else {
-        session.call_type.low_level_calls += 1;
+    match event.operation.work_class {
+        crate::operation::OperationWorkClass::Composite => {
+            session.call_type.composite_calls += 1;
+        }
+        crate::operation::OperationWorkClass::Primitive => {
+            session.call_type.low_level_calls += 1;
+        }
+        crate::operation::OperationWorkClass::Unresolved => {}
     }
     if !event.success {
         session.core.error_count += 1;
@@ -72,7 +76,9 @@ pub(super) fn record_session_call(session: &mut SessionMetrics, event: &ToolCall
             event.tool,
             "get_tool_metrics" | "set_profile" | "set_preset"
         ) {
-            if is_workflow_tool(event.tool) || event.tool == "get_analysis_section" {
+            if event.operation.work_class.is_composite()
+                || event.operation.target == Some("get_analysis_section")
+            {
                 session.guidance.composite_guidance_followed_count += 1;
             } else {
                 session.guidance.composite_guidance_missed_count += 1;
@@ -122,6 +128,10 @@ pub(super) fn record_session_call(session: &mut SessionMetrics, event: &ToolCall
     push_latency_sample(&mut session.core.latency_samples, event.elapsed_ms);
     let invocation = ToolInvocation {
         tool: event.tool.to_owned(),
+        resolved_target: event.operation.target.map(ToOwned::to_owned),
+        mode: event.operation.mode.map(ToOwned::to_owned),
+        work_class: event.operation.work_class,
+        downstream_call_count: event.operation.downstream_call_count,
         surface: event.surface.to_owned(),
         elapsed_ms: event.elapsed_ms,
         tokens: event.tokens,

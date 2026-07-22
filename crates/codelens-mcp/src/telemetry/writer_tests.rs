@@ -18,6 +18,7 @@ fn unique_telemetry_path(label: &str) -> PathBuf {
 fn event<'a>(tool: &'a str, surface: &'a str) -> ToolCallEvent<'a> {
     ToolCallEvent {
         tool,
+        operation: crate::operation::ResolvedOperation::direct(tool).dispatched(),
         elapsed_ms: 0,
         tokens: 0,
         success: true,
@@ -40,6 +41,10 @@ fn telemetry_writer_persists_single_event() {
     writer.append_event(&PersistedEvent {
         timestamp_ms: 123,
         tool: "find_symbol",
+        resolved_target: Some("find_symbol"),
+        mode: None,
+        work_class: crate::operation::operation_work_class("find_symbol"),
+        downstream_call_count: 1,
         surface: "planner-readonly",
         elapsed_ms: 42,
         tokens: 500,
@@ -61,6 +66,10 @@ fn telemetry_writer_persists_single_event() {
     let parsed: serde_json::Value =
         serde_json::from_str(contents.trim()).expect("parse single jsonl line");
     assert_eq!(parsed["tool"], "find_symbol");
+    assert_eq!(parsed["resolved_target"], "find_symbol");
+    assert_eq!(parsed["work_class"], "primitive");
+    assert_eq!(parsed["downstream_call_count"], 1);
+    assert!(parsed.get("mode").is_none());
     assert_eq!(parsed["surface"], "planner-readonly");
     assert_eq!(parsed["elapsed_ms"], 42);
     assert_eq!(parsed["tokens"], 500);
@@ -82,6 +91,10 @@ fn telemetry_writer_appends_multiple_events_in_order() {
         writer.append_event(&PersistedEvent {
             timestamp_ms: i,
             tool: "get_ranked_context",
+            resolved_target: Some("get_ranked_context"),
+            mode: None,
+            work_class: crate::operation::operation_work_class("get_ranked_context"),
+            downstream_call_count: 1,
             surface: "primitive",
             elapsed_ms: i,
             tokens: (i * 10) as usize,
@@ -128,6 +141,10 @@ fn telemetry_writer_persists_delegate_hint_fields() {
     writer.append_event(&PersistedEvent {
         timestamp_ms: 321,
         tool: "safe_rename_report",
+        resolved_target: Some("safe_rename_report"),
+        mode: None,
+        work_class: crate::operation::operation_work_class("safe_rename_report"),
+        downstream_call_count: 1,
         surface: "refactor-full",
         elapsed_ms: 18,
         tokens: 144,
@@ -218,6 +235,7 @@ fn registry_records_structured_event_without_jsonl_schema_drift() {
 
     registry.record_event(ToolCallEvent {
         tool: "safe_rename_report",
+        operation: crate::operation::ResolvedOperation::direct("safe_rename_report").dispatched(),
         elapsed_ms: 31,
         tokens: 512,
         success: true,

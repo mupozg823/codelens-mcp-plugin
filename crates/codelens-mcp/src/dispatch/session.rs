@@ -631,11 +631,22 @@ pub(super) fn record_span_fields(
     result: &crate::tool_runtime::ToolResult,
     elapsed_ms: u128,
     active_surface: &str,
+    operation: crate::operation::ResolvedOperation<'_>,
 ) {
     let success = result.is_ok();
     span.record("tool.success", success);
     span.record("tool.elapsed_ms", elapsed_ms as u64);
     span.record("tool.surface", active_surface);
+    span.record(
+        "tool.resolved_target",
+        operation.target.unwrap_or("unresolved"),
+    );
+    span.record("tool.mode", operation.mode.unwrap_or("direct"));
+    span.record("tool.work_class", operation.work_class.as_str());
+    span.record(
+        "tool.downstream_call_count",
+        operation.downstream_call_count,
+    );
     if success {
         span.record("otel.status_code", "OK");
         if let Ok((_, meta)) = result {

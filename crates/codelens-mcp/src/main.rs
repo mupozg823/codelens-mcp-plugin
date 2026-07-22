@@ -22,6 +22,7 @@ mod error;
 mod instruction_audit;
 mod job_store;
 mod mutation_gate;
+mod operation;
 mod operator;
 mod orchestration_store;
 

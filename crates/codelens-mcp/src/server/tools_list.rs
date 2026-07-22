@@ -119,6 +119,7 @@ pub(crate) fn build_tools_list_response(
     }
     state.metrics().record_event(ToolCallEvent {
         tool: "tools/list",
+        operation: crate::operation::ResolvedOperation::direct("tools/list"),
         elapsed_ms: 0,
         tokens: token_estimate,
         success: true,

@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::mutation_gate::MutationGateAllowance;
+use crate::operation::ResolvedOperation;
 use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
 use crate::telemetry::{CallTelemetryHints, ToolCallEvent};
 use crate::tool_defs::{ToolSurface, tool_definition};
@@ -30,6 +31,7 @@ pub(crate) struct SuccessResponseInput<'a> {
     /// legacy `compact` data pruning.
     pub lean: bool,
     pub harness_phase: Option<&'a str>,
+    pub operation: ResolvedOperation<'a>,
     pub request_budget: usize,
     pub start: std::time::Instant,
     pub id: Option<serde_json::Value>,
@@ -54,6 +56,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         compact,
         lean,
         harness_phase,
+        operation,
         request_budget,
         start,
         id,
@@ -120,8 +123,18 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     resp.elapsed_ms = Some(elapsed_ms as u64);
     resp.routing_hint = Some(routing_hint_for_payload(&resp));
 
-    let emitted_composite_guidance =
-        apply_contextual_guidance(&mut resp, name, &recent_tools, harness_phase, surface);
+    let recent_work_classes = state
+        .metrics()
+        .recent_work_classes_for_session(logical_session_id, 2);
+    let emitted_composite_guidance = apply_contextual_guidance(
+        &mut resp,
+        name,
+        &recent_tools,
+        &recent_work_classes,
+        operation.work_class,
+        harness_phase,
+        surface,
+    );
 
     // Self-evolution: when doom-loop detected, override suggestions with alternative tools
     if doom_loop_count >= 3 {
@@ -232,6 +245,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     let target_paths = state.extract_target_paths(arguments);
     state.metrics().record_event(ToolCallEvent {
         tool: name,
+        operation,
         elapsed_ms: elapsed_ms as u64,
         tokens: payload_estimate,
         success: true,
@@ -318,6 +332,7 @@ mod no_schema_stage5_dispatch_tests {
             arguments: &args,
             logical_session_id: "test-session",
             recent_tools: Vec::new(),
+            operation: ResolvedOperation::direct("search").dispatched(),
             gate_allowance: None,
             compact: false,
             lean: false,

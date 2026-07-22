@@ -6,6 +6,8 @@ pub(crate) fn apply_contextual_guidance(
     resp: &mut ToolCallResponse,
     name: &str,
     recent_tools: &[String],
+    recent_work_classes: &[crate::operation::OperationWorkClass],
+    current_work_class: crate::operation::OperationWorkClass,
     harness_phase: Option<&str>,
     surface: ToolSurface,
 ) -> bool {
@@ -13,7 +15,7 @@ pub(crate) fn apply_contextual_guidance(
 
     let mut emitted_composite_guidance = false;
     if let Some((guided_tools, guidance_hint)) =
-        tools::composite_guidance_for_chain(name, recent_tools, surface)
+        tools::composite_guidance_for_chain(name, recent_work_classes, current_work_class, surface)
     {
         emitted_composite_guidance = true;
         let mut suggestions = guided_tools;

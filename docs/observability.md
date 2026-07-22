@@ -42,6 +42,10 @@ One span per tool call, named after the tool. Attributes on each span:
 | `tool.elapsed_ms`  | uint64 | Wall-clock duration of the handler.              |
 | `tool.surface`     | string | Active tool surface (e.g. `balanced`, `full`).   |
 | `tool.backend`     | string | Backend used when relevant (e.g. `lsp`, `scip`). |
+| `tool.resolved_target` | string | Executed target, or `unresolved` when no mode resolves. |
+| `tool.mode` | string | Selected facade mode, or `direct` for direct calls. |
+| `tool.work_class` | string | `primitive`, `composite`, or `unresolved`. |
+| `tool.downstream_call_count` | uint64 | Target-handler entries for the outer request. |
 | `otel.status_code` | string | `OK` on success, `ERROR` on failure.             |
 
 Filled in at `crates/codelens-mcp/src/dispatch/session.rs` after the
@@ -98,10 +102,17 @@ The analyzer reads:
 - `docs/generated/surface-manifest.json` for `preferred_executor` / `phase`
   metadata
 - Codex rollout JSONL files when passed with `--codex-rollout-path`
-- `crates/codelens-mcp/src/telemetry.rs` for the current workflow-tool
-  classification used by runtime low-level-chain metrics
 - latest `.codelens/analysis-cache/*/session_rows.json` when present for
   planner/builder audit status counts and top finding codes
+
+Runtime metrics derive the canonical resolved-operation work class from the
+generated tool registry through `crates/codelens-mcp/src/operation.rs`. JSONL
+keeps `tool` as the caller-visible name and adds
+`resolved_target`, `mode`, `work_class`, and `downstream_call_count`. This lets
+facades such as `search(mode="symbol")` and `overview(mode="explore")` preserve
+their public names without changing primitive/composite accounting. Session
+metric consumers can detect this contract through
+`derived_kpis.schema_version = "codelens-derived-kpis-v2"`.
 
 It reports:
 

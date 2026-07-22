@@ -204,11 +204,14 @@ CODELENS_TELEMETRY_ENABLED=1 codelens-mcp /path/to/project --transport http ...
 CODELENS_TELEMETRY_PATH=/var/log/codelens/traces.jsonl codelens-mcp ...
 ```
 
-Each JSONL line records: `timestamp_ms`, `tool`, `surface`, `phase`,
-`session_id`, `target_paths`, `elapsed_ms`, `tokens`, `success`,
-`truncated`, `recording_origin`, plus safe routing metadata when available:
+Each JSONL line records the public request name in `tool` and the executed
+operation in `resolved_target`, `mode`, `work_class`, and
+`downstream_call_count`. It also records `timestamp_ms`, `surface`, `phase`,
+`session_id`, `target_paths`, `elapsed_ms`, `tokens`, `success`, `truncated`,
+`recording_origin`, plus safe routing metadata when available:
 `suggested_next_tools`, `delegate_hint_trigger`, `delegate_target_tool`,
-`delegate_handoff_id`, `handoff_id`.
+`delegate_handoff_id`, `handoff_id`. Direct calls use their own tool name as
+`resolved_target`; facade calls retain the facade in `tool` for compatibility.
 **Tool arguments are intentionally excluded** so the trace cannot leak
 user query text or PII through the pipeline.
 

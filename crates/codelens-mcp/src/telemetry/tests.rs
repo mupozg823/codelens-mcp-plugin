@@ -3,6 +3,7 @@ use super::*;
 fn event<'a>(tool: &'a str, surface: &'a str) -> ToolCallEvent<'a> {
     ToolCallEvent {
         tool,
+        operation: crate::operation::ResolvedOperation::direct(tool).dispatched(),
         elapsed_ms: 0,
         tokens: 0,
         success: true,

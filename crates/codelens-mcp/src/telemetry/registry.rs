@@ -66,48 +66,12 @@ pub(crate) fn percentile_95(samples: &VecDeque<u64>) -> u64 {
     values[index]
 }
 
-fn is_workflow_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "tools/list"
-            | "explore_codebase"
-            | "trace_request_path"
-            | "review_architecture"
-            | "plan_safe_refactor"
-            | "audit_security_context"
-            | "analyze_change_impact"
-            | "cleanup_duplicate_logic"
-            | "review_changes"
-            | "assess_change_readiness"
-            | "diagnose_issues"
-            | "onboard_project"
-            | "orchestrate_change"
-            | "analyze_change_request"
-            | "verify_change_readiness"
-            | "module_boundary_report"
-            | "safe_rename_report"
-            | "unresolved_reference_check"
-            | "dead_code_report"
-            | "impact_report"
-            | "refactor_safety_report"
-            | "diff_aware_references"
-            | "semantic_code_review"
-            | "start_analysis_job"
-            | "get_analysis_job"
-            | "cancel_analysis_job"
-    )
-}
-
-fn is_low_level_tool(name: &str) -> bool {
-    !is_workflow_tool(name)
-}
-
 fn has_low_level_chain(timeline: &[ToolInvocation]) -> bool {
     if timeline.len() < 3 {
         return false;
     }
     let recent = &timeline[timeline.len() - 3..];
-    recent.iter().all(|entry| is_low_level_tool(&entry.tool))
+    recent.iter().all(|entry| entry.work_class.is_primitive())
 }
 
 /// Thread-safe registry that accumulates per-tool and session-level metrics.
@@ -149,6 +113,7 @@ impl ToolMetricsRegistry {
     pub fn record_call(&self, name: &str, elapsed_ms: u64, success: bool) {
         self.record_event(ToolCallEvent {
             tool: name,
+            operation: crate::operation::ResolvedOperation::direct(name).dispatched(),
             elapsed_ms,
             tokens: 0,
             success,
@@ -253,6 +218,25 @@ impl ToolMetricsRegistry {
             .get(logical_session_id)
             .map(|bucket| bucket.session.clone())
             .unwrap_or_default()
+    }
+
+    pub(crate) fn recent_work_classes_for_session(
+        &self,
+        logical_session_id: &str,
+        limit: usize,
+    ) -> Vec<crate::operation::OperationWorkClass> {
+        let buckets = self
+            .session_buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(bucket) = buckets.get(logical_session_id) else {
+            return Vec::new();
+        };
+        let start = bucket.session.timeline.len().saturating_sub(limit);
+        bucket.session.timeline[start..]
+            .iter()
+            .map(|invocation| invocation.work_class)
+            .collect()
     }
 
     /// Enumerate logical session ids currently tracked in the telemetry

@@ -5,17 +5,18 @@ use crate::dispatch::response_support::{
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::MutationGateFailure;
+use crate::operation::ResolvedOperation;
 use crate::protocol::{JsonRpcError, JsonRpcResponse, ToolCallResponse};
 use crate::telemetry::{CallTelemetryHints, ToolCallEvent};
 use crate::tools;
 use serde_json::json;
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn build_error_response(
-    name: &str,
+pub(crate) fn build_error_response<'a>(
+    name: &'a str,
     error: CodeLensError,
     gate_failure: Option<MutationGateFailure>,
-    arguments: &serde_json::Value,
+    arguments: &'a serde_json::Value,
     active_surface: &str,
     logical_session_id: &str,
     state: &AppState,
@@ -23,14 +24,17 @@ pub(crate) fn build_error_response(
     id: Option<serde_json::Value>,
     doom_loop_count: usize,
     doom_loop_rapid: bool,
+    operation: Option<ResolvedOperation<'a>>,
 ) -> JsonRpcResponse {
     let elapsed_ms = start.elapsed().as_millis();
+    let operation = operation.unwrap_or_else(|| ResolvedOperation::from_request(name, arguments));
 
     let target_paths = state.extract_target_paths(arguments);
 
     if error.is_protocol_error() {
         state.metrics().record_event(ToolCallEvent {
             tool: name,
+            operation,
             elapsed_ms: elapsed_ms as u64,
             tokens: 0,
             success: false,
@@ -110,6 +114,7 @@ pub(crate) fn build_error_response(
         delegate_hint_telemetry_fields(&resp);
     state.metrics().record_event(ToolCallEvent {
         tool: name,
+        operation,
         elapsed_ms: elapsed_ms as u64,
         tokens: 0,
         success: false,
@@ -139,4 +144,48 @@ pub(crate) fn build_error_response(
     });
     crate::tool_defs::apply_tool_deprecation_meta(&mut body["_meta"], name);
     JsonRpcResponse::result(id, body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::operation::OperationWorkClass;
+
+    #[test]
+    fn pre_dispatch_facade_error_recovers_resolved_operation_without_global_state() {
+        let project = crate::tests::project_root();
+        let state = crate::tests::make_state(&project);
+        let arguments = json!({
+            "mode": "symbol",
+            "name": "facade_metric_target",
+        });
+        let session_id = "facade-pre-dispatch-error";
+
+        let response = build_error_response(
+            "search",
+            CodeLensError::Validation("blocked before dispatch".to_owned()),
+            None,
+            &arguments,
+            "preset:full",
+            session_id,
+            &state,
+            std::time::Instant::now(),
+            Some(json!(1)),
+            0,
+            false,
+            None,
+        );
+
+        assert!(response.error.is_none());
+        let metrics = state.metrics().session_snapshot_for(session_id);
+        assert_eq!(metrics.call_type.low_level_calls, 1);
+        assert_eq!(metrics.call_type.composite_calls, 0);
+        let invocation = &metrics.timeline[0];
+        assert_eq!(invocation.tool, "search");
+        assert_eq!(invocation.resolved_target.as_deref(), Some("find_symbol"));
+        assert_eq!(invocation.mode.as_deref(), Some("symbol"));
+        assert_eq!(invocation.work_class, OperationWorkClass::Primitive);
+        assert_eq!(invocation.downstream_call_count, 0);
+        assert!(!invocation.success);
+    }
 }

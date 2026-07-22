@@ -3,6 +3,8 @@
 use serde::Serialize;
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::operation::{OperationWorkClass, ResolvedOperation};
+
 /// Metrics for a single tool.
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct ToolMetrics {
@@ -22,6 +24,12 @@ pub struct ToolMetrics {
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolInvocation {
     pub tool: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    pub work_class: OperationWorkClass,
+    pub downstream_call_count: u64,
     pub surface: String,
     pub elapsed_ms: u64,
     pub tokens: usize,
@@ -59,6 +67,7 @@ pub struct CallTelemetryHints<'a> {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ToolCallEvent<'a> {
     pub(crate) tool: &'a str,
+    pub(crate) operation: ResolvedOperation<'a>,
     pub(crate) elapsed_ms: u64,
     pub(crate) tokens: usize,
     pub(crate) success: bool,
@@ -242,6 +251,8 @@ pub(crate) use registry::percentile_95;
 #[cfg(test)]
 pub(crate) use writer::{PersistedEvent, TelemetryWriter};
 
+#[cfg(test)]
+mod resolved_operation_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
