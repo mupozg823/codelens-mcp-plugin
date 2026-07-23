@@ -8,7 +8,7 @@ use crate::tool_defs::{ToolPreset, ToolSurface};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{
-    Arc, Mutex, RwLock, RwLockReadGuard,
+    Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -259,12 +259,42 @@ impl SessionState {
     /// shared-daemon `project_binding` hint (#347).
     fn set_project_binding(&self, project_path: &str, source: ProjectBindingSource) {
         if let Ok(mut current) = self.client_metadata.write() {
-            if !source.can_replace(current.project_binding_source) {
-                return;
-            }
-            current.project_path = Some(project_path.to_owned());
-            current.project_binding_source = source;
+            Self::apply_project_binding(&mut current, project_path, source);
         }
+    }
+
+    /// Apply a recurring project header and capture the metadata used by this
+    /// request under one lock. Keeping the write and snapshot atomic prevents
+    /// concurrent requests for the same session from borrowing each other's
+    /// workspace after an A/B header switch.
+    fn client_metadata_for_project_header(
+        &self,
+        project_path: Option<&str>,
+    ) -> SessionClientMetadata {
+        let mut current = self
+            .client_metadata
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(project_path) = project_path {
+            Self::apply_project_binding(
+                &mut current,
+                project_path,
+                ProjectBindingSource::RequestHeader,
+            );
+        }
+        current.clone()
+    }
+
+    fn apply_project_binding(
+        metadata: &mut SessionClientMetadata,
+        project_path: &str,
+        source: ProjectBindingSource,
+    ) {
+        if !source.can_replace(metadata.project_binding_source) {
+            return;
+        }
+        metadata.project_path = Some(project_path.to_owned());
+        metadata.project_binding_source = source;
     }
 
     /// Daemon-default seeding at initialize — keeps `ensure_session_project`
@@ -459,6 +489,7 @@ impl SessionState {
 /// Thread-safe session store for HTTP mode.
 pub struct SessionStore {
     sessions: RwLock<HashMap<SessionId, Arc<SessionState>>>,
+    request_project_pins: Arc<Mutex<HashMap<String, usize>>>,
     timeout: Duration,
     /// Guard #3: bounded short-TTL record of explicitly-DELETEd ids so DELETE
     /// stays authoritative (a tombstoned id is refused resurrection).
@@ -475,7 +506,40 @@ pub struct SessionStore {
 /// guard while it selects and retires runtimes (sessions -> metadata -> cache).
 pub(crate) struct ActiveProjectPathsGuard<'a> {
     _sessions: RwLockReadGuard<'a, HashMap<SessionId, Arc<SessionState>>>,
+    _request_project_pins: MutexGuard<'a, HashMap<String, usize>>,
     paths: Vec<String>,
+}
+
+/// Keeps one request's captured project protected from runtime-cache eviction
+/// until HTTP dispatch completes, even if another request changes the session's
+/// live project binding in the meantime.
+pub(crate) struct RequestProjectPin {
+    pins: Arc<Mutex<HashMap<String, usize>>>,
+    project_path: Option<String>,
+}
+
+impl Drop for RequestProjectPin {
+    fn drop(&mut self) {
+        let Some(project_path) = self.project_path.as_deref() else {
+            return;
+        };
+        let mut pins = self
+            .pins
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(count) = pins.get_mut(project_path) else {
+            return;
+        };
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            pins.remove(project_path);
+        }
+    }
+}
+
+pub(crate) struct SessionRequestSnapshot {
+    pub(crate) metadata: SessionClientMetadata,
+    pub(crate) project_pin: RequestProjectPin,
 }
 
 impl ActiveProjectPathsGuard<'_> {
@@ -492,6 +556,7 @@ impl SessionStore {
     pub fn new(timeout: Duration) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
+            request_project_pins: Arc::new(Mutex::new(HashMap::new())),
             timeout,
             tombstone: Tombstone::new(Duration::from_secs(300), 256),
             policy: SessionPolicy::Lenient,
@@ -616,8 +681,38 @@ impl SessionStore {
         self.set_project_binding(id, project_path, ProjectBindingSource::ExplicitTool)
     }
 
-    pub fn set_project_path_from_header(&self, id: &str, project_path: &str) -> bool {
-        self.set_project_binding(id, project_path, ProjectBindingSource::RequestHeader)
+    /// Apply one request's recurring project header and return the metadata
+    /// snapshot that request must execute with. The sessions write lock keeps
+    /// this path in the same lock order as explicit binding and runtime-cache
+    /// eviction (`sessions -> metadata -> cache`).
+    pub fn client_metadata_for_project_header(
+        &self,
+        id: &str,
+        project_path: Option<&str>,
+    ) -> Option<SessionRequestSnapshot> {
+        let sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
+        let session = sessions.get(id)?;
+        session.touch();
+        let metadata = session.client_metadata_for_project_header(project_path);
+        let project_pin = self.pin_request_project(metadata.project_path.clone());
+        Some(SessionRequestSnapshot {
+            metadata,
+            project_pin,
+        })
+    }
+
+    fn pin_request_project(&self, project_path: Option<String>) -> RequestProjectPin {
+        if let Some(project_path) = project_path.as_deref() {
+            let mut pins = self
+                .request_project_pins
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            *pins.entry(project_path.to_owned()).or_insert(0) += 1;
+        }
+        RequestProjectPin {
+            pins: Arc::clone(&self.request_project_pins),
+            project_path,
+        }
     }
 
     fn set_project_binding(
@@ -707,10 +802,21 @@ impl SessionStore {
             .filter(|session| !session.is_expired(self.timeout))
             .filter_map(|session| session.client_metadata().project_path)
             .collect::<Vec<_>>();
+        let request_project_pins = self
+            .request_project_pins
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        paths.extend(
+            request_project_pins
+                .iter()
+                .filter(|(_, count)| **count > 0)
+                .map(|(path, _)| path.clone()),
+        );
         paths.sort();
         paths.dedup();
         ActiveProjectPathsGuard {
             _sessions: sessions,
+            _request_project_pins: request_project_pins,
             paths,
         }
     }
@@ -893,6 +999,43 @@ mod tests {
         assert_eq!(resurrected, 1); // exactly one winner
         let first = &results[0].0;
         assert!(results.iter().all(|(s, _)| Arc::ptr_eq(s, first)));
+    }
+
+    #[test]
+    fn concurrent_header_switches_capture_request_local_project_snapshots() {
+        let store = Arc::new(SessionStore::new(Duration::from_secs(300)));
+        let session = store.create();
+        let session_id = session.id.clone();
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let handles: Vec<_> = ["/tmp/workspace-a", "/tmp/workspace-b"]
+            .into_iter()
+            .map(|project| {
+                let store = Arc::clone(&store);
+                let session_id = session_id.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let snapshot = store
+                        .client_metadata_for_project_header(&session_id, Some(project))
+                        .expect("request metadata");
+                    (project, snapshot)
+                })
+            })
+            .collect();
+
+        barrier.wait();
+        for handle in handles {
+            let (requested_project, snapshot) = handle.join().unwrap();
+            assert_eq!(
+                snapshot.metadata.project_path.as_deref(),
+                Some(requested_project),
+                "each request must capture the project written under the same metadata lock"
+            );
+            assert_eq!(
+                snapshot.metadata.project_binding_source,
+                ProjectBindingSource::RequestHeader
+            );
+        }
     }
 
     // ── Task 3: tombstone wiring (DELETE stays authoritative) ─────────

@@ -162,7 +162,7 @@ pub(crate) fn validate_tool_access(
     #[cfg(feature = "http")]
     if is_content_mutation_tool(name)
         && state.should_route_to_session(session)
-        && !state.session_project_binding_explicit(session.session_id.as_str())
+        && !session.project_binding_is_explicit()
         && crate::env_compat::env_var_bool("CODELENS_ALLOW_UNBOUND_MUTATION") != Some(true)
     {
         return Err(CodeLensError::ProjectBindingRequired {
@@ -215,4 +215,73 @@ pub(super) fn enforce_role_gate(
         &permission_error,
     )?;
     Err(permission_error)
+}
+
+#[cfg(all(test, feature = "http"))]
+mod tests {
+    use super::*;
+    use crate::session_context::{SessionRequestContext, with_http_transport_context};
+    use crate::tool_defs::ToolPreset;
+    use serde_json::json;
+
+    #[test]
+    fn later_live_binding_cannot_authorize_an_implicit_request_snapshot() {
+        let _env_guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous_override = std::env::var("CODELENS_ALLOW_UNBOUND_MUTATION").ok();
+        // SAFETY: process-wide environment access is serialized by TEST_ENV_LOCK.
+        unsafe {
+            std::env::remove_var("CODELENS_ALLOW_UNBOUND_MUTATION");
+        }
+
+        let project_dir = tempfile::tempdir().expect("project dir");
+        let project = codelens_engine::ProjectRoot::new(
+            project_dir.path().to_str().expect("UTF-8 project path"),
+        )
+        .expect("project root");
+        let state = AppState::new(project, ToolPreset::Balanced).with_session_store();
+        state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+        let store = state.session_store.as_ref().expect("session store");
+        let live_session = store.create();
+        let project_path = state.project().as_path().to_string_lossy().into_owned();
+        assert!(store.seed_default_project_path(&live_session.id, &project_path));
+
+        let request_snapshot = with_http_transport_context(|| {
+            SessionRequestContext::from_json(&json!({
+                "_session_id": live_session.id,
+                "_session_trusted_client": true,
+                "_session_project_path": project_path,
+                "_session_project_binding_source": "daemon_default",
+            }))
+        });
+
+        // Simulate a concurrent prepare that upgrades live metadata only after
+        // this request captured its daemon-default project.
+        assert!(store.set_project_path(&request_snapshot.session_id, &project_path));
+        assert!(
+            state.session_project_binding_explicit(&request_snapshot.session_id),
+            "precondition: live metadata was upgraded"
+        );
+
+        let result = validate_tool_access(
+            "write_memory",
+            &request_snapshot,
+            ToolSurface::Preset(ToolPreset::Balanced),
+            &state,
+        );
+
+        // SAFETY: process-wide environment access is serialized by TEST_ENV_LOCK.
+        unsafe {
+            match previous_override {
+                Some(value) => std::env::set_var("CODELENS_ALLOW_UNBOUND_MUTATION", value),
+                None => std::env::remove_var("CODELENS_ALLOW_UNBOUND_MUTATION"),
+            }
+        }
+
+        assert!(matches!(
+            result,
+            Err(CodeLensError::ProjectBindingRequired { .. })
+        ));
+    }
 }

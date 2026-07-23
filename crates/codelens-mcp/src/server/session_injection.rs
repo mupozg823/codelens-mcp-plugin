@@ -6,7 +6,7 @@
 
 use crate::AppState;
 use crate::protocol::JsonRpcRequest;
-use crate::server::session::SessionStore;
+use crate::server::session::{RequestProjectPin, SessionStore};
 use std::sync::Arc;
 
 /// Inject session metadata into a tools/call request's arguments.
@@ -14,20 +14,19 @@ pub(super) fn inject_tool_call_session(
     request: &mut JsonRpcRequest,
     session_id: &str,
     store: &SessionStore,
-) {
-    let session = match store.get(session_id) {
-        Some(s) => s,
-        None => return,
-    };
-    let metadata = session.client_metadata();
+    project_header: Option<&str>,
+) -> Option<RequestProjectPin> {
+    let snapshot = store.client_metadata_for_project_header(session_id, project_header)?;
+    let metadata = snapshot.metadata;
+    let project_pin = snapshot.project_pin;
     let Some(params) = request.params.as_mut().and_then(|v| v.as_object_mut()) else {
-        return;
+        return Some(project_pin);
     };
     let arguments = params
         .entry("arguments".to_owned())
         .or_insert_with(|| serde_json::json!({}));
     let Some(args) = arguments.as_object_mut() else {
-        return;
+        return Some(project_pin);
     };
     args.insert("_session_id".to_owned(), serde_json::json!(session_id));
     args.insert(
@@ -57,6 +56,10 @@ pub(super) fn inject_tool_call_session(
     args.insert(
         "_session_project_path".to_owned(),
         serde_json::json!(metadata.project_path),
+    );
+    args.insert(
+        "_session_project_binding_source".to_owned(),
+        serde_json::json!(metadata.project_binding_source.as_str()),
     );
     args.insert(
         "_session_loaded_namespaces".to_owned(),
@@ -98,6 +101,7 @@ pub(super) fn inject_tool_call_session(
         "_session_host_capabilities".to_owned(),
         serde_json::json!(metadata.host_capabilities),
     );
+    Some(project_pin)
 }
 
 /// Update deferred loading state and inject session metadata for tools/list.
@@ -106,11 +110,9 @@ pub(super) fn inject_tools_list_session(
     session_id: &str,
     store: &SessionStore,
     state: &Arc<AppState>,
-) {
-    let session = match store.get(session_id) {
-        Some(s) => s,
-        None => return,
-    };
+    project_header: Option<&str>,
+) -> Option<RequestProjectPin> {
+    let session = store.get(session_id)?;
     let requested_namespace = request
         .params
         .as_ref()
@@ -136,7 +138,9 @@ pub(super) fn inject_tools_list_session(
         full_listing,
     );
 
-    inject_deferred_params(request, session_id, &session);
+    let snapshot = store.client_metadata_for_project_header(session_id, project_header)?;
+    inject_deferred_params(request, session_id, &snapshot.metadata);
+    Some(snapshot.project_pin)
 }
 
 /// Update deferred loading state and inject session metadata for resources/read.
@@ -145,11 +149,9 @@ pub(super) fn inject_resources_read_session(
     session_id: &str,
     store: &SessionStore,
     state: &Arc<AppState>,
-) {
-    let session = match store.get(session_id) {
-        Some(s) => s,
-        None => return,
-    };
+    project_header: Option<&str>,
+) -> Option<RequestProjectPin> {
+    let session = store.get(session_id)?;
     let uri = request
         .params
         .as_ref()
@@ -185,7 +187,9 @@ pub(super) fn inject_resources_read_session(
         );
     }
 
-    inject_deferred_params(request, session_id, &session);
+    let snapshot = store.client_metadata_for_project_header(session_id, project_header)?;
+    inject_deferred_params(request, session_id, &snapshot.metadata);
+    Some(snapshot.project_pin)
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────────
@@ -221,9 +225,8 @@ fn update_deferred_state(
 fn inject_deferred_params(
     request: &mut JsonRpcRequest,
     session_id: &str,
-    session: &crate::server::session::SessionState,
+    metadata: &crate::server::session::SessionClientMetadata,
 ) {
-    let metadata = session.client_metadata();
     let deferred_fields = serde_json::json!({
         "_session_id": session_id,
         "_session_requested_profile": metadata.requested_profile,
@@ -232,6 +235,7 @@ fn inject_deferred_params(
         "_session_host_context": metadata.host_context,
         "_session_deferred_tool_loading": metadata.deferred_tool_loading,
         "_session_project_path": metadata.project_path,
+        "_session_project_binding_source": metadata.project_binding_source.as_str(),
         "_session_loaded_namespaces": metadata.loaded_namespaces,
         "_session_loaded_tiers": metadata.loaded_tiers,
         "_session_full_tool_exposure": metadata.full_tool_exposure,

@@ -877,7 +877,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 233
+        "estimated_tokens": 326
       },
       {
         "name": "prepare_harness_session",
@@ -891,7 +891,7 @@
           "concurrency_safe": false
         },
         "has_output_schema": true,
-        "estimated_tokens": 4933
+        "estimated_tokens": 5026
       },
       {
         "name": "register_agent_work",
