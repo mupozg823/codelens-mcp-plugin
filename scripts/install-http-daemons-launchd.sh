@@ -61,6 +61,9 @@ Environment:
                               bootstrap so a fresh instance never meets the busy
                               port and yields exit(0) into a KeepAlive
                               SuccessfulExit=false permanent-down.
+  CODELENS_LSP_PATH_EXTRA     additional LSP binary directories persisted in the
+                              launchd environment (default: the installer's PATH;
+                              physical node/pyright directories are prepended)
 
 Examples:
   bash scripts/install-http-daemons-launchd.sh .
@@ -111,6 +114,39 @@ import sys
 print(html.escape(sys.argv[1], quote=True))
 ' "$1"
 }
+
+physical_command_dir() {
+	local command_path
+	command_path="$(command -v "$1" 2>/dev/null)" || return 0
+	[[ "$command_path" == /* ]] || return 0
+	(cd -P -- "${command_path%/*}" && pwd)
+}
+
+prepend_path_dir() {
+	local directory="$1"
+	local path_value="$2"
+	if [[ -z "$directory" || "$path_value" == "$directory" || "$path_value" == "$directory":* ]]; then
+		printf '%s\n' "$path_value"
+	elif [[ -n "$path_value" ]]; then
+		printf '%s:%s\n' "$directory" "$path_value"
+	else
+		printf '%s\n' "$directory"
+	fi
+}
+
+INSTALLER_PATH="${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
+LSP_PATH_EXTRA="${CODELENS_LSP_PATH_EXTRA:-$INSTALLER_PATH}"
+if [[ "$LSP_PATH_EXTRA" == "$INSTALLER_PATH" ]]; then
+	LAUNCHD_PATH="$INSTALLER_PATH"
+else
+	LAUNCHD_PATH="${LSP_PATH_EXTRA}:${INSTALLER_PATH}"
+fi
+for lsp_runtime_command in node pyright-langserver; do
+	lsp_runtime_dir="$(physical_command_dir "$lsp_runtime_command")"
+	[[ -n "$lsp_runtime_dir" ]] || continue
+	LSP_PATH_EXTRA="$(prepend_path_dir "$lsp_runtime_dir" "$LSP_PATH_EXTRA")"
+	LAUNCHD_PATH="$(prepend_path_dir "$lsp_runtime_dir" "$LAUNCHD_PATH")"
+done
 
 # 0 = a daemon is still accepting on 127.0.0.1:port, non-zero = free. Uses the
 # bash /dev/tcp builtin (no lsof/nc) so it is identical on macOS and Linux CI.
@@ -436,6 +472,8 @@ create_plist() {
 	local stdout_xml
 	local stderr_xml
 	local embed_resource_profile_xml
+	local launchd_path_xml
+	local lsp_path_extra_xml
 	local model_dir_xml=""
 	label_xml="$(xml_escape "$label")"
 	bin_xml="$(xml_escape "$BIN_PATH")"
@@ -443,6 +481,8 @@ create_plist() {
 	stdout_xml="$(xml_escape "$stdout_path")"
 	stderr_xml="$(xml_escape "$stderr_path")"
 	embed_resource_profile_xml="$(xml_escape "$EMBED_RESOURCE_PROFILE")"
+	launchd_path_xml="$(xml_escape "$LAUNCHD_PATH")"
+	lsp_path_extra_xml="$(xml_escape "$LSP_PATH_EXTRA")"
 	if [[ "$SEMANTIC" == "1" && -n "$MODEL_DIR" ]]; then
 		model_dir_xml=$'    <key>CODELENS_MODEL_DIR</key>\n    <string>'"$(xml_escape "$MODEL_DIR")"$'</string>\n'
 	fi
@@ -472,6 +512,10 @@ create_plist() {
 		printf '  <string>%s</string>\n' "$repo_xml"
 		printf '%s\n' '  <key>EnvironmentVariables</key>'
 		printf '%s\n' '  <dict>'
+		printf '%s\n' '    <key>PATH</key>'
+		printf '    <string>%s</string>\n' "$launchd_path_xml"
+		printf '%s\n' '    <key>CODELENS_LSP_PATH_EXTRA</key>'
+		printf '    <string>%s</string>\n' "$lsp_path_extra_xml"
 		printf '%s\n' '    <key>CODELENS_LOG</key>'
 		printf '    <string>%s</string>\n' "$log_level"
 		printf '%s\n' '    <key>CODELENS_EFFORT_LEVEL</key>'
