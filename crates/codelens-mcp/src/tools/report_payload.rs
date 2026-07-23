@@ -66,9 +66,10 @@ pub(crate) fn build_handle_payload(
         top_findings,
         next_actions,
         available_sections,
+        touched_files,
     );
     let performance_watchpoints =
-        infer_performance_watchpoints(summary, top_findings, next_actions);
+        infer_performance_watchpoints(summary, top_findings, next_actions, touched_files);
     let summary_resource = analysis_summary_resource(analysis_id);
     let section_handles = analysis_section_handles(analysis_id, available_sections);
     let mut payload = json!({
@@ -214,14 +215,8 @@ pub(crate) fn infer_risk_level(
     }
 }
 
-fn infer_quality_focus(
-    tool_name: &str,
-    summary: &str,
-    top_findings: &[String],
-    changed_files: &[String],
-) -> Vec<String> {
-    let combined = format!("{} {}", summary, top_findings.join(" ")).to_ascii_lowercase();
-    let frontend_path = changed_files.iter().any(|p| {
+fn has_frontend_path(changed_files: &[String]) -> bool {
+    changed_files.iter().any(|p| {
         let p = p.to_ascii_lowercase();
         p.contains("/templates/")
             || p.contains("/components/")
@@ -236,7 +231,17 @@ fn infer_quality_focus(
             || p.ends_with(".css")
             || p.ends_with(".scss")
             || p.ends_with(".astro")
-    });
+    })
+}
+
+fn infer_quality_focus(
+    tool_name: &str,
+    summary: &str,
+    top_findings: &[String],
+    changed_files: &[String],
+) -> Vec<String> {
+    let combined = format!("{} {}", summary, top_findings.join(" ")).to_ascii_lowercase();
+    let frontend_path = has_frontend_path(changed_files);
     let mut focus = Vec::new();
     let mut push_unique = |value: &str| {
         if !focus.iter().any(|existing| existing == value) {
@@ -290,6 +295,7 @@ fn infer_recommended_checks(
     top_findings: &[String],
     next_actions: &[String],
     available_sections: &[String],
+    touched_files: &[String],
 ) -> Vec<String> {
     let combined = format!(
         "{} {} {} {}",
@@ -318,12 +324,13 @@ fn infer_recommended_checks(
     if combined.contains("rename") || combined.contains("refactor") {
         push_unique("verify references and call sites after the refactor preview");
     }
-    if combined.contains("http")
-        || combined.contains("browser")
-        || combined.contains("ui")
-        || combined.contains("frontend")
-        || combined.contains("layout")
-        || combined.contains("render")
+    if has_frontend_path(touched_files)
+        && (combined.contains("http")
+            || combined.contains("browser")
+            || combined.contains("ui")
+            || combined.contains("frontend")
+            || combined.contains("layout")
+            || combined.contains("render"))
     {
         push_unique("exercise the user-facing flow in a browser or UI harness");
     }
@@ -344,6 +351,7 @@ fn infer_performance_watchpoints(
     summary: &str,
     top_findings: &[String],
     next_actions: &[String],
+    touched_files: &[String],
 ) -> Vec<String> {
     let combined = format!(
         "{} {} {}",
@@ -368,11 +376,12 @@ fn infer_performance_watchpoints(
     if combined.contains("watch") || combined.contains("filesystem") {
         push_unique("watch background work, queue depth, and repeated invalidation behavior");
     }
-    if combined.contains("ui")
-        || combined.contains("frontend")
-        || combined.contains("layout")
-        || combined.contains("render")
-        || combined.contains("browser")
+    if has_frontend_path(touched_files)
+        && (combined.contains("ui")
+            || combined.contains("frontend")
+            || combined.contains("layout")
+            || combined.contains("render")
+            || combined.contains("browser"))
     {
         push_unique("watch rendering smoothness, layout stability, and unnecessary re-renders");
     }
@@ -505,6 +514,56 @@ mod preview_first_trim_tests {
             focus.contains(&"user_experience".to_owned()),
             "frontend .tsx file with render/layout summary must trigger user_experience: {:?}",
             focus
+        );
+    }
+
+    #[test]
+    fn diagram_render_word_does_not_add_frontend_watchpoint() {
+        let readiness = AnalysisReadiness::default();
+        let payload = build_handle_payload(
+            "mermaid_module_graph",
+            "analysis-diagram",
+            "Mermaid module diagram rendered from structural evidence.",
+            &["0 upstream, 0 downstream (rendered up to 10 per side)".to_owned()],
+            "low",
+            0.9,
+            &[],
+            &[],
+            &readiness,
+            &[],
+            &[],
+            &[],
+            false,
+            false,
+        );
+
+        assert_eq!(payload["performance_watchpoints"], json!([]));
+    }
+
+    #[test]
+    fn frontend_render_evidence_keeps_render_watchpoint() {
+        let readiness = AnalysisReadiness::default();
+        let payload = build_handle_payload(
+            "semantic_code_review",
+            "analysis-frontend",
+            "Render regression in the frontend layout.",
+            &[],
+            "medium",
+            0.9,
+            &[],
+            &[],
+            &readiness,
+            &[],
+            &[],
+            &["src/components/Panel.tsx".to_owned()],
+            false,
+            false,
+        );
+
+        assert!(
+            payload["performance_watchpoints"]
+                .as_array()
+                .is_some_and(|watchpoints| !watchpoints.is_empty())
         );
     }
 }

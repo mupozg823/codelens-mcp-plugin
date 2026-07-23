@@ -6,8 +6,9 @@ mod refactor;
 mod workspace_modules;
 
 use helpers::{
-    build_dead_code_semantic_query, build_module_semantic_query, file_name, impact_entry_file,
-    insert_semantic_status, mermaid_escape_label, parent_dir, semantic_degraded_note,
+    analysis_completeness_section, build_dead_code_semantic_query, build_module_semantic_query,
+    file_name, impact_entry_file, insert_semantic_status, mermaid_escape_label, parent_dir,
+    semantic_degraded_note, validate_architecture_scope, verifier_files_for_path,
 };
 #[cfg(test)]
 use mermaid::render_module_mermaid;

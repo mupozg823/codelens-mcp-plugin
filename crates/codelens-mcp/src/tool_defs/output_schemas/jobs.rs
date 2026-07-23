@@ -10,6 +10,19 @@ pub(crate) fn analysis_handle_output_schema() -> serde_json::Value {
             "summary": {"type": "string"},
             "top_findings": {"type": "array", "items": {"type": "string"}},
             "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
+            "analysis_completeness": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["complete", "partial", "unavailable"]},
+                    "reason": {"type": "string"},
+                    "scope_kind": {"type": ["string", "null"]},
+                    "in_scope_file_count": {"type": ["integer", "null"]},
+                    "in_scope_file_limit_hit": {"type": ["boolean", "null"]},
+                    "direct_importer_limit_hit": {"type": ["boolean", "null"]},
+                    "cycle_limit_hit": {"type": "boolean"},
+                    "coupling_limit_hit": {"type": "boolean"}
+                }
+            },
             "confidence": {"type": "number"},
             "next_actions": {"type": "array", "items": {"type": "string"}},
             "blockers": {"type": "array", "items": {"type": "string"}},

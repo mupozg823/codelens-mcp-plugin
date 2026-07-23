@@ -43,6 +43,97 @@ fn fingerprint_cache_key(
     cache_key.map(|key| format!("{key}|idx:{}:{file_count}", max_indexed_at.unwrap_or(0)))
 }
 
+fn section_array_len(sections: &BTreeMap<String, Value>, section: &str, field: &str) -> usize {
+    sections
+        .get(section)
+        .and_then(|value| value.get(field))
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len)
+}
+
+fn analysis_is_incomplete(sections: &BTreeMap<String, Value>) -> bool {
+    matches!(
+        sections
+            .get("analysis_completeness")
+            .and_then(|value| value.get("status"))
+            .and_then(Value::as_str),
+        Some("partial" | "unavailable")
+    )
+}
+
+fn cached_artifact_satisfies_current_contract(
+    tool_name: &str,
+    available_sections: &[String],
+) -> bool {
+    !matches!(tool_name, "module_boundary_report" | "mermaid_module_graph")
+        || available_sections
+            .iter()
+            .any(|section| section == "analysis_completeness")
+}
+
+fn infer_handle_risk_level(
+    tool_name: &str,
+    summary: &str,
+    top_findings: &[String],
+    next_actions: &[String],
+    sections: &BTreeMap<String, Value>,
+) -> String {
+    if tool_name == "module_boundary_report" {
+        let cycle_count = section_array_len(sections, "cycle_hits", "cycles");
+        if cycle_count > 0 {
+            return "high".to_owned();
+        }
+        let coupling_count = section_array_len(sections, "coupling_hits", "couplings");
+        let importer_count = section_array_len(sections, "impact", "direct_importers");
+        let affected_count = sections
+            .get("impact")
+            .and_then(|value| value.get("total_affected_files"))
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        if analysis_is_incomplete(sections)
+            || coupling_count > 0
+            || importer_count > 0
+            || affected_count > 0
+        {
+            return "medium".to_owned();
+        }
+        return "low".to_owned();
+    }
+
+    if tool_name == "mermaid_module_graph" {
+        let stats = sections.get("stats");
+        let edge_count = stats
+            .and_then(|value| value.get("module_edge_count"))
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let upstream_count = stats
+            .and_then(|value| value.get("upstream_total"))
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let downstream_count = stats
+            .and_then(|value| value.get("downstream_total"))
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        return if analysis_is_incomplete(sections)
+            || edge_count > 0
+            || upstream_count > 0
+            || downstream_count > 0
+        {
+            "medium".to_owned()
+        } else {
+            "low".to_owned()
+        };
+    }
+
+    infer_risk_level(summary, top_findings, next_actions).to_owned()
+}
+
+fn attach_analysis_completeness(payload: &mut Value, completeness: Option<&Value>) {
+    if let Some(completeness) = completeness {
+        payload["analysis_completeness"] = completeness.clone();
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_handle_response(
     state: &AppState,
@@ -71,7 +162,8 @@ pub(super) fn make_handle_response(
         .map(SessionRequestContext::from_json)
         .map(|session| session.session_id);
     let logical_session_id = logical_session_id.as_deref();
-    let risk_level = infer_risk_level(&summary, &top_findings, &next_actions);
+    let risk_level =
+        infer_handle_risk_level(tool_name, &summary, &top_findings, &next_actions, &sections);
     let ci_audit = matches!(*state.surface(), ToolSurface::Profile(ToolProfile::CiAudit));
     let inline_overlapping_claims = overlapping_claims_from_sections(&sections);
     let verifier = build_verifier_contract(
@@ -84,9 +176,11 @@ pub(super) fn make_handle_response(
         &touched_files,
         symbol_hint.as_deref(),
     );
+    let analysis_completeness = sections.get("analysis_completeness").cloned();
     if let Some(cache_key) = cache_key.as_deref()
         && let Some((artifact, tier)) =
             state.find_reusable_analysis_tiered_for_current_scope(tool_name, cache_key)
+        && cached_artifact_satisfies_current_contract(tool_name, &artifact.available_sections)
     {
         state
             .metrics()
@@ -107,6 +201,7 @@ pub(super) fn make_handle_response(
             true,
             ci_audit,
         );
+        attach_analysis_completeness(&mut data, analysis_completeness.as_ref());
         data["cache_hit_tier"] = serde_json::json!(tier.as_str());
         let overlapping_claims = overlapping_claims_from_artifact(state, &artifact.id);
         if !overlapping_claims.is_empty() {
@@ -144,7 +239,7 @@ pub(super) fn make_handle_response(
         cache_key,
         summary.clone(),
         top_findings.clone(),
-        risk_level.to_owned(),
+        risk_level,
         confidence,
         next_actions.clone(),
         verifier.blockers.clone(),
@@ -168,6 +263,7 @@ pub(super) fn make_handle_response(
         false,
         ci_audit,
     );
+    attach_analysis_completeness(&mut data, analysis_completeness.as_ref());
     if !inline_overlapping_claims.is_empty() {
         data["overlapping_claims"] = serde_json::json!(inline_overlapping_claims);
     }
@@ -220,6 +316,15 @@ mod tests {
     use serde_json::json;
 
     fn issue_report(state: &AppState, cache_key: Option<String>) -> Value {
+        let sections = BTreeMap::from([(
+            "analysis_completeness".to_owned(),
+            json!({
+                "status": "complete",
+                "scope_kind": "file",
+                "in_scope_file_count": 1,
+                "in_scope_file_limit_hit": false,
+            }),
+        )]);
         make_handle_response(
             state,
             "module_boundary_report",
@@ -228,7 +333,7 @@ mod tests {
             vec!["finding".to_owned()],
             0.9,
             vec!["action".to_owned()],
-            BTreeMap::new(),
+            sections,
             Vec::new(),
             None,
             None,
@@ -240,6 +345,137 @@ mod tests {
     fn args_only_key() -> Option<String> {
         // Shape produced by `stable_cache_key` — args only, no content signal.
         Some(r#"{"fields":{"path":"lib.rs"},"tool":"module_boundary_report"}"#.to_owned())
+    }
+
+    #[test]
+    fn module_boundary_risk_uses_positive_cycle_evidence() {
+        let mut sections = BTreeMap::new();
+        sections.insert("cycle_hits".to_owned(), json!({"cycles": []}));
+        sections.insert("coupling_hits".to_owned(), json!({"couplings": []}));
+        sections.insert(
+            "impact".to_owned(),
+            json!({"direct_importers": [], "total_affected_files": 0}),
+        );
+        sections.insert(
+            "analysis_completeness".to_owned(),
+            json!({"status": "complete"}),
+        );
+
+        assert_eq!(
+            infer_handle_risk_level(
+                "module_boundary_report",
+                "structural risk report",
+                &["0 cycle hit(s)".to_owned()],
+                &["Check cycle evidence".to_owned()],
+                &sections,
+            ),
+            "low"
+        );
+
+        sections.insert(
+            "cycle_hits".to_owned(),
+            json!({"cycles": [["a.py", "b.py", "a.py"]]}),
+        );
+        assert_eq!(
+            infer_handle_risk_level(
+                "module_boundary_report",
+                "structural risk report",
+                &["1 cycle hit(s)".to_owned()],
+                &[],
+                &sections,
+            ),
+            "high"
+        );
+    }
+
+    #[test]
+    fn partial_architecture_evidence_is_medium_risk() {
+        let mut sections = BTreeMap::new();
+        sections.insert("cycle_hits".to_owned(), json!({"cycles": []}));
+        sections.insert("coupling_hits".to_owned(), json!({"couplings": []}));
+        sections.insert(
+            "impact".to_owned(),
+            json!({"direct_importers": [], "total_affected_files": 0}),
+        );
+        sections.insert(
+            "analysis_completeness".to_owned(),
+            json!({"status": "partial"}),
+        );
+
+        assert_eq!(
+            infer_handle_risk_level(
+                "module_boundary_report",
+                "structural report",
+                &[],
+                &[],
+                &sections,
+            ),
+            "medium"
+        );
+    }
+
+    #[test]
+    fn unavailable_architecture_evidence_is_not_low_risk() {
+        let mut sections = BTreeMap::new();
+        sections.insert("cycle_hits".to_owned(), json!({"cycles": []}));
+        sections.insert("coupling_hits".to_owned(), json!({"couplings": []}));
+        sections.insert(
+            "impact".to_owned(),
+            json!({"direct_importers": [], "total_affected_files": 0}),
+        );
+        sections.insert(
+            "analysis_completeness".to_owned(),
+            json!({"status": "unavailable"}),
+        );
+
+        assert_eq!(
+            infer_handle_risk_level(
+                "module_boundary_report",
+                "structural report",
+                &[],
+                &[],
+                &sections,
+            ),
+            "medium"
+        );
+    }
+
+    #[test]
+    fn legacy_architecture_cache_without_completeness_is_not_reused() {
+        let project = temp_project_root("cache-architecture-contract");
+        let state = AppState::new_minimal(project, ToolPreset::Full);
+        state
+            .symbol_index()
+            .get_symbols_overview("lib.rs", 1)
+            .expect("index lib.rs");
+        let legacy_key = {
+            let index = state.symbol_index();
+            fingerprint_cache_key(
+                args_only_key(),
+                index.max_indexed_at().ok().flatten(),
+                index.file_count().unwrap_or(0),
+            )
+        };
+        state
+            .store_analysis_for_current_scope(
+                "module_boundary_report",
+                legacy_key,
+                "legacy boundary summary".to_owned(),
+                vec![],
+                "low".to_owned(),
+                0.9,
+                vec![],
+                vec![],
+                crate::runtime_types::AnalysisReadiness::default(),
+                vec![],
+                BTreeMap::new(),
+            )
+            .expect("store legacy artifact");
+
+        let response = issue_report(&state, args_only_key());
+
+        assert_eq!(response["reused"], json!(false));
+        assert_ne!(response["summary"], json!("legacy boundary summary"));
     }
 
     /// G2 invariant: generic artifacts (`cache_key = None`) must keep

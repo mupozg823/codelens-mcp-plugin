@@ -329,6 +329,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "binary_version": crate::build_info::BUILD_VERSION,
             "daemon_started_at": state.daemon_started_at(),
             "daemon_binary_drift": daemon_binary_drift,
+            "project_runtime": state.project_runtime_health_payload(),
+            "coordination_health": state.coordination_health_payload(),
             "binary_build_info": binary_build_info,
             "scip_available": scip_available,
             "scip_file_count": scip_file_count,

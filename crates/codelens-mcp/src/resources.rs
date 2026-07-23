@@ -13,6 +13,7 @@ mod tool_listing;
 mod uri_aliases;
 
 use crate::AppState;
+use crate::error::CodeLensError;
 use crate::resource_context::ResourceRequestContext;
 use serde_json::Value;
 
@@ -39,15 +40,16 @@ pub(crate) fn resources(state: &AppState) -> Vec<Value> {
     items
 }
 
-pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>) -> Value {
+pub(crate) fn read_resource(
+    state: &AppState,
+    uri: &str,
+    params: Option<&Value>,
+) -> Result<Value, CodeLensError> {
     let normalized = normalize_resource_uri(uri);
     let uri = normalized.as_ref();
     let request = ResourceRequestContext::from_request(uri, params);
-    let _session_project_guard = state
-        .ensure_session_project(&request.session)
-        .ok()
-        .flatten();
-    match uri {
+    let _session_project_guard = state.ensure_session_project(&request.session)?;
+    let payload = match uri {
         "codelens://project/overview" => {
             project_resources::project_overview_resource(state, uri, &request)
         }
@@ -102,11 +104,13 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
         }
         "codelens://schemas/handoff-artifact/v1" => surface_resources::handoff_schema_resource(uri),
         "codelens://stats/token-efficiency" => {
-            session_resources::token_efficiency_resource(state, uri, &request)
+            session_resources::token_efficiency_resource(state, uri, &request)?
         }
-        "codelens://session/http" => session_resources::http_session_resource(state, uri, &request),
+        "codelens://session/http" => {
+            session_resources::http_session_resource(state, uri, &request)?
+        }
         "codelens://activity/current" => {
-            session_resources::agent_activity_resource(state, uri, &request)
+            session_resources::agent_activity_resource(state, uri, &request)?
         }
         "codelens://analysis/recent" => analysis_reader::recent_analysis_resource(state, uri),
         "codelens://analysis/jobs" => analysis_reader::analysis_jobs_resource(state, uri),
@@ -120,5 +124,6 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             analysis_reader::analysis_artifact_resource(state, uri, &request)
         }
         _ => text_resource(uri, format!("Unknown resource: {uri}")),
-    }
+    };
+    Ok(payload)
 }
