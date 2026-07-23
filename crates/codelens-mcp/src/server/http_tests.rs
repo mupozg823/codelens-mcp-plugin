@@ -127,6 +127,7 @@ mod host_snapshot_tests;
 mod lifecycle_project_tests;
 mod lifecycle_tests;
 mod mutation_tests;
+mod project_binding_precedence_tests;
 mod protocol_tests;
 mod protocol_version_tests;
 mod session_store_tests;

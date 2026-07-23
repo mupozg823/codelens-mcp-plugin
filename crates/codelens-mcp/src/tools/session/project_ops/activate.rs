@@ -104,7 +104,9 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
     #[cfg(feature = "http")]
     if state.should_route_to_session(&session) {
         state.set_session_surface_and_budget(&session.session_id, auto_surface, auto_budget);
-        state.bind_project_to_session(&session.session_id, &project_base_path);
+        if switched.is_some() {
+            state.bind_project_to_session(&session.session_id, &project_base_path);
+        }
     } else {
         state.set_surface(auto_surface);
         state.set_token_budget(auto_budget);

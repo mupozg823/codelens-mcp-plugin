@@ -41,6 +41,8 @@ pub(super) fn create_http_profile_session(
             client_name: Some("integration-test".to_owned()),
             requested_profile: Some(profile.as_str().to_owned()),
             project_path: Some(project.as_path().to_string_lossy().into_owned()),
+            project_binding_source:
+                crate::server::project_binding::ProjectBindingSource::InitializeParam,
             ..Default::default()
         },
     );
