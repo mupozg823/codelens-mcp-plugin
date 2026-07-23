@@ -660,6 +660,9 @@ def render_metadata() -> str:
     )
     content_mutation_tool_set = set(content_mutation_tools)
     execution_policies: dict[str, tuple[str, str, str, bool]] = {}
+    symbol_generation_consistent_tools = data.get(
+        "symbol_generation_consistent_tools", []
+    )
     experimental_tools: dict[str, str] = {}
     for feature, names in data.get("experimental_features", {}).items():
         for name in names:
