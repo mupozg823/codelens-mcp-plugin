@@ -119,6 +119,7 @@ fn first_tool_payload(body: &str) -> serde_json::Value {
 mod analysis_job_tests;
 mod auth_tests;
 mod codex_host_snapshot_tests;
+mod default_visibility_tests;
 mod deferred_expansion_tests;
 mod deferred_tests;
 mod editor_host_snapshot_tests;

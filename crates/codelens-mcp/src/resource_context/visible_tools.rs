@@ -2,8 +2,8 @@ use crate::AppState;
 use crate::protocol::{Tool, ToolPhase};
 use crate::tool_defs::{
     ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_tier_labels, tool_deprecation, tool_namespace, tool_phase_label, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools,
+    preferred_tier_labels, tool_default_listed, tool_deprecation, tool_namespace, tool_phase_label,
+    tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
 };
 
 use super::ResourceRequestContext;
@@ -23,6 +23,10 @@ pub(crate) struct VisibleToolContext {
     pub(crate) selected_tier: Option<String>,
     pub(crate) deferred_loading_active: bool,
     pub(crate) full_tool_exposure: bool,
+}
+
+fn is_initial_deferred_tool(name: &str) -> bool {
+    is_deferred_control_tool(name) || tool_default_listed(name)
 }
 
 pub(crate) fn filter_listed_tools(
@@ -86,7 +90,7 @@ pub(crate) fn build_visible_tool_context(
         .iter()
         .copied()
         .filter(|tool| match request.requested_namespace.as_deref() {
-            _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
+            _ if request.deferred_loading_active() && is_initial_deferred_tool(tool.name) => true,
             Some(namespace) => tool_namespace(tool.name) == namespace,
             None if request.deferred_loading_active() => {
                 if is_deferred_control_tool(tool.name) {
@@ -109,7 +113,7 @@ pub(crate) fn build_visible_tool_context(
             None => true,
         })
         .filter(|tool| match request.requested_tier.as_deref() {
-            _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
+            _ if request.deferred_loading_active() && is_initial_deferred_tool(tool.name) => true,
             Some(tier) => tool_tier_label(tool.name) == tier,
             None if request.deferred_loading_active() => {
                 if is_deferred_control_tool(tool.name) {
@@ -132,7 +136,7 @@ pub(crate) fn build_visible_tool_context(
             None => true,
         })
         .filter(|tool| match preferred_bootstrap {
-            _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
+            _ if request.deferred_loading_active() && is_initial_deferred_tool(tool.name) => true,
             Some(tool_names) if request.deferred_loading_active() && !has_loaded_expansions => {
                 tool_names.contains(&tool.name)
             }
