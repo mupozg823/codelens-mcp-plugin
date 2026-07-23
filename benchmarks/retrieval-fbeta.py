@@ -6,7 +6,7 @@ weighted F-beta(0.5) at file-level and line-level granularity **alongside MRR**,
 following the report conventions of role-retrieval.py / embedding-quality.py.
 
 - Probes the already-running read-only daemon over HTTP (default
-  http://127.0.0.1:7839) — read-only calls only, no mutation.
+  http://127.0.0.1:7838) — read-only calls only, no mutation.
 - Gold line for the strict line-level score is resolved from the authoritative
   ``find_symbol`` definition line of ``expected_symbol`` (datasets carry no
   line-range column, so we derive it; labels are never modified).
@@ -38,7 +38,7 @@ def parse_args():
         help="Bind retrieval to this project root. Default: the daemon's "
         "already-bound project (labels reference that indexed repo).",
     )
-    p.add_argument("--base-url", default="http://127.0.0.1:7839")
+    p.add_argument("--base-url", default="http://127.0.0.1:7838")
     p.add_argument("--dataset", default=DEFAULT_DATASET)
     p.add_argument("--limit", type=int, default=30, help="Max queries to score")
     p.add_argument("--max-results", type=int, default=10)

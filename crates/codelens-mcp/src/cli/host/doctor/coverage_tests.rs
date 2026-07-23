@@ -34,7 +34,7 @@ fn parse_json_transport_reads_http_headers() -> Result<()> {
         r#"{
           "mcpServers": {
             "codelens": {
-              "url": "http://127.0.0.1:7839/mcp",
+              "url": "http://127.0.0.1:7838/mcp",
               "headers": {"x-codelens-project": "/tmp/repo"}
             }
           }
@@ -45,7 +45,7 @@ fn parse_json_transport_reads_http_headers() -> Result<()> {
     assert_eq!(
         transport,
         Transport::Http {
-            url: "http://127.0.0.1:7839/mcp".to_owned(),
+            url: "http://127.0.0.1:7838/mcp".to_owned(),
             headers: BTreeMap::from([("x-codelens-project".to_owned(), "/tmp/repo".to_owned())]),
         }
     );
@@ -57,7 +57,7 @@ fn parse_toml_transport_reads_http_headers() -> Result<()> {
     let transport = parse_toml_transport(
         r#"
           [mcp_servers.codelens]
-          url = "http://127.0.0.1:7839/mcp"
+          url = "http://127.0.0.1:7838/mcp"
           http_headers = { "x-codelens-project" = "/tmp/repo" }
         "#,
     )
@@ -66,7 +66,7 @@ fn parse_toml_transport_reads_http_headers() -> Result<()> {
     assert_eq!(
         transport,
         Transport::Http {
-            url: "http://127.0.0.1:7839/mcp".to_owned(),
+            url: "http://127.0.0.1:7838/mcp".to_owned(),
             headers: BTreeMap::from([("x-codelens-project".to_owned(), "/tmp/repo".to_owned())]),
         }
     );

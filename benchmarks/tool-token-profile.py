@@ -2,7 +2,7 @@
 """Per-tool response token profiler (MCP Interviewer prescription).
 
 Fires a fixed suite of read-only probe calls at the already-running daemon
-(default http://127.0.0.1:7839) and measures the actual response size of each
+(default http://127.0.0.1:7838) and measures the actual response size of each
 tool (chars, approx tokens = chars / 4). Tools whose measured response exceeds
 an absolute budget (default 1500 tokens) are flagged as heavy.
 
@@ -55,7 +55,7 @@ PROBE_SUITE = [
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--base-url", default="http://127.0.0.1:7839")
+    p.add_argument("--base-url", default="http://127.0.0.1:7838")
     p.add_argument(
         "--project",
         default=None,

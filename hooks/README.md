@@ -48,7 +48,7 @@ given the escape markers and the per-session deny cap below.
 (fail-open otherwise):
 
 - Daemon health probe against `CODELENS_CARD_URL` (default
-  `http://127.0.0.1:7839/.well-known/mcp.json`); down → pass, with a 5-min
+  `http://127.0.0.1:7838/.well-known/mcp.json`); down → pass, with a 5-min
   negative cache. `CODELENS_FIRST_ASSUME_ALIVE=1` skips the probe (CI/tests).
 - Not in a worktree cwd (`/worktrees/` — post-edit index staleness).
 - No escape marker in the command: `# [cl-text]` (plain text audit) or

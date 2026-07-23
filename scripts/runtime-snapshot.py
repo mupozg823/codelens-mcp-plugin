@@ -124,7 +124,7 @@ def snapshot_is_current(snapshot: dict[str, Any]) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path, default=DEFAULT_BINARY)
-    parser.add_argument("--ports", default="7838,7839")
+    parser.add_argument("--ports", default="7838")
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--write", nargs="?", const=str(DEFAULT_OUTPUT))
     parser.add_argument("--check", action="store_true")

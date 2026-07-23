@@ -88,7 +88,7 @@ except ValueError:
     MAX_DENIES_PER_SESSION = 10
 GATE_MAX_LEVELS = 5
 CARD_URL = os.environ.get(
-    "CODELENS_CARD_URL", "http://127.0.0.1:7839/.well-known/mcp.json"
+    "CODELENS_CARD_URL", "http://127.0.0.1:7838/.well-known/mcp.json"
 )
 HEALTH_NEG_CACHE_SECS = 300
 METRIC_DIR = os.path.expanduser("~/.claude/metrics")

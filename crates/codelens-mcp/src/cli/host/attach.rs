@@ -67,7 +67,7 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
             "Project-local daemon URL override from `{source}`: `{url}`.\n"
         ));
     } else {
-        out.push_str("The default daemon URL assumes `http://127.0.0.1:7837/mcp`.\n");
+        out.push_str("The default daemon URL assumes `http://127.0.0.1:7838/mcp`.\n");
     }
     out.push_str(&format!(
         "Verify the host wiring with `codelens-mcp doctor {canonical}` after applying the config.\n"

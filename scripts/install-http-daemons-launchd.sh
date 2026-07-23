@@ -5,27 +5,27 @@ usage() {
 	cat <<'EOF'
 Usage: bash scripts/install-http-daemons-launchd.sh [repo-root] [options]
 
-Build and install repo-local launchd agents for the recommended dual-daemon
-CodeLens setup on macOS:
-  - read-only reviewer/planner daemon
-  - mutation-enabled builder/refactor daemon
+Build and install the repo-local launchd agent for the canonical single-writer
+CodeLens setup on macOS. Reviewer/planner and builder/refactor sessions attach
+to this same mutation-capable endpoint and select their profile/RBAC per session.
 
 Also writes repo-local host attach overrides into `.codelens/config.json`
 so `codelens-mcp attach/status/doctor` reuse the same host -> URL contract.
 
-Defaults in this repository follow the repo-local operating contract:
-  - readonly: review on :7839
-  - mutation: builder on :7838
+The canonical label is ${LABEL_PREFIX}-mutation and the default endpoint is
+builder on :7838. The old --readonly-* flags remain accepted as compatibility
+aliases, but no readonly plist is generated or started.
 
 Options:
   --label-prefix PREFIX       launchd label prefix (default: dev.codelens.mcp)
   --bin-path PATH             stable http-capable binary path (default: <repo>/.codelens/bin/codelens-mcp-http)
   --launch-agents-dir DIR     directory for generated plist files (default: ~/Library/LaunchAgents)
-  --readonly-port N           read-only daemon port (default: 7839)
-  --mutation-port N           mutation daemon port (default: 7838)
-  --readonly-profile NAME     read-only profile (default: review)
+  --readonly-port N           deprecated compatibility alias; maps to the
+                              canonical port only when --mutation-port is absent
+  --mutation-port N           canonical daemon port (default: 7838)
+  --readonly-profile NAME     deprecated compatibility option (ignored when the
+                              canonical mutation profile is configured)
   --mutation-profile NAME     mutation profile (default: builder)
-  --readonly-log-level LEVEL  CODELENS_LOG for read-only daemon (default: warn)
   --mutation-log-level LEVEL  CODELENS_LOG for mutation daemon (default: warn)
   --effort-level LEVEL        CODELENS_EFFORT_LEVEL for both daemons (default: high)
   --response-contract MODE    CODELENS_RESPONSE_CONTRACT for both daemons
@@ -46,7 +46,7 @@ Options:
   --run-at-load               add RunAtLoad=true to generated plists
   --load                      bootstrap generated plists after writing
   --no-build                  reuse an existing http-capable binary at --bin-path
-  --print-only                print both plists to stdout instead of writing them
+  --print-only                print the canonical plist to stdout instead of writing it
                               (with --principals-scaffold also previews the scaffold)
   --principals-scaffold       write a commented RBAC starter to <repo>/.codelens/principals.toml
                               when absent; no-op if the file already exists. The starter's
@@ -65,7 +65,7 @@ Environment:
 Examples:
   bash scripts/install-http-daemons-launchd.sh .
   bash scripts/install-http-daemons-launchd.sh . --load
-  bash scripts/install-http-daemons-launchd.sh . --readonly-port 7837 --mutation-port 7838
+  bash scripts/install-http-daemons-launchd.sh . --mutation-port 7838
 EOF
 }
 
@@ -78,8 +78,9 @@ READONLY_PORT=7839
 MUTATION_PORT=7838
 READONLY_PROFILE="review"
 MUTATION_PROFILE="builder"
-READONLY_LOG_LEVEL="warn"
 MUTATION_LOG_LEVEL="warn"
+READONLY_PORT_EXPLICIT=0
+MUTATION_PORT_EXPLICIT=0
 EFFORT_LEVEL="high"
 RESPONSE_CONTRACT="full"
 LSP_PREWARM="off"
@@ -146,7 +147,22 @@ wait_for_port_release() {
 	return 0
 }
 
-# bootout the old instance, wait for its port to release, then bootstrap. The
+# The old dual-daemon install left a readonly service that could race the
+# mutation writer for the same project lock. Disable it before booting the
+# canonical writer so launchd cannot restart-loop on project_writer_busy.
+disable_legacy_readonly() {
+	local domain
+	domain="gui/$(id -u)"
+	if ! command -v launchctl >/dev/null 2>&1; then
+		echo "==> launchctl unavailable; legacy readonly label cleanup deferred: ${readonly_label}" >&2
+		return 0
+	fi
+	echo "==> Disabling legacy readonly launchd label ${domain}/${readonly_label}"
+	launchctl disable "${domain}/${readonly_label}" >/dev/null 2>&1 || true
+	launchctl bootout "${domain}/${readonly_label}" >/dev/null 2>&1 || true
+}
+
+# Bootout the old instance, wait for its port to release, then bootstrap. The
 # wait closes the 2026-07-10 gap where a bootout->bootstrap with no barrier let
 # the fresh instance meet the still-busy port and yield exit(0) permanently.
 load_one_daemon() {
@@ -183,10 +199,12 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--readonly-port)
 		READONLY_PORT="${2:-}"
+		READONLY_PORT_EXPLICIT=1
 		shift 2
 		;;
 	--mutation-port)
 		MUTATION_PORT="${2:-}"
+		MUTATION_PORT_EXPLICIT=1
 		shift 2
 		;;
 	--readonly-profile)
@@ -198,7 +216,7 @@ while [[ $# -gt 0 ]]; do
 		shift 2
 		;;
 	--readonly-log-level)
-		READONLY_LOG_LEVEL="${2:-}"
+		echo "warning: --readonly-log-level is deprecated and ignored; the canonical daemon uses --mutation-log-level" >&2
 		shift 2
 		;;
 	--mutation-log-level)
@@ -274,6 +292,18 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
+if [[ "$READONLY_PORT_EXPLICIT" == "1" ]]; then
+	if [[ "$MUTATION_PORT_EXPLICIT" == "0" ]]; then
+		MUTATION_PORT="$READONLY_PORT"
+		echo "warning: --readonly-port is deprecated; using ${MUTATION_PORT} as the canonical single-writer port" >&2
+	else
+		echo "warning: --readonly-port=${READONLY_PORT} is ignored; canonical --mutation-port=${MUTATION_PORT} wins" >&2
+	fi
+fi
+if [[ "$READONLY_PROFILE" != "review" ]]; then
+	echo "warning: --readonly-profile=${READONLY_PROFILE} is deprecated; session profiles/RBAC are selected on the canonical endpoint" >&2
+fi
+
 if [[ -z "$REPO_ROOT" ]]; then
 	REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 else
@@ -285,8 +315,8 @@ if [[ ! -f "$REPO_ROOT/Cargo.toml" || ! -f "$REPO_ROOT/crates/codelens-mcp/Cargo
 	exit 1
 fi
 
-if ! is_int_in_range "$READONLY_PORT" 1 65535; then
-	echo "--readonly-port must be an integer in [1, 65535]" >&2
+if [[ "$READONLY_PORT_EXPLICIT" == "1" && "$MUTATION_PORT_EXPLICIT" == "0" ]] && ! is_int_in_range "$READONLY_PORT" 1 65535; then
+	echo "--readonly-port must be an integer in [1, 65535] when used as the canonical compatibility alias" >&2
 	exit 2
 fi
 if ! is_int_in_range "$MUTATION_PORT" 1 65535; then
@@ -381,10 +411,9 @@ if [[ "$(uname)" == "Darwin" ]]; then
 	fi
 fi
 
-readonly_label="${LABEL_PREFIX}-readonly"
 mutation_label="${LABEL_PREFIX}-mutation"
-readonly_plist="$LAUNCH_AGENTS_DIR/${readonly_label}.plist"
 mutation_plist="$LAUNCH_AGENTS_DIR/${mutation_label}.plist"
+readonly_label="${LABEL_PREFIX}-readonly"
 
 create_plist() {
 	local label="$1"
@@ -486,8 +515,7 @@ create_plist() {
 
 update_host_attach_config() {
 	local config_path="$REPO_ROOT/.codelens/config.json"
-	local readonly_url="http://127.0.0.1:${READONLY_PORT}/mcp"
-	local mutation_url="http://127.0.0.1:${MUTATION_PORT}/mcp"
+	local daemon_url="http://127.0.0.1:${MUTATION_PORT}/mcp"
 	local update_config_py
 
 	mkdir -p "$(dirname "$config_path")"
@@ -497,8 +525,7 @@ import pathlib
 import sys
 
 config_path = pathlib.Path(sys.argv[1])
-readonly_url = sys.argv[2]
-mutation_url = sys.argv[3]
+daemon_url = sys.argv[2]
 
 payload = {}
 if config_path.exists():
@@ -519,13 +546,12 @@ per_host_urls = host_attach.setdefault("per_host_urls", {})
 if not isinstance(per_host_urls, dict):
     raise SystemExit("host_attach.per_host_urls must be a JSON object")
 
-per_host_urls["claude-code"] = readonly_url
-per_host_urls["cursor"] = readonly_url
-per_host_urls["codex"] = mutation_url
+for host in ("claude-code", "codex", "cursor"):
+    per_host_urls[host] = daemon_url
 
 config_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-'
-	python3 -c "$update_config_py" "$config_path" "$readonly_url" "$mutation_url"
+	'
+		python3 -c "$update_config_py" "$config_path" "$daemon_url"
 	echo "==> Updated host attach overrides in $config_path"
 }
 
@@ -578,20 +604,14 @@ scaffold_principals_toml() {
 	echo "==> Scaffold default role is ReadOnly; add [principal.\"<id>\"] entries to grant Refactor/Admin"
 }
 
-readonly_stdout="$LOG_DIR/${readonly_label}.out.log"
-readonly_stderr="$LOG_DIR/${readonly_label}.err.log"
 mutation_stdout="$LOG_DIR/${mutation_label}.out.log"
 mutation_stderr="$LOG_DIR/${mutation_label}.err.log"
 
 if [[ "$PRINT_ONLY" == "1" ]]; then
 	tmpdir="$(mktemp -d)"
 	trap 'rm -rf "$tmpdir"' EXIT
-	create_plist "$readonly_label" "$READONLY_PROFILE" "read-only" "$READONLY_PORT" "$READONLY_LOG_LEVEL" "$readonly_stdout" "$readonly_stderr" "$tmpdir/readonly.plist"
 	create_plist "$mutation_label" "$MUTATION_PROFILE" "mutation-enabled" "$MUTATION_PORT" "$MUTATION_LOG_LEVEL" "$mutation_stdout" "$mutation_stderr" "$tmpdir/mutation.plist"
-	echo "== ${tmpdir}/readonly.plist =="
-	cat "$tmpdir/readonly.plist"
-	echo
-	echo "== ${tmpdir}/mutation.plist =="
+	echo "== ${tmpdir}/mutation.plist (canonical single writer) =="
 	cat "$tmpdir/mutation.plist"
 	if [[ "$PRINCIPALS_SCAFFOLD" == "1" ]]; then
 		echo
@@ -605,25 +625,21 @@ if [[ "$PRINT_ONLY" == "1" ]]; then
 	exit 0
 fi
 
-create_plist "$readonly_label" "$READONLY_PROFILE" "read-only" "$READONLY_PORT" "$READONLY_LOG_LEVEL" "$readonly_stdout" "$readonly_stderr" "$readonly_plist"
 create_plist "$mutation_label" "$MUTATION_PROFILE" "mutation-enabled" "$MUTATION_PORT" "$MUTATION_LOG_LEVEL" "$mutation_stdout" "$mutation_stderr" "$mutation_plist"
 update_host_attach_config
 if [[ "$PRINCIPALS_SCAFFOLD" == "1" ]]; then
 	scaffold_principals_toml
 fi
 
-echo "==> Wrote $readonly_plist"
 echo "==> Wrote $mutation_plist"
-echo "==> Read-only: profile=$READONLY_PROFILE port=$READONLY_PORT"
-echo "==> Mutation: profile=$MUTATION_PROFILE port=$MUTATION_PORT"
+echo "==> Canonical single writer: profile=$MUTATION_PROFILE port=$MUTATION_PORT"
 echo "==> Logs: $LOG_DIR"
 
 if [[ "$LOAD_AFTER_WRITE" == "1" ]]; then
-	load_one_daemon "$readonly_plist" "$READONLY_PORT" "$readonly_label"
+	disable_legacy_readonly
 	load_one_daemon "$mutation_plist" "$MUTATION_PORT" "$mutation_label"
-	echo "==> Loaded both agents with launchctl bootstrap gui/$(id -u)"
+	echo "==> Loaded canonical agent with launchctl bootstrap gui/$(id -u)"
 else
 	echo "==> Next step:"
-	echo "    launchctl bootstrap gui/$(id -u) $readonly_plist"
 	echo "    launchctl bootstrap gui/$(id -u) $mutation_plist"
 fi

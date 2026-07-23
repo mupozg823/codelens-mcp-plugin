@@ -11,7 +11,7 @@ daemon eval_session_audit snapshot, refreshes history/gate artifacts, and
 writes a small artifact index.
 
 Options:
-  --mcp-url URL          MCP HTTP endpoint (default: http://127.0.0.1:7839/mcp)
+  --mcp-url URL          MCP HTTP endpoint (default: http://127.0.0.1:7838/mcp)
   --telemetry-path PATH  tool_usage.jsonl to analyze. If omitted, the script
                         checks CODELENS_TELEMETRY_PATH, repo-root telemetry,
                         then crates/codelens-mcp telemetry.
@@ -26,7 +26,7 @@ Options:
 
 Examples:
   bash scripts/run-productivity-proof-loop.sh .
-  bash scripts/run-productivity-proof-loop.sh . --mcp-url http://127.0.0.1:7839/mcp
+  bash scripts/run-productivity-proof-loop.sh . --mcp-url http://127.0.0.1:7838/mcp
   bash scripts/run-productivity-proof-loop.sh . --print-plan
 EOF
 }
@@ -34,7 +34,7 @@ EOF
 SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT=""
-MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7839/mcp}"
+MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7838/mcp}"
 TELEMETRY_PATH="${CODELENS_TELEMETRY_PATH:-}"
 OUTPUT_DIR=""
 RUN_ID="${CODELENS_PRODUCTIVITY_RUN_ID:-}"

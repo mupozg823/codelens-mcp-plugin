@@ -438,6 +438,6 @@ echo
 echo "next steps:"
 echo "  1. Build the MCP server with the scip-backend feature:"
 echo "       cargo build --release --features scip-backend --bin codelens-mcp"
-echo "  2. Restart any running daemons (launchctl kickstart -k gui/\$(id -u)/dev.codelens.mcp-readonly etc.)."
+echo "  2. Restart the canonical daemon (launchctl kickstart -k gui/\$(id -u)/dev.codelens.mcp-mutation)."
 echo "  3. The next call to get_callers / get_callees will surface SCIP-resolved entries"
 echo "     (resolution: \"scip\") alongside the tree-sitter call graph."
