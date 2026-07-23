@@ -242,12 +242,29 @@ as the *precision tier* above tree-sitter and beside SCIP:
   quiescence earns the 0.95 precise label.
 - **Pre-warm pool** (`CODELENS_LSP_PREWARM=off|auto|list`): language servers
   spawn in the background at daemon/project-activation (auto = index
-  per-extension counts, ≥10 files, ≤3 servers, whitelist-enforced), so the
+  per-extension counts, ≥10 files, ≤3 servers, recipe-enforced), so the
   latency-sensitive default reference path upgrades to LSP answers with
   `cold_start_incurred: false`. Pre-warm is an optimization, never a
   correctness dependency — failures log and skip.
+- **Subprocess trust boundary**: `LspSessionPool` captures canonical
+  executables from the daemon's operator-controlled environment and binds each
+  one to a registered `LSP_RECIPES` entry. Every request, retry, mutation
+  backend, and pre-warm path reaches one spawn boundary that requires the
+  recipe's exact immutable arguments. A caller-supplied path is accepted only
+  when its canonical target is already registered for that pool; generic
+  `python`/`python3` execution and implicit project `node_modules/.bin`
+  discovery are not launch authorities. The validated executable/argument
+  tuple, rather than raw tool input, is the only value passed to
+  `Command::new`.
 - **Per-server `initializationOptions`** table (documented options only;
   sole entry: rust-analyzer `checkOnSave: false`).
+
+This boundary closes direct command/argument injection; it is not an OS
+sandbox for the language server itself. Some trusted servers can load project
+plugins, build metadata, or compiler extensions. Shared deployments must keep
+trusted executable directories operator-owned and use process/container
+isolation when repository contents are hostile. Operational details are in
+[`operations/runtime-knobs.md`](operations/runtime-knobs.md#lsp-subprocess-trust-boundary).
 
 ---
 
@@ -389,7 +406,7 @@ codelens-mcp-plugin/
 │   │       │   ├── mod.rs                # LspSessionPool
 │   │       │   ├── session.rs            # Single LSP session lifecycle
 │   │       │   ├── protocol.rs           # JSON-RPC for LSP
-│   │       │   └── registry.rs           # 22 LSP recipes
+│   │       │   └── registry.rs           # 24 LSP recipes
 │   │       │
 │   │       ├── file_ops/                 # File I/O + mutation writers
 │   │       │   ├── mod.rs

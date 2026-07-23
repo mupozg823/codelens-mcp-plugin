@@ -273,7 +273,6 @@ fn diagnose_issues_returns_structured_content() {
         "def hello():\n    return 1\n",
     )
     .unwrap();
-    let state = make_state(&project);
 
     let _guard = super::PATH_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
     let original_path = std::env::var("PATH").unwrap_or_default();
@@ -282,6 +281,9 @@ fn diagnose_issues_returns_structured_content() {
     unsafe {
         std::env::set_var("PATH", &patched_path);
     }
+    // The LSP trust policy snapshots host-controlled executable resolution
+    // when the project runtime is created.
+    let state = make_state(&project);
 
     let payload = call_tool(&state, "diagnose_issues", json!({"path": "diag_test.py"}));
 

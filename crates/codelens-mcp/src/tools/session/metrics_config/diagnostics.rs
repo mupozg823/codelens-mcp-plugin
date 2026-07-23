@@ -35,7 +35,10 @@ pub(crate) struct DiagnosticsGuidance {
 }
 
 impl DiagnosticsGuidance {
-    pub(crate) fn for_file(file_path: Option<&str>) -> Self {
+    pub(crate) fn for_file(
+        file_path: Option<&str>,
+        binary_available: impl Fn(&str) -> bool,
+    ) -> Self {
         let extension = file_path.and_then(|path| {
             std::path::Path::new(path)
                 .extension()
@@ -46,22 +49,10 @@ impl DiagnosticsGuidance {
             .as_deref()
             .and_then(codelens_engine::get_lsp_recipe);
 
-        // Hint with the requested file's directory so project-local LSP
-        // shims in node_modules/.bin are visible to capability reporting.
-        let hint_dir = file_path
-            .map(std::path::Path::new)
-            .and_then(|path| path.parent())
-            .map(|parent| parent.to_path_buf());
-
         let status = match (file_path, recipe) {
             (None, _) => DiagnosticsStatus::FilePathRequired,
             (Some(_), None) => DiagnosticsStatus::UnsupportedExtension,
-            (Some(_), Some(recipe))
-                if !codelens_engine::lsp_binary_exists_with_hint(
-                    recipe.binary_name,
-                    hint_dir.as_deref(),
-                ) =>
-            {
+            (Some(_), Some(recipe)) if !binary_available(recipe.binary_name) => {
                 DiagnosticsStatus::LspBinaryMissing
             }
             (Some(_), Some(_)) => DiagnosticsStatus::Available,

@@ -1,4 +1,6 @@
 pub(crate) mod code_actions;
+#[cfg(test)]
+mod command_security_tests;
 pub(crate) mod commands;
 #[cfg(test)]
 mod parser_tests;
@@ -123,12 +125,15 @@ pub fn apply_workspace_edit_transaction(
     workspace_edit::apply_workspace_edit_transaction(project, transaction)
 }
 
-/// Known-safe LSP server binaries. Commands not in this list are rejected.
+/// Return whether a bare name has a registered immutable LSP recipe.
+///
+/// This is an inventory check, not executable authorization. The session pool
+/// separately requires a trusted canonical path before spawning.
 pub fn is_allowed_lsp_command(command: &str) -> bool {
     commands::is_allowed_lsp_command(command)
 }
 
-/// The list of allowed LSP server binary names.
+/// Registered LSP server recipe names (compatibility inventory).
 pub const ALLOWED_COMMANDS: &[&str] = commands::ALLOWED_COMMANDS;
 
 #[cfg(test)]

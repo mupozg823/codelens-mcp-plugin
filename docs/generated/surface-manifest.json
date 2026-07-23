@@ -275,7 +275,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 598
+        "estimated_tokens": 655
       },
       {
         "name": "get_file_diagnostics",
@@ -289,7 +289,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 425
+        "estimated_tokens": 483
       },
       {
         "name": "search_workspace_symbols",
@@ -303,7 +303,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": false,
-        "estimated_tokens": 166
+        "estimated_tokens": 224
       },
       {
         "name": "get_type_hierarchy",
@@ -317,7 +317,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 269
+        "estimated_tokens": 326
       },
       {
         "name": "resolve_symbol_target",
@@ -331,7 +331,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 388
+        "estimated_tokens": 445
       },
       {
         "name": "find_declaration",
@@ -345,7 +345,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 487
+        "estimated_tokens": 544
       },
       {
         "name": "find_implementations",
@@ -359,7 +359,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 496
+        "estimated_tokens": 553
       },
       {
         "name": "get_diagnostics_for_symbol",
@@ -373,7 +373,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 382
+        "estimated_tokens": 439
       },
       {
         "name": "plan_symbol_rename",
@@ -387,7 +387,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": false,
-        "estimated_tokens": 167
+        "estimated_tokens": 225
       },
       {
         "name": "get_lsp_recipe",
@@ -401,7 +401,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": false,
-        "estimated_tokens": 202
+        "estimated_tokens": 208
       },
       {
         "name": "graph",

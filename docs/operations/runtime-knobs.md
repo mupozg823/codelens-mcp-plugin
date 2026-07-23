@@ -13,6 +13,38 @@ deployment. Reference material extracted from `CLAUDE.md`.
 
 Falls back to tree-sitter if no `file_path` is supplied in `auto` mode so capability detection never errors.
 
+## LSP Subprocess Trust Boundary
+
+LSP tools do not treat `command` and `args` as a generic process launcher.
+The engine authorizes one immutable tuple before any spawn:
+
+1. `command` must identify a registered `LSP_RECIPES` server.
+2. `args` must exactly match that recipe (omitting `args` selects the recipe
+   defaults).
+3. The executable must already be present in the session pool's canonical
+   trust map. Path-qualified input is accepted only when it canonicalizes to
+   that same executable.
+
+At pool construction, trusted executables come from the daemon's inherited
+`PATH`, conservative platform fallback directories, and
+`CODELENS_LSP_PATH_EXTRA`. Project `node_modules/.bin` directories are not
+searched implicitly. `register_trusted_lsp_binary` exists for an embedding host
+to add an explicit mapping; it is a host configuration API and must never
+receive tool-call input.
+
+Treat every directory in `PATH` and `CODELENS_LSP_PATH_EXTRA` as executable
+code: it must be operator-owned and not writable by a bound project or remote
+client. Restart the daemon after changing those variables so new pools capture
+the intended paths. Pre-warm uses this same trust map, so it cannot widen the
+launch surface.
+
+This policy prevents direct arbitrary-command and free-form-argument execution.
+It does not sandbox a trusted language server after launch; servers may load
+project plugins, build scripts, proc macros, or compiler extensions. For
+hostile repositories, isolate the daemon at the OS/container layer and omit
+LSP tools from the exposed surface. `CODELENS_LSP_PREWARM=off` only disables
+eager startup and is not a sandbox.
+
 ## Analysis Artifact Cache (LRU + TTL)
 
 `artifact_store` keeps recent analysis results (the `analysis_id` values returned by `review_architecture`, `module_boundary_report`, `dead_code_report`, etc.) so chained calls like `get_analysis_section` can resolve them. Two caps with runtime overrides:

@@ -212,6 +212,24 @@ pub const LSP_RECIPES: &[LspRecipe] = &[
         args: &["--project=@.", "-e", "using LanguageServer; runserver()"],
         package_manager: "julia",
     },
+    LspRecipe {
+        language: "terraform",
+        extensions: &["tf", "tfvars"],
+        server_name: "terraform-ls",
+        install_command: "brew install hashicorp/tap/terraform-ls",
+        binary_name: "terraform-ls",
+        args: &["serve"],
+        package_manager: "brew",
+    },
+    LspRecipe {
+        language: "yaml",
+        extensions: &["yaml", "yml"],
+        server_name: "yaml-language-server",
+        install_command: "npm install -g yaml-language-server",
+        binary_name: "yaml-language-server",
+        args: &["--stdio"],
+        package_manager: "npm",
+    },
     // Perl deferred until tree-sitter 0.26 upgrade
 ];
 
@@ -318,6 +336,10 @@ pub(crate) fn resolve_lsp_binary(command: &str) -> Option<PathBuf> {
 /// precedence over global PATH candidates. This keeps a repository's pinned
 /// language server deterministic when a developer also has a different global
 /// version installed.
+///
+/// This is a discovery/embedding compatibility API, not spawn authorization.
+/// `LspSessionPool` deliberately builds its trust map without a project hint
+/// and validates every launch separately.
 pub fn resolve_lsp_binary_with_hint(command: &str, hint_dir: Option<&Path>) -> Option<PathBuf> {
     match std::env::var_os("PATH") {
         Some(path_dirs) => resolve_lsp_binary_with_hint_and_path_dirs(
@@ -389,7 +411,8 @@ pub fn lsp_binary_exists(command: &str) -> bool {
 /// for `node_modules/.bin/<command>` shims. Callers that have a concrete
 /// project root or file path should prefer this — it lets capability
 /// reporting return `installed = true` for Node / TS projects that ship
-/// the LSP only as a devDependency.
+/// the LSP only as a devDependency. It does not mean the session pool will
+/// trust or launch that project-local executable.
 pub fn lsp_binary_exists_with_hint(command: &str, hint_dir: Option<&Path>) -> bool {
     resolve_lsp_binary_with_hint(command, hint_dir).is_some()
 }
@@ -435,9 +458,20 @@ pub fn default_lsp_command_for_path(file_path: &str) -> Option<&'static str> {
 }
 
 pub fn default_lsp_args_for_command(command: &str) -> Option<&'static [&'static str]> {
+    let file_name = Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command);
     LSP_RECIPES
         .iter()
-        .find(|recipe| recipe.binary_name == command)
+        .find(|recipe| {
+            recipe.binary_name == file_name
+                || [".exe", ".cmd", ".bat"].iter().any(|suffix| {
+                    file_name
+                        .strip_suffix(suffix)
+                        .is_some_and(|stem| stem == recipe.binary_name)
+                })
+        })
         .map(|recipe| recipe.args)
 }
 

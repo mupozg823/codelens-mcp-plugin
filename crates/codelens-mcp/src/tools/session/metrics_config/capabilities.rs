@@ -52,7 +52,10 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         })
         .map(|ext| ext.to_ascii_lowercase());
 
-    let diagnostics_guidance = DiagnosticsGuidance::for_file(file_path);
+    let lsp_pool = state.lsp_pool();
+    let diagnostics_guidance = DiagnosticsGuidance::for_file(file_path, |command| {
+        lsp_pool.trusted_lsp_binary(command).is_some()
+    });
     let lsp_attached = diagnostics_guidance.is_available();
 
     // Phase 4a: `embeddings_loaded` is retained for backwards
