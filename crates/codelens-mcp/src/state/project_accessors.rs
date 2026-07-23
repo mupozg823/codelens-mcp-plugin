@@ -8,6 +8,12 @@ use crate::sparse_symbol_cache::SparseSymbolCache;
 use crate::state::AppState;
 
 impl AppState {
+    pub(crate) fn project_runtime_health_payload(&self) -> serde_json::Value {
+        self.active_project_context()
+            .unwrap_or_else(|| Arc::clone(&self.default_context))
+            .runtime_health_payload()
+    }
+
     /// Get the active project root. Clones the ProjectRoot (just a PathBuf).
     pub(crate) fn project(&self) -> codelens_engine::ProjectRoot {
         self.active_project_context()
@@ -109,7 +115,7 @@ impl AppState {
     /// default project (callers use the default resources directly).
     /// Get-or-build through the LRU context cache; evicted contexts have
     /// their resources shut down.
-    fn project_context_for_scope(
+    pub(super) fn project_context_for_scope(
         &self,
         path: &str,
     ) -> anyhow::Result<Option<Arc<super::project_runtime::ProjectContext>>> {
@@ -121,12 +127,7 @@ impl AppState {
         if scope == self.default_project_scope() {
             return Ok(None);
         }
-        let (context, evicted) = self.resolve_cached_project_context(project, &scope)?;
-        for ctx in evicted {
-            #[cfg(feature = "scip-backend")]
-            self.drop_scip_backend_for_project(ctx.project.as_path());
-            ctx.shutdown_resources();
-        }
+        let context = self.resolve_cached_project_context(project, &scope)?;
         Ok(Some(context))
     }
 
@@ -183,41 +184,59 @@ impl AppState {
             _ => {}
         }
 
-        let (context, evicted) = self.resolve_cached_project_context(project, &scope)?;
-
-        for ctx in evicted {
-            #[cfg(feature = "scip-backend")]
-            self.drop_scip_backend_for_project(ctx.project.as_path());
-            ctx.shutdown_resources();
-        }
+        let context = self.resolve_cached_project_context(project, &scope)?;
 
         self.activate_project_context(Some(context));
         Ok(name)
     }
 
     /// Get-or-build a non-default project context through the LRU cache.
-    /// Returns the context plus any evicted entries the caller must shut down.
+    /// Evicted entries are retired before the active-session guard is released.
     fn resolve_cached_project_context(
         &self,
         project: codelens_engine::ProjectRoot,
         scope: &str,
-    ) -> anyhow::Result<(
-        Arc<super::project_runtime::ProjectContext>,
-        Vec<Arc<super::project_runtime::ProjectContext>>,
-    )> {
-        let cached = {
+    ) -> anyhow::Result<Arc<super::project_runtime::ProjectContext>> {
+        let build_lock = {
             let mut cache = self
                 .project_context_cache
                 .lock()
                 .unwrap_or_else(|p| p.into_inner());
-            cache.get(scope)
+            if let Some(cached) = cache.get(scope) {
+                return Ok(cached);
+            }
+            cache.build_lock(scope)
         };
 
-        if let Some(cached) = cached {
-            return Ok((cached, Vec::new()));
+        // Only one thread may construct a runtime for this scope. Followers
+        // wait without holding the cache mutex, then reuse the leader's entry.
+        let _build_guard = build_lock.lock().unwrap_or_else(|p| p.into_inner());
+        {
+            let mut cache = self
+                .project_context_cache
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Some(cached) = cache.get(scope) {
+                return Ok(cached);
+            }
+            #[cfg(test)]
+            cache.record_build_attempt(scope);
         }
 
         let built = Arc::new(Self::build_project_runtime_context(project, true)?);
+
+        // Acquire after the potentially long build, immediately before cache
+        // insertion. SessionStore project-path mutations require the matching
+        // sessions write lock, so this read guard makes bind-vs-evict atomic.
+        // Keep it through both cache selection and runtime retirement.
+        #[cfg(feature = "http")]
+        let active_session_paths = self
+            .session_store
+            .as_ref()
+            .map(|store| store.active_project_paths_guard());
+
+        let active_scope = self.current_project_scope();
+        let default_scope = self.default_project_scope();
 
         let mut cache = self
             .project_context_cache
@@ -225,17 +244,37 @@ impl AppState {
             .unwrap_or_else(|p| p.into_inner());
 
         if let Some(cached) = cache.get(scope) {
+            drop(cache);
             built.shutdown_resources();
-            return Ok((cached, Vec::new()));
+            return Ok(cached);
         }
 
         cache.insert(scope.to_owned(), Arc::clone(&built));
-        let active_scope = self.current_project_scope();
-        let protected = [self.default_project_scope(), active_scope, scope.to_owned()];
+        let mut protected = vec![default_scope, active_scope, scope.to_owned()];
+        #[cfg(feature = "http")]
+        if let Some(paths) = active_session_paths.as_ref() {
+            protected.extend(
+                paths
+                    .iter()
+                    .filter_map(|path| codelens_engine::ProjectRoot::new(path).ok())
+                    .map(|project| project.as_path().to_string_lossy().into_owned()),
+            );
+        }
+        protected.sort();
+        protected.dedup();
         let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
         let evicted = cache
             .evict_until_within_limit(crate::state::PROJECT_CONTEXT_CACHE_LIMIT, &protected_refs);
-        Ok((built, evicted))
+        drop(cache);
+
+        for context in evicted {
+            #[cfg(feature = "scip-backend")]
+            self.drop_scip_backend_for_project(context.project.as_path());
+            context.shutdown_resources();
+        }
+        #[cfg(feature = "http")]
+        drop(active_session_paths);
+        Ok(built)
     }
 
     /// Sweep the per-project runtime registry and drop cached contexts whose

@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::error::CodeLensError;
 use crate::resource_context::{
     ResourceRequestContext, VisibleToolContext, build_http_session_payload,
 };
@@ -27,7 +28,9 @@ pub(super) struct PrepareHarnessResponseInput<'a> {
     pub(super) routing: &'a PrepareHarnessRouting,
 }
 
-pub(super) fn prepare_harness_response(input: PrepareHarnessResponseInput<'_>) -> Value {
+pub(super) fn prepare_harness_response(
+    input: PrepareHarnessResponseInput<'_>,
+) -> Result<Value, CodeLensError> {
     if input.detail == "full" {
         // Token economy (T3): trim null/empty scaffold (e.g. the six
         // `embedding_coreml_*` fields that are null off macOS/CoreML, empty
@@ -35,11 +38,11 @@ pub(super) fn prepare_harness_response(input: PrepareHarnessResponseInput<'_>) -
         // bootstrap payload. Stripping is applied uniformly so the two
         // health-summary copies (`health_summary` and `capabilities.health_summary`)
         // stay byte-identical.
-        let mut value = full_response(input);
+        let mut value = full_response(input)?;
         strip_empty_fields(&mut value);
-        value
+        Ok(value)
     } else {
-        compact_response(input)
+        Ok(compact_response(input))
     }
 }
 
@@ -77,8 +80,9 @@ fn is_empty_value(v: &Value) -> bool {
     }
 }
 
-fn full_response(input: PrepareHarnessResponseInput<'_>) -> Value {
-    json!({
+fn full_response(input: PrepareHarnessResponseInput<'_>) -> Result<Value, CodeLensError> {
+    let http_session = build_http_session_payload(input.state, input.request)?;
+    Ok(json!({
         "activated": true,
         "project": input.activate_payload,
         "active_surface": input.active_surface.as_label(),
@@ -91,7 +95,7 @@ fn full_response(input: PrepareHarnessResponseInput<'_>) -> Value {
         "warnings": input.warnings,
         "skill_hints": input.skill_hints,
         "host_environment": input.host_environment.payload(),
-        "http_session": build_http_session_payload(input.state, input.request),
+        "http_session": http_session,
         "visible_tools": {
             "tool_count": input.visible.tools.len(),
             "tool_count_total": input.visible.total_tool_count,
@@ -131,7 +135,7 @@ fn full_response(input: PrepareHarnessResponseInput<'_>) -> Value {
             "doom_loop_threshold": 3,
             "preflight_ttl_seconds": input.state.preflight_ttl_seconds(),
         }
-    })
+    }))
 }
 
 fn compact_response(input: PrepareHarnessResponseInput<'_>) -> Value {

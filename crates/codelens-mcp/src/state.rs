@@ -27,6 +27,7 @@ mod orchestration;
 mod preflight;
 mod project_accessors;
 mod project_runtime;
+mod project_runtime_lease;
 mod runtime_config;
 mod secondary_projects;
 mod session_host;
@@ -343,6 +344,60 @@ mod tests {
         assert!(Arc::ptr_eq(&first_lsp_pool, &reused_lsp_pool));
     }
 
+    #[test]
+    fn concurrent_scope_resolution_singleflights_project_runtime_build() {
+        const CALLERS: usize = 8;
+
+        let default_project = temp_project_root("singleflight-default");
+        let shared_project = temp_project_root("singleflight-shared");
+        for index in 0..256 {
+            std::fs::write(
+                shared_project.as_path().join(format!("module_{index}.rs")),
+                format!("pub fn function_{index}() -> usize {{ {index} }}\n"),
+            )
+            .unwrap();
+        }
+
+        let state = Arc::new(AppState::new_minimal(default_project, ToolPreset::Balanced));
+        let barrier = Arc::new(std::sync::Barrier::new(CALLERS));
+        let path = shared_project.as_path().to_string_lossy().to_string();
+        let handles = (0..CALLERS)
+            .map(|_| {
+                let state = Arc::clone(&state);
+                let barrier = Arc::clone(&barrier);
+                let path = path.clone();
+                std::thread::spawn(
+                    move || -> anyhow::Result<Arc<codelens_engine::SymbolIndex>> {
+                        barrier.wait();
+                        let _binding = state.bind_request_project_scope(&path)?;
+                        Ok(state.symbol_index())
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let indexes = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("scope-resolution thread panicked"))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("all concurrent callers should share the in-flight build");
+
+        let first = &indexes[0];
+        assert!(
+            indexes.iter().all(|index| Arc::ptr_eq(first, index)),
+            "all callers must receive the same cached SymbolIndex"
+        );
+        let build_attempts = state
+            .project_context_cache
+            .lock()
+            .unwrap()
+            .build_attempt_count(&path);
+        assert_eq!(
+            build_attempts, 1,
+            "the project runtime builder must run exactly once per cold scope"
+        );
+    }
+
     #[cfg(feature = "scip-backend")]
     fn write_scip_index(project: &codelens_engine::ProjectRoot, relative_path: &str) {
         use protobuf::Message as _;
@@ -388,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn switch_project_eviction_resource_release() {
+    fn switch_project_eviction_preserves_context_with_external_holder() {
         let default_project = temp_project_root("evict-default");
         let project_a = temp_project_root("evict-a");
         let project_b = temp_project_root("evict-b");
@@ -435,15 +490,134 @@ mod tests {
             .switch_project(project_e.as_path().to_str().unwrap())
             .unwrap();
 
-        // 3. 축출된 프로젝트 a의 자원이 명시적으로 종료(Watcher 정지)되었는지 검증
+        // An in-flight request can still hold this Arc after the cache considers
+        // the scope old. Eviction must not stop resources out from under it.
         assert!(
-            !ctx_a
+            ctx_a
                 .watcher
                 .as_ref()
                 .map(|w| w.stats().running)
-                .unwrap_or(true)
+                .unwrap_or(false)
         );
         assert_eq!(ctx_a.lsp_pool.session_count(), 0);
+        let cache = state.project_context_cache.lock().unwrap();
+        assert!(
+            cache
+                .entries
+                .contains_key(&project_a.as_path().to_string_lossy().to_string()),
+            "a live context must remain pinned even when the idle cache limit is exceeded"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "http")]
+    fn active_http_session_project_binding_survives_runtime_cache_eviction() {
+        let default_project = temp_project_root("session-pin-default");
+        let project_a = temp_project_root("session-pin-a");
+        let project_b = temp_project_root("session-pin-b");
+        let project_c = temp_project_root("session-pin-c");
+        let project_d = temp_project_root("session-pin-d");
+        let project_e = temp_project_root("session-pin-e");
+
+        let state =
+            AppState::new_minimal(default_project, ToolPreset::Balanced).with_session_store();
+        let store = state.session_store.as_ref().expect("HTTP session store");
+        let session = store.create();
+        store.set_project_path(&session.id, project_a.as_path().to_string_lossy().as_ref());
+
+        for project in [&project_a, &project_b, &project_c, &project_d, &project_e] {
+            state
+                .switch_project(project.as_path().to_str().unwrap())
+                .unwrap();
+        }
+
+        let scope_a = project_a.as_path().to_string_lossy().to_string();
+        let cache = state.project_context_cache.lock().unwrap();
+        assert!(
+            cache.entries.contains_key(&scope_a),
+            "an active HTTP session must pin its project runtime between requests"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "http")]
+    fn concurrent_http_session_bind_waits_for_runtime_retirement() {
+        let default_project = temp_project_root("session-race-default");
+        let project_a = temp_project_root("session-race-a");
+        let project_b = temp_project_root("session-race-b");
+        let project_c = temp_project_root("session-race-c");
+        let project_d = temp_project_root("session-race-d");
+        let project_e = temp_project_root("session-race-e");
+        let state = Arc::new(
+            AppState::new_minimal(default_project, ToolPreset::Balanced).with_session_store(),
+        );
+
+        for project in [&project_a, &project_b, &project_c, &project_d] {
+            state
+                .switch_project(project.as_path().to_str().unwrap())
+                .unwrap();
+        }
+
+        let store = state.session_store.as_ref().expect("HTTP session store");
+        let session = store.create();
+        let session_id = session.id.clone();
+        let scope_a = project_a.as_path().to_string_lossy().into_owned();
+
+        // Given eviction has pinned the session map before this session binds A.
+        let active_session_paths = store.active_project_paths_guard();
+        assert!(active_session_paths.is_empty());
+
+        // And A has been selected for retirement while its writer lease is
+        // still held by the removed cache entry.
+        let scope_e = project_e.as_path().to_string_lossy().into_owned();
+        let context_e = Arc::new(
+            AppState::build_project_runtime_context(project_e, false)
+                .expect("project E runtime should initialize"),
+        );
+        let evicted = {
+            let mut cache = state.project_context_cache.lock().unwrap();
+            cache.insert(scope_e.clone(), context_e);
+            let mut protected = vec![
+                state.default_project_scope(),
+                state.current_project_scope(),
+                scope_e,
+            ];
+            protected.extend(active_session_paths.iter().cloned());
+            let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
+            cache.evict_until_within_limit(PROJECT_CONTEXT_CACHE_LIMIT, &protected_refs)
+        };
+        assert_eq!(evicted.len(), 1);
+        assert_eq!(evicted[0].project.as_path(), project_a.as_path());
+
+        // When a concurrent request begins binding the session to A, the
+        // SessionStore write must wait for the eviction read guard. Retirement
+        // completes first, so the request rebuilds A instead of racing the old
+        // writer lease and surfacing ProjectWriterBusy.
+        let start = Arc::new(std::sync::Barrier::new(2));
+        let bind_state = Arc::clone(&state);
+        let bind_start = Arc::clone(&start);
+        let bind_scope = scope_a.clone();
+        let bind_thread = std::thread::spawn(move || -> anyhow::Result<()> {
+            bind_start.wait();
+            bind_state.bind_project_to_session(&session_id, &bind_scope);
+            let _request_binding = bind_state.bind_request_project_scope(&bind_scope)?;
+            Ok(())
+        });
+        start.wait();
+
+        for context in evicted {
+            context.shutdown_resources();
+        }
+        drop(active_session_paths);
+
+        bind_thread
+            .join()
+            .expect("session bind thread should not panic")
+            .expect("session bind must not observe a half-retired runtime");
+        assert_eq!(
+            session.client_metadata().project_path.as_deref(),
+            Some(scope_a.as_str())
+        );
     }
 
     #[test]

@@ -20,7 +20,7 @@ pub fn register_agent_work(state: &AppState, arguments: &serde_json::Value) -> T
 }
 
 pub fn list_active_agents(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let agents = state.list_active_agents_for_arguments(arguments);
+    let agents = state.list_active_agents_for_arguments(arguments)?;
     Ok((
         json!({
             "agents": agents,
@@ -32,19 +32,19 @@ pub fn list_active_agents(state: &AppState, arguments: &serde_json::Value) -> To
 
 pub fn claim_files(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let session = SessionRequestContext::from_json(arguments);
-    let claim = state.claim_files_for_arguments(arguments)?;
+    let outcome = state.claim_files_for_arguments(arguments)?;
     state
         .metrics()
         .record_coordination_claim_for_session(Some(session.session_id.as_str()));
+    let claim = outcome.claim;
     let claimed_paths = claim.paths.clone();
-    let overlapping_claims = state.overlapping_claims_for_arguments(arguments, &claimed_paths);
     let session_id = claim.session_id.clone();
     Ok((
         json!({
             "status": "claimed",
             "session_id": session_id,
             "claimed_paths": claimed_paths,
-            "overlapping_claims": overlapping_claims,
+            "overlapping_claims": outcome.overlapping_claims,
             "claim": claim,
         }),
         success_meta(BackendKind::Session, 0.92),

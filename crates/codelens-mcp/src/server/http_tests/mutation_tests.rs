@@ -168,24 +168,55 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
     )
     .unwrap();
 
-    // RefactorFull requires preflight before mutation
-    let preflight = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/mcp")
-                .header("content-type", "application/json")
-                .header("mcp-session-id", &sid)
-                .header("x-codelens-trusted-client", "true")
-                .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"verify_change_readiness","arguments":{"task":"create audit_http.py","changed_files":["audit_http.py"]}}}"#,
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(preflight.status(), StatusCode::OK);
+    // RefactorFull requires preflight before mutation. A watcher commit may
+    // legitimately cross the first read, in which case the client owns one
+    // explicit retry rather than treating HTTP 200 as a successful preflight.
+    let mut preflight_succeeded = false;
+    for request_id in [2, 4] {
+        let preflight = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("mcp-session-id", &sid)
+                    .header("x-codelens-trusted-client", "true")
+                    .body(axum::body::Body::from(
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "method": "tools/call",
+                            "params": {
+                                "name": "verify_change_readiness",
+                                "arguments": {
+                                    "task": "create audit_http.py",
+                                    "changed_files": ["audit_http.py"]
+                                }
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(preflight.status(), StatusCode::OK);
+        let body = body_string(preflight).await;
+        let payload = first_tool_payload(&body);
+        if payload["success"] == json!(true) {
+            preflight_succeeded = true;
+            break;
+        }
+        assert_eq!(payload["retryable"], json!(true), "{body}");
+        assert!(
+            payload["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("index_generation_changed")),
+            "{body}"
+        );
+    }
+    assert!(preflight_succeeded, "generation-consistent preflight retry");
 
     let resp = app
         .oneshot(

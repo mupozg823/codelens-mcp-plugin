@@ -7,6 +7,7 @@ use crate::tool_defs::ToolSurface;
 use crate::tool_runtime::ToolResult;
 use serde_json::Value;
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use super::table::DISPATCH_TABLE;
 use crate::mutation_gate::{
@@ -26,6 +27,50 @@ pub(super) struct QuerySubmission<'a> {
 /// Modeled after Claude Code's QueryEngine.
 pub struct QueryEngine<'a> {
     state: &'a AppState,
+}
+
+/// End-of-request fence for symbol-backed reads. Holding the exact index Arc
+/// prevents a session rebind from making the final comparison against another
+/// project's token.
+struct SymbolGenerationFence {
+    index: Arc<codelens_engine::SymbolIndex>,
+    project: String,
+    before: u64,
+}
+
+impl SymbolGenerationFence {
+    fn new(index: Arc<codelens_engine::SymbolIndex>, project: String) -> Self {
+        let before = index.committed_generation();
+        Self {
+            index,
+            project,
+            before,
+        }
+    }
+
+    fn capture_if_required(state: &AppState, target: &str) -> Option<Self> {
+        crate::tool_defs::tool_symbol_generation_consistent(target).then(|| {
+            Self::new(
+                state.symbol_index(),
+                state.project().as_path().display().to_string(),
+            )
+        })
+    }
+
+    fn finish(self, result: ToolResult) -> ToolResult {
+        let Ok(payload) = result else {
+            return result;
+        };
+        let after = self.index.committed_generation();
+        if after == self.before {
+            return Ok(payload);
+        }
+        Err(CodeLensError::IndexGenerationChanged {
+            project: self.project,
+            before: self.before,
+            after,
+        })
+    }
 }
 
 impl<'a> QueryEngine<'a> {
@@ -124,7 +169,11 @@ impl<'a> QueryEngine<'a> {
             }
         };
 
-        if is_refactor_gated_mutation_tool(target) {
+        // Capture after verb resolution and access validation so facades
+        // inherit the target's contract and rejected calls never pin an index.
+        let generation_fence = SymbolGenerationFence::capture_if_required(self.state, target);
+
+        let mut submission = if is_refactor_gated_mutation_tool(target) {
             self.state
                 .metrics()
                 .record_mutation_preflight_checked_for_session(Some(session.session_id.as_str()));
@@ -179,6 +228,112 @@ impl<'a> QueryEngine<'a> {
                 gate_failure: None,
                 operation: operation.dispatched(),
             }
+        };
+        if let Some(fence) = generation_fence {
+            submission.result = fence.finish(submission.result);
         }
+        submission
+    }
+}
+
+#[cfg(test)]
+mod generation_consistency_tests {
+    use super::*;
+    use crate::protocol::BackendKind;
+    use crate::tool_runtime::success_meta;
+    use codelens_engine::{ProjectRoot, SymbolIndex};
+    use serde_json::json;
+    use std::fs;
+    use std::sync::Arc;
+
+    #[test]
+    fn generation_consistency_metadata_is_explicit_and_excludes_writers() {
+        for target in [
+            "find_symbol",
+            "get_callers",
+            "impact_report",
+            "review_architecture",
+        ] {
+            assert!(
+                crate::tool_defs::tool_symbol_generation_consistent(target),
+                "{target} must fence one logical symbol-backed response"
+            );
+        }
+        for target in [
+            "refresh_symbol_index",
+            "prepare_harness_session",
+            "start_analysis_job",
+            "get_analysis_job",
+        ] {
+            assert!(
+                !crate::tool_defs::tool_symbol_generation_consistent(target),
+                "{target} must not reject its own mutation/job response"
+            );
+        }
+    }
+
+    #[test]
+    fn verb_facade_inherits_resolved_target_generation_contract() {
+        let (target, _) = crate::tools::verbs::resolve_verb_target(
+            "graph",
+            &json!({"mode": "callers", "symbol": "dispatch_tool"}),
+        )
+        .expect("resolve graph facade")
+        .expect("graph facade target");
+        assert_eq!(target, "get_callers");
+        assert!(crate::tool_defs::tool_symbol_generation_consistent(target));
+    }
+
+    #[test]
+    fn successful_payload_is_discarded_when_generation_changes_mid_request() {
+        let root = tempfile::tempdir().expect("temp project");
+        let src = root.path().join("src");
+        fs::create_dir_all(&src).expect("create src");
+        let file = src.join("lib.rs");
+        fs::write(&file, "pub fn before() {}\n").expect("write source");
+        let project = ProjectRoot::new(root.path()).expect("project root");
+        let index = Arc::new(SymbolIndex::new(project).expect("symbol index"));
+        let fence =
+            SymbolGenerationFence::new(Arc::clone(&index), root.path().display().to_string());
+
+        index
+            .index_files(std::slice::from_ref(&file))
+            .expect("commit newer generation during request");
+        let result = fence.finish(Ok((
+            json!({"must_be_discarded": true}),
+            success_meta(BackendKind::Sqlite, 1.0),
+        )));
+
+        match result {
+            Err(CodeLensError::IndexGenerationChanged {
+                project,
+                before,
+                after,
+            }) => {
+                assert_eq!(project, root.path().display().to_string());
+                assert!(after > before, "before={before}, after={after}");
+            }
+            other => panic!("expected generation retry error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stable_generation_returns_payload_and_existing_error_unchanged() {
+        let root = tempfile::tempdir().expect("temp project");
+        let project = ProjectRoot::new(root.path()).expect("project root");
+        let index = Arc::new(SymbolIndex::new(project).expect("symbol index"));
+        let stable =
+            SymbolGenerationFence::new(Arc::clone(&index), root.path().display().to_string())
+                .finish(Ok((
+                    json!({"stable": true}),
+                    success_meta(BackendKind::Sqlite, 1.0),
+                )));
+        assert!(stable.is_ok());
+
+        let original = SymbolGenerationFence::new(index, root.path().display().to_string())
+            .finish(Err(CodeLensError::Validation("original".to_owned())));
+        assert!(
+            matches!(original, Err(CodeLensError::Validation(message)) if message == "original")
+        );
     }
 }

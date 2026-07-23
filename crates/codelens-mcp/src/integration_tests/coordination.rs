@@ -93,18 +93,17 @@ fn coordination_activity_resource_exposes_registered_agents_and_claims() {
 }
 
 #[test]
-fn coordination_is_visible_across_independent_states_for_same_project() {
+fn coordination_is_visible_across_sessions_for_same_project() {
     let project = temp_project_root("coordination-cross-state");
     fs::write(
         project.as_path().join("coord.py"),
         "def sample():\n    return 1\n",
     )
     .unwrap();
-    let state_a = make_state(&project);
-    let state_b = make_state(&project);
+    let state = make_state(&project);
 
     let registered = call_tool_with_session(
-        &state_a,
+        &state,
         "register_agent_work",
         json!({
             "agent_name": "codex",
@@ -117,7 +116,7 @@ fn coordination_is_visible_across_independent_states_for_same_project() {
     assert_eq!(registered["success"], json!(true));
 
     let claimed = call_tool_with_session(
-        &state_a,
+        &state,
         "claim_files",
         json!({
             "paths": ["coord.py"],
@@ -128,7 +127,7 @@ fn coordination_is_visible_across_independent_states_for_same_project() {
     assert_eq!(claimed["success"], json!(true));
 
     let active_agents =
-        call_tool_with_session(&state_b, "list_active_agents", json!({}), "session-b");
+        call_tool_with_session(&state, "list_active_agents", json!({}), "session-b");
     assert_eq!(active_agents["success"], json!(true));
     assert_eq!(active_agents["data"]["count"], json!(1));
     assert_eq!(
@@ -138,7 +137,7 @@ fn coordination_is_visible_across_independent_states_for_same_project() {
     assert_eq!(active_agents["data"]["agents"][0]["claim_count"], json!(1));
 
     let readiness = call_tool_with_session(
-        &state_b,
+        &state,
         "verify_change_readiness",
         json!({
             "task": "update coord.py safely",
@@ -188,6 +187,44 @@ fn claim_files_without_registration_uses_project_fallback_metadata() {
         claimed["data"]["claim"]["worktree"],
         json!(project.as_path().to_string_lossy().to_string())
     );
+}
+
+#[test]
+fn coordination_store_outage_fails_closed_without_ghost_claims() {
+    let project = temp_project_root("coordination-outage");
+    fs::write(
+        project.as_path().join("coord.py"),
+        "def sample():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let db_path = project.as_path().join(".codelens/index/coordination.db");
+    fs::create_dir_all(&db_path).unwrap();
+
+    for session_id in ["session-a", "session-b"] {
+        let claimed = call_tool_with_session(
+            &state,
+            "claim_files",
+            json!({
+                "paths": ["coord.py"],
+                "reason": "outage must not split brain"
+            }),
+            session_id,
+        );
+        assert_eq!(claimed["success"], json!(false), "{claimed}");
+        assert!(
+            claimed["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("coordination_unavailable"),
+            "{claimed}"
+        );
+    }
+
+    fs::remove_dir(&db_path).unwrap();
+    let active = call_tool_with_session(&state, "list_active_agents", json!({}), "session-a");
+    assert_eq!(active["success"], json!(true), "{active}");
+    assert_eq!(active["data"]["count"], json!(0), "{active}");
 }
 
 #[test]

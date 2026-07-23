@@ -255,38 +255,71 @@ async fn authenticate_request(
 
 /// L1 (ADR-0009 §1): inject the authenticated principal id into the
 /// JSON-RPC request params under the `_session_principal_id` key.
-/// `SessionRequestContext::from_json` reads that key, and the role
-/// gate prefers it over `CODELENS_PRINCIPAL` env. No-op when no
-/// principal id is bound (stdio + auth=off) or when the request is
-/// not a `tools/call` (the only method whose params is a structured
-/// object the dispatch path reads `_session_*` from).
+/// `SessionRequestContext::from_json` reads that key only while the HTTP
+/// execution scope is active, and the role gate then prefers it over the
+/// `CODELENS_PRINCIPAL` env fallback. The JSON field alone carries no
+/// provenance.
 fn inject_principal_id_into_params(request: &mut JsonRpcRequest, principal_id: &str) {
+    if let Some(metadata) = http_session_metadata_mut(request) {
+        metadata.insert(
+            "_session_principal_id".to_owned(),
+            serde_json::Value::String(principal_id.to_owned()),
+        );
+    }
+}
+
+/// Return the server-owned metadata object for HTTP methods that carry session
+/// context. Omitted or non-object containers are normalized before any trusted
+/// fields are inserted so dispatch never sees an authoritative principal
+/// without matching transport provenance.
+fn http_session_metadata_mut(
+    request: &mut JsonRpcRequest,
+) -> Option<&mut serde_json::Map<String, serde_json::Value>> {
     match request.method.as_str() {
         "tools/call" => {
-            let Some(arguments) = request
-                .params
-                .as_mut()
-                .and_then(|params| params.as_object_mut())
-                .and_then(|params| params.get_mut("arguments"))
-                .and_then(|arguments| arguments.as_object_mut())
-            else {
-                return;
-            };
-            arguments.insert(
-                "_session_principal_id".to_owned(),
-                serde_json::Value::String(principal_id.to_owned()),
-            );
+            let params = request.params.get_or_insert_with(|| serde_json::json!({}));
+            if !params.is_object() {
+                *params = serde_json::json!({});
+            }
+            let params = params.as_object_mut()?;
+            let arguments = params
+                .entry("arguments".to_owned())
+                .or_insert_with(|| serde_json::json!({}));
+            if !arguments.is_object() {
+                *arguments = serde_json::json!({});
+            }
+            arguments.as_object_mut()
         }
         "tools/list" | "resources/read" => {
             let params = request.params.get_or_insert_with(|| serde_json::json!({}));
-            if let Some(params) = params.as_object_mut() {
-                params.insert(
-                    "_session_principal_id".to_owned(),
-                    serde_json::Value::String(principal_id.to_owned()),
-                );
+            if !params.is_object() {
+                *params = serde_json::json!({});
             }
+            params.as_object_mut()
         }
-        _ => {}
+        _ => None,
+    }
+}
+
+/// Remove caller-controlled `_session_*` metadata before the HTTP transport
+/// adds its authoritative session block. Stdio retains its legacy single-client
+/// argument contract; shared HTTP never trusts identity embedded in JSON.
+fn sanitize_http_session_metadata(request: &mut JsonRpcRequest) {
+    let metadata = match request.method.as_str() {
+        "tools/call" => request
+            .params
+            .as_mut()
+            .and_then(|params| params.as_object_mut())
+            .and_then(|params| params.get_mut("arguments"))
+            .and_then(|arguments| arguments.as_object_mut()),
+        "tools/list" | "resources/read" => request
+            .params
+            .as_mut()
+            .and_then(|params| params.as_object_mut()),
+        _ => None,
+    };
+    if let Some(metadata) = metadata {
+        metadata.retain(|key, _| !key.starts_with("_session_"));
     }
 }
 
@@ -480,6 +513,7 @@ async fn mcp_post_handler(
         None
     };
     let mut request = request;
+    sanitize_http_session_metadata(&mut request);
 
     // Validate / recover session for non-initialize requests (#300/#301).
     // Under the default lenient policy a UUID-shaped, non-tombstoned unknown
@@ -538,15 +572,6 @@ async fn mcp_post_handler(
         super::transport_http_support::rebind_session_project_from_headers(store, sid, &headers);
     }
 
-    // L1: thread the authenticated principal id through to the
-    //     dispatch path. Done before session metadata injection so the
-    //     `_session_principal_id` key sits alongside the rest of the
-    //     `_session_*` block when SessionRequestContext::from_json
-    //     reads it back out.
-    if let Some(principal_id) = principal_id.as_deref() {
-        inject_principal_id_into_params(&mut request, principal_id);
-    }
-
     // Inject session metadata into request params based on method
     if !is_initialize
         && let Some(ref sid) = session_id
@@ -576,17 +601,28 @@ async fn mcp_post_handler(
         }
     }
 
+    // Populate the final metadata container only after any session injection
+    // has run. Provenance itself is carried by the execution scope below, never
+    // by a caller-visible JSON marker.
+    if let Some(principal_id) = principal_id.as_deref() {
+        inject_principal_id_into_params(&mut request, principal_id);
+    }
+
     // Dispatch via spawn_blocking (handle_request is synchronous)
     let state_clone = Arc::clone(&state);
-    let response = tokio::task::spawn_blocking(move || handle_request(&state_clone, request))
-        .await
-        .unwrap_or_else(|e| {
-            Some(JsonRpcResponse::error(
-                None,
-                -32603,
-                format!("Internal error: {e}"),
-            ))
-        });
+    let response = tokio::task::spawn_blocking(move || {
+        crate::session_context::with_http_transport_context(|| {
+            handle_request(&state_clone, request)
+        })
+    })
+    .await
+    .unwrap_or_else(|e| {
+        Some(JsonRpcResponse::error(
+            None,
+            -32603,
+            format!("Internal error: {e}"),
+        ))
+    });
 
     // Create session on initialize
     let initialize_session = if is_initialize {
@@ -822,20 +858,40 @@ mod principal_injection_tests {
     }
 
     #[test]
-    fn does_not_inject_when_arguments_missing() {
-        // Notification-style tools/call without arguments object — the
-        // injector must be a no-op rather than panic.
+    fn injects_principal_when_arguments_are_missing() {
         let mut request = parse(
             r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_text_file"}}"#,
         );
         inject_principal_id_into_params(&mut request, "alice@example.com");
-        assert!(
+        assert_eq!(
             request
                 .params
                 .as_ref()
-                .and_then(|p| p.get("arguments"))
-                .is_none(),
-            "missing arguments must remain missing"
+                .and_then(|params| params.get("arguments"))
+                .and_then(|arguments| arguments.get("_session_principal_id")),
+            Some(&serde_json::json!("alice@example.com")),
+            "the transport must create an authoritative arguments object"
         );
+    }
+
+    #[test]
+    fn http_transport_strips_forged_session_fields_without_json_provenance_marker() {
+        let mut request = parse(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_text_file","arguments":{"relative_path":"x","_session_id":"victim","_session_principal_id":"admin","_session_trusted_client":true,"_session_project_path":"/tmp/other","_session_transport_authenticated":true}}}"#,
+        );
+
+        sanitize_http_session_metadata(&mut request);
+        let arguments = request
+            .params
+            .as_ref()
+            .and_then(|params| params.get("arguments"))
+            .expect("tool arguments");
+
+        assert_eq!(arguments["relative_path"], "x");
+        assert!(arguments.get("_session_id").is_none());
+        assert!(arguments.get("_session_principal_id").is_none());
+        assert!(arguments.get("_session_trusted_client").is_none());
+        assert!(arguments.get("_session_project_path").is_none());
+        assert!(arguments.get("_session_transport_authenticated").is_none());
     }
 }
