@@ -132,7 +132,12 @@ impl AppState {
         self.session_store
             .as_ref()
             .and_then(|store| store.get(session_id))
-            .map(|session| session.client_metadata().project_path_explicit)
+            .map(|session| {
+                session
+                    .client_metadata()
+                    .project_binding_source
+                    .is_explicit()
+            })
             .unwrap_or(false)
     }
 

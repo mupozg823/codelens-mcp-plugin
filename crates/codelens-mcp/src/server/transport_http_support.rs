@@ -1,3 +1,4 @@
+use super::project_binding::ProjectBindingSource;
 use super::session::{SessionClientMetadata, SessionSeed, SessionStore};
 use crate::client_profile::ClientProfile;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
@@ -89,21 +90,15 @@ pub(crate) fn extract_initialize_metadata(
     // `params.project` (programmatic clients) and the
     // `x-codelens-project` header (host configs — e.g. a per-project
     // `.mcp.json` emitted by `codelens-mcp attach`).
-    let project_path = params
+    let initialize_project_path = params
         .get("project")
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            headers
-                .get("x-codelens-project")
-                .and_then(|value| value.to_str().ok())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-        });
-    let project_path_explicit = project_path.is_some();
+        .map(ToOwned::to_owned);
+    let header_project_path = project_header_value(headers);
+    let (project_path, project_binding_source) =
+        ProjectBindingSource::from_initialize(initialize_project_path, header_project_path);
     let available_mcp_servers =
         string_array_param(params, "availableMcpServers", "available_mcp_servers")
             .unwrap_or_else(|| csv_header_values(headers, "x-codelens-available-mcp-servers"));
@@ -153,7 +148,7 @@ pub(crate) fn extract_initialize_metadata(
         trusted_client,
         deferred_tool_loading,
         project_path,
-        project_path_explicit,
+        project_binding_source,
         loaded_namespaces: Vec::new(),
         loaded_tiers: Vec::new(),
         full_tool_exposure: None,
@@ -218,7 +213,9 @@ pub(crate) fn project_header_value(headers: &HeaderMap) -> Option<String> {
 /// idle sweep dropped the session and the lenient gate resurrected it with
 /// default metadata, the very same request re-binds it before dispatch.
 /// Also covers clients that never declared a project at initialize but
-/// send the header later, and workspace switches mid-session.
+/// send the header later. Header-bound sessions can still switch workspaces,
+/// while initialize params and explicit prepare/activate requests take
+/// precedence over lower-precedence recurring headers.
 pub(crate) fn rebind_session_project_from_headers(
     store: &SessionStore,
     session_id: &str,
@@ -227,7 +224,7 @@ pub(crate) fn rebind_session_project_from_headers(
     let Some(project) = project_header_value(headers) else {
         return;
     };
-    store.set_project_path(session_id, &project);
+    store.set_project_path_from_header(session_id, &project);
 }
 
 pub(crate) fn create_initialize_session(

@@ -3,6 +3,7 @@
 
 #![allow(dead_code)] // fields/methods used by transport_http handlers
 
+use super::project_binding::ProjectBindingSource;
 use crate::tool_defs::{ToolPreset, ToolSurface};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -95,14 +96,9 @@ pub struct SessionClientMetadata {
     pub trusted_client: Option<bool>,
     pub deferred_tool_loading: Option<bool>,
     pub project_path: Option<String>,
-    /// `true` when the caller declared its workspace (initialize
-    /// `params.project`, `x-codelens-project` header, or a later
-    /// `activate_project`/`prepare_harness_session` with `project=`).
-    /// `false` means `project_path` was seeded from the daemon default —
-    /// the shared-daemon trap (#347) where tools silently target the
-    /// wrong repo. Dispatch surfaces a `project_binding` hint while this
-    /// stays `false`.
-    pub project_path_explicit: bool,
+    /// Retains provenance so recurring headers cannot replace a higher-precedence
+    /// initialize parameter or explicit prepare/activate request.
+    pub project_binding_source: ProjectBindingSource,
     pub loaded_namespaces: Vec<String>,
     pub loaded_tiers: Vec<String>,
     pub full_tool_exposure: Option<bool>,
@@ -238,11 +234,16 @@ impl SessionState {
     fn set_client_metadata(&self, metadata: SessionClientMetadata) {
         if let Ok(mut current) = self.client_metadata.write() {
             let preserved_project = current.project_path.clone();
-            let preserved_explicit = current.project_path_explicit;
+            let preserved_source = current.project_binding_source;
+            let preserve_project = preserved_project.is_some()
+                && (metadata.project_path.is_none()
+                    || !metadata
+                        .project_binding_source
+                        .can_replace(preserved_source));
             *current = metadata;
-            if current.project_path.is_none() {
+            if preserve_project {
                 current.project_path = preserved_project;
-                current.project_path_explicit = preserved_explicit;
+                current.project_binding_source = preserved_source;
             }
         }
     }
@@ -256,15 +257,13 @@ impl SessionState {
     /// Explicit workspace binding — the caller named its project
     /// (initialize capture or `activate_project`). Clears the
     /// shared-daemon `project_binding` hint (#347).
-    fn set_project_path(&self, project_path: &str) {
+    fn set_project_binding(&self, project_path: &str, source: ProjectBindingSource) {
         if let Ok(mut current) = self.client_metadata.write() {
-            if current.project_path_explicit
-                && current.project_path.as_deref() == Some(project_path)
-            {
+            if !source.can_replace(current.project_binding_source) {
                 return;
             }
             current.project_path = Some(project_path.to_owned());
-            current.project_path_explicit = true;
+            current.project_binding_source = source;
         }
     }
 
@@ -276,7 +275,7 @@ impl SessionState {
             && current.project_path.is_none()
         {
             current.project_path = Some(project_path.to_owned());
-            current.project_path_explicit = false;
+            current.project_binding_source = ProjectBindingSource::DaemonDefault;
         }
     }
 
@@ -304,7 +303,7 @@ impl SessionState {
             // binding instead of falling back to the daemon scope.
             if seed.project_path.is_some() {
                 metadata.project_path = seed.project_path.clone();
-                metadata.project_path_explicit = true;
+                metadata.project_binding_source = ProjectBindingSource::RequestHeader;
             }
             if !seed.available_mcp_servers.is_empty() {
                 metadata.available_mcp_servers = seed.available_mcp_servers.clone();
@@ -614,11 +613,24 @@ impl SessionStore {
     /// mutation enters through this method so runtime eviction can exclude it
     /// with a sessions read guard.
     pub fn set_project_path(&self, id: &str, project_path: &str) -> bool {
+        self.set_project_binding(id, project_path, ProjectBindingSource::ExplicitTool)
+    }
+
+    pub fn set_project_path_from_header(&self, id: &str, project_path: &str) -> bool {
+        self.set_project_binding(id, project_path, ProjectBindingSource::RequestHeader)
+    }
+
+    fn set_project_binding(
+        &self,
+        id: &str,
+        project_path: &str,
+        source: ProjectBindingSource,
+    ) -> bool {
         let sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
         let Some(session) = sessions.get(id) else {
             return false;
         };
-        session.set_project_path(project_path);
+        session.set_project_binding(project_path, source);
         true
     }
 
@@ -837,7 +849,10 @@ mod tests {
             metadata.project_path.as_deref(),
             Some("/tmp/seeded-workspace")
         );
-        assert!(metadata.project_path_explicit);
+        assert_eq!(
+            metadata.project_binding_source,
+            ProjectBindingSource::RequestHeader
+        );
     }
 
     #[test]

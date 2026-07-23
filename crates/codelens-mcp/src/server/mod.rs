@@ -4,6 +4,8 @@ pub(crate) mod compat;
 #[cfg(feature = "http")]
 pub(crate) mod http_config;
 pub(crate) mod oneshot;
+#[cfg(feature = "http")]
+pub(crate) mod project_binding;
 pub(crate) mod router;
 #[cfg(feature = "http")]
 pub(crate) mod session;
