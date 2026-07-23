@@ -58,8 +58,8 @@ pub(crate) fn invoke_registered(
     }
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let surface = state.execution_surface(&session);
-    let (result, _, _) = QueryEngine::new(state).submit_message(name, arguments, &session, surface);
-    Some(result)
+    let submission = QueryEngine::new(state).submit_message(name, arguments, &session, surface);
+    Some(submission.result)
 }
 
 // Thread-local request budget — avoids race condition when multiple
@@ -94,6 +94,10 @@ pub(crate) fn dispatch_tool(
         tool.backend = tracing::field::Empty,
         tool.elapsed_ms = tracing::field::Empty,
         tool.surface = tracing::field::Empty,
+        tool.resolved_target = tracing::field::Empty,
+        tool.mode = tracing::field::Empty,
+        tool.work_class = tracing::field::Empty,
+        tool.downstream_call_count = tracing::field::Empty,
     );
     let _guard = span.enter();
     let start = std::time::Instant::now();
@@ -112,6 +116,7 @@ pub(crate) fn dispatch_tool(
             id,
             0,
             false,
+            None,
         );
     }
 
@@ -138,6 +143,7 @@ pub(crate) fn dispatch_tool(
                 id,
                 ctx.doom_count,
                 ctx.doom_rapid,
+                None,
             );
         }
     };
@@ -165,6 +171,7 @@ pub(crate) fn dispatch_tool(
             id,
             ctx.doom_count,
             ctx.doom_rapid,
+            None,
         );
     }
 
@@ -191,6 +198,7 @@ pub(crate) fn dispatch_tool(
             id,
             ctx.doom_count,
             ctx.doom_rapid,
+            None,
         );
     }
 
@@ -217,6 +225,7 @@ pub(crate) fn dispatch_tool(
             id,
             ctx.doom_count,
             ctx.doom_rapid,
+            None,
         );
     }
 
@@ -236,6 +245,7 @@ pub(crate) fn dispatch_tool(
                     id,
                     ctx.doom_count,
                     ctx.doom_rapid,
+                    None,
                 );
             }
         }
@@ -247,8 +257,11 @@ pub(crate) fn dispatch_tool(
     // applying their schema, role, surface, and mutation gates.
     let engine = QueryEngine::new(state);
     #[allow(unused_mut)] // HTTP project-binding hints mutate only HTTP builds.
-    let (mut result, gate_allowance, gate_failure) =
-        engine.submit_message(name, arguments, session, ctx.surface);
+    let submission = engine.submit_message(name, arguments, session, ctx.surface);
+    let mut result = submission.result;
+    let gate_allowance = submission.gate_allowance;
+    let gate_failure = submission.gate_failure;
+    let resolved_operation = submission.operation;
 
     // 5. Response: post-mutation side effects, doom-loop warning, and response shaping.
     if let (Ok((payload, _)), Some(audit_sink)) = (&mut result, mutation_audit_sink.as_deref())
@@ -303,7 +316,14 @@ pub(crate) fn dispatch_tool(
     }
 
     let elapsed_ms = start.elapsed().as_millis();
-    record_span_fields(&span, name, &result, elapsed_ms, &ctx.active_surface);
+    record_span_fields(
+        &span,
+        name,
+        &result,
+        elapsed_ms,
+        &ctx.active_surface,
+        resolved_operation,
+    );
 
     if ctx.doom_count >= 3 {
         tracing::warn!(
@@ -333,6 +353,7 @@ pub(crate) fn dispatch_tool(
             compact,
             lean,
             harness_phase: harness_phase.as_deref(),
+            operation: resolved_operation,
             request_budget: envelope.budget,
             start,
             id,
@@ -356,6 +377,7 @@ pub(crate) fn dispatch_tool(
                 id,
                 ctx.doom_count,
                 ctx.doom_rapid,
+                Some(resolved_operation),
             )
         }
     }

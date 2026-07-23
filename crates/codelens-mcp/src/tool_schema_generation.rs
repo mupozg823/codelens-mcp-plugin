@@ -19,7 +19,7 @@ pub(crate) fn tool_schema_fingerprint(tools: &[&Tool]) -> String {
 
 pub(crate) fn surface_generation_payload(tools: &[&Tool]) -> Value {
     json!({
-        "schema_version": crate::surface_manifest::SURFACE_MANIFEST_SCHEMA_VERSION,
+        "schema_version": crate::surface_manifest::RUNTIME_SURFACE_CONTRACT_SCHEMA_ID,
         "binary_version": crate::build_info::BUILD_VERSION,
         "tool_schema_fingerprint": tool_schema_fingerprint(tools),
         "refresh_action": TOOL_SCHEMA_REFRESH_ACTION,

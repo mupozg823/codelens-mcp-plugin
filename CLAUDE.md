@@ -118,9 +118,9 @@ cycle, and macOS xattr/codesign (`OS_REASON_CODESIGNING`) recovery live in
 - **Surface manifest version markers.** `Workspace version: \`1.x.y\``strings inside non-marker README/docs sections trigger`canonical*truth_violations()`in`scripts/surface-manifest.py`. Keep version claims inside `SURFACE_MANIFEST*\*` blocks only.
 - **Tools.toml entries without preset membership are invisible.** A new analysis tool added to `tools.toml` must be inserted into one of the preset constants in `tool_defs/presets.rs` to surface in any `tools/list` response, even though it remains directly callable via `tools/call`.
 
-## Routing Overlay Semantics
+## Routing Policy Source
 
-The compiled routing overlays below are **profile-conditional guidance**: each labeled overlay (e.g. `reviewer-graph` + `review`) lists tools that become callable once the session is on that profile, so entries like `audit_planner_session` are valid inside the reviewer-graph overlay even though they are excluded from the default surface. This repo's own default session binds `claude-code` and sends no `x-codelens-profile`, so its active surface is the **Balanced** preset — only the unlabeled _Primary bootstrap sequence_ is guaranteed callable without first switching profiles. (This paragraph lives outside the `CODELENS_HOST_ROUTING` markers on purpose; never hand-edit inside them.)
+The `CODELENS_HOST_ROUTING` block below is generated from the Claude Code host-adapter template. Update the template and re-sync this block together; do not add model- or vendor-specific executor assignments to the generated contract.
 
 <!-- CODELENS_HOST_ROUTING:BEGIN -->
 
@@ -128,21 +128,16 @@ The compiled routing overlays below are **profile-conditional guidance**: each l
 
 - Use native Read/Glob/Grep first for trivial point lookups and single-file edits.
 - Escalate to CodeLens after the first local step for multi-file review, refactor preflight, or durable artifact generation.
-- Default CodeLens profile for planning/review is `reviewer-graph`.
+- Default CodeLens profile for planning/review is `review`.
+- Main sessions call `prepare_harness_session` with `agent_role="main"`; delegated research/build workers call it with `agent_role="subagent"` and a narrow task overlay.
+- If the host can observe orchestration capabilities, MCP server/tool names, memory roots, or subagent-scoped MCP config, pass only those facts/names/roots as `host_capabilities`, `available_mcp_servers`, `available_mcp_tools`, `memory_roots`, and `host_setting_keys`; never pass secret values.
 - Before dispatching a builder, run:
   1. `prepare_harness_session`
   2. `get_symbols_overview` per target file
   3. `get_file_diagnostics` per target file
   4. `verify_change_readiness`
 - Prefer asymmetric handoff over live planner/builder chat.
-- If `delegate_to_codex_builder` appears in `suggested_next_calls`, preserve `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` verbatim when dispatching the builder.
-
-## Compiled Routing Overlays
-
-- Primary bootstrap sequence: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `explore_codebase` -> `review_architecture`
-- `planner-readonly` + `planning` [bias: `claude`]: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `explore_codebase` -> `review_architecture`
-- `reviewer-graph` + `review` [bias: `claude`]: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session`
-- `planner-readonly` + `onboarding` [bias: `claude`]: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `onboard_project` -> `explore_codebase` -> `review_architecture`
+- Treat `suggested_next_calls` as host-neutral follow-up or mutation intent; choose the native executor in the host and preserve concrete arguments through normal approval and mutation gates.
 
 <!-- CODELENS_HOST_ROUTING:END -->
 
@@ -155,9 +150,9 @@ The concise routing rules below cover the common path.
 
 ## Agent Roles
 
-- **Codex**: implementation, local refactor, direct test execution
-- **Claude**: orchestration, review, evaluation, harness supervision
-- CodeLens = external coprocessor, not embedded runtime
+- **Read-oriented lane**: planning, review, evaluation, and harness supervision
+- **Write-capable lane**: implementation, local refactor, and direct test execution
+- The host chooses the available agent/model for each lane; CodeLens is an external coprocessor, not the executor selector
 
 ## Routing
 

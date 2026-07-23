@@ -91,7 +91,7 @@ fn push_tool_schema_warning(
         json!({
             "client_tool_schema_fingerprint": client_fingerprint,
             "server_tool_schema_fingerprint": input.current_tool_schema_fingerprint,
-            "schema_version": crate::surface_manifest::SURFACE_MANIFEST_SCHEMA_VERSION,
+            "schema_version": crate::surface_manifest::RUNTIME_SURFACE_CONTRACT_SCHEMA_ID,
             "refresh": {
                 "method": "tools/list",
                 "params": { "full": true },

@@ -27,9 +27,9 @@ pub(super) fn bundle() -> Value {
             "background_queue": "analysis-job-first",
             "wide_surface": "deferred-loading-required"
         },
-        "delegate_scaffold_rules": [
-            "If CodeLens emits `delegate_to_codex_builder`, forward delegate_tool, delegate_arguments, carry_forward, and handoff_id to the builder lane.",
-            "Do not regenerate builder arguments from prose when delegate_arguments are already present."
+        "execution_rules": [
+            "Treat suggested_next_calls as host-neutral follow-up or mutation intent; the host chooses the native executor.",
+            "Preserve concrete suggested arguments and apply normal approval, preflight, and mutation gates before execution."
         ],
         "avoid": [
             "assuming foreground and background agents share the same trust boundary",
@@ -68,7 +68,8 @@ alwaysApply: true
 - Escalate to CodeLens when the task becomes multi-file, reviewer-heavy, refactor-sensitive, or needs durable analysis artifacts.
 - Prefer `review` for review/signoff and durable async analysis summaries.
 - In background-agent flows, assume localhost CodeLens is unavailable unless the daemon is reachable from the remote machine.
-- If CodeLens emits `delegate_to_codex_builder`, pass `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` through to the builder lane instead of rewriting them from prose.
+- Pass `host_capabilities` only when the host can report concrete native tool-search, subagent, worktree, edit, task, dynamic-tool, workspace-binding, or approval support.
+- Treat `suggested_next_calls` as host-neutral follow-up or mutation intent; choose the native executor in the host and preserve concrete arguments through normal approval and mutation gates.
 "#
             }
         ]

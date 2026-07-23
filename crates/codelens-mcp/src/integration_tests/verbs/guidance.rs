@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn verb_facades_do_not_emit_low_level_recovery_or_builder_delegate() {
+fn primitive_verb_chain_emits_host_neutral_composite_guidance() {
     let project = project_root();
     assert!(
         fs::write(
@@ -35,8 +35,9 @@ fn verb_facades_do_not_emit_low_level_recovery_or_builder_delegate() {
     assert_eq!(payload["success"], json!(true));
     let suggested = payload["suggested_next_tools"].as_array();
     assert!(
-        !suggested
-            .is_some_and(|tools| { tools.iter().any(|tool| tool == "cleanup_duplicate_logic") })
+        suggested
+            .is_some_and(|tools| { tools.iter().any(|tool| tool == "cleanup_duplicate_logic") }),
+        "the third resolved primitive must emit composite recovery guidance: {payload}"
     );
     assert!(
         !suggested
@@ -46,6 +47,6 @@ fn verb_facades_do_not_emit_low_level_recovery_or_builder_delegate() {
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert_eq!(
         metrics["data"]["session"]["composite_guidance_emitted_count"],
-        json!(0)
+        json!(1)
     );
 }

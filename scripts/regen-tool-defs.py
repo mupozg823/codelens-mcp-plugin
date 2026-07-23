@@ -35,6 +35,11 @@ PRESETS_RS = REPO_ROOT / "crates" / "codelens-mcp" / "src" / "tool_defs" / "pres
 SUPPORTED_SCHEMA = "v1"
 VALID_PHASES = {"plan", "build", "review", "eval"}
 VALID_NAMESPACES = {"filesystem", "symbols", "graph", "reports", "memory", "lsp", "session"}
+VALID_EXECUTION_CLASSES = {"read", "analyze", "mutate"}
+VALID_EXECUTION_LEVELS = {"low", "medium", "high"}
+ANALYZE_CATEGORIES = {"analysis", "composite", "workflow_first", "semantic"}
+MUTATING_ANNOTATIONS = {"mut_p", "mut_w", "mutating", "mut_coord", "destructive", "dest_a"}
+DESTRUCTIVE_ANNOTATIONS = {"destructive", "dest_a"}
 
 # Maps the `preset_tags` token used in tools.toml to the Rust constant in
 # `tool_defs/presets.rs` that should mirror its inversion. Drift between
@@ -557,6 +562,84 @@ def render_bool_match(fn_name: str, names: list[str]) -> str:
     return "\n".join(lines)
 
 
+def render_execution_policy_match(
+    policies: dict[str, tuple[str, str, str, bool]],
+) -> str:
+    lines = [
+        "pub(in crate::tool_defs) fn tool_execution_policy_values(",
+        "    name: &str,",
+        ") -> Option<(&'static str, &'static str, &'static str, bool)> {",
+        "    match name {",
+    ]
+    for name, (execution_class, risk, cost_hint, concurrency_safe) in sorted(
+        policies.items()
+    ):
+        boolean = "true" if concurrency_safe else "false"
+        lines.append(
+            f'        "{name}" => Some(("{execution_class}", "{risk}", "{cost_hint}", {boolean})),'
+        )
+    lines.extend(["        _ => None,", "    }", "}", ""])
+    return "\n".join(lines)
+
+
+def execution_policy_for_tool(
+    tool: dict[str, Any], content_mutation_tools: set[str]
+) -> tuple[str, str, str, bool]:
+    name = tool["name"]
+    annotation = tool.get("annotations", "ro_p")
+    category = tool["category"]
+
+    execution_class = tool.get("execution_class")
+    if execution_class is None:
+        if name in content_mutation_tools or annotation in MUTATING_ANNOTATIONS:
+            execution_class = "mutate"
+        elif category in ANALYZE_CATEGORIES:
+            execution_class = "analyze"
+        else:
+            execution_class = "read"
+    if execution_class not in VALID_EXECUTION_CLASSES:
+        raise SystemExit(
+            f"{name}: execution_class='{execution_class}' is not supported; "
+            f"expected one of {sorted(VALID_EXECUTION_CLASSES)}"
+        )
+
+    risk = tool.get("risk")
+    if risk is None:
+        if name in content_mutation_tools or annotation in DESTRUCTIVE_ANNOTATIONS:
+            risk = "high"
+        elif execution_class == "mutate":
+            risk = "medium"
+        else:
+            risk = "low"
+    if risk not in VALID_EXECUTION_LEVELS:
+        raise SystemExit(
+            f"{name}: risk='{risk}' is not supported; "
+            f"expected one of {sorted(VALID_EXECUTION_LEVELS)}"
+        )
+
+    cost_hint = tool.get("cost_hint")
+    if cost_hint is None:
+        if category == "semantic":
+            cost_hint = "high"
+        elif category in ANALYZE_CATEGORIES or execution_class == "mutate":
+            cost_hint = "medium"
+        else:
+            cost_hint = "low"
+    if cost_hint not in VALID_EXECUTION_LEVELS:
+        raise SystemExit(
+            f"{name}: cost_hint='{cost_hint}' is not supported; "
+            f"expected one of {sorted(VALID_EXECUTION_LEVELS)}"
+        )
+
+    concurrency_safe = tool.get("concurrency_safe")
+    if concurrency_safe is None:
+        concurrency_safe = execution_class != "mutate"
+    if not isinstance(concurrency_safe, bool):
+        raise SystemExit(f"{name}: concurrency_safe must be a boolean")
+
+    return execution_class, risk, cost_hint, concurrency_safe
+
+
 def render_metadata() -> str:
     with TOOLS_TOML.open("rb") as f:
         data = tomllib.load(f)
@@ -575,6 +658,8 @@ def render_metadata() -> str:
     symbol_generation_consistent_tools = data.get(
         "symbol_generation_consistent_tools", []
     )
+    content_mutation_tool_set = set(content_mutation_tools)
+    execution_policies: dict[str, tuple[str, str, str, bool]] = {}
     experimental_tools: dict[str, str] = {}
     for feature, names in data.get("experimental_features", {}).items():
         for name in names:
@@ -601,6 +686,9 @@ def render_metadata() -> str:
             )
         namespaces[name] = namespace
         annotations[name] = tool.get("annotations", "ro_p")
+        execution_policies[name] = execution_policy_for_tool(
+            tool, content_mutation_tool_set
+        )
 
     parts = [METADATA_HEADER.rstrip(), ""]
     parts.append(render_default_listed_tool_names(default_listed))
@@ -616,6 +704,7 @@ def render_metadata() -> str:
     parts.append(render_option_match("tool_phase", phases))
     parts.append(render_option_match("tool_namespace", namespaces))
     parts.append(render_option_match("tool_annotation_key", annotations))
+    parts.append(render_execution_policy_match(execution_policies))
     return "\n".join(parts).rstrip() + "\n"
 
 

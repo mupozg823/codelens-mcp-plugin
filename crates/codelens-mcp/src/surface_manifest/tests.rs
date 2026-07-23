@@ -235,6 +235,7 @@ fn host_adapters_hide_internal_overlay_contract() {
         manifest["host_adapters"]["host_environment_contract"]["prepare_harness_session_fields"],
         json!([
             "agent_role",
+            "host_capabilities",
             "available_mcp_servers",
             "available_mcp_tools",
             "skill_roots",
@@ -259,4 +260,66 @@ fn host_adapters_hide_internal_overlay_contract() {
     assert_eq!(claude["default_agent_role"], json!("main"));
     assert!(claude.get("overlay_previews").is_none());
     assert!(claude.get("default_task_overlay").is_none());
+}
+
+#[test]
+fn manifest_and_host_adapters_expose_host_neutral_execution_contract() {
+    let manifest = build_surface_manifest(
+        ToolSurface::Profile(ToolProfile::PlannerReadonly),
+        RuntimeDaemonMode::ReadOnly,
+    );
+
+    assert_eq!(
+        manifest["agent_experience"]["agent_flow"]["execution_contract"]["executor_selection"],
+        json!("host_owned")
+    );
+    assert_eq!(
+        manifest["agent_experience"]["agent_flow"]["execution_contract"]["success_action"],
+        json!("suggested_next_calls")
+    );
+    assert_eq!(
+        manifest["host_adapters"]["execution_contract"]["mutation_intent"],
+        json!("tool_annotations_and_direct_call")
+    );
+    assert_eq!(
+        manifest["schema_version"],
+        json!("codelens-runtime-surface-contract")
+    );
+    assert!(manifest["tool_registry"]["execution_classes"].is_object());
+    let delete_memory = manifest["tool_registry"]["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|tool| tool["name"] == "delete_memory"))
+        .expect("delete_memory policy");
+    assert_eq!(
+        delete_memory["execution_policy"]["execution_class"],
+        json!("mutate")
+    );
+
+    let manifest_text = serde_json::to_string(&manifest).unwrap();
+    for legacy_contract in [
+        "preferred_executor",
+        "preferredExecutor",
+        "preferred_executor_bias",
+        "delegate_to_codex_builder",
+    ] {
+        assert!(
+            !manifest_text.contains(legacy_contract),
+            "surface manifest must not expose legacy contract {legacy_contract}"
+        );
+    }
+
+    for host in ["claude-code", "codex", "cursor"] {
+        let bundle = host_adapter_bundle_for_project(host, None).expect("host adapter bundle");
+        assert!(
+            bundle["execution_rules"]
+                .as_array()
+                .is_some_and(|rules| !rules.is_empty()),
+            "{host} must expose host-neutral execution rules"
+        );
+        assert!(
+            !serde_json::to_string(&bundle)
+                .unwrap()
+                .contains("delegate_to_codex_builder")
+        );
+    }
 }

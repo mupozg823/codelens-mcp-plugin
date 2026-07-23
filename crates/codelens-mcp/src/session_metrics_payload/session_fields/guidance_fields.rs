@@ -56,6 +56,31 @@ pub(super) fn put_guidance_fields(session_json: &mut Map<String, Value>, session
     );
     put(
         session_json,
+        "suggestion_accepted_count",
+        json!(session.guidance.suggestion_accepted_count),
+    );
+    put(
+        session_json,
+        "suggestion_diverted_count",
+        json!(session.guidance.suggestion_diverted_count),
+    );
+    put(
+        session_json,
+        "suggestion_unresolved_count",
+        json!(session.guidance.suggestion_unresolved_count),
+    );
+    put(
+        session_json,
+        "suggestion_outcome_success_count",
+        json!(session.guidance.suggestion_outcome_success_count),
+    );
+    put(
+        session_json,
+        "suggestion_outcome_error_count",
+        json!(session.guidance.suggestion_outcome_error_count),
+    );
+    put(
+        session_json,
         "quality_contract_emitted_count",
         json!(session.guidance.quality_contract_emitted_count),
     );

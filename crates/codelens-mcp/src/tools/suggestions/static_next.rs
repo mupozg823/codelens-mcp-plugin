@@ -196,14 +196,6 @@ pub(crate) const SUGGEST_NEXT_TABLE: &[(&str, &[&str])] = &[
         &["get_symbols_overview", "get_ranked_context"],
     ),
     (
-        "get_tool_metrics",
-        &[
-            "audit_builder_session",
-            "export_session_markdown",
-            "get_capabilities",
-        ],
-    ),
-    (
         "audit_builder_session",
         &[
             "get_tool_metrics",
@@ -286,10 +278,9 @@ pub(crate) const SUGGEST_NEXT_TABLE: &[(&str, &[&str])] = &[
     ),
     // `rename_symbol` is dispatch-only (ADR-0009/D3, #346): callable via
     // `tools/call` behind the `:7838` mutation gate but intentionally absent from
-    // `tools.toml`. It is the sole `codex-builder`-tagged suggestion in this
-    // table, so it must stay here to keep the planner→builder delegate handoff
-    // firing (`inject_delegate_to_codex_builder_hint`). Allowlisted in the drift
-    // gate via the pending-D3 carve-out.
+    // `tools.toml`. Keep it as a direct, host-neutral mutation intent after the
+    // read-only safety report. Allowlisted in the drift gate via the pending-D3
+    // carve-out.
     (
         "safe_rename_report",
         &[

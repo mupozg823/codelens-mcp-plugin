@@ -291,13 +291,11 @@ If a host starts with `get_ranked_context`, inspect `retrieval.preferred_lane` a
 
 For the full routing matrix, output-card contract, and corpus-separation rules, see [BM25 sparse lane spec](design/bm25-sparse-lane-spec-2026-04-18.md).
 
-`tools/list` and `tools/call` also expose the server-side routing classifier as `_meta["codelens/preferredExecutor"]`. Treat it as an advisory executor hint: `codex-builder`, `claude`, or `any`.
+`tools/list` and `tools/call` expose the host-neutral execution contract as `_meta["codelens/executionPolicy"]`. The policy reports `execution_class`, `risk`, `cost_hint`, and `concurrency_safe`; it never selects a model, vendor, or agent. `prepare_harness_session` can also accept explicit `host_capabilities` facts so the host can negotiate native tool search, subagents, worktrees, editing, task, dynamic-tool, workspace-binding, and approval support without inferring capabilities from its name.
 
 In HTTP sessions, `initialize` advertises `capabilities.tools.listChanged = true`, and CodeLens emits `notifications/tools/list_changed` after runtime surface switches such as `set_profile` or `set_preset`. Hosts that cache tool registries should use that notification to refresh `tools/list` instead of assuming the initial surface is static.
 
-When a response crosses from a planner/reviewer step into a builder-heavy step, or when a builder-heavy tool is retried in a loop, CodeLens also prepends the synthetic host action `delegate_to_codex_builder` in `suggested_next_tools` and `suggested_next_calls`. This is not a callable MCP server tool. Treat it as a ready-made handoff scaffold containing `delegate_tool`, optional `delegate_arguments`, `carry_forward`, and a compact completion contract for the target Codex builder session.
-
-If that scaffold includes `handoff_id`, preserve it verbatim at the scaffold top level and inside the first replayed builder call's `delegate_arguments`. Do not rebuild those arguments from prose. That one field is what lets telemetry correlate planner-side delegate emission with later builder-side execution across logical sessions.
+Successful responses use `suggested_next_calls` only for concrete callable follow-ups. A suggested mutation tool is host-neutral mutation intent: the host chooses the executor, preserves the provided arguments, and still applies normal approval, preflight, and mutation gates. CodeLens does not prepend a synthetic model- or vendor-specific handoff action.
 
 For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first, and omits `outputSchema` during bootstrap to keep session overhead bounded. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, request the full surface explicitly with `{"full": true}`, or opt back into schemas with `{"includeOutputSchema": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.
 
@@ -376,7 +374,7 @@ After a builder/refactor pass completes, run `audit_builder_session` on that ses
 
 After a planner/reviewer pass completes, run `audit_planner_session` on that same session id. Treat `warn` as missing bootstrap / workflow-first / evidence discipline, and `fail` as a read-side contract break (for example a mutation attempt from a read-only surface).
 
-If Claude consumes a `delegate_to_codex_builder` scaffold, pass `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` through to the Codex builder handoff verbatim. Do not rewrite the first delegated builder call from prose.
+If Claude Code consumes a mutation intent from `suggested_next_calls`, keep executor selection in the host and apply the target tool's normal approval and preflight rules before execution.
 
 **Legacy presets:**
 
@@ -414,7 +412,7 @@ If Claude consumes a `delegate_to_codex_builder` scaffold, pass `delegate_tool`,
 }
 ```
 
-If a Cursor foreground or background agent forwards work into a builder lane, preserve `handoff_id` from any `delegate_to_codex_builder` scaffold instead of regenerating builder arguments from prose.
+If a Cursor foreground or background agent forwards a suggested mutation, preserve the concrete tool arguments and apply the target tool's approval and preflight rules; do not infer an executor from a server-generated model label.
 
 ---
 
@@ -462,11 +460,11 @@ For `builder`, use a preflight-first path:
 
 Recent matching preflight is required before `builder` content mutations execute.
 
-For Codex or other builder agents attached over HTTP, use the same session id with `get_tool_metrics`, `audit_builder_session`, and `export_session_markdown` to review one builder session in isolation instead of the daemon-wide aggregate.
+For write-capable builder agents attached over HTTP, use the same session id with `get_tool_metrics`, `audit_builder_session`, and `export_session_markdown` to review one builder session in isolation instead of the daemon-wide aggregate.
 
 For planner/reviewer agents on `readonly` or `review`, replace the audit call with `audit_planner_session`. `export_session_markdown(session_id=...)` chooses the builder or planner audit summary automatically from the session surface.
 
-If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first builder-heavy call should replay `delegate_tool` plus `delegate_arguments` unchanged, including `handoff_id`.
+If the host receives a concrete mutation intent in `suggested_next_calls`, it may reuse the supplied arguments after the normal approval, preflight, and mutation gates pass.
 
 ---
 

@@ -34,6 +34,25 @@ impl ToolMetricsRegistry {
             .unwrap_or_default()
     }
 
+    pub(crate) fn recent_work_classes_for_session(
+        &self,
+        logical_session_id: &str,
+        limit: usize,
+    ) -> Vec<crate::operation::OperationWorkClass> {
+        let buckets = self
+            .session_buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(bucket) = buckets.get(logical_session_id) else {
+            return Vec::new();
+        };
+        let start = bucket.session.timeline.len().saturating_sub(limit);
+        bucket.session.timeline[start..]
+            .iter()
+            .map(|invocation| invocation.work_class)
+            .collect()
+    }
+
     /// Enumerate logical session ids currently tracked in the telemetry
     /// bucket map. Used by aggregation surfaces such as `eval_session_audit`
     /// that need to iterate every known session in one pass.

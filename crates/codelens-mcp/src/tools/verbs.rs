@@ -123,6 +123,21 @@ pub(crate) fn resolve_verb_target(
     verb: &str,
     args: &Value,
 ) -> Result<Option<(&'static str, Value)>, CodeLensError> {
+    let Some((target, _mode)) = resolve_verb_operation(verb, args)? else {
+        return Ok(None);
+    };
+    let mut inner = args.clone();
+    if let Some(obj) = inner.as_object_mut() {
+        obj.remove("mode");
+    }
+    Ok(Some((target, inner)))
+}
+
+/// Resolve only the operation identity without cloning or rewriting arguments.
+pub(crate) fn resolve_verb_operation<'a>(
+    verb: &str,
+    args: &'a Value,
+) -> Result<Option<(&'static str, &'a str)>, CodeLensError> {
     let Some(modes) = modes_for_verb(verb) else {
         return Ok(None);
     };
@@ -131,11 +146,7 @@ pub(crate) fn resolve_verb_target(
         .and_then(Value::as_str)
         .ok_or_else(|| CodeLensError::MissingParam("mode".to_owned()))?;
     let target = resolve_mode(verb, modes, mode)?;
-    let mut inner = args.clone();
-    if let Some(obj) = inner.as_object_mut() {
-        obj.remove("mode");
-    }
-    Ok(Some((target, inner)))
+    Ok(Some((target, mode)))
 }
 
 fn modes_for_verb(verb: &str) -> Option<&'static [(&'static str, &'static str)]> {
@@ -148,10 +159,6 @@ fn modes_for_verb(verb: &str) -> Option<&'static [(&'static str, &'static str)]>
         "review" => Some(REVIEW_MODES),
         _ => None,
     }
-}
-
-pub(crate) fn is_verb_facade(name: &str) -> bool {
-    modes_for_verb(name).is_some()
 }
 
 fn resolve_mode(

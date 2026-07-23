@@ -2,8 +2,8 @@ use crate::AppState;
 use crate::state::RuntimeDaemonMode;
 use crate::tool_defs::{
     ALL_PRESETS, ALL_PROFILES, ToolPreset, ToolSurface, preferred_namespaces,
-    preferred_phase_labels, preferred_tier_labels, tool_namespace, tool_phase_label,
-    tool_preferred_executor, tool_tier_label, tools, visible_tools,
+    preferred_phase_labels, preferred_tier_labels, tool_execution_policy, tool_namespace,
+    tool_phase_label, tool_tier_label, tools, visible_tools,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,8 +19,7 @@ pub(crate) use host_adapters::{
     harness_host_compat_bundle_for_project, host_adapter_bundle_for_project,
 };
 
-pub(crate) const SURFACE_MANIFEST_SCHEMA_VERSION: &str =
-    "codelens-runtime-surface-contract";
+pub(crate) const RUNTIME_SURFACE_CONTRACT_SCHEMA_ID: &str = "codelens-runtime-surface-contract";
 pub(crate) const HARNESS_MODES_SCHEMA_VERSION: &str = "codelens-harness-modes-v1";
 pub(crate) const HARNESS_SPEC_SCHEMA_VERSION: &str = "codelens-harness-spec-v1";
 pub(crate) const HOST_ADAPTERS_SCHEMA_VERSION: &str = "codelens-host-adapters-v1";
@@ -80,13 +79,13 @@ pub(crate) fn build_surface_manifest(
             *acc.entry(key).or_insert(0usize) += 1;
             acc
         });
-    let executor_counts = tool_definitions
+    let execution_class_counts = tool_definitions
         .iter()
         .fold(BTreeMap::new(), |mut acc, tool| {
-            let key = tool_preferred_executor(tool.name)
-                .unwrap_or("any")
-                .to_owned();
-            *acc.entry(key).or_insert(0usize) += 1;
+            if let Some(policy) = tool_execution_policy(tool.name) {
+                *acc.entry(policy.execution_class.to_owned())
+                    .or_insert(0usize) += 1;
+            }
             acc
         });
 
@@ -142,7 +141,7 @@ pub(crate) fn build_surface_manifest(
     let server_card_features = server_card_features();
 
     json!({
-        "schema_version": SURFACE_MANIFEST_SCHEMA_VERSION,
+        "schema_version": RUNTIME_SURFACE_CONTRACT_SCHEMA_ID,
         "workspace": {
             "version": env!("CARGO_PKG_VERSION"),
             "description": env!("CARGO_PKG_DESCRIPTION"),
@@ -155,14 +154,14 @@ pub(crate) fn build_surface_manifest(
             "namespaces": namespace_counts,
             "tiers": tier_counts,
             "phases": phase_counts,
-            "preferred_executors": executor_counts,
+            "execution_classes": execution_class_counts,
             "tools": tool_definitions.iter().map(|tool| {
                 json!({
                     "name": tool.name,
                     "namespace": tool_namespace(tool.name),
                     "tier": tool_tier_label(tool.name),
                     "phase": tool_phase_label(tool.name),
-                    "preferred_executor": tool_preferred_executor(tool.name),
+                    "execution_policy": tool_execution_policy(tool.name),
                     "has_output_schema": tool.output_schema.is_some(),
                     "estimated_tokens": tool.estimated_tokens,
                 })

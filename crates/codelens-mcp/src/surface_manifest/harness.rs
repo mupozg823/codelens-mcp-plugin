@@ -416,7 +416,7 @@ fn harness_mode_planner_builder() -> Value {
     json!({
         "name": "planner-builder",
         "purpose": "Primary multi-agent pattern: read-only planning/review paired with mutation-enabled implementation.",
-        "best_fit": "Claude planning/review plus Codex building, or any equivalent planner/builder split.",
+        "best_fit": "Read-oriented planning/review paired with a host-owned, write-capable implementation lane.",
         "topology": {
             "transport": "http",
             "daemon_shape": "single-writer",

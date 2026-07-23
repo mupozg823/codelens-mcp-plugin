@@ -1,11 +1,52 @@
 //! Low-level call, surface, and session recording helpers.
 #![allow(clippy::collapsible_if)]
 
-use super::{MAX_TIMELINE, has_low_level_chain, is_workflow_tool, push_latency_sample};
+use super::{MAX_TIMELINE, has_low_level_chain, push_latency_sample};
 use crate::telemetry::{
     SessionMetrics, SurfaceMetrics, ToolCallEvent, ToolInvocation, ToolMetrics,
 };
 use std::collections::HashMap;
+
+fn is_suggestion_observer(tool: &str) -> bool {
+    matches!(tool, "get_tool_metrics" | "set_profile" | "set_preset")
+}
+
+fn resolve_pending_suggestion(session: &mut SessionMetrics, event: &ToolCallEvent<'_>) {
+    if is_suggestion_observer(event.tool) || session.guidance.pending_suggested_tools.is_empty() {
+        return;
+    }
+
+    let accepted = session
+        .guidance
+        .pending_suggested_tools
+        .iter()
+        .any(|suggested| {
+            suggested == event.tool || event.operation.target == Some(suggested.as_str())
+        });
+    session.guidance.suggestion_unresolved_count = session
+        .guidance
+        .suggestion_unresolved_count
+        .saturating_sub(1);
+    if accepted {
+        session.guidance.suggestion_accepted_count += 1;
+        if event.success {
+            session.guidance.suggestion_outcome_success_count += 1;
+        } else {
+            session.guidance.suggestion_outcome_error_count += 1;
+        }
+    } else {
+        session.guidance.suggestion_diverted_count += 1;
+    }
+    session.guidance.pending_suggested_tools.clear();
+}
+
+fn record_pending_suggestions(session: &mut SessionMetrics, event: &ToolCallEvent<'_>) {
+    if is_suggestion_observer(event.tool) || event.hints.suggested_next_tools.is_empty() {
+        return;
+    }
+    session.guidance.pending_suggested_tools = event.hints.suggested_next_tools.to_vec();
+    session.guidance.suggestion_unresolved_count += 1;
+}
 
 pub(super) fn record_tool_call(
     map: &mut HashMap<String, ToolMetrics>,
@@ -50,6 +91,7 @@ pub(super) fn record_surface_call(
 
 pub(super) fn record_session_call(session: &mut SessionMetrics, event: &ToolCallEvent<'_>) {
     let previous = session.timeline.last().cloned();
+    resolve_pending_suggestion(session, event);
     session.core.total_calls += 1;
     if event.success {
         session.core.success_count += 1;
@@ -59,10 +101,14 @@ pub(super) fn record_session_call(session: &mut SessionMetrics, event: &ToolCall
     if event.tool == "tools/list" {
         session.token.tools_list_tokens += event.tokens;
     }
-    if is_workflow_tool(event.tool) {
-        session.call_type.composite_calls += 1;
-    } else {
-        session.call_type.low_level_calls += 1;
+    match event.operation.work_class {
+        crate::operation::OperationWorkClass::Composite => {
+            session.call_type.composite_calls += 1;
+        }
+        crate::operation::OperationWorkClass::Primitive => {
+            session.call_type.low_level_calls += 1;
+        }
+        crate::operation::OperationWorkClass::Unresolved => {}
     }
     if !event.success {
         session.core.error_count += 1;
@@ -72,7 +118,9 @@ pub(super) fn record_session_call(session: &mut SessionMetrics, event: &ToolCall
             event.tool,
             "get_tool_metrics" | "set_profile" | "set_preset"
         ) {
-            if is_workflow_tool(event.tool) || event.tool == "get_analysis_section" {
+            if event.operation.work_class.is_composite()
+                || event.operation.target == Some("get_analysis_section")
+            {
                 session.guidance.composite_guidance_followed_count += 1;
             } else {
                 session.guidance.composite_guidance_missed_count += 1;
@@ -122,6 +170,10 @@ pub(super) fn record_session_call(session: &mut SessionMetrics, event: &ToolCall
     push_latency_sample(&mut session.core.latency_samples, event.elapsed_ms);
     let invocation = ToolInvocation {
         tool: event.tool.to_owned(),
+        resolved_target: event.operation.target.map(ToOwned::to_owned),
+        mode: event.operation.mode.map(ToOwned::to_owned),
+        work_class: event.operation.work_class,
+        downstream_call_count: event.operation.downstream_call_count,
         surface: event.surface.to_owned(),
         elapsed_ms: event.elapsed_ms,
         tokens: event.tokens,
@@ -143,4 +195,5 @@ pub(super) fn record_session_call(session: &mut SessionMetrics, event: &ToolCall
     if has_low_level_chain(&session.timeline) {
         session.guidance.repeated_low_level_chain_count += 1;
     }
+    record_pending_suggestions(session, event);
 }

@@ -45,7 +45,6 @@ pub(super) fn surface_overlay_resource(
             "task_overlay": plan.task_overlay.map(|value| value.as_str()),
             "agent_role": plan.agent_role.map(|value| value.as_str()),
             "applied": plan.applied(),
-            "preferred_executor_bias": plan.preferred_executor_bias,
             "preferred_entrypoints": plan.preferred_entrypoints,
             "emphasized_tools": plan.emphasized_tools,
             "avoid_tools": plan.avoid_tools,

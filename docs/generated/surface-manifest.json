@@ -33,10 +33,10 @@
       "plan": 26,
       "review": 18
     },
-    "preferred_executors": {
-      "any": 95,
-      "claude": 4,
-      "codex-builder": 1
+    "execution_classes": {
+      "analyze": 39,
+      "mutate": 16,
+      "read": 45
     },
     "tools": [
       {
@@ -44,7 +44,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 389
       },
@@ -53,7 +58,12 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 176
       },
@@ -62,7 +72,12 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 149
       },
@@ -71,7 +86,12 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 96
       },
@@ -80,7 +100,12 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 155
       },
@@ -89,7 +114,12 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 148
       },
@@ -98,7 +128,12 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 430
       },
@@ -107,7 +142,12 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 500
       },
@@ -116,7 +156,12 @@
         "namespace": "symbols",
         "tier": "analysis",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 1235
       },
@@ -125,7 +170,12 @@
         "namespace": "symbols",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 311
       },
@@ -134,7 +184,12 @@
         "namespace": "symbols",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 233
       },
@@ -143,7 +198,12 @@
         "namespace": "symbols",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 640
       },
@@ -152,7 +212,12 @@
         "namespace": "symbols",
         "tier": "analysis",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 189
       },
@@ -161,7 +226,12 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 102
       },
@@ -170,7 +240,12 @@
         "namespace": "session",
         "tier": "workflow",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "medium",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 146
       },
@@ -179,7 +254,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 222
       },
@@ -188,7 +268,12 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 598
       },
@@ -197,7 +282,12 @@
         "namespace": "lsp",
         "tier": "primitive",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 425
       },
@@ -206,7 +296,12 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 166
       },
@@ -215,7 +310,12 @@
         "namespace": "symbols",
         "tier": "analysis",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 269
       },
@@ -224,7 +324,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 388
       },
@@ -233,7 +338,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 487
       },
@@ -242,7 +352,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 496
       },
@@ -251,7 +366,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 382
       },
@@ -260,7 +380,12 @@
         "namespace": "symbols",
         "tier": "analysis",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 167
       },
@@ -269,7 +394,12 @@
         "namespace": "lsp",
         "tier": "primitive",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 202
       },
@@ -278,7 +408,12 @@
         "namespace": "graph",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 324
       },
@@ -287,7 +422,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 252
       },
@@ -296,7 +436,12 @@
         "namespace": "graph",
         "tier": "primitive",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 156
       },
@@ -305,7 +450,12 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 514
       },
@@ -314,7 +464,12 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 499
       },
@@ -323,7 +478,12 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 404
       },
@@ -332,7 +492,12 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 92
       },
@@ -341,7 +506,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 853
       },
@@ -350,7 +520,12 @@
         "namespace": "session",
         "tier": "workflow",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 112
       },
@@ -359,7 +534,12 @@
         "namespace": "session",
         "tier": "workflow",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 174
       },
@@ -368,7 +548,12 @@
         "namespace": "session",
         "tier": "workflow",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 384
       },
@@ -377,7 +562,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 806
       },
@@ -386,7 +576,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 818
       },
@@ -395,7 +590,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 830
       },
@@ -404,7 +604,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 843
       },
@@ -413,7 +618,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 833
       },
@@ -422,7 +632,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 795
       },
@@ -431,7 +646,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 806
       },
@@ -440,7 +660,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 790
       },
@@ -449,7 +674,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "eval",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 524
       },
@@ -458,7 +688,12 @@
         "namespace": "reports",
         "tier": "primitive",
         "phase": "eval",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 281
       },
@@ -467,7 +702,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "eval",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "medium",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": true,
         "estimated_tokens": 293
       },
@@ -476,7 +716,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": "eval",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 352
       },
@@ -485,7 +730,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": "eval",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 209
       },
@@ -494,7 +744,12 @@
         "namespace": "reports",
         "tier": "primitive",
         "phase": "eval",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 134
       },
@@ -503,7 +758,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 271
       },
@@ -512,7 +772,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 204
       },
@@ -521,7 +786,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": "claude",
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 202
       },
@@ -530,7 +800,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": "claude",
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 176
       },
@@ -539,7 +814,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
-        "preferred_executor": "claude",
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 198
       },
@@ -548,7 +828,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "build",
-        "preferred_executor": "codex-builder",
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 288
       },
@@ -557,7 +842,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": "claude",
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 200
       },
@@ -566,7 +856,12 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "medium",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 191
       },
@@ -575,7 +870,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 233
       },
@@ -584,16 +884,26 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "medium",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": true,
-        "estimated_tokens": 4463
+        "estimated_tokens": 4933
       },
       {
         "name": "register_agent_work",
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "medium",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": true,
         "estimated_tokens": 218
       },
@@ -602,7 +912,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 114
       },
@@ -611,7 +926,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "medium",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": true,
         "estimated_tokens": 231
       },
@@ -620,7 +940,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "medium",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": true,
         "estimated_tokens": 200
       },
@@ -629,7 +954,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 204
       },
@@ -638,7 +968,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "medium",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": true,
         "estimated_tokens": 166
       },
@@ -647,7 +982,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "high",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 102
       },
@@ -656,7 +996,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "high",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 95
       },
@@ -665,7 +1010,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 144
       },
@@ -674,7 +1024,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 81
       },
@@ -683,7 +1038,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "medium",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 127
       },
@@ -692,7 +1052,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "medium",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 144
       },
@@ -701,7 +1066,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 1223
       },
@@ -710,7 +1080,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": "eval",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 232
       },
@@ -719,7 +1094,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 359
       },
@@ -728,7 +1108,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 357
       },
@@ -737,7 +1122,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": "eval",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 227
       },
@@ -746,7 +1136,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 212
       },
@@ -755,7 +1150,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 137
       },
@@ -764,7 +1164,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 181
       },
@@ -773,7 +1178,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 193
       },
@@ -782,7 +1192,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 207
       },
@@ -791,7 +1206,12 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 236
       },
@@ -800,7 +1220,12 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 156
       },
@@ -809,7 +1234,12 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 122
       },
@@ -818,7 +1248,12 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "high",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 124
       },
@@ -827,7 +1262,12 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "high",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 120
       },
@@ -836,7 +1276,12 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "high",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 133
       },
@@ -845,7 +1290,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "high",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 129
       },
@@ -854,7 +1304,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "mutate",
+          "risk": "high",
+          "cost_hint": "medium",
+          "concurrency_safe": false
+        },
         "has_output_schema": false,
         "estimated_tokens": 147
       },
@@ -863,7 +1318,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 103
       },
@@ -872,7 +1332,12 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "read",
+          "risk": "low",
+          "cost_hint": "low",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 102
       },
@@ -881,7 +1346,12 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "high",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 246
       },
@@ -890,7 +1360,12 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "high",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 290
       },
@@ -899,7 +1374,12 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "high",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 268
       },
@@ -908,7 +1388,12 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "review",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "high",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 273
       },
@@ -917,7 +1402,12 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "high",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 337
       },
@@ -926,7 +1416,12 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "high",
+          "concurrency_safe": true
+        },
         "has_output_schema": true,
         "estimated_tokens": 594
       },
@@ -935,7 +1430,12 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
-        "preferred_executor": null,
+        "execution_policy": {
+          "execution_class": "analyze",
+          "risk": "low",
+          "cost_hint": "high",
+          "concurrency_safe": true
+        },
         "has_output_schema": false,
         "estimated_tokens": 183
       }
@@ -1400,7 +1900,7 @@
       {
         "name": "planner-builder",
         "purpose": "Primary multi-agent pattern: read-only planning/review paired with mutation-enabled implementation.",
-        "best_fit": "Claude planning/review plus Codex building, or any equivalent planner/builder split.",
+        "best_fit": "Read-oriented planning/review paired with a host-owned, write-capable implementation lane.",
         "topology": {
           "transport": "http",
           "daemon_shape": "single-writer",
@@ -2016,6 +2516,7 @@
     "host_environment_contract": {
       "prepare_harness_session_fields": [
         "agent_role",
+        "host_capabilities",
         "available_mcp_servers",
         "available_mcp_tools",
         "skill_roots",
@@ -2027,22 +2528,11 @@
       "adaptation_rule": "Explicit host-observed snapshots override generic Claude/Codex assumptions for bootstrap hints, skill binding, and token-pressure warnings.",
       "skill_binding_rule": "Codex skill hints scan only SKILL.md metadata under supplied skill_roots, then recommend 1-3 files for the agent to read explicitly."
     },
-    "delegate_scaffold_contract": {
-      "synthetic_action": "delegate_to_codex_builder",
-      "required_payload_fields": [
-        "handoff_id",
-        "delegate_tool",
-        "delegate_arguments",
-        "carry_forward",
-        "briefing"
-      ],
-      "replay_rule": "preserve delegate_tool, delegate_arguments, carry_forward, and handoff_id verbatim for the first delegated builder call",
-      "telemetry_fields": [
-        "delegate_hint_trigger",
-        "delegate_target_tool",
-        "delegate_handoff_id",
-        "handoff_id"
-      ]
+    "execution_contract": {
+      "executor_selection": "host_owned",
+      "success_action": "suggested_next_calls",
+      "mutation_intent": "tool_annotations_and_direct_call",
+      "argument_rule": "preserve concrete suggested arguments and apply normal approval and mutation gates"
     },
     "host_resources": [
       "codelens://host-adapters/claude-code",
@@ -2399,7 +2889,7 @@
           "audience": [
             "agent"
           ],
-          "purpose": "Translate task phase and risk into role profile, preferred executor, and next-tool shortlist."
+          "purpose": "Translate task phase and risk into a role profile, execution policy, and next-tool shortlist."
         },
         {
           "id": "audit_timeline",
@@ -2411,12 +2901,12 @@
           "purpose": "Summarize bootstrap, verifier, mutation, and signoff evidence per session."
         },
         {
-          "id": "handoff_inspector",
+          "id": "execution_intent_inspector",
           "audience": [
             "human",
             "agent"
           ],
-          "purpose": "Inspect planner/builder/reviewer artifacts and synthetic delegation scaffolds without reading raw chat history."
+          "purpose": "Inspect direct follow-up calls, mutation intent, and review artifacts without assigning a model or vendor executor."
         },
         {
           "id": "detach_or_migrate",
@@ -2449,25 +2939,19 @@
         "review",
         "builder"
       ],
-      "delegation_contract": {
-        "preferred_executor_field": "_meta.codelens/preferredExecutor",
-        "synthetic_delegate_action": "delegate_to_codex_builder",
-        "required_payload_fields": [
-          "handoff_id",
-          "delegate_tool",
-          "delegate_arguments",
-          "carry_forward",
-          "briefing"
-        ],
-        "replay_rule": "preserve delegate_tool, delegate_arguments, carry_forward, and handoff_id verbatim for the first delegated builder call",
-        "correlation_rule": "hosts should replay delegate_arguments.handoff_id unchanged so planner-side delegate emission and builder-side execution can be correlated across sessions"
+      "execution_contract": {
+        "executor_selection": "host_owned",
+        "success_action": "suggested_next_calls",
+        "mutation_intent": "tool_annotations_and_direct_call",
+        "argument_rule": "use the concrete suggested tool arguments without adding synthetic delegation actions",
+        "safety_rule": "apply normal approval, preflight, and mutation gates before executing a mutation intent"
       }
     },
     "host_guardrails": {
-      "delegate_scaffold": [
-        "treat delegate_to_codex_builder as synthetic advisory host action, not a server-callable tool",
-        "do not reconstruct delegated builder arguments from prose when delegate_arguments are present",
-        "preserve handoff_id at the scaffold top level and inside delegate_arguments for the first builder-heavy call"
+      "execution_intent": [
+        "treat suggested_next_calls as advisory callable tool or mutation intents",
+        "choose the native executor in the host rather than from model or vendor labels",
+        "preserve concrete arguments and enforce the target tool's approval and mutation policy"
       ],
       "session_closeout": [
         "use export_session_markdown(session_id=...) as the canonical per-session artifact source",
@@ -2475,13 +2959,14 @@
       ]
     },
     "telemetry_contract": {
-      "jsonl_fields": [
-        "delegate_hint_trigger",
-        "delegate_target_tool",
-        "delegate_handoff_id",
-        "handoff_id"
+      "session_fields": [
+        "suggestion_accepted_count",
+        "suggestion_diverted_count",
+        "suggestion_unresolved_count",
+        "suggestion_outcome_success_count",
+        "suggestion_outcome_error_count"
       ],
-      "purpose": "measure delegate emission, builder consumption, and cross-session correlation without persisting tool arguments or user query text"
+      "purpose": "measure whether a suggestion was accepted or diverted and whether an accepted action succeeded, without treating emission count as value"
     },
     "tool_flow": {
       "discover": [

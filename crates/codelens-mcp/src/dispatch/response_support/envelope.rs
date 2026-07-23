@@ -14,9 +14,10 @@ pub(crate) fn success_jsonrpc_response(
     if let Some(structured_content) = structured_content {
         result["structuredContent"] = structured_content;
     }
-    result["_meta"] = json!({
-        "codelens/preferredExecutor": crate::tool_defs::tool_preferred_executor_label(tool_name)
-    });
+    result["_meta"] = json!({});
+    if let Some(policy) = crate::tool_defs::tool_execution_policy_payload(tool_name) {
+        result["_meta"]["codelens/executionPolicy"] = policy;
+    }
     if let Some(max_chars) = max_result_size_chars {
         result["_meta"]["anthropic/maxResultSizeChars"] = json!(max_chars);
     }

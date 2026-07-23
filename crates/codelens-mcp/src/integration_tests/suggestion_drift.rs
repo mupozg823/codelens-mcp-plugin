@@ -286,8 +286,8 @@ fn skill_and_agent_tool_grants_reference_live_tools() {
 /// test-compile-suite failure, exactly like the `SUGGEST_NEXT_TABLE` gate (3a).
 ///
 /// Historical-name carve-out: `analyze_change_impact` is a removed v2.0 alias
-/// intentionally retained in `PLAN_SIGNAL` (and `is_workflow_tool_name`) so an
-/// agent still emitting the legacy name is inferred into the plan phase. It is
+/// intentionally retained in `PLAN_SIGNAL` so an agent still emitting the
+/// legacy name is inferred into the plan phase. It is
 /// allow-listed here through `INTENTIONAL_ALIAS_KEYS` — the same explicit carve-out
 /// used for the `suggest_next` keys.
 #[test]

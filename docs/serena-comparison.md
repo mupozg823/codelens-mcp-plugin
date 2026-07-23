@@ -131,7 +131,7 @@ The single most important structural fact this revision surfaces:
 
 Both are coherent bets:
 
-- CodeLens bet: *"the harness's native Edit is good enough; our value is read-side compression, verification gates, and orchestration"* — consistent with the repo's Claude=orchestration / Codex=implementation role split.
+- CodeLens bet: *"the harness's native Edit is good enough; our value is read-side compression, verification gates, and orchestration"* — consistent with a host-owned split between read-oriented planning/review and write-capable implementation.
 - Serena bet: *"symbol-level edits are the token-efficiency and correctness moat; native Edit is the enemy."*
 
 But CodeLens's current state is not actually either bet — it is an **inconsistent middle**: deprecated-but-dispatched ghosts, preset constants referencing unlistable names, and public routing docs (`Mutation Gate Protocol` in CLAUDE.md) describing tools an agent can never discover. Whichever bet is chosen, the ghost state should be resolved. The design spec (§7) recommends re-listing a minimal 4-tool symbolic edit core behind the existing mutation gate, and deleting the rest.

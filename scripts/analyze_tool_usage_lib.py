@@ -15,7 +15,9 @@ from analyze_tool_usage_routes import missed_route_label
 
 DEFAULT_TELEMETRY_PATH = Path(".codelens/telemetry/tool_usage.jsonl")
 DEFAULT_MANIFEST_PATH = Path("docs/generated/surface-manifest.json")
-DELEGATE_TOOL = "delegate_to_codex_builder"
+# Historical telemetry rows may contain the retired synthetic action. Keep it
+# only for backwards-compatible parsing; current runtime responses never emit it.
+LEGACY_DELEGATE_TOOL = "delegate_to_codex_builder"
 FOLLOW_WINDOW = 5
 BOOTSTRAP_TOOLS = {"tools/list", "prepare_harness_session"}
 
@@ -82,7 +84,7 @@ def load_telemetry(path: Path) -> list[dict]:
     return events
 
 
-def load_manifest_executors(path: Path) -> dict[str, str]:
+def load_manifest_execution_classes(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
     with path.open(encoding="utf-8") as handle:
@@ -95,15 +97,25 @@ def load_manifest_executors(path: Path) -> dict[str, str]:
     tools = registry.get("tools")
     if not isinstance(tools, list):
         return {}
-    executors: dict[str, str] = {}
+    execution_classes: dict[str, str] = {}
     for tool in tools:
         if not isinstance(tool, dict):
             continue
         name = str_value(tool.get("name"))
-        executor = str_value(tool.get("preferred_executor"))
-        if name and executor:
-            executors[name] = executor
-    return executors
+        policy = tool.get("execution_policy")
+        execution_class = (
+            str_value(policy.get("execution_class"))
+            if isinstance(policy, dict)
+            else None
+        )
+        if execution_class is None:
+            # Read old manifests without extending the retired model-specific
+            # field into newly generated reports.
+            legacy_executor = str_value(tool.get("preferred_executor"))
+            execution_class = "mutate" if legacy_executor == "codex-builder" else None
+        if name and execution_class:
+            execution_classes[name] = execution_class
+    return execution_classes
 
 
 def following_session_events(event: dict, by_session: dict[str, list[dict]]) -> list[dict]:
@@ -115,21 +127,21 @@ def following_session_events(event: dict, by_session: dict[str, list[dict]]) -> 
     ][:FOLLOW_WINDOW]
 
 
-def first_followed_tool(event: dict, following: list[dict]) -> str | None:
+def first_followed_event(event: dict, following: list[dict]) -> dict | None:
     suggestions = [
         tool for tool in string_list(event.get("suggested_next_tools"))
-        if tool != DELEGATE_TOOL
+        if tool != LEGACY_DELEGATE_TOOL
     ]
     if not suggestions:
         return None
     for candidate in following:
         if tool_name(candidate) in suggestions:
-            return tool_name(candidate)
+            return candidate
     return None
 
 
 def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
-    executors = load_manifest_executors(manifest_path)
+    execution_classes = load_manifest_execution_classes(manifest_path)
     productivity_events = [event for event in events if recording_origin(event) != "runtime" or is_attributed_host_runtime_event(event)]
     by_session: dict[str, list[dict]] = defaultdict(list)
     handoff_consumers: dict[str, dict] = {}
@@ -157,10 +169,13 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
     delegate_events = [
         event
         for event in productivity_events
-        if DELEGATE_TOOL in string_list(event.get("suggested_next_tools"))
+        if LEGACY_DELEGATE_TOOL in string_list(event.get("suggested_next_tools"))
         or str_value(event.get("delegate_handoff_id"))
     ]
     followed = 0
+    outcome_success = 0
+    outcome_error = 0
+    outcome_unknown = 0
     diverted = 0
     unresolved = 0
     missed: list[dict] = []
@@ -170,7 +185,7 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
 
     for event in suggestion_events:
         following = following_session_events(event, by_session)
-        direct_tool = first_followed_tool(event, following)
+        direct_event = first_followed_event(event, following)
         delegate_handoff_id = str_value(event.get("delegate_handoff_id"))
         consumer = (
             handoff_consumers.get(delegate_handoff_id)
@@ -178,8 +193,15 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
             else None
         )
         delegate_followed = consumer is not None and event_index(consumer) > event_index(event)
-        if direct_tool or delegate_followed:
+        outcome_event = direct_event or (consumer if delegate_followed else None)
+        if outcome_event is not None:
             followed += 1
+            if outcome_event.get("success") is True:
+                outcome_success += 1
+            elif outcome_event.get("success") is False:
+                outcome_error += 1
+            else:
+                outcome_unknown += 1
         else:
             next_codelens_tools = [tool_name(candidate) for candidate in following[:3]]
             next_external_tools = string_list(event.get("next_external_tools"))[:3]
@@ -229,10 +251,11 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
             }
         )
 
-    builder_events = [
+    mutation_events = [
         event for event in productivity_events
-        if executors.get(tool_name(event)) == "codex-builder"
+        if execution_classes.get(tool_name(event)) == "mutate"
     ]
+    suggestion_resolved = len(suggestion_events) - unresolved
     return {
         "behavior": {
             "total_events": len(productivity_events),
@@ -243,9 +266,16 @@ def analyze_telemetry(events: list[dict], manifest_path: Path) -> dict:
             "suggestions_diverted": diverted,
             "suggestions_unresolved": unresolved,
             "suggestion_follow_rate": followed / len(suggestion_events) if suggestion_events else 0.0,
+            "suggestion_acceptance_rate": followed / suggestion_resolved if suggestion_resolved else 0.0,
+            "suggestion_resolution_rate": suggestion_resolved / len(suggestion_events) if suggestion_events else 0.0,
+            "suggestion_outcome_success": outcome_success,
+            "suggestion_outcome_error": outcome_error,
+            "suggestion_outcome_unknown": outcome_unknown,
+            "suggestion_successful_outcome_rate": outcome_success / followed if followed else 0.0,
+            "suggestion_value_rate": outcome_success / suggestion_resolved if suggestion_resolved else 0.0,
             "delegate_emissions": len(delegate_events),
             "delegate_handoffs_consumed": len(correlations),
-            "codex_builder_tool_events": len(builder_events),
+            "mutation_tool_events": len(mutation_events),
             "tool_counts": tool_counts.most_common(20),
             "missed_label_counts": missed_labels.most_common(),
             "missed_branch_counts": missed_branches.most_common(),

@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::mutation_gate::MutationGateAllowance;
+use crate::operation::ResolvedOperation;
 use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
 use crate::telemetry::{CallTelemetryHints, ToolCallEvent};
 use crate::tool_defs::{ToolSurface, tool_definition};
@@ -8,8 +9,7 @@ use serde_json::Value;
 
 use crate::dispatch::response_support::{
     apply_contextual_guidance, attach_index_freshness, bounded_result_payload, budget_hint,
-    build_suggested_next_calls, compact_response_payload, delegate_hint_telemetry_fields,
-    effective_budget_for_tool, inject_delegate_to_codex_builder_hint,
+    build_suggested_next_calls, compact_response_payload, effective_budget_for_tool,
     max_result_size_chars_for_tool, record_verifier_preflight, routing_hint_for_payload,
     success_jsonrpc_response, text_payload_for_response, trim_scaffold_for_lean,
 };
@@ -30,6 +30,7 @@ pub(crate) struct SuccessResponseInput<'a> {
     /// legacy `compact` data pruning.
     pub lean: bool,
     pub harness_phase: Option<&'a str>,
+    pub operation: ResolvedOperation<'a>,
     pub request_budget: usize,
     pub start: std::time::Instant,
     pub id: Option<serde_json::Value>,
@@ -54,6 +55,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         compact,
         lean,
         harness_phase,
+        operation,
         request_budget,
         start,
         id,
@@ -62,15 +64,20 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     } = input;
 
     let elapsed_ms = start.elapsed().as_millis();
+    // A mode-routed facade executes under the resolved target's response
+    // contract. Keep the public name for telemetry, suggestions, deprecation,
+    // and execution-policy metadata, but inherit target-specific schema,
+    // freshness, verifier, budget, and result-size behavior.
+    let response_contract_tool = operation.target.unwrap_or(name);
 
     // Apply per-tool hard cap if defined (stricter than global budget)
-    let effective_budget = effective_budget_for_tool(name, request_budget);
+    let effective_budget = effective_budget_for_tool(response_contract_tool, request_budget);
     let mut payload = payload;
 
     let refresh_recommended_from_freshness =
-        attach_index_freshness(name, state, &mut payload, lean);
+        attach_index_freshness(response_contract_tool, state, &mut payload, lean);
     record_verifier_preflight(
-        name,
+        response_contract_tool,
         active_surface,
         logical_session_id,
         arguments,
@@ -88,7 +95,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     // Mutation allowed with caution = no fresh preflight was found
     let missing_preflight = had_caution;
 
-    let has_output_schema = tool_definition(name)
+    let has_output_schema = tool_definition(response_contract_tool)
         .and_then(|tool| tool.output_schema.as_ref())
         .is_some();
     let structured_content = has_output_schema.then(|| payload.clone());
@@ -98,7 +105,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     let payload_estimate = serde_json::to_string(&resp.data)
         .map(|s| tools::estimate_tokens(&s))
         .unwrap_or(0);
-    let mut hint = budget_hint(name, payload_estimate, effective_budget);
+    let mut hint = budget_hint(response_contract_tool, payload_estimate, effective_budget);
     if missing_preflight {
         hint = format!("{hint} Tip: run verify_change_readiness before mutations for safer edits.");
     }
@@ -120,8 +127,18 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     resp.elapsed_ms = Some(elapsed_ms as u64);
     resp.routing_hint = Some(routing_hint_for_payload(&resp));
 
-    let emitted_composite_guidance =
-        apply_contextual_guidance(&mut resp, name, &recent_tools, harness_phase, surface);
+    let recent_work_classes = state
+        .metrics()
+        .recent_work_classes_for_session(logical_session_id, 2);
+    let mut emitted_composite_guidance = apply_contextual_guidance(
+        &mut resp,
+        name,
+        &recent_tools,
+        &recent_work_classes,
+        operation.work_class,
+        harness_phase,
+        surface,
+    );
 
     // Self-evolution: when doom-loop detected, override suggestions with alternative tools
     if doom_loop_count >= 3 {
@@ -158,27 +175,21 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         }
     }
 
+    if crate::host_capabilities::HostCapabilities::for_request(state, arguments, logical_session_id)
+        .is_some_and(|capabilities| capabilities.native_tool_search)
+    {
+        resp.suggested_next_tools = None;
+        resp.suggested_next_calls = None;
+        resp.suggestion_reasons = None;
+        emitted_composite_guidance = false;
+    }
+
     if let Some(ref next_tools) = resp.suggested_next_tools {
         resp.suggestion_reasons = Some(tools::suggestion_reasons_for(next_tools, name));
-        let mut calls = build_suggested_next_calls(name, arguments, next_tools, resp.data.as_ref());
-        let mut next_tools = next_tools.clone();
-        inject_delegate_to_codex_builder_hint(
-            name,
-            arguments,
-            resp.data.as_ref(),
-            &mut next_tools,
-            &mut calls,
-            doom_loop_count,
-            doom_loop_rapid,
-        );
-        resp.suggested_next_tools = Some(next_tools);
+        let calls = build_suggested_next_calls(name, arguments, next_tools, resp.data.as_ref());
         if !calls.is_empty() {
             resp.suggested_next_calls = Some(calls);
         }
-        resp.suggestion_reasons = resp
-            .suggested_next_tools
-            .as_ref()
-            .map(|tools| tools::suggestion_reasons_for(tools, name));
     }
 
     if compact {
@@ -226,12 +237,11 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     }
     let suggested_next_tools = resp.suggested_next_tools.as_deref().unwrap_or(&[]);
     let handoff_id = arguments.get("handoff_id").and_then(|value| value.as_str());
-    let (delegate_hint_trigger, delegate_target_tool, delegate_handoff_id) =
-        delegate_hint_telemetry_fields(&resp);
 
     let target_paths = state.extract_target_paths(arguments);
     state.metrics().record_event(ToolCallEvent {
         tool: name,
+        operation,
         elapsed_ms: elapsed_ms as u64,
         tokens: payload_estimate,
         success: true,
@@ -245,9 +255,9 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         target_paths: &target_paths,
         hints: CallTelemetryHints {
             suggested_next_tools,
-            delegate_hint_trigger,
-            delegate_target_tool,
-            delegate_handoff_id,
+            delegate_hint_trigger: None,
+            delegate_target_tool: None,
+            delegate_handoff_id: None,
             handoff_id,
         },
     });
@@ -259,7 +269,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
             .record_composite_guidance_emitted_for_session(name, Some(logical_session_id));
     }
 
-    let max_result_size = max_result_size_chars_for_tool(name, truncated);
+    let max_result_size = max_result_size_chars_for_tool(response_contract_tool, truncated);
     success_jsonrpc_response(id, name, text, structured_content, Some(max_result_size))
 }
 
@@ -318,6 +328,7 @@ mod no_schema_stage5_dispatch_tests {
             arguments: &args,
             logical_session_id: "test-session",
             recent_tools: Vec::new(),
+            operation: ResolvedOperation::direct("search").dispatched(),
             gate_allowance: None,
             compact: false,
             lean: false,

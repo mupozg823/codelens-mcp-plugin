@@ -94,6 +94,10 @@ pub(super) fn inject_tool_call_session(
         "_session_harness_profile".to_owned(),
         serde_json::json!(metadata.harness_profile),
     );
+    args.insert(
+        "_session_host_capabilities".to_owned(),
+        serde_json::json!(metadata.host_capabilities),
+    );
 }
 
 /// Update deferred loading state and inject session metadata for tools/list.
@@ -237,6 +241,7 @@ fn inject_deferred_params(
         "_session_memory_roots": metadata.memory_roots,
         "_session_host_setting_keys": metadata.host_setting_keys,
         "_session_harness_profile": metadata.harness_profile,
+        "_session_host_capabilities": metadata.host_capabilities,
     });
 
     if let Some(params) = request.params.as_mut().and_then(|v| v.as_object_mut()) {

@@ -138,6 +138,11 @@ Prioritized architecture moves:
    `tools/list` and `prepare_harness_session` bootstrap traffic as
    `bootstrap_only` until a task tool call is observed, so process provenance
    is not mistaken for productivity proof.
+   Updated (2026-07-22): each event now keeps the public request name alongside
+   its resolved target, selected mode, canonical work class, and downstream
+   handler-entry count. Guidance and telemetry share the registry-backed
+   classifier, and derived KPI payloads identify the new contract as
+   `codelens-session-evidence-kpis`.
    This is a boundary cleanup, not a new event bus.
 7. Next: put the same strict measurements around adaptive RRF/rerank and
    hierarchical context changes: compare Recall@k, nDCG/MRR, latency p50/p95,

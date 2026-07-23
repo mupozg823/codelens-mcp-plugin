@@ -1,4 +1,5 @@
 use crate::client_profile::ClientProfile;
+use crate::host_capabilities::HostCapabilities;
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::HostContext;
 use serde_json::{Value, json};
@@ -28,6 +29,7 @@ pub(super) struct HostEnvironmentSnapshot {
     pub host_setting_keys: Vec<String>,
     pub harness_profile: Option<String>,
     pub host_context: Option<HostContext>,
+    pub host_capabilities: Option<HostCapabilities>,
     pub explicit_snapshot: bool,
 }
 
@@ -53,6 +55,7 @@ impl HostEnvironmentSnapshot {
         arguments: &Value,
         session: &SessionRequestContext,
         client_profile: ClientProfile,
+        host_capabilities: Option<HostCapabilities>,
     ) -> Self {
         let host_context = arguments
             .get("host_context")
@@ -82,7 +85,8 @@ impl HostEnvironmentSnapshot {
             || !memory_roots.is_empty()
             || !host_setting_keys.is_empty()
             || harness_profile.is_some()
-            || host_context.is_some();
+            || host_context.is_some()
+            || host_capabilities.is_some();
 
         let effective_client_profile = host_context
             .and_then(|context| ClientProfile::from_host_context(context.as_str()))
@@ -120,6 +124,7 @@ impl HostEnvironmentSnapshot {
             host_setting_keys,
             harness_profile,
             host_context,
+            host_capabilities,
             explicit_snapshot,
         }
     }
@@ -136,6 +141,7 @@ impl HostEnvironmentSnapshot {
             "client_name": self.client_name,
             "client_version": self.client_version,
             "host_context": self.host_context.map(|value| value.as_str()),
+            "host_capabilities": HostCapabilities::negotiated_payload(self.host_capabilities),
             "snapshot_source": if self.explicit_snapshot { "explicit_host_snapshot" } else { "session_defaults" },
             "requested_profile": self.requested_profile,
             "harness_profile": self.harness_profile,
@@ -171,6 +177,7 @@ impl HostEnvironmentSnapshot {
         json!({
             "client_profile": self.client_profile.as_str(),
             "host_context": self.host_context.map(|value| value.as_str()),
+            "host_capabilities": HostCapabilities::negotiated_payload(self.host_capabilities),
             "snapshot_source": if self.explicit_snapshot { "explicit_host_snapshot" } else { "session_defaults" },
             "available_mcp_server_count": self.available_mcp_servers.len(),
             "available_mcp_tool_count": self.available_mcp_tools.len(),
@@ -226,6 +233,14 @@ impl HostEnvironmentSnapshot {
         if !self.available_mcp_tools.is_empty() {
             notes.push(
                 "Host-observed MCP tool inventory is available; prefer advertised tool names before assuming a capability is missing.".to_owned(),
+            );
+        }
+        if self
+            .host_capabilities
+            .is_some_and(|capabilities| capabilities.native_tool_search)
+        {
+            notes.push(
+                "Native tool search is declared; the host owns next-action selection and server-side suggestions are suppressed.".to_owned(),
             );
         }
         if self

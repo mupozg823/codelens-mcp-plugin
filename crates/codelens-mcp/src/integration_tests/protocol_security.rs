@@ -3,7 +3,7 @@ use super::*;
 // ── Security, daemon mode, and surface gating ─────────────────────────────────────
 
 #[test]
-fn tool_call_result_meta_exposes_preferred_executor() {
+fn tool_call_result_meta_exposes_host_neutral_execution_policy() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
 
@@ -27,9 +27,20 @@ fn tool_call_result_meta_exposes_preferred_executor() {
     .expect("tools/call should return a response");
 
     let value = serde_json::to_value(&response).expect("serialize");
+    assert!(
+        value["result"]["_meta"]
+            .get("codelens/preferredExecutor")
+            .is_none(),
+        "model-specific executor routing must not leak into tool responses"
+    );
     assert_eq!(
-        value["result"]["_meta"]["codelens/preferredExecutor"],
-        json!("codex-builder")
+        value["result"]["_meta"]["codelens/executionPolicy"],
+        json!({
+            "execution_class": "mutate",
+            "risk": "high",
+            "cost_hint": "medium",
+            "concurrency_safe": false,
+        })
     );
 }
 

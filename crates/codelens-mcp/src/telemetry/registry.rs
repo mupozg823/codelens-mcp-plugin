@@ -21,7 +21,7 @@ mod classification;
 mod events;
 mod recording;
 mod snapshots;
-use classification::{has_low_level_chain, is_workflow_tool};
+use classification::has_low_level_chain;
 use recording::{record_session_call, record_surface_call, record_tool_call};
 
 #[cfg(test)]
@@ -108,6 +108,7 @@ impl ToolMetricsRegistry {
     pub fn record_call(&self, name: &str, elapsed_ms: u64, success: bool) {
         self.record_event(ToolCallEvent {
             tool: name,
+            operation: crate::operation::ResolvedOperation::direct(name).dispatched(),
             elapsed_ms,
             tokens: 0,
             success,

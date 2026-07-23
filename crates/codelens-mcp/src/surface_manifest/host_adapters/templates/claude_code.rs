@@ -28,9 +28,9 @@ pub(super) fn bundle() -> Value {
             "builder_dispatch": "planner-builder-handoff-required",
             "long_running_eval": "analysis-job-first"
         },
-        "delegate_scaffold_rules": [
-            "If `delegate_to_codex_builder` appears in suggested_next_calls, preserve delegate_tool, delegate_arguments, carry_forward, and handoff_id verbatim.",
-            "Do not rewrite the first delegated builder call from prose."
+        "execution_rules": [
+            "Treat suggested_next_calls as host-neutral follow-up or mutation intent; the host chooses the native executor.",
+            "Preserve concrete suggested arguments and apply normal approval, preflight, and mutation gates before execution."
         ],
         "avoid": [
             "defaulting to live bidirectional chat between planner and builder",
@@ -66,14 +66,14 @@ pub(super) fn bundle() -> Value {
 - Escalate to CodeLens after the first local step for multi-file review, refactor preflight, or durable artifact generation.
 - Default CodeLens profile for planning/review is `review`.
 - Main sessions call `prepare_harness_session` with `agent_role="main"`; delegated research/build workers call it with `agent_role="subagent"` and a narrow task overlay.
-- If the host can observe MCP server/tool names, memory roots, or subagent-scoped MCP config, pass only those names/roots as `available_mcp_servers`, `available_mcp_tools`, `memory_roots`, and `host_setting_keys`; never pass secret values.
+- If the host can observe orchestration capabilities, MCP server/tool names, memory roots, or subagent-scoped MCP config, pass only those facts/names/roots as `host_capabilities`, `available_mcp_servers`, `available_mcp_tools`, `memory_roots`, and `host_setting_keys`; never pass secret values.
 - Before dispatching a builder, run:
   1. `prepare_harness_session`
   2. `get_symbols_overview` per target file
   3. `get_file_diagnostics` per target file
   4. `verify_change_readiness`
 - Prefer asymmetric handoff over live planner/builder chat.
-- If `delegate_to_codex_builder` appears in `suggested_next_calls`, preserve `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` verbatim when dispatching the builder.
+- Treat `suggested_next_calls` as host-neutral follow-up or mutation intent; choose the native executor in the host and preserve concrete arguments through normal approval and mutation gates.
 "#)
             }
         ]

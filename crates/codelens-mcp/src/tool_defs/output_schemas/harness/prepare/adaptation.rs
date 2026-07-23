@@ -51,6 +51,21 @@ pub(super) fn host_environment_output_schema() -> serde_json::Value {
             "client_name": {"type": ["string", "null"]},
             "client_version": {"type": ["string", "null"]},
             "host_context": {"type": ["string", "null"]},
+            "host_capabilities": {
+                "type": "object",
+                "properties": {
+                    "declared": {"type": "boolean"},
+                    "native_tool_search": {"type": "boolean"},
+                    "native_subagents": {"type": "boolean"},
+                    "nested_subagents": {"type": "boolean"},
+                    "native_worktrees": {"type": "boolean"},
+                    "native_edit": {"type": "boolean"},
+                    "mcp_tasks": {"type": "boolean"},
+                    "dynamic_tool_list": {"type": "boolean"},
+                    "workspace_binding": {"type": "boolean"},
+                    "approval_or_elicitation": {"type": "boolean"}
+                }
+            },
             "snapshot_source": {"type": "string", "enum": ["explicit_host_snapshot", "session_defaults"]},
             "requested_profile": {"type": ["string", "null"]},
             "harness_profile": {"type": ["string", "null"]},

@@ -1,4 +1,4 @@
-# ADR-0005: Shared Harness Substrate for Role-Specialized Agent Hosts
+# ADR-0005: Shared Harness Substrate for Host-Selected Roles
 
 - Status: Accepted; operational topology amended by ADR-0017 and coordination authority amended by ADR-0018
 - Date: 2026-04-18
@@ -23,8 +23,7 @@ on the floor:
 The temptation at this stage is to productize a _second_ control
 plane — a new Tool Router, an A2A facade, session virtualization, a
 crate split — on top of the existing one. External roadmap analyses
-(see the v1.9.36 "Integrated Optimization & Develop Roadmap" the user
-shared in-session) lean that way.
+from the same period also leaned that way.
 
 We explicitly reject that direction for this phase. The current
 bottleneck is not the engine, it is truth closure and harness

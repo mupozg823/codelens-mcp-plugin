@@ -6,7 +6,7 @@ use crate::resource_context::{
 };
 use crate::telemetry::ToolCallEvent;
 use crate::tool_defs::{
-    parse_tool_selection_requests, preferred_phase_labels, tool_preferred_executor_label,
+    parse_tool_selection_requests, preferred_phase_labels, tool_execution_policy_payload,
     tool_selection_diagnostics,
 };
 use serde_json::{Map, Value, json};
@@ -84,9 +84,10 @@ pub(crate) fn build_tools_list_response(
                 .annotations
                 .as_ref()
                 .and_then(|annotations| annotations.title.clone());
-            let mut meta = json!({
-                "codelens/preferredExecutor": tool_preferred_executor_label(tool.name),
-            });
+            let mut meta = json!({});
+            if let Some(policy) = tool_execution_policy_payload(tool.name) {
+                meta["codelens/executionPolicy"] = policy;
+            }
             if let Some(search_hint) = crate::tool_defs::tool_anthropic_search_hint(tool.name) {
                 meta["anthropic/searchHint"] = json!(search_hint);
             }
@@ -119,6 +120,7 @@ pub(crate) fn build_tools_list_response(
     }
     state.metrics().record_event(ToolCallEvent {
         tool: "tools/list",
+        operation: crate::operation::ResolvedOperation::direct("tools/list"),
         elapsed_ms: 0,
         tokens: token_estimate,
         success: true,

@@ -329,6 +329,7 @@ async fn call_write_memory(app: &axum::Router, sid: &str, memory_name: &str) -> 
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)] // Intentionally serializes process-wide env reads.
 async fn unbound_session_mutation_blocked_with_recovery_hint() {
     // The gate reads CODELENS_ALLOW_UNBOUND_MUTATION per call — hold the
     // env lock so the escape-hatch test cannot interleave.
@@ -374,6 +375,7 @@ async fn bound_session_mutation_passes() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)] // The env override must cover the full async request.
 async fn allow_unbound_mutation_env_restores_advisory_behavior() {
     let _env_guard = crate::env_compat::TEST_ENV_LOCK
         .lock()

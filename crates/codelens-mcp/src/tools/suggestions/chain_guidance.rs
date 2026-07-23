@@ -1,47 +1,15 @@
 use crate::tool_defs::{ToolProfile, ToolSurface};
 
-fn is_workflow_tool_name(name: &str) -> bool {
-    // `analyze_change_impact` is the removed v2.0 alias retained for
-    // historical-name matching (an agent still emitting the legacy name is
-    // classified as a workflow tool, matching the `suggest_next` key carve-out).
-    // The other removed aliases (`audit_security_context`,
-    // `assess_change_readiness`) were dropped — they are neither live tools nor
-    // intentional aliases, so classifying them was inert.
-    crate::tools::verbs::is_verb_facade(name)
-        || matches!(
-            name,
-            "explore_codebase"
-                | "trace_request_path"
-                | "review_architecture"
-                | "plan_safe_refactor"
-                | "analyze_change_impact"
-                | "cleanup_duplicate_logic"
-                | "review_changes"
-                | "diagnose_issues"
-                | "orchestrate_change"
-                | "analyze_change_request"
-                | "verify_change_readiness"
-                | "module_boundary_report"
-                | "safe_rename_report"
-                | "unresolved_reference_check"
-                | "dead_code_report"
-                | "impact_report"
-                | "refactor_safety_report"
-                | "diff_aware_references"
-                | "start_analysis_job"
-                | "get_analysis_job"
-                | "cancel_analysis_job"
-                | "get_analysis_section"
-        )
-}
-
-fn has_recent_low_level_chain(recent_tools: &[String]) -> bool {
-    if recent_tools.len() < 3 {
+fn has_recent_low_level_chain(
+    recent_work_classes: &[crate::operation::OperationWorkClass],
+    current_work_class: crate::operation::OperationWorkClass,
+) -> bool {
+    if recent_work_classes.len() < 2 || !current_work_class.is_primitive() {
         return false;
     }
-    recent_tools[recent_tools.len() - 3..]
+    recent_work_classes[recent_work_classes.len() - 2..]
         .iter()
-        .all(|tool| !is_workflow_tool_name(tool))
+        .all(|work_class| work_class.is_primitive())
 }
 
 fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static str] {
@@ -84,10 +52,11 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
 
 pub fn composite_guidance_for_chain(
     tool_name: &str,
-    recent_tools: &[String],
+    recent_work_classes: &[crate::operation::OperationWorkClass],
+    current_work_class: crate::operation::OperationWorkClass,
     surface: ToolSurface,
 ) -> Option<(Vec<String>, String)> {
-    if is_workflow_tool_name(tool_name) || !has_recent_low_level_chain(recent_tools) {
+    if !has_recent_low_level_chain(recent_work_classes, current_work_class) {
         return None;
     }
 

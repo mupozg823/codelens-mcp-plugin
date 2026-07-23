@@ -54,7 +54,7 @@ pub(super) fn build_agent_experience() -> Value {
                 {
                     "id": "task_router",
                     "audience": ["agent"],
-                    "purpose": "Translate task phase and risk into role profile, preferred executor, and next-tool shortlist."
+                    "purpose": "Translate task phase and risk into a role profile, execution policy, and next-tool shortlist."
                 },
                 {
                     "id": "audit_timeline",
@@ -62,9 +62,9 @@ pub(super) fn build_agent_experience() -> Value {
                     "purpose": "Summarize bootstrap, verifier, mutation, and signoff evidence per session."
                 },
                 {
-                    "id": "handoff_inspector",
+                    "id": "execution_intent_inspector",
                     "audience": ["human", "agent"],
-                    "purpose": "Inspect planner/builder/reviewer artifacts and synthetic delegation scaffolds without reading raw chat history."
+                    "purpose": "Inspect direct follow-up calls, mutation intent, and review artifacts without assigning a model or vendor executor."
                 },
                 {
                     "id": "detach_or_migrate",
@@ -94,25 +94,19 @@ pub(super) fn build_agent_experience() -> Value {
                 "review",
                 "builder"
             ],
-            "delegation_contract": {
-                "preferred_executor_field": "_meta.codelens/preferredExecutor",
-                "synthetic_delegate_action": "delegate_to_codex_builder",
-                "required_payload_fields": [
-                    "handoff_id",
-                    "delegate_tool",
-                    "delegate_arguments",
-                    "carry_forward",
-                    "briefing"
-                ],
-                "replay_rule": "preserve delegate_tool, delegate_arguments, carry_forward, and handoff_id verbatim for the first delegated builder call",
-                "correlation_rule": "hosts should replay delegate_arguments.handoff_id unchanged so planner-side delegate emission and builder-side execution can be correlated across sessions"
+            "execution_contract": {
+                "executor_selection": "host_owned",
+                "success_action": "suggested_next_calls",
+                "mutation_intent": "tool_annotations_and_direct_call",
+                "argument_rule": "use the concrete suggested tool arguments without adding synthetic delegation actions",
+                "safety_rule": "apply normal approval, preflight, and mutation gates before executing a mutation intent"
             }
         },
         "host_guardrails": {
-            "delegate_scaffold": [
-                "treat delegate_to_codex_builder as synthetic advisory host action, not a server-callable tool",
-                "do not reconstruct delegated builder arguments from prose when delegate_arguments are present",
-                "preserve handoff_id at the scaffold top level and inside delegate_arguments for the first builder-heavy call"
+            "execution_intent": [
+                "treat suggested_next_calls as advisory callable tool or mutation intents",
+                "choose the native executor in the host rather than from model or vendor labels",
+                "preserve concrete arguments and enforce the target tool's approval and mutation policy"
             ],
             "session_closeout": [
                 "use export_session_markdown(session_id=...) as the canonical per-session artifact source",
@@ -120,13 +114,14 @@ pub(super) fn build_agent_experience() -> Value {
             ]
         },
         "telemetry_contract": {
-            "jsonl_fields": [
-                "delegate_hint_trigger",
-                "delegate_target_tool",
-                "delegate_handoff_id",
-                "handoff_id"
+            "session_fields": [
+                "suggestion_accepted_count",
+                "suggestion_diverted_count",
+                "suggestion_unresolved_count",
+                "suggestion_outcome_success_count",
+                "suggestion_outcome_error_count"
             ],
-            "purpose": "measure delegate emission, builder consumption, and cross-session correlation without persisting tool arguments or user query text"
+            "purpose": "measure whether a suggestion was accepted or diverted and whether an accepted action succeeded, without treating emission count as value"
         },
         "tool_flow": {
             "discover": [

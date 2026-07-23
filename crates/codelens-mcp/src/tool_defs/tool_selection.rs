@@ -3,8 +3,8 @@
 // in the architecture graph.
 use super::build::{tool_definition, tool_tier_label};
 use super::presets::{
-    ALL_PRESETS, ALL_PROFILES, ToolSurface, is_tool_in_surface, tool_namespace,
-    tool_preferred_executor_label,
+    ALL_PRESETS, ALL_PROFILES, ToolSurface, is_tool_in_surface, tool_execution_policy_payload,
+    tool_namespace,
 };
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -167,10 +167,9 @@ fn omission_payload(
             omission.insert("recommended_profile".to_owned(), json!(profile));
         }
     }
-    omission.insert(
-        "preferred_executor".to_owned(),
-        json!(tool_preferred_executor_label(tool)),
-    );
+    if let Some(policy) = tool_execution_policy_payload(tool) {
+        omission.insert("execution_policy".to_owned(), policy);
+    }
     omission.insert("tool_tier".to_owned(), json!(tool_tier_label(tool)));
     omission.insert("included_in".to_owned(), json!(included_in));
     Value::Object(omission)

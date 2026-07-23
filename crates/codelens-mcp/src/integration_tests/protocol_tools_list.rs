@@ -726,7 +726,8 @@ fn codex_client_name_enables_lean_tools_list_contract() {
     assert!(encoded.contains("\"default_contract_mode\":\"lean\""));
     assert!(encoded.contains("\"include_output_schema\":false"));
     assert!(encoded.contains("\"include_annotations\":false"));
-    assert!(encoded.contains("\"codelens/preferredExecutor\""));
+    assert!(encoded.contains("\"codelens/executionPolicy\""));
+    assert!(!encoded.contains("\"codelens/preferredExecutor\""));
     assert!(!encoded.contains("\"outputSchema\""));
     assert!(!encoded.contains("\"annotations\""));
     assert!(!encoded.contains("\"visible_namespaces\""));
@@ -795,7 +796,7 @@ fn codex_client_can_restore_annotations_explicitly() {
 }
 
 #[test]
-fn tools_list_exposes_preferred_executor_per_tool() {
+fn tools_list_exposes_host_neutral_execution_policy_per_tool() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
 
@@ -827,15 +828,39 @@ fn tools_list_exposes_preferred_executor_per_tool() {
         .find(|tool| tool["name"] == "find_symbol")
         .expect("find_symbol present");
 
+    for tool in [cleanup, review, symbol] {
+        assert!(
+            tool["_meta"].get("codelens/preferredExecutor").is_none(),
+            "model-specific executor routing must be absent: {tool}"
+        );
+    }
     assert_eq!(
-        cleanup["_meta"]["codelens/preferredExecutor"],
-        json!("codex-builder")
+        cleanup["_meta"]["codelens/executionPolicy"],
+        json!({
+            "execution_class": "analyze",
+            "risk": "low",
+            "cost_hint": "medium",
+            "concurrency_safe": true,
+        })
     );
     assert_eq!(
-        review["_meta"]["codelens/preferredExecutor"],
-        json!("claude")
+        review["_meta"]["codelens/executionPolicy"],
+        json!({
+            "execution_class": "analyze",
+            "risk": "low",
+            "cost_hint": "medium",
+            "concurrency_safe": true,
+        })
     );
-    assert_eq!(symbol["_meta"]["codelens/preferredExecutor"], json!("any"));
+    assert_eq!(
+        symbol["_meta"]["codelens/executionPolicy"],
+        json!({
+            "execution_class": "read",
+            "risk": "low",
+            "cost_hint": "low",
+            "concurrency_safe": true,
+        })
+    );
 }
 
 #[test]
@@ -872,7 +897,7 @@ fn tools_list_exposes_schema_refresh_identity_for_dogfood() {
     );
     assert_eq!(
         generation["schema_version"],
-        json!(crate::surface_manifest::SURFACE_MANIFEST_SCHEMA_VERSION)
+        json!(crate::surface_manifest::RUNTIME_SURFACE_CONTRACT_SCHEMA_ID)
     );
     assert_eq!(
         generation["refresh_action"],

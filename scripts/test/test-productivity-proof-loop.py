@@ -110,7 +110,7 @@ def write_tool_usage(path: Path, total_events: int, follow_rate: float) -> None:
             '"suggestions_unresolved":0,'
             '"delegate_emissions":1,'
             '"delegate_handoffs_consumed":1,'
-            '"codex_builder_tool_events":1,'
+            '"mutation_tool_events":1,'
             '"provenance":{"status":"verified","evidence_status":"task_observed","runtime_events":4,"host_runtime_events":4,"unattributed_runtime_events":0,"legacy_unverified_events":0}'
             "}}\n"
         ),
@@ -188,9 +188,9 @@ def test_trend_summary_bridges_tool_usage_and_runtime_audit_coverage() -> None:
         )
         rendered = output_path.read_text(encoding="utf-8")
         assert "Runtime builder audit sessions: `0`" in rendered
-        assert "Telemetry builder tool events: `1`" in rendered
+        assert "Telemetry mutation tool events: `1`" in rendered
         assert (
-            "Builder signal mismatch: telemetry saw builder-like tool events, "
+            "Build-lane signal mismatch: telemetry saw mutation events, "
             "but runtime audit saw no applicable builder session."
         ) in rendered
         assert "Top audit check: `read_side_evidence` in `1` session(s)" in rendered

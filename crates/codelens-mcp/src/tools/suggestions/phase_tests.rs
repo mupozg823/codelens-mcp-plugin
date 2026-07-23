@@ -1,4 +1,7 @@
-use super::infer_harness_phase;
+use super::{
+    BUILD_PHASE_TOOLS, EVAL_PHASE_TOOLS, PLAN_PHASE_TOOLS, REVIEW_PHASE_TOOLS, infer_harness_phase,
+    suggest_next_contextual,
+};
 
 fn tools(names: &[&str]) -> Vec<String> {
     names.iter().map(|s| (*s).to_owned()).collect()
@@ -57,4 +60,38 @@ fn most_recent_distinctive_signal_wins() {
         "review_changes", // review (newer)
     ]);
     assert_eq!(infer_harness_phase(&recent), Some("review"));
+}
+
+#[test]
+fn explicit_phases_only_return_phase_compatible_suggestions() {
+    for (phase, allowed) in [
+        ("plan", PLAN_PHASE_TOOLS),
+        ("build", BUILD_PHASE_TOOLS),
+        ("review", REVIEW_PHASE_TOOLS),
+        ("eval", EVAL_PHASE_TOOLS),
+    ] {
+        let suggestions =
+            suggest_next_contextual("find_symbol", &[], Some(phase)).unwrap_or_default();
+        assert!(
+            suggestions
+                .iter()
+                .all(|tool| allowed.contains(&tool.as_str())),
+            "{phase} phase leaked rejected suggestions: {suggestions:?}"
+        );
+    }
+}
+
+#[test]
+fn empty_phase_filter_does_not_restore_unfiltered_suggestions() {
+    let suggestions = suggest_next_contextual("find_symbol", &[], Some("eval")).unwrap_or_default();
+
+    assert!(
+        suggestions.is_empty(),
+        "eval rejects every static find_symbol follow-up, so the result must stay empty: {suggestions:?}"
+    );
+}
+
+#[test]
+fn completed_metrics_report_has_no_recursive_report_suggestions() {
+    assert_eq!(suggest_next_contextual("get_tool_metrics", &[], None), None);
 }

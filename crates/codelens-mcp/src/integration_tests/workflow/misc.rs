@@ -9,6 +9,9 @@ fn low_level_chain_emits_composite_guidance_and_tracks_followthrough() {
     )
     .unwrap();
     let state = make_state(&project);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
 
     let _ = call_tool(
         &state,
@@ -20,7 +23,11 @@ fn low_level_chain_emits_composite_guidance_and_tracks_followthrough() {
         "find_referencing_symbols",
         json!({"file_path": "guided.py", "symbol_name": "alpha", "max_results": 10}),
     );
-    let response = call_tool(&state, "read_file", json!({"relative_path": "guided.py"}));
+    let response = call_tool(
+        &state,
+        "read_file",
+        json!({"relative_path": "guided.py", "_harness_phase": "review"}),
+    );
     let suggested = response["suggested_next_tools"]
         .as_array()
         .cloned()
@@ -29,21 +36,28 @@ fn low_level_chain_emits_composite_guidance_and_tracks_followthrough() {
         .iter()
         .filter_map(|value| value.as_str())
         .collect::<Vec<_>>();
+    assert!(!suggested_names.is_empty(), "expected composite guidance");
     assert!(
-        suggested_names.contains(&"explore_codebase")
-            || suggested_names.contains(&"plan_safe_refactor")
-            || suggested_names.contains(&"review_architecture")
-            || suggested_names.contains(&"analyze_change_request"),
-        "expected composite guidance, got {:?}",
         suggested_names
+            .iter()
+            .all(|tool| crate::tools::REVIEW_PHASE_TOOLS.contains(tool)),
+        "review phase leaked rejected suggestions: {suggested_names:?}"
+    );
+    assert!(
+        !suggested_names.contains(&"delegate_to_codex_builder"),
+        "successful read-only chains must not synthesize model-specific delegation: {response}"
+    );
+    assert!(
+        !response.to_string().to_ascii_lowercase().contains("codex"),
+        "successful read-only guidance must stay host-neutral: {response}"
     );
     let budget_hint = response["budget_hint"].as_str().unwrap_or_default();
     assert!(budget_hint.contains("Repeated low-level chain detected"));
 
     let _ = call_tool(
         &state,
-        "analyze_change_request",
-        json!({"task": "update alpha safely"}),
+        "review_changes",
+        json!({"path": "guided.py", "_harness_phase": "review"}),
     );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
@@ -66,7 +80,7 @@ fn low_level_chain_emits_composite_guidance_and_tracks_followthrough() {
 }
 
 #[test]
-fn safe_rename_report_emits_codex_builder_delegate_scaffold() {
+fn safe_rename_report_emits_host_neutral_mutation_intent() {
     let project = project_root();
     fs::write(
         project.as_path().join("rename_delegate.py"),
@@ -91,63 +105,109 @@ fn safe_rename_report_emits_codex_builder_delegate_scaffold() {
         .as_array()
         .cloned()
         .unwrap_or_default();
+    assert!(suggested.iter().any(|value| value == "rename_symbol"));
     assert!(
         suggested
             .iter()
-            .any(|value| value == "delegate_to_codex_builder"),
-        "expected delegate_to_codex_builder suggestion, got {payload}"
+            .all(|value| value != "delegate_to_codex_builder"),
+        "successful read-only response must expose mutation intent directly: {payload}"
     );
 
-    let delegate_call = payload["suggested_next_calls"]
+    let mutation_call = payload["suggested_next_calls"]
         .as_array()
         .and_then(|calls| {
             calls.iter().find(|call| {
-                call.get("tool").and_then(|value| value.as_str())
-                    == Some("delegate_to_codex_builder")
+                call.get("tool").and_then(|value| value.as_str()) == Some("rename_symbol")
             })
         })
         .cloned()
-        .expect("delegate_to_codex_builder should include a scaffold payload");
+        .expect("rename_symbol mutation intent should include concrete arguments");
 
     assert_eq!(
-        delegate_call["arguments"]["preferred_executor"],
-        json!("codex-builder")
-    );
-    assert_eq!(
-        delegate_call["arguments"]["trigger"],
-        json!("preferred_executor_boundary")
-    );
-    assert_eq!(
-        delegate_call["arguments"]["delegate_tool"],
-        json!("rename_symbol")
-    );
-    let handoff_id = delegate_call["arguments"]["handoff_id"]
-        .as_str()
-        .expect("delegate scaffold should include handoff_id");
-    assert_eq!(
-        delegate_call["arguments"]["delegate_arguments"]["file_path"],
+        mutation_call["arguments"]["file_path"],
         json!("rename_delegate.py")
     );
-    assert_eq!(
-        delegate_call["arguments"]["delegate_arguments"]["symbol_name"],
-        json!("old_name")
-    );
-    assert_eq!(
-        delegate_call["arguments"]["delegate_arguments"]["new_name"],
-        json!("new_name")
-    );
-    assert_eq!(
-        delegate_call["arguments"]["delegate_arguments"]["handoff_id"],
-        json!(handoff_id)
-    );
-    assert_eq!(
-        delegate_call["arguments"]["carry_forward"]["handoff_id"],
-        json!(handoff_id)
+    assert_eq!(mutation_call["arguments"]["symbol_name"], json!("old_name"));
+    assert_eq!(mutation_call["arguments"]["new_name"], json!("new_name"));
+    assert_eq!(mutation_call["arguments"]["dry_run"], json!(true));
+    assert!(
+        !payload.to_string().to_ascii_lowercase().contains("codex"),
+        "mutation intent must not name a model or vendor: {payload}"
     );
 }
 
 #[test]
-fn repeated_builder_tool_emits_codex_builder_delegate_scaffold() {
+fn explicit_harness_phases_never_emit_rejected_suggestions() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("phase_guidance.py"),
+        "def phase_target():\n    return 1\n",
+    )
+    .unwrap();
+
+    for (phase, allowed) in [
+        ("plan", crate::tools::PLAN_PHASE_TOOLS),
+        ("build", crate::tools::BUILD_PHASE_TOOLS),
+        ("review", crate::tools::REVIEW_PHASE_TOOLS),
+        ("eval", crate::tools::EVAL_PHASE_TOOLS),
+    ] {
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "find_symbol",
+            json!({
+                "name": "phase_target",
+                "file_path": "phase_guidance.py",
+                "include_body": false,
+                "_harness_phase": phase,
+            }),
+        );
+        assert_eq!(payload["success"], json!(true));
+        let suggestions = payload["suggested_next_tools"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            suggestions.iter().all(|tool| {
+                tool.as_str()
+                    .map(|name| allowed.contains(&name))
+                    .unwrap_or(false)
+            }),
+            "{phase} phase leaked rejected output suggestions: {payload}"
+        );
+    }
+}
+
+#[test]
+fn metrics_report_does_not_recommend_another_report() {
+    let project = project_root();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "get_current_config", json!({}));
+
+    let payload = call_tool(&state, "get_tool_metrics", json!({}));
+    assert_eq!(payload["success"], json!(true));
+    let suggestions = payload["suggested_next_tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let report_tools = [
+        "get_tool_metrics",
+        "audit_builder_session",
+        "audit_planner_session",
+        "export_session_markdown",
+    ];
+    assert!(
+        suggestions.iter().all(|tool| {
+            tool.as_str()
+                .map(|name| !report_tools.contains(&name))
+                .unwrap_or(false)
+        }),
+        "a completed metrics report must not immediately recommend another report: {payload}"
+    );
+}
+
+#[test]
+fn repeated_builder_error_keeps_recovery_host_neutral() {
     let project = project_root();
     fs::write(
         project.as_path().join("rename_loop.py"),
@@ -189,50 +249,12 @@ fn repeated_builder_tool_emits_codex_builder_delegate_scaffold() {
     assert!(
         suggested
             .iter()
-            .any(|value| value == "delegate_to_codex_builder"),
-        "expected delegate_to_codex_builder suggestion on repeated builder loop, got {payload}"
-    );
-
-    let delegate_call = payload["suggested_next_calls"]
-        .as_array()
-        .and_then(|calls| {
-            calls.iter().find(|call| {
-                call.get("tool").and_then(|value| value.as_str())
-                    == Some("delegate_to_codex_builder")
-            })
-        })
-        .cloned()
-        .expect("delegate_to_codex_builder should include a scaffold payload");
-
-    assert_eq!(
-        delegate_call["arguments"]["trigger"],
-        json!("builder_doom_loop")
+            .all(|value| value != "delegate_to_codex_builder"),
+        "error recovery must not synthesize a model-specific handoff: {payload}"
     );
     assert!(
-        delegate_call["arguments"]["briefing"]["why_delegate"]
-            .as_str()
-            .map(|value| value.contains("repeated"))
-            .unwrap_or(false),
-        "doom-loop delegate scaffold should explain the repeated builder retry: {delegate_call}"
-    );
-    assert_eq!(
-        delegate_call["arguments"]["delegate_tool"],
-        json!("rename_symbol")
-    );
-    let handoff_id = delegate_call["arguments"]["handoff_id"]
-        .as_str()
-        .expect("delegate scaffold should include handoff_id");
-    assert_eq!(
-        delegate_call["arguments"]["delegate_arguments"]["dry_run"],
-        json!(true)
-    );
-    assert_eq!(
-        delegate_call["arguments"]["delegate_arguments"]["handoff_id"],
-        json!(handoff_id)
-    );
-    assert_eq!(
-        delegate_call["arguments"]["carry_forward"]["handoff_id"],
-        json!(handoff_id)
+        !payload.to_string().to_ascii_lowercase().contains("codex"),
+        "error recovery must be expressed as deterministic tool guidance: {payload}"
     );
 }
 

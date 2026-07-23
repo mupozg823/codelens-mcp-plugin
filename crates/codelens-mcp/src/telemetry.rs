@@ -3,6 +3,8 @@
 use serde::Serialize;
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::operation::{OperationWorkClass, ResolvedOperation};
+
 /// Metrics for a single tool.
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct ToolMetrics {
@@ -22,6 +24,12 @@ pub struct ToolMetrics {
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolInvocation {
     pub tool: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    pub work_class: OperationWorkClass,
+    pub downstream_call_count: u64,
     pub surface: String,
     pub elapsed_ms: u64,
     pub tokens: usize,
@@ -38,9 +46,10 @@ pub struct ToolInvocation {
 /// Safe, non-PII telemetry hints derived from the tool response.
 ///
 /// These fields intentionally exclude tool arguments and payload excerpts.
-/// They only record public tool names and synthetic delegate metadata so the
-/// append-only JSONL log can support routing analysis without leaking user
-/// query text.
+/// They only record public tool names and legacy handoff-correlation metadata
+/// so the append-only JSONL log can support historical routing analysis without
+/// leaking user query text. New runtime responses do not emit synthetic
+/// delegation actions.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CallTelemetryHints<'a> {
     pub suggested_next_tools: &'a [String],
@@ -59,6 +68,7 @@ pub struct CallTelemetryHints<'a> {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ToolCallEvent<'a> {
     pub(crate) tool: &'a str,
+    pub(crate) operation: ResolvedOperation<'a>,
     pub(crate) elapsed_ms: u64,
     pub(crate) tokens: usize,
     pub(crate) success: bool,
@@ -114,6 +124,11 @@ pub struct GuidanceMetrics {
     pub composite_guidance_followed_count: u64,
     pub composite_guidance_missed_count: u64,
     pub composite_guidance_missed_by_origin: BTreeMap<String, u64>,
+    pub suggestion_accepted_count: u64,
+    pub suggestion_diverted_count: u64,
+    pub suggestion_unresolved_count: u64,
+    pub suggestion_outcome_success_count: u64,
+    pub suggestion_outcome_error_count: u64,
     pub quality_contract_emitted_count: u64,
     pub recommended_checks_emitted_count: u64,
     pub recommended_check_followthrough_count: u64,
@@ -124,6 +139,8 @@ pub struct GuidanceMetrics {
     pub verifier_followthrough_count: u64,
     #[serde(skip_serializing)]
     pub pending_composite_guidance_from: Option<String>,
+    #[serde(skip_serializing)]
+    pub pending_suggested_tools: Vec<String>,
     #[serde(skip_serializing)]
     pub pending_quality_contract: bool,
     #[serde(skip_serializing)]
@@ -242,6 +259,8 @@ pub(crate) use registry::percentile_95;
 #[cfg(test)]
 pub(crate) use writer::{PersistedEvent, TelemetryWriter};
 
+#[cfg(test)]
+mod resolved_operation_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

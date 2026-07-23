@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry() {
+fn successful_read_only_suggestion_telemetry_is_host_neutral() {
     struct TelemetryEnvGuard {
         prev_sym_enabled: Option<String>,
         prev_enabled: Option<String>,
@@ -98,33 +98,22 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
     );
     assert_eq!(planner_payload["success"], json!(true));
 
-    let delegate_call = planner_payload["suggested_next_calls"]
+    let mutation_call = planner_payload["suggested_next_calls"]
         .as_array()
         .and_then(|calls| {
             calls.iter().find(|call| {
-                call.get("tool").and_then(|value| value.as_str())
-                    == Some("delegate_to_codex_builder")
+                call.get("tool").and_then(|value| value.as_str()) == Some("rename_symbol")
             })
         })
         .cloned()
-        .expect("delegate_to_codex_builder should include a scaffold payload");
-
-    let handoff_id = delegate_call["arguments"]["handoff_id"]
-        .as_str()
-        .expect("delegate scaffold should include handoff_id")
-        .to_owned();
-    let builder_arguments = delegate_call["arguments"]["delegate_arguments"].clone();
-
-    let builder_payload = call_tool_with_session(
-        &state,
-        "rename_symbol",
-        builder_arguments,
-        "builder-session",
-    );
+        .expect("read-only report should expose concrete rename mutation intent");
+    assert_eq!(mutation_call["arguments"]["dry_run"], json!(true));
     assert!(
-        builder_payload["data"].is_object()
-            || builder_payload.get("suggested_next_tools").is_some(),
-        "builder response should remain structured for telemetry correlation: {builder_payload}"
+        !planner_payload
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("codex"),
+        "successful read-only output must not encode a model-specific handoff: {planner_payload}"
     );
 
     let contents = std::fs::read_to_string(&telemetry_path).expect("read telemetry jsonl");
@@ -138,25 +127,25 @@ fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry
         .find(|event| {
             event["session_id"] == json!("planner-session")
                 && event["tool"] == json!("safe_rename_report")
-                && event["delegate_handoff_id"].as_str() == Some(handoff_id.as_str())
         })
         .cloned()
-        .expect("planner event should persist delegate handoff metadata");
-    assert_eq!(
-        planner_event["delegate_hint_trigger"],
-        json!("preferred_executor_boundary")
+        .expect("planner event should persist host-neutral suggestion metadata");
+    let persisted_suggestions = planner_event["suggested_next_tools"]
+        .as_array()
+        .expect("planner event should persist suggested tool names");
+    assert!(
+        persisted_suggestions
+            .iter()
+            .any(|tool| tool == "rename_symbol")
     );
-
-    let builder_event = events
-        .iter()
-        .find(|event| {
-            event["session_id"] == json!("builder-session")
-                && event["tool"] == json!("rename_symbol")
-                && event["handoff_id"].as_str() == Some(handoff_id.as_str())
-        })
-        .cloned()
-        .expect("builder event should persist the replayed handoff_id");
-    assert_ne!(planner_event["session_id"], builder_event["session_id"]);
+    assert!(
+        persisted_suggestions
+            .iter()
+            .all(|tool| tool != "delegate_to_codex_builder")
+    );
+    assert!(planner_event.get("delegate_hint_trigger").is_none());
+    assert!(planner_event.get("delegate_target_tool").is_none());
+    assert!(planner_event.get("delegate_handoff_id").is_none());
 
     // telemetry_path lives directly in std::env::temp_dir() — its parent IS
     // the system temp dir. remove_dir_all(parent) deleted every concurrent

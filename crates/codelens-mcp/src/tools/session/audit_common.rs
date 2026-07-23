@@ -25,8 +25,9 @@ pub(super) fn is_builder_surface(surface: &str) -> bool {
     matches!(surface, "builder" | "builder-minimal" | "refactor-full")
 }
 
-pub(super) fn is_codex_builder_preferred_tool(name: &str) -> bool {
-    crate::tool_defs::tool_preferred_executor_label(name) == "codex-builder"
+pub(super) fn is_builder_lane_tool(name: &str) -> bool {
+    crate::tool_defs::tool_phase_label(name) == Some("build")
+        || crate::tool_defs::is_content_mutation_tool(name)
 }
 
 pub(super) fn is_planner_surface(surface: &str) -> bool {

@@ -14,6 +14,14 @@ use crate::mutation_gate::{
     MutationFailureKind, MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
     is_refactor_gated_mutation_tool,
 };
+use crate::operation::ResolvedOperation;
+
+pub(super) struct QuerySubmission<'a> {
+    pub(super) result: ToolResult,
+    pub(super) gate_allowance: Option<MutationGateAllowance>,
+    pub(super) gate_failure: Option<MutationGateFailure>,
+    pub(super) operation: ResolvedOperation<'a>,
+}
 
 /// Orchestrates tool discovery, validation, and lifecycle execution.
 /// Modeled after Claude Code's QueryEngine.
@@ -71,31 +79,57 @@ impl<'a> QueryEngine<'a> {
     }
 
     /// Submits a tool execution message, enforcing enabled status and concurrency/mutation gates.
-    pub fn submit_message(
+    pub fn submit_message<'b>(
         &self,
-        name: &str,
-        arguments: &Value,
+        name: &'b str,
+        arguments: &'b Value,
         session: &SessionRequestContext,
         surface: ToolSurface,
-    ) -> (
-        ToolResult,
-        Option<MutationGateAllowance>,
-        Option<MutationGateFailure>,
-    ) {
-        let (target, target_arguments) =
+    ) -> QuerySubmission<'b> {
+        let (target, target_arguments, operation) =
             match crate::tools::verbs::resolve_verb_target(name, arguments) {
-                Ok(Some((target, arguments))) => (target, Cow::Owned(arguments)),
-                Ok(None) => (name, Cow::Borrowed(arguments)),
-                Err(error) => return (Err(error), None, None),
+                Ok(Some((target, target_arguments))) => (
+                    target,
+                    Cow::Owned(target_arguments),
+                    ResolvedOperation::resolved(
+                        target,
+                        arguments.get("mode").and_then(Value::as_str),
+                    ),
+                ),
+                Ok(None) => (
+                    name,
+                    Cow::Borrowed(arguments),
+                    ResolvedOperation::direct(name),
+                ),
+                Err(error) => {
+                    return QuerySubmission {
+                        result: Err(error),
+                        gate_allowance: None,
+                        gate_failure: None,
+                        operation: ResolvedOperation::unresolved(
+                            arguments.get("mode").and_then(Value::as_str),
+                        ),
+                    };
+                }
             };
         let target_arguments = target_arguments.as_ref();
 
         if let Err(error) = validate_required_params(target, target_arguments) {
-            return (Err(error), None, None);
+            return QuerySubmission {
+                result: Err(error),
+                gate_allowance: None,
+                gate_failure: None,
+                operation,
+            };
         }
 
         if let Err(error) = validate_tool_role(self.state, target, session) {
-            return (Err(error), None, None);
+            return QuerySubmission {
+                result: Err(error),
+                gate_allowance: None,
+                gate_failure: None,
+                operation,
+            };
         }
         // A default-listed facade is an explicit bootstrap contract: callers
         // may invoke it before loading a namespace/tier. Its internal target
@@ -109,7 +143,12 @@ impl<'a> QueryEngine<'a> {
             validate_tool_access(target, session, surface, self.state)
         };
         if let Err(error) = access_result {
-            return (Err(error), None, None);
+            return QuerySubmission {
+                result: Err(error),
+                gate_allowance: None,
+                gate_failure: None,
+                operation,
+            };
         }
 
         let tool = match DISPATCH_TABLE.get(target) {
@@ -121,7 +160,12 @@ impl<'a> QueryEngine<'a> {
                     Some(guidance) => format!("{name} — {guidance}"),
                     None => target.to_owned(),
                 };
-                return (Err(CodeLensError::ToolNotFound(detail)), None, None);
+                return QuerySubmission {
+                    result: Err(CodeLensError::ToolNotFound(detail)),
+                    gate_allowance: None,
+                    gate_failure: None,
+                    operation,
+                };
             }
         };
 
@@ -129,12 +173,17 @@ impl<'a> QueryEngine<'a> {
         // inherit the target's contract and rejected calls never pin an index.
         let generation_fence = SymbolGenerationFence::capture_if_required(self.state, target);
 
-        let (result, allowance, failure) = if is_refactor_gated_mutation_tool(target) {
+        let mut submission = if is_refactor_gated_mutation_tool(target) {
             self.state
                 .metrics()
                 .record_mutation_preflight_checked_for_session(Some(session.session_id.as_str()));
             match evaluate_mutation_gate(self.state, target, session, surface, target_arguments) {
-                Ok(allowance) => (tool(self.state, target_arguments), allowance, None),
+                Ok(allowance) => QuerySubmission {
+                    result: tool(self.state, target_arguments),
+                    gate_allowance: allowance,
+                    gate_failure: None,
+                    operation: operation.dispatched(),
+                },
                 Err(failure) => {
                     if matches!(
                         failure.kind,
@@ -164,17 +213,27 @@ impl<'a> QueryEngine<'a> {
                             Some(session.session_id.as_str()),
                         );
                     let message = failure.message.clone();
-                    (Err(CodeLensError::Validation(message)), None, Some(failure))
+                    QuerySubmission {
+                        result: Err(CodeLensError::Validation(message)),
+                        gate_allowance: None,
+                        gate_failure: Some(failure),
+                        operation,
+                    }
                 }
             }
         } else {
-            (tool(self.state, target_arguments), None, None)
+            QuerySubmission {
+                result: tool(self.state, target_arguments),
+                gate_allowance: None,
+                gate_failure: None,
+                operation: operation.dispatched(),
+            }
         };
-        let result = match generation_fence {
-            Some(fence) => fence.finish(result),
-            None => result,
+        submission.result = match generation_fence {
+            Some(fence) => fence.finish(submission.result),
+            None => submission.result,
         };
-        (result, allowance, failure)
+        submission
     }
 }
 

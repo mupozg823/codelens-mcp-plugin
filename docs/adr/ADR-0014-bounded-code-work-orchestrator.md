@@ -264,7 +264,7 @@ sequenceDiagram
 
 ## References
 
-- ADR-0005: Harness v2 — CodeLens as shared substrate for role-specialized agent hosts
+- ADR-0005: Role-Specialized Host Harness — CodeLens as shared substrate
 - ADR-0008: Serena upper-compatible absorption
 - ADR-0009: Mutation Trust Substrate
 - ADR-0011: Control-Plane Sprawl Resolution

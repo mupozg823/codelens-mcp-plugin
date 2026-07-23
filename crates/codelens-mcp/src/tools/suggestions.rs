@@ -218,6 +218,26 @@ pub(crate) fn infer_harness_phase(recent_tools: &[String]) -> Option<&'static st
     None
 }
 
+fn phase_tools(phase: &str) -> Option<&'static [&'static str]> {
+    match phase {
+        "plan" => Some(PLAN_PHASE_TOOLS),
+        "build" => Some(BUILD_PHASE_TOOLS),
+        "review" => Some(REVIEW_PHASE_TOOLS),
+        "eval" => Some(EVAL_PHASE_TOOLS),
+        _ => None,
+    }
+}
+
+pub(crate) fn retain_phase_compatible_suggestions(
+    suggestions: &mut Vec<String>,
+    harness_phase: Option<&str>,
+) {
+    let Some(allowed) = harness_phase.and_then(phase_tools) else {
+        return;
+    };
+    suggestions.retain(|suggestion| allowed.contains(&suggestion.as_str()));
+}
+
 /// Context-aware tool suggestions: overrides static suggestions based on recent workflow.
 pub fn suggest_next_contextual(
     tool_name: &str,
@@ -277,21 +297,7 @@ pub fn suggest_next_contextual(
         suggestions.truncate(3);
     }
 
-    // Filter suggestions by harness phase if specified
-    if let Some(phase) = harness_phase {
-        let phase_tools: &[&str] = match phase {
-            "plan" => PLAN_PHASE_TOOLS,
-            "build" => BUILD_PHASE_TOOLS,
-            "review" => REVIEW_PHASE_TOOLS,
-            "eval" => EVAL_PHASE_TOOLS,
-            _ => return Some(suggestions), // unknown phase, no filtering
-        };
-        suggestions.retain(|s| phase_tools.contains(&s.as_str()));
-        // Ensure we always have at least 1 suggestion
-        if suggestions.is_empty() {
-            suggestions = suggest_next(tool_name).unwrap_or_default();
-        }
-    }
+    retain_phase_compatible_suggestions(&mut suggestions, harness_phase);
 
-    Some(suggestions)
+    (!suggestions.is_empty()).then_some(suggestions)
 }

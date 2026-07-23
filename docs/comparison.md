@@ -144,7 +144,7 @@ Serena가 오늘 우위**이며 정밀도 갭은 로드맵
 3. **`verify_change_readiness`** — 4-verifier (diagnostics/reference/test/mutation) 한 번에
 4. **`review_architecture` + `module_boundary_report`** — cycle/coupling 정량 audit
 5. **5-stage adaptive token compression** — 200K/100K/50K tier per tool, prompt-cache hygiene 보장
-6. **Multi-agent claim/release** — builder/evaluator/codex 멀티 dispatch 시 mutation 충돌 회피
+6. **Multi-agent claim/release** — 여러 builder/evaluator agent dispatch 시 mutation 충돌 회피
 7. **자기감사 detector 가족** — `audit_tool_surface_consistency`, `find_misplaced_code`, `find_code_duplicates` 등
 
 **🔍 grep + Read가 더 빠른 자리**:

@@ -42,6 +42,10 @@ One span per tool call, named after the tool. Attributes on each span:
 | `tool.elapsed_ms`  | uint64 | Wall-clock duration of the handler.              |
 | `tool.surface`     | string | Active tool surface (e.g. `balanced`, `full`).   |
 | `tool.backend`     | string | Backend used when relevant (e.g. `lsp`, `scip`). |
+| `tool.resolved_target` | string | Executed target, or `unresolved` when no mode resolves. |
+| `tool.mode` | string | Selected facade mode, or `direct` for direct calls. |
+| `tool.work_class` | string | `primitive`, `composite`, or `unresolved`. |
+| `tool.downstream_call_count` | uint64 | Target-handler entries for the outer request. |
 | `otel.status_code` | string | `OK` on success, `ERROR` on failure.             |
 
 Filled in at `crates/codelens-mcp/src/dispatch/session.rs` after the
@@ -95,33 +99,36 @@ scripts/analyze-tool-usage.py --format json --output /tmp/codelens-telemetry.jso
 The analyzer reads:
 
 - `.codelens/telemetry/tool_usage.jsonl` for append-only execution traces
-- `docs/generated/surface-manifest.json` for `preferred_executor` / `phase`
+- `docs/generated/surface-manifest.json` for `execution_policy` / `phase`
   metadata
 - Codex rollout JSONL files when passed with `--codex-rollout-path`
-- `crates/codelens-mcp/src/telemetry.rs` for the current workflow-tool
-  classification used by runtime low-level-chain metrics
 - latest `.codelens/analysis-cache/*/session_rows.json` when present for
   planner/builder audit status counts and top finding codes
 
+Runtime metrics derive the canonical resolved-operation work class from the
+generated tool registry through `crates/codelens-mcp/src/operation.rs`. JSONL
+keeps `tool` as the caller-visible name and adds
+`resolved_target`, `mode`, `work_class`, and `downstream_call_count`. This lets
+facades such as `search(mode="symbol")` and `overview(mode="explore")` preserve
+their public names without changing primitive/composite accounting. Session
+metric consumers can detect this contract through
+`derived_kpis.schema_version = "codelens-session-evidence-kpis"`, a purpose-based
+contract identifier rather than an opaque numeric generation label.
+
 It reports:
 
-- literal `delegate_to_codex_builder` emission counts and triggers
-- unique scaffold `handoff_id` emission, consumption, and cross-session correlation counts
-- actual transitions into `codex-builder` tools
-- a measured `builder follow-through proxy`
+- suggestion acceptance, diversion, unresolved intent, and accepted-action outcome
+- `suggestion_acceptance_rate`, `suggestion_resolution_rate`, `suggestion_successful_outcome_rate`, and `suggestion_value_rate`
 - repeated low-level tool-chain counts
 - top failed tools
 - latest cached audit warn/fail causes
 
-The `builder follow-through proxy` is deliberately still named as a
-proxy. The JSONL sink now records safe suggestion metadata
-(`suggested_next_tools`, `delegate_hint_trigger`,
-`delegate_target_tool`, `delegate_handoff_id`, `handoff_id`), so
-literal delegate emission and preserved scaffold reuse are both
-measurable. Hosts that replay the scaffold into a builder session can
-therefore be correlated across logical sessions by shared `handoff_id`.
-The `builder follow-through proxy` still remains useful when a host does
-not preserve that field, so both measurements are reported.
+The JSONL sink retains legacy handoff fields for backward-compatible analysis,
+but new runtime responses do not emit synthetic delegation. Session metrics
+hold one pending suggestion set and resolve it on the next actionable call as
+accepted or diverted; an accepted call is then classified by its real success
+outcome. Observer calls such as `get_tool_metrics`, `set_profile`, and
+`set_preset` do not consume the pending decision.
 
 New server rows carry `recording_origin=runtime`. That field distinguishes a
 live daemon process from test or legacy writers; it is not, by itself, an

@@ -1,6 +1,6 @@
 use super::audit_common::{
     CHECK_FAIL, CHECK_NA, CHECK_PASS, CHECK_WARN, add_check, collect_seen_paths,
-    is_builder_surface, is_codex_builder_preferred_tool, missing_paths, resolve_audit_session_view,
+    is_builder_lane_tool, is_builder_surface, missing_paths, resolve_audit_session_view,
 };
 use crate::AppState;
 use crate::error::CodeLensError;
@@ -25,7 +25,7 @@ fn is_builder_preflight_tool(name: &str) -> bool {
 
 fn is_builder_session_tool(name: &str) -> bool {
     is_builder_preflight_tool(name)
-        || is_codex_builder_preferred_tool(name)
+        || is_builder_lane_tool(name)
         || matches!(
             name,
             "register_agent_work" | "claim_files" | "release_files"
@@ -148,21 +148,19 @@ pub(crate) fn build_builder_session_audit(
             "register_agent_work" | "claim_files" | "release_files"
         )
     });
-    let has_codex_builder_preferred_tool = metrics
+    let has_builder_lane_tool = metrics
         .timeline
         .iter()
-        .any(|entry| is_codex_builder_preferred_tool(&entry.tool));
+        .any(|entry| is_builder_lane_tool(&entry.tool));
     let has_builder_surface = is_builder_surface(&view.current_surface)
         || metrics
             .timeline
             .iter()
             .any(|entry| is_builder_surface(&entry.surface));
     let candidate_session =
-        has_builder_surface || has_mutation || has_coordination || has_codex_builder_preferred_tool;
+        has_builder_surface || has_mutation || has_coordination || has_builder_lane_tool;
 
-    if !candidate_session
-        || (!has_mutation && !has_builder_preflight && !has_codex_builder_preferred_tool)
-    {
+    if !candidate_session || (!has_mutation && !has_builder_preflight && !has_builder_lane_tool) {
         return Ok(json!({
             "status": CHECK_NA,
             "score": 0.0,
@@ -174,7 +172,7 @@ pub(crate) fn build_builder_session_audit(
                     "session_id": view.session_id,
                     "current_surface": view.current_surface,
                     "recent_tools": view.recent_tools,
-                    "has_codex_builder_preferred_tool": has_codex_builder_preferred_tool,
+                    "has_builder_lane_tool": has_builder_lane_tool,
                 }
             }],
             "findings": [],
@@ -296,7 +294,7 @@ pub(crate) fn build_builder_session_audit(
             "current_surface": view.current_surface,
             "has_builder_preflight": has_builder_preflight,
             "has_mutation": has_mutation,
-            "has_codex_builder_preferred_tool": has_codex_builder_preferred_tool,
+            "has_builder_lane_tool": has_builder_lane_tool,
         }),
     );
 

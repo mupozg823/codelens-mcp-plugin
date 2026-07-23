@@ -2,6 +2,7 @@
 #![allow(clippy::collapsible_if)]
 
 use crate::env_compat::dual_prefix_env;
+use crate::operation::OperationWorkClass;
 use crate::telemetry::ToolCallEvent;
 use serde::Serialize;
 use std::fs::OpenOptions;
@@ -13,6 +14,12 @@ use std::path::PathBuf;
 pub(crate) struct PersistedEvent<'a> {
     pub(crate) timestamp_ms: u64,
     pub(crate) tool: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) resolved_target: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) mode: Option<&'a str>,
+    pub(crate) work_class: OperationWorkClass,
+    pub(crate) downstream_call_count: u64,
     pub(crate) surface: &'a str,
     pub(crate) elapsed_ms: u64,
     pub(crate) tokens: usize,
@@ -45,6 +52,10 @@ impl<'a> PersistedEvent<'a> {
         Self {
             timestamp_ms,
             tool: event.tool,
+            resolved_target: event.operation.target,
+            mode: event.operation.mode,
+            work_class: event.operation.work_class,
+            downstream_call_count: event.operation.downstream_call_count,
             surface: event.surface,
             elapsed_ms: event.elapsed_ms,
             tokens: event.tokens,

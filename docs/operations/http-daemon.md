@@ -38,8 +38,8 @@ The canonical repo-local launchd agent shares the on-disk index and uses the
 project-writer lease plus `register_agent_work` / `claim_files` for session
 coordination:
 
-- `dev.codelens.mcp-mutation` → `:7838`, profile `builder`, mode
-  `mutation-enabled` — one process for all Codex/Claude/Cursor sessions
+- `dev.codelens.mcp-mutation` → `:7838`, default profile `builder`, mode
+  `mutation-enabled` — canonical writer shared by all host sessions
 
 The **consumption** clients (global `~/.claude.json`, `~/.codex/config.toml` and
 repo-local host attach overrides) all use `http://127.0.0.1:7838/mcp`. Session
