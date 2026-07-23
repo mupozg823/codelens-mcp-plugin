@@ -1,7 +1,13 @@
 # Migrate From CodeLens To Symbiote
 
-Status: pre-cutover migration contract for the future v2.0 rename  
-Last updated: 2026-04-18  
+> **Archived proposal — not current onboarding guidance.** No public rename is
+> active. Install and configure **CodeLens MCP** using
+> [Platform setup](platform-setup.md). This file is retained only as historical
+> context for a candidate rename that has not shipped.
+
+Status: inactive pre-cutover proposal
+
+Last updated: 2026-04-18
 Related: [ADR-0007](adr/ADR-0007-symbiote-rebrand.md), [Platform setup](platform-setup.md), [Host-adaptive harness](host-adaptive-harness.md)
 
 As of 2026-04-18, the public primary install name is still `codelens-mcp`.

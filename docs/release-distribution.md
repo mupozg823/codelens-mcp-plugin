@@ -31,9 +31,8 @@ to validate it.
 Use this canonical line for GitHub repository metadata, plugin marketplace
 cards, release summaries, and deployment pages:
 
-> Host-adaptive Rust MCP code-intelligence router with cached hybrid retrieval,
-> index-health visibility, mutation gates, and token-lean workflows for Codex,
-> Claude, and generic MCP clients.
+> Rust MCP code intelligence for coding agents — live indexes, bounded hybrid
+> retrieval, host-neutral workflows, single-writer sessions, and mutation gates.
 
 ### Localized deployment-page copy
 
@@ -42,13 +41,13 @@ binaries, region-specific support, or different release artifacts.
 
 | Locale / market | Short deployment-page description |
 | --------------- | --------------------------------- |
-| `en-US` / United States | CodeLens MCP is a host-adaptive Rust MCP server for code intelligence, with cached BM25/sparse and semantic retrieval, index-health checks, mutation gates, and token-lean workflows for Codex, Claude, and generic MCP clients. |
-| `ko-KR` / Korea | CodeLens MCP는 Codex, Claude 및 일반 MCP 클라이언트를 위한 호스트 적응형 Rust 코드 인텔리전스 서버입니다. 캐시된 BM25/sparse 검색과 semantic 검색, 인덱스 상태 점검, mutation gate, 토큰 절약형 워크플로를 제공합니다. |
-| `ja-JP` / Japan | CodeLens MCP は、Codex、Claude、汎用 MCP クライアント向けのホスト適応型 Rust コードインテリジェンスサーバーです。キャッシュ済み BM25/sparse 検索、semantic 検索、インデックス健全性チェック、mutation gate、トークン効率の高いワークフローを提供します。 |
-| `zh-Hans` / China | CodeLens MCP 是面向 Codex、Claude 和通用 MCP 客户端的自适应 Rust 代码智能服务器，提供缓存的 BM25/sparse 检索、semantic 检索、索引健康检查、mutation gate 和节省 token 的工作流。 |
-| `es-ES` / Spain | CodeLens MCP es un servidor MCP en Rust, adaptable al host, para inteligencia de código: recuperación BM25/sparse y semántica con caché, comprobaciones de salud del índice, mutation gates y flujos de trabajo eficientes en tokens para Codex, Claude y clientes MCP genéricos. |
-| `de-DE` / Germany | CodeLens MCP ist ein host-adaptiver Rust-MCP-Server für Code Intelligence mit gecachter BM25/sparse- und semantischer Suche, Index-Health-Checks, Mutation Gates und token-sparsamen Workflows für Codex, Claude und generische MCP-Clients. |
-| `fr-FR` / France | CodeLens MCP est un serveur MCP Rust adaptatif pour l'intelligence de code, avec recherche BM25/sparse et sémantique mises en cache, contrôles de santé d'index, mutation gates et workflows économes en tokens pour Codex, Claude et les clients MCP génériques. |
+| `en-US` / United States | Rust MCP code intelligence for coding agents — live indexes, bounded hybrid retrieval, host-neutral workflows, single-writer sessions, and mutation gates. |
+| `ko-KR` / Korea | CodeLens는 코딩 에이전트를 위한 Rust MCP 코드 인텔리전스입니다. 실시간 인덱스, 범위가 제한된 하이브리드 검색, 호스트 중립 워크플로, 단일 라이터 세션, 변이 게이트를 제공합니다. |
+| `ja-JP` / Japan | CodeLens はコーディングエージェント向けの Rust MCP コードインテリジェンスです。ライブインデックス、範囲を限定したハイブリッド検索、ホスト中立のワークフロー、シングルライターセッション、ミューテーションゲートを提供します。 |
+| `zh-Hans` / China | CodeLens 是面向编码代理的 Rust MCP 代码智能工具，提供实时索引、范围受控的混合检索、主机无关工作流、单写入者会话和变更门控。 |
+| `es-ES` / Spain | CodeLens ofrece inteligencia de código MCP en Rust para agentes de programación, con índices activos, recuperación híbrida acotada, flujos de trabajo independientes del host, sesiones de escritor único y puertas de mutación. |
+| `de-DE` / Germany | CodeLens bietet Rust-MCP-Code-Intelligence für Coding-Agenten — mit Live-Indizes, begrenzter hybrider Suche, hostneutralen Workflows, Single-Writer-Sitzungen und Mutation Gates. |
+| `fr-FR` / France | CodeLens fournit une intelligence de code MCP en Rust pour les agents de codage, avec des index actifs, une recherche hybride bornée, des workflows indépendants de l'hôte, des sessions à rédacteur unique et des barrières de mutation. |
 
 Localized install callouts should point to the same channel matrix:
 

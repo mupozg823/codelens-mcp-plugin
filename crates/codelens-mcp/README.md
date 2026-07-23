@@ -1,12 +1,13 @@
 # codelens-mcp
 
 Harness-native Model Context Protocol (MCP) server binary for
-[CodeLens](https://github.com/mupozg823/codelens-mcp-plugin) — a
-compressed-context and verification layer for multi-agent coding harnesses
-like Claude Code, Codex, Cursor, and Continue.
+[CodeLens](https://github.com/mupozg823/codelens-mcp-plugin): Rust MCP code
+intelligence for coding agents — live indexes, bounded hybrid retrieval,
+host-neutral workflows, single-writer sessions, and mutation gates. It works
+with Claude Code, Codex, Cursor, Continue, and other MCP clients.
 
 Built on [codelens-engine](https://crates.io/crates/codelens-engine).
-Exposes ~107 tools over JSON-RPC stdio or streamable HTTP, with role-
+Exposes 100 tools over JSON-RPC stdio or streamable HTTP, with role-
 based tool surfaces, adaptive token compression, mutation gates, and
 durable analysis job handles.
 
@@ -33,7 +34,7 @@ for reproducible numbers (tiktoken cl100k_base).
 │   server/         router · oneshot · transport_stdio · http│
 │   dispatch/       envelope · table · rate_limit · response │
 │   tool_defs/      surfaces · presets · profiles · schemas  │
-│   tools/          107 tool handlers (symbols · reports ·   │
+│   tools/          100 tool handlers (symbols · reports ·   │
 │                   mutation · lsp · memory · session …)     │
 │   state/          session_host · embedding_host · metrics  │
 │   access · mutation_gate · telemetry · analysis_queue      │
@@ -117,10 +118,11 @@ See `docs/multi-agent-integration.md` for the full protocol.
 
 | Feature         | Default | Adds                                                           |
 | --------------- | ------- | -------------------------------------------------------------- |
-| `semantic`      | yes     | Embedding-based hybrid retrieval (via codelens-engine)         |
+| `semantic`      | no      | Embedding-based hybrid retrieval (via codelens-engine)         |
 | `http`          | no      | `axum` + `tokio` streamable HTTP transport                     |
 | `otel`          | no      | OpenTelemetry OTLP span exporter (see `docs/observability.md`) |
-| `scip-backend`  | no      | SCIP precise navigation backend                                |
+| `scip-backend`  | yes     | SCIP precise navigation backend                                |
+| `lang-extra`    | yes     | Parsers for niche and less-common languages                    |
 | `model-bakeoff` | no      | Alternative embedding-model benchmark harness                  |
 
 ## Non-goals

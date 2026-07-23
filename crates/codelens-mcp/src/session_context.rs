@@ -7,6 +7,7 @@
 pub(crate) enum SessionContextSource {
     #[default]
     StdioArguments,
+    #[cfg(any(feature = "http", test))]
     HttpTransport,
 }
 
@@ -15,8 +16,10 @@ thread_local! {
         const { std::cell::Cell::new(SessionContextSource::StdioArguments) };
 }
 
+#[cfg(any(feature = "http", test))]
 struct RequestContextSourceGuard(SessionContextSource);
 
+#[cfg(any(feature = "http", test))]
 impl Drop for RequestContextSourceGuard {
     fn drop(&mut self) {
         REQUEST_CONTEXT_SOURCE.set(self.0);
@@ -26,6 +29,7 @@ impl Drop for RequestContextSourceGuard {
 /// Execute one request inside a transport-owned provenance scope. The source
 /// never comes from JSON, so `_session_*` arguments cannot promote themselves
 /// into an authenticated HTTP request.
+#[cfg(any(feature = "http", test))]
 pub(crate) fn with_http_transport_context<T>(f: impl FnOnce() -> T) -> T {
     let previous = REQUEST_CONTEXT_SOURCE.replace(SessionContextSource::HttpTransport);
     let _guard = RequestContextSourceGuard(previous);
@@ -34,6 +38,16 @@ pub(crate) fn with_http_transport_context<T>(f: impl FnOnce() -> T) -> T {
 
 fn current_context_source() -> SessionContextSource {
     REQUEST_CONTEXT_SOURCE.get()
+}
+
+#[cfg(any(feature = "http", test))]
+fn is_http_transport(source: SessionContextSource) -> bool {
+    matches!(source, SessionContextSource::HttpTransport)
+}
+
+#[cfg(not(any(feature = "http", test)))]
+const fn is_http_transport(_: SessionContextSource) -> bool {
+    false
 }
 
 #[derive(Clone, Debug, Default)]
@@ -62,7 +76,7 @@ impl SessionRequestContext {
     /// Extract session context from a JSON value containing `_session_*` keys.
     pub fn from_json(value: &serde_json::Value) -> Self {
         let source = current_context_source();
-        let transport_authenticated = matches!(source, SessionContextSource::HttpTransport);
+        let transport_authenticated = is_http_transport(source);
         Self {
             source,
             session_id: str_field(value, "_session_id").unwrap_or_else(|| "local".to_owned()),
@@ -86,7 +100,7 @@ impl SessionRequestContext {
     }
 
     pub fn is_transport_authenticated(&self) -> bool {
-        matches!(self.source, SessionContextSource::HttpTransport)
+        is_http_transport(self.source)
     }
 }
 

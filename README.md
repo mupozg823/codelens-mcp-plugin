@@ -1,24 +1,44 @@
 <div align="center">
 
+<img src="docs/assets/codelens-mark.svg" width="112" height="112" alt="CodeLens logo">
+
 # CodeLens MCP
 
-**코드베이스를 빠르게 이해하고, 필요한 맥락만 좁혀 주며, 안전한 수정을 돕는 Rust 기반 MCP 코드 인텔리전스 라우터입니다.**
+**코딩 에이전트를 위한 살아 있는 코드 인덱스 — 더 적게 읽고, 더 정확하게 찾고, 안전하게 수정합니다.**
 
-<sub>English: A host-adaptive Rust MCP code-intelligence router for cached hybrid retrieval, index-health visibility, mutation gates, and token-lean coding workflows.</sub>
+<sub>A live code index for coding agents — bounded context, verifiable structure, and safer edits.</sub>
 
-자동화나 호스트 설정을 CodeLens로 이전할 준비를 하고 있다면 호스트별 마이그레이션 가이드부터 확인하세요: [`docs/migrate-from-codelens.md`](docs/migrate-from-codelens.md).
+[설치](#빠른-설치) · [문서](https://mupozg823.github.io/codelens-mcp-plugin/) · [아키텍처](docs/architecture.md) · [최신 릴리스](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest)
 
-CodeLens MCP는 multi-agent 코딩 하네스가 “파일을 통째로 읽고 grep을 반복하는 방식”에서 벗어나도록 돕는 순수 Rust MCP 서버입니다. tree-sitter, BM25/sparse ranking, semantic retrieval을 결합한 캐시형 하이브리드 검색, mutation gate가 있는 refactor workflow, token compression, observability를 제공합니다. 기본 retrieval/refactor 표면은 SQLite, vector store, ONNX runtime을 정적으로 포함한 단일 바이너리로 동작합니다. **Semantic search는 별도의 sidecar model directory**(~80 MB ONNX)가 추가로 필요합니다. GitHub Release tarball에는 모델이 자동 포함되지만, `cargo install codelens-mcp` 사용자는 별도 모델 payload를 받아 `CODELENS_MODEL_DIR`로 지정해야 합니다. 자세한 차이는 [Install Channel Matrix](#install-channel-matrix)를 참고하세요.
-
-<sub>English: CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. It combines cached hybrid retrieval, mutation-gated refactoring, token compression, and production-oriented observability. Core retrieval and mutation run from one statically linked binary; semantic search additionally requires the model sidecar.</sub>
-
-[![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/mupozg823/codelens-mcp-plugin/actions)
+[![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
 [![docs.rs](https://docs.rs/codelens-engine/badge.svg)](https://docs.rs/codelens-engine)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Downloads](https://img.shields.io/crates/d/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
 
 </div>
+
+![CodeLens turns a noisy dependency graph into focused, verifiable code context](docs/assets/codelens-social-preview.jpg)
+
+CodeLens MCP는 에이전트나 에디터를 대체하지 않습니다. Codex, Claude Code, Cursor 같은 MCP host가 대화를 소유하는 동안, CodeLens는 저장소의 **현재 구조를 인덱싱하고 필요한 맥락만 제한된 크기로 반환하며 변경 전후 검증을 연결하는 코드 인텔리전스 보조 계층**입니다.
+
+기본 바이너리는 tree-sitter, BM25/sparse retrieval, graph/LSP 탐색, mutation gate를 제공합니다. Semantic search는 별도의 model sidecar가 있을 때 지연 활성화됩니다. GitHub Release에는 모델이 포함되며, crates.io 설치는 [Install Channel Matrix](#install-channel-matrix)의 추가 설정을 따릅니다. Host 연결 방법은 [Platform setup](docs/platform-setup.md)에 정리되어 있습니다.
+
+## 30초 소개
+
+<sub>English: CodeLens in 30 seconds.</sub>
+
+| 목표 | CodeLens가 제공하는 것 |
+| --- | --- |
+| **더 적게 읽기** | 문제 중심 verb와 profile/preset으로 tool 표면과 응답 크기를 제한합니다. |
+| **더 정확하게 찾기** | live symbol index, BM25, graph/LSP, 선택적 semantic retrieval을 한 project binding에 결합합니다. |
+| **현재 상태 검증** | index freshness, daemon drift, output schema, 분석 handle로 근거와 신선도를 드러냅니다. |
+| **안전하게 수정** | host-neutral session, single-writer runtime, role/mutation gate, audit와 readiness 검증을 적용합니다. |
+
+```bash
+cargo install codelens-mcp
+codelens-mcp . --cmd get_capabilities --args '{}'
+```
 
 ## 아키텍처 한눈에 보기
 

@@ -1,6 +1,11 @@
 # ADR-0007: Symbiote Product Metaphor and Candidate Rename
 
-- Status: Accepted as product direction; public primary-name cutover pending trademark clearance
+> **Current public status:** This is a historical candidate-name decision, not an
+> active migration. The canonical product, package, binary, repository, and
+> documentation name remains **CodeLens MCP**. Use current capability and role
+> names instead of version-labelled rename language in active guidance.
+
+- Status: Archived candidate; no public primary-name cutover is active
 - Date: 2026-04-18
 - Supersedes: none
 - Related: ADR-0005 (shared-harness substrate), ADR-0006 (routing enforcement)
