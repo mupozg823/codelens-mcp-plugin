@@ -498,8 +498,8 @@ column = { type = "integer", description = "Column number (triggers LSP path)" }
 use_lsp = { type = "boolean", description = "Force LSP lookup (slower but type-aware, requires LSP server)" }
 full_results = { type = "boolean", description = "Tree-sitter path only: return every reference instead of the sampled preview, and keep the full array through response summarization (default: false)." }
 sample_limit = { type = "integer", description = "Tree-sitter path only: max references returned when full_results is false (default: 8)." }
-command = { type = "string" }
-args = { type = "array", items = { type = "string" } }
+command = { type = "string", description = "Registered LSP recipe binary name (for example rust-analyzer or pyright-langserver); arbitrary executables are rejected." }
+args = { type = "array", items = { type = "string" }, description = "Exact immutable recipe arguments only; omit to use the registered defaults." }
 max_results = { type = "integer" }
 
 # ─────
@@ -521,8 +521,8 @@ required = ["path"]
 path = { type = "string" }
 file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
-command = { type = "string" }
-args = { type = "array", items = { type = "string" } }
+command = { type = "string", description = "Registered LSP recipe binary name (for example rust-analyzer or pyright-langserver); arbitrary executables are rejected." }
+args = { type = "array", items = { type = "string" }, description = "Exact immutable recipe arguments only; omit to use the registered defaults." }
 max_results = { type = "integer" }
 
 # ─────
@@ -541,8 +541,8 @@ type = "object"
 required = ["query"]
 [tool.input_schema.properties]
 query = { type = "string" }
-command = { type = "string" }
-args = { type = "array", items = { type = "string" } }
+command = { type = "string", description = "Registered LSP recipe binary name (for example rust-analyzer or pyright-langserver); arbitrary executables are rejected." }
+args = { type = "array", items = { type = "string" }, description = "Exact immutable recipe arguments only; omit to use the registered defaults." }
 max_results = { type = "integer" }
 
 # ─────
@@ -566,8 +566,8 @@ path = { type = "string" }
 relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 hierarchy_type = { type = "string", enum = ["super", "sub", "both"] }
 depth = { type = "integer" }
-command = { type = "string" }
-args = { type = "array", items = { type = "string" } }
+command = { type = "string", description = "Registered LSP recipe binary name (for example rust-analyzer or pyright-langserver); arbitrary executables are rejected." }
+args = { type = "array", items = { type = "string" }, description = "Exact immutable recipe arguments only; omit to use the registered defaults." }
 
 # ─────
 
@@ -590,8 +590,8 @@ line = { type = "integer", description = "1-based source line" }
 column = { type = "integer", description = "1-based byte column; converted to LSP UTF-16 internally" }
 target = { type = "string", enum = ["declaration", "definition", "implementation", "type_definition"], description = "Target kind (default: definition)" }
 semantic_backend = { type = "string", enum = ["lsp"], description = "Only lsp is authoritative for this tool" }
-command = { type = "string" }
-args = { type = "array", items = { type = "string" } }
+command = { type = "string", description = "Registered LSP recipe binary name (for example rust-analyzer or pyright-langserver); arbitrary executables are rejected." }
+args = { type = "array", items = { type = "string" }, description = "Exact immutable recipe arguments only; omit to use the registered defaults." }
 max_results = { type = "integer" }
 
 [[tool]]
@@ -613,8 +613,8 @@ relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `p
 symbol_name = { type = "string", description = "Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given." }
 line = { type = "integer", description = "1-based source line (alternative to symbol_name)" }
 column = { type = "integer", description = "1-based byte column (alternative to symbol_name)" }
-command = { type = "string" }
-args = { type = "array", items = { type = "string" } }
+command = { type = "string", description = "Registered LSP recipe binary name (for example rust-analyzer or pyright-langserver); arbitrary executables are rejected." }
+args = { type = "array", items = { type = "string" }, description = "Exact immutable recipe arguments only; omit to use the registered defaults." }
 max_results = { type = "integer" }
 
 [[tool]]
@@ -636,8 +636,8 @@ relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `p
 symbol_name = { type = "string", description = "Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given." }
 line = { type = "integer", description = "1-based source line (alternative to symbol_name)" }
 column = { type = "integer", description = "1-based byte column (alternative to symbol_name)" }
-command = { type = "string" }
-args = { type = "array", items = { type = "string" } }
+command = { type = "string", description = "Registered LSP recipe binary name (for example rust-analyzer or pyright-langserver); arbitrary executables are rejected." }
+args = { type = "array", items = { type = "string" }, description = "Exact immutable recipe arguments only; omit to use the registered defaults." }
 max_results = { type = "integer" }
 
 [[tool]]
@@ -657,8 +657,8 @@ path = { type = "string" }
 file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 symbol_name = { type = "string", description = "Symbol whose span filters the file diagnostics" }
-command = { type = "string" }
-args = { type = "array", items = { type = "string" } }
+command = { type = "string", description = "Registered LSP recipe binary name (for example rust-analyzer or pyright-langserver); arbitrary executables are rejected." }
+args = { type = "array", items = { type = "string" }, description = "Exact immutable recipe arguments only; omit to use the registered defaults." }
 max_results = { type = "integer" }
 
 # ─────
@@ -681,8 +681,8 @@ file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`
 line = { type = "integer" }
 column = { type = "integer" }
 new_name = { type = "string" }
-command = { type = "string" }
-args = { type = "array", items = { type = "string" } }
+command = { type = "string", description = "Registered LSP recipe binary name (for example rust-analyzer or pyright-langserver); arbitrary executables are rejected." }
+args = { type = "array", items = { type = "string" }, description = "Exact immutable recipe arguments only; omit to use the registered defaults." }
 
 # ─────
 
@@ -692,13 +692,13 @@ category = "lsp"
 namespace = "lsp"
 phase = "review"
 preset_tags = ["balanced-excluded"]
-description = "[CodeLens:Session] Get LSP server install and resolution details for a file extension or path."
+description = "[CodeLens:Session] Get LSP server recipe and trusted daemon executable details for a file extension or path."
 annotations = "ro_p"
 
 [tool.input_schema]
 type = "object"
 required = []
-properties = { extension = { type = "string", description = "File extension (e.g. 'py', '.tsx', 'rs')" }, path = { type = "string", description = "Optional file path; enables project-local node_modules/.bin resolution for JS/TS LSP servers." }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." } }
+properties = { extension = { type = "string", description = "File extension (e.g. 'py', '.tsx', 'rs')" }, path = { type = "string", description = "Optional file path used only to infer the extension; project-local executables are not trusted implicitly." }, file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }, relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." } }
 
 # ── Analysis (architecture & dependencies) ───────────────────────────
 

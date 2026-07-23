@@ -160,16 +160,20 @@ fn runtime_status_for_backend(name: &str, state: &AppState) -> BackendRuntimeSta
             details: json!({"fast_path": "tree_sitter"}),
         },
         "lsp-bridge" => {
-            let statuses = codelens_engine::check_lsp_status();
-            let installed_server_count = statuses.iter().filter(|status| status.installed).count();
+            let pool = state.lsp_pool();
+            let trusted_server_count = codelens_engine::LSP_RECIPES
+                .iter()
+                .filter(|recipe| pool.trusted_lsp_binary(recipe.binary_name).is_some())
+                .count();
             BackendRuntimeStatus {
                 compiled: true,
-                available: installed_server_count > 0,
+                available: trusted_server_count > 0,
                 active: false,
                 active_reason: "explicit_use_required".to_owned(),
                 details: json!({
-                    "recipe_count": statuses.len(),
-                    "installed_server_count": installed_server_count,
+                    "recipe_count": codelens_engine::LSP_RECIPES.len(),
+                    "installed_server_count": trusted_server_count,
+                    "trusted_server_count": trusted_server_count,
                     "activation": "use_lsp_true_or_position_request",
                 }),
             }
@@ -224,13 +228,12 @@ fn semantic_edit_runtime_status(state: &AppState) -> BackendRuntimeStatus {
     let configured = crate::env_compat::dual_prefix_env("CODELENS_SEMANTIC_EDIT_BACKEND");
     let jetbrains_available = std::env::var_os("CODELENS_JETBRAINS_ADAPTER_CMD").is_some();
     let roslyn_available = std::env::var_os("CODELENS_ROSLYN_ADAPTER_CMD").is_some();
-    let lsp_statuses = codelens_engine::check_lsp_status();
-    let installed_lsp_server_count = lsp_statuses
+    let pool = state.lsp_pool();
+    let trusted_lsp_server_count = codelens_engine::LSP_RECIPES
         .iter()
-        .filter(|status| status.installed)
+        .filter(|recipe| pool.trusted_lsp_binary(recipe.binary_name).is_some())
         .count();
-    let _ = state;
-    let lsp_available = installed_lsp_server_count > 0;
+    let lsp_available = trusted_lsp_server_count > 0;
     let configured_lsp = configured.as_deref() == Some("lsp");
     let configured_jetbrains = configured.as_deref() == Some("jetbrains");
     let configured_roslyn = configured.as_deref() == Some("roslyn");
@@ -265,7 +268,8 @@ fn semantic_edit_runtime_status(state: &AppState) -> BackendRuntimeStatus {
         details: json!({
             "configured_backend": configured,
             "candidate_backends": ["lsp-bridge", "jetbrains-adapter", "roslyn-adapter"],
-            "installed_lsp_server_count": installed_lsp_server_count,
+            "installed_lsp_server_count": trusted_lsp_server_count,
+            "trusted_lsp_server_count": trusted_lsp_server_count,
             "activation": "set semantic_edit_backend=lsp per call or CODELENS_SEMANTIC_EDIT_BACKEND=lsp",
             "dispatch": "rename_symbol routes to LSP textDocument/rename; extract/inline/move/change-signature route to LSP codeAction only when explicitly requested",
             "external_adapters": {

@@ -96,6 +96,13 @@ fn write_mock_pyright_diagnostics_lsp(project: &ProjectRoot, name: &str) -> std:
     mock_path
 }
 
+fn register_mock_lsp(state: &crate::AppState, executable: &std::path::Path) {
+    state
+        .lsp_pool()
+        .register_trusted_lsp_binary("pyright-langserver", executable)
+        .expect("register mock LSP executable");
+}
+
 #[test]
 fn returns_lsp_references_via_tool_call() {
     let project = project_root();
@@ -132,16 +139,41 @@ fn returns_lsp_diagnostics_via_tool_call() {
     let mock_path = write_mock_diagnostics_lsp(&project, "mock_lsp.py");
     fs::write(project.as_path().join("diag_target.py"), "x = 1\n").unwrap();
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
     let payload = call_tool(
         &state,
         "get_file_diagnostics",
-        json!({ "file_path": "diag_target.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+        json!({ "file_path": "diag_target.py", "command": "pyright-langserver", "args": ["--stdio"] }),
     );
     assert_eq!(payload["success"], json!(true));
 }
 
 #[test]
-fn get_lsp_recipe_resolves_project_local_typescript_server() {
+fn get_file_diagnostics_rejects_unregistered_python_caller_without_spawning() {
+    let project = project_root();
+    fs::write(project.as_path().join("caller_guard.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "get_file_diagnostics",
+        json!({
+            "path": "caller_guard.py",
+            "command": "python3",
+            "args": ["-c", "raise SystemExit('caller-controlled')"]
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(false), "{payload}");
+    assert_eq!(
+        state.lsp_pool().session_count(),
+        0,
+        "rejected caller input must not spawn an LSP session: {payload}"
+    );
+}
+
+#[test]
+fn get_lsp_recipe_does_not_trust_project_local_typescript_shim() {
     let project = project_root();
     fs::create_dir_all(project.as_path().join("src")).unwrap();
     fs::create_dir_all(project.as_path().join("node_modules/.bin")).unwrap();
@@ -156,6 +188,14 @@ fn get_lsp_recipe_resolves_project_local_typescript_server() {
     fs::write(&shim, "#!/bin/sh\nexit 0\n").unwrap();
 
     let state = make_state(&project);
+    let (raw_payload, _) =
+        crate::tools::lsp::get_lsp_recipe(&state, &json!({ "path": "src/App.tsx" }))
+            .expect("get_lsp_recipe handler succeeds");
+    assert_eq!(
+        raw_payload["execution_trust"],
+        json!("daemon_environment_or_host_registration"),
+        "trust metadata must be present on the raw recipe payload: {raw_payload:#}"
+    );
     let payload = call_tool(&state, "get_lsp_recipe", json!({ "path": "src/App.tsx" }));
 
     assert_eq!(payload["success"], json!(true));
@@ -165,10 +205,10 @@ fn get_lsp_recipe_resolves_project_local_typescript_server() {
         payload["data"]["binary_name"],
         json!("typescript-language-server")
     );
-    assert_eq!(payload["data"]["installed"], json!(true), "{payload:#}");
-    assert_eq!(
+    assert_ne!(
         payload["data"]["resolved_binary_path"],
-        json!(shim.display().to_string())
+        json!(shim.display().to_string()),
+        "an unregistered project-local shim must not be trusted: {payload:#}"
     );
 }
 
@@ -178,11 +218,12 @@ fn get_file_diagnostics_accepts_legacy_file_path_with_deprecation_warning() {
     let mock_path = write_mock_diagnostics_lsp(&project, "mock_legacy_diag_lsp.py");
     fs::write(project.as_path().join("legacy_diag.py"), "x = 1\n").unwrap();
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
 
     let payload = call_tool(
         &state,
         "get_file_diagnostics",
-        json!({ "file_path": "legacy_diag.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+        json!({ "file_path": "legacy_diag.py", "command": "pyright-langserver", "args": ["--stdio"] }),
     );
 
     assert_eq!(payload["success"], json!(true));
@@ -220,11 +261,12 @@ fn get_file_diagnostics_respects_pyright_source_suppressions() {
     )
     .unwrap();
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
 
     let payload = call_tool(
         &state,
         "get_file_diagnostics",
-        json!({ "path": "gui.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+        json!({ "path": "gui.py", "command": "pyright-langserver", "args": ["--stdio"] }),
     );
 
     assert_eq!(payload["success"], json!(true));
@@ -261,11 +303,12 @@ fn get_file_diagnostics_classifies_guarded_optional_imports() {
     )
     .unwrap();
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
 
     let payload = call_tool(
         &state,
         "get_file_diagnostics",
-        json!({ "path": "gui.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+        json!({ "path": "gui.py", "command": "pyright-langserver", "args": ["--stdio"] }),
     );
 
     assert_eq!(payload["success"], json!(true));
@@ -325,10 +368,11 @@ fn returns_workspace_symbols_via_tool_call() {
         fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
     }
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
     let payload = call_tool(
         &state,
         "search_workspace_symbols",
-        json!({ "query": "Test", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+        json!({ "query": "Test", "command": "pyright-langserver", "args": ["--stdio"] }),
     );
     assert_eq!(payload["success"], json!(true));
 }
@@ -400,10 +444,11 @@ fn returns_rename_plan_via_tool_call() {
         fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
     }
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
     let payload = call_tool(
         &state,
         "plan_symbol_rename",
-        json!({ "file_path": "rename_target.py", "line": 1, "column": 5, "new_name": "new_name", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+        json!({ "file_path": "rename_target.py", "line": 1, "column": 5, "new_name": "new_name", "command": "pyright-langserver", "args": ["--stdio"] }),
     );
     assert_eq!(payload["success"], json!(true));
 }
@@ -458,6 +503,7 @@ fn resolve_symbol_target_uses_lsp_definition_family() {
         fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
     }
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
     let payload = call_tool(
         &state,
         "resolve_symbol_target",
@@ -467,8 +513,8 @@ fn resolve_symbol_target_uses_lsp_definition_family() {
             "column": 13,
             "target": "implementation",
             "semantic_backend": "lsp",
-            "command": "python3",
-            "args": [mock_path.to_string_lossy()]
+            "command": "pyright-langserver",
+            "args": ["--stdio"]
         }),
     );
 
@@ -529,6 +575,7 @@ fn lsp_refactor_without_concrete_workspace_edit_fails_closed() {
         fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
     }
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
     let payload = call_tool(
         &state,
         "refactor_extract_function",
@@ -538,8 +585,8 @@ fn lsp_refactor_without_concrete_workspace_edit_fails_closed() {
             "end_line": 1,
             "new_name": "extracted",
             "semantic_edit_backend": "lsp",
-            "command": "python3",
-            "args": [mock_path.to_string_lossy()],
+            "command": "pyright-langserver",
+            "args": ["--stdio"],
             "dry_run": true
         }),
     );
@@ -881,6 +928,7 @@ fn find_referencing_symbols_lsp_low_count_surfaces_ts_structural_evidence() {
     }
 
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
     let payload = call_tool(
         &state,
         "find_referencing_symbols",
@@ -888,8 +936,8 @@ fn find_referencing_symbols_lsp_low_count_surfaces_ts_structural_evidence() {
             "file_path": "request_types.ts",
             "symbol_name": "GeneratePollRequest",
             "use_lsp": true,
-            "command": "python3",
-            "args": [mock_path.to_string_lossy()],
+            "command": "pyright-langserver",
+            "args": ["--stdio"],
         }),
     );
 
@@ -981,14 +1029,15 @@ fn find_declaration_returns_locations_via_mock_lsp() {
     )
     .unwrap();
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
     let payload = call_tool(
         &state,
         "find_declaration",
         json!({
             "relative_path": "nav_decl.py",
             "symbol_name": "alpha",
-            "command": "python3",
-            "args": [mock_path.to_string_lossy()]
+            "command": "pyright-langserver",
+            "args": ["--stdio"]
         }),
     );
     assert_eq!(payload["success"], json!(true), "{payload}");
@@ -1014,14 +1063,15 @@ fn find_implementations_returns_locations_via_mock_lsp() {
     )
     .unwrap();
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
     let payload = call_tool(
         &state,
         "find_implementations",
         json!({
             "relative_path": "nav_impl.py",
             "symbol_name": "alpha",
-            "command": "python3",
-            "args": [mock_path.to_string_lossy()]
+            "command": "pyright-langserver",
+            "args": ["--stdio"]
         }),
     );
     assert_eq!(payload["success"], json!(true), "{payload}");
@@ -1127,14 +1177,15 @@ fn get_diagnostics_for_symbol_filters_to_symbol_span() {
     )
     .unwrap();
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
     let payload = call_tool(
         &state,
         "get_diagnostics_for_symbol",
         json!({
             "relative_path": "two_symbols.py",
             "symbol_name": "beta",
-            "command": "python3",
-            "args": [mock_path.to_string_lossy()]
+            "command": "pyright-langserver",
+            "args": ["--stdio"]
         }),
     );
     assert_eq!(payload["success"], json!(true), "{payload}");
@@ -1279,7 +1330,7 @@ fn write_mock_pyright_multi_ref_lsp(project: &ProjectRoot) -> std::path::PathBuf
 #[test]
 fn use_lsp_full_results_serializes_every_reference_without_truncation() {
     let project = project_root();
-    write_mock_pyright_multi_ref_lsp(&project);
+    let mock_path = write_mock_pyright_multi_ref_lsp(&project);
     fs::write(
         project.as_path().join("widget.py"),
         "class Widget:\n    pass\n\n\ndef render(w: Widget) -> None:\n    return None\n",
@@ -1291,6 +1342,7 @@ fn use_lsp_full_results_serializes_every_reference_without_truncation() {
     )
     .unwrap();
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
 
     let payload = call_tool(
         &state,
@@ -1347,13 +1399,14 @@ fn use_lsp_full_results_serializes_every_reference_without_truncation() {
 #[test]
 fn default_path_stays_deterministic_when_pyright_session_is_warm() {
     let project = project_root();
-    write_mock_pyright_references_lsp(&project);
+    let mock_path = write_mock_pyright_references_lsp(&project);
     fs::write(
         project.as_path().join("widget.py"),
         "class Widget:\n    pass\n\n\ndef render(w: Widget) -> None:\n    return None\n",
     )
     .unwrap();
     let state = make_state(&project);
+    register_mock_lsp(&state, &mock_path);
 
     // Warm the pool: an explicit use_lsp=true call spawns the pyright shim
     // and leaves a live session keyed (pyright-langserver, ["--stdio"]).

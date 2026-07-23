@@ -1,16 +1,15 @@
 use super::LspRenameRequest;
 use super::{
     LspCodeActionRequest, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
-    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, code_action_refactor_via_lsp,
-    default_lsp_args_for_command, default_lsp_command_for_path, find_referencing_symbols_via_lsp,
-    get_diagnostics_via_lsp, get_rename_plan_via_lsp, get_type_hierarchy_via_lsp,
-    rename_symbol_via_lsp, search_workspace_symbols_via_lsp,
+    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, default_lsp_args_for_command,
+    default_lsp_command_for_path,
 };
 use crate::ProjectRoot;
 use serde_json::Value;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 
 #[test]
 fn reads_references_from_mock_lsp() {
@@ -18,24 +17,22 @@ fn reads_references_from_mock_lsp() {
     let project = ProjectRoot::new(&dir).expect("project");
     fs::write(dir.join("sample.py"), "def greet():\n    return 1\n").expect("write sample");
     let server_path = dir.join("mock_lsp.py");
-    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    fs::write(&server_path, mock_server_script(None, None)).expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let refs = find_referencing_symbols_via_lsp(
-        &project,
-        &LspRequest {
-            command: "python3".to_owned(),
-            args: vec![
-                server_path.display().to_string(),
-                dir.join("count.txt").display().to_string(),
-            ],
+    let refs = pool
+        .find_referencing_symbols(&LspRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "sample.py".to_owned(),
             line: 1,
             column: 5,
             max_results: 10,
-        },
-    )
-    .expect("lsp references");
+        })
+        .expect("lsp references");
 
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].file_path, "sample.py");
@@ -50,16 +47,16 @@ fn reuses_pooled_session() {
     fs::write(dir.join("sample.py"), "def greet():\n    return 1\n").expect("write sample");
     let server_path = dir.join("mock_lsp.py");
     let count_path = dir.join("count.txt");
-    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    fs::write(&server_path, mock_server_script(Some(&count_path), None))
+        .expect("write mock server");
     chmod_exec(&server_path);
 
     let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
     let request = LspRequest {
-        command: "python3".to_owned(),
-        args: vec![
-            server_path.display().to_string(),
-            count_path.display().to_string(),
-        ],
+        command: "pyright-langserver".to_owned(),
+        args: vec!["--stdio".to_owned()],
         file_path: "sample.py".to_owned(),
         line: 1,
         column: 5,
@@ -88,19 +85,20 @@ fn reads_diagnostics_from_mock_lsp() {
     let project = ProjectRoot::new(&dir).expect("project");
     fs::write(dir.join("sample.py"), "def greet(:\n    return 1\n").expect("write sample");
     let server_path = dir.join("mock_lsp.py");
-    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    fs::write(&server_path, mock_server_script(None, None)).expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let diagnostics = get_diagnostics_via_lsp(
-        &project,
-        &LspDiagnosticRequest {
-            command: "python3".to_owned(),
-            args: vec![server_path.display().to_string()],
+    let diagnostics = pool
+        .get_diagnostics(&LspDiagnosticRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "sample.py".to_owned(),
             max_results: 10,
-        },
-    )
-    .expect("lsp diagnostics");
+        })
+        .expect("lsp diagnostics");
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].file_path, "sample.py");
@@ -129,17 +127,18 @@ fn diagnostics_sync_project_imports_before_request() {
     fs::write(&server_path, import_sync_diagnostics_mock_server_script())
         .expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let diagnostics = get_diagnostics_via_lsp(
-        &project,
-        &LspDiagnosticRequest {
-            command: "python3".to_owned(),
-            args: vec![server_path.display().to_string()],
+    let diagnostics = pool
+        .get_diagnostics(&LspDiagnosticRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "src/donation_heart_clipper/gui.py".to_owned(),
             max_results: 10,
-        },
-    )
-    .expect("lsp diagnostics");
+        })
+        .expect("lsp diagnostics");
 
     assert!(
         diagnostics.is_empty(),
@@ -156,24 +155,22 @@ fn diagnostics_retry_once_after_stale_lsp_transport() {
     let count_path = dir.join("count.txt");
     fs::write(
         &server_path,
-        stale_transport_diagnostics_mock_server_script(),
+        stale_transport_diagnostics_mock_server_script(&count_path),
     )
     .expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let diagnostics = get_diagnostics_via_lsp(
-        &project,
-        &LspDiagnosticRequest {
-            command: "python3".to_owned(),
-            args: vec![
-                server_path.display().to_string(),
-                count_path.display().to_string(),
-            ],
+    let diagnostics = pool
+        .get_diagnostics(&LspDiagnosticRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "sample.py".to_owned(),
             max_results: 10,
-        },
-    )
-    .expect("diagnostics recover after stale transport");
+        })
+        .expect("diagnostics recover after stale transport");
 
     assert_eq!(diagnostics.len(), 1);
     let starts = fs::read_to_string(&count_path)
@@ -188,24 +185,24 @@ fn diagnostics_retry_once_after_stale_lsp_transport() {
 fn reads_workspace_symbols_from_mock_lsp() {
     let dir = temp_dir("codelens-lsp-workspace-symbols");
     let project = ProjectRoot::new(&dir).expect("project");
-    fs::write(dir.join("sample.py"), "class Service:\n    pass\n").expect("write sample");
+    let sample_path = dir.join("sample.py");
+    fs::write(&sample_path, "class Service:\n    pass\n").expect("write sample");
     let server_path = dir.join("mock_lsp.py");
-    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    fs::write(&server_path, mock_server_script(None, Some(&sample_path)))
+        .expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let symbols = search_workspace_symbols_via_lsp(
-        &project,
-        &LspWorkspaceSymbolRequest {
-            command: "python3".to_owned(),
-            args: vec![
-                server_path.display().to_string(),
-                dir.join("sample.py").display().to_string(),
-            ],
+    let symbols = pool
+        .search_workspace_symbols(&LspWorkspaceSymbolRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             query: "Service".to_owned(),
             max_results: 10,
-        },
-    )
-    .expect("workspace symbols");
+        })
+        .expect("workspace symbols");
 
     assert_eq!(symbols.len(), 1);
     assert_eq!(symbols[0].name, "Service");
@@ -217,26 +214,26 @@ fn reads_workspace_symbols_from_mock_lsp() {
 fn reads_type_hierarchy_from_mock_lsp() {
     let dir = temp_dir("codelens-lsp-type-hierarchy");
     let project = ProjectRoot::new(&dir).expect("project");
-    fs::write(dir.join("sample.py"), "class Service:\n    pass\n").expect("write sample");
+    let sample_path = dir.join("sample.py");
+    fs::write(&sample_path, "class Service:\n    pass\n").expect("write sample");
     let server_path = dir.join("mock_lsp.py");
-    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    fs::write(&server_path, mock_server_script(None, Some(&sample_path)))
+        .expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let hierarchy = get_type_hierarchy_via_lsp(
-        &project,
-        &LspTypeHierarchyRequest {
-            command: "python3".to_owned(),
-            args: vec![
-                server_path.display().to_string(),
-                dir.join("sample.py").display().to_string(),
-            ],
+    let hierarchy = pool
+        .get_type_hierarchy(&LspTypeHierarchyRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             query: "Service".to_owned(),
             relative_path: Some("sample.py".to_owned()),
             hierarchy_type: "both".to_owned(),
             depth: 1,
-        },
-    )
-    .expect("type hierarchy");
+        })
+        .expect("type hierarchy");
 
     assert_eq!(
         hierarchy.get("class_name"),
@@ -266,21 +263,22 @@ fn reads_rename_plan_from_mock_lsp() {
     let project = ProjectRoot::new(&dir).expect("project");
     fs::write(dir.join("sample.py"), "class Service:\n    pass\n").expect("write sample");
     let server_path = dir.join("mock_lsp.py");
-    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    fs::write(&server_path, mock_server_script(None, None)).expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let plan = get_rename_plan_via_lsp(
-        &project,
-        &LspRenamePlanRequest {
-            command: "python3".to_owned(),
-            args: vec![server_path.display().to_string()],
+    let plan = pool
+        .get_rename_plan(&LspRenamePlanRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "sample.py".to_owned(),
             line: 1,
             column: 8,
             new_name: Some("RenamedService".to_owned()),
-        },
-    )
-    .expect("rename plan");
+        })
+        .expect("rename plan");
 
     assert_eq!(plan.file_path, "sample.py");
     assert_eq!(plan.current_name, "Service");
@@ -298,22 +296,23 @@ fn applies_rename_workspace_edit_from_mock_lsp() {
     )
     .expect("write sample");
     let server_path = dir.join("mock_lsp.py");
-    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    fs::write(&server_path, mock_server_script(None, None)).expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let result = rename_symbol_via_lsp(
-        &project,
-        &LspRenameRequest {
-            command: "python3".to_owned(),
-            args: vec![server_path.display().to_string()],
+    let result = pool
+        .rename_symbol(&LspRenameRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "sample.py".to_owned(),
             line: 1,
             column: 8,
             new_name: "RenamedService".to_owned(),
             dry_run: false,
-        },
-    )
-    .expect("rename result");
+        })
+        .expect("rename result");
 
     assert_eq!(result.total_replacements, 2);
     assert_eq!(result.modified_files, 1);
@@ -330,19 +329,20 @@ fn lsp_requests_translate_byte_columns_to_utf16_positions() {
     let server_path = dir.join("mock_utf16_lsp.py");
     fs::write(&server_path, utf16_position_mock_server_script()).expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let refs = find_referencing_symbols_via_lsp(
-        &project,
-        &LspRequest {
-            command: "python3".to_owned(),
-            args: vec![server_path.display().to_string()],
+    let refs = pool
+        .find_referencing_symbols(&LspRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "sample.py".to_owned(),
             line: 1,
             column: "🙂 ".len() + 1,
             max_results: 10,
-        },
-    )
-    .expect("lsp references");
+        })
+        .expect("lsp references");
 
     assert_eq!(
         refs.len(),
@@ -366,20 +366,21 @@ fn rename_via_lsp_runs_prepare_rename_before_workspace_edit() {
     fs::write(&server_path, prepare_required_rename_mock_server_script())
         .expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let result = rename_symbol_via_lsp(
-        &project,
-        &LspRenameRequest {
-            command: "python3".to_owned(),
-            args: vec![server_path.display().to_string()],
+    let result = pool
+        .rename_symbol(&LspRenameRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "sample.py".to_owned(),
             line: 1,
             column: 7,
             new_name: "RenamedService".to_owned(),
             dry_run: true,
-        },
-    )
-    .expect("rename result");
+        })
+        .expect("rename result");
 
     assert_eq!(result.total_replacements, 2);
 }
@@ -396,12 +397,14 @@ fn applies_lsp_code_action_workspace_edit() {
     let server_path = dir.join("mock_code_action_lsp.py");
     fs::write(&server_path, code_action_mock_server_script(false)).expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let result = code_action_refactor_via_lsp(
-        &project,
-        &LspCodeActionRequest {
-            command: "python3".to_owned(),
-            args: vec![server_path.display().to_string()],
+    let result = pool
+        .code_action_refactor(&LspCodeActionRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "sample.ts".to_owned(),
             start_line: 2,
             start_column: 3,
@@ -411,9 +414,8 @@ fn applies_lsp_code_action_workspace_edit() {
             action_id: None,
             operation: "extract_function".to_owned(),
             dry_run: false,
-        },
-    )
-    .expect("code action refactor");
+        })
+        .expect("code action refactor");
 
     assert_eq!(result.transaction.edit_count, 2);
     assert_eq!(result.action_kind.as_deref(), Some("refactor.extract"));
@@ -434,12 +436,14 @@ fn resolves_lsp_code_action_before_workspace_edit_apply() {
     let server_path = dir.join("mock_code_action_resolve_lsp.py");
     fs::write(&server_path, code_action_mock_server_script(true)).expect("write mock server");
     chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
 
-    let result = code_action_refactor_via_lsp(
-        &project,
-        &LspCodeActionRequest {
-            command: "python3".to_owned(),
-            args: vec![server_path.display().to_string()],
+    let result = pool
+        .code_action_refactor(&LspCodeActionRequest {
+            command: "pyright-langserver".to_owned(),
+            args: vec!["--stdio".to_owned()],
             file_path: "sample.ts".to_owned(),
             start_line: 2,
             start_column: 3,
@@ -449,9 +453,8 @@ fn resolves_lsp_code_action_before_workspace_edit_apply() {
             action_id: None,
             operation: "extract_function".to_owned(),
             dry_run: false,
-        },
-    )
-    .expect("resolved code action refactor");
+        })
+        .expect("resolved code action refactor");
 
     assert_eq!(result.resolved_via, "codeAction/resolve");
     let updated = fs::read_to_string(dir.join("sample.ts")).expect("read updated");
@@ -628,13 +631,13 @@ while True:
 "#
 }
 
-fn stale_transport_diagnostics_mock_server_script() -> &'static str {
+fn stale_transport_diagnostics_mock_server_script(count_path: &Path) -> String {
     r#"#!/usr/bin/env python3
 import json
 import sys
 from pathlib import Path
 
-count_file = Path(sys.argv[1])
+count_file = Path(__COUNT_PATH__)
 starts = int(count_file.read_text()) if count_file.exists() else 0
 starts += 1
 count_file.write_text(str(starts))
@@ -698,6 +701,7 @@ while True:
     elif method == "exit":
         break
 "#
+    .replace("__COUNT_PATH__", &python_path_literal(Some(count_path)))
 }
 
 fn prepare_required_rename_mock_server_script() -> &'static str {
@@ -863,16 +867,16 @@ while True:
     )
 }
 
-fn mock_server_script() -> &'static str {
+fn mock_server_script(count_path: Option<&Path>, symbol_path: Option<&Path>) -> String {
     r#"#!/usr/bin/env python3
 import json
 import sys
 from pathlib import Path
 
-count_file = Path(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].endswith(".txt") else None
-symbol_path = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].endswith(".txt") else None
-if len(sys.argv) > 2:
-    symbol_path = Path(sys.argv[2])
+COUNT_PATH = __COUNT_PATH__
+SYMBOL_PATH = __SYMBOL_PATH__
+count_file = Path(COUNT_PATH) if COUNT_PATH is not None else None
+symbol_path = Path(SYMBOL_PATH) if SYMBOL_PATH is not None else None
 initialize_count = 0
 
 def read_message():
@@ -1062,4 +1066,11 @@ while True:
     elif method == "exit":
         break
 "#
+    .replace("__COUNT_PATH__", &python_path_literal(count_path))
+    .replace("__SYMBOL_PATH__", &python_path_literal(symbol_path))
+}
+
+fn python_path_literal(path: Option<&Path>) -> String {
+    path.map(|path| serde_json::json!(path.display().to_string()).to_string())
+        .unwrap_or_else(|| "None".to_owned())
 }

@@ -397,6 +397,10 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
         std::fs::set_permissions(&mock_path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     std::fs::write(&file_path, "def beta():\n    return 2\n").unwrap();
+    state
+        .lsp_pool()
+        .register_trusted_lsp_binary("pyright-langserver", &mock_path)
+        .expect("register mock LSP executable");
 
     let init = app
         .clone()
@@ -473,9 +477,8 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(format!(
-                    r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"get_file_diagnostics","arguments":{{"file_path":"{}","command":"python3","args":["{}"]}}}}}}"#,
-                    file_path.display(),
-                    mock_path.display()
+                    r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"get_file_diagnostics","arguments":{{"file_path":"{}","command":"pyright-langserver","args":["--stdio"]}}}}}}"#,
+                    file_path.display()
                 )))
                 .unwrap(),
         )

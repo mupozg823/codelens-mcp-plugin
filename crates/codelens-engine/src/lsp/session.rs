@@ -3,15 +3,14 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 use url::Url;
 
-use super::commands::is_allowed_lsp_command;
+use super::commands::{LspLaunchPolicy, ValidatedLspInvocation, validate_lsp_invocation};
 use super::protocol::{language_id_for_path, poll_readable, read_message, send_message};
-use super::registry::resolve_lsp_binary_with_hint;
 use super::types::{
     LspCodeActionRefactorPlan, LspCodeActionRefactorResult, LspCodeActionRequest, LspDiagnostic,
     LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest, LspRenameRequest,
@@ -21,15 +20,17 @@ use super::types::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct SessionKey {
-    command: String,
+    recipe_binary: &'static str,
+    executable: PathBuf,
     args: Vec<String>,
 }
 
 impl SessionKey {
-    fn new(command: &str, args: &[String]) -> Self {
+    fn new(invocation: &ValidatedLspInvocation) -> Self {
         Self {
-            command: command.to_owned(),
-            args: args.to_owned(),
+            recipe_binary: invocation.recipe_binary(),
+            executable: invocation.executable().to_owned(),
+            args: invocation.args().to_owned(),
         }
     }
 }
@@ -42,6 +43,7 @@ struct OpenDocumentState {
 
 pub struct LspSessionPool {
     project: ProjectRoot,
+    launch_policy: LspLaunchPolicy,
     sessions: std::sync::Mutex<HashMap<SessionKey, LspSession>>,
 }
 
@@ -63,19 +65,12 @@ pub(super) struct LspSession {
     server_quiescent: Option<bool>,
 }
 
-fn ensure_session<'a>(
+fn ensure_validated_session<'a>(
     sessions: &'a mut HashMap<SessionKey, LspSession>,
     project: &ProjectRoot,
-    command: &str,
-    args: &[String],
+    invocation: ValidatedLspInvocation,
 ) -> Result<&'a mut LspSession> {
-    if !is_allowed_lsp_command(command) {
-        bail!(
-            "Blocked: '{command}' is not a known LSP server. Only whitelisted LSP binaries are allowed."
-        );
-    }
-
-    let key = SessionKey::new(command, args);
+    let key = SessionKey::new(&invocation);
 
     // Check for dead sessions: if the child process has exited, remove the stale entry.
     if let Some(session) = sessions.get_mut(&key) {
@@ -94,7 +89,7 @@ fn ensure_session<'a>(
     match sessions.entry(key) {
         std::collections::hash_map::Entry::Occupied(e) => Ok(e.into_mut()),
         std::collections::hash_map::Entry::Vacant(e) => {
-            let session = LspSession::start(project, command, args)?;
+            let session = LspSession::start(project, &invocation)?;
             Ok(e.insert(session))
         }
     }
@@ -119,8 +114,51 @@ impl LspSessionPool {
     pub fn new(project: ProjectRoot) -> Self {
         Self {
             project,
+            launch_policy: LspLaunchPolicy::from_environment(),
             sessions: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Add an executable to this host-controlled LSP trust set.
+    ///
+    /// This is an embedding/configuration API, not a request parameter. Hosts
+    /// must never forward caller-controlled paths here. Registration verifies
+    /// the recipe name, canonicalizes the executable, and clears existing
+    /// sessions before the new mapping can be used.
+    pub fn register_trusted_lsp_binary(
+        &self,
+        command: &str,
+        executable: impl AsRef<Path>,
+    ) -> Result<PathBuf> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        let canonical = self
+            .launch_policy
+            .register_trusted_binary(command, executable.as_ref())?;
+        sessions.clear();
+        Ok(canonical)
+    }
+
+    /// Return the canonical executable preconfigured for a recipe.
+    pub fn trusted_lsp_binary(&self, command: &str) -> Option<PathBuf> {
+        self.launch_policy.trusted_binary(command)
+    }
+
+    fn validate_invocation(
+        &self,
+        command: &str,
+        args: &[String],
+    ) -> Result<ValidatedLspInvocation> {
+        validate_lsp_invocation(&self.launch_policy, command, args)
+    }
+
+    fn ensure_session<'a>(
+        &self,
+        sessions: &'a mut HashMap<SessionKey, LspSession>,
+        command: &str,
+        args: &[String],
+    ) -> Result<&'a mut LspSession> {
+        let invocation = self.validate_invocation(command, args)?;
+        ensure_validated_session(sessions, &self.project, invocation)
     }
 
     /// Replace the project root and close all existing sessions.
@@ -130,7 +168,11 @@ impl LspSessionPool {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clear();
-        Self::new(project)
+        Self {
+            project,
+            launch_policy: self.launch_policy.clone(),
+            sessions: std::sync::Mutex::new(HashMap::new()),
+        }
     }
 
     /// Shutdown all active LSP sessions in this pool by dropping them.
@@ -156,8 +198,11 @@ impl LspSessionPool {
     /// without risking a 2-30s cold start. Stale (exited) sessions are reaped
     /// as a side effect, mirroring `ensure_session`.
     pub fn has_warm_session(&self, command: &str, args: &[String]) -> bool {
+        let Ok(invocation) = self.validate_invocation(command, args) else {
+            return false;
+        };
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let key = SessionKey::new(command, args);
+        let key = SessionKey::new(&invocation);
         match sessions.get_mut(&key) {
             Some(session) => match session.child.try_wait() {
                 Ok(None) => true,
@@ -174,10 +219,11 @@ impl LspSessionPool {
     /// warm (P1.3 pre-warm pool). Idempotent: an already-live session is a
     /// no-op. Runs the full spawn+initialize handshake, so callers should
     /// invoke this from a background thread — never on a bind/request hot
-    /// path. Command whitelisting is enforced by `ensure_session`.
+    /// path. Recipe and executable trust is enforced by `ensure_session`.
     pub fn prewarm_session(&self, command: &str, args: &[String]) -> Result<()> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        ensure_session(&mut sessions, &self.project, command, args).map(|_| ())
+        self.ensure_session(&mut sessions, command, args)
+            .map(|_| ())
     }
 
     /// Readiness of a warm session (P1.1): outer `None` = no live session for
@@ -187,8 +233,9 @@ impl LspSessionPool {
     /// Warm ≠ quiescent: confidence calibration must treat `Some(Some(false))`
     /// (still indexing) as degraded evidence.
     pub fn warm_session_quiescence(&self, command: &str, args: &[String]) -> Option<Option<bool>> {
+        let invocation = self.validate_invocation(command, args).ok()?;
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let key = SessionKey::new(command, args);
+        let key = SessionKey::new(&invocation);
         match sessions.get_mut(&key) {
             Some(session) => match session.child.try_wait() {
                 Ok(None) => Some(session.server_quiescent()),
@@ -203,12 +250,7 @@ impl LspSessionPool {
 
     pub fn find_referencing_symbols(&self, request: &LspRequest) -> Result<Vec<LspReference>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
         session.find_references(request)
     }
 
@@ -225,19 +267,15 @@ impl LspSessionPool {
         request: &LspRequest,
     ) -> Result<(Vec<LspReference>, bool)> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let key = SessionKey::new(&request.command, &request.args);
+        let invocation = self.validate_invocation(&request.command, &request.args)?;
+        let key = SessionKey::new(&invocation);
         // A live child for this key means `ensure_session` reuses it (no
         // spawn); its absence or a dead child means it will spawn below.
         let was_warm = sessions
             .get_mut(&key)
             .map(|session| matches!(session.child.try_wait(), Ok(None)))
             .unwrap_or(false);
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = ensure_validated_session(&mut sessions, &self.project, invocation)?;
         let references = session.find_references(request)?;
         Ok((references, !was_warm))
     }
@@ -245,26 +283,17 @@ impl LspSessionPool {
     pub fn get_diagnostics(&self, request: &LspDiagnosticRequest) -> Result<Vec<LspDiagnostic>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let result = {
-            let session = ensure_session(
-                &mut sessions,
-                &self.project,
-                &request.command,
-                &request.args,
-            )?;
+            let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
             session.get_diagnostics(request)
         };
 
         match result {
             Ok(diagnostics) => Ok(diagnostics),
             Err(err) if is_retriable_lsp_transport_error(&err) => {
-                let key = SessionKey::new(&request.command, &request.args);
+                let invocation = self.validate_invocation(&request.command, &request.args)?;
+                let key = SessionKey::new(&invocation);
                 sessions.remove(&key);
-                let session = ensure_session(
-                    &mut sessions,
-                    &self.project,
-                    &request.command,
-                    &request.args,
-                )?;
+                let session = ensure_validated_session(&mut sessions, &self.project, invocation)?;
                 session
                     .get_diagnostics(request)
                     .with_context(|| "retried diagnostics after stale LSP transport")
@@ -278,12 +307,7 @@ impl LspSessionPool {
         request: &LspWorkspaceSymbolRequest,
     ) -> Result<Vec<LspWorkspaceSymbol>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
         session.search_workspace_symbols(request)
     }
 
@@ -292,12 +316,7 @@ impl LspSessionPool {
         request: &LspTypeHierarchyRequest,
     ) -> Result<HashMap<String, Value>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
         session.get_type_hierarchy(request)
     }
 
@@ -306,34 +325,19 @@ impl LspSessionPool {
         request: &LspResolveTargetRequest,
     ) -> Result<Vec<LspResolvedTarget>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
         session.resolve_symbol_target(request)
     }
 
     pub fn get_rename_plan(&self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
         session.get_rename_plan(request)
     }
 
     pub fn rename_symbol(&self, request: &LspRenameRequest) -> Result<crate::rename::RenameResult> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
         session.rename_symbol(request)
     }
 
@@ -342,12 +346,7 @@ impl LspSessionPool {
         request: &LspRenameRequest,
     ) -> Result<LspWorkspaceEditTransaction> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
         session.rename_symbol_transaction(request)
     }
 
@@ -356,12 +355,7 @@ impl LspSessionPool {
         request: &LspCodeActionRequest,
     ) -> Result<LspCodeActionRefactorResult> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
         session.code_action_refactor(request)
     }
 
@@ -370,27 +364,25 @@ impl LspSessionPool {
         request: &LspCodeActionRequest,
     ) -> Result<LspCodeActionRefactorPlan> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
-            &self.project,
-            &request.command,
-            &request.args,
-        )?;
+        let session = self.ensure_session(&mut sessions, &request.command, &request.args)?;
         session.code_action_refactor_plan(request)
     }
 }
 
 impl LspSession {
-    fn start(project: &ProjectRoot, command: &str, args: &[String]) -> Result<Self> {
-        let command_path = resolve_lsp_binary_with_hint(command, Some(project.as_path()))
-            .unwrap_or_else(|| command.into());
-        let mut child = Command::new(&command_path)
-            .args(args)
+    fn start(project: &ProjectRoot, invocation: &ValidatedLspInvocation) -> Result<Self> {
+        let mut child = Command::new(invocation.executable())
+            .args(invocation.args())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .with_context(|| format!("failed to spawn LSP server {}", command_path.display()))?;
+            .with_context(|| {
+                format!(
+                    "failed to spawn trusted LSP server {}",
+                    invocation.executable().display()
+                )
+            })?;
 
         let stdin = child.stdin.take().context("failed to open LSP stdin")?;
         let stdout = child.stdout.take().context("failed to open LSP stdout")?;
@@ -425,7 +417,7 @@ impl LspSession {
             stderr_buffer,
             server_quiescent: None,
         };
-        session.initialize(command)?;
+        session.initialize(invocation.recipe_binary())?;
         if let Some(grace) = configured_startup_grace() {
             thread::sleep(grace);
         }

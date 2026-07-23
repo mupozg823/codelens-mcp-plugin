@@ -21,6 +21,21 @@ The old `*-readonly` labels are compatibility leftovers only. The installer and
 redeploy script disable and boot them out before touching the canonical writer;
 they never generate or bootstrap a readonly plist.
 
+### Shared-daemon LSP execution
+
+Reviewer/planner/read-only profiles share the same LSP pool as mutation
+profiles, so profile selection is not the subprocess authorization boundary.
+All profiles use the engine-wide registered-recipe policy documented in
+[`runtime-knobs.md`](runtime-knobs.md#lsp-subprocess-trust-boundary): exact
+recipe arguments and a canonical executable captured from operator-controlled
+paths. A bound repository's `node_modules/.bin` is never trusted merely because
+the repository contains a same-named server shim.
+
+Keep the launchd `PATH` and `CODELENS_LSP_PATH_EXTRA` values operator-owned.
+For mutually untrusted repositories, use OS/container isolation as well; a
+trusted language server may still execute language-specific project hooks even
+though callers cannot choose the process or its arguments.
+
 `codelens-mcp-plugin/.mcp.json` points at `:7736`, so dogfooding the
 working-tree build never touches the shared consumption daemon. Iterate with:
 

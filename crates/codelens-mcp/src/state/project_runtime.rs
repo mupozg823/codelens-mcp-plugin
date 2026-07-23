@@ -422,20 +422,6 @@ fn filter_available_commands(
         .collect()
 }
 
-/// Is `command` resolvable as an executable? A path with a separator is checked
-/// directly; a bare command name is looked up across `PATH`. Used only to gate
-/// auto pre-warm, so a false negative merely skips a would-be optimization.
-fn lsp_binary_on_path(command: &str) -> bool {
-    let candidate = std::path::Path::new(command);
-    if candidate.is_absolute() || command.contains(std::path::MAIN_SEPARATOR) {
-        return candidate.is_file();
-    }
-    let Some(paths) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&paths).any(|dir| dir.join(command).is_file())
-}
-
 /// Read the pre-warm policy from the environment and warm the chosen servers
 /// on a background thread. Never blocks the bind path; failures (missing
 /// binary, non-whitelisted command) are logged and skipped — pre-warm is an
@@ -448,7 +434,9 @@ fn maybe_prewarm_lsp_sessions(symbol_index: &Arc<SymbolIndex>, lsp_pool: &Arc<Ls
     };
     let language_counts = symbol_index.language_counts().unwrap_or_default();
     let commands = prewarm_commands(&mode, &language_counts);
-    let commands = filter_available_commands(commands, &mode, lsp_binary_on_path);
+    let commands = filter_available_commands(commands, &mode, |command| {
+        lsp_pool.trusted_lsp_binary(command).is_some()
+    });
     if commands.is_empty() {
         return;
     }
