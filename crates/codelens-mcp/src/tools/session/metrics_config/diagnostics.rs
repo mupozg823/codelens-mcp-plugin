@@ -82,9 +82,9 @@ impl DiagnosticsGuidance {
             DiagnosticsStatus::UnsupportedExtension => Some(
                 "unsupported extension — no default LSP recipe is registered for this file type",
             ),
-            DiagnosticsStatus::LspBinaryMissing => Some(
-                "LSP binary missing — install the configured server or provide an explicit command",
-            ),
+            DiagnosticsStatus::LspBinaryMissing => {
+                Some("LSP binary missing — install the configured server in the daemon environment")
+            }
         }
     }
 
