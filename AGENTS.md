@@ -73,12 +73,16 @@ The server enforces this gate in `refactor-full`. Missing or stale preflight evi
 
 ## HTTP Daemon Ports
 
-Two CodeLens HTTP daemons are the recommended local operational shape for this project:
+One CodeLens HTTP daemon is the recommended local operational shape for this
+project:
 
-- `:7838` — `refactor-full` / `mutation-enabled`. Intended for Codex (builder) sessions.
-- `:7839` — `reviewer-graph` / `read-only`. Intended for Claude (planner/reviewer) sessions.
+- `:7838` — canonical `builder` / `mutation-enabled` writer for all sessions.
 
-Agents should attach by URL rather than spawning their own stdio subprocess. The daemons share this project's on-disk index; advisory `register_agent_work` + `claim_files` coordinates mutation collisions.
+Codex, Claude, and Cursor attach to that URL. Reviewer/planner versus
+builder/refactor behavior is selected per HTTP session (`readonly`/`review`/
+`builder`) and enforced by RBAC; do not run a second daemon for the same
+project. The project-writer lease rejects a competing process, and the legacy
+`*-readonly` launchd label is disabled during install/redeploy.
 
 See [docs/multi-agent-integration.md](docs/multi-agent-integration.md) for the full delegation pattern, coordination discipline (TTL/release), and brief templates.
 
@@ -96,7 +100,7 @@ This document is not a passive note — it routes work to the cheapest agent tha
 
 ### Anti-routing
 
-- Do **not** dispatch a `builder` subagent in `isolation: "worktree"` mode for a small change that fits in `≤5 sub-step / ≤30 net LOC` — inline edits in the active session are faster and keep evidence visible. The builder's `status: completed` self-report has been observed to fire mid-Task with WIP-only commits; parent must verify with `cargo test/clippy/fmt` regardless. (See `~/.claude/projects/-Users-bagjaeseog/memory/feedback_inline_over_background_dispatch.md`.)
+- Do **not** dispatch a `builder` subagent in `isolation: "worktree"` mode for a small change that fits in `≤5 sub-step / ≤30 net LOC` — inline edits in the active session are faster and keep evidence visible. The builder's `status: completed` self-report has been observed to fire mid-Task with WIP-only commits; parent must verify with `cargo test/clippy/fmt` regardless. (See the local agent-memory note on inline work versus background dispatch.)
 - Do **not** chain a subagent to spawn another subagent — Claude Code subagents cannot create sub-subagents. Multi-step delegation chains run from the main conversation, not nested.
 - Do **not** swap models mid-session (Opus ↔ Haiku) — KV cache is model-specific, the cold write costs more than just staying on Opus.
 

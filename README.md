@@ -288,20 +288,18 @@ release 자산과 installer fallback에는 기본적으로 HTTP 지원이 포함
 <sub>English: Minimal setup:</sub>
 
 ```bash
-# Start once, keep running in the background
-codelens-mcp /path/to/project --transport http --profile review --daemon-mode read-only --port 7837
-
-# Optional: a second daemon scoped for refactor-capable agents
+# Start one writer once, keep it running in the background. Clients select
+# readonly/review/builder per session during initialize and RBAC gates mutation.
 codelens-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 ```
 
-위 포트 번호는 공개용 일반 예시입니다. 이 저장소의 로컬 launchd workflow에서는
-저장소 로컬 dual-daemon installer가 읽기 전용 daemon에 `:7839`, mutation
-daemon에 `:7838`을 사용합니다.
+이 저장소의 로컬 launchd workflow도 같은 단일-writer 계약을 사용합니다:
+`dev.codelens.mcp-mutation`이 `:7838`에서 실행되고, Claude/Codex/Cursor의
+host attach URL은 모두 `http://127.0.0.1:7838/mcp`입니다.
 
-<sub>English: Those ports are the public generic example. In this repository's local launchd
-workflow, the repo-local dual-daemon installer uses `:7839` for the read-only
-daemon and `:7838` for the mutation daemon.</sub>
+<sub>English: This repository's local launchd workflow uses the same single-writer
+contract: `dev.codelens.mcp-mutation` listens on `:7838`, and Claude/Codex/Cursor
+host attach URLs all point to `http://127.0.0.1:7838/mcp`.</sub>
 
 이후 모든 MCP client는 subprocess를 새로 띄우는 대신 URL로 붙습니다:
 
@@ -310,18 +308,18 @@ daemon and `:7838` for the mutation daemon.</sub>
 ```json
 {
   "mcpServers": {
-    "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" }
+    "codelens": { "type": "http", "url": "http://127.0.0.1:7838/mcp" }
   }
 }
 ```
 
-이 저장소의 로컬 launchd workflow를 따르고 있다면, 위의 읽기 전용 예시 URL을
-`http://127.0.0.1:7839/mcp`로 바꾸세요. `:7837` 주소는 이 섹션 전체에서
-사용되는 공개용 일반 예시로 그대로 남습니다.
+이 저장소의 로컬 launchd workflow를 따르고 있다면 URL을
+`http://127.0.0.1:7838/mcp`로 설정하세요. 읽기 전용/검토 표면은 별도
+프로세스가 아니라 세션의 `profile`/RBAC로 선택합니다.
 
-<sub>English: If you are following this repository's local launchd workflow, replace the
-read-only example URL above with `http://127.0.0.1:7839/mcp`. The `:7837`
-address remains the public generic example used throughout this section.</sub>
+<sub>English: If you are following this repository's local launchd workflow, set the URL to
+`http://127.0.0.1:7838/mcp`. Read-only/review surfaces are selected by the session
+`profile`/RBAC rather than a second process.</sub>
 
 #### When to prefer HTTP vs stdio
 
@@ -331,7 +329,7 @@ address remains the public generic example used throughout this section.</sub>
 | 2+ agents (Claude + Codex + Cursor) on the same repo | **HTTP**                  | One shared index, 100–200 MB saved per extra agent                     |
 | Long-running agent or automation loop                | **HTTP**                  | Avoids cold-start on every session                                     |
 | CI / one-shot script                                 | stdio                     | `--oneshot` matches short-lived commands                               |
-| Mutation-heavy workflow needing isolation            | **HTTP with two daemons** | Read-only port for planners, mutation-enabled port for refactor agents |
+| Mutation-heavy workflow needing isolation            | **HTTP with one writer + per-session RBAC** | Keep one project runtime; planner/reviewer sessions stay read-only by profile |
 
 HTTP를 공유하는 배포 환경에서는 CodeLens의 coordination을 중앙 lock manager가
 아니라 참고용 증거(advisory evidence)로 취급하세요. 실무 패턴은 다음과
@@ -362,11 +360,11 @@ standalone 바이너리가 다루는 것과 다루지 않는 것:
 
 #### Troubleshooting
 
-- **`Failed to reconnect` on the client** — the daemon likely exited or the configured URL/port is wrong. Verify with `curl <configured-mcp-url>`; for this repository's local launchd workflow that is usually `http://127.0.0.1:7839/mcp` for read-only and `http://127.0.0.1:7838/mcp` for mutation.
+- **`Failed to reconnect` on the client** — the daemon likely exited or the configured URL/port is wrong. Verify with `curl <configured-mcp-url>`; for this repository's local launchd workflow use `http://127.0.0.1:7838/mcp` for every host.
 - **Stale index warning on first attach** — expected when the watcher hasn't caught up after a daemon restart. Call `refresh_symbol_index` via MCP once, or restart the daemon with the project root as its CWD.
 - **Host config sanity check** — `codelens-mcp doctor <host>` (or `codelens-mcp status <host>`) inspects the host-native files and tells you whether the CodeLens entry is attached exactly, customized, missing, or needs manual review. Add `--strict` to probe HTTP-daemon `embedding_coverage_report`; the command exits non-zero when semantic coverage is attached but not ready or cannot be verified. Add `--json` when another script or host automation needs a machine-readable report.
 - **Broken or stale `~/.local/bin/codelens-mcp`** — if `cargo clean` removed the repo build a symlink points at, or if PATH still resolves to an older cargo-installed binary that does not know newer subcommands like `doctor` / `status`, run `bash scripts/sync-local-bin.sh .` to rebuild and re-link the local checkout, or `cargo install --path crates/codelens-mcp --force` to install a fresh standalone binary under `~/.cargo/bin/`.
-- **Multiple daemons listening on the same port** — only one will actually bind; the rest exit immediately. Check the actual configured port, for example `lsof -iTCP:7839 -sTCP:LISTEN` or `lsof -iTCP:7838 -sTCP:LISTEN` in this repository's local launchd workflow.
+- **`project_writer_busy` or duplicate daemons** — only one process may own a project's runtime. Stop/disable the legacy `dev.codelens.mcp-readonly` label, then run `bash scripts/redeploy-daemons.sh --probe`; inspect `lsof -iTCP:7838 -sTCP:LISTEN` for the canonical writer.
 - **Health check** — `scripts/mcp-doctor.sh . --strict` verifies that the configured transport matches an actual attach.
 
 #### Auto-start on macOS (launchd)
@@ -380,13 +378,17 @@ bash scripts/install-http-daemons-launchd.sh . --load
 ```
 
 이 스크립트는 기본적으로 현재 `--features http,semantic` 빌드로부터 저장소
-로컬 launchd agent 두 개를 설치합니다:
+로컬 launchd agent 하나를 설치합니다:
 
-<sub>English: That installs two repo-local launchd agents from a current
+<sub>English: That installs one canonical repo-local launchd agent from a current
 `--features http,semantic` build by default:</sub>
 
-- `dev.codelens.mcp-readonly` -> `review` on `:7839`
-- `dev.codelens.mcp-mutation` -> `builder` on `:7838`
+- `dev.codelens.mcp-mutation` -> `builder` / `mutation-enabled` on `:7838`
+
+The installer explicitly disables and boots out the legacy
+`dev.codelens.mcp-readonly` label. It never creates or bootstraps that plist;
+reviewer/planner sessions use `readonly` or `review` profiles on the canonical
+URL instead.
 
 > **빌드 플래그 참고 (v1.10.1+)**: installer는 기본적으로 daemon을
 > `http,semantic`으로 빌드하며, 저장소 로컬 모델 sidecar가 존재하면
@@ -417,17 +419,17 @@ daemon 예시입니다:
 using the installer above:</sub>
 
 ```xml
-<!-- ~/Library/LaunchAgents/dev.codelens.mcp.plist -->
+<!-- ~/Library/LaunchAgents/dev.codelens.mcp-mutation.plist -->
 <?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
-  <key>Label</key>            <string>dev.codelens.mcp</string>
+  <key>Label</key>            <string>dev.codelens.mcp-mutation</string>
   <key>ProgramArguments</key> <array>
     <string>/Users/you/.local/bin/codelens-mcp</string>
     <string>/Users/you/your-project</string>
     <string>--transport</string><string>http</string>
-    <string>--profile</string><string>review</string>
-    <string>--daemon-mode</string><string>read-only</string>
-    <string>--port</string><string>7837</string>
+    <string>--profile</string><string>builder</string>
+    <string>--daemon-mode</string><string>mutation-enabled</string>
+    <string>--port</string><string>7838</string>
   </array>
   <key>RunAtLoad</key>        <true/>
   <key>KeepAlive</key>        <true/>
@@ -437,7 +439,7 @@ using the installer above:</sub>
 ```
 
 ```bash
-launchctl load ~/Library/LaunchAgents/dev.codelens.mcp.plist
+launchctl load ~/Library/LaunchAgents/dev.codelens.mcp-mutation.plist
 launchctl list | grep codelens   # confirm it's running
 ```
 

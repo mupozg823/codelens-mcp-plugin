@@ -106,10 +106,9 @@ codelens-mcp . --cmd get_ranked_context --args '{"query":"http session bootstrap
 ### Shared HTTP daemon (multi-agent)
 
 ```bash
-# one read-only daemon for planners/reviewers
-codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only     --port 7837
-# one mutation-enabled daemon for refactor agents
-codelens-mcp /path/to/project --transport http --profile refactor-full  --daemon-mode mutation-enabled --port 7838
+# One mutation-capable writer shared by reviewer, planner, builder, and refactor
+# sessions. Select the profile and RBAC policy per session.
+codelens-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 ```
 
 See `docs/multi-agent-integration.md` for the full protocol.

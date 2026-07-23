@@ -42,7 +42,7 @@ ADR-0012 made the `semantic` feature opt-in on the cargo-install path. As of v1.
 | OpenTelemetry export                             | `--features otel`          | Independent of HTTP/semantic.                                                                                                 |
 | Audit feature flag (deprecated)                  | n/a                        | Removed in ADR-0011.                                                                                                          |
 
-**Operational implication for `launchd` / `systemd` / Docker daemons**: the binary you launch from the unit/service file must have been built with `--features http` (and `semantic` if you want hybrid retrieval). The launchd `.plist` files in this repo (`.codelens/launchd/dev.codelens.mcp-readonly.plist`, `dev.codelens.mcp-mutation.plist`) point at `target/release/codelens-mcp`, so the build command for the daemon stack is:
+**Operational implication for `launchd` / `systemd` / Docker daemons**: the binary you launch from the unit/service file must have been built with `--features http` (and `semantic` if you want hybrid retrieval). The canonical launchd plist is `dev.codelens.mcp-mutation.plist`; the installer disables the legacy readonly label. Build the single-writer daemon with:
 
 ```bash
 cargo build --release --features http,semantic

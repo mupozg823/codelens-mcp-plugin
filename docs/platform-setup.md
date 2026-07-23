@@ -69,21 +69,19 @@ Tagged release binaries and Homebrew installs do not include unreleased commits 
 ### Preferred: Shared HTTP Daemon
 
 ```bash
-# Read-only daemon for planner/reviewer/ci profiles
-codelens-mcp /path/to/project --transport http --profile review --daemon-mode read-only --port 7837
-
-# Mutation-enabled daemon for explicit refactor flows
+# One project writer; clients select review/builder per session and RBAC gates writes
 codelens-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 ```
 
 Use HTTP as the default for multi-agent harnesses. Keep stdio for single local sessions only.
 
-Recommended daemon split:
+Recommended daemon contract:
 
-- `7837` read-only daemon for planning, review, CI, and remote bootstrap
-- `7838` mutation-enabled daemon only for explicit gated refactor sessions
+- one mutation-capable project writer on `7838`
+- planner/reviewer/CI sessions select a read-only profile on that endpoint
+- mutation remains gated by per-session RBAC, preflight, and coordination
 
-For this repository's local launchd workflow, use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh). It installs the repo-local dual-daemon shape from a current `--features http,semantic` build by default, writes `CODELENS_MODEL_DIR` into the plists when the repo-local model sidecar exists, and defaults to `7839` read-only plus `7838` mutation-enabled to match the local harness contract.
+For this repository's local launchd workflow, use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh). It installs one repo-local writer from a current `--features http,semantic` build, writes `CODELENS_MODEL_DIR` into the plist when the repo-local model sidecar exists, and disables the legacy readonly launchd label.
 
 After changing runtime-facing retrieval or daemon behavior in this repository,
 refresh the local deployment and prove that the daemon is serving the same
@@ -106,13 +104,10 @@ only when measuring semantic indexing/search throughput.
 
 That installer also writes repo-local `host_attach.per_host_urls` overrides
 into `.codelens/config.json` so `codelens-mcp attach`, `status`, and `doctor`
-render and verify against the same local contract instead of the public
-generic `7837` default.
+render and verify against the same canonical `7838` contract.
 
-The host configuration examples below intentionally keep the public generic
-`7837` / `7838` URLs. If you are using this repository's local launchd
-workflow, replace the read-only `:7837` examples with `:7839` and leave the
-mutation-enabled `:7838` examples unchanged.
+All host configuration examples below use the canonical `:7838` endpoint;
+profiles and RBAC provide the read-only versus mutation boundary.
 
 If you need a public planner -> builder delegation pattern, including fixed preflight order, coordination TTL discipline, and explicit `release_files`, see [Multi-agent integration](multi-agent-integration.md).
 
@@ -250,9 +245,9 @@ snapshot, so the recommended operator chain is:
 2. `latest-summary.md` as the rolling descriptive report
 3. `latest-gate.md` as the rolling pass/warn/fail verdict
 
-That launchd wrapper defaults to `http://127.0.0.1:7839/mcp` so it matches
-this repository's local read-only daemon shape. Pass `--mcp-url` only if your
-running daemon uses a different address such as the public generic `:7837`.
+That launchd wrapper defaults to `http://127.0.0.1:7838/mcp` so it matches
+the canonical single-writer endpoint. Pass `--mcp-url` only if your running
+daemon uses a different address.
 
 If `export-eval-session-audit.sh` fails with `unsupported analysis job kind 'eval_session_audit'`, the running daemon is older than the current aggregate lane. Restart that daemon from a current build before treating it as a script failure.
 
@@ -324,10 +319,8 @@ Live Claude/Codex bidirectional chat is not the default operating model. The rec
 
 ### 1. Claude Code (CLI / Desktop / Web)
 
-The host-specific attach examples in this section use the public generic
-read-only daemon URL `http://127.0.0.1:7837/mcp`. If you installed this
-repository's local launchd workflow, substitute `http://127.0.0.1:7839/mcp`
-for the read-only examples below.
+The host-specific attach examples in this section use the canonical daemon URL
+`http://127.0.0.1:7838/mcp`. Read-only behavior is selected per session.
 
 **Global config** (`~/.claude.json`):
 
@@ -336,7 +329,7 @@ for the read-only examples below.
   "mcpServers": {
     "codelens": {
       "type": "http",
-      "url": "http://127.0.0.1:7837/mcp"
+      "url": "http://127.0.0.1:7838/mcp"
     }
   }
 }
@@ -349,7 +342,7 @@ for the read-only examples below.
   "mcpServers": {
     "codelens": {
       "type": "http",
-      "url": "http://127.0.0.1:7837/mcp"
+      "url": "http://127.0.0.1:7838/mcp"
     }
   }
 }
@@ -402,7 +395,7 @@ If Claude consumes a `delegate_to_codex_builder` scaffold, pass `delegate_tool`,
   "mcpServers": {
     "codelens": {
       "type": "http",
-      "url": "http://127.0.0.1:7837/mcp"
+      "url": "http://127.0.0.1:7838/mcp"
     }
   }
 }
@@ -415,7 +408,7 @@ If Claude consumes a `delegate_to_codex_builder` scaffold, pass `delegate_tool`,
   "mcpServers": {
     "codelens": {
       "type": "http",
-      "url": "http://127.0.0.1:7837/mcp"
+      "url": "http://127.0.0.1:7838/mcp"
     }
   }
 }
@@ -431,7 +424,7 @@ If a Cursor foreground or background agent forwards work into a builder lane, pr
 
 ```toml
 [mcp_servers.codelens]
-url = "http://127.0.0.1:7837/mcp"
+url = "http://127.0.0.1:7838/mcp"
 http_headers = { "x-codelens-project" = "/absolute/path/to/your/workspace" }
 ```
 
@@ -442,7 +435,7 @@ instead of inheriting the daemon's default project.
 **Ad hoc read-only smoke via CLI:**
 
 ```bash
-codex --mcp-server "http://127.0.0.1:7837/mcp"
+codex --mcp-server "http://127.0.0.1:7838/mcp"
 ```
 
 **Profiles (preferred):**
@@ -486,7 +479,7 @@ If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first
   "servers": {
     "codelens": {
       "type": "http",
-      "url": "http://127.0.0.1:7837/mcp"
+      "url": "http://127.0.0.1:7838/mcp"
     }
   }
 }
@@ -499,7 +492,7 @@ If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first
 **Settings → Tools → MCP Servers → Add:**
 
 - Name: `codelens`
-- URL: `http://127.0.0.1:7837/mcp`
+- URL: `http://127.0.0.1:7838/mcp`
 - Transport: HTTP
 
 ---
@@ -513,7 +506,7 @@ If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first
   "mcpServers": {
     "codelens": {
       "type": "http",
-      "url": "http://127.0.0.1:7837/mcp"
+      "url": "http://127.0.0.1:7838/mcp"
     }
   }
 }
@@ -529,7 +522,7 @@ If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first
 {
   "codelens": {
     "type": "http",
-    "url": "http://127.0.0.1:7837/mcp"
+    "url": "http://127.0.0.1:7838/mcp"
   }
 }
 ```
@@ -541,16 +534,13 @@ If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first
 For remote deployment or multi-agent harness scenarios:
 
 ```bash
-# Read-only shared daemon for planners/reviewers/CI
-codelens-mcp /path/to/project --transport http --profile review --daemon-mode read-only --port 7837
-
-# Mutation-enabled daemon for explicit refactor passes
+# One project writer. Clients select readonly/review/builder per session.
 codelens-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 
 # Client connects to:
-#   POST http://localhost:7837/mcp          (JSON-RPC)
-#   GET  http://localhost:7837/mcp          (SSE stream)
-#   GET  http://localhost:7837/.well-known/mcp.json  (Server Card)
+#   POST http://localhost:7838/mcp          (JSON-RPC)
+#   GET  http://localhost:7838/mcp          (SSE stream)
+#   GET  http://localhost:7838/.well-known/mcp.json  (Server Card)
 ```
 
 Published binary targets in the current release workflow:
@@ -570,8 +560,8 @@ RUN cargo build --release --features http
 
 FROM debian:bookworm-slim
 COPY --from=builder /app/target/release/codelens-mcp /usr/local/bin/
-EXPOSE 7837
-ENTRYPOINT ["codelens-mcp", "/workspace", "--transport", "http", "--port", "7837"]
+EXPOSE 7838
+ENTRYPOINT ["codelens-mcp", "/workspace", "--transport", "http", "--port", "7838"]
 ```
 
 ---

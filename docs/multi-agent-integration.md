@@ -77,19 +77,16 @@ For multi-agent HTTP deployments, keep the surfaces asymmetric:
 - planner / reviewer agents -> `reviewer-graph` on a read-only daemon
 - builder / refactor agents -> `refactor-full` on a mutation-enabled daemon
 
-Typical split:
+Typical topology:
 
 ```bash
-# read-only planner / reviewer daemon
-codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
-
-# mutation-enabled builder / refactor daemon
+# one writer; planner/reviewer sessions request a read-only profile
 codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
 ```
 
-Those are the public generic example ports. If you are using this repository's
-local launchd installer, the repo-local dual-daemon shape is `:7839`
-read-only plus `:7838` mutation-enabled.
+All hosts attach to `:7838`. The session profile and RBAC principal keep
+planner/reviewer calls read-only while the process-level project lease prevents
+a second writer daemon from sharing the same store.
 
 Operational rule:
 

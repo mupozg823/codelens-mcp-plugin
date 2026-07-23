@@ -1,9 +1,9 @@
-# ADR-0007: Symbiote as the v2 product metaphor and candidate rename
+# ADR-0007: Symbiote Product Metaphor and Candidate Rename
 
 - Status: Accepted as product direction; public primary-name cutover pending trademark clearance
 - Date: 2026-04-18
 - Supersedes: none
-- Related: ADR-0005 (harness-v2 substrate), ADR-0006 (routing enforcement)
+- Related: ADR-0005 (shared-harness substrate), ADR-0006 (routing enforcement)
 
 ## Context
 

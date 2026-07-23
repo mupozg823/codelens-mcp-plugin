@@ -64,8 +64,8 @@ Global or per-project MCP config:
 -    "codelens": {
 +    "symbiote": {
        "type": "http",
--      "url": "http://127.0.0.1:7837/mcp"
-+      "url": "http://127.0.0.1:7837/mcp"
+-      "url": "http://127.0.0.1:7838/mcp"
++      "url": "http://127.0.0.1:7838/mcp"
      }
    }
  }
@@ -101,7 +101,7 @@ Codex config:
 ```diff
 -[mcp_servers.codelens]
 +[mcp_servers.symbiote]
- url = "http://127.0.0.1:7837/mcp"
+ url = "http://127.0.0.1:7838/mcp"
 ```
 
 No URL change is required if you keep the same daemon.
@@ -129,7 +129,7 @@ Project or global MCP config:
 -    "codelens": {
 +    "symbiote": {
        "type": "http",
-       "url": "http://127.0.0.1:7837/mcp"
+       "url": "http://127.0.0.1:7838/mcp"
      }
    }
  }
@@ -158,7 +158,7 @@ Project MCP config:
 -  "codelens": {
 +  "symbiote": {
      "type": "http",
-     "url": "http://127.0.0.1:7837/mcp"
+     "url": "http://127.0.0.1:7838/mcp"
    }
  }
 ```
@@ -180,7 +180,7 @@ Global MCP config:
 -    "codelens": {
 +    "symbiote": {
        "type": "http",
-       "url": "http://127.0.0.1:7837/mcp"
+       "url": "http://127.0.0.1:7838/mcp"
      }
    }
  }
@@ -210,7 +210,7 @@ If you stay on stdio:
 -    "codelens": {
 +    "symbiote": {
        "type": "http",
-       "url": "http://127.0.0.1:7837/mcp"
+       "url": "http://127.0.0.1:7838/mcp"
      }
    }
  }
@@ -223,7 +223,7 @@ Server display name:
 ```diff
 -Name: codelens
 +Name: symbiote
- URL: http://127.0.0.1:7837/mcp
+ URL: http://127.0.0.1:7838/mcp
  Transport: HTTP
 ```
 
@@ -239,8 +239,8 @@ Binary calls:
 HTTP daemon startup:
 
 ```diff
--codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
-+symbiote-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
+-codelens-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
++symbiote-mcp /path/to/project --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 ```
 
 Environment variables:
@@ -270,8 +270,8 @@ Resource URIs in tests, prompts, dashboards, or scripts:
 Entrypoint rename:
 
 ```diff
--ENTRYPOINT ["codelens-mcp", "/workspace", "--transport", "http", "--port", "7837"]
-+ENTRYPOINT ["symbiote-mcp", "/workspace", "--transport", "http", "--port", "7837"]
+-ENTRYPOINT ["codelens-mcp", "/workspace", "--transport", "http", "--port", "7838"]
++ENTRYPOINT ["symbiote-mcp", "/workspace", "--transport", "http", "--port", "7838"]
 ```
 
 Image names should be updated together with the repository/tag cutover, not

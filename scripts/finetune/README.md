@@ -87,7 +87,7 @@ python3 benchmarks/embedding-quality.py . \
   --ranked-context-max-tokens 50000
 ```
 
-For the local dual-daemon setup, `scripts/install-http-daemons-launchd.sh`
+For the local single-writer setup, `scripts/install-http-daemons-launchd.sh`
 builds the HTTP daemon with `http,semantic` by default and writes
 `CODELENS_MODEL_DIR` into the generated plists when a model directory is
 available. Use `--model-dir /tmp/codelens-lora/onnx` to dogfood a candidate

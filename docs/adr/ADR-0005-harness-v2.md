@@ -1,6 +1,6 @@
-# ADR-0005: Harness v2 — CodeLens as shared substrate for role-specialized agent hosts
+# ADR-0005: Shared Harness Substrate for Role-Specialized Agent Hosts
 
-- Status: Accepted
+- Status: Accepted; operational topology amended by ADR-0017 and coordination authority amended by ADR-0018
 - Date: 2026-04-18
 - Supersedes: none (extends ADR-0001 runtime boundaries and ADR-0004 multi-agent primitives)
 
@@ -60,11 +60,12 @@ substrate, are enumerated in `codelens://harness/modes` and
 
 1. **solo-local** — single-agent stdio or single-http, planner-readonly
    or builder-minimal surface. Personal work.
-2. **planner-builder** — dual-daemon (7837 read-only, 7838
-   mutation-enabled). Primary multi-agent topology. Claude (or
-   equivalent) plans/reviews, Codex (or equivalent) builds/refactors.
-3. **reviewer / ci-audit** — read-only only, diff-aware reports plus
-   planner + builder audits. Merge gate.
+2. **planner-builder** — one `:7838` writable project runtime. Planner/reviewer
+   and builder policy is selected per HTTP session through profile and RBAC;
+   ADR-0017 supersedes the original dual-daemon example. Primary multi-agent
+   topology: one role plans/reviews and another builds/refactors.
+3. **reviewer / ci-audit** — read-only session profile on the same endpoint,
+   with diff-aware reports plus planner + builder audits. Merge gate.
 4. **batch-analysis** — analysis handle and async job centric. Long
    repo-wide scans (dead code, architecture review, external-3arm).
 
@@ -127,7 +128,7 @@ an eval lane exists.
 
 - Hosts that expect live chat with the server must change their
   integration to poll / push artifacts instead. This is intentional.
-- Handoff schema bumps (v2 later) are breaking until producers and
+- Later handoff schema generations are breaking until producers and
   consumers both migrate. Mitigation: `schema_version` is required
   and enforced.
 - We defer several "exciting" items (IndexLayer, SCIP, crate split,

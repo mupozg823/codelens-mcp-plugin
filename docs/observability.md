@@ -83,7 +83,7 @@ spans alone:
 
 ```bash
 CODELENS_TELEMETRY_ENABLED=1 \
-  ./target/debug/codelens-mcp /path/to/project --transport http --port 7837
+  ./target/debug/codelens-mcp /path/to/project --transport http --port 7838
 
 scripts/analyze-tool-usage.py
 scripts/analyze-tool-usage.py --telemetry-path .codelens/telemetry/tool_usage.jsonl
@@ -185,8 +185,8 @@ task-success or productivity evidence by itself. The trend summary treats an
 increase in external-fallback `missed` routes as a regression signal; it does
 not gate a run solely because direct follow rate changes.
 
-By default the loop targets the repository-local read-only daemon at
-`http://127.0.0.1:7839/mcp`. It first checks
+By default the loop targets the repository-local writer at
+`http://127.0.0.1:7838/mcp`. It first checks
 `.codelens/telemetry/tool_usage.jsonl`, then
 `crates/codelens-mcp/.codelens/telemetry/tool_usage.jsonl`, so crate-local
 telemetry is not silently missed during dogfooding.
@@ -220,10 +220,9 @@ separate from per-session artifacts: the daily snapshot is daemon-scoped,
 while Stop hooks are session-scoped.
 
 If you also use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh)
-in this repository, point the aggregate job at `http://127.0.0.1:7839/mcp`,
-because that installer's repo-local read-only daemon default is `:7839`.
-Pass `--mcp-url` only if your running daemon uses a different address such as
-the public generic read-only example on `:7837`.
+in this repository, point the aggregate job at `http://127.0.0.1:7838/mcp`,
+the same canonical endpoint used by all hosts. Pass `--mcp-url` only if your
+running daemon uses a different address.
 
 After multiple daily JSON snapshots accumulate, render a trend report from the
 historical files with [`scripts/summarize-eval-session-audit-history.sh`](../scripts/summarize-eval-session-audit-history.sh):
