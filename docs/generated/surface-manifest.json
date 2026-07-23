@@ -1,5 +1,5 @@
 {
-  "schema_version": "codelens-surface-manifest-v2",
+  "schema_version": "codelens-runtime-surface-contract",
   "workspace": {
     "version": "1.13.34",
     "description": "Host-adaptive Rust MCP code-intelligence router with cached hybrid retrieval, index-health visibility, mutation gates, and token-lean workflows for Codex, Claude, and generic MCP clients",
@@ -343,7 +343,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 745
+        "estimated_tokens": 853
       },
       {
         "name": "onboard_project",
@@ -379,7 +379,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 681
+        "estimated_tokens": 806
       },
       {
         "name": "mermaid_module_graph",
@@ -388,7 +388,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 710
+        "estimated_tokens": 818
       },
       {
         "name": "safe_rename_report",
@@ -397,7 +397,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 722
+        "estimated_tokens": 830
       },
       {
         "name": "unresolved_reference_check",
@@ -406,7 +406,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 735
+        "estimated_tokens": 843
       },
       {
         "name": "dead_code_report",
@@ -415,7 +415,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 725
+        "estimated_tokens": 833
       },
       {
         "name": "impact_report",
@@ -424,7 +424,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 687
+        "estimated_tokens": 795
       },
       {
         "name": "refactor_safety_report",
@@ -433,7 +433,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 698
+        "estimated_tokens": 806
       },
       {
         "name": "diff_aware_references",
@@ -442,7 +442,7 @@
         "phase": "review",
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 682
+        "estimated_tokens": 790
       },
       {
         "name": "start_analysis_job",
@@ -523,7 +523,7 @@
         "phase": "plan",
         "preferred_executor": "claude",
         "has_output_schema": true,
-        "estimated_tokens": 186
+        "estimated_tokens": 202
       },
       {
         "name": "review_architecture",
@@ -586,7 +586,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 4302
+        "estimated_tokens": 4463
       },
       {
         "name": "register_agent_work",
@@ -703,7 +703,7 @@
         "phase": null,
         "preferred_executor": null,
         "has_output_schema": true,
-        "estimated_tokens": 1061
+        "estimated_tokens": 1223
       },
       {
         "name": "get_tool_metrics",
@@ -1026,13 +1026,13 @@
           "overview",
           "search",
           "graph",
+          "review",
+          "diagnose",
           "plan_safe_refactor",
           "prepare_harness_session",
           "analyze_change_request",
-          "diagnose",
           "analyze",
           "verify_change_readiness",
-          "review",
           "explore_codebase",
           "trace_request_path",
           "cleanup_duplicate_logic",
@@ -1403,9 +1403,8 @@
         "best_fit": "Claude planning/review plus Codex building, or any equivalent planner/builder split.",
         "topology": {
           "transport": "http",
-          "daemon_shape": "dual-daemon",
+          "daemon_shape": "single-writer",
           "recommended_ports": [
-            7837,
             7838
           ]
         },
@@ -1466,9 +1465,9 @@
         "best_fit": "PR review, risk signoff, CI-facing structural review, or planner validation after a builder run.",
         "topology": {
           "transport": "http",
-          "daemon_shape": "read-only-daemon",
+          "daemon_shape": "single-writer",
           "recommended_ports": [
-            7837
+            7838
           ]
         },
         "communication_pattern": "review-signoff",
@@ -1508,9 +1507,9 @@
         "best_fit": "Dead-code sweeps, architecture scans, semantic review queues, and non-interactive evaluation passes.",
         "topology": {
           "transport": "http",
-          "daemon_shape": "read-only-daemon",
+          "daemon_shape": "single-writer",
           "recommended_ports": [
-            7837
+            7838
           ]
         },
         "communication_pattern": "artifact-handoff",

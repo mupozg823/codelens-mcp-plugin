@@ -54,6 +54,48 @@ content_mutation_tools = [
     "refactor_change_signature",
 ]
 
+# Read-oriented handlers whose client-visible payload must come from one
+# committed symbol-index generation. Query dispatch captures the active
+# project's generation before execution and rejects a successful payload if a
+# watcher/writer commits before the handler returns. Keep refresh/job control
+# handlers out: they intentionally mutate or defer the index themselves.
+symbol_generation_consistent_tools = [
+    "get_symbols_overview",
+    "find_symbol",
+    "get_ranked_context",
+    "bm25_symbol_search",
+    "get_complexity",
+    "search_symbols_fuzzy",
+    "find_referencing_symbols",
+    "get_type_hierarchy",
+    "plan_symbol_rename",
+    "get_changed_files",
+    "get_symbol_importance",
+    "find_scoped_references",
+    "get_callers",
+    "get_callees",
+    "verify_change_readiness",
+    "module_boundary_report",
+    "mermaid_module_graph",
+    "safe_rename_report",
+    "unresolved_reference_check",
+    "dead_code_report",
+    "impact_report",
+    "refactor_safety_report",
+    "diff_aware_references",
+    "explore_codebase",
+    "trace_request_path",
+    "review_architecture",
+    "plan_safe_refactor",
+    "cleanup_duplicate_logic",
+    "review_changes",
+    "diagnose_issues",
+    "find_phantom_modules",
+    "find_redundant_definitions",
+    "find_over_visible_apis",
+    "classify_symbol",
+]
+
 [experimental_features]
 secondary-projects = ["add_queryable_project", "remove_queryable_project", "query_project", "list_queryable_projects"]
 orchestration = ["orchestrate_change"]
@@ -841,7 +883,7 @@ output_schema = "analysis_handle_output_schema"
 [tool.input_schema]
 type = "object"
 required = ["path"]
-properties = { path = { type = "string" } }
+properties = { path = { type = "string" }, include_diagram = { type = "boolean" }, max_nodes = { type = "integer" } }
 
 # ─────
 
@@ -1114,6 +1156,7 @@ type = "object"
 function_name = { type = "string" }
 symbol = { type = "string" }
 entrypoint = { type = "string" }
+path = { type = "string", description = "File or directory scope" }
 max_depth = { type = "integer" }
 max_results = { type = "integer" }
 

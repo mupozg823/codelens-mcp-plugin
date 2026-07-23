@@ -26,4 +26,5 @@ pub(super) use build_generated::semantic_tools;
 pub(super) use metadata_generated::{
     default_listed_tool_names, tool_annotation_key, tool_default_listed, tool_experimental_feature,
     tool_feature_gate, tool_is_content_mutation, tool_namespace, tool_phase,
+    tool_symbol_generation_consistent,
 };

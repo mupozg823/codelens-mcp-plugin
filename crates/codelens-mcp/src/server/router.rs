@@ -93,10 +93,12 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 .and_then(|p| p.get("uri"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            Some(JsonRpcResponse::result(
-                request.id,
-                read_resource(state, uri, request.params.as_ref()),
-            ))
+            Some(match read_resource(state, uri, request.params.as_ref()) {
+                Ok(payload) => JsonRpcResponse::result(request.id, payload),
+                Err(error) => {
+                    JsonRpcResponse::error(request.id, error.jsonrpc_code(), error.to_string())
+                }
+            })
         }
         "prompts/list" => Some(JsonRpcResponse::result(
             request.id,

@@ -84,7 +84,7 @@ pub fn composite_tools(
         Tool::new(
             "module_boundary_report",
             "[CodeLens:Workflow] Summarize dependency boundaries, coupling, and cycle risk for a module or path.",
-            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"}}}),
+            json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"include_diagram":{"type":"boolean"},"max_nodes":{"type":"integer"}}}),
         ).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "mermaid_module_graph",
@@ -559,7 +559,7 @@ pub fn workflow_first_tools(ro_w: &ToolAnnotations) -> Vec<Tool> {
         Tool::new(
             "trace_request_path",
             "[CodeLens:Workflow] Trace a request or execution path from a function, symbol, or entrypoint.",
-            json!({"type":"object","properties":{"function_name":{"type":"string"},"symbol":{"type":"string"},"entrypoint":{"type":"string"},"max_depth":{"type":"integer"},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","properties":{"function_name":{"type":"string"},"symbol":{"type":"string"},"entrypoint":{"type":"string"},"path":{"type":"string","description":"File or directory scope"},"max_depth":{"type":"integer"},"max_results":{"type":"integer"}}}),
         ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new(
             "review_architecture",

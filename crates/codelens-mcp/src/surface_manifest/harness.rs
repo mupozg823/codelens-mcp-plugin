@@ -419,8 +419,8 @@ fn harness_mode_planner_builder() -> Value {
         "best_fit": "Claude planning/review plus Codex building, or any equivalent planner/builder split.",
         "topology": {
             "transport": "http",
-            "daemon_shape": "dual-daemon",
-            "recommended_ports": [7837, 7838]
+            "daemon_shape": "single-writer",
+            "recommended_ports": [7838]
         },
         "communication_pattern": "asymmetric-handoff",
         "mutation_policy": "exactly one mutation-enabled agent per worktree; planners stay read-only",
@@ -464,8 +464,8 @@ fn harness_mode_reviewer_gate() -> Value {
         "best_fit": "PR review, risk signoff, CI-facing structural review, or planner validation after a builder run.",
         "topology": {
             "transport": "http",
-            "daemon_shape": "read-only-daemon",
-            "recommended_ports": [7837]
+            "daemon_shape": "single-writer",
+            "recommended_ports": [7838]
         },
         "communication_pattern": "review-signoff",
         "mutation_policy": "no content mutation; fail the session audit if mutation traces appear",
@@ -498,8 +498,8 @@ fn harness_mode_batch_analysis() -> Value {
         "best_fit": "Dead-code sweeps, architecture scans, semantic review queues, and non-interactive evaluation passes.",
         "topology": {
             "transport": "http",
-            "daemon_shape": "read-only-daemon",
-            "recommended_ports": [7837]
+            "daemon_shape": "single-writer",
+            "recommended_ports": [7838]
         },
         "communication_pattern": "artifact-handoff",
         "mutation_policy": "read-only; use analysis handles and job artifacts rather than direct edits",

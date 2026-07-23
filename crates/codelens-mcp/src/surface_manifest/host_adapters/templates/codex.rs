@@ -48,7 +48,7 @@ pub(super) fn bundle() -> Value {
                 "format": "toml",
                 "purpose": "Share one CodeLens MCP attachment between the Codex CLI and IDE extension.",
                 "template": r#"[mcp_servers.codelens]
-url = "http://127.0.0.1:7837/mcp"
+url = "http://127.0.0.1:7838/mcp"
 "#
             },
             {
