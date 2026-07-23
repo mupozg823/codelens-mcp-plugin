@@ -6,7 +6,6 @@ import html
 import os
 import re
 import shutil
-from collections import defaultdict
 from pathlib import Path
 
 try:
@@ -22,20 +21,75 @@ DOCS_ROOT = REPO_ROOT / "docs"
 OUTPUT_ROOT = REPO_ROOT / "target" / "pages-site"
 REPO_BLOB_BASE = "https://github.com/mupozg823/codelens-mcp-plugin/blob/main"
 SITE_NAME = "CodeLens MCP"
-SITE_TAGLINE = "Pure Rust MCP server docs, architecture notes, release guidance, and ADRs."
+SITE_TAGLINE = (
+    "A live code index for coding agents — bounded context, verifiable structure, "
+    "and safer edits."
+)
+SITE_URL = "https://mupozg823.github.io/codelens-mcp-plugin/"
+SOCIAL_IMAGE_URL = f"{SITE_URL}assets/codelens-social-preview.jpg"
 LINK_PATTERN = re.compile(r"(!?\[[^\]]*\])\(([^)]+)\)")
 TITLE_PATTERN = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
 FIRST_H1_PATTERN = re.compile(r"^\s*<h1\b[^>]*>.*?</h1>\s*", re.DOTALL)
-NAV_SECTION_ORDER = [
-    "Overview",
-    "Guides",
-    "Release",
-    "Architecture",
-    "ADRs",
-    "Reference",
+HANGUL_PATTERN = re.compile(r"[가-힣]")
+NAV_STRUCTURE = [
+    (
+        "Start here",
+        [
+            Path("index.md"),
+            Path("platform-setup.md"),
+            Path("quickstart-transcript.md"),
+            Path("harness-modes.md"),
+            Path("multi-agent-integration.md"),
+        ],
+    ),
+    (
+        "Concepts",
+        [
+            Path("architecture.md"),
+            Path("host-adaptive-harness.md"),
+            Path("harness-spec.md"),
+            Path("comparison.md"),
+            Path("benchmarks.md"),
+        ],
+    ),
+    (
+        "Operations",
+        [
+            Path("operations/http-daemon.md"),
+            Path("operations/response-envelope.md"),
+            Path("operations/runtime-knobs.md"),
+            Path("operations/tool-routing-matrix.md"),
+            Path("observability.md"),
+        ],
+    ),
+    (
+        "Trust & release",
+        [
+            Path("release-verification.md"),
+            Path("release-distribution.md"),
+            Path("product-readiness.md"),
+        ],
+    ),
+    (
+        "Architecture decisions",
+        [
+            Path("adr/README.md"),
+            Path("adr/ADR-0009-mutation-trust-substrate.md"),
+            Path("adr/ADR-0015-host-neutral-execution-contract.md"),
+            Path("adr/ADR-0016-default-surface-twenty.md"),
+            Path("adr/ADR-0017-single-writer-project-runtime.md"),
+            Path("adr/ADR-0018-session-identity-and-coordination-hardening.md"),
+        ],
+    ),
+    (
+        "Reference",
+        [
+            Path("scip-guide.md"),
+            Path("design/arg-validation-policy.md"),
+            Path("design/refactor-backend-honesty.md"),
+        ],
+    ),
 ]
-NAV_EXCLUDED_NAMES = {"REFERENCE-2026-03.md"}
-NAV_EXCLUDED_PREFIXES = {"promotion", "design"}
 
 
 def iter_markdown_files() -> list[Path]:
@@ -109,34 +163,11 @@ def rewrite_markdown_links(source: Path, raw_markdown: str) -> str:
     return LINK_PATTERN.sub(replace, raw_markdown)
 
 
-def nav_section(relative: Path) -> str:
-    if relative == Path("index.md"):
-        return "Overview"
-    if relative.parts[0] == "adr":
-        return "ADRs"
-    if relative.parts[0] == "release-notes":
-        return "Release"
-    if relative.name in {"architecture.md", "architecture-audit-2026-04-12.md"}:
-        return "Architecture"
-    return "Guides"
-
-
-def include_in_nav(relative: Path) -> bool:
-    if relative.name in NAV_EXCLUDED_NAMES:
-        return False
-    return not relative.parts or relative.parts[0] not in NAV_EXCLUDED_PREFIXES
-
-
 def render_nav(source: Path, titles: dict[Path, str]) -> str:
-    grouped: dict[str, list[Path]] = defaultdict(list)
-    for relative in titles:
-        if include_in_nav(relative):
-            grouped[nav_section(relative)].append(relative)
-
     blocks: list[str] = []
     current_relative = source.relative_to(DOCS_ROOT)
-    for section in NAV_SECTION_ORDER:
-        entries = sorted(grouped.get(section, []))
+    for section, configured_entries in NAV_STRUCTURE:
+        entries = [relative for relative in configured_entries if relative in titles]
         if not entries:
             continue
 
@@ -164,28 +195,47 @@ def render_page(source: Path, titles: dict[Path, str]) -> str:
     rendered = FIRST_H1_PATTERN.sub("", rendered, count=1)
     title = titles[source.relative_to(DOCS_ROOT)]
     css_href = to_posix_relative(OUTPUT_ROOT / "assets" / "site.css", output_path_for(source))
+    icon_href = to_posix_relative(
+        OUTPUT_ROOT / "assets" / "codelens-mark.svg", output_path_for(source)
+    )
+    home_href = to_posix_relative(OUTPUT_ROOT / "index.html", output_path_for(source))
+    output_relative = output_path_for(source).relative_to(OUTPUT_ROOT).as_posix()
+    canonical_url = SITE_URL if output_relative == "index.html" else f"{SITE_URL}{output_relative}"
+    language = "ko" if len(HANGUL_PATTERN.findall(raw_markdown)) >= 20 else "en"
     repo_href = github_blob_url(source)
     nav = render_nav(source, titles)
     return f"""<!doctype html>
-<html lang="en">
+<html lang="{language}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{html.escape(title)} | {SITE_NAME}</title>
     <meta name="description" content="{html.escape(SITE_TAGLINE)}">
+    <meta name="theme-color" content="#07111d">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{html.escape(title)} | {SITE_NAME}">
+    <meta property="og:description" content="{html.escape(SITE_TAGLINE)}">
+    <meta property="og:image" content="{html.escape(SOCIAL_IMAGE_URL)}">
+    <meta property="og:url" content="{html.escape(canonical_url)}">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" href="{html.escape(icon_href)}" type="image/svg+xml">
+    <link rel="canonical" href="{html.escape(canonical_url)}">
     <link rel="stylesheet" href="{html.escape(css_href)}">
   </head>
   <body>
     <div class="layout">
       <aside class="sidebar">
-        <a class="brand" href="{html.escape(to_posix_relative(OUTPUT_ROOT / 'index.html', output_path_for(source)))}">{SITE_NAME}</a>
+        <a class="brand" href="{html.escape(home_href)}">
+          <img class="brand-mark" src="{html.escape(icon_href)}" width="42" height="42" alt="">
+          <span>{SITE_NAME}</span>
+        </a>
         <p class="tagline">{html.escape(SITE_TAGLINE)}</p>
         <nav>
 {nav}
         </nav>
         <div class="sidebar-links">
           <a href="https://github.com/mupozg823/codelens-mcp-plugin">GitHub</a>
-          <a href="https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30">Latest release</a>
+          <a href="https://github.com/mupozg823/codelens-mcp-plugin/releases/latest">Latest release</a>
         </div>
       </aside>
       <main class="content">

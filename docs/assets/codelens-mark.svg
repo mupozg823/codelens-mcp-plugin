@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">CodeLens</title>
+  <desc id="desc">A lens focusing a connected code graph.</desc>
+  <defs>
+    <linearGradient id="ring" x1="24" y1="18" x2="98" y2="102" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#53D6FF"/>
+      <stop offset=".58" stop-color="#8B7CFF"/>
+      <stop offset="1" stop-color="#FFB454"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0" cy="0" r="1" gradientTransform="translate(48 36) rotate(48) scale(65)">
+      <stop stop-color="#19345B" stop-opacity=".92"/>
+      <stop offset="1" stop-color="#0A1728" stop-opacity=".98"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#07111D"/>
+  <circle cx="56" cy="53" r="37" fill="url(#glass)" stroke="url(#ring)" stroke-width="6"/>
+  <path d="M82.5 79.5 108 105" fill="none" stroke="url(#ring)" stroke-linecap="round" stroke-width="10"/>
+  <path d="m37 58 13-17 18 8 12-14M50 41l5 26 25-18M55 67l20 5" fill="none" stroke="#8EE7FF" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" opacity=".92"/>
+  <g filter="url(#glow)">
+    <circle cx="37" cy="58" r="5" fill="#53D6FF"/>
+    <circle cx="50" cy="41" r="5" fill="#8B7CFF"/>
+    <circle cx="55" cy="67" r="5" fill="#53D6FF"/>
+    <circle cx="68" cy="49" r="6" fill="#FFB454"/>
+    <circle cx="80" cy="35" r="5" fill="#53D6FF"/>
+    <circle cx="75" cy="72" r="5" fill="#8B7CFF"/>
+  </g>
+  <circle cx="56" cy="53" r="31" fill="none" stroke="#C7F4FF" stroke-opacity=".16"/>
+</svg>

@@ -2,7 +2,7 @@
   "schema_version": "codelens-runtime-surface-contract",
   "workspace": {
     "version": "1.13.34",
-    "description": "Host-adaptive Rust MCP code-intelligence router with cached hybrid retrieval, index-health visibility, mutation gates, and token-lean workflows for Codex, Claude, and generic MCP clients",
+    "description": "Rust MCP code intelligence for coding agents \u2014 live indexes, bounded hybrid retrieval, host-neutral workflows, single-writer sessions, and mutation gates.",
     "members": [
       "crates/codelens-engine",
       "crates/codelens-mcp"
