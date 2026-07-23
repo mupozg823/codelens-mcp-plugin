@@ -42,7 +42,7 @@ pub(super) fn bundle() -> Value {
                 "template": {
                     "codelens": {
                         "type": "http",
-                        "url": "http://127.0.0.1:7837/mcp"
+                        "url": "http://127.0.0.1:7838/mcp"
                     }
                 }
             },

@@ -224,3 +224,36 @@ fn stale_index_warning_carries_breakdown() {
     assert_eq!(warning["remediation"]["method"], json!("tool_call"));
     assert!(warning["remediation"]["args"].is_object());
 }
+
+#[test]
+fn capabilities_runtime_diagnostics_expose_writer_generation_and_coordination_health() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+    let project = codelens_engine::ProjectRoot::new(dir.path()).unwrap();
+    let state = AppState::new_minimal(project, crate::tool_defs::ToolPreset::Balanced);
+
+    let (payload, _) = get_capabilities(&state, &json!({"detail": "full"})).unwrap();
+    let runtime = &payload["project_runtime"];
+    assert_eq!(runtime["lease_health"], json!("held"));
+    assert_eq!(runtime["writer_owner"]["pid"], json!(std::process::id()));
+    assert!(runtime["generation"].as_u64().is_some());
+    assert_eq!(payload["coordination_health"]["status"], json!("available"));
+    assert_eq!(payload["coordination_health"]["degraded"], json!(false));
+    assert_eq!(payload["coordination_health"]["fail_closed"], json!(true));
+}
+
+#[test]
+fn capabilities_runtime_diagnostics_report_degraded_coordination_fail_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+    let blocked_db = dir.path().join(".codelens/index/coordination.db");
+    std::fs::create_dir_all(&blocked_db).unwrap();
+    let project = codelens_engine::ProjectRoot::new(dir.path()).unwrap();
+    let state = AppState::new_minimal(project, crate::tool_defs::ToolPreset::Balanced);
+
+    let (payload, _) = get_capabilities(&state, &json!({"detail": "full"})).unwrap();
+    assert_eq!(payload["coordination_health"]["status"], json!("degraded"));
+    assert_eq!(payload["coordination_health"]["degraded"], json!(true));
+    assert_eq!(payload["coordination_health"]["fail_closed"], json!(true));
+    assert!(payload["coordination_health"]["reason"].is_string());
+}

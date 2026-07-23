@@ -20,7 +20,7 @@ Options:
                     Number of recent JSON snapshots to include in the summary
                     and gate artifacts
                     (default: 14)
-  --mcp-url URL     MCP HTTP endpoint (default: http://127.0.0.1:7839/mcp)
+  --mcp-url URL     MCP HTTP endpoint (default: http://127.0.0.1:7838/mcp)
   --output-dir DIR  Snapshot output dir (default: <repo>/.codelens/reports/daily)
   --label LABEL     launchd label (default: dev.codelens.eval-session-audit.<repo>)
   --plist-path PATH Write plist here instead of ~/Library/LaunchAgents/<label>.plist
@@ -40,7 +40,7 @@ SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT=""
 HOUR=23
 MINUTE=55
-MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7839/mcp}"
+MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7838/mcp}"
 OUTPUT_FORMAT="${CODELENS_AUDIT_OUTPUT_FORMAT:-json}"
 HISTORY_SUMMARY_PATH="${CODELENS_AUDIT_HISTORY_SUMMARY_PATH:-}"
 HISTORY_GATE_PATH="${CODELENS_AUDIT_HISTORY_GATE_PATH:-}"

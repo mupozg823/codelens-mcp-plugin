@@ -117,35 +117,52 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
     assert!(expand_body.contains("\"selected_tier\":\"workflow\""));
     assert!(expand_body.contains("\"diff_aware_references\""));
 
-    let allowed = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/mcp")
-                .header("content-type", "application/json")
-                .header("mcp-session-id", &sid)
-                .body(axum::body::Body::from(
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": 4,
-                        "method": "tools/call",
-                        "params": {
-                            "name": "diff_aware_references",
-                            "arguments": {
-                                "changed_files": [file_path]
+    let mut allowed_body = None;
+    for request_id in [4, 5] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("mcp-session-id", &sid)
+                    .body(axum::body::Body::from(
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "method": "tools/call",
+                            "params": {
+                                "name": "diff_aware_references",
+                                "arguments": {
+                                    "changed_files": [file_path]
+                                }
                             }
-                        }
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
-    assert_eq!(allowed.status(), StatusCode::OK);
-    let allowed_body = body_string(allowed).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_string(response).await;
+        let payload = first_tool_payload(&body);
+        if payload["success"] == json!(true) {
+            allowed_body = Some(body);
+            break;
+        }
+        assert_eq!(payload["retryable"], json!(true), "{body}");
+        assert!(
+            payload["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("index_generation_changed")),
+            "{body}"
+        );
+    }
+
+    let allowed_body = allowed_body.expect("generation-consistent retry should succeed");
     assert!(
         allowed_body.contains("\\\"success\\\": true")
             || allowed_body.contains("\\\"success\\\":true"),

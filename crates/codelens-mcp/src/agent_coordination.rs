@@ -1,7 +1,6 @@
 use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -27,12 +26,12 @@ fn coordination_db_path(scope: &str) -> PathBuf {
         .join(COORDINATION_DB_FILENAME)
 }
 
-fn encode_paths(paths: &[String]) -> String {
-    serde_json::to_string(paths).unwrap_or_else(|_| "[]".to_owned())
+fn encode_paths(paths: &[String]) -> serde_json::Result<String> {
+    serde_json::to_string(paths)
 }
 
-fn decode_paths(paths_json: &str) -> Vec<String> {
-    serde_json::from_str(paths_json).unwrap_or_default()
+fn decode_paths(paths_json: &str) -> serde_json::Result<Vec<String>> {
+    serde_json::from_str(paths_json)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,14 +102,32 @@ pub(crate) struct CoordinationSnapshot {
     pub counts: CoordinationCounts,
 }
 
-#[derive(Default)]
-struct ProjectCoordinationState {
-    agents: HashMap<String, AgentWorkEntry>,
-    claims: HashMap<String, FileClaimEntry>,
+#[derive(Debug, thiserror::Error)]
+#[error("coordination_unavailable: operation `{operation}` failed for project `{scope}`: {reason}")]
+pub(crate) struct CoordinationStoreError {
+    pub operation: &'static str,
+    pub scope: String,
+    pub reason: String,
+}
+
+impl CoordinationStoreError {
+    fn new(operation: &'static str, scope: &str, error: anyhow::Error) -> Self {
+        Self {
+            operation,
+            scope: scope.to_owned(),
+            reason: error.to_string(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ClaimOutcome {
+    pub claim: FileClaimEntry,
+    pub overlapping_claims: Vec<FileClaimEntry>,
 }
 
 pub(crate) struct AgentCoordinationStore {
-    entries: Mutex<HashMap<String, ProjectCoordinationState>>,
+    operation_lock: Mutex<()>,
     lock_acquire_count: AtomicU64,
     lock_wait_total_micros: AtomicU64,
     lock_wait_max_micros: AtomicU64,
@@ -119,7 +136,7 @@ pub(crate) struct AgentCoordinationStore {
 impl AgentCoordinationStore {
     pub(crate) fn new() -> Self {
         Self {
-            entries: Mutex::new(HashMap::new()),
+            operation_lock: Mutex::new(()),
             lock_acquire_count: AtomicU64::new(0),
             lock_wait_total_micros: AtomicU64::new(0),
             lock_wait_max_micros: AtomicU64::new(0),
@@ -191,12 +208,19 @@ impl AgentCoordinationStore {
 
     fn load_claim_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FileClaimEntry> {
         let paths_json: String = row.get(4)?;
+        let paths = decode_paths(&paths_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                4,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?;
         Ok(FileClaimEntry {
             session_id: row.get(0)?,
             agent_name: row.get(1)?,
             branch: row.get(2)?,
             worktree: row.get(3)?,
-            paths: decode_paths(&paths_json),
+            paths,
             reason: row.get(5)?,
             expires_at: row.get(6)?,
         })
@@ -236,135 +260,13 @@ impl AgentCoordinationStore {
         })
     }
 
-    fn fallback_register(
-        entries: &mut HashMap<String, ProjectCoordinationState>,
-        scope: &str,
-        entry: AgentWorkEntry,
-    ) -> AgentWorkEntry {
-        let project = entries.entry(scope.to_owned()).or_default();
-        Self::prune_project(project, now_ms());
-        project
-            .agents
-            .insert(entry.session_id.clone(), entry.clone());
-        entry
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn fallback_claim(
-        entries: &mut HashMap<String, ProjectCoordinationState>,
-        scope: &str,
-        session_id: &str,
-        fallback_agent_name: &str,
-        fallback_branch: &str,
-        fallback_worktree: &str,
-        paths: Vec<String>,
-        reason: &str,
-        expires_at: u64,
-    ) -> FileClaimEntry {
-        let project = entries.entry(scope.to_owned()).or_default();
-        Self::prune_project(project, now_ms());
-        let registered_agent = project.agents.get(session_id).cloned();
-        let claim = project
-            .claims
-            .entry(session_id.to_owned())
-            .or_insert_with(|| FileClaimEntry {
-                session_id: session_id.to_owned(),
-                agent_name: registered_agent
-                    .as_ref()
-                    .map(|entry| entry.agent_name.clone())
-                    .unwrap_or_else(|| fallback_agent_name.to_owned()),
-                branch: registered_agent
-                    .as_ref()
-                    .map(|entry| entry.branch.clone())
-                    .unwrap_or_else(|| fallback_branch.to_owned()),
-                worktree: registered_agent
-                    .as_ref()
-                    .map(|entry| entry.worktree.clone())
-                    .unwrap_or_else(|| fallback_worktree.to_owned()),
-                paths: Vec::new(),
-                reason: reason.to_owned(),
-                expires_at,
-            });
-        if let Some(agent) = registered_agent {
-            claim.agent_name = agent.agent_name;
-            claim.branch = agent.branch;
-            claim.worktree = agent.worktree;
-        }
-        claim.reason = reason.to_owned();
-        claim.expires_at = expires_at;
-        for path in paths {
-            if !claim.paths.iter().any(|existing| existing == &path) {
-                claim.paths.push(path);
-            }
-        }
-        claim.paths.sort();
-        claim.clone()
-    }
-
-    fn fallback_release(
-        entries: &mut HashMap<String, ProjectCoordinationState>,
-        scope: &str,
-        session_id: &str,
-        paths: &[String],
-    ) -> (Vec<String>, Option<FileClaimEntry>) {
-        let Some(project) = entries.get_mut(scope) else {
-            return (Vec::new(), None);
-        };
-        Self::prune_project(project, now_ms());
-        let Some(claim) = project.claims.get_mut(session_id) else {
-            return (Vec::new(), None);
-        };
-        let mut released = Vec::new();
-        claim.paths.retain(|path| {
-            let should_remove = paths.iter().any(|target| target == path);
-            if should_remove {
-                released.push(path.clone());
-            }
-            !should_remove
-        });
-        released.sort();
-        if claim.paths.is_empty() {
-            project.claims.remove(session_id);
-            return (released, None);
-        }
-        claim.paths.sort();
-        (released, Some(claim.clone()))
-    }
-
-    fn fallback_snapshot(
-        entries: &mut HashMap<String, ProjectCoordinationState>,
-        scope: &str,
-    ) -> CoordinationSnapshot {
-        let Some(project) = entries.get_mut(scope) else {
-            return CoordinationSnapshot::default();
-        };
-        Self::prune_project(project, now_ms());
-        let mut agents = project.agents.values().cloned().collect::<Vec<_>>();
-        agents.sort_by(|left, right| left.session_id.cmp(&right.session_id));
-        let mut claims = project.claims.values().cloned().collect::<Vec<_>>();
-        claims.sort_by(|left, right| left.session_id.cmp(&right.session_id));
-        CoordinationSnapshot {
-            counts: CoordinationCounts {
-                active_agents: agents.len(),
-                active_claims: claims.len(),
-            },
-            agents,
-            claims,
-        }
-    }
-
-    fn prune_project(project: &mut ProjectCoordinationState, now_ms: u64) {
-        project.agents.retain(|_, entry| entry.expires_at > now_ms);
-        project.claims.retain(|_, entry| entry.expires_at > now_ms);
-    }
-
     /// Acquire the inner mutex while measuring how long the caller waited.
     /// Centralizes the contention instrumentation so every call site goes
     /// through the same path (and the only one that touches the atomics).
-    fn lock_entries(&self) -> std::sync::MutexGuard<'_, HashMap<String, ProjectCoordinationState>> {
+    fn lock_operations(&self) -> std::sync::MutexGuard<'_, ()> {
         let started = Instant::now();
         let guard = self
-            .entries
+            .operation_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let waited_us = started.elapsed().as_micros() as u64;
@@ -395,7 +297,7 @@ impl AgentCoordinationStore {
         worktree: &str,
         intent: &str,
         ttl_secs: Option<u64>,
-    ) -> AgentWorkEntry {
+    ) -> Result<AgentWorkEntry, CoordinationStoreError> {
         let ttl_secs = normalize_ttl_secs(ttl_secs.unwrap_or(DEFAULT_COORDINATION_TTL_SECS));
         let expires_at = now_ms().saturating_add(ttl_secs * 1000);
         let entry = AgentWorkEntry {
@@ -406,10 +308,14 @@ impl AgentCoordinationStore {
             intent: intent.to_owned(),
             expires_at,
         };
-        let mut entries = self.lock_entries();
-        match Self::open_db(scope).and_then(|conn| {
-            Self::prune_db(&conn, now_ms()).context("failed to prune expired agent rows")?;
-            conn.execute(
+        let _operation = self.lock_operations();
+        Self::open_db(scope)
+            .and_then(|mut conn| {
+                let tx = conn
+                    .transaction()
+                    .context("failed to start register transaction")?;
+                Self::prune_tx(&tx, now_ms()).context("failed to prune expired agent rows")?;
+                tx.execute(
                 "INSERT INTO agents (session_id, agent_name, branch, worktree, intent, expires_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(session_id) DO UPDATE SET
@@ -426,20 +332,13 @@ impl AgentCoordinationStore {
                     entry.intent,
                     entry.expires_at
                 ],
-            )
-            .context("failed to upsert agent row")?;
-            Ok(entry.clone())
-        }) {
-            Ok(entry) => entry,
-            Err(error) => {
-                tracing::warn!(
-                    scope,
-                    error = %error,
-                    "coordination db unavailable; falling back to in-memory agent registry"
-                );
-                Self::fallback_register(&mut entries, scope, entry)
-            }
-        }
+                )
+                .context("failed to upsert agent row")?;
+                tx.commit()
+                    .context("failed to commit register transaction")?;
+                Ok(entry)
+            })
+            .map_err(|error| CoordinationStoreError::new("register", scope, error))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -453,14 +352,15 @@ impl AgentCoordinationStore {
         paths: Vec<String>,
         reason: &str,
         ttl_secs: Option<u64>,
-    ) -> FileClaimEntry {
+    ) -> Result<ClaimOutcome, CoordinationStoreError> {
         let ttl_secs = normalize_ttl_secs(ttl_secs.unwrap_or(DEFAULT_COORDINATION_TTL_SECS));
         let expires_at = now_ms().saturating_add(ttl_secs * 1000);
-        let mut entries = self.lock_entries();
-        match Self::open_db(scope).and_then(|mut conn| {
-            let tx = conn.transaction().context("failed to start claim transaction")?;
-            Self::prune_tx(&tx, now_ms()).context("failed to prune expired claim rows")?;
-            let registered_agent = tx
+        let _operation = self.lock_operations();
+        Self::open_db(scope)
+            .and_then(|mut conn| {
+                let tx = conn.transaction().context("failed to start claim transaction")?;
+                Self::prune_tx(&tx, now_ms()).context("failed to prune expired claim rows")?;
+                let registered_agent = tx
                 .query_row(
                     "SELECT session_id, agent_name, branch, worktree, intent, expires_at
                      FROM agents
@@ -471,7 +371,7 @@ impl AgentCoordinationStore {
                 .optional()
                 .context("failed to load registered agent")?;
 
-            let mut claim = tx
+                let mut claim = tx
                 .query_row(
                     "SELECT session_id, agent_name, branch, worktree, paths_json, reason, expires_at
                      FROM claims
@@ -500,21 +400,21 @@ impl AgentCoordinationStore {
                     expires_at,
                 });
 
-            if let Some(agent) = registered_agent {
-                claim.agent_name = agent.agent_name;
-                claim.branch = agent.branch;
-                claim.worktree = agent.worktree;
-            }
-            claim.reason = reason.to_owned();
-            claim.expires_at = expires_at;
-            for path in &paths {
-                if !claim.paths.iter().any(|existing| existing == path) {
-                    claim.paths.push(path.clone());
+                if let Some(agent) = registered_agent {
+                    claim.agent_name = agent.agent_name;
+                    claim.branch = agent.branch;
+                    claim.worktree = agent.worktree;
                 }
-            }
-            claim.paths.sort();
+                claim.reason = reason.to_owned();
+                claim.expires_at = expires_at;
+                for path in &paths {
+                    if !claim.paths.iter().any(|existing| existing == path) {
+                        claim.paths.push(path.clone());
+                    }
+                }
+                claim.paths.sort();
 
-            tx.execute(
+                tx.execute(
                 "INSERT INTO claims (session_id, agent_name, branch, worktree, paths_json, reason, expires_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(session_id) DO UPDATE SET
@@ -529,35 +429,32 @@ impl AgentCoordinationStore {
                     claim.agent_name,
                     claim.branch,
                     claim.worktree,
-                    encode_paths(&claim.paths),
+                    encode_paths(&claim.paths)?,
                     claim.reason,
                     claim.expires_at
                 ],
-            )
-            .context("failed to upsert claim row")?;
-            tx.commit().context("failed to commit claim transaction")?;
-            Ok(claim)
-        }) {
-            Ok(claim) => claim,
-            Err(error) => {
-                tracing::warn!(
-                    scope,
-                    error = %error,
-                    "coordination db unavailable; falling back to in-memory claims"
-                );
-                Self::fallback_claim(
-                    &mut entries,
-                    scope,
-                    session_id,
-                    fallback_agent_name,
-                    fallback_branch,
-                    fallback_worktree,
-                    paths,
-                    reason,
-                    expires_at,
                 )
-            }
-        }
+                .context("failed to upsert claim row")?;
+
+                let claims = {
+                    let mut stmt = tx.prepare(
+                        "SELECT session_id, agent_name, branch, worktree, paths_json, reason, expires_at
+                         FROM claims
+                         WHERE expires_at > ?1
+                         ORDER BY session_id",
+                    )?;
+                    stmt.query_map(params![now_ms()], Self::load_claim_from_row)?
+                        .collect::<rusqlite::Result<Vec<_>>>()?
+                };
+                let overlapping_claims =
+                    Self::filter_overlaps(claims, session_id, claim.paths.as_slice());
+                tx.commit().context("failed to commit claim transaction")?;
+                Ok(ClaimOutcome {
+                    claim,
+                    overlapping_claims,
+                })
+            })
+            .map_err(|error| CoordinationStoreError::new("claim", scope, error))
     }
 
     pub(crate) fn release_files(
@@ -565,14 +462,15 @@ impl AgentCoordinationStore {
         scope: &str,
         session_id: &str,
         paths: &[String],
-    ) -> (Vec<String>, Option<FileClaimEntry>) {
-        let mut entries = self.lock_entries();
-        match Self::open_db(scope).and_then(|mut conn| {
-            let tx = conn
-                .transaction()
-                .context("failed to start release transaction")?;
-            Self::prune_tx(&tx, now_ms()).context("failed to prune expired claim rows")?;
-            let Some(mut claim) = tx
+    ) -> Result<(Vec<String>, Option<FileClaimEntry>), CoordinationStoreError> {
+        let _operation = self.lock_operations();
+        Self::open_db(scope)
+            .and_then(|mut conn| {
+                let tx = conn
+                    .transaction()
+                    .context("failed to start release transaction")?;
+                Self::prune_tx(&tx, now_ms()).context("failed to prune expired claim rows")?;
+                let Some(mut claim) = tx
                 .query_row(
                     "SELECT session_id, agent_name, branch, worktree, paths_json, reason, expires_at
                      FROM claims
@@ -582,54 +480,45 @@ impl AgentCoordinationStore {
                 )
                 .optional()
                 .context("failed to load claim for release")?
-            else {
-                tx.commit().context("failed to commit empty release transaction")?;
-                return Ok((Vec::new(), None));
-            };
+                else {
+                    tx.commit().context("failed to commit empty release transaction")?;
+                    return Ok((Vec::new(), None));
+                };
 
-            let mut released = Vec::new();
-            claim.paths.retain(|path| {
-                let should_remove = paths.iter().any(|target| target == path);
-                if should_remove {
-                    released.push(path.clone());
-                }
-                !should_remove
-            });
-            released.sort();
+                let mut released = Vec::new();
+                claim.paths.retain(|path| {
+                    let should_remove = paths.iter().any(|target| target == path);
+                    if should_remove {
+                        released.push(path.clone());
+                    }
+                    !should_remove
+                });
+                released.sort();
 
-            let remaining_claim = if claim.paths.is_empty() {
-                tx.execute(
-                    "DELETE FROM claims WHERE session_id = ?1",
-                    params![session_id],
-                )
-                .context("failed to delete empty claim row")?;
-                None
-            } else {
-                claim.paths.sort();
-                tx.execute(
-                    "UPDATE claims
-                     SET paths_json = ?2
-                     WHERE session_id = ?1",
-                    params![session_id, encode_paths(&claim.paths)],
-                )
-                .context("failed to update remaining claim row")?;
-                Some(claim)
-            };
+                let remaining_claim = if claim.paths.is_empty() {
+                    tx.execute(
+                        "DELETE FROM claims WHERE session_id = ?1",
+                        params![session_id],
+                    )
+                    .context("failed to delete empty claim row")?;
+                    None
+                } else {
+                    claim.paths.sort();
+                    tx.execute(
+                        "UPDATE claims
+                         SET paths_json = ?2
+                         WHERE session_id = ?1",
+                        params![session_id, encode_paths(&claim.paths)?],
+                    )
+                    .context("failed to update remaining claim row")?;
+                    Some(claim)
+                };
 
-            tx.commit()
-                .context("failed to commit release transaction")?;
-            Ok((released, remaining_claim))
-        }) {
-            Ok(result) => result,
-            Err(error) => {
-                tracing::warn!(
-                    scope,
-                    error = %error,
-                    "coordination db unavailable; falling back to in-memory claim release"
-                );
-                Self::fallback_release(&mut entries, scope, session_id, paths)
-            }
-        }
+                tx.commit()
+                    .context("failed to commit release transaction")?;
+                Ok((released, remaining_claim))
+            })
+            .map_err(|error| CoordinationStoreError::new("release", scope, error))
     }
 
     pub(crate) fn overlapping_claims(
@@ -637,23 +526,20 @@ impl AgentCoordinationStore {
         scope: &str,
         session_id: &str,
         target_paths: &[String],
-    ) -> Vec<FileClaimEntry> {
-        let mut entries = self.lock_entries();
-        let snapshot = match Self::open_db(scope)
+    ) -> Result<Vec<FileClaimEntry>, CoordinationStoreError> {
+        let _operation = self.lock_operations();
+        Self::open_db(scope)
             .and_then(|conn| Self::load_snapshot_from_db(&conn, now_ms()))
-        {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                tracing::warn!(
-                    scope,
-                    error = %error,
-                    "coordination db unavailable; falling back to in-memory overlap detection"
-                );
-                Self::fallback_snapshot(&mut entries, scope)
-            }
-        };
-        let mut overlaps = snapshot
-            .claims
+            .map(|snapshot| Self::filter_overlaps(snapshot.claims, session_id, target_paths))
+            .map_err(|error| CoordinationStoreError::new("overlap", scope, error))
+    }
+
+    fn filter_overlaps(
+        claims: Vec<FileClaimEntry>,
+        session_id: &str,
+        target_paths: &[String],
+    ) -> Vec<FileClaimEntry> {
+        let mut overlaps = claims
             .into_iter()
             .filter(|entry| entry.session_id != session_id)
             .filter_map(|entry| {
@@ -677,9 +563,12 @@ impl AgentCoordinationStore {
         overlaps
     }
 
-    pub(crate) fn active_agents(&self, scope: &str) -> Vec<ActiveAgentEntry> {
-        let snapshot = self.snapshot(scope);
-        snapshot
+    pub(crate) fn active_agents(
+        &self,
+        scope: &str,
+    ) -> Result<Vec<ActiveAgentEntry>, CoordinationStoreError> {
+        let snapshot = self.snapshot(scope)?;
+        Ok(snapshot
             .agents
             .into_iter()
             .map(|entry| {
@@ -698,31 +587,32 @@ impl AgentCoordinationStore {
                     claimed_paths: claim.map(|entry| entry.paths.clone()).unwrap_or_default(),
                 }
             })
-            .collect()
+            .collect())
     }
 
-    pub(crate) fn snapshot(&self, scope: &str) -> CoordinationSnapshot {
-        let mut entries = self.lock_entries();
-        match Self::open_db(scope).and_then(|conn| Self::load_snapshot_from_db(&conn, now_ms())) {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                tracing::warn!(
-                    scope,
-                    error = %error,
-                    "coordination db unavailable; falling back to in-memory snapshot"
-                );
-                Self::fallback_snapshot(&mut entries, scope)
-            }
-        }
+    pub(crate) fn snapshot(
+        &self,
+        scope: &str,
+    ) -> Result<CoordinationSnapshot, CoordinationStoreError> {
+        let _operation = self.lock_operations();
+        Self::open_db(scope)
+            .and_then(|conn| Self::load_snapshot_from_db(&conn, now_ms()))
+            .map_err(|error| CoordinationStoreError::new("snapshot", scope, error))
     }
 }
 
 #[cfg(test)]
 mod lock_stats_tests {
     use super::*;
+    use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEST_SCOPE_SEQ: AtomicU64 = AtomicU64::new(0);
+    const CHILD_UNAVAILABLE_SCOPE_ENV: &str = "CODELENS_TEST_COORDINATION_UNAVAILABLE_SCOPE";
+    const CHILD_CLAIM_SCOPE_ENV: &str = "CODELENS_TEST_COORDINATION_CLAIM_SCOPE";
+    const CHILD_CLAIM_SESSION_ENV: &str = "CODELENS_TEST_COORDINATION_CLAIM_SESSION";
+    const CHILD_CLAIM_BARRIER_ENV: &str = "CODELENS_TEST_COORDINATION_CLAIM_BARRIER";
+    const CHILD_CLAIM_OUTCOME_ENV: &str = "CODELENS_TEST_COORDINATION_CLAIM_OUTCOME";
 
     fn temp_scope(label: &str) -> String {
         let dir = std::env::temp_dir().join(format!(
@@ -745,17 +635,21 @@ mod lock_stats_tests {
         assert_eq!(stats0.wait_max_micros, 0);
         assert_eq!(stats0.avg_wait_micros(), 0);
 
-        store.register_agent_work(&scope, "s1", "a", "b", "w", "intent", Some(60));
-        store.claim_files(
-            &scope,
-            "s1",
-            "a",
-            "b",
-            "w",
-            vec!["f.rs".into()],
-            "r",
-            Some(60),
-        );
+        store
+            .register_agent_work(&scope, "s1", "a", "b", "w", "intent", Some(60))
+            .expect("register agent");
+        store
+            .claim_files(
+                &scope,
+                "s1",
+                "a",
+                "b",
+                "w",
+                vec!["f.rs".into()],
+                "r",
+                Some(60),
+            )
+            .expect("claim file");
         let after_two = store.lock_stats();
         assert_eq!(
             after_two.acquire_count, 2,
@@ -775,38 +669,278 @@ mod lock_stats_tests {
     }
 
     #[test]
+    fn every_coordination_operation_fails_closed_when_store_is_unavailable() {
+        let scope = temp_scope("unavailable");
+        let db_path = coordination_db_path(&scope);
+        fs::create_dir_all(&db_path).expect("block database path with directory");
+        let store_a = AgentCoordinationStore::new();
+        let store_b = AgentCoordinationStore::new();
+
+        assert!(
+            store_a
+                .register_agent_work(&scope, "s1", "a", "b", "w", "intent", Some(60))
+                .is_err()
+        );
+        assert!(
+            store_a
+                .claim_files(
+                    &scope,
+                    "s1",
+                    "a",
+                    "b",
+                    "w",
+                    vec!["f.rs".into()],
+                    "reason",
+                    Some(60),
+                )
+                .is_err()
+        );
+        assert!(
+            store_a
+                .release_files(&scope, "s1", &["f.rs".into()])
+                .is_err()
+        );
+        assert!(store_a.snapshot(&scope).is_err());
+        assert!(store_a.active_agents(&scope).is_err());
+        assert!(
+            store_b
+                .overlapping_claims(&scope, "s2", &["f.rs".into()])
+                .is_err()
+        );
+
+        fs::remove_dir(&db_path).expect("repair database path");
+        let snapshot = store_b.snapshot(&scope).expect("empty recovered snapshot");
+        assert!(snapshot.agents.is_empty());
+        assert!(snapshot.claims.is_empty());
+    }
+
+    #[test]
+    fn unavailable_coordination_child_process_fails_closed() {
+        let Some(scope) = std::env::var_os(CHILD_UNAVAILABLE_SCOPE_ENV) else {
+            return;
+        };
+        let scope = scope.to_string_lossy().to_string();
+        let store = AgentCoordinationStore::new();
+        assert!(
+            store
+                .claim_files(
+                    &scope,
+                    "child-session",
+                    "child",
+                    "branch",
+                    "worktree",
+                    vec!["shared.rs".into()],
+                    "fault injection",
+                    Some(60),
+                )
+                .is_err(),
+            "a child process must not fall back to private coordination state"
+        );
+    }
+
+    #[test]
+    fn coordination_store_outage_fails_closed_across_processes() {
+        let scope = temp_scope("unavailable-process");
+        let db_path = coordination_db_path(&scope);
+        fs::create_dir_all(&db_path).expect("block coordination database path");
+        let current_exe = std::env::current_exe().expect("current test executable");
+        let status = Command::new(current_exe)
+            .arg("--exact")
+            .arg(
+                "agent_coordination::lock_stats_tests::unavailable_coordination_child_process_fails_closed",
+            )
+            .arg("--nocapture")
+            .env(CHILD_UNAVAILABLE_SCOPE_ENV, &scope)
+            .status()
+            .expect("run coordination fault child");
+        assert!(
+            status.success(),
+            "child coordination fault test failed: {status}"
+        );
+
+        let parent = AgentCoordinationStore::new();
+        assert!(
+            parent
+                .register_agent_work(
+                    &scope,
+                    "parent-session",
+                    "parent",
+                    "branch",
+                    "worktree",
+                    "fault injection",
+                    Some(60),
+                )
+                .is_err(),
+            "the parent process must fail closed against the same unavailable store"
+        );
+    }
+
+    #[test]
+    fn shared_coordination_claim_child_process() {
+        let Some(scope) = std::env::var_os(CHILD_CLAIM_SCOPE_ENV) else {
+            return;
+        };
+        let session = std::env::var(CHILD_CLAIM_SESSION_ENV).expect("child claim session");
+        let barrier =
+            PathBuf::from(std::env::var_os(CHILD_CLAIM_BARRIER_ENV).expect("child claim barrier"));
+        let outcome_path =
+            PathBuf::from(std::env::var_os(CHILD_CLAIM_OUTCOME_ENV).expect("child claim outcome"));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !barrier.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(barrier.exists(), "parent did not release claim barrier");
+
+        let store = AgentCoordinationStore::new();
+        let outcome = store
+            .claim_files(
+                &scope.to_string_lossy(),
+                &session,
+                &session,
+                "branch",
+                "worktree",
+                vec!["src/shared.rs".to_owned()],
+                "cross-process race",
+                Some(60),
+            )
+            .expect("child claim must commit through the shared store");
+        fs::write(outcome_path, outcome.overlapping_claims.len().to_string())
+            .expect("write child claim outcome");
+    }
+
+    #[test]
+    fn concurrent_child_claims_share_one_committed_overlap_view() {
+        let scope = temp_scope("claim-process-race");
+        AgentCoordinationStore::new()
+            .snapshot(&scope)
+            .expect("initialize shared coordination schema");
+        let scope_path = PathBuf::from(&scope);
+        let barrier = scope_path.join("claim-race.barrier");
+        let outcome_a = scope_path.join("claim-a.outcome");
+        let outcome_b = scope_path.join("claim-b.outcome");
+        let current_exe = std::env::current_exe().expect("current test executable");
+
+        let spawn_claim = |session: &str, outcome: &Path| {
+            Command::new(&current_exe)
+                .arg("--exact")
+                .arg(
+                    "agent_coordination::lock_stats_tests::shared_coordination_claim_child_process",
+                )
+                .arg("--nocapture")
+                .env(CHILD_CLAIM_SCOPE_ENV, &scope)
+                .env(CHILD_CLAIM_SESSION_ENV, session)
+                .env(CHILD_CLAIM_BARRIER_ENV, &barrier)
+                .env(CHILD_CLAIM_OUTCOME_ENV, outcome)
+                .spawn()
+                .expect("spawn coordination claim child")
+        };
+        let mut child_a = spawn_claim("session-a", &outcome_a);
+        let mut child_b = spawn_claim("session-b", &outcome_b);
+        fs::write(&barrier, b"claim").expect("release claim children");
+
+        let status_a = child_a.wait().expect("wait claim child a");
+        let status_b = child_b.wait().expect("wait claim child b");
+        assert!(status_a.success(), "claim child a failed: {status_a}");
+        assert!(status_b.success(), "claim child b failed: {status_b}");
+
+        let mut overlap_counts = [
+            fs::read_to_string(&outcome_a)
+                .expect("read claim a outcome")
+                .parse::<usize>()
+                .expect("parse claim a outcome"),
+            fs::read_to_string(&outcome_b)
+                .expect("read claim b outcome")
+                .parse::<usize>()
+                .expect("parse claim b outcome"),
+        ];
+        overlap_counts.sort_unstable();
+        assert_eq!(
+            overlap_counts,
+            [0, 1],
+            "the first commit sees no conflict and the later commit must see the first"
+        );
+
+        let store = AgentCoordinationStore::new();
+        let snapshot = store.snapshot(&scope).expect("final shared snapshot");
+        assert_eq!(snapshot.counts.active_claims, 2);
+        assert_eq!(
+            store
+                .overlapping_claims(&scope, "session-c", &["src/shared.rs".to_owned()])
+                .expect("third-session overlap view")
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn malformed_persisted_claim_paths_fail_closed() {
+        let scope = temp_scope("corrupt-paths");
+        let store = AgentCoordinationStore::new();
+        store
+            .claim_files(
+                &scope,
+                "s1",
+                "a",
+                "b",
+                "w",
+                vec!["f.rs".into()],
+                "reason",
+                Some(60),
+            )
+            .expect("seed claim");
+
+        let conn = Connection::open(coordination_db_path(&scope)).expect("open coordination db");
+        conn.execute(
+            "UPDATE claims SET paths_json = 'not-json' WHERE session_id = 's1'",
+            [],
+        )
+        .expect("corrupt claim paths");
+
+        let error = store
+            .snapshot(&scope)
+            .expect_err("corrupt ownership evidence must not become an empty claim");
+        assert_eq!(error.operation, "snapshot");
+    }
+
+    #[test]
     fn separate_store_instances_share_coordination_state_for_same_scope() {
         let scope = temp_scope("cross-instance");
         let store_a = AgentCoordinationStore::new();
         let store_b = AgentCoordinationStore::new();
 
-        store_a.register_agent_work(
-            &scope,
-            "session-a",
-            "codex-builder",
-            "codex/coord-a",
-            "/tmp/codex-coord-a",
-            "edit shared file",
-            Some(60),
-        );
-        store_a.claim_files(
-            &scope,
-            "session-a",
-            "codex-builder",
-            "codex/coord-a",
-            "/tmp/codex-coord-a",
-            vec!["src/lib.rs".to_owned()],
-            "cross-daemon test",
-            Some(60),
-        );
+        store_a
+            .register_agent_work(
+                &scope,
+                "session-a",
+                "codex-builder",
+                "codex/coord-a",
+                "/tmp/codex-coord-a",
+                "edit shared file",
+                Some(60),
+            )
+            .expect("register agent");
+        store_a
+            .claim_files(
+                &scope,
+                "session-a",
+                "codex-builder",
+                "codex/coord-a",
+                "/tmp/codex-coord-a",
+                vec!["src/lib.rs".to_owned()],
+                "cross-daemon test",
+                Some(60),
+            )
+            .expect("claim file");
 
-        let snapshot = store_b.snapshot(&scope);
+        let snapshot = store_b.snapshot(&scope).expect("shared snapshot");
         assert_eq!(snapshot.counts.active_agents, 1);
         assert_eq!(snapshot.counts.active_claims, 1);
         assert_eq!(snapshot.agents[0].session_id, "session-a");
         assert_eq!(snapshot.claims[0].paths, vec!["src/lib.rs"]);
 
-        let overlaps = store_b.overlapping_claims(&scope, "session-b", &["src/lib.rs".to_owned()]);
+        let overlaps = store_b
+            .overlapping_claims(&scope, "session-b", &["src/lib.rs".to_owned()])
+            .expect("shared overlaps");
         assert_eq!(overlaps.len(), 1);
         assert_eq!(overlaps[0].session_id, "session-a");
     }

@@ -77,10 +77,16 @@ pub(crate) fn parse_symbols(
             continue;
         }
 
+        let rust_impl_owner = (config.extension == "rs")
+            .then(|| rust_impl_owner(def_node, source_bytes))
+            .flatten();
         let body = include_body.then(|| node_text(def_node, source_bytes).to_owned());
         symbols.push(ParsedSymbol {
             name: name.clone(),
-            kind: capture_name_to_kind(capture_name),
+            kind: rust_impl_owner.as_ref().map_or_else(
+                || capture_name_to_kind(capture_name),
+                |_| SymbolKind::Method,
+            ),
             file_path: file_path_owned.clone(),
             line: def_node.start_position().row + 1,
             column: name_node.start_position().column + 1,
@@ -88,7 +94,8 @@ pub(crate) fn parse_symbols(
             end_byte: def_node.end_byte() as u32,
             signature: build_signature(def_node, source_bytes, &name),
             body,
-            name_path: name,
+            name_path: rust_impl_owner
+                .map_or_else(|| name.clone(), |owner| format!("{owner}/{name}")),
             children: Vec::new(),
         });
     }
@@ -249,6 +256,20 @@ fn node_text<'a>(node: Node<'_>, source_bytes: &'a [u8]) -> &'a str {
     std::str::from_utf8(&source_bytes[start..end]).unwrap_or_default()
 }
 
+fn rust_impl_owner(def_node: Node<'_>, source_bytes: &[u8]) -> Option<String> {
+    let mut ancestor = def_node.parent();
+    while let Some(node) = ancestor {
+        if node.kind() == "impl_item" {
+            return node
+                .child_by_field_name("type")
+                .map(|owner| node_text(owner, source_bytes).trim().to_owned())
+                .filter(|owner| !owner.is_empty());
+        }
+        ancestor = node.parent();
+    }
+    None
+}
+
 #[cfg(test)]
 mod nfc_extraction_tests {
     use super::parse_symbols;
@@ -275,5 +296,23 @@ mod nfc_extraction_tests {
                 .map(|s| s.name.chars().count())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn rust_impl_method_name_path_includes_owner() {
+        // Given: two homonymous methods declared by distinct Rust impl owners.
+        let source = "struct Alpha;\nimpl Alpha { fn new() -> Self { Self } }\nstruct Beta;\nimpl Beta { fn new() -> Self { Self } }\n";
+        let config = language_for_path(Path::new("lib.rs")).expect("rust config");
+
+        // When: symbols are parsed for indexing.
+        let parsed = parse_symbols(&config, "lib.rs", source, false).expect("parse");
+        let method_paths: Vec<&str> = parsed
+            .iter()
+            .filter(|symbol| symbol.name == "new")
+            .map(|symbol| symbol.name_path.as_str())
+            .collect();
+
+        // Then: declaration identity retains each impl owner.
+        assert_eq!(method_paths, vec!["Alpha/new", "Beta/new"]);
     }
 }

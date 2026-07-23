@@ -121,7 +121,7 @@ pub(crate) fn build_builder_session_audit(
     let target_session_id = requested_session_id.unwrap_or(request_session.session_id.as_str());
     let metrics = state.metrics().session_snapshot_for(target_session_id);
     let view = resolve_audit_session_view(state, &request_session, requested_session_id, &metrics)?;
-    let coordination = state.coordination_snapshot_for_scope(&view.scope);
+    let coordination = state.coordination_snapshot_for_scope(&view.scope)?;
     let active_registration = coordination
         .agents
         .iter()

@@ -71,3 +71,37 @@ members = ["crates/engine", "crates/mcp"]
         "workspace graph should not collapse the root into one target file node: {content}"
     );
 }
+
+#[test]
+fn review_architecture_downgrades_readiness_when_importer_evidence_is_capped() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("target.py"),
+        "def target():\n    pass\n",
+    )
+    .unwrap();
+    for index in 0..21 {
+        fs::write(
+            project.as_path().join(format!("importer_{index}.py")),
+            "from target import target\n\ntarget()\n",
+        )
+        .unwrap();
+    }
+    let state = make_state(&project);
+
+    let payload = call_tool(&state, "review_architecture", json!({"path": "target.py"}));
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["analysis_completeness"]["status"],
+        json!("partial")
+    );
+    assert_eq!(
+        payload["data"]["analysis_completeness"]["direct_importer_limit_hit"],
+        json!(true)
+    );
+    assert_ne!(
+        payload["data"]["readiness"]["mutation_ready"],
+        json!("ready")
+    );
+}

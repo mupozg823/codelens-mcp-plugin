@@ -363,7 +363,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "verify_change_readiness",
 ];
 
-// Curated default `review` surface (:7839) — the core set from the
+// Curated default `review` surface (selected per session on :7838) — the core set from the
 // 2026-07 tool-surface diet, step 1. Reduced from 49 → 20 to match the
 // 14-day usage telemetry (docs/operations/tool-surface-diet-2026-07.md).
 // ADR-0016 keeps this at ≤20: the #350 call-graph hint targets

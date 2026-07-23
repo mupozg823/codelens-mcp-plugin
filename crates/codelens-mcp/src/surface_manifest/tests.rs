@@ -75,6 +75,15 @@ fn manifest_matches_registry_counts() {
                 .iter()
                 .any(|contract| contract["name"] == json!("planner-builder-handoff")))
     );
+    let http_modes = manifest["harness_modes"]["modes"]
+        .as_array()
+        .expect("harness modes")
+        .iter()
+        .filter(|mode| mode["topology"]["transport"] == json!("http"));
+    for mode in http_modes {
+        assert_eq!(mode["topology"]["daemon_shape"], json!("single-writer"));
+        assert_eq!(mode["topology"]["recommended_ports"], json!([7838]));
+    }
     assert!(
         manifest["harness_artifacts"]["schemas"]
             .as_array()
@@ -142,7 +151,7 @@ fn host_adapter_bundle_uses_project_local_json_url_override() {
         serde_json::to_string_pretty(&json!({
             "host_attach": {
                 "per_host_urls": {
-                    "cursor": "http://127.0.0.1:7839/mcp"
+                    "cursor": "http://127.0.0.1:7736/mcp"
                 }
             }
         }))
@@ -154,11 +163,11 @@ fn host_adapter_bundle_uses_project_local_json_url_override() {
         host_adapter_bundle_for_project("cursor", Some(root.as_path())).expect("cursor bundle");
     assert_eq!(
         bundle["resolved_mcp_url"],
-        json!("http://127.0.0.1:7839/mcp")
+        json!("http://127.0.0.1:7736/mcp")
     );
     assert_eq!(
         bundle["native_files"][0]["template"]["mcpServers"]["codelens"]["url"],
-        json!("http://127.0.0.1:7839/mcp")
+        json!("http://127.0.0.1:7736/mcp")
     );
 }
 

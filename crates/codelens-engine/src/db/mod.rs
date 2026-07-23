@@ -20,7 +20,7 @@ const SCHEMA_VERSION: i64 = 6;
 /// the compiled one wipes the analysis tables so `refresh_all` re-derives them
 /// with current logic. Without it, `commit_analyzed`'s (mtime, hash) freshness
 /// skip keeps stale edges forever, so logic fixes never reach existing indexes.
-const ANALYZER_VERSION: i64 = 1;
+const ANALYZER_VERSION: i64 = 2;
 
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {

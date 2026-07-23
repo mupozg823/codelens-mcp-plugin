@@ -19,7 +19,7 @@
 # 참고: 이 스크립트는 host 측 훅이다 (사용자 settings.json 의 SessionStart 에
 # 등록). 플러그인 hooks.json 에는 포함되지 않는다.
 
-CARD_URL="${CODELENS_CARD_URL:-http://127.0.0.1:7839/.well-known/mcp.json}"
+CARD_URL="${CODELENS_CARD_URL:-http://127.0.0.1:7838/.well-known/mcp.json}"
 
 # resume 이벤트는 침묵 (stdin 이 비어 있으면 startup 으로 간주하고 진행)
 HOOK_INPUT=$(cat 2>/dev/null || true)
@@ -50,15 +50,15 @@ for t in 0.7 1.2; do
   fi
 done
 if [ "$ALIVE" = "0" ]; then
-  echo "🔍 CodeLens 데몬 다운(:7839) — 쉘 폴백 허용, 심볼 게이트 자동 비활성."
+  echo "🔍 CodeLens 데몬 다운(:7838) — 쉘 폴백 허용, 심볼 게이트 자동 비활성."
   exit 0
 fi
 
 if [ "$HAS_HEADER" = "1" ]; then
-  echo "🔍 CodeLens alive(:7839) — .mcp.json 헤더 자동 바인딩(prepare_harness_session 생략 가능). 심볼 라우팅 상세=rules/harness.md CodeLens-First."
+  echo "🔍 CodeLens alive(:7838) — .mcp.json 헤더 자동 바인딩(prepare_harness_session 생략 가능). 심볼 라우팅 상세=rules/harness.md CodeLens-First."
 elif [ "$GIT_ROOT" = "$HOME" ]; then
-  echo "🔍 CodeLens alive(:7839) — 홈 세션: \$HOME 자체 바인딩 금지(홈 전체 인덱싱→타임아웃). 코드 조회 전 대상 레포로 prepare_harness_session(project=<레포 절대경로>) 바인딩. 상세=rules/harness.md."
+  echo "🔍 CodeLens alive(:7838) — 홈 세션: \$HOME 자체 바인딩 금지(홈 전체 인덱싱→타임아웃). 코드 조회 전 대상 레포로 prepare_harness_session(project=<레포 절대경로>) 바인딩. 상세=rules/harness.md."
 else
-  echo "🔍 CodeLens alive(:7839) — 첫 호출 전 prepare_harness_session(project=\"$GIT_ROOT\") 필수(공유 데몬 오바인딩 방지). 미노출 시 ToolSearch \"select:mcp__codelens__search,mcp__codelens__graph\". 상세=rules/harness.md."
+  echo "🔍 CodeLens alive(:7838) — 첫 호출 전 prepare_harness_session(project=\"$GIT_ROOT\") 필수(공유 데몬 오바인딩 방지). 미노출 시 ToolSearch \"select:mcp__codelens__search,mcp__codelens__graph\". 상세=rules/harness.md."
 fi
 exit 0

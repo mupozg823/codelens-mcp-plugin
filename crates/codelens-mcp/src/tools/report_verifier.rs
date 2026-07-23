@@ -500,6 +500,38 @@ pub(crate) fn build_verifier_contract(
         );
     }
 
+    let analysis_completeness = sections
+        .get("analysis_completeness")
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str);
+    let analysis_is_partial = analysis_completeness == Some("partial");
+    let analysis_is_unavailable = analysis_completeness == Some("unavailable");
+    let analysis_completeness_status = match analysis_completeness {
+        Some("partial") => VERIFIER_CAUTION,
+        Some("unavailable") => VERIFIER_BLOCKED,
+        _ => VERIFIER_READY,
+    };
+    if analysis_completeness.is_some() {
+        let summary = match analysis_completeness {
+            Some("partial") => {
+                "Architecture evidence is partial because at least one file, importer, cycle, or coupling evidence limit was reached."
+            }
+            Some("unavailable") => {
+                "Architecture evidence is unavailable; do not treat the absence of findings as a safe result."
+            }
+            _ => {
+                "Architecture evidence covered the requested scope without hitting an evidence limit."
+            }
+        };
+        push_verifier_check(
+            &mut contract.verifier_checks,
+            "analysis_completeness_verifier",
+            analysis_completeness_status,
+            summary,
+            Some("analysis_completeness"),
+        );
+    }
+
     contract.blockers.truncate(5);
     let mutation_status = if !contract.blockers.is_empty() {
         VERIFIER_BLOCKED
@@ -513,15 +545,22 @@ pub(crate) fn build_verifier_contract(
             } else {
                 VERIFIER_CAUTION
             },
+            analysis_completeness_status,
         ])
     };
     contract.readiness.mutation_ready = mutation_status.to_owned();
     let mutation_summary = match mutation_status {
+        VERIFIER_BLOCKED if analysis_is_unavailable => {
+            "Architecture evidence is unavailable; resolve the analysis failure before mutation."
+        }
         VERIFIER_BLOCKED => {
             "Blockers remain; keep the workflow in preflight until they are resolved."
         }
         VERIFIER_CAUTION if !overlapping_claims.is_empty() => {
             "Overlapping advisory claims detected; coordinate branch, worktree, or file ownership before mutating."
+        }
+        VERIFIER_CAUTION if analysis_is_partial => {
+            "Architecture evidence is partial; expand the scope evidence before mutation."
         }
         VERIFIER_CAUTION => "Proceed only with targeted edits and explicit verification steps.",
         _ => "No blocker-level signals found; mutation path is ready for a narrow change.",

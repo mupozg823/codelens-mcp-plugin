@@ -35,6 +35,7 @@ sha2.workspace = true
 url.workspace = true
 regex.workspace = true
 rusqlite.workspace = true
+fs2.workspace = true
 toml.workspace = true
 rustls = { workspace = true, optional = true }
 codelens-engine = { workspace = true }

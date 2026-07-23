@@ -4,7 +4,7 @@ set -euo pipefail
 # Compare the local launchd daemon binary's git SHA against the source HEAD
 # and exit non-zero if they drifted. Read-only — no build, no kickstart.
 #
-# Why: this repo's HTTP daemons (dev.codelens.mcp-readonly/mutation) run a
+# Why: this repo's HTTP daemon (dev.codelens.mcp-mutation) runs a
 # binary copied into `.codelens/bin/codelens-mcp-http`. A `cargo build
 # --release` does NOT update that binary; the daemons keep running the
 # previous build until `scripts/redeploy-daemons.sh` re-copies it. That

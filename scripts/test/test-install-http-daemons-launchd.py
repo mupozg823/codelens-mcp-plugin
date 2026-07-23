@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import socket
 import stat
@@ -25,6 +26,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SCRIPT = REPO_ROOT / "scripts" / "install-http-daemons-launchd.sh"
+CRATE_README = REPO_ROOT / "crates" / "codelens-mcp" / "README.md"
 
 
 def write_fake_executable(path: Path) -> None:
@@ -94,6 +96,12 @@ def run_installer(args: list[str]) -> subprocess.CompletedProcess[str]:
         ) from exc
 
 
+def test_shared_http_docs_use_one_canonical_writer_endpoint() -> None:
+    text = CRATE_README.read_text(encoding="utf-8")
+    assert "--port 7838" in text
+    assert "--port 7837" not in text
+
+
 def test_print_only_launchd_installer_completes_without_stdin_hang() -> None:
     with tempfile.TemporaryDirectory(prefix="codelens-launchd-installer-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -122,10 +130,10 @@ def test_print_only_launchd_installer_completes_without_stdin_hang() -> None:
             "installer should render plists without touching launchd: "
             f"stdout={proc.stdout} stderr={proc.stderr}"
         )
-        assert "dev.codelens.mcp-readonly" in proc.stdout
         assert "dev.codelens.mcp-mutation" in proc.stdout
-        assert "<string>review</string>" in proc.stdout
+        assert "dev.codelens.mcp-readonly" not in proc.stdout
         assert "<string>builder</string>" in proc.stdout
+        assert "<string>mutation-enabled</string>" in proc.stdout
         assert "CODELENS_MODEL_DIR" in proc.stdout
         assert not list(agents_dir.glob("*.plist"))
 
@@ -159,10 +167,19 @@ def test_write_launchd_installer_updates_config_without_stdin_hang() -> None:
             "installer should write plists and repo-local attach config: "
             f"stdout={proc.stdout} stderr={proc.stderr}"
         )
-        assert agents_dir.joinpath("dev.codelens.mcp-readonly.plist").is_file()
         assert agents_dir.joinpath("dev.codelens.mcp-mutation.plist").is_file()
+        assert not agents_dir.joinpath("dev.codelens.mcp-readonly.plist").exists()
         assert fake_repo.joinpath(".codelens/config.json").is_file()
         assert "Updated host attach overrides" in proc.stdout
+
+        config = json.loads(
+            fake_repo.joinpath(".codelens/config.json").read_text(encoding="utf-8")
+        )
+        assert config["host_attach"]["per_host_urls"] == {
+            "claude-code": "http://127.0.0.1:7838/mcp",
+            "codex": "http://127.0.0.1:7838/mcp",
+            "cursor": "http://127.0.0.1:7838/mcp",
+        }
 
 
 def _stripped_lines(text: str) -> list[str]:
@@ -273,11 +290,9 @@ def test_write_launchd_installer_reports_clear_error_on_corrupt_config_json() ->
 
 
 def test_load_aborts_before_bootstrap_when_port_busy() -> None:
-    # --load must bootout the old instance, then WAIT for the port to release
-    # before bootstrapping. If the port is still occupied, it must abort before
-    # bootstrap (never spawn an instance that yields exit(0) into a permanent
-    # KeepAlive-SuccessfulExit=false down). launchctl is shimmed; the port is a
-    # real ephemeral listener held for the whole run.
+    # --load must bootout the old canonical instance, then WAIT for its port to
+    # release before bootstrapping. It must also disable/bootout the legacy
+    # readonly label so launchd cannot restart a second project writer.
     with tempfile.TemporaryDirectory(prefix="codelens-launchd-installer-") as raw_tmp:
         tmp = Path(raw_tmp)
         fake_repo = tmp / "repo"
@@ -300,10 +315,7 @@ def test_load_aborts_before_bootstrap_when_port_busy() -> None:
         env["CODELENS_PORT_RELEASE_SECS"] = "1"
         label_prefix = f"codelens-test-fixture-{os.getpid()}"
 
-        with contextlib.closing(open_listener(0)) as ro_sock, contextlib.closing(
-            open_listener(0)
-        ) as mu_sock:
-            readonly_port = str(ro_sock.getsockname()[1])
+        with contextlib.closing(open_listener(0)) as mu_sock:
             mutation_port = str(mu_sock.getsockname()[1])
             proc = run_installer_with_env(
                 [
@@ -318,8 +330,6 @@ def test_load_aborts_before_bootstrap_when_port_busy() -> None:
                     str(model_dir),
                     "--launch-agents-dir",
                     str(agents_dir),
-                    "--readonly-port",
-                    readonly_port,
                     "--mutation-port",
                     mutation_port,
                 ],
@@ -339,6 +349,10 @@ def test_load_aborts_before_bootstrap_when_port_busy() -> None:
         assert "bootout" in shim_calls, (
             f"expected bootout first; shim calls:\n{shim_calls}"
         )
+        assert "disable" in shim_calls and f"{label_prefix}-readonly" in shim_calls, (
+            "installer must disable the legacy readonly label before loading the "
+            f"canonical writer; shim calls:\n{shim_calls}"
+        )
         assert "bootstrap" not in shim_calls, (
             "installer bootstrapped despite the port still being occupied.\n"
             f"shim calls:\n{shim_calls}"
@@ -346,9 +360,8 @@ def test_load_aborts_before_bootstrap_when_port_busy() -> None:
 
 
 def test_load_bootstraps_after_ports_release() -> None:
-    # Happy path: when both ports are free after bootout, --load must run the
-    # port-release barrier and then bootstrap both daemons. The "ensuring port"
-    # barrier log is absent in the unfixed script (RED/GREEN signal).
+    # Happy path: when the canonical writer port is free after bootout, --load
+    # must run the release barrier and bootstrap exactly one service.
     with tempfile.TemporaryDirectory(prefix="codelens-launchd-installer-") as raw_tmp:
         tmp = Path(raw_tmp)
         fake_repo = tmp / "repo"
@@ -365,12 +378,9 @@ def test_load_bootstraps_after_ports_release() -> None:
         shim_log = tmp / "launchctl.log"
         write_launchctl_shim(shim_dir, shim_log)
 
-        # Two free ports: reserve ephemeral numbers, then release them.
-        with contextlib.closing(open_listener(0)) as p1, contextlib.closing(
-            open_listener(0)
-        ) as p2:
-            readonly_port = str(p1.getsockname()[1])
-            mutation_port = str(p2.getsockname()[1])
+        # Reserve one ephemeral port, then release it before running installer.
+        with contextlib.closing(open_listener(0)) as probe:
+            mutation_port = str(probe.getsockname()[1])
 
         env = dict(os.environ)
         env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
@@ -391,8 +401,6 @@ def test_load_bootstraps_after_ports_release() -> None:
                 str(model_dir),
                 "--launch-agents-dir",
                 str(agents_dir),
-                "--readonly-port",
-                readonly_port,
                 "--mutation-port",
                 mutation_port,
             ],
@@ -409,14 +417,23 @@ def test_load_bootstraps_after_ports_release() -> None:
             "installer --load did not run the port-release barrier before bootstrap.\n"
             f"stdout={proc.stdout}\nstderr={proc.stderr}"
         )
-        assert shim_calls.count("bootstrap") == 2, (
-            "expected both daemons to be bootstrapped after release.\n"
+        assert shim_calls.count("bootstrap") == 1, (
+            "expected exactly one canonical daemon to be bootstrapped after release.\n"
+            f"shim calls:\n{shim_calls}"
+        )
+        assert f"{label_prefix}-readonly" in shim_calls, (
+            "expected the legacy readonly label to be explicitly disabled/booted out.\n"
+            f"shim calls:\n{shim_calls}"
+        )
+        assert f"{label_prefix}-readonly.plist" not in shim_calls, (
+            "installer must not bootstrap the legacy readonly plist.\n"
             f"shim calls:\n{shim_calls}"
         )
 
 
 def main() -> int:
     tests = [
+        test_shared_http_docs_use_one_canonical_writer_endpoint,
         test_print_only_launchd_installer_completes_without_stdin_hang,
         test_write_launchd_installer_updates_config_without_stdin_hang,
         test_launchd_plist_keepalive_prevents_successful_exit_respawn_loop,

@@ -2,7 +2,9 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::agent_coordination::DEFAULT_COORDINATION_TTL_SECS;
+use crate::agent_coordination::{
+    ClaimOutcome, CoordinationStoreError, DEFAULT_COORDINATION_TTL_SECS,
+};
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 
@@ -10,6 +12,14 @@ use super::{
     ActiveAgentEntry, AgentWorkEntry, AppState, CoordinationCounts, CoordinationLockStats,
     CoordinationSnapshot, FileClaimEntry,
 };
+
+fn coordination_error(error: CoordinationStoreError) -> CodeLensError {
+    CodeLensError::CoordinationUnavailable {
+        operation: error.operation.to_owned(),
+        scope: error.scope,
+        reason: error.reason,
+    }
+}
 
 fn resolve_coordination_session_id(
     session: &SessionRequestContext,
@@ -112,12 +122,42 @@ fn infer_git_branch(project_root: &Path) -> String {
 }
 
 impl AppState {
-    pub(crate) fn coordination_snapshot_for_scope(&self, scope: &str) -> CoordinationSnapshot {
-        self.coord_store.snapshot(scope)
+    pub(crate) fn coordination_health_payload(&self) -> Value {
+        let scope = self.current_project_scope();
+        match self.coord_store.snapshot(&scope) {
+            Ok(snapshot) => serde_json::json!({
+                "status": "available",
+                "degraded": false,
+                "fail_closed": true,
+                "scope": scope,
+                "active_agents": snapshot.counts.active_agents,
+                "active_claims": snapshot.counts.active_claims,
+                "reason": null,
+            }),
+            Err(error) => serde_json::json!({
+                "status": "degraded",
+                "degraded": true,
+                "fail_closed": true,
+                "scope": scope,
+                "active_agents": null,
+                "active_claims": null,
+                "reason": error.to_string(),
+            }),
+        }
     }
 
-    pub(crate) fn coordination_counts_for_scope(&self, scope: &str) -> CoordinationCounts {
-        self.coordination_snapshot_for_scope(scope).counts
+    pub(crate) fn coordination_snapshot_for_scope(
+        &self,
+        scope: &str,
+    ) -> Result<CoordinationSnapshot, CodeLensError> {
+        self.coord_store.snapshot(scope).map_err(coordination_error)
+    }
+
+    pub(crate) fn coordination_counts_for_scope(
+        &self,
+        scope: &str,
+    ) -> Result<CoordinationCounts, CodeLensError> {
+        Ok(self.coordination_snapshot_for_scope(scope)?.counts)
     }
 
     pub(crate) fn register_agent_work_for_arguments(
@@ -131,30 +171,33 @@ impl AppState {
         let worktree = crate::tool_runtime::required_string(arguments, "worktree")?;
         let intent = crate::tool_runtime::required_string(arguments, "intent")?;
         let scope = self.project_scope_for_session(&session);
-        Ok(self.coord_store.register_agent_work(
-            &scope,
-            &session_id,
-            agent_name,
-            branch,
-            worktree,
-            intent,
-            coordination_ttl_seconds(arguments),
-        ))
+        self.coord_store
+            .register_agent_work(
+                &scope,
+                &session_id,
+                agent_name,
+                branch,
+                worktree,
+                intent,
+                coordination_ttl_seconds(arguments),
+            )
+            .map_err(coordination_error)
     }
 
     pub(crate) fn list_active_agents_for_arguments(
         &self,
         arguments: &Value,
-    ) -> Vec<ActiveAgentEntry> {
+    ) -> Result<Vec<ActiveAgentEntry>, CodeLensError> {
         let session = SessionRequestContext::from_json(arguments);
         self.coord_store
             .active_agents(&self.project_scope_for_session(&session))
+            .map_err(coordination_error)
     }
 
     pub(crate) fn claim_files_for_arguments(
         &self,
         arguments: &Value,
-    ) -> Result<FileClaimEntry, CodeLensError> {
+    ) -> Result<ClaimOutcome, CodeLensError> {
         let session = SessionRequestContext::from_json(arguments);
         let session_id = resolve_coordination_session_id(&session, arguments)?;
         let reason = crate::tool_runtime::required_string(arguments, "reason")?;
@@ -166,16 +209,18 @@ impl AppState {
             .unwrap_or_else(|| session_id.clone());
         let fallback_worktree = self.project().as_path().to_string_lossy().to_string();
         let fallback_branch = infer_git_branch(self.project().as_path());
-        Ok(self.coord_store.claim_files(
-            &scope,
-            &session_id,
-            &fallback_agent_name,
-            &fallback_branch,
-            &fallback_worktree,
-            paths,
-            reason,
-            coordination_ttl_seconds(arguments),
-        ))
+        self.coord_store
+            .claim_files(
+                &scope,
+                &session_id,
+                &fallback_agent_name,
+                &fallback_branch,
+                &fallback_worktree,
+                paths,
+                reason,
+                coordination_ttl_seconds(arguments),
+            )
+            .map_err(coordination_error)
     }
 
     pub(crate) fn release_files_for_arguments(
@@ -186,8 +231,10 @@ impl AppState {
         let session_id = resolve_coordination_session_id(&session, arguments)?;
         let paths = normalized_claim_paths(self, arguments)?;
         let scope = self.project_scope_for_session(&session);
-        let (released_paths, remaining_claim) =
-            self.coord_store.release_files(&scope, &session_id, &paths);
+        let (released_paths, remaining_claim) = self
+            .coord_store
+            .release_files(&scope, &session_id, &paths)
+            .map_err(coordination_error)?;
         Ok((session_id, released_paths, remaining_claim))
     }
 
@@ -195,29 +242,30 @@ impl AppState {
         &self,
         arguments: &Value,
         target_paths: &[String],
-    ) -> Vec<FileClaimEntry> {
+    ) -> Result<Vec<FileClaimEntry>, CodeLensError> {
         let session = SessionRequestContext::from_json(arguments);
-        let session_id = resolve_coordination_session_id(&session, arguments)
-            .unwrap_or_else(|_| session.session_id.clone());
-        self.coord_store.overlapping_claims(
-            &self.project_scope_for_session(&session),
-            &session_id,
-            target_paths,
-        )
+        let session_id = resolve_coordination_session_id(&session, arguments)?;
+        self.coord_store
+            .overlapping_claims(
+                &self.project_scope_for_session(&session),
+                &session_id,
+                target_paths,
+            )
+            .map_err(coordination_error)
     }
 
     pub(crate) fn coordination_snapshot_for_session(
         &self,
         session: &SessionRequestContext,
-    ) -> CoordinationSnapshot {
+    ) -> Result<CoordinationSnapshot, CodeLensError> {
         self.coordination_snapshot_for_scope(&self.project_scope_for_session(session))
     }
 
     pub(crate) fn coordination_counts_for_session(
         &self,
         session: &SessionRequestContext,
-    ) -> CoordinationCounts {
-        self.coordination_snapshot_for_session(session).counts
+    ) -> Result<CoordinationCounts, CodeLensError> {
+        Ok(self.coordination_snapshot_for_session(session)?.counts)
     }
 
     /// Cumulative `Mutex<HashMap>` contention counters on the coordination

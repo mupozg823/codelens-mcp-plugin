@@ -109,6 +109,22 @@ fn session_metrics_accumulate() {
 }
 
 #[test]
+fn verb_facades_count_as_composite_calls_without_low_level_chain() {
+    let reg = ToolMetricsRegistry::new();
+
+    for tool in [
+        "search", "overview", "diagnose", "analyze", "graph", "review",
+    ] {
+        reg.record_event(event(tool, "reviewer-graph"));
+    }
+
+    let session = reg.session_snapshot();
+    assert_eq!(session.call_type.composite_calls, 6);
+    assert_eq!(session.call_type.low_level_calls, 0);
+    assert_eq!(session.guidance.repeated_low_level_chain_count, 0);
+}
+
+#[test]
 fn transport_counts_accumulate() {
     let reg = ToolMetricsRegistry::new();
     reg.record_transport_session("stdio");

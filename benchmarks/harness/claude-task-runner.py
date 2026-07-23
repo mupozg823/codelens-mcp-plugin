@@ -20,7 +20,7 @@ REFRESH_POLICY_SCRIPT = SCRIPT_DIR / "refresh-routing-policy.py"
 DEFAULT_PROMPT_DIR = Path.home() / ".claude" / "harness" / "bootstrap" / "prompts"
 DEFAULT_RUN_DIR = Path.home() / ".claude" / "harness" / "runs"
 DEFAULT_WORKSPACE_ALIAS_DIR = Path.home() / ".codex" / "harness" / "workspaces"
-DEFAULT_MCP_URL = "http://127.0.0.1:7837/mcp"
+DEFAULT_MCP_URL = "http://127.0.0.1:7838/mcp"
 
 
 def load_bootstrap_module():

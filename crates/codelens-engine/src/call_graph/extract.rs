@@ -115,6 +115,25 @@ fn shadowed_by_rust_closure_binding(
     })
 }
 
+fn rust_function_declaration_path(
+    def_node: Node<'_>,
+    source_bytes: &[u8],
+    name: &str,
+) -> Option<String> {
+    let mut ancestor = def_node.parent();
+    while let Some(node) = ancestor {
+        if node.kind() == "impl_item" {
+            let owner = node.child_by_field_name("type")?;
+            let owner = std::str::from_utf8(&source_bytes[owner.start_byte()..owner.end_byte()])
+                .ok()?
+                .trim();
+            return (!owner.is_empty()).then(|| format!("{owner}/{name}"));
+        }
+        ancestor = node.parent();
+    }
+    None
+}
+
 /// Extract call edges from already-loaded source content (avoids re-reading disk).
 pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     let Some(config) = call_language_for_path(path) else {
@@ -144,16 +163,18 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     else {
         return Vec::new();
     };
-    let mut func_ranges: Vec<(usize, usize, String)> = Vec::new(); // (start, end, name)
+    let mut func_ranges: Vec<(usize, usize, String, Option<String>)> = Vec::new();
     let mut func_cursor = QueryCursor::new();
     let mut func_matches = func_cursor.matches(&func_query, tree.root_node(), source_bytes);
     while let Some(m) = func_matches.next() {
         let mut def_range: Option<(usize, usize)> = None;
+        let mut def_node = None;
         let mut func_name: Option<String> = None;
         for cap in m.captures.iter() {
             let cap_name = &func_query.capture_names()[cap.index as usize];
             if *cap_name == "func.def" {
                 def_range = Some((cap.node.start_byte(), cap.node.end_byte()));
+                def_node = Some(cap.node);
             } else if *cap_name == "func.name" {
                 let start = cap.node.start_byte();
                 let end = cap.node.end_byte();
@@ -162,10 +183,15 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                     .map(|s| s.trim().to_owned());
             }
         }
-        if let (Some((s, e)), Some(name)) = (def_range, func_name)
+        if let (Some((s, e)), Some(def_node), Some(name)) = (def_range, def_node, func_name)
             && !name.is_empty()
         {
-            func_ranges.push((s, e, name));
+            let declaration_path = if config.language_key == "rs" {
+                rust_function_declaration_path(def_node, source_bytes, &name)
+            } else {
+                None
+            };
+            func_ranges.push((s, e, name, declaration_path));
         }
     }
 
@@ -224,17 +250,20 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
             let line = cap.node.start_position().row + 1;
 
             // Find the enclosing function
-            let caller_name = func_ranges
+            let caller = func_ranges
                 .iter()
-                .filter(|(fs, fe, _)| *fs <= start && *fe >= end)
+                .filter(|(fs, fe, _, _)| *fs <= start && *fe >= end)
                 // pick the innermost (smallest range)
-                .min_by_key(|(fs, fe, _)| fe - fs)
-                .map(|(_, _, name)| name.clone())
-                .unwrap_or_else(|| "<module>".to_owned());
+                .min_by_key(|(fs, fe, _, _)| fe - fs);
+            let (caller_name, caller_declaration_path) = caller.map_or_else(
+                || ("<module>".to_owned(), None),
+                |(_, _, name, declaration_path)| (name.clone(), declaration_path.clone()),
+            );
 
             edges.push(CallEdge {
                 caller_file: file_path.clone(),
                 caller_name,
+                caller_declaration_path,
                 callee_name,
                 callee_qualifier: callee_qualifier.clone(),
                 line,
@@ -242,6 +271,7 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 confidence: 0.0,
                 resolution_strategy: None,
                 canonical_callee_name: None,
+                target_declaration_path: None,
             });
         }
     }

@@ -9,6 +9,50 @@ use super::js_imports::{JSImportBindingIndex, is_import_sensitive_path};
 use super::language::{best_path_proximity_candidate, call_language_for_path, same_call_language};
 use super::types::CallEdge;
 
+#[derive(Debug)]
+struct SymbolDeclaration {
+    file: String,
+    name_path: String,
+}
+
+fn owner_key(raw: &str) -> Option<String> {
+    let final_segment = raw.rsplit("::").next()?.trim();
+    let identifier = final_segment.split('<').next()?.trim();
+    (!identifier.is_empty()).then(|| identifier.to_owned())
+}
+
+fn rust_owner_for_edge(edge: &CallEdge) -> Option<String> {
+    if !edge.caller_file.ends_with(".rs") {
+        return None;
+    }
+    let qualifier = owner_key(edge.callee_qualifier.as_deref()?)?;
+    if qualifier == "Self" {
+        let caller_owner = edge.caller_declaration_path.as_deref()?.rsplit_once('/')?.0;
+        return owner_key(caller_owner);
+    }
+    qualifier
+        .chars()
+        .next()
+        .is_some_and(char::is_uppercase)
+        .then_some(qualifier)
+}
+
+fn owner_qualified_declaration<'a>(
+    declarations: &'a HashMap<String, Vec<SymbolDeclaration>>,
+    symbol_name: &str,
+    owner: &str,
+) -> Option<&'a SymbolDeclaration> {
+    let mut matches = declarations.get(symbol_name)?.iter().filter(|declaration| {
+        declaration
+            .name_path
+            .rsplit_once('/')
+            .and_then(|(candidate_owner, _)| owner_key(candidate_owner))
+            .is_some_and(|candidate_owner| candidate_owner == owner)
+    });
+    let declaration = matches.next()?;
+    matches.next().is_none().then_some(declaration)
+}
+
 fn symbol_defined_in(
     symbol_index: &HashMap<String, Vec<String>>,
     symbol_name: &str,
@@ -140,14 +184,24 @@ pub(crate) fn resolve_call_edges(
 ) {
     // Build a name→files index from the symbol DB for stages 3-5
     let db_path = crate::db::index_db_path(project.as_path());
-    let symbol_index: HashMap<String, Vec<String>> = crate::db::IndexDb::open(&db_path)
+    let (symbol_index, declaration_index) = crate::db::IndexDb::open(&db_path)
         .and_then(|db| {
             let all = db.all_symbol_names()?;
-            let mut map: HashMap<String, Vec<String>> = HashMap::new();
-            for (name, _kind, file, _line, _signature, _name_path) in all {
-                map.entry(name).or_default().push(file);
+            let mut files_by_name: HashMap<String, Vec<String>> = HashMap::new();
+            let mut rust_methods_by_name: HashMap<String, Vec<SymbolDeclaration>> = HashMap::new();
+            for (name, kind, file, _line, _signature, name_path) in all {
+                files_by_name
+                    .entry(name.clone())
+                    .or_default()
+                    .push(file.clone());
+                if file.ends_with(".rs") && kind == "method" && name_path.contains('/') {
+                    rust_methods_by_name
+                        .entry(name)
+                        .or_default()
+                        .push(SymbolDeclaration { file, name_path });
+                }
             }
-            Ok(map)
+            Ok((files_by_name, rust_methods_by_name))
         })
         .unwrap_or_default();
 
@@ -168,6 +222,23 @@ pub(crate) fn resolve_call_edges(
             })
             .map(|binding| binding.imported_name.as_deref() == Some("*"))
             .unwrap_or(false);
+
+        if let Some(owner) = rust_owner_for_edge(edge) {
+            if let Some(declaration) =
+                owner_qualified_declaration(&declaration_index, callee, &owner)
+            {
+                edge.resolved_file = Some(declaration.file.clone());
+                edge.confidence = 0.98;
+                edge.resolution_strategy = Some("owner_qualified");
+                edge.canonical_callee_name = Some(callee.clone());
+                edge.target_declaration_path = Some(declaration.name_path.clone());
+            } else {
+                edge.confidence = 0.25;
+                edge.resolution_strategy = Some("unresolved");
+                edge.target_declaration_path = Some(format!("{owner}/{callee}"));
+            }
+            continue;
+        }
 
         // Stage 1: Same file — local definitions beat imported or project-wide matches (0.90)
         if !has_imported_namespace_qualifier

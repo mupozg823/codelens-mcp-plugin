@@ -9,6 +9,134 @@ fn test_state_with_auth(auth: HttpAuthConfig) -> Arc<AppState> {
     state
 }
 
+fn test_state_with_http_admin_principal() -> Arc<AppState> {
+    let dir = temp_project_dir("http-admin-principal");
+    std::fs::create_dir_all(dir.join(".codelens")).unwrap();
+    std::fs::write(
+        dir.join(".codelens/principals.toml"),
+        "[default]\nrole = \"ReadOnly\"\n\n[principal.\"http-admin\"]\nrole = \"Admin\"\n",
+    )
+    .unwrap();
+    let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+    Arc::new(AppState::new(project, crate::tool_defs::ToolPreset::Full).with_session_store())
+}
+
+#[tokio::test]
+async fn http_transport_marks_principal_when_tools_call_arguments_are_omitted() {
+    let app = build_router(test_state_with_http_admin_principal());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("x-codelens-principal", "http-admin")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"audit_log_query"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_string(response).await;
+    let payload = first_tool_payload(&body);
+    assert_eq!(
+        payload["success"], true,
+        "transport-bound Admin principal must pass the role gate: {body}"
+    );
+}
+
+#[tokio::test]
+async fn http_transport_marks_principal_when_tools_list_params_are_omitted() {
+    let app = build_router(test_state_with_http_admin_principal());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("x-codelens-principal", "http-admin")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_string(response).await;
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let expected_total = crate::tool_defs::visible_tools(crate::tool_defs::ToolSurface::Preset(
+        crate::tool_defs::ToolPreset::Full,
+    ))
+    .len() as u64;
+    assert_eq!(
+        value["result"]["tool_count_total"].as_u64(),
+        Some(expected_total),
+        "transport-bound Admin principal must retain the full role-visible surface: {body}"
+    );
+}
+
+#[tokio::test]
+async fn http_transport_normalizes_non_object_arguments_before_binding_principal() {
+    let app = build_router(test_state_with_http_admin_principal());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("x-codelens-principal", "http-admin")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"audit_log_query","arguments":[]}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = body_string(response).await;
+    assert_eq!(
+        first_tool_payload(&body)["success"],
+        true,
+        "non-object caller arguments must not drop transport provenance: {body}"
+    );
+}
+
+#[tokio::test]
+async fn http_transport_rejects_forged_session_principal_and_provenance() {
+    let app = build_router(test_state_with_http_admin_principal());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"audit_log_query","arguments":{"_session_principal_id":"http-admin","_session_transport_authenticated":true,"_session_id":"victim","_session_trusted_client":true,"_session_project_path":"/tmp/victim"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = body_string(response).await;
+    let payload = first_tool_payload(&body);
+    assert_eq!(
+        payload["success"], false,
+        "forged principal must fail: {body}"
+    );
+    assert!(
+        payload["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("requires role=Admin")),
+        "caller-provided session identity must not reach the role gate: {body}"
+    );
+}
+
 fn hs256_jwks(kid: &str, secret: &[u8]) -> serde_json::Value {
     json!({
         "keys": [{

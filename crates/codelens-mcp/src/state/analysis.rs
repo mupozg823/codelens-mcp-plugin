@@ -189,7 +189,9 @@ impl AppState {
         verifier_checks: Vec<AnalysisVerifierCheck>,
         sections: std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Result<AnalysisArtifact, CodeLensError> {
-        let artifact = self.artifact_store.store(
+        let analysis_dir = self.analysis_dir();
+        let artifact = self.artifact_store.store_in_dir(
+            &analysis_dir,
             tool_name,
             self.surface().as_label(),
             scope.to_owned(),
@@ -272,7 +274,9 @@ impl AppState {
         tool_name: &str,
         cache_key: &str,
     ) -> Option<(AnalysisArtifact, crate::runtime_types::CacheHitTier)> {
-        self.artifact_store.find_reusable_tiered(
+        let analysis_dir = self.analysis_dir();
+        self.artifact_store.find_reusable_tiered_in_dir(
+            &analysis_dir,
             tool_name,
             cache_key,
             self.surface().as_label(),
@@ -294,24 +298,9 @@ impl AppState {
         scope: &str,
         analysis_id: &str,
     ) -> Option<AnalysisArtifact> {
-        self.artifact_store.get(analysis_id, Some(scope))
-    }
-
-    /// Look up an analysis artifact by id, ignoring the project scope.
-    ///
-    /// Used by `get_analysis_section` as a graceful fallback when the
-    /// strict scope-matched lookup misses — typically because the caller
-    /// invoked `review_architecture` with an explicit `path` argument and
-    /// then chained `get_analysis_section` without restating the path,
-    /// so `current_project_scope()` resolves to a different scope than
-    /// the one stored on the artifact (G8 self-dogfood, 2026-05-21).
-    ///
-    /// analysis_id is a monotonic `analysis-{ms}-{seq}` from a single
-    /// daemon process, so cross-scope id collisions are vanishingly rare.
-    /// Callers that need scope isolation should still use
-    /// `get_analysis_for_scope`.
-    pub(crate) fn get_analysis_any_scope(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
-        self.artifact_store.get(analysis_id, None)
+        let analysis_dir = self.analysis_dir();
+        self.artifact_store
+            .get_in_dir(&analysis_dir, analysis_id, scope)
     }
 
     pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
@@ -319,7 +308,9 @@ impl AppState {
     }
 
     pub(crate) fn list_analysis_summaries_for_scope(&self, scope: &str) -> Vec<AnalysisSummary> {
-        self.artifact_store.list_summaries(Some(scope))
+        let analysis_dir = self.analysis_dir();
+        self.artifact_store
+            .list_summaries_in_dir(&analysis_dir, Some(scope))
     }
 
     pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
@@ -331,7 +322,18 @@ impl AppState {
         analysis_id: &str,
         section: &str,
     ) -> Result<serde_json::Value, CodeLensError> {
-        self.artifact_store.get_section(analysis_id, section)
+        self.get_analysis_section_for_scope(&self.current_project_scope(), analysis_id, section)
+    }
+
+    pub(crate) fn get_analysis_section_for_scope(
+        &self,
+        scope: &str,
+        analysis_id: &str,
+        section: &str,
+    ) -> Result<serde_json::Value, CodeLensError> {
+        let analysis_dir = self.analysis_dir();
+        self.artifact_store
+            .get_section_in_dir(&analysis_dir, analysis_id, section, scope)
     }
 
     pub(crate) fn peek_analysis_section(
@@ -339,7 +341,7 @@ impl AppState {
         analysis_id: &str,
         section: &str,
     ) -> Result<serde_json::Value, CodeLensError> {
-        self.artifact_store.get_section(analysis_id, section)
+        self.get_analysis_section(analysis_id, section)
     }
 
     pub(crate) fn upsert_analysis_section_for_scope(
@@ -353,8 +355,9 @@ impl AppState {
             .ok_or_else(|| {
                 CodeLensError::NotFound(format!("unknown analysis_id `{analysis_id}`"))
             })?;
+        let analysis_dir = self.analysis_dir();
         self.artifact_store
-            .upsert_section(analysis_id, section, value)
+            .upsert_section_in_dir(&analysis_dir, analysis_id, section, value, scope)
     }
 
     #[cfg(test)]
@@ -363,8 +366,9 @@ impl AppState {
         analysis_id: &str,
         created_at_ms: u64,
     ) -> Result<(), CodeLensError> {
+        let analysis_dir = self.analysis_dir();
         self.artifact_store
-            .set_created_at_for_test(analysis_id, created_at_ms)
+            .set_created_at_for_test_in_dir(&analysis_dir, analysis_id, created_at_ms)
             .map_err(|e| CodeLensError::Internal(e.into()))
     }
 }

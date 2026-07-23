@@ -657,6 +657,9 @@ def render_metadata() -> str:
     content_mutation_tools = data.get("content_mutation_tools", [])
     content_mutation_tool_set = set(content_mutation_tools)
     execution_policies: dict[str, tuple[str, str, str, bool]] = {}
+    symbol_generation_consistent_tools = data.get(
+        "symbol_generation_consistent_tools", []
+    )
     experimental_tools: dict[str, str] = {}
     for feature, names in data.get("experimental_features", {}).items():
         for name in names:
@@ -691,6 +694,11 @@ def render_metadata() -> str:
     parts.append(render_default_listed_tool_names(default_listed))
     parts.append(render_bool_match("tool_default_listed", default_listed))
     parts.append(render_bool_match("tool_is_content_mutation", content_mutation_tools))
+    parts.append(
+        render_bool_match(
+            "tool_symbol_generation_consistent", symbol_generation_consistent_tools
+        )
+    )
     parts.append(render_option_match("tool_experimental_feature", experimental_tools))
     parts.append(render_option_match("tool_feature_gate", feature_gates))
     parts.append(render_option_match("tool_phase", phases))

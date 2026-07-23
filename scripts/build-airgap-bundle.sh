@@ -189,27 +189,19 @@ cat >"$bundle_dir/examples/mcp-http.json" <<'EOF'
   "mcpServers": {
     "codelens": {
       "type": "http",
-      "url": "http://127.0.0.1:7837/mcp"
+      "url": "http://127.0.0.1:7838/mcp"
     }
   }
 }
 EOF
 
-cat >"$bundle_dir/examples/launch-readonly-http.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-exec ./codelens-mcp /workspace --transport http --profile review --daemon-mode read-only --port 7837
-EOF
-
-cat >"$bundle_dir/examples/launch-mutation-http.sh" <<'EOF'
+cat >"$bundle_dir/examples/launch-http.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 exec ./codelens-mcp /workspace --transport http --profile builder --daemon-mode mutation-enabled --port 7838
 EOF
 
-chmod +x \
-	"$bundle_dir/examples/launch-readonly-http.sh" \
-	"$bundle_dir/examples/launch-mutation-http.sh"
+chmod +x "$bundle_dir/examples/launch-http.sh"
 
 cat >"$bundle_dir/bundle-manifest.json" <<EOF
 {
@@ -220,7 +212,7 @@ cat >"$bundle_dir/bundle-manifest.json" <<EOF
   "sbom_file": "$(basename "$sbom_path")",
   "models_dir": "models/codesearch",
   "entrypoint": "./codelens-mcp",
-  "http_ports": [7837, 7838]
+  "http_ports": [7838]
 }
 EOF
 
@@ -246,7 +238,7 @@ Run in place:
 HTTP daemon:
 
 \`\`\`bash
-./examples/launch-readonly-http.sh
+./examples/launch-http.sh
 \`\`\`
 
 Model discovery:

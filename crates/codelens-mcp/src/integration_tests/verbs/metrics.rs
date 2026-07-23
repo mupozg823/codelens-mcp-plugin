@@ -15,6 +15,7 @@ pub(super) fn seed_metrics_project() -> (codelens_engine::ProjectRoot, crate::Ap
 
 fn derived_kpis(state: &crate::AppState, session_id: &str) -> serde_json::Value {
     crate::session_metrics_payload::build_session_metrics_payload(state, Some(session_id), None)
+        .expect("build session metrics payload")
         .derived_kpis
 }
 

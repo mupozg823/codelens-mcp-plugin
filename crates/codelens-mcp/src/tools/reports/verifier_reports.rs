@@ -145,7 +145,7 @@ pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
     let overlapping_claims = if touched_files.is_empty() {
         Vec::new()
     } else {
-        state.overlapping_claims_for_arguments(arguments, &touched_files)
+        state.overlapping_claims_for_arguments(arguments, &touched_files)?
     };
     if !overlapping_claims.is_empty() {
         sections.insert(

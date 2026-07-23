@@ -91,6 +91,74 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
 }
 
 #[tokio::test]
+async fn codex_builder_deferred_tools_list_exposes_configured_five_tool_surface() {
+    let state = test_state();
+    let app = build_router(state);
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"},"profile":"builder-minimal","deferredToolLoading":true}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let tool_names = envelope["result"]["tools"]
+        .as_array()
+        .expect("tools/list result")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+
+    for tool in [
+        "prepare_harness_session",
+        "get_capabilities",
+        "graph",
+        "diagnose",
+        "review",
+    ] {
+        assert!(
+            tool_names.contains(&tool),
+            "Codex five-tool allowlist entry `{tool}` must be advertised by the builder bootstrap: {tool_names:?}"
+        );
+    }
+    assert!(
+        tool_names.len() <= 20,
+        "Codex builder bootstrap must stay within the static-surface budget"
+    );
+}
+
+#[tokio::test]
 async fn refactor_deferred_tools_list_uses_canonical_builder_preview_for_session() {
     let state = test_state();
     state.set_surface(crate::tool_defs::ToolSurface::Profile(

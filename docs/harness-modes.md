@@ -53,8 +53,8 @@ Primary multi-agent pattern: read-only planning/review paired with mutation-enab
 - Communication pattern: `asymmetric-handoff`
 - Mutation policy: exactly one mutation-enabled agent per worktree; planners stay read-only
 - Transport: `http`
-- Daemon shape: `dual-daemon`
-- Recommended ports: `7837`, `7838`
+- Daemon shape: `single-writer`
+- Recommended ports: `7838`
 - Roles:
   - `planner-reviewer`: `readonly` (40), `review` (20); mutate=`false`; bootstrap, rank context, and verify change readiness before dispatch
   - `builder-refactor`: `builder` (40), `builder` (40); mutate=`true`; execute bounded edits after preflight, diagnostics, and claims
@@ -81,8 +81,8 @@ Read-only signoff lane that checks builder output before merge or handoff.
 - Communication pattern: `review-signoff`
 - Mutation policy: no content mutation; fail the session audit if mutation traces appear
 - Transport: `http`
-- Daemon shape: `read-only-daemon`
-- Recommended ports: `7837`
+- Daemon shape: `single-writer`
+- Recommended ports: `7838`
 - Roles:
   - `reviewer`: `review` (20), `review` (20); mutate=`false`; diff-aware review, impact analysis, and audit signoff
 - Recommended flow:
@@ -103,8 +103,8 @@ Asynchronous analysis lane for repo-wide or long-running read-side jobs.
 - Communication pattern: `artifact-handoff`
 - Mutation policy: read-only; use analysis handles and job artifacts rather than direct edits
 - Transport: `http`
-- Daemon shape: `read-only-daemon`
-- Recommended ports: `7837`
+- Daemon shape: `single-writer`
+- Recommended ports: `7838`
 - Roles:
   - `analysis-runner`: `readonly` (40), `readonly` (40), `review` (20); mutate=`false`; start durable jobs and consume bounded sections instead of raw full reports
 - Recommended flow:

@@ -90,6 +90,7 @@ pub fn trace_request_path(state: &AppState, arguments: &Value) -> ToolResult {
         "call_graph_flow",
         json!({
             "function_name": function_name,
+            "path": arguments.get("path").and_then(|value| value.as_str()),
             "max_depth": arguments.get("max_depth").and_then(|value| value.as_u64()),
             "max_results": arguments.get("max_results").and_then(|value| value.as_u64()),
         }),
@@ -104,24 +105,27 @@ pub fn review_architecture(state: &AppState, arguments: &Value) -> ToolResult {
         .unwrap_or(false);
 
     if let Some(path) = arguments.get("path").and_then(|value| value.as_str()) {
-        if include_diagram {
-            return delegate_workflow(
-                state,
-                "review_architecture",
-                "mermaid_module_graph",
-                json!({
-                    "path": path,
-                    "max_nodes": arguments.get("max_nodes").and_then(|value| value.as_u64()),
-                }),
-                crate::tools::reports::mermaid_module_graph,
-            );
-        }
-
+        let delegated_arguments = json!({
+            "path": path,
+            "include_diagram": include_diagram,
+            "max_nodes": arguments.get("max_nodes").and_then(|value| value.as_u64()),
+        });
+        #[cfg(test)]
+        let delegated_arguments = {
+            let mut test_arguments = delegated_arguments;
+            if let Some(limit) = arguments
+                .get("_test_directory_file_limit")
+                .and_then(|value| value.as_u64())
+            {
+                test_arguments["_test_directory_file_limit"] = json!(limit);
+            }
+            test_arguments
+        };
         return delegate_workflow(
             state,
             "review_architecture",
             "module_boundary_report",
-            json!({ "path": path }),
+            delegated_arguments,
             crate::tools::reports::module_boundary_report,
         );
     }

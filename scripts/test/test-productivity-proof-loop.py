@@ -92,7 +92,7 @@ def test_export_audit_default_matches_repo_local_readonly_daemon() -> None:
     assert proc.returncode == 0, (
         f"help should render: stdout={proc.stdout} stderr={proc.stderr}"
     )
-    assert "default: http://127.0.0.1:7839/mcp" in proc.stdout
+    assert "default: http://127.0.0.1:7838/mcp" in proc.stdout
 
 
 def write_tool_usage(path: Path, total_events: int, follow_rate: float) -> None:

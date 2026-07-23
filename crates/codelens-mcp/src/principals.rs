@@ -240,16 +240,19 @@ pub fn current_principal_id() -> Option<String> {
 /// L1 (ADR-0009 §1): resolve the principal id for one dispatch call.
 ///
 /// Priority order:
-/// 1. `session.principal_id` — populated from the HTTP JWT `sub`
-///    claim (or `X-Codelens-Principal` header in dev mode) by the
-///    HTTP transport before the request is dispatched.
+/// 1. `session.principal_id` when the HTTP transport marked the
+///    metadata authoritative — populated from the JWT `sub` claim
+///    (or `X-Codelens-Principal` header in dev mode) after stripping
+///    caller-provided `_session_*` keys.
 /// 2. `CODELENS_PRINCIPAL` env — stdio fallback.
 /// 3. `None` — falls through to the `default` role in
 ///    `principals.toml`.
 pub fn resolve_principal_id(
     session: &crate::session_context::SessionRequestContext,
 ) -> Option<String> {
-    if let Some(id) = session.principal_id.as_deref().filter(|s| !s.is_empty()) {
+    if session.is_transport_authenticated()
+        && let Some(id) = session.principal_id.as_deref().filter(|s| !s.is_empty())
+    {
         return Some(id.to_owned());
     }
     current_principal_id()
@@ -478,15 +481,26 @@ role = "Admin"
     }
 
     #[test]
-    fn resolve_principal_id_prefers_session_over_env() {
+    fn resolve_principal_id_prefers_transport_bound_session_over_env() {
         // Build a session whose principal_id is set (e.g. JWT sub claim
         // injected by the HTTP transport).
-        let session =
+        let session = crate::session_context::with_http_transport_context(|| {
             crate::session_context::SessionRequestContext::from_json(&serde_json::json!({
                 "_session_principal_id": "alice@example.com",
-            }));
+            }))
+        });
         let resolved = resolve_principal_id(&session);
         assert_eq!(resolved.as_deref(), Some("alice@example.com"));
+    }
+
+    #[test]
+    fn resolve_principal_id_ignores_unprovenanced_session_value() {
+        let session =
+            crate::session_context::SessionRequestContext::from_json(&serde_json::json!({
+                "_session_principal_id": "caller-controlled-admin",
+            }));
+        let resolved = resolve_principal_id(&session);
+        assert_ne!(resolved.as_deref(), Some("caller-controlled-admin"));
     }
 
     #[test]

@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 const DIRECTORY_IMPACT_FILE_LIMIT: usize = 512;
+const DIRECT_IMPORTER_LIMIT: usize = 20;
 
 const CALL_GRAPH_RESOLUTIONS: [&str; 7] = [
     "scip",
@@ -177,23 +178,44 @@ pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -
 pub(crate) fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let max_depth = optional_usize(arguments, "max_depth", 3);
+    let directory_file_limit = {
+        #[cfg(test)]
+        {
+            arguments
+                .get("_test_directory_file_limit")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .filter(|value| *value > 0)
+                .unwrap_or(DIRECTORY_IMPACT_FILE_LIMIT)
+        }
+        #[cfg(not(test))]
+        {
+            DIRECTORY_IMPACT_FILE_LIMIT
+        }
+    };
 
-    if let Some(directory_impact) = get_directory_impact_analysis(state, file_path, max_depth) {
+    if let Some(directory_impact) =
+        get_directory_impact_analysis(state, file_path, max_depth, directory_file_limit)?
+    {
         return Ok((directory_impact, success_meta(BackendKind::Hybrid, 0.85)));
     }
 
-    let blast = get_blast_radius(&state.project(), file_path, max_depth, &state.graph_cache())
-        .unwrap_or_default();
+    let blast = get_blast_radius(&state.project(), file_path, max_depth, &state.graph_cache())?;
     let symbols = state
         .symbol_index()
-        .get_symbols_overview_cached(file_path, 1)
-        .unwrap_or_default();
+        .get_symbols_overview_cached(file_path, 1)?;
     let symbol_names: Vec<_> = flatten_symbols(&symbols)
         .iter()
         .map(|s| json!({"name": s.name, "kind": s.kind.as_label(), "line": s.line}))
         .collect();
-    let importers =
-        get_importers(&state.project(), file_path, 20, &state.graph_cache()).unwrap_or_default();
+    let mut importers = get_importers(
+        &state.project(),
+        file_path,
+        DIRECT_IMPORTER_LIMIT + 1,
+        &state.graph_cache(),
+    )?;
+    let direct_importer_limit_hit = importers.len() > DIRECT_IMPORTER_LIMIT;
+    importers.truncate(DIRECT_IMPORTER_LIMIT);
     let affected: Vec<_> = blast
         .iter()
         .map(|b| {
@@ -209,6 +231,12 @@ pub(crate) fn get_impact_analysis(state: &AppState, arguments: &serde_json::Valu
     Ok((
         json!({
             "file": file_path,
+            "scope_kind": "file",
+            "in_scope_file_count": 1,
+            "in_scope_file_limit": 1,
+            "in_scope_file_limit_hit": false,
+            "direct_importer_limit": DIRECT_IMPORTER_LIMIT,
+            "direct_importer_limit_hit": direct_importer_limit_hit,
             "symbols": symbol_names,
             "symbol_count": symbol_names.len(),
             "direct_importers": importers,
@@ -223,26 +251,26 @@ fn get_directory_impact_analysis(
     state: &AppState,
     file_path: &str,
     max_depth: usize,
-) -> Option<Value> {
+    file_limit: usize,
+) -> Result<Option<Value>, crate::error::CodeLensError> {
     let project = state.project();
-    let scope = project.resolve(file_path).ok()?;
+    let scope = project.resolve(file_path)?;
     if !scope.is_dir() {
-        return None;
+        return Ok(None);
     }
 
     let mut scoped_files = codelens_engine::project::collect_files(&scope, |path| {
         codelens_engine::supports_import_graph(path.to_string_lossy().as_ref())
-    })
-    .ok()?
+    })?
     .into_iter()
     .map(|path| project.to_relative(path))
     .collect::<Vec<_>>();
     scoped_files.sort();
 
     let scanned_file_count = scoped_files.len();
-    let file_limit_hit = scoped_files.len() > DIRECTORY_IMPACT_FILE_LIMIT;
+    let file_limit_hit = scoped_files.len() > file_limit;
     if file_limit_hit {
-        scoped_files.truncate(DIRECTORY_IMPACT_FILE_LIMIT);
+        scoped_files.truncate(file_limit);
     }
 
     let graph_cache = state.graph_cache();
@@ -251,11 +279,10 @@ fn get_directory_impact_analysis(
     let mut affected_sources: BTreeMap<String, (usize, BTreeSet<String>)> = BTreeMap::new();
     let mut symbol_names = Vec::new();
     let mut total_symbol_count = 0usize;
+    let mut direct_importer_limit_hit = false;
 
     for scoped_file in &scoped_files {
-        let symbols = symbol_index
-            .get_symbols_overview_cached(scoped_file, 1)
-            .unwrap_or_default();
+        let symbols = symbol_index.get_symbols_overview_cached(scoped_file, 1)?;
         total_symbol_count += symbols.len();
         for symbol in flatten_symbols(&symbols).into_iter().take(5) {
             if symbol_names.len() >= 25 {
@@ -269,16 +296,24 @@ fn get_directory_impact_analysis(
             }));
         }
 
-        for importer in get_importers(&project, scoped_file, 20, &graph_cache).unwrap_or_default() {
+        let mut importers = get_importers(
+            &project,
+            scoped_file,
+            DIRECT_IMPORTER_LIMIT + 1,
+            &graph_cache,
+        )?;
+        if importers.len() > DIRECT_IMPORTER_LIMIT {
+            direct_importer_limit_hit = true;
+            importers.truncate(DIRECT_IMPORTER_LIMIT);
+        }
+        for importer in importers {
             importer_targets
                 .entry(importer.file)
                 .or_default()
                 .insert(scoped_file.clone());
         }
 
-        for affected in
-            get_blast_radius(&project, scoped_file, max_depth, &graph_cache).unwrap_or_default()
-        {
+        for affected in get_blast_radius(&project, scoped_file, max_depth, &graph_cache)? {
             let entry = affected_sources
                 .entry(affected.file)
                 .or_insert_with(|| (affected.depth, BTreeSet::new()));
@@ -312,19 +347,21 @@ fn get_directory_impact_analysis(
         })
         .collect::<Vec<_>>();
 
-    Some(json!({
+    Ok(Some(json!({
         "file": file_path,
         "scope_kind": "directory",
         "in_scope_files": scoped_files,
         "in_scope_file_count": scanned_file_count,
-        "in_scope_file_limit": DIRECTORY_IMPACT_FILE_LIMIT,
+        "in_scope_file_limit": file_limit,
         "in_scope_file_limit_hit": file_limit_hit,
+        "direct_importer_limit": DIRECT_IMPORTER_LIMIT,
+        "direct_importer_limit_hit": direct_importer_limit_hit,
         "symbols": symbol_names,
         "symbol_count": total_symbol_count,
         "direct_importers": direct_importers,
         "blast_radius": affected,
         "total_affected_files": affected.len(),
-    }))
+    })))
 }
 
 pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -700,8 +737,13 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
 }
 #[cfg(test)]
 mod tests {
-    use super::{count_distinct_callees, count_distinct_callers};
+    use super::{count_distinct_callees, count_distinct_callers, get_impact_analysis};
+    use crate::AppState;
+    use crate::test_helpers::fixtures::temp_project_root;
+    use crate::tool_defs::ToolPreset;
     use codelens_engine::{CalleeEntry, CallerEntry};
+    use serde_json::json;
+    use std::fs;
 
     fn caller(file: &str, function: &str, line: usize, resolution: &'static str) -> CallerEntry {
         CallerEntry {
@@ -775,5 +817,31 @@ mod tests {
         // resolved callee and an unresolved callee with the same identifier
         // remain countable separately.
         assert_eq!(count_distinct_callees(&callees), 2);
+    }
+
+    #[test]
+    fn impact_analysis_marks_direct_importer_evidence_as_partial_when_capped() {
+        let project = temp_project_root("impact-importer-cap");
+        fs::write(
+            project.as_path().join("target.py"),
+            "def target():\n    pass\n",
+        )
+        .unwrap();
+        for index in 0..21 {
+            fs::write(
+                project.as_path().join(format!("importer_{index}.py")),
+                "from target import target\n\ntarget()\n",
+            )
+            .unwrap();
+        }
+        let state = AppState::new_minimal(project, ToolPreset::Full);
+
+        let impact =
+            get_impact_analysis(&state, &json!({"file_path": "target.py", "max_depth": 2}))
+                .expect("impact analysis")
+                .0;
+
+        assert_eq!(impact["direct_importer_limit_hit"], json!(true));
+        assert_eq!(impact["direct_importers"].as_array().unwrap().len(), 20);
     }
 }

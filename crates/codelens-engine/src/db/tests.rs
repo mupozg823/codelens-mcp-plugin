@@ -1,5 +1,141 @@
 use super::*;
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus};
+use std::time::{Duration, Instant};
+
+const WAL_CHILD_DB_ENV: &str = "CODELENS_TEST_WAL_CHILD_DB";
+const WAL_CHILD_MODE_ENV: &str = "CODELENS_TEST_WAL_CHILD_MODE";
+const WAL_CHILD_READY_ENV: &str = "CODELENS_TEST_WAL_CHILD_READY";
+const WAL_CHILD_TEST: &str = "db::tests::wal_fault_child_process";
+const WAL_CHILD_WAIT: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Copy)]
+enum WalChildMode {
+    Commit,
+    HoldUncommitted,
+}
+
+impl WalChildMode {
+    const fn env_value(self) -> &'static str {
+        match self {
+            Self::Commit => "commit",
+            Self::HoldUncommitted => "hold-uncommitted",
+        }
+    }
+
+    fn from_env() -> Option<Self> {
+        let value = std::env::var_os(WAL_CHILD_MODE_ENV)?;
+        Some(
+            match value.to_str().expect("WAL child mode must be UTF-8") {
+                "commit" => Self::Commit,
+                "hold-uncommitted" => Self::HoldUncommitted,
+                value => panic!("unknown WAL child mode: {value}"),
+            },
+        )
+    }
+}
+
+fn spawn_wal_child(db_path: &Path, ready_path: &Path, mode: WalChildMode) -> Child {
+    let current_exe = std::env::current_exe().expect("current test executable");
+    Command::new(current_exe)
+        .arg("--exact")
+        .arg(WAL_CHILD_TEST)
+        .arg("--nocapture")
+        .env(WAL_CHILD_DB_ENV, db_path)
+        .env(WAL_CHILD_MODE_ENV, mode.env_value())
+        .env(WAL_CHILD_READY_ENV, ready_path)
+        .spawn()
+        .expect("spawn WAL fault child")
+}
+
+fn stop_timed_out_child(child: &mut Child, operation: &str) -> ! {
+    let kill_result = child.kill();
+    let cleanup_deadline = Instant::now() + WAL_CHILD_WAIT;
+    let exit_status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if Instant::now() < cleanup_deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(None) => break None,
+            Err(error) => panic!("failed to reap timed-out WAL child: {error}"),
+        }
+    };
+    panic!("WAL child timed out while {operation}: kill={kill_result:?}, exit={exit_status:?}");
+}
+
+fn wait_for_child_marker(child: &mut Child, marker: &Path) {
+    let deadline = Instant::now() + WAL_CHILD_WAIT;
+    loop {
+        if marker.is_file() {
+            return;
+        }
+        if let Some(status) = child.try_wait().expect("poll WAL child") {
+            panic!("WAL child exited before ready marker: {status}");
+        }
+        if Instant::now() >= deadline {
+            stop_timed_out_child(child, "waiting for its ready marker");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_for_child_exit(child: &mut Child) -> ExitStatus {
+    let deadline = Instant::now() + WAL_CHILD_WAIT;
+    loop {
+        if let Some(status) = child.try_wait().expect("poll WAL child exit") {
+            return status;
+        }
+        if Instant::now() >= deadline {
+            stop_timed_out_child(child, "waiting for exit");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn wal_fault_child_process() {
+    let Some(mode) = WalChildMode::from_env() else {
+        return;
+    };
+    let db_path = PathBuf::from(
+        std::env::var_os(WAL_CHILD_DB_ENV).expect("WAL child database path must be set"),
+    );
+    let ready_path = PathBuf::from(
+        std::env::var_os(WAL_CHILD_READY_ENV).expect("WAL child ready path must be set"),
+    );
+
+    match mode {
+        WalChildMode::Commit => {
+            let db = IndexDb::open(&db_path).expect("open WAL child database");
+            db.upsert_file("child-committed.rs", 2, "committed", 2, Some("rs"))
+                .expect("commit child file");
+            fs::write(ready_path, b"committed").expect("write commit child marker");
+        }
+        WalChildMode::HoldUncommitted => {
+            let mut db = IndexDb::open(&db_path).expect("open WAL child database");
+            let transaction = db.conn.transaction().expect("begin child transaction");
+            ops::upsert_file(
+                &transaction,
+                "child-uncommitted.rs",
+                2,
+                "uncommitted",
+                2,
+                Some("rs"),
+            )
+            .expect("write uncommitted child file");
+            fs::write(ready_path, b"uncommitted").expect("write transaction child marker");
+
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            drop(transaction);
+            panic!("parent did not kill the uncommitted WAL child");
+        }
+    }
+}
 
 #[test]
 fn creates_schema_and_upserts_file() {
@@ -300,6 +436,60 @@ fn analyzer_version_bump_wipes_stale_analysis_on_reopen() {
 }
 
 #[test]
+fn analyzer_version_two_wipes_pre_owner_qualified_rust_symbols() {
+    let (_td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-owner-version-");
+    fs::create_dir_all(&dir).unwrap();
+    let db_path = dir.join("symbols.db");
+
+    // Simulate the v1 analyzer, which indexed an impl method as an unowned
+    // function and would let `Type::new` fall back to any basename match.
+    {
+        let db = IndexDb::open(&db_path).unwrap();
+        let fid = db.upsert_file("lib.rs", 1, "h", 1, Some("rs")).unwrap();
+        db.insert_symbols(
+            fid,
+            &[NewSymbol {
+                name: "new",
+                kind: "function",
+                line: 1,
+                column_num: 1,
+                start_byte: 0,
+                end_byte: 1,
+                signature: "fn new()",
+                name_path: "new",
+                parent_id: None,
+            }],
+        )
+        .unwrap();
+        db.conn
+            .execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('analyzer_version', '1')",
+                [],
+            )
+            .unwrap();
+    }
+
+    let db = IndexDb::open(&db_path).unwrap();
+    assert_eq!(
+        db.file_count().unwrap(),
+        0,
+        "v1 basename-only Rust symbols must be invalidated for owner-qualified re-indexing"
+    );
+    let stored: i64 = db
+        .conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'analyzer_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        stored, 2,
+        "owner-qualified analyzer version must be recorded"
+    );
+}
+
+#[test]
 fn content_hash_is_deterministic() {
     let h1 = content_hash(b"hello world");
     let h2 = content_hash(b"hello world");
@@ -318,6 +508,76 @@ fn with_transaction_auto_rollback_on_error() {
     assert!(result.is_err());
     // File should not exist — transaction was rolled back
     assert!(db.get_file("rollback_test.py").unwrap().is_none());
+}
+
+#[test]
+fn readonly_wal_snapshot_stays_stable_while_child_commits() {
+    // Given: a read-only connection has established an explicit WAL snapshot.
+    let (_td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-wal-snapshot-");
+    fs::create_dir_all(&dir).unwrap();
+    let db_path = dir.join("symbols.db");
+    let writer = IndexDb::open(&db_path).unwrap();
+    writer
+        .upsert_file("baseline.rs", 1, "baseline", 1, Some("rs"))
+        .unwrap();
+    drop(writer);
+
+    let snapshot = IndexDb::open_readonly(&db_path).unwrap().unwrap();
+    snapshot.conn.execute_batch("BEGIN DEFERRED").unwrap();
+    assert_eq!(snapshot.file_count().unwrap(), 1);
+
+    // When: another process commits a file through the same WAL database.
+    let ready_path = dir.join("commit-child.ready");
+    let mut child = spawn_wal_child(&db_path, &ready_path, WalChildMode::Commit);
+    wait_for_child_marker(&mut child, &ready_path);
+    let status = wait_for_child_exit(&mut child);
+    assert!(status.success(), "WAL commit child failed: {status}");
+
+    // Then: the established snapshot remains stable while a new one sees it.
+    assert!(snapshot.get_file("child-committed.rs").unwrap().is_none());
+    let fresh_snapshot = IndexDb::open_readonly(&db_path).unwrap().unwrap();
+    assert!(
+        fresh_snapshot
+            .get_file("child-committed.rs")
+            .unwrap()
+            .is_some()
+    );
+    snapshot.conn.execute_batch("ROLLBACK").unwrap();
+}
+
+#[test]
+fn killed_child_uncommitted_wal_transaction_leaves_no_partial_row() {
+    // Given: a child process has written a row inside an open transaction.
+    let (_td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-wal-kill-");
+    fs::create_dir_all(&dir).unwrap();
+    let db_path = dir.join("symbols.db");
+    let db = IndexDb::open(&db_path).unwrap();
+    db.upsert_file("baseline.rs", 1, "baseline", 1, Some("rs"))
+        .unwrap();
+    drop(db);
+
+    let ready_path = dir.join("transaction-child.ready");
+    let mut child = spawn_wal_child(&db_path, &ready_path, WalChildMode::HoldUncommitted);
+    wait_for_child_marker(&mut child, &ready_path);
+
+    // When: the process is killed before its transaction can commit.
+    child.kill().unwrap();
+    let status = wait_for_child_exit(&mut child);
+    assert!(!status.success(), "killed WAL child exited successfully");
+
+    // Then: recovery exposes no partial row and SQLite reports a valid DB.
+    let recovered = IndexDb::open(&db_path).unwrap();
+    assert!(
+        recovered
+            .get_file("child-uncommitted.rs")
+            .unwrap()
+            .is_none()
+    );
+    let integrity: String = recovered
+        .conn
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(integrity, "ok");
 }
 
 #[test]
