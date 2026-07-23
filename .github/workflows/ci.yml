@@ -48,6 +48,9 @@ jobs:
       - name: plugin manifest validation
         run: python3 scripts/validate-plugin-manifest.py --check
 
+      - name: Codex plugin manifest validation
+        run: python3 scripts/validate-codex-plugin-manifest.py --check
+
       - name: bench invocation lint
         # Guard against the 2026-05 regression where `benchmark.yml` was
         # the lone `cargo bench` invocation without `--bench <name>` /

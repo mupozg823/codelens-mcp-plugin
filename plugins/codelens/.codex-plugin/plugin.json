@@ -1,0 +1,35 @@
+{
+  "name": "codelens",
+  "version": "1.13.34",
+  "description": "CodeLens workflows for Codex using an existing host-level CodeLens MCP server.",
+  "author": {
+    "name": "mupozg823",
+    "url": "https://github.com/mupozg823"
+  },
+  "homepage": "https://github.com/mupozg823/codelens-mcp-plugin",
+  "repository": "https://github.com/mupozg823/codelens-mcp-plugin",
+  "license": "Apache-2.0",
+  "keywords": [
+    "code-intelligence",
+    "codex",
+    "mcp",
+    "call-graph",
+    "code-review"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "CodeLens",
+    "shortDescription": "Use indexed code evidence and call graphs in Codex",
+    "longDescription": "Bind Codex to an existing CodeLens MCP server, then use its compact review, graph, diagnostic, and capability workflows without registering another daemon.",
+    "developerName": "mupozg823",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use $codelens to map this repository's architecture.",
+      "Use $codelens to review my current changes."
+    ]
+  }
+}

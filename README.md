@@ -184,6 +184,44 @@ Important:
 - `Shared HTTP + multi-agent coordination` still uses the same binary, but the binary must include the `http` feature and the clients must attach by URL.
 - If a feature is mentioned in this repository but not present in your installed binary, compare `codelens-mcp --version` with the latest GitHub release and your install channel before assuming a bug.
 
+## Codex Plugin
+
+Codex plugin은 `$codelens` skill과 호출 정책만 제공합니다. MCP 서버를 중복
+등록하거나 별도 daemon을 시작하지 않으므로, 먼저 host-level `codelens` MCP가
+canonical `:7838` endpoint를 가리키는지 확인하세요:
+
+<sub>English: The Codex plugin provides the `$codelens` skill and invocation policy
+only. It does not register another MCP server or start another daemon. Confirm the
+host-level `codelens` MCP points to the canonical `:7838` endpoint first:</sub>
+
+```bash
+codex mcp get codelens
+# 등록이 아직 없을 때만:
+codex mcp add codelens --url http://127.0.0.1:7838/mcp
+```
+
+저장소 marketplace를 추가한 뒤 plugin을 설치하세요. 현재 Codex CLI의 설치
+subcommand는 `plugin add`입니다:
+
+<sub>English: Add the repository marketplace, then install the plugin. The current
+Codex CLI install subcommand is `plugin add`:</sub>
+
+```bash
+codex plugin marketplace add mupozg823/codelens-mcp-plugin
+codex plugin add codelens@codelens
+```
+
+설치 후 새 Codex task에서 `$codelens`를 명시적으로 호출합니다. discovery 계약은
+다음으로 확인할 수 있습니다:
+
+<sub>English: Start a new Codex task after installation and invoke `$codelens`
+explicitly. Verify discovery with:</sub>
+
+```bash
+codex plugin list
+codex debug prompt-input 'Use $codelens to review this repository architecture.'
+```
+
 ## Claude Code Plugin
 
 CodeLens는 Claude Code plugin 형태로도 제공되며, 설치 한 번으로 MCP 서버와

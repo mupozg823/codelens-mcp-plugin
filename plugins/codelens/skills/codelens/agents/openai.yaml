@@ -1,0 +1,11 @@
+interface:
+  display_name: "CodeLens"
+  short_description: "Use CodeLens code intelligence in Codex"
+  default_prompt: "Use $codelens to inspect this repository with CodeLens."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "codelens"
+      description: "Existing host-level CodeLens MCP server"
+policy:
+  allow_implicit_invocation: true
