@@ -69,6 +69,30 @@ bash scripts/daemon-stale-check.sh                # read-only: compare daemon bi
 
 What the script does: `cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http`, `xattr -dr com.apple.provenance ${target}` (otherwise macOS gatekeeper SIGKILLs the daemon with `OS_REASON_CODESIGNING`), `codesign --force --sign -` (ad-hoc resign so launchd accepts the new mach-o), disable/bootout `gui/$UID/dev.codelens.mcp-readonly`, then `launchctl bootout/bootstrap` plus `kickstart -k gui/$UID/dev.codelens.mcp-mutation`, wait for LISTEN on `:7838`, and (with `--probe`) issue one `tools/list` request.
 
+### Project-binding precedence and lifetime
+
+HTTP sessions resolve competing project declarations in this order:
+
+1. an explicit `prepare_harness_session(project=...)` or
+   `activate_project(project=...)` request
+2. `initialize.params.project`
+3. the recurring `x-codelens-project` request header
+4. the daemon's startup project
+
+Higher-precedence bindings are not overwritten by a lower-precedence recurring
+header. Requests with the same source can still switch projects. Header updates
+and the request-local metadata snapshot are captured atomically, so concurrent
+requests for one session cannot execute against each other's workspace.
+
+`prepare_harness_session` reports the resolved path as
+`project.effective_project`, its owner as `project.binding_source`, and the
+binding lifetime in `project.persistence_semantics`. Explicit tool and initialize
+bindings persist across calls for the live HTTP session, but must be established
+again after session resurrection or daemon restart. A repeated
+`x-codelens-project` header re-establishes a header-owned binding during
+resurrection; the response carries `x-codelens-session-resurrected: 1` when that
+fallback occurs.
+
 Manual fallback (if the script is unavailable):
 
 ```bash

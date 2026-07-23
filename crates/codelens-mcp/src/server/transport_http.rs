@@ -562,42 +562,48 @@ async fn mcp_post_handler(
         }
     }
 
-    // #351: per-request workspace re-capture. Runs after the resurrect
-    // gate (so the session exists) and before metadata injection (so the
-    // injected `_session_project_path` reflects this request's header).
+    // Inject session metadata into request params based on method. A captured
+    // project remains pinned against runtime-cache eviction through dispatch.
+    let mut request_project_pin = None;
     if !is_initialize
         && let Some(ref sid) = session_id
         && let Some(store) = &state.session_store
     {
-        super::transport_http_support::rebind_session_project_from_headers(store, sid, &headers);
-    }
-
-    // Inject session metadata into request params based on method
-    if !is_initialize
-        && let Some(ref sid) = session_id
-        && let Some(store) = &state.session_store
-    {
-        match request.method.as_str() {
-            "tools/call" => {
-                super::session_injection::inject_tool_call_session(&mut request, sid, store);
-            }
-            "tools/list" => {
-                super::session_injection::inject_tools_list_session(
-                    &mut request,
-                    sid,
-                    store,
-                    &state,
-                );
-            }
-            "resources/read" => {
-                super::session_injection::inject_resources_read_session(
-                    &mut request,
-                    sid,
-                    store,
-                    &state,
-                );
-            }
-            _ => {}
+        // #351/#386: capture the recurring project header and the metadata
+        // snapshot in the injection path. The session lock covers both the
+        // header update and snapshot, so concurrent A/B requests cannot execute
+        // against one another's project.
+        let project_header = super::transport_http_support::project_header_value(&headers);
+        request_project_pin = match request.method.as_str() {
+            "tools/call" => super::session_injection::inject_tool_call_session(
+                &mut request,
+                sid,
+                store,
+                project_header.as_deref(),
+            ),
+            "tools/list" => super::session_injection::inject_tools_list_session(
+                &mut request,
+                sid,
+                store,
+                &state,
+                project_header.as_deref(),
+            ),
+            "resources/read" => super::session_injection::inject_resources_read_session(
+                &mut request,
+                sid,
+                store,
+                &state,
+                project_header.as_deref(),
+            ),
+            _ => store
+                .client_metadata_for_project_header(sid, project_header.as_deref())
+                .map(|snapshot| snapshot.project_pin),
+        };
+        if request_project_pin.is_none() {
+            // The session vanished after the resurrection gate but before the
+            // authoritative request snapshot. Fail closed instead of dispatching
+            // without transport-owned session metadata.
+            return unknown_session_response();
         }
     }
 
@@ -611,6 +617,10 @@ async fn mcp_post_handler(
     // Dispatch via spawn_blocking (handle_request is synchronous)
     let state_clone = Arc::clone(&state);
     let response = tokio::task::spawn_blocking(move || {
+        // Keep the captured project pinned inside the blocking task itself.
+        // If the HTTP handler future is cancelled, Tokio detaches this task;
+        // ownership here still protects the project until dispatch completes.
+        let _request_project_pin = request_project_pin;
         crate::session_context::with_http_transport_context(|| {
             handle_request(&state_clone, request)
         })

@@ -149,6 +149,21 @@ fn compact_response(input: PrepareHarnessResponseInput<'_>) -> Value {
         .get("indexed_files")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
+    let effective_project = input
+        .activate_payload
+        .get("effective_project")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let binding_source = input
+        .activate_payload
+        .get("binding_source")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let persistence_semantics = input
+        .activate_payload
+        .get("persistence_semantics")
+        .cloned()
+        .unwrap_or(Value::Null);
     let capabilities_available = input
         .capabilities_payload
         .get("available")
@@ -171,6 +186,9 @@ fn compact_response(input: PrepareHarnessResponseInput<'_>) -> Value {
         "project": {
             "project_name": project_name,
             "indexed_files": indexed_files,
+            "effective_project": effective_project,
+            "binding_source": binding_source,
+            "persistence_semantics": persistence_semantics,
         },
         "capabilities": {
             "available": capabilities_available,

@@ -232,6 +232,20 @@ pub(crate) fn activate_project_output_schema() -> serde_json::Value {
             "switched": {"type": "boolean"},
             "project_name": {"type": "string"},
             "project_base_path": {"type": "string"},
+            "effective_project": {"type": "string"},
+            "binding_source": {
+                "type": "string",
+                "enum": ["daemon_default", "request_header", "initialize_param", "explicit_tool"]
+            },
+            "persistence_semantics": {
+                "type": "object",
+                "properties": {
+                    "scope": {"type": "string"},
+                    "persists_across_requests": {"type": "boolean"},
+                    "survives_session_resurrection": {"type": "boolean"},
+                    "resurrection_behavior": {"type": "string"}
+                }
+            },
             "backend_id": {"type": "string"},
             "memory_count": {"type": "integer"},
             "file_watcher": {"type": "boolean"},

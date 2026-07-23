@@ -113,8 +113,8 @@ impl AppState {
     }
 
     #[cfg(feature = "http")]
-    pub(crate) fn bind_project_to_session(&self, session_id: &str, project_path: &str) {
-        session_runtime::bind_project_to_session(self, session_id, project_path);
+    pub(crate) fn bind_project_to_session(&self, session_id: &str, project_path: &str) -> bool {
+        session_runtime::bind_project_to_session(self, session_id, project_path)
     }
 
     /// #347: `true` when the HTTP session declared its workspace
@@ -128,6 +128,7 @@ impl AppState {
     /// `should_route_to_session`, so a miss here is a real lost session,
     /// not a stdio/local context.
     #[cfg(feature = "http")]
+    #[cfg(test)]
     pub(crate) fn session_project_binding_explicit(&self, session_id: &str) -> bool {
         self.session_store
             .as_ref()
@@ -142,6 +143,7 @@ impl AppState {
     }
 
     #[cfg(feature = "http")]
+    #[cfg(test)]
     pub(crate) fn session_project_path(&self, session_id: &str) -> Option<String> {
         self.session_store
             .as_ref()
