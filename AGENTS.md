@@ -6,18 +6,14 @@
 
 - Native first for point lookups and already-local single-file edits.
 - Use `prepare_harness_session` before multi-file review or refactor-sensitive work.
+- Main Codex sessions call `prepare_harness_session` with `agent_role="main"`; delegated worker sessions call it with `agent_role="subagent"` so routing favors bounded context, diagnostics, and evidence return.
+- When available, pass host-observed `host_capabilities`, `available_mcp_servers`, `available_mcp_tools`, `skill_roots`, `memory_roots`, `host_setting_keys`, and `harness_profile`; send capability facts, names, paths, and key names only, never secret values.
 - If `get_current_config.project_root` is not the intended workspace, call `prepare_harness_session` or `activate_project` with `project=<absolute repo path>` and continue with CodeLens; do not fall back to native tools solely because the active project was stale.
-- Default execution profile: `builder-minimal`.
-- Use `refactor-full` only after `verify_change_readiness`; for rename-heavy changes also run `safe_rename_report` or `unresolved_reference_check`.
+- Default execution profile: `builder`.
+- Run `verify_change_readiness` before broad refactors; for rename-heavy changes also run `safe_rename_report` or `unresolved_reference_check`.
 - After mutation, run `audit_builder_session` and export the session summary if the change must cross sessions or CI.
-- If the planner hands you `delegate_to_codex_builder`, replay the first delegated builder call with `delegate_tool` + `delegate_arguments` unchanged, including `handoff_id`.
-
-## Compiled Routing Overlays
-
-- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics` -> `rename_symbol` -> `replace_symbol_body` -> `insert_before_symbol` -> `insert_after_symbol`
-- `builder-minimal` + `editing` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics` -> `rename_symbol` -> `replace_symbol_body` -> `insert_before_symbol` -> `insert_after_symbol`
-- `builder-minimal` + `review` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `audit_planner_session` | avoid: `rename_symbol`, `replace_symbol_body`, `insert_before_symbol`, `insert_after_symbol`
-- `reviewer-graph` + `batch-analysis` [bias: `codex-builder`]: `prepare_harness_session` -> `verify_change_readiness` -> `start_analysis_job` -> `get_analysis_job` -> `get_analysis_section` -> `module_boundary_report`
+- Treat `suggested_next_calls` as host-neutral follow-up or mutation intent; choose the native executor in the host and preserve concrete arguments through normal approval and mutation gates.
+- For non-trivial tasks, let `prepare_harness_session` compile skill hints from observed `skill_roots`; if more inventory is needed, inspect `codelens://host-adapters/codex/skill-catalog`, then read only the selected `SKILL.md` files before acting.
 
 <!-- CODELENS_HOST_ROUTING:END -->
 
@@ -75,30 +71,30 @@ The server enforces this gate in `refactor-full`. Missing or stale preflight evi
 
 Two CodeLens HTTP daemons are the recommended local operational shape for this project:
 
-- `:7838` — `refactor-full` / `mutation-enabled`. Intended for Codex (builder) sessions.
-- `:7839` — `reviewer-graph` / `read-only`. Intended for Claude (planner/reviewer) sessions.
+- `:7838` — `refactor-full` / `mutation-enabled`. Intended for write-capable implementation sessions.
+- `:7839` — `reviewer-graph` / `read-only`. Intended for read-oriented planner/reviewer sessions.
 
 Agents should attach by URL rather than spawning their own stdio subprocess. The daemons share this project's on-disk index; advisory `register_agent_work` + `claim_files` coordinates mutation collisions.
 
 See [docs/multi-agent-integration.md](docs/multi-agent-integration.md) for the full delegation pattern, coordination discipline (TTL/release), and brief templates.
 
-## Agent Cost Routing
+## Capability and Evidence Routing
 
 This document is not a passive note — it routes work to the cheapest agent that can do it correctly. Pick by **risk × evidence requirement**, not by reflex.
 
-| Task class                                                                   | Model / agent                                                                     | Why                                                                                                                                                                |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Read-only symbol/reference lookup, project bootstrap, single-file overview   | **Haiku 4.5** via `codelens-explorer` subagent                                    | Bounded mechanical tier, ≤6 lookups, no judgment. Cheap, fast, no merge risk.                                                                                      |
-| Multi-file code mutation under a confirmed plan, ≤5 sub-step / 400 net LOC   | **Sonnet 4.6** via `builder` subagent (worktree-isolated)                         | Implementation tier. Parent verifies (`cargo test`, `cargo clippy`) — `builder` self-report is not trusted.                                                        |
-| Bulk codegen / large refactor with high mutation count                       | **Sonnet 4.6 + Codex** via `codex-builder`                                        | Codex burns cheap implementation tokens; Claude stays as planner/reviewer. Use only after `verify_change_readiness` is `ready`.                                    |
-| Acceptance-criteria scoring, planner/builder review, judgment-heavy critique | **Opus 4.7 (xhigh effort)** via `evaluator` subagent                              | Critic role; spec violations cost more than the price delta. Wrap risky changes (schema migration, auth, payment, shared infra) with an additional evaluator loop. |
-| Plan/decompose/orchestrate, brainstorm, route work                           | **Opus 4.7 (xhigh effort)** in the active conversation (this Claude Code session) | Decisions stay where the user sees them; no asymmetric handoff for plans.                                                                                          |
+| Task class                                                                   | Capability role                            | Why                                                                                                                                                                |
+| ---------------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Read-only symbol/reference lookup, project bootstrap, single-file overview   | **Bounded explorer**                       | Mechanical lane, ≤6 lookups, no mutation or merge risk.                                                                                                            |
+| Multi-file code mutation under a confirmed plan, ≤5 sub-step / 400 net LOC   | **Worktree-isolated implementation worker** | Parent verifies (`cargo test`, `cargo clippy`) — worker self-report is not trusted.                                                                                 |
+| Bulk codegen / large refactor with high mutation count                       | **High-mutation implementation worker**    | Requires native worktree/edit support and a `ready` result from `verify_change_readiness`; the host chooses the available worker and model.                        |
+| Acceptance-criteria scoring, planner/builder review, judgment-heavy critique | **Acceptance evaluator**                   | Critic role; wrap risky changes (schema migration, auth, payment, shared infra) with an additional evaluator loop.                                                 |
+| Plan/decompose/orchestrate, brainstorm, route work                           | **Active orchestrator**                    | Decisions stay in the user-visible conversation; do not move planning into an opaque handoff.                                                                      |
 
 ### Anti-routing
 
 - Do **not** dispatch a `builder` subagent in `isolation: "worktree"` mode for a small change that fits in `≤5 sub-step / ≤30 net LOC` — inline edits in the active session are faster and keep evidence visible. The builder's `status: completed` self-report has been observed to fire mid-Task with WIP-only commits; parent must verify with `cargo test/clippy/fmt` regardless. (See `~/.claude/projects/-Users-bagjaeseog/memory/feedback_inline_over_background_dispatch.md`.)
 - Do **not** chain a subagent to spawn another subagent — Claude Code subagents cannot create sub-subagents. Multi-step delegation chains run from the main conversation, not nested.
-- Do **not** swap models mid-session (Opus ↔ Haiku) — KV cache is model-specific, the cold write costs more than just staying on Opus.
+- Do **not** change the active reasoning/model tier mid-session solely to save cost — cached context may be invalidated and cost more than completing the bounded task in place.
 
 ### Cost-safe defaults (env)
 

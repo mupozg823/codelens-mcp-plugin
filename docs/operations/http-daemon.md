@@ -32,8 +32,8 @@ First-time setup (creates the dev plists) is documented at the top of
 
 Two repo-local launchd agents share the on-disk index and use advisory `register_agent_work` / `claim_files` for mutation collisions:
 
-- `dev.codelens.mcp-readonly` → `:7839`, profile `reviewer-graph`, mode `read-only` — for planner/reviewer (Claude) sessions
-- `dev.codelens.mcp-mutation` → `:7838`, profile `refactor-full`, mode `mutation-enabled` — for builder (Codex) sessions
+- `dev.codelens.mcp-readonly` → `:7839`, profile `reviewer-graph`, mode `read-only` — for read-oriented planner/reviewer sessions
+- `dev.codelens.mcp-mutation` → `:7838`, profile `refactor-full`, mode `mutation-enabled` — for write-capable implementation sessions
 
 The **consumption** clients (global `~/.claude.json`, `~/.codex/config.toml`) attach by URL to `:7839` by default; this repo's `.mcp.json` uses the dev daemon on `:7739` (see above). Restart cycle (preferred path):
 

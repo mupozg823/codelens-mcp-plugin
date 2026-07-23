@@ -112,6 +112,7 @@ pub struct SessionClientMetadata {
     pub memory_roots: Vec<String>,
     pub host_setting_keys: Vec<String>,
     pub harness_profile: Option<String>,
+    pub host_capabilities: Option<crate::host_capabilities::HostCapabilities>,
 }
 
 /// Guard #2/#8 (#300/#301): soft surface state seeded onto a resurrected
@@ -136,6 +137,7 @@ pub struct SessionSeed {
     pub memory_roots: Vec<String>,
     pub host_setting_keys: Vec<String>,
     pub harness_profile: Option<String>,
+    pub host_capabilities: Option<crate::host_capabilities::HostCapabilities>,
 }
 
 /// Guard #11 (#300/#301): how the POST gate handles an unknown session id.
@@ -245,6 +247,12 @@ impl SessionState {
         }
     }
 
+    pub fn set_host_capabilities(&self, capabilities: crate::host_capabilities::HostCapabilities) {
+        if let Ok(mut current) = self.client_metadata.write() {
+            current.host_capabilities = Some(capabilities);
+        }
+    }
+
     /// Explicit workspace binding — the caller named its project
     /// (initialize capture or `activate_project`). Clears the
     /// shared-daemon `project_binding` hint (#347).
@@ -308,6 +316,9 @@ impl SessionState {
             }
             if seed.harness_profile.is_some() {
                 metadata.harness_profile = seed.harness_profile.clone();
+            }
+            if seed.host_capabilities.is_some() {
+                metadata.host_capabilities = seed.host_capabilities;
             }
         }
         if let Some(profile) = seed

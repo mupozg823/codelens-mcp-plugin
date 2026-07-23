@@ -101,10 +101,10 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 ### Official host architecture signals
 
 - Anthropic’s [Managed Agents](https://www.anthropic.com/engineering/managed-agents) architecture separates `session`, `harness`, and `sandbox`, and explicitly warns that harness assumptions go stale as models improve.
-- Anthropic’s [Claude Code subagents docs](https://code.claude.com/docs/en/sub-agents) and [MCP docs](https://code.claude.com/docs/en/mcp) show that Claude Code is strongest when policy, isolation, and tool scope are explicit.
+- Anthropic’s [Claude Code subagents docs](https://code.claude.com/docs/en/sub-agents) and [MCP docs](https://code.claude.com/docs/en/mcp) document explicit policy, isolation, and tool-scope controls.
 - Anthropic’s March 24, 2026 webinar deck, [Claude Code Advanced Patterns](https://resources.anthropic.com/hubfs/Claude%20Code%20Advanced%20Patterns_%20Subagents%2C%20MCP%2C%20and%20Scaling%20to%20Real%20Codebases.pdf), pushes the same direction: CLAUDE.md, hooks, subagents, and parallelization are the durable primitives.
-- OpenAI’s [Codex GA announcement](https://openai.com/index/codex-now-generally-available/) reports real internal adoption and measurable PR throughput improvement, but the product shape stays execution-focused rather than planner-heavy.
-- OpenAI’s [Codex app announcement](https://openai.com/index/introducing-the-codex-app/) emphasizes reusable skills and background automations, which is consistent with Codex being strongest as a builder/executor with sharable repo policy.
+- OpenAI’s [Codex GA announcement](https://openai.com/index/codex-now-generally-available/) reports internal adoption and measurable PR throughput improvement.
+- OpenAI’s [Codex app announcement](https://openai.com/index/introducing-the-codex-app/) documents reusable skills, worktrees, shared repository policy, and background automations.
 - OpenAI’s [Docs MCP guide](https://developers.openai.com/learn/docs-mcp) explicitly recommends putting MCP expectations into `AGENTS.md`, which supports compiling policy into host-native artifacts rather than hoping the agent “remembers.”
 - Cursor’s official docs describe [rules](https://docs.cursor.com/en/context), [background agents](https://docs.cursor.com/en/background-agents), and [custom modes](https://docs.cursor.com/en/chat/agent). That is a host with strong editor-local routing and separate remote execution posture, not just “another Codex.”
 
@@ -123,7 +123,7 @@ GitHub stars are not proof of architectural quality, but they are useful as a de
 
 The signal in that list is not “everyone should look the same.” The real pattern is that the successful systems specialize:
 
-- Codex: worktrees, skills, shared repo policy, execution.
+- Codex: worktrees, skills, shared repo policy, and background automation.
 - OpenHands: SDK + CLI + GUI + cloud, with clear separation between engine and product surfaces.
 - Cline: human-in-the-loop IDE control, approvals, checkpoints, browser loop.
 - Aider: minimal terminal loop with strong codebase mapping and git/test ergonomics.
@@ -201,17 +201,21 @@ Each `codelens://host-adapters/{host}` resource includes:
 
 The same policy is also emitted at tool granularity through runtime metadata:
 
-- `tools/list` exposes `_meta["codelens/preferredExecutor"]` per tool
-- `tools/call` echoes `_meta["codelens/preferredExecutor"]` on the call result
+- `tools/list` exposes `_meta["codelens/executionPolicy"]` per tool
+- `tools/call` echoes `_meta["codelens/executionPolicy"]` on the call result
+- each execution policy reports `execution_class`, `risk`, `cost_hint`, and
+  `concurrency_safe`; it never assigns a model, vendor, or agent
+- `prepare_harness_session.host_capabilities` accepts explicit facts about
+  native tool search, subagents, worktrees, editing, MCP tasks, dynamic tool
+  lists, workspace binding, and approval/elicitation support
 - `prepare_harness_session` reports `host_environment.skill_root_source` so
   hosts can distinguish supplied `skill_roots` from Codex default skill root
   discovery without loading every `SKILL.md`
 - HTTP `initialize` advertises `capabilities.tools.listChanged = true`
 - HTTP sessions emit `notifications/tools/list_changed` after runtime surface changes such as `set_profile` and `set_preset`
-- current labels are `codex-builder`, `claude`, and `any`
-- `suggested_next_tools` / `suggested_next_calls` may prepend the synthetic host action `delegate_to_codex_builder` when the next step crosses into a builder-heavy lane or a builder-heavy tool is being retried in a loop
-- that synthetic action is advisory, not callable on the server; hosts should read its `handoff_id`, `delegate_tool`, optional `delegate_arguments`, `carry_forward`, and `briefing` payload to launch a builder session without reshaping context
-- when `delegate_arguments` already exist, replay them verbatim for the first delegated builder call instead of reconstructing them from prose; preserve `handoff_id` unchanged so planner-side emission and builder-side execution remain correlatable across sessions
+- successful responses use `suggested_next_calls` for concrete callable follow-ups only; no synthetic model- or vendor-specific action is prepended
+- a suggested mutation tool is host-neutral mutation intent, and the host owns executor selection
+- preserve concrete suggested arguments, then apply the target tool's normal approval, preflight, and mutation gates before execution
 
 ### Layer 4. Eval and governance
 

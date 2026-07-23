@@ -45,29 +45,26 @@ today from where that ADR points:
 Either way, the host still owns the general chat/runtime loop and any
 host-specific agent wrapper.
 
-## Delegate Scaffold Correlation
+## Host-Neutral Execution Intents
 
-When CodeLens prepends the synthetic host action
-`delegate_to_codex_builder` in `suggested_next_calls`, the scaffold now
-includes a stable `handoff_id` in three places:
+Successful CodeLens responses do not synthesize a model- or vendor-specific
+handoff action. When CodeLens can derive a concrete follow-up, it emits the
+actual callable tool and arguments in `suggested_next_calls`. A mutation tool
+such as `rename_symbol` is a mutation intent, not an executor assignment.
 
-- top-level `handoff_id`
-- `delegate_arguments.handoff_id`
-- `carry_forward.handoff_id`
+The host owns agent selection, worktree policy, approval, and execution. It may
+use the provided arguments directly only after applying the target tool's normal
+preflight and mutation gates. Session metrics evaluate this guidance by whether
+the next actionable call accepted or diverted from the suggestion and whether an
+accepted call succeeded; raw emission count is not treated as value.
 
-Hosts should preserve that value when they replay the delegated builder
-call. This does not create a new runtime contract or hard block. It
-simply lets the append-only telemetry log correlate planner-side
-delegate emission with later builder-side execution, even when those
-steps happen under different logical sessions.
-
-**Note — inline brief mode**: When dispatching Codex via MCP
+**Note — inline brief mode**: When dispatching an implementation agent via MCP
 (`mcp__codex__codex`), pass the task description inline as the `prompt`
 argument rather than writing a file to `/tmp`. If the host harness
 settings do not include `Write(/tmp/**)` in `allowedTools`, writing the
 brief to disk will be blocked by the permission gate. The inline pattern
 (passing the brief directly as `prompt`) avoids this and has been
-verified to work in Claude Code sessions. If you must write a brief file,
+verified to work in host-managed agent sessions. If you must write a brief file,
 ensure `Write(/tmp/**)` appears in the session's `allowedTools`.
 
 ## Recommended Role Split

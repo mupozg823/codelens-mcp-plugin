@@ -41,7 +41,7 @@ class ProductivityMetrics:
     suggestion_follow_rate: float
     delegate_emissions: int
     handoffs_consumed: int
-    builder_tool_events: int
+    mutation_tool_events: int
     provenance_status: str
     evidence_status: str
     runtime_event_count: int
@@ -94,7 +94,10 @@ def load_metrics(path: Path) -> ProductivityMetrics | None:
         suggestion_follow_rate=float_field(behavior, "suggestion_follow_rate"),
         delegate_emissions=int_field(behavior, "delegate_emissions"),
         handoffs_consumed=int_field(behavior, "delegate_handoffs_consumed"),
-        builder_tool_events=int_field(behavior, "codex_builder_tool_events"),
+        mutation_tool_events=(
+            int_field(behavior, "mutation_tool_events")
+            or int_field(behavior, "codex_builder_tool_events")
+        ),
         provenance_status=str_field(provenance_map, "status", "unverified"),
         evidence_status=str_field(provenance_map, "evidence_status", "unknown"),
         runtime_event_count=int_field(provenance_map, "runtime_events"),
@@ -170,11 +173,11 @@ def render_audit_bridge(latest: ProductivityMetrics, coverage: AuditCoverage | N
     lines = [
         f"- Runtime builder audit sessions: `{coverage.builder_session_count}`",
         f"- Runtime planner audit sessions: `{coverage.planner_session_count}`",
-        f"- Telemetry builder tool events: `{latest.builder_tool_events}`",
+        f"- Telemetry mutation tool events: `{latest.mutation_tool_events}`",
     ]
-    if latest.builder_tool_events > 0 and coverage.builder_session_count == 0:
+    if latest.mutation_tool_events > 0 and coverage.builder_session_count == 0:
         lines.append(
-            "- Builder signal mismatch: telemetry saw builder-like tool events, but runtime audit saw no applicable builder session."
+            "- Build-lane signal mismatch: telemetry saw mutation events, but runtime audit saw no applicable builder session."
         )
     if coverage.top_failed_check_code is not None:
         lines.append(
@@ -197,7 +200,7 @@ def render_markdown(
     previous_sessions = previous.session_count if previous is not None else None
     previous_follow_rate = previous.suggestion_follow_rate if previous is not None else None
     previous_missed = previous.suggestions_missed if previous is not None else None
-    previous_builder = previous.builder_tool_events if previous is not None else None
+    previous_builder = previous.mutation_tool_events if previous is not None else None
     lines = [
         "# CodeLens productivity trend summary",
         "",
@@ -215,7 +218,7 @@ def render_markdown(
         f"- Suggestions followed/diverted/unresolved/missed: `{latest.suggestions_followed}` / `{latest.suggestions_diverted}` / `{latest.suggestions_unresolved}` / `{latest.suggestions_missed}` (`{delta_int(latest.suggestions_missed, previous_missed)}` missed)",
         f"- Direct suggestion follow rate: `{pct(latest.suggestion_follow_rate)}` (`{delta_rate(latest.suggestion_follow_rate, previous_follow_rate)}`)",
         f"- Delegate emissions / handoffs consumed: `{latest.delegate_emissions}` / `{latest.handoffs_consumed}`",
-        f"- Builder tool events: `{latest.builder_tool_events}` (`{delta_int(latest.builder_tool_events, previous_builder)}`)",
+        f"- Mutation tool events: `{latest.mutation_tool_events}` (`{delta_int(latest.mutation_tool_events, previous_builder)}`)",
         "",
         "## Telemetry Provenance",
         "",
@@ -248,8 +251,8 @@ def render_markdown(
         lines.append("- Missed suggestions increased; inspect `tool-usage.txt` before claiming improvement.")
     else:
         lines.append("- Latest run had no external-fallback regression; direct follow rate alone is not a productivity result.")
-    if latest.builder_tool_events == 0:
-        lines.append("- Builder coverage is still absent in tool telemetry.")
+    if latest.mutation_tool_events == 0:
+        lines.append("- Mutation coverage is still absent in tool telemetry.")
     return "\n".join(lines).rstrip() + "\n"
 
 

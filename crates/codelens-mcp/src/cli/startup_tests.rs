@@ -91,11 +91,12 @@ fn render_attach_instructions_for_codex_emits_copy_ready_targets() {
     assert!(rendered.contains("Use CodeLens for:"));
     assert!(rendered.contains("Avoid:"));
     assert!(rendered.contains("Primary bootstrap sequence:"));
-    assert!(rendered.contains("Delegate scaffold contract:"));
+    assert!(rendered.contains("Execution contract:"));
     assert!(!rendered.contains("Compiled overlays:"));
     assert!(!rendered.contains("## Compiled Routing Overlays"));
-    assert!(rendered.contains("delegate_to_codex_builder"));
-    assert!(rendered.contains("handoff_id"));
+    assert!(rendered.contains("suggested_next_calls"));
+    assert!(rendered.contains("mutation intent"));
+    assert!(!rendered.contains("delegate_to_codex_builder"));
     assert!(rendered.contains("~/.codex/config.toml"));
     assert!(rendered.contains("AGENTS.md"));
     assert!(rendered.contains("<!-- CODELENS_HOST_ROUTING:BEGIN -->"));
@@ -122,7 +123,7 @@ fn render_help_separates_active_profiles_from_compatibility_aliases() {
 }
 
 #[test]
-fn render_attach_instructions_for_cursor_surfaces_delegate_handoff_contract() {
+fn render_attach_instructions_for_cursor_surfaces_execution_contract() {
     let rendered = render_attach_instructions(Some("cursor")).expect("attach output");
     assert!(rendered.contains("CodeLens attach target: cursor"));
     assert!(rendered.contains("Native host primitives:"));
@@ -132,11 +133,12 @@ fn render_attach_instructions_for_cursor_surfaces_delegate_handoff_contract() {
     assert!(rendered.contains("Avoid:"));
     assert!(rendered.contains("shipping the full CodeLens surface into every mode"));
     assert!(rendered.contains("Primary bootstrap sequence:"));
-    assert!(rendered.contains("Delegate scaffold contract:"));
+    assert!(rendered.contains("Execution contract:"));
     assert!(!rendered.contains("Compiled overlays:"));
     assert!(!rendered.contains("## Compiled Routing Overlays"));
-    assert!(rendered.contains("delegate_to_codex_builder"));
-    assert!(rendered.contains("handoff_id"));
+    assert!(rendered.contains("suggested_next_calls"));
+    assert!(rendered.contains("mutation intent"));
+    assert!(!rendered.contains("delegate_to_codex_builder"));
     assert!(rendered.contains(".cursor/rules/codelens-routing.mdc"));
 }
 

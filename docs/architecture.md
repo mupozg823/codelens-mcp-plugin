@@ -142,7 +142,7 @@ Prioritized architecture moves:
    its resolved target, selected mode, canonical work class, and downstream
    handler-entry count. Guidance and telemetry share the registry-backed
    classifier, and derived KPI payloads identify the new contract as
-   `codelens-derived-kpis-v2`.
+   `codelens-session-evidence-kpis`.
    This is a boundary cleanup, not a new event bus.
 7. Next: put the same strict measurements around adaptive RRF/rerank and
    hierarchical context changes: compare Recall@k, nDCG/MRR, latency p50/p95,

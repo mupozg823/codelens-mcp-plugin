@@ -261,3 +261,62 @@ fn snapshot_sorted_by_call_count() {
     assert_eq!(snap[1].0, "mid");
     assert_eq!(snap[2].0, "low");
 }
+
+#[test]
+fn suggestion_value_tracks_acceptance_diversion_resolution_and_outcome() {
+    let reg = ToolMetricsRegistry::new();
+    let accepted = vec!["review_changes".to_owned()];
+    reg.record_event(ToolCallEvent {
+        logical_session_id: Some("suggestion-value"),
+        hints: CallTelemetryHints {
+            suggested_next_tools: &accepted,
+            ..Default::default()
+        },
+        ..event("find_symbol", "reviewer-graph")
+    });
+
+    let unresolved = reg.session_snapshot_for("suggestion-value");
+    assert_eq!(unresolved.guidance.suggestion_unresolved_count, 1);
+    assert_eq!(unresolved.guidance.suggestion_accepted_count, 0);
+
+    reg.record_event(ToolCallEvent {
+        logical_session_id: Some("suggestion-value"),
+        ..event("review_changes", "reviewer-graph")
+    });
+
+    let diverted = vec!["get_file_diagnostics".to_owned()];
+    reg.record_event(ToolCallEvent {
+        logical_session_id: Some("suggestion-value"),
+        hints: CallTelemetryHints {
+            suggested_next_tools: &diverted,
+            ..Default::default()
+        },
+        ..event("find_symbol", "reviewer-graph")
+    });
+    reg.record_event(ToolCallEvent {
+        logical_session_id: Some("suggestion-value"),
+        ..event("read_file", "reviewer-graph")
+    });
+
+    let failed = vec!["rename_symbol".to_owned()];
+    reg.record_event(ToolCallEvent {
+        logical_session_id: Some("suggestion-value"),
+        hints: CallTelemetryHints {
+            suggested_next_tools: &failed,
+            ..Default::default()
+        },
+        ..event("safe_rename_report", "reviewer-graph")
+    });
+    reg.record_event(ToolCallEvent {
+        logical_session_id: Some("suggestion-value"),
+        success: false,
+        ..event("rename_symbol", "builder-minimal")
+    });
+
+    let session = reg.session_snapshot_for("suggestion-value");
+    assert_eq!(session.guidance.suggestion_accepted_count, 2);
+    assert_eq!(session.guidance.suggestion_diverted_count, 1);
+    assert_eq!(session.guidance.suggestion_unresolved_count, 0);
+    assert_eq!(session.guidance.suggestion_outcome_success_count, 1);
+    assert_eq!(session.guidance.suggestion_outcome_error_count, 1);
+}

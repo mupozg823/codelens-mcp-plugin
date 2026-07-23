@@ -113,6 +113,10 @@ pub(crate) struct AppState {
     /// `tools/list` (which standard MCP clients send without expansion
     /// params) returns the full surface instead of the bootstrap subset.
     local_full_tool_exposure: std::sync::atomic::AtomicBool,
+    /// Stdio/local host capability declaration negotiated by
+    /// `prepare_harness_session`. HTTP sessions persist this in their own
+    /// metadata and inject it into subsequent requests.
+    local_host_capabilities: std::sync::RwLock<Option<crate::host_capabilities::HostCapabilities>>,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::RwLock<Option<EmbeddingEngine>>,
     /// Project root the current `embedding` engine was built for. With

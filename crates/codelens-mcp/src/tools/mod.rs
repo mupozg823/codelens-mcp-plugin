@@ -40,8 +40,8 @@ pub(crate) use suggestions::{
     SUGGEST_NEXT_TABLE, suggest_next,
 };
 pub(crate) use suggestions::{
-    composite_guidance_for_chain, infer_harness_phase, suggest_next_contextual,
-    suggestion_reasons_for,
+    composite_guidance_for_chain, infer_harness_phase, retain_phase_compatible_suggestions,
+    suggest_next_contextual, suggestion_reasons_for,
 };
 
 /// Declarative tool registry macro — reduces boilerplate and prevents drift.

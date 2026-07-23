@@ -12,7 +12,6 @@ fn empty_inputs_produce_non_applied_plan() {
     assert!(plan.host_context.is_none());
     assert!(plan.task_overlay.is_none());
     assert!(plan.agent_role.is_none());
-    assert!(plan.preferred_executor_bias.is_none());
     assert!(plan.preferred_entrypoints.is_empty());
     assert!(plan.emphasized_tools.is_empty());
     assert!(plan.avoid_tools.is_empty());
@@ -20,22 +19,30 @@ fn empty_inputs_produce_non_applied_plan() {
 }
 
 #[test]
-fn claude_code_host_biases_toward_claude_executor() {
+fn claude_code_host_keeps_transport_context_without_executor_bias() {
     let plan = compile_surface_overlay(full_surface(), Some(HostContext::ClaudeCode), None);
     assert!(plan.applied());
-    assert_eq!(plan.preferred_executor_bias, Some("claude"));
     assert!(
         plan.preferred_entrypoints
             .contains(&"analyze_change_request")
     );
     assert!(!plan.routing_notes.is_empty());
+    assert!(
+        plan.routing_notes
+            .iter()
+            .all(|note| !note.to_ascii_lowercase().contains("claude"))
+    );
 }
 
 #[test]
-fn codex_host_biases_toward_codex_builder() {
+fn codex_host_keeps_transport_context_without_executor_bias() {
     let plan = compile_surface_overlay(full_surface(), Some(HostContext::Codex), None);
-    assert_eq!(plan.preferred_executor_bias, Some("codex-builder"));
     assert!(plan.preferred_entrypoints.contains(&"plan_safe_refactor"));
+    assert!(
+        plan.routing_notes
+            .iter()
+            .all(|note| !note.to_ascii_lowercase().contains("codex"))
+    );
 }
 
 #[test]
@@ -137,7 +144,6 @@ fn combined_host_and_task_merges_both_contributions() {
         Some(TaskOverlay::Editing),
     );
     assert!(plan.applied());
-    assert_eq!(plan.preferred_executor_bias, Some("codex-builder"));
     // Host contribution (codex):
     assert!(plan.preferred_entrypoints.contains(&"plan_safe_refactor"));
     // Task contribution (editing):

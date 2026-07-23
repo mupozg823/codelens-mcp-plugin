@@ -553,7 +553,8 @@ fn surface_overlay_resource_returns_compiled_plan() {
     assert!(body.contains("\\\"applied\\\": true") || body.contains("applied"));
     assert!(body.contains("codex"));
     assert!(body.contains("editing"));
-    assert!(body.contains("codex-builder"));
+    assert!(!body.contains("codex-builder"));
+    assert!(!body.contains("preferred_executor_bias"));
     assert!(body.contains("rename_symbol"));
     assert!(body.contains("routing_notes"));
 

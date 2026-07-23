@@ -9,8 +9,7 @@ use serde_json::Value;
 
 use crate::dispatch::response_support::{
     apply_contextual_guidance, attach_index_freshness, bounded_result_payload, budget_hint,
-    build_suggested_next_calls, compact_response_payload, delegate_hint_telemetry_fields,
-    effective_budget_for_tool, inject_delegate_to_codex_builder_hint,
+    build_suggested_next_calls, compact_response_payload, effective_budget_for_tool,
     max_result_size_chars_for_tool, record_verifier_preflight, routing_hint_for_payload,
     success_jsonrpc_response, text_payload_for_response, trim_scaffold_for_lean,
 };
@@ -126,7 +125,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     let recent_work_classes = state
         .metrics()
         .recent_work_classes_for_session(logical_session_id, 2);
-    let emitted_composite_guidance = apply_contextual_guidance(
+    let mut emitted_composite_guidance = apply_contextual_guidance(
         &mut resp,
         name,
         &recent_tools,
@@ -171,27 +170,21 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         }
     }
 
+    if crate::host_capabilities::HostCapabilities::for_request(state, arguments, logical_session_id)
+        .is_some_and(|capabilities| capabilities.native_tool_search)
+    {
+        resp.suggested_next_tools = None;
+        resp.suggested_next_calls = None;
+        resp.suggestion_reasons = None;
+        emitted_composite_guidance = false;
+    }
+
     if let Some(ref next_tools) = resp.suggested_next_tools {
         resp.suggestion_reasons = Some(tools::suggestion_reasons_for(next_tools, name));
-        let mut calls = build_suggested_next_calls(name, arguments, next_tools, resp.data.as_ref());
-        let mut next_tools = next_tools.clone();
-        inject_delegate_to_codex_builder_hint(
-            name,
-            arguments,
-            resp.data.as_ref(),
-            &mut next_tools,
-            &mut calls,
-            doom_loop_count,
-            doom_loop_rapid,
-        );
-        resp.suggested_next_tools = Some(next_tools);
+        let calls = build_suggested_next_calls(name, arguments, next_tools, resp.data.as_ref());
         if !calls.is_empty() {
             resp.suggested_next_calls = Some(calls);
         }
-        resp.suggestion_reasons = resp
-            .suggested_next_tools
-            .as_ref()
-            .map(|tools| tools::suggestion_reasons_for(tools, name));
     }
 
     if compact {
@@ -239,8 +232,6 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     }
     let suggested_next_tools = resp.suggested_next_tools.as_deref().unwrap_or(&[]);
     let handoff_id = arguments.get("handoff_id").and_then(|value| value.as_str());
-    let (delegate_hint_trigger, delegate_target_tool, delegate_handoff_id) =
-        delegate_hint_telemetry_fields(&resp);
 
     let target_paths = state.extract_target_paths(arguments);
     state.metrics().record_event(ToolCallEvent {
@@ -259,9 +250,9 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         target_paths: &target_paths,
         hints: CallTelemetryHints {
             suggested_next_tools,
-            delegate_hint_trigger,
-            delegate_target_tool,
-            delegate_handoff_id,
+            delegate_hint_trigger: None,
+            delegate_target_tool: None,
+            delegate_handoff_id: None,
             handoff_id,
         },
     });

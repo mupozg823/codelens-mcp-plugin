@@ -573,7 +573,12 @@ mod text_channel_tests {
                         "tool": "plan_safe_refactor",
                         "reason": "not_in_active_surface",
                         "recommended_action": "switch_tool_surface",
-                        "preferred_executor": "claude",
+                        "execution_policy": {
+                            "execution_class": "analyze",
+                            "risk": "low",
+                            "cost_hint": "medium",
+                            "concurrency_safe": true,
+                        },
                         "tool_tier": "workflow",
                         "included_in": [
                             "preset:balanced",
@@ -587,7 +592,12 @@ mod text_channel_tests {
                         "tool": "trace_request_path",
                         "reason": "not_in_active_surface",
                         "recommended_action": "switch_tool_surface",
-                        "preferred_executor": "claude",
+                        "execution_policy": {
+                            "execution_class": "analyze",
+                            "risk": "low",
+                            "cost_hint": "medium",
+                            "concurrency_safe": true,
+                        },
                         "tool_tier": "workflow",
                         "included_in": ["preset:balanced", "preset:full", "builder-minimal"],
                         "recommended_profile": "builder-minimal",
@@ -596,7 +606,12 @@ mod text_channel_tests {
                         "tool": "refresh_symbol_index",
                         "reason": "not_in_active_surface",
                         "recommended_action": "switch_tool_surface",
-                        "preferred_executor": "any",
+                        "execution_policy": {
+                            "execution_class": "read",
+                            "risk": "low",
+                            "cost_hint": "low",
+                            "concurrency_safe": true,
+                        },
                         "tool_tier": "workflow",
                         "included_in": [
                             "preset:minimal",
@@ -643,9 +658,9 @@ mod text_channel_tests {
             "routing recovery must retain every omitted entrypoint"
         );
         assert_eq!(
-            omitted[0]["preferred_executor"],
-            json!("claude"),
-            "known omitted entrypoints must keep executor metadata under compression"
+            omitted[0]["execution_policy"]["execution_class"],
+            json!("analyze"),
+            "known omitted entrypoints must keep execution metadata under compression"
         );
         assert_eq!(
             omitted[0]["tool_tier"],

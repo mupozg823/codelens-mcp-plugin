@@ -208,10 +208,12 @@ Each JSONL line records the public request name in `tool` and the executed
 operation in `resolved_target`, `mode`, `work_class`, and
 `downstream_call_count`. It also records `timestamp_ms`, `surface`, `phase`,
 `session_id`, `target_paths`, `elapsed_ms`, `tokens`, `success`, `truncated`,
-`recording_origin`, plus safe routing metadata when available:
-`suggested_next_tools`, `delegate_hint_trigger`, `delegate_target_tool`,
-`delegate_handoff_id`, `handoff_id`. Direct calls use their own tool name as
-`resolved_target`; facade calls retain the facade in `tool` for compatibility.
+`recording_origin`, plus `suggested_next_tools` when available. Historical
+JSONL rows may also contain `delegate_hint_trigger`, `delegate_target_tool`,
+`delegate_handoff_id`, or `handoff_id`; those fields are read only for legacy
+analysis compatibility and are not emitted by the current host-neutral
+suggestion path. Direct calls use their own tool name as `resolved_target`;
+facade calls retain the facade in `tool` for compatibility.
 **Tool arguments are intentionally excluded** so the trace cannot leak
 user query text or PII through the pipeline.
 

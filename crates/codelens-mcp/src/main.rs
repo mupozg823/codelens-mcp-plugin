@@ -19,6 +19,7 @@ mod client_profile;
 mod dispatch;
 mod env_compat;
 mod error;
+mod host_capabilities;
 mod instruction_audit;
 mod job_store;
 mod mutation_gate;

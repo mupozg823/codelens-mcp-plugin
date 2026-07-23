@@ -88,7 +88,7 @@ def test_behavior_report_counts_suggestions_and_handoff_consumption() -> None:
                     "surface": "refactor-full",
                     "elapsed_ms": 25,
                     "tokens": 260,
-                    "success": True,
+                    "success": False,
                     "truncated": False,
                     "session_id": "builder",
                     "handoff_id": "codelens-handoff-test",
@@ -113,6 +113,12 @@ def test_behavior_report_counts_suggestions_and_handoff_consumption() -> None:
     assert behavior["total_events"] == 5
     assert behavior["suggestion_events"] == 3
     assert behavior["suggestions_followed"] == 2
+    assert behavior["suggestion_acceptance_rate"] == 1.0
+    assert behavior["suggestion_resolution_rate"] == 2 / 3
+    assert behavior["suggestion_outcome_success"] == 1
+    assert behavior["suggestion_outcome_error"] == 1
+    assert behavior["suggestion_successful_outcome_rate"] == 0.5
+    assert behavior["suggestion_value_rate"] == 0.5
     assert behavior["suggestions_missed"] == 0
     assert behavior["suggestions_unresolved"] == 1
     assert behavior["delegate_emissions"] == 1

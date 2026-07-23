@@ -33,7 +33,6 @@ fn compiled_overlay_preview(
         "surface": surface.as_label(),
         "task_overlay": task_overlay.as_str(),
         "agent_role": agent_role.as_str(),
-        "preferred_executor_bias": plan.preferred_executor_bias,
         "bootstrap_sequence": bootstrap_sequence,
         "preferred_entrypoints": plan.preferred_entrypoints,
         "emphasized_tools": plan.emphasized_tools,

@@ -161,7 +161,7 @@ def test_trend_summary_rejects_attributed_bootstrap_as_productivity_evidence() -
                         "suggestion_follow_rate": 0.0,
                         "delegate_emissions": 0,
                         "delegate_handoffs_consumed": 0,
-                        "codex_builder_tool_events": 0,
+                        "mutation_tool_events": 0,
                         "provenance": {
                             "status": "verified",
                             "evidence_status": "bootstrap_only",

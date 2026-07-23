@@ -1,4 +1,4 @@
-# ADR-0005: Harness v2 — CodeLens as shared substrate for role-specialized agent hosts
+# ADR-0005: Role-Specialized Host Harness — CodeLens as Shared Substrate
 
 - Status: Accepted
 - Date: 2026-04-18
@@ -61,8 +61,8 @@ substrate, are enumerated in `codelens://harness/modes` and
 1. **solo-local** — single-agent stdio or single-http, planner-readonly
    or builder-minimal surface. Personal work.
 2. **planner-builder** — dual-daemon (7837 read-only, 7838
-   mutation-enabled). Primary multi-agent topology. Claude (or
-   equivalent) plans/reviews, Codex (or equivalent) builds/refactors.
+   mutation-enabled). Primary multi-agent topology. A read-oriented lane
+   plans/reviews; a host-selected write-capable lane builds/refactors.
 3. **reviewer / ci-audit** — read-only only, diff-aware reports plus
    planner + builder audits. Merge gate.
 4. **batch-analysis** — analysis handle and async job centric. Long

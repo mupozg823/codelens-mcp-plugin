@@ -33,7 +33,9 @@
 # annotation-binding locals and per-tool postprocessing for derived
 # fields such as title/estimated_tokens. Per-tool routing metadata
 # (feature_gate, phase, namespace, annotations, default_visible_rank)
-# is generated from this file.
+# is generated from this file. Host-neutral execution policy is derived from
+# each tool's category/annotations and may be refined with execution_class,
+# risk, cost_hint, and concurrency_safe overrides when a tool needs them.
 
 schema_version = "v1"
 content_mutation_tools = [
@@ -1257,6 +1259,7 @@ token_budget = { type = "integer", description = "Optional explicit token budget
 file_path = { type = "string", description = "Optional file path for language-specific capability checks" }
 detail = { type = "string", enum = ["compact", "full"], description = "compact returns the harness preflight essentials only; full also includes the heavier config snapshot" }
 host_context = { type = "string", enum = ["claude-code", "codex", "cursor", "cline", "windsurf", "vscode", "jetbrains", "api-agent"], description = "Optional host hint for advisory routing (surface unchanged)" }
+host_capabilities = { type = "object", description = "Host-declared orchestration and mutation capabilities; facts only, never inferred from model/vendor names", properties = { native_tool_search = { type = "boolean" }, native_subagents = { type = "boolean" }, nested_subagents = { type = "boolean" }, native_worktrees = { type = "boolean" }, native_edit = { type = "boolean" }, mcp_tasks = { type = "boolean" }, dynamic_tool_list = { type = "boolean" }, workspace_binding = { type = "boolean" }, approval_or_elicitation = { type = "boolean" } } }
 task_overlay = { type = "string", enum = ["planning", "editing", "review", "onboarding", "batch-analysis", "interactive"], description = "Optional task-mode hint for advisory routing (surface unchanged)" }
 agent_role = { type = "string", enum = ["main", "subagent"], description = "Optional caller role hint for advisory routing (surface unchanged)" }
 available_mcp_servers = { type = "array", items = { type = "string" }, description = "Optional host-observed MCP server ids; advisory routing only, not trusted" }

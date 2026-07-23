@@ -193,7 +193,7 @@ Rebrand planning rolls out across three commits + one migration session.
 
 ## References
 
-- [ADR-0005 Harness v2](ADR-0005-harness-v2.md)
+- [ADR-0005 Role-Specialized Host Harness](ADR-0005-harness-v2.md)
 - [ADR-0006 Agent routing enforcement](ADR-0006-agent-routing-enforcement.md)
 - Intezer Labs (2022). Symbiote Linux userland rootkit disclosure.
 - Heinrich Anton de Bary (1879). _Die Erscheinung der Symbiose_

@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::host_capabilities::HostCapabilities;
 use crate::protocol::BackendKind;
 use crate::resource_context::{ResourceRequestContext, build_visible_tool_context};
 use crate::tool_defs::{AgentRole, HostContext, TaskOverlay, compile_surface_overlay_for_agent};
@@ -22,7 +23,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     // rejection burned a bootstrap round trip.
     //
     // New contract: `profile` wins (it carries the semantic role that
-    // determines tool surface + executor bias), `preset` is dropped
+    // determines the role-oriented tool surface), `preset` is dropped
     // when both are supplied, and the dropped value is surfaced via
     // `surface_resolution` + a non-blocking warning so the caller
     // can adjust on the next call.
@@ -112,6 +113,25 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     // exposure and notify so hosts re-fetch the complete surface.
     let bootstrap_session = crate::session_context::SessionRequestContext::from_json(arguments);
     #[cfg(feature = "http")]
+    let use_local_host_state = !state.should_route_to_session(&bootstrap_session);
+    #[cfg(not(feature = "http"))]
+    let use_local_host_state = true;
+    let declared_host_capabilities = HostCapabilities::from_arguments(arguments);
+    if let Some(capabilities) = declared_host_capabilities {
+        if use_local_host_state {
+            state.set_local_host_capabilities(capabilities);
+        }
+        #[cfg(feature = "http")]
+        if !use_local_host_state {
+            state.set_session_host_capabilities(&bootstrap_session.session_id, capabilities);
+        }
+    }
+    let host_capabilities = declared_host_capabilities.or_else(|| {
+        use_local_host_state
+            .then(|| state.local_host_capabilities())
+            .flatten()
+    });
+    #[cfg(feature = "http")]
     if state.should_route_to_session(&bootstrap_session) {
         state.enable_session_full_tool_exposure(&bootstrap_session.session_id);
         state.notify_tools_list_changed(&bootstrap_session);
@@ -142,6 +162,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         arguments,
         &request.session,
         request.client_profile,
+        host_capabilities,
     );
     let surface_generation =
         crate::tool_schema_generation::surface_generation_payload(&visible.tools);

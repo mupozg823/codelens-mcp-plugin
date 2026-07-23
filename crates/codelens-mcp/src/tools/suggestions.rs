@@ -208,6 +208,26 @@ pub(crate) fn infer_harness_phase(recent_tools: &[String]) -> Option<&'static st
     None
 }
 
+fn phase_tools(phase: &str) -> Option<&'static [&'static str]> {
+    match phase {
+        "plan" => Some(PLAN_PHASE_TOOLS),
+        "build" => Some(BUILD_PHASE_TOOLS),
+        "review" => Some(REVIEW_PHASE_TOOLS),
+        "eval" => Some(EVAL_PHASE_TOOLS),
+        _ => None,
+    }
+}
+
+pub(crate) fn retain_phase_compatible_suggestions(
+    suggestions: &mut Vec<String>,
+    harness_phase: Option<&str>,
+) {
+    let Some(allowed) = harness_phase.and_then(phase_tools) else {
+        return;
+    };
+    suggestions.retain(|suggestion| allowed.contains(&suggestion.as_str()));
+}
+
 /// Context-aware tool suggestions: overrides static suggestions based on recent workflow.
 pub fn suggest_next_contextual(
     tool_name: &str,
@@ -267,23 +287,9 @@ pub fn suggest_next_contextual(
         suggestions.truncate(3);
     }
 
-    // Filter suggestions by harness phase if specified
-    if let Some(phase) = harness_phase {
-        let phase_tools: &[&str] = match phase {
-            "plan" => PLAN_PHASE_TOOLS,
-            "build" => BUILD_PHASE_TOOLS,
-            "review" => REVIEW_PHASE_TOOLS,
-            "eval" => EVAL_PHASE_TOOLS,
-            _ => return Some(suggestions), // unknown phase, no filtering
-        };
-        suggestions.retain(|s| phase_tools.contains(&s.as_str()));
-        // Ensure we always have at least 1 suggestion
-        if suggestions.is_empty() {
-            suggestions = suggest_next(tool_name).unwrap_or_default();
-        }
-    }
+    retain_phase_compatible_suggestions(&mut suggestions, harness_phase);
 
-    Some(suggestions)
+    (!suggestions.is_empty()).then_some(suggestions)
 }
 
 fn has_recent_low_level_chain(
@@ -560,14 +566,6 @@ pub(crate) const SUGGEST_NEXT_TABLE: &[(&str, &[&str])] = &[
         &["get_symbols_overview", "get_ranked_context"],
     ),
     (
-        "get_tool_metrics",
-        &[
-            "audit_builder_session",
-            "export_session_markdown",
-            "get_capabilities",
-        ],
-    ),
-    (
         "audit_builder_session",
         &[
             "get_tool_metrics",
@@ -650,10 +648,9 @@ pub(crate) const SUGGEST_NEXT_TABLE: &[(&str, &[&str])] = &[
     ),
     // `rename_symbol` is dispatch-only (ADR-0009/D3, #346): callable via
     // `tools/call` behind the `:7838` mutation gate but intentionally absent from
-    // `tools.toml`. It is the sole `codex-builder`-tagged suggestion in this
-    // table, so it must stay here to keep the planner→builder delegate handoff
-    // firing (`inject_delegate_to_codex_builder_hint`). Allowlisted in the drift
-    // gate via the pending-D3 carve-out.
+    // `tools.toml`. Keep it as a direct, host-neutral mutation intent after the
+    // read-only safety report. Allowlisted in the drift gate via the pending-D3
+    // carve-out.
     (
         "safe_rename_report",
         &[
@@ -712,9 +709,6 @@ pub fn suggestion_reasons_for(
     let mut reasons = std::collections::HashMap::new();
     for tool in tools {
         let reason = match tool.as_str() {
-            "delegate_to_codex_builder" => {
-                "Hand off the next builder-heavy step to a Codex-class executor"
-            }
             "get_file_diagnostics" => "Check for type errors or lint issues after this change",
             "get_analysis_section" => "Expand a specific section from the analysis handle",
             "verify_change_readiness" => "Validate mutation safety before editing code",
@@ -801,5 +795,48 @@ mod phase_inference_tests {
             "review_changes", // review (newer)
         ]);
         assert_eq!(infer_harness_phase(&recent), Some("review"));
+    }
+}
+
+#[cfg(test)]
+mod contextual_phase_tests {
+    use super::{
+        BUILD_PHASE_TOOLS, EVAL_PHASE_TOOLS, PLAN_PHASE_TOOLS, REVIEW_PHASE_TOOLS,
+        suggest_next_contextual,
+    };
+
+    #[test]
+    fn explicit_phases_only_return_phase_compatible_suggestions() {
+        for (phase, allowed) in [
+            ("plan", PLAN_PHASE_TOOLS),
+            ("build", BUILD_PHASE_TOOLS),
+            ("review", REVIEW_PHASE_TOOLS),
+            ("eval", EVAL_PHASE_TOOLS),
+        ] {
+            let suggestions =
+                suggest_next_contextual("find_symbol", &[], Some(phase)).unwrap_or_default();
+            assert!(
+                suggestions
+                    .iter()
+                    .all(|tool| allowed.contains(&tool.as_str())),
+                "{phase} phase leaked rejected suggestions: {suggestions:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_phase_filter_does_not_restore_unfiltered_suggestions() {
+        let suggestions =
+            suggest_next_contextual("find_symbol", &[], Some("eval")).unwrap_or_default();
+
+        assert!(
+            suggestions.is_empty(),
+            "eval rejects every static find_symbol follow-up, so the result must stay empty: {suggestions:?}"
+        );
+    }
+
+    #[test]
+    fn completed_metrics_report_has_no_recursive_report_suggestions() {
+        assert_eq!(suggest_next_contextual("get_tool_metrics", &[], None), None);
     }
 }

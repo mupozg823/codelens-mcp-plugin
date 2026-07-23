@@ -44,7 +44,7 @@ fn ci_audit_reports_use_fixed_machine_schema() {
 }
 
 #[test]
-fn eval_session_audit_routes_codex_builder_preferred_tool_to_builder_lane() {
+fn eval_session_audit_routes_build_phase_tool_to_builder_lane() {
     let project = project_root();
     fs::write(
         project.as_path().join("eval_builder_preferred.py"),
@@ -54,27 +54,27 @@ fn eval_session_audit_routes_codex_builder_preferred_tool_to_builder_lane() {
     let state = make_state(&project);
 
     // 2026-07 tool-surface diet: cleanup_duplicate_logic is builder-only, so
-    // the audited session runs on builder-minimal (records the codex-builder-
-    // preferred tool → routed to the builder lane). get_analysis_section left
+    // the audited session runs on builder-minimal (records a build-phase tool
+    // and routes it to the builder lane). get_analysis_section left
     // reviewer-graph and is planner-only now, so switch to planner-readonly
     // before reading the analysis sections.
     let _ = call_tool_with_session(
         &state,
         "set_profile",
         json!({"profile": "builder-minimal"}),
-        "eval-codex-builder-preferred",
+        "eval-build-phase",
     );
     let _ = call_tool_with_session(
         &state,
         "prepare_harness_session",
         json!({"profile": "builder-minimal", "detail": "compact"}),
-        "eval-codex-builder-preferred",
+        "eval-build-phase",
     );
     let _ = call_tool_with_session(
         &state,
         "cleanup_duplicate_logic",
         json!({"scope": "eval_builder_preferred.py", "max_results": 1}),
-        "eval-codex-builder-preferred",
+        "eval-build-phase",
     );
 
     let (payload, _) = crate::tools::reports::eval_session_audit(&state, &json!({})).unwrap();
@@ -490,9 +490,11 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(host_adapters_body.contains("codex"));
     assert!(host_adapters_body.contains("cursor"));
     assert!(host_adapters_body.contains("windsurf"));
-    assert!(host_adapters_body.contains("handoff_id"));
-    assert!(host_adapters_body.contains("delegate_handoff_id"));
-    assert!(host_adapters_body.contains("replay_rule"));
+    assert!(host_adapters_body.contains("executor_selection"));
+    assert!(host_adapters_body.contains("host_owned"));
+    assert!(host_adapters_body.contains("suggested_next_calls"));
+    assert!(host_adapters_body.contains("tool_annotations_and_direct_call"));
+    assert!(!host_adapters_body.contains("delegate_to_codex_builder"));
     assert!(host_adapters_body.contains("native_primitives"));
     assert!(host_adapters_body.contains("preferred_codelens_use"));
     assert!(host_adapters_body.contains("routing_defaults"));
@@ -553,7 +555,9 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     let agent_experience_body = serde_json::to_string(&agent_experience).unwrap();
     assert!(agent_experience_body.contains("codelens-agent-experience-v1"));
     assert!(agent_experience_body.contains("blocked_pending_trademark_clearance"));
-    assert!(agent_experience_body.contains("delegate_to_codex_builder"));
+    assert!(agent_experience_body.contains("execution_contract"));
+    assert!(agent_experience_body.contains("suggested_next_calls"));
+    assert!(!agent_experience_body.contains("delegate_to_codex_builder"));
     assert!(agent_experience_body.contains("under_60_seconds_to_first_compressed_answer"));
 
     let codex_host_adapter = handle_request(
@@ -579,8 +583,9 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     );
     assert!(codex_host_adapter_body.contains("~/.codex/config.toml"));
     assert!(codex_host_adapter_body.contains("AGENTS.md"));
-    assert!(codex_host_adapter_body.contains("delegate_to_codex_builder"));
-    assert!(codex_host_adapter_body.contains("handoff_id"));
+    assert!(codex_host_adapter_body.contains("execution_rules"));
+    assert!(codex_host_adapter_body.contains("suggested_next_calls"));
+    assert!(!codex_host_adapter_body.contains("delegate_to_codex_builder"));
     assert!(codex_host_adapter_body.contains("skill_binding"));
     assert!(codex_host_adapter_body.contains("codelens://host-adapters/codex/skill-catalog"));
     assert!(codex_host_adapter_body.contains("primary_bootstrap_sequence"));
@@ -616,7 +621,9 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     let cursor_host_adapter_body = serde_json::to_string(&cursor_host_adapter).unwrap();
     assert!(cursor_host_adapter_body.contains(".cursor/rules/codelens-routing.mdc"));
     assert!(cursor_host_adapter_body.contains("background agents"));
-    assert!(cursor_host_adapter_body.contains("handoff_id"));
+    assert!(cursor_host_adapter_body.contains("host_capabilities"));
+    assert!(cursor_host_adapter_body.contains("suggested_next_calls"));
+    assert!(!cursor_host_adapter_body.contains("delegate_to_codex_builder"));
     assert!(cursor_host_adapter_body.contains("primary_bootstrap_sequence"));
     assert!(!cursor_host_adapter_body.contains("overlay_previews"));
     assert!(!cursor_host_adapter_body.contains("default_task_overlay"));

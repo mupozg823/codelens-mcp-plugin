@@ -49,6 +49,7 @@ impl AppState {
             sparse_symbol_cache: Arc::clone(&self.sparse_symbol_cache),
             watcher_maintenance: Mutex::new(HashMap::new()),
             local_full_tool_exposure: std::sync::atomic::AtomicBool::new(false),
+            local_host_capabilities: std::sync::RwLock::new(self.local_host_capabilities()),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
@@ -136,6 +137,7 @@ impl AppState {
             sparse_symbol_cache: Arc::new(SparseSymbolCache::new()),
             watcher_maintenance: Mutex::new(HashMap::new()),
             local_full_tool_exposure: std::sync::atomic::AtomicBool::new(false),
+            local_host_capabilities: std::sync::RwLock::new(None),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),

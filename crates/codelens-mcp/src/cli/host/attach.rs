@@ -22,7 +22,7 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
     let adapter = crate::surface_manifest::host_adapter_bundle_for_project(canonical, Some(&cwd))
         .context("missing host adapter bundle for attach target")?;
 
-    let delegate_scaffold_rules = json_string_list(&adapter, "delegate_scaffold_rules");
+    let execution_rules = json_string_list(&adapter, "execution_rules");
     let routing_defaults = adapter
         .get("routing_defaults")
         .and_then(Value::as_object)
@@ -50,9 +50,9 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
         }
     }
 
-    if !delegate_scaffold_rules.is_empty() {
-        out.push_str("Delegate scaffold contract:\n");
-        for rule in delegate_scaffold_rules {
+    if !execution_rules.is_empty() {
+        out.push_str("Execution contract:\n");
+        for rule in execution_rules {
             out.push_str(&format!("- {rule}\n"));
         }
     }

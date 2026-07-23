@@ -561,6 +561,7 @@ fn prepare_harness_session_schema_matches_payload_shape() {
         .as_object()
         .expect("input schema properties");
     assert!(input_properties.contains_key("agent_role"));
+    assert!(input_properties.contains_key("host_capabilities"));
     let schema = tool
         .output_schema
         .as_ref()
@@ -583,6 +584,7 @@ fn prepare_harness_session_schema_matches_payload_shape() {
         .as_object()
         .expect("host_environment properties");
     assert!(host_environment.contains_key("host_context"));
+    assert!(host_environment.contains_key("host_capabilities"));
     let http_session = schema["properties"]["http_session"]["properties"]
         .as_object()
         .expect("http_session properties");
@@ -594,14 +596,73 @@ fn prepare_harness_session_schema_matches_payload_shape() {
         .as_object()
         .expect("routing properties");
     assert!(routing.contains_key("preferred_entrypoints_omitted"));
-    assert!(routing.contains_key("preferred_entrypoints_with_executors"));
+    assert!(routing.contains_key("preferred_entrypoints_with_policies"));
     assert!(routing.contains_key("agent_role"));
-    assert!(routing.contains_key("recommended_entrypoint_preferred_executor"));
+    assert!(routing.contains_key("recommended_entrypoint_execution_policy"));
+    assert!(!routing.contains_key("preferred_entrypoints_with_executors"));
+    assert!(!routing.contains_key("recommended_entrypoint_preferred_executor"));
     assert!(input_properties.contains_key("available_mcp_servers"));
     assert!(input_properties.contains_key("available_mcp_tools"));
     assert!(input_properties.contains_key("skill_roots"));
     assert!(input_properties.contains_key("memory_roots"));
     assert!(input_properties.contains_key("host_setting_keys"));
+}
+
+#[test]
+fn declared_native_tool_search_suppresses_server_side_suggestions_for_local_session() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("host_capability_target.py"),
+        "def host_capability_target():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let prepared = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "project": project.as_path(),
+            "detail": "compact",
+            "host_capabilities": {
+                "native_tool_search": true,
+                "native_subagents": true,
+                "nested_subagents": false,
+                "native_worktrees": true,
+                "native_edit": true,
+                "mcp_tasks": false,
+                "dynamic_tool_list": true,
+                "workspace_binding": true,
+                "approval_or_elicitation": true,
+            },
+        }),
+    );
+    assert_eq!(prepared["success"], json!(true));
+    assert_eq!(
+        prepared["data"]["host_environment"]["host_capabilities"]["declared"],
+        json!(true)
+    );
+
+    let result = call_tool(
+        &state,
+        "find_symbol",
+        json!({
+            "name": "host_capability_target",
+            "relative_path": "host_capability_target.py",
+        }),
+    );
+    assert_eq!(result["success"], json!(true));
+    assert!(
+        result.get("suggested_next_tools").is_none()
+            || result["suggested_next_tools"]
+                .as_array()
+                .is_some_and(Vec::is_empty),
+        "hosts with native tool search own next-action selection: {result}"
+    );
+    assert!(
+        result.get("suggested_next_calls").is_none(),
+        "server-side calls must be suppressed with suggestions: {result}"
+    );
 }
 
 #[test]
@@ -937,7 +998,12 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
                 "tool": "find_tests",
                 "reason": "not_in_active_surface",
                 "recommended_action": "switch_tool_surface",
-                "preferred_executor": "any",
+                "execution_policy": {
+                    "execution_class": "read",
+                    "risk": "low",
+                    "cost_hint": "low",
+                    "concurrency_safe": true,
+                },
                 "tool_tier": "primitive",
                 "recommended_profile": "builder",
                 "included_in": [
@@ -956,7 +1022,7 @@ fn prepare_harness_session_compact_exposes_routing_omitted_count() {
 }
 
 #[test]
-fn prepare_harness_session_omitted_entrypoints_include_executor_and_tier() {
+fn prepare_harness_session_omitted_entrypoints_include_execution_policy_and_tier() {
     let project = project_root();
     fs::write(
         project.as_path().join("compact_routing_executor.py"),
@@ -988,9 +1054,14 @@ fn prepare_harness_session_omitted_entrypoints_include_executor_and_tier() {
         .find(|entry| entry["tool"] == "plan_safe_refactor")
         .expect("known hidden entrypoint");
     assert_eq!(
-        known["preferred_executor"],
-        json!("claude"),
-        "known omitted entrypoints must keep executor routing metadata"
+        known["execution_policy"],
+        json!({
+            "execution_class": "analyze",
+            "risk": "low",
+            "cost_hint": "medium",
+            "concurrency_safe": true,
+        }),
+        "known omitted entrypoints must keep host-neutral execution metadata"
     );
     assert_eq!(
         known["tool_tier"],
@@ -1003,8 +1074,8 @@ fn prepare_harness_session_omitted_entrypoints_include_executor_and_tier() {
         .find(|entry| entry["tool"] == "this_tool_does_not_exist_xyz")
         .expect("unknown hidden entrypoint");
     assert!(
-        unknown.get("preferred_executor").is_none(),
-        "unknown entrypoints must not invent executor metadata"
+        unknown.get("execution_policy").is_none(),
+        "unknown entrypoints must not invent execution metadata"
     );
     assert!(
         unknown.get("tool_tier").is_none(),
@@ -1227,7 +1298,12 @@ fn prepare_harness_session_text_payload_preserves_compact_routing_recovery_field
                 "tool": "find_tests",
                 "reason": "not_in_active_surface",
                 "recommended_action": "switch_tool_surface",
-                "preferred_executor": "any",
+                "execution_policy": {
+                    "execution_class": "read",
+                    "risk": "low",
+                    "cost_hint": "low",
+                    "concurrency_safe": true,
+                },
                 "tool_tier": "primitive",
                 "included_in": [
                     "preset:balanced",

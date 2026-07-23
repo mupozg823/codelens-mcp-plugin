@@ -22,6 +22,8 @@ from codex_rollout_events import (
     session_id_from_entry,
 )
 
+# Legacy delegation and handoff strings remain discovery signals so historical
+# rollout files can still be measured after the runtime contract is removed.
 SIGNALS = (
     "mcp__codelens",
     "prepare_harness_session",

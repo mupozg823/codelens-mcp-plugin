@@ -121,7 +121,10 @@ fn facade_call_type_matches_the_resolved_target_instead_of_the_wrapper_name() {
     ] {
         let facade_kpis = derived_kpis(&state, pair.0);
         let target_kpis = derived_kpis(&state, pair.1);
-        assert_eq!(facade_kpis["schema_version"], "codelens-derived-kpis-v2");
+        assert_eq!(
+            facade_kpis["schema_version"],
+            "codelens-session-evidence-kpis"
+        );
         assert_eq!(
             facade_kpis["composite_ratio"],
             target_kpis["composite_ratio"]
@@ -209,7 +212,10 @@ fn facade_and_target_sequences_have_identical_derived_kpis() {
 
     let facade_kpis = derived_kpis(&state, facade_session);
     let target_kpis = derived_kpis(&state, target_session);
-    assert_eq!(facade_kpis["schema_version"], "codelens-derived-kpis-v2");
+    assert_eq!(
+        facade_kpis["schema_version"],
+        "codelens-session-evidence-kpis"
+    );
     assert_eq!(
         facade_kpis["composite_ratio"],
         target_kpis["composite_ratio"]

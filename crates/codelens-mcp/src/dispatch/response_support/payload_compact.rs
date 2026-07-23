@@ -361,7 +361,7 @@ fn should_preserve_structured_array(key: &str, value: &Value) -> bool {
         "preferred_entrypoints"
             | "preferred_entrypoints_visible"
             | "preferred_entrypoints_omitted"
-            | "preferred_entrypoints_with_executors"
+            | "preferred_entrypoints_with_policies"
     ) && value.is_array()
 }
 

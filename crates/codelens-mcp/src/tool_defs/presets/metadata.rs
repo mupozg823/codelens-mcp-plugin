@@ -60,45 +60,39 @@ pub(crate) fn tool_phase_label(name: &str) -> Option<&'static str> {
     tool_phase(name).map(|p| p.as_label())
 }
 
-/// ADR-0006 Layer 1 — routing hint advising which executor class is a
-/// better fit for this tool. Advisory only: the host is free to ignore.
-/// `Some("codex-builder")` — bulk implementation, pure relocation,
-///   multi-file refactor. Cheap/fast executor wins here.
-/// `Some("claude")` — orchestration, synthesis, design compression.
-///   Reasoning budget is the bottleneck.
-/// `None` — either executor is fine (retrieval primitives, reads,
-///   audits, session coordination, eval, diagnostics).
-pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
-    match name {
-        // Bulk implementation / mutation — Codex-class executor preferred.
-        // (pending-D3 edit core + refactor substrate; line-edit family
-        // tombstoned, #346)
-        "rename_symbol"
-        | "replace_symbol_body"
-        | "insert_before_symbol"
-        | "insert_after_symbol"
-        | "refactor_extract_function"
-        | "refactor_inline_function"
-        | "refactor_move_to_file"
-        | "refactor_change_signature"
-        | "cleanup_duplicate_logic"
-        | "propagate_deletions" => Some("codex-builder"),
-
-        // Orchestration / synthesis — Claude-class executor preferred.
-        "plan_safe_refactor" | "review_architecture" | "trace_request_path" | "review_changes" => {
-            Some("claude")
-        }
-
-        // Everything else — retrieval primitives, file ops, audits,
-        // session coordination, eval, diagnostics — both executors
-        // handle equally well. Keep None conservative until we have
-        // measured divergence.
-        _ => None,
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct ExecutionPolicy {
+    pub(crate) execution_class: &'static str,
+    pub(crate) risk: &'static str,
+    pub(crate) cost_hint: &'static str,
+    pub(crate) concurrency_safe: bool,
 }
 
-pub(crate) fn tool_preferred_executor_label(name: &str) -> &'static str {
-    tool_preferred_executor(name).unwrap_or("any")
+/// Host-neutral execution requirements generated from the canonical
+/// `tools.toml` registry. Dispatch-only content mutations retain a fail-safe
+/// policy while their public registration is intentionally pending.
+pub(crate) fn tool_execution_policy(name: &str) -> Option<ExecutionPolicy> {
+    crate::tool_defs::generated::tool_execution_policy_values(name)
+        .map(
+            |(execution_class, risk, cost_hint, concurrency_safe)| ExecutionPolicy {
+                execution_class,
+                risk,
+                cost_hint,
+                concurrency_safe,
+            },
+        )
+        .or_else(|| {
+            crate::tool_defs::generated::tool_is_content_mutation(name).then_some(ExecutionPolicy {
+                execution_class: "mutate",
+                risk: "high",
+                cost_hint: "medium",
+                concurrency_safe: false,
+            })
+        })
+}
+
+pub(crate) fn tool_execution_policy_payload(name: &str) -> Option<serde_json::Value> {
+    tool_execution_policy(name).map(|policy| serde_json::json!(policy))
 }
 
 /// Claude Code snapshot compatibility:

@@ -46,9 +46,10 @@ pub struct ToolInvocation {
 /// Safe, non-PII telemetry hints derived from the tool response.
 ///
 /// These fields intentionally exclude tool arguments and payload excerpts.
-/// They only record public tool names and synthetic delegate metadata so the
-/// append-only JSONL log can support routing analysis without leaking user
-/// query text.
+/// They only record public tool names and legacy handoff-correlation metadata
+/// so the append-only JSONL log can support historical routing analysis without
+/// leaking user query text. New runtime responses do not emit synthetic
+/// delegation actions.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CallTelemetryHints<'a> {
     pub suggested_next_tools: &'a [String],
@@ -123,6 +124,11 @@ pub struct GuidanceMetrics {
     pub composite_guidance_followed_count: u64,
     pub composite_guidance_missed_count: u64,
     pub composite_guidance_missed_by_origin: BTreeMap<String, u64>,
+    pub suggestion_accepted_count: u64,
+    pub suggestion_diverted_count: u64,
+    pub suggestion_unresolved_count: u64,
+    pub suggestion_outcome_success_count: u64,
+    pub suggestion_outcome_error_count: u64,
     pub quality_contract_emitted_count: u64,
     pub recommended_checks_emitted_count: u64,
     pub recommended_check_followthrough_count: u64,
@@ -133,6 +139,8 @@ pub struct GuidanceMetrics {
     pub verifier_followthrough_count: u64,
     #[serde(skip_serializing)]
     pub pending_composite_guidance_from: Option<String>,
+    #[serde(skip_serializing)]
+    pub pending_suggested_tools: Vec<String>,
     #[serde(skip_serializing)]
     pub pending_quality_contract: bool,
     #[serde(skip_serializing)]

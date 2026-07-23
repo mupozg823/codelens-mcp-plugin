@@ -230,7 +230,7 @@ fn review_changes_returns_structured_content() {
                 .iter()
                 .any(|value| value == "delegate_to_codex_builder"))
             .unwrap_or(false),
-        "non-builder follow-ups should not emit a codex-builder delegate scaffold: {payload}"
+        "read-only follow-ups should not emit synthetic delegation actions: {payload}"
     );
 }
 

@@ -124,6 +124,8 @@ pub(crate) fn extract_initialize_metadata(
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
     });
+    let host_capabilities =
+        crate::host_capabilities::HostCapabilities::from_initialize_params(params);
 
     if client_name.is_none()
         && client_version.is_none()
@@ -138,6 +140,7 @@ pub(crate) fn extract_initialize_metadata(
         && memory_roots.is_empty()
         && host_setting_keys.is_empty()
         && harness_profile.is_none()
+        && host_capabilities.is_none()
     {
         return None;
     }
@@ -160,6 +163,7 @@ pub(crate) fn extract_initialize_metadata(
         memory_roots,
         host_setting_keys,
         harness_profile,
+        host_capabilities,
     })
 }
 
@@ -193,6 +197,7 @@ impl SessionSeed {
             memory_roots: csv_header_values(headers, "x-codelens-memory-roots"),
             host_setting_keys: csv_header_values(headers, "x-codelens-host-setting-keys"),
             harness_profile: header("x-codelens-harness-profile"),
+            host_capabilities: None,
         }
     }
 }

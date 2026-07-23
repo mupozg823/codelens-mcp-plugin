@@ -197,6 +197,39 @@ impl AppState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    pub(crate) fn set_local_host_capabilities(
+        &self,
+        capabilities: crate::host_capabilities::HostCapabilities,
+    ) {
+        if let Ok(mut current) = self.local_host_capabilities.write() {
+            *current = Some(capabilities);
+        }
+    }
+
+    pub(crate) fn local_host_capabilities(
+        &self,
+    ) -> Option<crate::host_capabilities::HostCapabilities> {
+        self.local_host_capabilities
+            .read()
+            .ok()
+            .and_then(|current| *current)
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn set_session_host_capabilities(
+        &self,
+        session_id: &str,
+        capabilities: crate::host_capabilities::HostCapabilities,
+    ) {
+        if let Some(session) = self
+            .session_store
+            .as_ref()
+            .and_then(|store| store.get(session_id))
+        {
+            session.set_host_capabilities(capabilities);
+        }
+    }
+
     /// Initialize the session store for HTTP mode.
     #[cfg(feature = "http")]
     pub(crate) fn with_session_store(self) -> Self {

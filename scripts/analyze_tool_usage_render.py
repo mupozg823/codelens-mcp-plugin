@@ -15,9 +15,22 @@ def render_telemetry_report(report: dict) -> None:
     print(f"  Suggestions diverted: {behavior.get('suggestions_diverted', 0)}")
     print(f"  Suggestions unresolved: {behavior.get('suggestions_unresolved', 0)}")
     print(f"  Direct follow rate : {behavior['suggestion_follow_rate'] * 100:.1f}%")
+    print(f"  Acceptance rate    : {behavior.get('suggestion_acceptance_rate', 0.0) * 100:.1f}%")
+    print(f"  Resolution rate    : {behavior.get('suggestion_resolution_rate', 0.0) * 100:.1f}%")
+    print(
+        "  Accepted outcomes  : "
+        f"{behavior.get('suggestion_outcome_success', 0)} success / "
+        f"{behavior.get('suggestion_outcome_error', 0)} error / "
+        f"{behavior.get('suggestion_outcome_unknown', 0)} unknown"
+    )
+    print(
+        "  Successful accepted outcomes: "
+        f"{behavior.get('suggestion_successful_outcome_rate', 0.0) * 100:.1f}%"
+    )
+    print(f"  Suggestion value rate: {behavior.get('suggestion_value_rate', 0.0) * 100:.1f}%")
     print(f"  Delegate emissions : {behavior['delegate_emissions']}")
     print(f"  Handoffs consumed  : {behavior['delegate_handoffs_consumed']}")
-    print(f"  Builder tool events: {behavior['codex_builder_tool_events']}")
+    print(f"  Mutation tool events: {behavior['mutation_tool_events']}")
     print(f"  Attribution status : {provenance['status']}")
     print(f"  Productivity evidence: {provenance['evidence_status']}")
     print(

@@ -104,7 +104,6 @@ pub(crate) struct SurfaceOverlayPlan {
     pub host_context: Option<HostContext>,
     pub task_overlay: Option<TaskOverlay>,
     pub agent_role: Option<AgentRole>,
-    pub preferred_executor_bias: Option<&'static str>,
     pub preferred_entrypoints: Vec<&'static str>,
     pub emphasized_tools: Vec<&'static str>,
     pub avoid_tools: Vec<&'static str>,
@@ -238,7 +237,6 @@ pub(crate) fn compile_surface_overlay_for_agent(
         host_context,
         task_overlay,
         agent_role,
-        preferred_executor_bias: None,
         preferred_entrypoints: Vec::new(),
         emphasized_tools: Vec::new(),
         avoid_tools: Vec::new(),
@@ -248,7 +246,6 @@ pub(crate) fn compile_surface_overlay_for_agent(
     if let Some(host_context) = host_context {
         match host_context {
             HostContext::ClaudeCode => {
-                plan.preferred_executor_bias = Some("claude");
                 push_surface_tools(
                     &mut plan,
                     surface,
@@ -261,11 +258,10 @@ pub(crate) fn compile_surface_overlay_for_agent(
                 );
                 crate::util::push_unique(
                     &mut plan.routing_notes,
-                    "Claude Code hosts should stay in workflow/report lanes first and only cross into builder-heavy execution when the executor hint or delegate scaffold says so.",
+                    "Read-oriented sessions should stay in workflow/report lanes until a suggested mutation intent requires write-capable host execution.",
                 );
             }
             HostContext::Codex => {
-                plan.preferred_executor_bias = Some("codex-builder");
                 push_surface_tools(
                     &mut plan,
                     surface,
@@ -279,7 +275,7 @@ pub(crate) fn compile_surface_overlay_for_agent(
                 );
                 crate::util::push_unique(
                     &mut plan.routing_notes,
-                    "Codex hosts should bias toward compact bootstrap and execution-oriented follow-up tools instead of broad planner chatter.",
+                    "Compact-bootstrap sessions should prefer execution-oriented follow-up tools over broad planner chatter.",
                 );
             }
             HostContext::Cursor => {

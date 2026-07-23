@@ -3,7 +3,7 @@ use crate::telemetry::{SessionMetrics, ToolInvocation};
 use codelens_engine::WatcherStats;
 use serde_json::{Value, json};
 
-pub(crate) const DERIVED_KPI_SCHEMA_VERSION: &str = "codelens-derived-kpis-v2";
+pub(crate) const SESSION_EVIDENCE_KPI_SCHEMA_ID: &str = "codelens-session-evidence-kpis";
 
 pub(super) fn build_derived_kpis(
     session: &SessionMetrics,
@@ -11,8 +11,12 @@ pub(super) fn build_derived_kpis(
     watcher_stats: Option<&WatcherStats>,
     watcher_failure_health: &WatcherFailureHealth,
 ) -> Value {
+    let suggestion_resolved_count =
+        session.guidance.suggestion_accepted_count + session.guidance.suggestion_diverted_count;
+    let suggestion_total_count =
+        suggestion_resolved_count + session.guidance.suggestion_unresolved_count;
     json!({
-        "schema_version": DERIVED_KPI_SCHEMA_VERSION,
+        "schema_version": SESSION_EVIDENCE_KPI_SCHEMA_ID,
         "composite_ratio": ratio_u64(session.call_type.composite_calls, session.core.total_calls),
         "surface_token_efficiency": ratio_usize(session.core.total_tokens, session.core.success_count as usize),
         "low_level_chain_reduction": if session.call_type.low_level_calls > 0 {
@@ -87,6 +91,22 @@ pub(super) fn build_derived_kpis(
         "composite_guidance_miss_rate": ratio_u64(
             session.guidance.composite_guidance_missed_count,
             session.guidance.composite_guidance_emitted_count,
+        ),
+        "suggestion_acceptance_rate": ratio_u64(
+            session.guidance.suggestion_accepted_count,
+            suggestion_resolved_count,
+        ),
+        "suggestion_resolution_rate": ratio_u64(
+            suggestion_resolved_count,
+            suggestion_total_count,
+        ),
+        "suggestion_successful_outcome_rate": ratio_u64(
+            session.guidance.suggestion_outcome_success_count,
+            session.guidance.suggestion_accepted_count,
+        ),
+        "suggestion_value_rate": ratio_u64(
+            session.guidance.suggestion_outcome_success_count,
+            suggestion_resolved_count,
         ),
         "analysis_job_success_rate": ratio_u64(
             session.jobs.analysis_jobs_completed,

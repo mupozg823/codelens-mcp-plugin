@@ -21,10 +21,10 @@ pub(super) struct PrepareHarnessRouting {
     pub(super) preferred_entrypoints_source: &'static str,
     pub(super) preferred_entrypoints_visible: Vec<String>,
     pub(super) preferred_entrypoints_omitted: Vec<Value>,
-    pub(super) preferred_entrypoints_with_executors: Vec<Value>,
+    pub(super) preferred_entrypoints_with_policies: Vec<Value>,
     pub(super) recommended_entrypoint: Option<String>,
-    pub(super) recommended_entrypoint_preferred_executor: Option<&'static str>,
-    pub(super) visible_executor_counts: BTreeMap<String, usize>,
+    pub(super) recommended_entrypoint_execution_policy: Option<Value>,
+    pub(super) visible_execution_class_counts: BTreeMap<String, usize>,
     pub(super) overlay_agent_role: Option<&'static str>,
 }
 
@@ -73,12 +73,12 @@ pub(super) fn prepare_harness_routing(
         .map(|request| request.tool.clone())
         .collect::<Vec<_>>();
     let preferred_entrypoints_visible = visible_subset(&preferred_entrypoints, &visible_tool_names);
-    let preferred_entrypoints_with_executors = preferred_entrypoints_visible
+    let preferred_entrypoints_with_policies = preferred_entrypoints_visible
         .iter()
         .map(|tool| {
             json!({
                 "tool": tool,
-                "preferred_executor": crate::tool_defs::tool_preferred_executor_label(tool),
+                "execution_policy": crate::tool_defs::tool_execution_policy(tool),
             })
         })
         .collect::<Vec<_>>();
@@ -89,9 +89,9 @@ pub(super) fn prepare_harness_routing(
         input.visible.deferred_loading_active,
     );
     let recommended_entrypoint = preferred_entrypoints_visible.first().cloned();
-    let recommended_entrypoint_preferred_executor = recommended_entrypoint
+    let recommended_entrypoint_execution_policy = recommended_entrypoint
         .as_deref()
-        .map(crate::tool_defs::tool_preferred_executor_label);
+        .and_then(crate::tool_defs::tool_execution_policy_payload);
 
     PrepareHarnessRouting {
         visible_tool_names,
@@ -101,10 +101,10 @@ pub(super) fn prepare_harness_routing(
         preferred_entrypoints_source,
         preferred_entrypoints_visible,
         preferred_entrypoints_omitted,
-        preferred_entrypoints_with_executors,
+        preferred_entrypoints_with_policies,
         recommended_entrypoint,
-        recommended_entrypoint_preferred_executor,
-        visible_executor_counts: visible_executor_counts(input.visible),
+        recommended_entrypoint_execution_policy,
+        visible_execution_class_counts: visible_execution_class_counts(input.visible),
         overlay_agent_role: input.agent_role.map(|value| value.as_str()),
     }
 }
@@ -148,12 +148,14 @@ fn to_owned_tools(tools: &[&'static str]) -> Vec<String> {
     tools.iter().map(|tool| (*tool).to_owned()).collect()
 }
 
-fn visible_executor_counts(visible: &VisibleToolContext) -> BTreeMap<String, usize> {
+fn visible_execution_class_counts(visible: &VisibleToolContext) -> BTreeMap<String, usize> {
     let mut counts = BTreeMap::new();
     for tool in &visible.tools {
-        *counts
-            .entry(crate::tool_defs::tool_preferred_executor_label(tool.name).to_owned())
-            .or_insert(0usize) += 1;
+        if let Some(policy) = crate::tool_defs::tool_execution_policy(tool.name) {
+            *counts
+                .entry(policy.execution_class.to_owned())
+                .or_insert(0usize) += 1;
+        }
     }
     counts
 }

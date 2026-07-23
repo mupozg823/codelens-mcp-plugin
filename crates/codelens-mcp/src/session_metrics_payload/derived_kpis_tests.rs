@@ -1,4 +1,4 @@
-use super::{DERIVED_KPI_SCHEMA_VERSION, build_derived_kpis};
+use super::{SESSION_EVIDENCE_KPI_SCHEMA_ID, build_derived_kpis};
 use crate::runtime_types::WatcherFailureHealth;
 use crate::telemetry::{SessionMetrics, ToolInvocation};
 use codelens_engine::WatcherStats;
@@ -19,6 +19,14 @@ fn computes_rates_and_infers_refactoring_session() {
         },
         truncation: crate::telemetry::TruncationMetrics {
             handle_reuse_count: 1,
+            ..Default::default()
+        },
+        guidance: crate::telemetry::GuidanceMetrics {
+            suggestion_accepted_count: 2,
+            suggestion_diverted_count: 1,
+            suggestion_unresolved_count: 1,
+            suggestion_outcome_success_count: 1,
+            suggestion_outcome_error_count: 1,
             ..Default::default()
         },
         jobs: crate::telemetry::AnalysisJobMetrics {
@@ -49,11 +57,18 @@ fn computes_rates_and_infers_refactoring_session() {
 
     let kpis = build_derived_kpis(&session, 2, Some(&watcher_stats), &watcher_failure_health);
 
-    assert_eq!(kpis["schema_version"], json!(DERIVED_KPI_SCHEMA_VERSION));
+    assert_eq!(
+        kpis["schema_version"],
+        json!(SESSION_EVIDENCE_KPI_SCHEMA_ID)
+    );
     assert_eq!(kpis["composite_ratio"], json!(0.5));
     assert_eq!(kpis["surface_token_efficiency"], json!(500.0));
     assert_eq!(kpis["handle_reuse_rate"], json!(0.5));
     assert_eq!(kpis["analysis_job_success_rate"], json!(0.75));
+    assert_eq!(kpis["suggestion_acceptance_rate"], json!(2.0 / 3.0));
+    assert_eq!(kpis["suggestion_resolution_rate"], json!(0.75));
+    assert_eq!(kpis["suggestion_successful_outcome_rate"], json!(0.5));
+    assert_eq!(kpis["suggestion_value_rate"], json!(1.0 / 3.0));
     assert_eq!(kpis["watcher_lock_contention_rate"], json!(0.2));
     assert_eq!(kpis["watcher_recent_failure_share"], json!(0.25));
     assert_eq!(kpis["inferred_session_type"], json!("refactoring"));

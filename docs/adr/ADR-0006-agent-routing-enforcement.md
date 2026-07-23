@@ -1,8 +1,14 @@
 # ADR-0006: Agent routing enforcement — server-side `preferred_executor` metadata
 
-- Status: Accepted
+- Status: Deprecated
 - Date: 2026-04-18
-- Supersedes: none (extends ADR-0005 §5 "harness v2")
+- Supersedes: none (extends ADR-0005 role-specialized host harness)
+- Superseded by: the host-neutral execution contract tracked in [GitHub issue #389](https://github.com/mupozg823/codelens-mcp-plugin/issues/389)
+
+> Historical record: the model/vendor-specific executor metadata and synthetic
+> delegation described below are no longer part of the current runtime
+> contract. Tools now publish host-neutral execution policy, while the host
+> owns executor selection and negotiates explicit capability facts.
 
 ## Context
 

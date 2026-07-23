@@ -596,7 +596,7 @@ fn get_current_config_exposes_tool_schema_surface_generation() {
     let generation = &payload["data"]["surface_generation"];
     assert_eq!(
         generation["schema_version"],
-        json!(crate::surface_manifest::SURFACE_MANIFEST_SCHEMA_VERSION)
+        json!(crate::surface_manifest::RUNTIME_SURFACE_CONTRACT_SCHEMA_ID)
     );
     assert_eq!(
         generation["runtime"]["binary_git_sha"],

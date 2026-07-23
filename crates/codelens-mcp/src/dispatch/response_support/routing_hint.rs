@@ -17,8 +17,12 @@ pub(crate) fn apply_contextual_guidance(
     if let Some((guided_tools, guidance_hint)) =
         tools::composite_guidance_for_chain(name, recent_work_classes, current_work_class, surface)
     {
-        emitted_composite_guidance = true;
         let mut suggestions = guided_tools;
+        tools::retain_phase_compatible_suggestions(&mut suggestions, harness_phase);
+        if suggestions.is_empty() {
+            return false;
+        }
+        emitted_composite_guidance = true;
         if let Some(existing) = resp.suggested_next_tools.take() {
             for tool in existing {
                 if suggestions.len() >= 3 {
@@ -29,6 +33,7 @@ pub(crate) fn apply_contextual_guidance(
                 }
             }
         }
+        tools::retain_phase_compatible_suggestions(&mut suggestions, harness_phase);
         resp.suggested_next_tools = Some(suggestions);
         resp.budget_hint = Some(match resp.budget_hint.take() {
             Some(existing) => format!("{existing} {guidance_hint}"),

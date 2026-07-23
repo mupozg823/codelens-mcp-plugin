@@ -71,7 +71,10 @@ presets = ["minimal", "balanced", "full"]
 profiles = ["planner-readonly", "builder-minimal", "reviewer-graph", "refactor-full", "ci-audit", "workflow-first"]
 namespace = "file"
 tier = "primitive"
-preferred_executor = "claude"
+execution_class = "read"
+risk = "low"
+cost_hint = "low"
+concurrency_safe = true
 ```
 
 Considered alternatives:
@@ -166,8 +169,8 @@ diff.
 ### 5. Per-tool metadata location → **inline in TOML**
 
 All metadata about a tool — input schema, output schema function name,
-profile/preset membership, namespace, tier, deprecation, preferred
-executor — lives inside the same `[[tool]]` table.
+profile/preset membership, namespace, tier, deprecation, and host-neutral
+execution policy — lives inside the same `[[tool]]` table.
 
 Considered alternative: separate `[deprecations]` / `[profiles]` /
 `[presets]` tables in TOML, mirroring the current `presets.rs` shape.

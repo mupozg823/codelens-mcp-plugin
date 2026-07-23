@@ -49,7 +49,7 @@ Single-agent local work without cross-agent coordination overhead.
 
 Primary multi-agent pattern: read-only planning/review paired with mutation-enabled implementation.
 
-- Best fit: Claude planning/review plus Codex building, or any equivalent planner/builder split.
+- Best fit: Read-oriented planning/review paired with a host-owned, write-capable implementation lane.
 - Communication pattern: `asymmetric-handoff`
 - Mutation policy: exactly one mutation-enabled agent per worktree; planners stay read-only
 - Transport: `http`

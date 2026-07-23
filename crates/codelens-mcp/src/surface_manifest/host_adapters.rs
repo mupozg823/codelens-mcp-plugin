@@ -85,6 +85,7 @@ pub(crate) fn build_host_adapters_for_project(project_root: Option<&Path>) -> Va
         "host_environment_contract": {
             "prepare_harness_session_fields": [
                 "agent_role",
+                "host_capabilities",
                 "available_mcp_servers",
                 "available_mcp_tools",
                 "skill_roots",
@@ -96,22 +97,11 @@ pub(crate) fn build_host_adapters_for_project(project_root: Option<&Path>) -> Va
             "adaptation_rule": "Explicit host-observed snapshots override generic Claude/Codex assumptions for bootstrap hints, skill binding, and token-pressure warnings.",
             "skill_binding_rule": "Codex skill hints scan only SKILL.md metadata under supplied skill_roots, then recommend 1-3 files for the agent to read explicitly."
         },
-        "delegate_scaffold_contract": {
-            "synthetic_action": "delegate_to_codex_builder",
-            "required_payload_fields": [
-                "handoff_id",
-                "delegate_tool",
-                "delegate_arguments",
-                "carry_forward",
-                "briefing"
-            ],
-            "replay_rule": "preserve delegate_tool, delegate_arguments, carry_forward, and handoff_id verbatim for the first delegated builder call",
-            "telemetry_fields": [
-                "delegate_hint_trigger",
-                "delegate_target_tool",
-                "delegate_handoff_id",
-                "handoff_id"
-            ]
+        "execution_contract": {
+            "executor_selection": "host_owned",
+            "success_action": "suggested_next_calls",
+            "mutation_intent": "tool_annotations_and_direct_call",
+            "argument_rule": "preserve concrete suggested arguments and apply normal approval and mutation gates"
         },
         "host_resources": HOST_ADAPTER_HOSTS
             .iter()

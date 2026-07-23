@@ -7,8 +7,9 @@ mod overlay;
 pub(crate) use budgets::{default_budget_for_preset, default_budget_for_profile};
 pub(crate) use metadata::{
     apply_tool_deprecation_meta, default_listed_tool_names, deprecated_workflow_alias,
-    tool_anthropic_always_load, tool_anthropic_search_hint, tool_deprecation, tool_feature_gate,
-    tool_namespace, tool_phase_label, tool_preferred_executor, tool_preferred_executor_label,
+    tool_anthropic_always_load, tool_anthropic_search_hint, tool_deprecation,
+    tool_execution_policy, tool_execution_policy_payload, tool_feature_gate, tool_namespace,
+    tool_phase_label,
 };
 pub(crate) use overlay::{
     AgentRole, HostContext, SurfaceCompilerInput, TaskOverlay, compile_surface_overlay_for_agent,
