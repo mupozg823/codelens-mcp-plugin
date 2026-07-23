@@ -219,7 +219,8 @@ async fn refactor_deferred_tools_list_uses_canonical_builder_preview_for_session
     assert!(!body.contains("\"name\":\"rename_symbol\""));
     assert!(!body.contains("\"name\":\"replace_symbol_body\""));
     assert!(!body.contains("\"name\":\"refactor_extract_function\""));
-    assert!(!body.contains("\"name\":\"verify_change_readiness\""));
+    // Active default-ranked readiness entrypoints remain visible before expansion.
+    assert!(body.contains("\"name\":\"verify_change_readiness\""));
     assert!(!body.contains("\"name\":\"refactor_safety_report\""));
     assert!(!body.contains("\"name\":\"safe_rename_report\""));
     let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
