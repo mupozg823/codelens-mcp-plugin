@@ -66,6 +66,9 @@ fn format_structured_response(resp: &ToolCallResponse, lean: bool) -> String {
     {
         out.insert("recovery_hint".to_owned(), value);
     }
+    if let Some(retryable) = resp.retryable {
+        out.insert("retryable".to_owned(), Value::Bool(retryable));
+    }
 
     // Header: compact metadata on key fields only
     if let Some(ref backend) = resp.backend_used {
@@ -358,6 +361,17 @@ fn slim_text_payload_for_async_handle(
 mod text_channel_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn retryable_error_preserves_machine_readable_signal_in_text_channel() {
+        let mut response = ToolCallResponse::error("index generation changed");
+        response.retryable = Some(true);
+
+        let text = text_payload_for_response(&response, None, false);
+        let payload: Value = serde_json::from_str(&text).expect("valid error payload");
+
+        assert_eq!(payload["retryable"], json!(true));
+    }
 
     #[test]
     fn lean_text_channel_omits_constant_schema_version() {

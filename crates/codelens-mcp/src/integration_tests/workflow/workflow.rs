@@ -26,11 +26,11 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
     let builder_tools = visible_tools(ToolSurface::Profile(ToolProfile::BuilderMinimal))
         .into_iter()
         .map(|tool| tool.name)
-        .take(4)
+        .take(5)
         .collect::<Vec<_>>();
     assert_eq!(
         builder_tools,
-        vec!["overview", "search", "graph", "plan_safe_refactor"]
+        vec!["overview", "search", "graph", "review", "diagnose"]
     );
 
     let reviewer_tools = visible_tools(ToolSurface::Profile(ToolProfile::ReviewerGraph))

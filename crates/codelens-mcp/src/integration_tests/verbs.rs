@@ -1,5 +1,7 @@
 use super::*;
 
+mod guidance;
+
 // ── Verb facade tests (search / graph / review) ──────────────────────
 //
 // Phase-1 consolidation: read-only tool families are reachable behind
@@ -14,6 +16,7 @@ fn search_verb_symbol_mode_delegates_to_find_symbol() {
         project.as_path().join("verb_sample.py"),
         "def verb_target():\n    pass\n",
     )
+    // SAFE-UNWRAP: a fixture write failure must fail this integration test.
     .unwrap();
     let state = make_state(&project);
     call_tool(&state, "refresh_symbol_index", json!({}));
@@ -27,6 +30,7 @@ fn search_verb_symbol_mode_delegates_to_find_symbol() {
     assert_eq!(payload["success"], json!(true));
     let symbols = payload["data"]["symbols"]
         .as_array()
+        // SAFE-EXPECT: successful find_symbol delegation guarantees an array payload.
         .expect("symbols array from delegated find_symbol");
     assert!(
         symbols.iter().any(|s| s["name"] == json!("verb_target")),
@@ -41,6 +45,7 @@ fn graph_verb_callers_mode_delegates_to_get_callers() {
         project.as_path().join("verb_graph.py"),
         "def callee_fn():\n    pass\n\ndef caller_fn():\n    callee_fn()\n",
     )
+    // SAFE-UNWRAP: a fixture write failure must fail this integration test.
     .unwrap();
     let state = make_state(&project);
     call_tool(&state, "refresh_symbol_index", json!({}));
@@ -88,6 +93,7 @@ fn reviewer_graph_facade_and_refs_work_without_listed_call_graph_primitives() {
         project.as_path().join("reviewer_graph.py"),
         "def sink():\n    pass\n\ndef source():\n    sink()\n",
     )
+    // SAFE-UNWRAP: a fixture write failure must fail this integration test.
     .unwrap();
     let state = make_state(&project);
     call_tool(&state, "refresh_symbol_index", json!({}));
@@ -138,6 +144,7 @@ fn overview_verb_file_mode_delegates_to_symbols_overview() {
         project.as_path().join("verb_overview.py"),
         "class Omega:\n    def method(self):\n        pass\n",
     )
+    // SAFE-UNWRAP: a fixture write failure must fail this integration test.
     .unwrap();
     let state = make_state(&project);
 
@@ -161,6 +168,7 @@ fn diagnose_verb_unresolved_mode_delegates_without_lsp() {
         project.as_path().join("verb_diag.py"),
         "def ok():\n    return 1\n",
     )
+    // SAFE-UNWRAP: a fixture write failure must fail this integration test.
     .unwrap();
     let state = make_state(&project);
     call_tool(&state, "refresh_symbol_index", json!({}));
@@ -243,8 +251,10 @@ fn review_verb_missing_mode_is_missing_param() {
             params: Some(json!({ "name": "review", "arguments": {} })),
         },
     )
+    // SAFE-EXPECT: the in-process JSON-RPC router must return a response in this test.
     .expect("tools/call should return a response");
 
+    // SAFE-EXPECT: the typed JSON-RPC response is serializable by contract.
     let encoded = serde_json::to_string(&response).expect("serialize");
     assert!(
         encoded.contains("mode"),

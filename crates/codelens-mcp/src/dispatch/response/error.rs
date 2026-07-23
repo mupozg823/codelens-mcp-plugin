@@ -65,11 +65,14 @@ pub(crate) fn build_error_response(
         };
     }
 
-    // Derive the structured recovery hint before consuming the error via `to_string()`.
+    // Derive structured recovery metadata before consuming the error via
+    // `to_string()`.
     let recovery_hint = error.recovery_hint();
+    let retryable = error.is_retryable();
 
     let mut resp = ToolCallResponse::error(error.to_string());
     resp.recovery_hint = recovery_hint;
+    resp.retryable = retryable.then_some(true);
     if let Some(failure) = gate_failure {
         let analysis_hint = failure
             .analysis_id

@@ -150,6 +150,10 @@ fn modes_for_verb(verb: &str) -> Option<&'static [(&'static str, &'static str)]>
     }
 }
 
+pub(crate) fn is_verb_facade(name: &str) -> bool {
+    modes_for_verb(name).is_some()
+}
+
 fn resolve_mode(
     verb: &str,
     modes: &'static [(&'static str, &'static str)],
