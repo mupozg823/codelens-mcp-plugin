@@ -35,12 +35,15 @@ pub(super) fn create_http_profile_session(
         .expect("make_http_state must call with_session_store");
     let session = store.create();
     session.set_surface(crate::tool_defs::ToolSurface::Profile(profile));
-    session.set_client_metadata(crate::server::session::SessionClientMetadata {
-        client_name: Some("integration-test".to_owned()),
-        requested_profile: Some(profile.as_str().to_owned()),
-        project_path: Some(project.as_path().to_string_lossy().into_owned()),
-        ..Default::default()
-    });
+    store.set_client_metadata(
+        &session.id,
+        crate::server::session::SessionClientMetadata {
+            client_name: Some("integration-test".to_owned()),
+            requested_profile: Some(profile.as_str().to_owned()),
+            project_path: Some(project.as_path().to_string_lossy().into_owned()),
+            ..Default::default()
+        },
+    );
     let session_id = session.id.clone();
     let _ = call_tool_with_session(
         state,

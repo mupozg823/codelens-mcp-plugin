@@ -7,58 +7,12 @@ use crate::tool_runtime::degraded_meta;
 use codelens_engine::change_signature::{ParamSpec, change_signature};
 use codelens_engine::inline::inline_function;
 use codelens_engine::move_symbol::move_symbol;
-use codelens_engine::{
-    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
-};
+use codelens_engine::{find_circular_dependencies, get_callers, get_importance, get_importers};
 use serde_json::json;
 
-pub fn call_graph_flow(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let function_name = required_string(arguments, "function_name")?;
-    let _max_depth = arguments
-        .get("max_depth")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(3) as usize;
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20) as usize;
+mod call_trace;
 
-    let project = state.project();
-    let graph_cache = state.graph_cache();
-    let callers = get_callers(
-        &project,
-        function_name,
-        None,
-        max_results,
-        Some(graph_cache.as_ref()),
-    )?;
-    let callees = get_callees(
-        &project,
-        function_name,
-        None,
-        max_results,
-        Some(graph_cache.as_ref()),
-    )?;
-
-    Ok((
-        json!({
-            "function": function_name,
-            "callers": callers.iter().map(|c| json!({
-                "name": c.function, "file": c.file, "line": c.line
-            })).collect::<Vec<_>>(),
-            "caller_count": callers.len(),
-            "callees": callees.iter().map(|c| json!({
-                "name": c.name, "line": c.line
-            })).collect::<Vec<_>>(),
-            "callee_count": callees.len(),
-            "flow_summary": format!(
-                "{} is called by {} function(s) and calls {} function(s)",
-                function_name, callers.len(), callees.len()
-            )
-        }),
-        success_meta(BackendKind::Hybrid, 0.90),
-    ))
-}
+pub use call_trace::call_graph_flow;
 
 pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     match crate::tools::semantic_edit::selected_backend(arguments)? {
