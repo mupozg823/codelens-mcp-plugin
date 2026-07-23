@@ -210,6 +210,10 @@ pub struct ToolCallResponse {
     /// without parsing the error message string.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recovery_hint: Option<crate::error::RecoveryHint>,
+    /// Machine-readable signal that resubmitting the same logical request is
+    /// safe. Present only on retryable failures.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retryable: Option<bool>,
 }
 
 /// Routing hint for external callers — guides sync vs async call strategy.
@@ -453,6 +457,7 @@ impl ToolCallResponse {
             routing_hint: None,
             elapsed_ms: None,
             recovery_hint: None,
+            retryable: None,
         }
     }
 
@@ -476,6 +481,7 @@ impl ToolCallResponse {
             routing_hint: None,
             elapsed_ms: None,
             recovery_hint: None,
+            retryable: None,
         }
     }
 }

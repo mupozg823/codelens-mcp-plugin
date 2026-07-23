@@ -253,7 +253,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         skill_hints: &skill_hints,
         host_environment: &host_environment,
         routing: &routing,
-    });
+    })?;
 
     Ok((result, success_meta(BackendKind::Session, 1.0)))
 }

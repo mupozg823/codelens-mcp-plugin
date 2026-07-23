@@ -222,15 +222,7 @@ pub(crate) fn rebind_session_project_from_headers(
     let Some(project) = project_header_value(headers) else {
         return;
     };
-    let Some(session) = store.get(session_id) else {
-        return;
-    };
-    let metadata = session.client_metadata();
-    if metadata.project_path_explicit && metadata.project_path.as_deref() == Some(project.as_str())
-    {
-        return; // already bound to this workspace — skip the write lock
-    }
-    session.set_project_path(project);
+    store.set_project_path(session_id, &project);
 }
 
 pub(crate) fn create_initialize_session(
@@ -244,15 +236,13 @@ pub(crate) fn create_initialize_session(
     let store = store?;
     let (session, resumed) = store.create_or_resume(requested_session_id);
     if let Some(metadata) = metadata {
-        session.set_client_metadata(metadata);
+        store.set_client_metadata(&session.id, metadata);
     }
     if !resumed {
         session.set_surface(initial_surface);
         session.set_token_budget(initial_budget);
     }
-    if session.client_metadata().project_path.is_none() {
-        session.seed_default_project_path(initial_project_path);
-    }
+    store.seed_default_project_path(&session.id, initial_project_path);
     Some(InitializeSession {
         id: session.id.clone(),
         resumed,

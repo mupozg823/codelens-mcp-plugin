@@ -67,9 +67,13 @@ impl AppState {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
-        let context = Self::build_project_runtime_context(project, true)
-            .expect("startup project context should initialize");
+        Self::try_new(project, preset).expect("startup project context should initialize")
+    }
+
+    pub(crate) fn try_new(project: ProjectRoot, preset: ToolPreset) -> anyhow::Result<Self> {
+        let context = Self::build_project_runtime_context(project, true)?;
 
         let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");
@@ -86,19 +90,26 @@ impl AppState {
             tracing::error!(%error, "failed to recover stale analysis jobs");
         }
         state.job_store.cleanup_stale_files(now_ms, Some(&scope));
-        state
+        Ok(state)
     }
 
     /// Lightweight constructor that skips file watcher and stale-file cleanup.
     /// Reduces thread/I/O pressure when many instances run in parallel (e.g. tests).
     #[cfg(test)]
     pub(crate) fn new_minimal(project: ProjectRoot, preset: ToolPreset) -> Self {
-        let context = Self::build_project_runtime_context(project, false)
-            .expect("test project context should initialize");
+        Self::try_new_minimal(project, preset).expect("test project context should initialize")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn try_new_minimal(
+        project: ProjectRoot,
+        preset: ToolPreset,
+    ) -> anyhow::Result<Self> {
+        let context = Self::build_project_runtime_context(project, false)?;
 
         let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");
-        state
+        Ok(state)
     }
 
     fn build(context: ProjectContext, preset: ToolPreset) -> Self {

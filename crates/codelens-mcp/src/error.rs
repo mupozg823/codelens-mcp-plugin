@@ -82,6 +82,40 @@ pub enum CodeLensError {
     #[allow(dead_code)]
     ResourceExhausted(String),
 
+    /// Shared coordination persistence is unavailable. This must never be
+    /// replaced with a process-local success because doing so creates a
+    /// split-brain ownership view across daemons.
+    #[error(
+        "coordination_unavailable: operation `{operation}` failed for project `{scope}`: {reason}"
+    )]
+    CoordinationUnavailable {
+        operation: String,
+        scope: String,
+        reason: String,
+    },
+
+    /// Another process owns the only writable runtime for this project.
+    #[error(
+        "project_writer_busy: project `{project}` is already owned through `{lock_path}`; holder={holder:?}"
+    )]
+    ProjectWriterBusy {
+        project: String,
+        lock_path: String,
+        holder: Option<String>,
+    },
+
+    /// A symbol-backed read crossed a committed index generation. Returning
+    /// its payload could mix rows from two logical snapshots, so callers must
+    /// discard it and retry the same request against the newer generation.
+    #[error(
+        "index_generation_changed: project `{project}` advanced from generation {before} to {after} while the request was running; discard this response and retry"
+    )]
+    IndexGenerationChanged {
+        project: String,
+        before: u64,
+        after: u64,
+    },
+
     /// ADR-0009 §1: principal does not hold the role required by the
     /// tool. Surfaces as JSON-RPC -32008 (note: ADR named -32004 but
     /// that code is already taken by `IndexNotReady`).
@@ -128,6 +162,9 @@ impl CodeLensError {
             Self::Timeout { .. } => -32005,
             Self::StaleSession(_) => -32006,
             Self::ResourceExhausted(_) => -32007,
+            Self::CoordinationUnavailable { .. } => -32009,
+            Self::ProjectWriterBusy { .. } => -32010,
+            Self::IndexGenerationChanged { .. } => -32011,
             Self::PermissionDenied { .. } => -32008,
             Self::Io(_) => -32603,
             Self::Internal(_) => -32603,
@@ -137,6 +174,18 @@ impl CodeLensError {
     /// Whether this is a protocol-level error (should be returned as JSON-RPC error).
     pub fn is_protocol_error(&self) -> bool {
         matches!(self, Self::ToolNotFound(_) | Self::MissingParam(_))
+    }
+
+    /// Whether the same logical request can be submitted again without
+    /// changing its arguments. Kept separate from recovery-hint rendering so
+    /// clients do not have to infer retry safety from prose.
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::IndexGenerationChanged { .. }
+                | Self::ProjectWriterBusy { .. }
+                | Self::ResourceExhausted(_)
+        )
     }
 
     /// Structured recovery hint derived from the error variant.
@@ -177,6 +226,16 @@ impl CodeLensError {
                 reason: "move heavy work to the durable job queue".to_owned(),
             }),
             Self::ResourceExhausted(_) => Some(RecoveryHint::RetryAfterSeconds { seconds: 10 }),
+            Self::CoordinationUnavailable { .. } => Some(RecoveryHint::FallbackTool {
+                tool: "get_capabilities".to_owned(),
+                reason: "inspect coordination health before retrying; there is no safe local fallback registry".to_owned(),
+            }),
+            Self::ProjectWriterBusy { .. } => {
+                Some(RecoveryHint::RetryAfterSeconds { seconds: 2 })
+            }
+            Self::IndexGenerationChanged { .. } => {
+                Some(RecoveryHint::RetryAfterSeconds { seconds: 0 })
+            }
             Self::PermissionDenied { required_role, .. } => Some(RecoveryHint::RequireRole {
                 required_role: required_role.clone(),
                 verify_tool: "get_capabilities".to_owned(),
@@ -513,6 +572,25 @@ mod tests {
             })
         );
         assert_eq!(CodeLensError::Validation("x".into()).recovery_hint(), None);
+    }
+
+    #[test]
+    fn index_generation_change_is_typed_and_retryable() {
+        let err = CodeLensError::IndexGenerationChanged {
+            project: "/tmp/project".to_owned(),
+            before: 7,
+            after: 8,
+        };
+        assert_eq!(err.jsonrpc_code(), -32011);
+        assert!(err.is_retryable());
+        assert_eq!(
+            err.recovery_hint(),
+            Some(RecoveryHint::RetryAfterSeconds { seconds: 0 })
+        );
+        let message = err.to_string();
+        assert!(message.contains("index_generation_changed"), "{message}");
+        assert!(message.contains("7"), "{message}");
+        assert!(message.contains("8"), "{message}");
     }
 
     #[cfg(feature = "http")]

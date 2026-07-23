@@ -29,7 +29,7 @@ pub(crate) fn configured_http_runtime(args: &[String]) -> Result<HttpRuntimeOpti
     let transport = cli_option_value(args, "--transport").unwrap_or_else(|| "stdio".to_owned());
     let port = cli_option_value(args, "--port")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(7837);
+        .unwrap_or(7838);
     let listen = configured_listen(args)?;
     let auth = configured_http_auth(args)?;
     let tls = configured_tls(args, &transport)?;
@@ -112,6 +112,16 @@ fn validate_remote_transport_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_http_port_matches_single_writer_attach_contract() {
+        let args = vec![
+            "codelens-mcp".to_owned(),
+            "--transport".to_owned(),
+            "http".to_owned(),
+        ];
+        assert_eq!(configured_http_runtime(&args).unwrap().port, 7838);
+    }
 
     #[test]
     fn configured_http_auth_requires_jwks_parameters() {

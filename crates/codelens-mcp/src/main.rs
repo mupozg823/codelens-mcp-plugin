@@ -324,7 +324,7 @@ fn main() -> Result<()> {
     // `activate_project` calls the same helper for MCP-driven switches.
     crate::tools::session::auto_set_embed_hint_lang(project.as_path());
 
-    let app_state = AppState::new(project, preset);
+    let app_state = AppState::try_new(project, preset)?;
     app_state.configure_transport_mode(&transport);
     app_state.configure_daemon_mode(daemon_mode);
     app_state.configure_compat_mode(compat_mode);

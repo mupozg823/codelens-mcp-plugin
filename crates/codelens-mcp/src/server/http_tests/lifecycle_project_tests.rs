@@ -150,9 +150,7 @@ async fn session_bound_missing_project_fails_closed() {
         .session_store
         .as_ref()
         .unwrap()
-        .get(&sid)
-        .unwrap()
-        .set_project_path(missing.to_string_lossy().to_string());
+        .set_project_path(&sid, missing.to_string_lossy().as_ref());
 
     let find = app
         .oneshot(

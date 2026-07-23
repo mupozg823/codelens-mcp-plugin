@@ -7,7 +7,7 @@ use crate::tool_defs::{ToolPreset, ToolSurface};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{
-    Arc, Mutex, RwLock,
+    Arc, Mutex, RwLock, RwLockReadGuard,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -233,7 +233,7 @@ impl SessionState {
         }
     }
 
-    pub fn set_client_metadata(&self, metadata: SessionClientMetadata) {
+    fn set_client_metadata(&self, metadata: SessionClientMetadata) {
         if let Ok(mut current) = self.client_metadata.write() {
             let preserved_project = current.project_path.clone();
             let preserved_explicit = current.project_path_explicit;
@@ -248,9 +248,14 @@ impl SessionState {
     /// Explicit workspace binding — the caller named its project
     /// (initialize capture or `activate_project`). Clears the
     /// shared-daemon `project_binding` hint (#347).
-    pub fn set_project_path(&self, project_path: impl Into<String>) {
+    fn set_project_path(&self, project_path: &str) {
         if let Ok(mut current) = self.client_metadata.write() {
-            current.project_path = Some(project_path.into());
+            if current.project_path_explicit
+                && current.project_path.as_deref() == Some(project_path)
+            {
+                return;
+            }
+            current.project_path = Some(project_path.to_owned());
             current.project_path_explicit = true;
         }
     }
@@ -258,9 +263,11 @@ impl SessionState {
     /// Daemon-default seeding at initialize — keeps `ensure_session_project`
     /// deterministic but leaves the binding marked implicit so dispatch can
     /// surface the `project_binding` hint (#347).
-    pub fn seed_default_project_path(&self, project_path: impl Into<String>) {
-        if let Ok(mut current) = self.client_metadata.write() {
-            current.project_path = Some(project_path.into());
+    fn seed_default_project_path(&self, project_path: &str) {
+        if let Ok(mut current) = self.client_metadata.write()
+            && current.project_path.is_none()
+        {
+            current.project_path = Some(project_path.to_owned());
             current.project_path_explicit = false;
         }
     }
@@ -270,7 +277,7 @@ impl SessionState {
     /// profile is supplied, mirrors initialize's surface+budget so the
     /// `tools/list` shape stays stable across resurrection. NEVER seeds
     /// `trusted_client` — that stays at its fail-closed default (false).
-    pub fn apply_seed(&self, seed: &SessionSeed) {
+    fn apply_seed(&self, seed: &SessionSeed) {
         if let Ok(mut metadata) = self.client_metadata.write() {
             if seed.requested_profile.is_some() {
                 metadata.requested_profile = seed.requested_profile.clone();
@@ -450,6 +457,27 @@ pub struct SessionStore {
     policy: SessionPolicy,
 }
 
+/// Active session bindings guarded against concurrent project-path mutation.
+///
+/// The sessions read lock remains held for this value's lifetime. Project-path
+/// writes are centralized on [`SessionStore`] and take the sessions write lock
+/// before the per-session metadata lock, so cache eviction can safely hold this
+/// guard while it selects and retires runtimes (sessions -> metadata -> cache).
+pub(crate) struct ActiveProjectPathsGuard<'a> {
+    _sessions: RwLockReadGuard<'a, HashMap<SessionId, Arc<SessionState>>>,
+    paths: Vec<String>,
+}
+
+impl ActiveProjectPathsGuard<'_> {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.paths.is_empty()
+    }
+
+    pub(crate) fn iter(&self) -> std::slice::Iter<'_, String> {
+        self.paths.iter()
+    }
+}
+
 impl SessionStore {
     pub fn new(timeout: Duration) -> Self {
         Self {
@@ -560,6 +588,40 @@ impl SessionStore {
         Some(session)
     }
 
+    /// Atomically replace initialize metadata while preserving an existing
+    /// project binding when the incoming metadata omits it.
+    pub fn set_client_metadata(&self, id: &str, metadata: SessionClientMetadata) -> bool {
+        let sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
+        let Some(session) = sessions.get(id) else {
+            return false;
+        };
+        session.set_client_metadata(metadata);
+        true
+    }
+
+    /// Bind an existing session to an explicit project. Every project-path
+    /// mutation enters through this method so runtime eviction can exclude it
+    /// with a sessions read guard.
+    pub fn set_project_path(&self, id: &str, project_path: &str) -> bool {
+        let sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
+        let Some(session) = sessions.get(id) else {
+            return false;
+        };
+        session.set_project_path(project_path);
+        true
+    }
+
+    /// Seed the daemon default only when initialize metadata did not already
+    /// establish a project. The absence check and mutation share one lock scope.
+    pub fn seed_default_project_path(&self, id: &str, project_path: &str) -> bool {
+        let sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
+        let Some(session) = sessions.get(id) else {
+            return false;
+        };
+        session.seed_default_project_path(project_path);
+        true
+    }
+
     /// Remove a session explicitly.
     pub fn remove(&self, id: &str) {
         if let Ok(mut sessions) = self.sessions.write() {
@@ -609,6 +671,25 @@ impl SessionStore {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Project bindings owned by sessions that have not expired yet.
+    /// Runtime-cache eviction uses this snapshot to keep a session's writer
+    /// generation alive between requests instead of only while a request Arc
+    /// happens to be on the stack.
+    pub(crate) fn active_project_paths_guard(&self) -> ActiveProjectPathsGuard<'_> {
+        let sessions = self.sessions.read().unwrap_or_else(|p| p.into_inner());
+        let mut paths = sessions
+            .values()
+            .filter(|session| !session.is_expired(self.timeout))
+            .filter_map(|session| session.client_metadata().project_path)
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths.dedup();
+        ActiveProjectPathsGuard {
+            _sessions: sessions,
+            paths,
+        }
     }
 }
 

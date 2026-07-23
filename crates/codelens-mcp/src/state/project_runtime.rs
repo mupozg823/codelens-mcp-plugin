@@ -4,7 +4,7 @@ use codelens_engine::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, Symb
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 /// Holds project-specific resources that can be reused across rebinds.
 pub(super) struct ProjectContext {
@@ -21,6 +21,9 @@ pub(super) struct ProjectContext {
     /// will NOT auto-update on edits while this is set. Always `None`
     /// for intentionally watcher-less (one-shot) constructions.
     pub(super) watcher_error: Option<String>,
+    /// Declared last so writer-bearing runtime fields are dropped before the
+    /// cross-process authority is released.
+    runtime_lease: super::project_runtime_lease::ProjectRuntimeLease,
 }
 
 impl ProjectContext {
@@ -30,12 +33,21 @@ impl ProjectContext {
         }
         self.lsp_pool.shutdown();
     }
+
+    pub(super) fn runtime_health_payload(&self) -> serde_json::Value {
+        self.runtime_lease.health_payload()
+    }
 }
 
 #[derive(Default)]
 pub(super) struct ProjectContextCache {
     pub(super) entries: HashMap<String, Arc<ProjectContext>>,
     pub(super) access_order: VecDeque<String>,
+    /// Per-scope singleflight gates. Weak references keep failed or evicted
+    /// scopes from accumulating while concurrent callers retain the same gate.
+    build_locks: HashMap<String, Weak<Mutex<()>>>,
+    #[cfg(test)]
+    build_attempts: HashMap<String, usize>,
 }
 
 impl ProjectContextCache {
@@ -50,6 +62,29 @@ impl ProjectContextCache {
         self.touch(&scope);
     }
 
+    pub(super) fn build_lock(&mut self, scope: &str) -> Arc<Mutex<()>> {
+        self.build_locks
+            .retain(|_, build_lock| build_lock.strong_count() > 0);
+        if let Some(build_lock) = self.build_locks.get(scope).and_then(Weak::upgrade) {
+            return build_lock;
+        }
+
+        let build_lock = Arc::new(Mutex::new(()));
+        self.build_locks
+            .insert(scope.to_owned(), Arc::downgrade(&build_lock));
+        build_lock
+    }
+
+    #[cfg(test)]
+    pub(super) fn record_build_attempt(&mut self, scope: &str) {
+        *self.build_attempts.entry(scope.to_owned()).or_default() += 1;
+    }
+
+    #[cfg(test)]
+    pub(super) fn build_attempt_count(&self, scope: &str) -> usize {
+        self.build_attempts.get(scope).copied().unwrap_or_default()
+    }
+
     fn touch(&mut self, scope: &str) {
         self.access_order.retain(|entry| entry != scope);
         self.access_order.push_back(scope.to_owned());
@@ -62,22 +97,29 @@ impl ProjectContextCache {
     ) -> Vec<Arc<ProjectContext>> {
         let mut evicted = Vec::new();
         while self.entries.len() > limit {
-            let Some(oldest) = self.access_order.pop_front() else {
-                break;
-            };
-            if protected_scopes.iter().any(|scope| *scope == oldest) {
-                self.access_order.push_back(oldest);
-                if self.access_order.iter().all(|scope| {
-                    protected_scopes
-                        .iter()
-                        .any(|protected| protected == &scope.as_str())
-                }) {
+            let candidates = self.access_order.len();
+            let mut removed = false;
+            for _ in 0..candidates {
+                let Some(oldest) = self.access_order.pop_front() else {
+                    break;
+                };
+                let is_protected = protected_scopes.iter().any(|scope| *scope == oldest);
+                let has_external_holder = self
+                    .entries
+                    .get(&oldest)
+                    .is_some_and(|context| Arc::strong_count(context) > 1);
+                if is_protected || has_external_holder {
+                    self.access_order.push_back(oldest);
+                    continue;
+                }
+                if let Some(context) = self.entries.remove(&oldest) {
+                    evicted.push(context);
+                    removed = true;
                     break;
                 }
-                continue;
             }
-            if let Some(context) = self.entries.remove(&oldest) {
-                evicted.push(context);
+            if !removed {
+                break;
             }
         }
         evicted
@@ -223,6 +265,14 @@ pub(super) fn build_project_runtime_context(
     project: ProjectRoot,
     start_watcher: bool,
 ) -> anyhow::Result<ProjectContext> {
+    let runtime_lease = super::project_runtime_lease::ProjectRuntimeLease::try_acquire(&project)
+        .map_err(anyhow::Error::new)?;
+    tracing::info!(
+        project = %runtime_lease.project().display(),
+        lock_path = %runtime_lease.lock_path().display(),
+        generation = runtime_lease.generation(),
+        "acquired project writer lease"
+    );
     let symbol_index = Arc::new(SymbolIndex::new(project.clone())?);
     if symbol_index
         .stats()
@@ -279,6 +329,7 @@ pub(super) fn build_project_runtime_context(
         audit_dir,
         watcher,
         watcher_error,
+        runtime_lease,
     })
 }
 
@@ -542,10 +593,7 @@ mod prewarm_tests {
     fn auto_mode_filters_out_absent_binaries() {
         // Auto must not spawn-fail on a server that isn't installed: a dominant
         // language whose binary is absent from PATH is dropped.
-        let commands = vec![
-            "pyright-langserver".to_owned(),
-            "rust-analyzer".to_owned(),
-        ];
+        let commands = vec!["pyright-langserver".to_owned(), "rust-analyzer".to_owned()];
         let filtered = filter_available_commands(commands, "auto", |cmd| cmd == "rust-analyzer");
         assert_eq!(filtered, vec!["rust-analyzer".to_owned()]);
     }
@@ -555,8 +603,7 @@ mod prewarm_tests {
         // An explicitly-named server is respected even when absent — the spawn
         // path fails open, and the operator chose it deliberately.
         let commands = vec!["pyright-langserver".to_owned()];
-        let filtered =
-            filter_available_commands(commands.clone(), "pyright-langserver", |_| false);
+        let filtered = filter_available_commands(commands.clone(), "pyright-langserver", |_| false);
         assert_eq!(filtered, commands);
     }
 
