@@ -1,8 +1,10 @@
+use super::api::{ResolvedCallGraph, get_callers_for_target};
 use super::resolve::resolve_call_edges;
+use super::types::CallTargetIdentity;
 use super::{CallEdge, extract_calls, get_callees, get_callers};
 use crate::GraphCache;
-use crate::ProjectRoot;
 use crate::db::{IndexDb, NewSymbol, index_db_path};
+use crate::{ProjectRoot, SymbolIndex};
 use std::fs;
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
@@ -701,6 +703,7 @@ fn ts_cross_file_unique_resolution_is_fallback_without_import_evidence() {
     let mut edges = vec![CallEdge {
         caller_file: "page.tsx".to_owned(),
         caller_name: "Page".to_owned(),
+        caller_declaration_path: Some("Page".to_owned()),
         callee_name: "handleSubmit".to_owned(),
         callee_qualifier: None,
         line: 1,
@@ -708,6 +711,7 @@ fn ts_cross_file_unique_resolution_is_fallback_without_import_evidence() {
         confidence: 0.0,
         resolution_strategy: None,
         canonical_callee_name: None,
+        target_declaration_path: None,
     }];
 
     resolve_call_edges(&mut edges, &project, None, None);
@@ -744,6 +748,35 @@ fn get_callers_scoped_to_file() {
     let callers = get_callers(&project, "bar", Some("a.py"), 50, None).expect("callers");
     let names: Vec<&str> = callers.iter().map(|c| c.function.as_str()).collect();
     assert_eq!(names, vec!["foo"]);
+}
+
+#[test]
+fn call_graph_queries_accept_directory_scope() {
+    let dir = temp_dir("call-graph-directory-scope");
+    fs::create_dir_all(dir.join("selected")).expect("selected directory");
+    fs::create_dir_all(dir.join("other")).expect("other directory");
+    fs::write(
+        dir.join("selected").join("flow.py"),
+        "def target():\n    pass\n\ndef selected_caller():\n    target()\n\ndef entry():\n    selected_leaf()\n",
+    )
+    .expect("write selected flow");
+    fs::write(
+        dir.join("other").join("flow.py"),
+        "def target():\n    pass\n\ndef other_caller():\n    target()\n\ndef entry():\n    other_leaf()\n",
+    )
+    .expect("write other flow");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let callers = get_callers(&project, "target", Some("selected"), 50, None).expect("callers");
+    let caller_names: Vec<&str> = callers
+        .iter()
+        .map(|caller| caller.function.as_str())
+        .collect();
+    assert_eq!(caller_names, vec!["selected_caller"]);
+
+    let callees = get_callees(&project, "entry", Some("selected"), 50, None).expect("callees");
+    let callee_names: Vec<&str> = callees.iter().map(|callee| callee.name.as_str()).collect();
+    assert_eq!(callee_names, vec!["selected_leaf"]);
 }
 
 #[test]
@@ -897,6 +930,24 @@ fn ts_import_alias_resolves_and_callers_match_canonical_name() {
         .expect("aliased callee");
     assert_eq!(submit.resolved_file.as_deref(), Some("actions.ts"));
     assert_eq!(submit.resolution, Some("import_map"));
+    let public_payload = serde_json::to_value(submit).expect("serialize callee");
+    assert_eq!(public_payload["name"], "onSubmit");
+    assert!(public_payload.get("canonical_name").is_none());
+
+    let mut resolved_graph =
+        ResolvedCallGraph::build(&project, Some("page.tsx"), Some(&cache)).expect("resolved graph");
+    let resolved_callees = resolved_graph
+        .get_callees("Page", Some("page.tsx"), 50)
+        .expect("resolved callees");
+    let resolved_submit = resolved_callees
+        .iter()
+        .find(|entry| entry.callee.name == "onSubmit")
+        .expect("resolved aliased callee");
+    assert_eq!(resolved_submit.target.canonical_name, "handleSubmit");
+    assert_eq!(
+        resolved_submit.target.resolved_file.as_deref(),
+        Some("actions.ts")
+    );
 
     let callers = get_callers(&project, "handleSubmit", None, 50, Some(&cache)).expect("callers");
     let page = callers
@@ -904,6 +955,133 @@ fn ts_import_alias_resolves_and_callers_match_canonical_name() {
         .find(|caller| caller.function == "Page")
         .expect("Page caller");
     assert_eq!(page.file, "page.tsx");
+
+    let callers =
+        get_callers(&project, "onSubmit", None, 50, Some(&cache)).expect("callers by raw alias");
+    assert!(
+        callers.iter().any(|caller| caller.function == "Page"),
+        "legacy raw-alias caller lookup must remain supported"
+    );
+}
+
+#[test]
+fn target_identity_filters_alias_callers_before_the_result_cap() {
+    let dir = temp_dir("target-identity-before-cap");
+    fs::write(
+        dir.join("selected.ts"),
+        "export function handleSubmit() {}\nexport function anotherTarget() {}\n",
+    )
+    .expect("write selected target");
+    fs::write(
+        dir.join("other-target.ts"),
+        "export function handleSubmit() {}\n",
+    )
+    .expect("write homonymous target");
+    fs::write(
+        dir.join("a-local.ts"),
+        "import { handleSubmit as localSubmit } from './other-target';\nexport function LocalPage() { localSubmit(); }\n",
+    )
+    .expect("write higher-confidence homonym caller");
+    fs::write(
+        dir.join("b-collision.ts"),
+        "import { anotherTarget as handleSubmit } from './selected';\nexport function CollisionPage() { handleSubmit(); }\n",
+    )
+    .expect("write raw alias collision caller");
+    fs::write(
+        dir.join("index.ts"),
+        "export { handleSubmit } from './selected';\n",
+    )
+    .expect("write selected reexport");
+    fs::write(
+        dir.join("z-page.ts"),
+        "import { handleSubmit as onSubmit } from './index';\nexport function Page() { onSubmit(); }\n",
+    )
+    .expect("write aliased selected caller");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let index = SymbolIndex::new(project.clone()).expect("symbol index");
+    index.refresh_all().expect("refresh symbol index");
+    let cache = GraphCache::new(0);
+
+    let callers = get_callers_for_target(
+        &project,
+        "handleSubmit",
+        Some("selected.ts"),
+        None,
+        1,
+        Some(&cache),
+    )
+    .expect("identity-filtered callers");
+
+    assert_eq!(callers.len(), 1, "filter must run before max_results");
+    assert_eq!(callers[0].caller.function, "Page");
+    assert_eq!(callers[0].target.canonical_name, "handleSubmit");
+    assert_eq!(
+        callers[0].target.resolved_file.as_deref(),
+        Some("selected.ts")
+    );
+    let public_payload = serde_json::to_value(&callers[0].caller).expect("serialize caller");
+    assert!(public_payload.get("callee_name").is_none());
+    assert!(public_payload.get("resolved_file").is_none());
+}
+
+#[test]
+fn resolved_call_graph_materializes_base_and_each_escaped_file_once() {
+    let dir = temp_dir("resolved-call-graph-materialization");
+    fs::create_dir_all(dir.join("scope")).expect("create scope");
+    fs::write(
+        dir.join("scope/entry.ts"),
+        "import { externalFn as runExternal } from '../external';\nexport function entry() { return runExternal(); }\n",
+    )
+    .expect("write scoped entry");
+    fs::write(
+        dir.join("external.ts"),
+        "export function leaf() { return 1; }\nexport function externalFn() { return leaf(); }\n",
+    )
+    .expect("write escaped target");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let index = SymbolIndex::new(project.clone()).expect("symbol index");
+    index.refresh_all().expect("refresh symbol index");
+    let cache = GraphCache::new(0);
+    let mut graph =
+        ResolvedCallGraph::build(&project, Some("scope"), Some(&cache)).expect("base graph");
+    assert_eq!(graph.materialization_count(), 1);
+    for _ in 0..2 {
+        let callers = graph.get_callers_for_target("externalFn", Some("external.ts"), 0);
+        assert!(callers.iter().any(|entry| entry.caller.function == "entry"));
+    }
+    assert_eq!(graph.materialization_count(), 1);
+
+    let direct = graph
+        .get_callees("entry", Some("scope/entry.ts"), 0)
+        .expect("base callee query");
+    let external = direct
+        .iter()
+        .find(|entry| entry.callee.name == "runExternal")
+        .expect("escaped callee identity");
+    assert_eq!(external.target.canonical_name, "externalFn");
+    assert_eq!(
+        external.target.resolved_file.as_deref(),
+        Some("external.ts")
+    );
+    let external_target = external.target.clone();
+
+    for _ in 0..2 {
+        let transitive = graph
+            .get_callees(
+                &external_target.canonical_name,
+                external_target.resolved_file.as_deref(),
+                0,
+            )
+            .expect("escaped callee query");
+        assert!(transitive.iter().any(|entry| entry.callee.name == "leaf"));
+    }
+    assert_eq!(
+        graph.materialization_count(),
+        2,
+        "base scope and external.ts should each materialize exactly once"
+    );
 }
 
 #[test]
@@ -1422,5 +1600,170 @@ pub fn make_another() -> Foo {
     assert!(
         names.contains(&"make_another"),
         "expected make_another as caller of new, got {names:?}"
+    );
+}
+
+#[test]
+fn rust_owner_qualified_call_does_not_fall_back_to_other_owner() {
+    // Given: the index contains only `Right::new`, while the call site names
+    // the distinct owner `Wrong` in the same Rust file.
+    let dir = temp_dir("rs-owner-qualified-mismatch");
+    let source = r#"pub struct Right;
+impl Right {
+    pub fn new() -> Self { Self }
+}
+
+pub fn build() {
+    let _ = Wrong::new();
+}
+"#;
+    fs::write(dir.join("lib.rs"), source).expect("write lib.rs");
+    let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+    let file_id = db
+        .upsert_file(
+            "lib.rs",
+            100,
+            "rust-owner-mismatch",
+            source.len() as i64,
+            Some("rs"),
+        )
+        .expect("rust file");
+    db.insert_symbols(
+        file_id,
+        &[NewSymbol {
+            name: "new",
+            kind: "method",
+            line: 3,
+            column_num: 0,
+            start_byte: 0,
+            end_byte: source.len() as i64,
+            signature: "pub fn new() -> Self",
+            name_path: "Right/new",
+            parent_id: None,
+        }],
+    )
+    .expect("method symbol");
+
+    // When: the call graph resolves `Wrong::new`.
+    let project = ProjectRoot::new(&dir).expect("project");
+    let callees = get_callees(&project, "build", Some("lib.rs"), 50, None).expect("callees");
+    let constructor = callees
+        .iter()
+        .find(|callee| callee.name == "new")
+        .expect("constructor call");
+
+    // Then: an owner mismatch remains honestly unresolved.
+    assert_eq!(constructor.resolved_file, None);
+    assert_eq!(constructor.resolution, Some("unresolved"));
+}
+
+#[test]
+fn rust_owner_identity_separates_homonymous_methods_across_two_hops() {
+    // Given: two `new` methods in one file lead to different second-hop callees.
+    let dir = temp_dir("rs-owner-two-hop");
+    let source = r#"pub struct Selected;
+impl Selected {
+    pub fn new() -> Self { selected_leaf(); Self }
+}
+pub struct Other;
+impl Other {
+    pub fn new() -> Self { configured_log_filter(); Self }
+}
+pub fn selected_leaf() {}
+pub fn configured_log_filter() {}
+pub fn entry() { let _ = Selected::new(); }
+pub fn other_entry() { let _ = Other::new(); }
+"#;
+    fs::write(dir.join("lib.rs"), source).expect("write lib.rs");
+    let db = IndexDb::open(&index_db_path(&dir)).expect("db");
+    let file_id = db
+        .upsert_file(
+            "lib.rs",
+            100,
+            "rust-owner-two-hop",
+            source.len() as i64,
+            Some("rs"),
+        )
+        .expect("rust file");
+    let symbols = [
+        ("new", "method", 3, "Selected/new"),
+        ("new", "method", 7, "Other/new"),
+        ("selected_leaf", "function", 9, "selected_leaf"),
+        (
+            "configured_log_filter",
+            "function",
+            10,
+            "configured_log_filter",
+        ),
+        ("entry", "function", 11, "entry"),
+        ("other_entry", "function", 12, "other_entry"),
+    ];
+    let symbols: Vec<NewSymbol<'_>> = symbols
+        .iter()
+        .map(|(name, kind, line, name_path)| NewSymbol {
+            name,
+            kind,
+            line: *line,
+            column_num: 0,
+            start_byte: 0,
+            end_byte: source.len() as i64,
+            signature: name,
+            name_path,
+            parent_id: None,
+        })
+        .collect();
+    db.insert_symbols(file_id, &symbols).expect("symbols");
+
+    // When: traversal follows `entry -> Selected::new` and expands hop two.
+    let project = ProjectRoot::new(&dir).expect("project");
+    let mut graph = ResolvedCallGraph::build(&project, Some("lib.rs"), None).expect("graph");
+    let entry = CallTargetIdentity {
+        canonical_name: "entry".to_owned(),
+        resolved_file: Some("lib.rs".to_owned()),
+        declaration_path: None,
+    };
+    let direct = graph
+        .get_callees_for_source(&entry, 0)
+        .expect("direct callees");
+    let selected_constructor = direct
+        .iter()
+        .find(|entry| entry.callee.name == "new")
+        .expect("Selected::new");
+    assert_eq!(
+        selected_constructor.target.declaration_path.as_deref(),
+        Some("Selected/new")
+    );
+    let transitive = graph
+        .get_callees_for_source(&selected_constructor.target, 0)
+        .expect("transitive callees");
+    let names: Vec<&str> = transitive
+        .iter()
+        .map(|entry| entry.callee.name.as_str())
+        .collect();
+
+    // Then: only the selected owner's body contributes the second hop.
+    assert!(
+        names.contains(&"selected_leaf"),
+        "expected selected leaf: {names:?}"
+    );
+    assert!(
+        !names.contains(&"configured_log_filter"),
+        "other owner's body leaked into traversal: {names:?}"
+    );
+
+    let owner_only_identity = CallTargetIdentity {
+        canonical_name: "new".to_owned(),
+        resolved_file: None,
+        declaration_path: Some("Selected/new".to_owned()),
+    };
+    let reverse = graph.get_callers_for_identity(&owner_only_identity, 0);
+    let reverse_names: Vec<&str> = reverse
+        .iter()
+        .map(|entry| entry.caller.function.as_str())
+        .collect();
+    assert!(reverse_names.contains(&"entry"));
+    assert!(
+        !reverse_names.contains(&"other_entry"),
+        "owner-only reverse identity merged another `new` declaration: {reverse_names:?}"
     );
 }

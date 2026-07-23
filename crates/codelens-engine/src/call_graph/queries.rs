@@ -167,7 +167,10 @@ pub(super) const RUST_FUNC_QUERY: &str = r#"
 pub(super) const RUST_CALL_QUERY: &str = r#"
 (call_expression function: (identifier) @callee)
 (call_expression function: (field_expression field: (field_identifier) @callee))
-(call_expression function: (scoped_identifier name: (identifier) @callee))
+(call_expression
+  function: (scoped_identifier
+    path: (_) @callee.object
+    name: (identifier) @callee))
 (macro_invocation macro: (identifier) @callee)
 (macro_invocation macro: (scoped_identifier name: (identifier) @callee))
 ;; v1.11.0 (F1): function-reference patterns. A function passed as an
@@ -185,5 +188,8 @@ pub(super) const RUST_CALL_QUERY: &str = r#"
 ;; (unique_name) at confidence 0.5 — honest, lower than import_map but
 ;; higher than nothing.
 (arguments (identifier) @callee)
-(arguments (scoped_identifier name: (identifier) @callee))
+(arguments
+  (scoped_identifier
+    path: (_) @callee.object
+    name: (identifier) @callee))
 "#;
