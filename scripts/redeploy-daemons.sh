@@ -5,15 +5,19 @@ usage() {
 	cat <<'EOF'
 Usage: bash scripts/redeploy-daemons.sh [repo-root] [options]
 
-Redeploy the repo-local CodeLens HTTP daemons after a fresh build. Encodes
+Redeploy the canonical repo-local CodeLens HTTP daemon after a fresh build. Encodes
 the friction discovered during the 2026-05-18 self-dogfood session:
 
   1. cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http
   2. xattr -dr com.apple.provenance ${TARGET}     # macOS gatekeeper
   3. codesign --force --sign - ${TARGET}          # ad-hoc resign
   4. launchctl bootout/bootstrap + kickstart      # refresh launchd LWCR
-  5. wait for LISTEN on the read-only + mutation ports
-  6. (optional) tools/list health probe
+  5. wait for LISTEN on the canonical mutation port
+  6. (optional) tools/list health probe on that one endpoint
+
+The legacy readonly label is explicitly disabled and booted out on every run;
+it is never bootstrapped. Reviewer/planner and builder/refactor sessions share
+the canonical endpoint and select their profile/RBAC per session.
 
 Without steps 2-3, every `cargo build` + `cp` cycle ends with
 `OS_REASON_CODESIGNING SIGKILL` and KeepAlive loops, leaving the daemons
@@ -21,12 +25,13 @@ unable to bind.
 
 Options:
   --label-prefix PREFIX       launchd label prefix (default: dev.codelens.mcp)
-  --readonly-port N           read-only daemon port (default: 7839)
-  --mutation-port N           mutation daemon port (default: 7838)
+  --readonly-port N           deprecated compatibility alias; maps to the
+                              canonical port only when --mutation-port is absent
+  --mutation-port N           canonical daemon port (default: 7838)
   --source PATH               built binary (default: <repo>/target/release/codelens-mcp)
   --target PATH               daemon binary (default: <repo>/.codelens/bin/codelens-mcp-http)
-  --skip-readonly             do not kick the read-only daemon
-  --skip-mutation             do not kick the mutation daemon
+  --skip-readonly             deprecated no-op (readonly is never started)
+  --skip-mutation             skip the canonical daemon restart
   --build                     also run `cargo build --release --features http,semantic,coreml` first
   --probe                     after kickstart, run a tools/list health probe
   --wait-secs N               LISTEN wait timeout in seconds (default: 12)
@@ -42,7 +47,7 @@ Environment:
 Examples:
   bash scripts/redeploy-daemons.sh                    # quick post-build redeploy
   bash scripts/redeploy-daemons.sh --build --probe    # build + redeploy + health probe
-  bash scripts/redeploy-daemons.sh --skip-mutation    # only readonly (Cursor untouched)
+  bash scripts/redeploy-daemons.sh --skip-mutation    # copy only; do not restart
 EOF
 }
 
@@ -50,6 +55,8 @@ REPO_ROOT=""
 LABEL_PREFIX="dev.codelens.mcp"
 READONLY_PORT=7839
 MUTATION_PORT=7838
+READONLY_PORT_EXPLICIT=0
+MUTATION_PORT_EXPLICIT=0
 SOURCE_BIN=""
 TARGET_BIN=""
 SKIP_READONLY=0
@@ -62,8 +69,8 @@ PORT_RELEASE_SECS="${CODELENS_PORT_RELEASE_SECS:-15}"
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--label-prefix) LABEL_PREFIX="$2"; shift 2 ;;
-		--readonly-port) READONLY_PORT="$2"; shift 2 ;;
-		--mutation-port) MUTATION_PORT="$2"; shift 2 ;;
+		--readonly-port) READONLY_PORT="$2"; READONLY_PORT_EXPLICIT=1; shift 2 ;;
+		--mutation-port) MUTATION_PORT="$2"; MUTATION_PORT_EXPLICIT=1; shift 2 ;;
 		--source) SOURCE_BIN="$2"; shift 2 ;;
 		--target) TARGET_BIN="$2"; shift 2 ;;
 		--skip-readonly) SKIP_READONLY=1; shift ;;
@@ -76,6 +83,15 @@ while [[ $# -gt 0 ]]; do
 		*) REPO_ROOT="$1"; shift ;;
 	esac
 done
+
+if [[ "$READONLY_PORT_EXPLICIT" == "1" ]]; then
+	if [[ "$MUTATION_PORT_EXPLICIT" == "0" ]]; then
+		MUTATION_PORT="$READONLY_PORT"
+		printf '[redeploy] warning: --readonly-port is deprecated; using %s as the canonical single-writer port\n' "${MUTATION_PORT}" >&2
+	else
+		printf '[redeploy] warning: --readonly-port=%s is ignored; canonical --mutation-port=%s wins\n' "${READONLY_PORT}" "${MUTATION_PORT}" >&2
+	fi
+fi
 
 if [[ -z "${REPO_ROOT}" ]]; then
 	REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -179,13 +195,30 @@ else
 fi
 
 UID_VAL="$(id -u)"
-KICK_LABELS=()
-[[ $SKIP_READONLY -eq 0 ]] && KICK_LABELS+=("${LABEL_PREFIX}-readonly")
-[[ $SKIP_MUTATION -eq 0 ]] && KICK_LABELS+=("${LABEL_PREFIX}-mutation")
-if [[ ${#KICK_LABELS[@]} -eq 0 ]]; then
-	log "both daemons skipped, nothing to kick"
+readonly_label="${LABEL_PREFIX}-readonly"
+mutation_label="${LABEL_PREFIX}-mutation"
+
+if [[ $SKIP_READONLY -eq 1 ]]; then
+	log "warning: --skip-readonly is deprecated; readonly is never started by the single-writer installer"
+fi
+
+# Disable and boot out the old readonly service before touching the canonical
+# writer. This is deliberately unconditional so a stale plist cannot restart
+# into ProjectWriterBusy after a redeploy.
+if command -v launchctl >/dev/null 2>&1; then
+	log "disabling legacy readonly label gui/${UID_VAL}/${readonly_label}"
+	launchctl disable "gui/${UID_VAL}/${readonly_label}" >/dev/null 2>&1 || true
+	launchctl bootout "gui/${UID_VAL}/${readonly_label}" >/dev/null 2>&1 || true
+else
+	log "launchctl unavailable; legacy readonly cleanup deferred: ${readonly_label}" >&2
+fi
+
+if [[ $SKIP_MUTATION -eq 1 ]]; then
+	log "canonical mutation daemon skipped (--skip-mutation); legacy readonly remains disabled"
 	exit 0
 fi
+
+KICK_LABELS=("${mutation_label}")
 
 MISSING_LABELS=()
 for label in "${KICK_LABELS[@]}"; do
@@ -212,11 +245,7 @@ for label in "${KICK_LABELS[@]}"; do
 		# the occupied port and yields exit(0) (transport_http.rs:330); with
 		# KeepAlive SuccessfulExit=false (PR #378) launchd never respawns it,
 		# leaving a silent permanent-down. Block until the port is released.
-		case "${label}" in
-		*-readonly) label_port="${READONLY_PORT}" ;;
-		*-mutation) label_port="${MUTATION_PORT}" ;;
-		*) label_port="" ;;
-		esac
+		label_port="${MUTATION_PORT}"
 		if ! wait_for_port_release "${label_port}" "${PORT_RELEASE_SECS}" "${label}"; then
 			exit 4
 		fi
@@ -243,10 +272,8 @@ for label in "${KICK_LABELS[@]}"; do
 	fi
 done
 
-log "waiting up to ${WAIT_SECS}s for LISTEN sockets"
-EXPECTED_PORTS=()
-[[ $SKIP_READONLY -eq 0 ]] && EXPECTED_PORTS+=("${READONLY_PORT}")
-[[ $SKIP_MUTATION -eq 0 ]] && EXPECTED_PORTS+=("${MUTATION_PORT}")
+log "waiting up to ${WAIT_SECS}s for the canonical LISTEN socket"
+EXPECTED_PORTS=("${MUTATION_PORT}")
 
 deadline=$(( $(date +%s) + WAIT_SECS ))
 while :; do

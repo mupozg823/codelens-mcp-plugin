@@ -70,12 +70,17 @@ def test_redeploy_reaches_listen_wait_when_plist_missing() -> None:
 
         # Unique label so kickstart can never collide with a real installed daemon.
         label_prefix = f"codelens-test-fixture-{os.getpid()}"
-        # High ports unlikely to be in real use; they will never LISTEN here.
-        readonly_port = "18839"
+        # High port unlikely to be in real use; it will never LISTEN here.
         mutation_port = "18838"
 
         env = dict(os.environ)
         env["HOME"] = str(fake_home)
+        shim_dir = tmp / "shim"
+        shim_dir.mkdir()
+        shim_log = tmp / "launchctl.log"
+        write_launchctl_shim(shim_dir, shim_log)
+        env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
+        env["LAUNCHCTL_SHIM_LOG"] = str(shim_log)
 
         proc = subprocess.run(
             [
@@ -84,8 +89,6 @@ def test_redeploy_reaches_listen_wait_when_plist_missing() -> None:
                 str(REPO_ROOT),
                 "--label-prefix",
                 label_prefix,
-                "--readonly-port",
-                readonly_port,
                 "--mutation-port",
                 mutation_port,
                 "--source",
@@ -132,13 +135,16 @@ def test_redeploy_fails_when_plist_missing_even_if_ports_already_listen() -> Non
         label_prefix = f"codelens-test-fixture-{os.getpid()}"
         env = dict(os.environ)
         env["HOME"] = str(fake_home)
+        shim_dir = tmp / "shim"
+        shim_dir.mkdir()
+        shim_log = tmp / "launchctl.log"
+        write_launchctl_shim(shim_dir, shim_log)
+        env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
+        env["LAUNCHCTL_SHIM_LOG"] = str(shim_log)
 
         # Ephemeral ports we hold LISTEN on for the whole subprocess run — these
         # stand in for stale daemons already occupying the expected ports.
-        with contextlib.closing(open_listener(0)) as ro_sock, contextlib.closing(
-            open_listener(0)
-        ) as mu_sock:
-            readonly_port = str(ro_sock.getsockname()[1])
+        with contextlib.closing(open_listener(0)) as mu_sock:
             mutation_port = str(mu_sock.getsockname()[1])
             proc = subprocess.run(
                 [
@@ -147,8 +153,6 @@ def test_redeploy_fails_when_plist_missing_even_if_ports_already_listen() -> Non
                     str(REPO_ROOT),
                     "--label-prefix",
                     label_prefix,
-                    "--readonly-port",
-                    readonly_port,
                     "--mutation-port",
                     mutation_port,
                     "--source",
@@ -193,8 +197,9 @@ def test_redeploy_waits_for_port_release_before_bootstrap() -> None:
         agents = fake_home / "Library" / "LaunchAgents"
         agents.mkdir(parents=True)
         label_prefix = f"codelens-test-fixture-{os.getpid()}"
-        # A plist must exist so redeploy enters the bootout->bootstrap path.
-        (agents / f"{label_prefix}-readonly.plist").write_text(
+        # The canonical mutation plist must exist so redeploy enters the
+        # bootout->bootstrap path.
+        (agents / f"{label_prefix}-mutation.plist").write_text(
             "<plist/>\n", encoding="utf-8"
         )
 
@@ -213,8 +218,8 @@ def test_redeploy_waits_for_port_release_before_bootstrap() -> None:
         env["LAUNCHCTL_SHIM_LOG"] = str(shim_log)
         env["CODELENS_PORT_RELEASE_SECS"] = "1"
 
-        with contextlib.closing(open_listener(0)) as ro_sock:
-            readonly_port = str(ro_sock.getsockname()[1])
+        with contextlib.closing(open_listener(0)) as mutation_sock:
+            mutation_port = str(mutation_sock.getsockname()[1])
             proc = subprocess.run(
                 [
                     "bash",
@@ -222,11 +227,8 @@ def test_redeploy_waits_for_port_release_before_bootstrap() -> None:
                     str(REPO_ROOT),
                     "--label-prefix",
                     label_prefix,
-                    "--skip-mutation",
-                    "--readonly-port",
-                    readonly_port,
                     "--mutation-port",
-                    "18838",
+                    mutation_port,
                     "--source",
                     str(source_bin),
                     "--target",
@@ -255,6 +257,10 @@ def test_redeploy_waits_for_port_release_before_bootstrap() -> None:
             "expected the old instance to be booted out first.\n"
             f"shim calls:\n{shim_calls}"
         )
+        assert "disable" in shim_calls and f"{label_prefix}-readonly" in shim_calls, (
+            "redeploy must disable the legacy readonly label before touching the "
+            f"canonical writer.\nshim calls:\n{shim_calls}"
+        )
         assert "bootstrap" not in shim_calls, (
             "redeploy bootstrapped despite the port still being occupied — the "
             "yield-exit(0) permanent-down is still reachable.\n"
@@ -273,7 +279,7 @@ def test_redeploy_bootstraps_after_port_released() -> None:
         agents = fake_home / "Library" / "LaunchAgents"
         agents.mkdir(parents=True)
         label_prefix = f"codelens-test-fixture-{os.getpid()}"
-        (agents / f"{label_prefix}-readonly.plist").write_text(
+        (agents / f"{label_prefix}-mutation.plist").write_text(
             "<plist/>\n", encoding="utf-8"
         )
 
@@ -303,11 +309,8 @@ def test_redeploy_bootstraps_after_port_released() -> None:
                 str(REPO_ROOT),
                 "--label-prefix",
                 label_prefix,
-                "--skip-mutation",
-                "--readonly-port",
-                free_port,
                 "--mutation-port",
-                "18838",
+                free_port,
                 "--source",
                 str(source_bin),
                 "--target",
@@ -334,6 +337,14 @@ def test_redeploy_bootstraps_after_port_released() -> None:
         )
         assert "bootstrap" in shim_calls, (
             "redeploy did not proceed to bootstrap after the port was released.\n"
+            f"shim calls:\n{shim_calls}"
+        )
+        assert shim_calls.count("bootstrap") == 1, (
+            "redeploy must bootstrap exactly one canonical service.\n"
+            f"shim calls:\n{shim_calls}"
+        )
+        assert f"{label_prefix}-readonly" in shim_calls, (
+            "redeploy must explicitly disable/bootout the legacy readonly label.\n"
             f"shim calls:\n{shim_calls}"
         )
 

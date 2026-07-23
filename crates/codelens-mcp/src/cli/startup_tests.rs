@@ -168,7 +168,7 @@ fn render_attach_instructions_reports_project_local_url_override() {
         serde_json::to_string_pretty(&serde_json::json!({
             "host_attach": {
                 "per_host_urls": {
-                    "cursor": "http://127.0.0.1:7839/mcp"
+                    "cursor": "http://127.0.0.1:7736/mcp"
                 }
             }
         }))
@@ -182,9 +182,9 @@ fn render_attach_instructions_reports_project_local_url_override() {
     std::env::set_current_dir(previous).unwrap();
 
     assert!(rendered.contains(
-            "Project-local daemon URL override from `.codelens/config.json host_attach.per_host_urls.cursor`: `http://127.0.0.1:7839/mcp`."
+            "Project-local daemon URL override from `.codelens/config.json host_attach.per_host_urls.cursor`: `http://127.0.0.1:7736/mcp`."
         ));
-    assert!(rendered.contains("\"url\": \"http://127.0.0.1:7839/mcp\""));
+    assert!(rendered.contains("\"url\": \"http://127.0.0.1:7736/mcp\""));
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn detach_report_removes_codelens_json_entry_and_keeps_other_servers() {
         cwd.join(".cursor/mcp.json"),
         serde_json::to_string_pretty(&serde_json::json!({
             "mcpServers": {
-                "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" },
+                "codelens": { "type": "http", "url": "http://127.0.0.1:7838/mcp" },
                 "other": { "type": "http", "url": "http://127.0.0.1:9999/mcp" }
             }
         }))
@@ -226,7 +226,7 @@ fn detach_report_removes_codelens_toml_section_only() {
     std::fs::write(
         home.join(".codex/config.toml"),
         r#"[mcp_servers.codelens]
-url = "http://127.0.0.1:7837/mcp"
+url = "http://127.0.0.1:7838/mcp"
 
 [mcp_servers.other]
 url = "http://127.0.0.1:9999/mcp"
@@ -291,7 +291,7 @@ fn doctor_report_detects_machine_attachment_and_customized_policy_file() {
             "mcpServers": {
                 "codelens": {
                     "type": "http",
-                    "url": "http://127.0.0.1:7837/mcp",
+                    "url": "http://127.0.0.1:7838/mcp",
                     "headers": { "x-codelens-project": cwd.to_string_lossy() }
                 },
                 "other": { "type": "http", "url": "http://127.0.0.1:9999/mcp" }
@@ -403,7 +403,7 @@ fn doctor_report_treats_matching_toml_section_as_exact_even_with_extra_sections(
             r#"sandbox_mode = "workspace-write"
 
 [mcp_servers.codelens]
-url = "http://127.0.0.1:7837/mcp"
+url = "http://127.0.0.1:7838/mcp"
 http_headers = {{ "x-codelens-project" = "{}" }}
 
 [mcp_servers.other]
@@ -467,7 +467,7 @@ fn run_doctor_command_renders_json_report() {
             "mcpServers": {
                 "codelens": {
                     "type": "http",
-                    "url": "http://127.0.0.1:7837/mcp",
+                    "url": "http://127.0.0.1:7838/mcp",
                     "headers": { "x-codelens-project": canonical_cwd.to_string_lossy() }
                 }
             }
@@ -523,7 +523,7 @@ fn run_status_command_renders_status_alias_in_text_and_json() {
         cwd.join(".cursor/mcp.json"),
         serde_json::to_string_pretty(&serde_json::json!({
             "mcpServers": {
-                "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" }
+                "codelens": { "type": "http", "url": "http://127.0.0.1:7838/mcp" }
             }
         }))
         .unwrap(),
@@ -577,7 +577,7 @@ fn run_status_command_honors_project_local_host_attach_override() {
         serde_json::to_string_pretty(&serde_json::json!({
             "host_attach": {
                 "per_host_urls": {
-                    "cursor": "http://127.0.0.1:7839/mcp"
+                    "cursor": "http://127.0.0.1:7736/mcp"
                 }
             }
         }))
@@ -592,7 +592,7 @@ fn run_status_command_honors_project_local_host_attach_override() {
             "mcpServers": {
                 "codelens": {
                     "type": "http",
-                    "url": "http://127.0.0.1:7839/mcp",
+                    "url": "http://127.0.0.1:7736/mcp",
                     "headers": { "x-codelens-project": canonical_cwd.to_string_lossy() }
                 }
             }
@@ -639,12 +639,12 @@ fn http_startup_banner_includes_runtime_identity_fields() {
         "builder-minimal",
         2400,
         crate::state::RuntimeDaemonMode::Standard,
-        ("http", 7837),
+        ("http", 7838),
         "2026-04-11T19:49:55Z",
     );
     assert!(banner.starts_with("CODELENS_SESSION_START pid="));
     assert!(banner.contains("transport=http"));
-    assert!(banner.contains("port=7837"));
+    assert!(banner.contains("port=7838"));
     assert!(banner.contains("project_root=\"/tmp/repo\""));
     assert!(banner.contains("project_source=\"MCP_PROJECT_DIR\""));
     assert!(banner.contains("surface=builder-minimal"));
