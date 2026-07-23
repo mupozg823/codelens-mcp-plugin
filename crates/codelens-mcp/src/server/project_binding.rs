@@ -10,6 +10,16 @@ pub(crate) enum ProjectBindingSource {
 }
 
 impl ProjectBindingSource {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::DaemonDefault => "daemon_default",
+            Self::RequestHeader => "request_header",
+            Self::InitializeParam => "initialize_param",
+            Self::ExplicitTool => "explicit_tool",
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) const fn is_explicit(self) -> bool {
         !matches!(self, Self::DaemonDefault)
     }

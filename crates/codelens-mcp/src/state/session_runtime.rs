@@ -130,10 +130,16 @@ pub(super) fn doom_loop_count_for_session(
 }
 
 #[cfg(feature = "http")]
-pub(super) fn bind_project_to_session(state: &AppState, session_id: &str, project_path: &str) {
-    if let Some(store) = state.session_store.as_ref() {
-        store.set_project_path(session_id, project_path);
-    }
+pub(super) fn bind_project_to_session(
+    state: &AppState,
+    session_id: &str,
+    project_path: &str,
+) -> bool {
+    state
+        .session_store
+        .as_ref()
+        .map(|store| store.set_project_path(session_id, project_path))
+        .unwrap_or(false)
 }
 
 #[cfg(feature = "http")]

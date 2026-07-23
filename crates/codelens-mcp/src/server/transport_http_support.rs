@@ -207,26 +207,6 @@ pub(crate) fn project_header_value(headers: &HeaderMap) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-/// #351: re-assert the workspace binding on EVERY request that carries
-/// `x-codelens-project`, not only at `initialize`. This makes
-/// header-attached hosts immune to session eviction: even when the 30-min
-/// idle sweep dropped the session and the lenient gate resurrected it with
-/// default metadata, the very same request re-binds it before dispatch.
-/// Also covers clients that never declared a project at initialize but
-/// send the header later. Header-bound sessions can still switch workspaces,
-/// while initialize params and explicit prepare/activate requests take
-/// precedence over lower-precedence recurring headers.
-pub(crate) fn rebind_session_project_from_headers(
-    store: &SessionStore,
-    session_id: &str,
-    headers: &HeaderMap,
-) {
-    let Some(project) = project_header_value(headers) else {
-        return;
-    };
-    store.set_project_path_from_header(session_id, &project);
-}
-
 pub(crate) fn create_initialize_session(
     store: Option<&SessionStore>,
     requested_session_id: Option<&str>,

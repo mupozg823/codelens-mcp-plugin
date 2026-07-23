@@ -64,6 +64,38 @@ pub(super) fn call_tool_with_session(
 ) -> serde_json::Value {
     let mut map = arguments.as_object().cloned().unwrap_or_default();
     map.insert("_session_id".to_owned(), json!(session_id));
+    #[cfg(feature = "http")]
+    if let Some(session) = state
+        .session_store
+        .as_ref()
+        .and_then(|store| store.get(session_id))
+    {
+        let metadata = session.client_metadata();
+        map.insert(
+            "_session_trusted_client".to_owned(),
+            json!(metadata.trusted_client),
+        );
+        map.insert(
+            "_session_requested_profile".to_owned(),
+            json!(metadata.requested_profile),
+        );
+        map.insert(
+            "_session_client_name".to_owned(),
+            json!(metadata.client_name),
+        );
+        map.insert(
+            "_session_project_path".to_owned(),
+            json!(metadata.project_path),
+        );
+        map.insert(
+            "_session_project_binding_source".to_owned(),
+            json!(metadata.project_binding_source.as_str()),
+        );
+        return crate::session_context::with_http_transport_context(|| {
+            call_tool_with_augmented_args(state, name, serde_json::Value::Object(map))
+        });
+    }
+
     call_tool_with_augmented_args(state, name, serde_json::Value::Object(map))
 }
 

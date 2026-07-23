@@ -57,6 +57,8 @@ pub(crate) struct SessionRequestContext {
     pub deferred_loading: bool,
     #[cfg_attr(not(feature = "http"), allow(dead_code))]
     pub project_path: Option<String>,
+    #[cfg_attr(not(feature = "http"), allow(dead_code))]
+    pub project_binding_source: Option<String>,
     pub loaded_namespaces: Vec<String>,
     pub loaded_tiers: Vec<String>,
     pub full_tool_exposure: bool,
@@ -82,6 +84,7 @@ impl SessionRequestContext {
             session_id: str_field(value, "_session_id").unwrap_or_else(|| "local".to_owned()),
             deferred_loading: bool_field(value, "_session_deferred_tool_loading"),
             project_path: str_field(value, "_session_project_path"),
+            project_binding_source: str_field(value, "_session_project_binding_source"),
             loaded_namespaces: string_array_field(value, "_session_loaded_namespaces"),
             loaded_tiers: string_array_field(value, "_session_loaded_tiers"),
             full_tool_exposure: bool_field(value, "_session_full_tool_exposure"),
@@ -101,6 +104,18 @@ impl SessionRequestContext {
 
     pub fn is_transport_authenticated(&self) -> bool {
         is_http_transport(self.source)
+    }
+
+    /// Whether this request snapshot carries a transport-owned project binding.
+    /// Access checks must use this immutable request value rather than re-reading
+    /// live session metadata that another concurrent request can change.
+    #[cfg_attr(not(feature = "http"), allow(dead_code))]
+    pub fn project_binding_is_explicit(&self) -> bool {
+        self.project_path.is_some()
+            && matches!(
+                self.project_binding_source.as_deref(),
+                Some("request_header" | "initialize_param" | "explicit_tool")
+            )
     }
 }
 
@@ -172,5 +187,20 @@ mod tests {
         assert!(ctx.is_transport_authenticated());
         assert!(ctx.trusted_client);
         assert_eq!(ctx.principal_id.as_deref(), Some("alice@example.com"));
+    }
+
+    #[test]
+    fn project_binding_explicitness_comes_from_the_request_snapshot() {
+        let explicit = SessionRequestContext::from_json(&json!({
+            "_session_project_path": "/tmp/project",
+            "_session_project_binding_source": "explicit_tool",
+        }));
+        let implicit = SessionRequestContext::from_json(&json!({
+            "_session_project_path": "/tmp/project",
+            "_session_project_binding_source": "daemon_default",
+        }));
+
+        assert!(explicit.project_binding_is_explicit());
+        assert!(!implicit.project_binding_is_explicit());
     }
 }

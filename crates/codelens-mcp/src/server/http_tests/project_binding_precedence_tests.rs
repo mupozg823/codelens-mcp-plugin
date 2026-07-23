@@ -144,6 +144,27 @@ async fn explicit_prepare_binding_outlives_conflicting_recurring_header() {
         })
         .await;
     assert_eq!(prepare.status(), StatusCode::OK);
+    let prepare_body = body_string(prepare).await;
+    let prepare_envelope: serde_json::Value =
+        serde_json::from_str(&prepare_body).expect("prepare response envelope");
+    let binding = &prepare_envelope["result"]["structuredContent"]["project"];
+    assert_eq!(
+        binding["effective_project"],
+        json!(fixture.explicit_project)
+    );
+    assert_eq!(binding["binding_source"], "explicit_tool");
+    assert_eq!(
+        binding["persistence_semantics"]["scope"],
+        "live_http_session"
+    );
+    assert_eq!(
+        binding["persistence_semantics"]["persists_across_requests"],
+        true
+    );
+    assert_eq!(
+        binding["persistence_semantics"]["survives_session_resurrection"],
+        false
+    );
 
     // When: the host repeats its lower-precedence project header on the next call.
     let find = fixture
@@ -244,4 +265,117 @@ async fn prepare_without_project_keeps_header_binding_switchable() {
         body.contains("explicit_only_marker") && body.contains("explicit_fixture.py"),
         "the later header must remain able to switch projects: {body}"
     );
+}
+
+#[tokio::test]
+async fn later_explicit_prepare_can_switch_back_without_header_override() {
+    // Given: an explicit prepare moved a header-bound session from A to B.
+    let fixture = BindingFixture::new();
+    let session_id = fixture.initialize(None).await;
+    let first_prepare = fixture
+        .call_tool(ToolRequest {
+            session_id: &session_id,
+            project_header: &fixture.header_project,
+            id: 2,
+            name: "prepare_harness_session",
+            arguments: json!({
+                "project": fixture.explicit_project,
+                "detail": "compact"
+            }),
+        })
+        .await;
+    assert_eq!(first_prepare.status(), StatusCode::OK);
+
+    // When: a later explicit prepare switches back to A.
+    let second_prepare = fixture
+        .call_tool(ToolRequest {
+            session_id: &session_id,
+            project_header: &fixture.header_project,
+            id: 3,
+            name: "prepare_harness_session",
+            arguments: json!({
+                "project": fixture.header_project,
+                "detail": "compact"
+            }),
+        })
+        .await;
+    assert_eq!(second_prepare.status(), StatusCode::OK);
+
+    // Then: a conflicting recurring header for B still cannot replace explicit A.
+    let find = fixture
+        .call_tool(ToolRequest {
+            session_id: &session_id,
+            project_header: &fixture.explicit_project,
+            id: 4,
+            name: "find_symbol",
+            arguments: json!({
+                "name": "header_only_marker",
+                "include_body": false
+            }),
+        })
+        .await;
+    let body = body_string(find).await;
+    assert_eq!(
+        fixture.state.session_project_path(&session_id).as_deref(),
+        fixture.header_project.to_str()
+    );
+    assert!(
+        body.contains("header_only_marker") && body.contains("header_fixture.py"),
+        "the later explicit binding must remain authoritative: {body}"
+    );
+}
+
+#[tokio::test]
+async fn explicit_binding_resurrection_boundary_is_observable() {
+    // Given: a live session explicitly moved from recurring header A to project B.
+    let fixture = BindingFixture::new();
+    let session_id = fixture.initialize(None).await;
+    let prepare = fixture
+        .call_tool(ToolRequest {
+            session_id: &session_id,
+            project_header: &fixture.header_project,
+            id: 2,
+            name: "prepare_harness_session",
+            arguments: json!({
+                "project": fixture.explicit_project,
+                "detail": "compact"
+            }),
+        })
+        .await;
+    assert_eq!(prepare.status(), StatusCode::OK);
+
+    // When: the live session record is lost and the recurring A header resurrects it.
+    fixture
+        .state
+        .session_store
+        .as_ref()
+        .expect("session store")
+        .remove(&session_id);
+    let find = fixture
+        .call_tool(ToolRequest {
+            session_id: &session_id,
+            project_header: &fixture.header_project,
+            id: 3,
+            name: "find_symbol",
+            arguments: json!({
+                "name": "header_only_marker",
+                "include_body": false
+            }),
+        })
+        .await;
+    assert_eq!(
+        find.headers()
+            .get("x-codelens-session-resurrected")
+            .and_then(|value| value.to_str().ok()),
+        Some("1"),
+        "the fallback to the recurring header must be observable as resurrection"
+    );
+    let body = body_string(find).await;
+
+    // Then: the documented live-session boundary is honored, not misreported as durable.
+    assert!(
+        body.contains("header_only_marker") && body.contains("header_fixture.py"),
+        "a recreated session must use its reasserted request header: {body}"
+    );
+    assert!(!body.contains("explicit_only_marker"));
 }

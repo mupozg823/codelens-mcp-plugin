@@ -541,6 +541,57 @@ mod tests {
 
     #[test]
     #[cfg(feature = "http")]
+    fn inflight_header_snapshot_survives_later_binding_and_cache_eviction() {
+        let default_project = temp_project_root("request-pin-default");
+        let project_a = temp_project_root("request-pin-a");
+        let project_b = temp_project_root("request-pin-b");
+        let project_c = temp_project_root("request-pin-c");
+        let project_d = temp_project_root("request-pin-d");
+        let project_e = temp_project_root("request-pin-e");
+
+        let state =
+            AppState::new_minimal(default_project, ToolPreset::Balanced).with_session_store();
+        let store = state.session_store.as_ref().expect("HTTP session store");
+        let session = store.create();
+        let scope_a = project_a.as_path().to_string_lossy().into_owned();
+        let scope_b = project_b.as_path().to_string_lossy().into_owned();
+
+        // Request A captures project A, then request B replaces the live session
+        // binding before A reaches dispatch.
+        let request_a = store
+            .client_metadata_for_project_header(&session.id, Some(&scope_a))
+            .expect("request A snapshot");
+        let request_b = store
+            .client_metadata_for_project_header(&session.id, Some(&scope_b))
+            .expect("request B snapshot");
+        assert_eq!(
+            request_a.metadata.project_path.as_deref(),
+            Some(scope_a.as_str())
+        );
+        assert_eq!(
+            request_b.metadata.project_path.as_deref(),
+            Some(scope_b.as_str())
+        );
+        drop(request_b);
+
+        // Cache churn now sees live B plus in-flight A as protected paths.
+        for project in [&project_a, &project_b, &project_c, &project_d, &project_e] {
+            state
+                .switch_project(project.as_path().to_str().unwrap())
+                .unwrap();
+        }
+
+        let cache = state.project_context_cache.lock().unwrap();
+        assert!(
+            cache.entries.contains_key(&scope_a),
+            "request A's captured project must stay cached until its dispatch pin drops"
+        );
+        drop(cache);
+        drop(request_a);
+    }
+
+    #[test]
+    #[cfg(feature = "http")]
     fn concurrent_http_session_bind_waits_for_runtime_retirement() {
         let default_project = temp_project_root("session-race-default");
         let project_a = temp_project_root("session-race-a");

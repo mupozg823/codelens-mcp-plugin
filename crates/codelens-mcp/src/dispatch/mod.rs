@@ -295,11 +295,11 @@ pub(crate) fn dispatch_tool(
     if let Ok((payload, _)) = &mut result
         && state.should_route_to_session(session)
         && crate::tool_defs::tool_namespace(name) != "session"
-        && !state.session_project_binding_explicit(session.session_id.as_str())
+        && !session.project_binding_is_explicit()
         && let Some(map) = payload.as_object_mut()
     {
         let active_project = state.current_project_scope();
-        let session_project = state.session_project_path(session.session_id.as_str());
+        let session_project = session.project_path.clone();
         let active_project_matches_session_project =
             session_project.as_deref() == Some(active_project.as_str());
         map.insert(

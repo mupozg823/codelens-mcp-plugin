@@ -104,8 +104,12 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
     #[cfg(feature = "http")]
     if state.should_route_to_session(&session) {
         state.set_session_surface_and_budget(&session.session_id, auto_surface, auto_budget);
-        if switched.is_some() {
-            state.bind_project_to_session(&session.session_id, &project_base_path);
+        if switched.is_some()
+            && !state.bind_project_to_session(&session.session_id, &project_base_path)
+        {
+            return Err(crate::error::CodeLensError::StaleSession(
+                "project activation completed for the current request, but the HTTP session expired before the binding could be persisted; reinitialize the session and call prepare_harness_session again".to_owned(),
+            ));
         }
     } else {
         state.set_surface(auto_surface);
@@ -117,6 +121,18 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         state.set_token_budget(auto_budget);
     }
 
+    let binding_source = if switched.is_some() {
+        "explicit_tool"
+    } else if route_to_session {
+        session
+            .project_binding_source
+            .as_deref()
+            .unwrap_or("daemon_default")
+    } else {
+        "daemon_default"
+    };
+    let persistence_semantics =
+        project_binding_persistence_semantics(binding_source, route_to_session);
     let embedding_ready = semantic_embedding_ready(state);
 
     Ok((
@@ -124,7 +140,10 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
             "activated": true,
             "switched": switched.is_some(),
             "project_name": project_name,
-            "project_base_path": project_base_path,
+            "project_base_path": &project_base_path,
+            "effective_project": &project_base_path,
+            "binding_source": binding_source,
+            "persistence_semantics": persistence_semantics,
             "backend_id": "rust-core",
             "memory_count": memory_count,
             "serena_memories_dir": memories_dir.to_string_lossy(),
@@ -137,6 +156,41 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
+}
+
+fn project_binding_persistence_semantics(
+    binding_source: &str,
+    http_session: bool,
+) -> serde_json::Value {
+    if !http_session {
+        return json!({
+            "scope": "daemon_process",
+            "persists_across_requests": true,
+            "survives_session_resurrection": true,
+            "resurrection_behavior": "not_applicable"
+        });
+    }
+
+    match binding_source {
+        "request_header" => json!({
+            "scope": "request_header",
+            "persists_across_requests": true,
+            "survives_session_resurrection": true,
+            "resurrection_behavior": "reasserted_when_x_codelens_project_repeats"
+        }),
+        "initialize_param" | "explicit_tool" => json!({
+            "scope": "live_http_session",
+            "persists_across_requests": true,
+            "survives_session_resurrection": false,
+            "resurrection_behavior": "reinitialize_or_prepare_project_again"
+        }),
+        _ => json!({
+            "scope": "daemon_default",
+            "persists_across_requests": true,
+            "survives_session_resurrection": true,
+            "resurrection_behavior": "restored_from_daemon_default"
+        }),
+    }
 }
 
 /// Preserve a structured `CodeLensError` (e.g. `HomeRootRejected`) raised deep

@@ -569,6 +569,12 @@ fn prepare_harness_session_schema_matches_payload_shape() {
 
     let properties = schema["properties"].as_object().expect("schema properties");
     assert!(properties.contains_key("project"));
+    let project = properties["project"]["properties"]
+        .as_object()
+        .expect("project properties");
+    assert!(project.contains_key("effective_project"));
+    assert!(project.contains_key("binding_source"));
+    assert!(project.contains_key("persistence_semantics"));
     assert!(properties.contains_key("capabilities"));
     assert!(properties.contains_key("health_summary"));
     assert!(properties.contains_key("warnings"));
