@@ -97,6 +97,35 @@ pub(crate) fn get_capabilities_output_schema() -> serde_json::Value {
             "supported_files": {"type": "integer"},
             "stale_files": {"type": "integer"},
             "health_summary": health_summary_output_schema(),
+            "project_runtime": {
+                "type": "object",
+                "properties": {
+                    "lease_health": {"type": "string", "enum": ["held"]},
+                    "generation": {"type": "integer"},
+                    "project": {"type": "string"},
+                    "lock_path": {"type": "string"},
+                    "writer_owner": {
+                        "type": "object",
+                        "properties": {
+                            "pid": {"type": "integer"},
+                            "version": {"type": "string"},
+                            "git_sha": {"type": "string"}
+                        }
+                    }
+                }
+            },
+            "coordination_health": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["available", "degraded"]},
+                    "degraded": {"type": "boolean"},
+                    "fail_closed": {"type": "boolean"},
+                    "scope": {"type": "string"},
+                    "active_agents": {"type": ["integer", "null"]},
+                    "active_claims": {"type": ["integer", "null"]},
+                    "reason": {"type": ["string", "null"]}
+                }
+            },
             "available": {"type": "array", "items": {"type": "string"}},
             "unavailable": {
                 "type": "array",

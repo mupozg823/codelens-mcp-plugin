@@ -6,7 +6,10 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use super::workspace_modules::build_workspace_module_graph_report;
-use super::{file_name, impact_entry_file, mermaid_escape_label, parent_dir};
+use super::{
+    analysis_completeness_section, file_name, impact_entry_file, mermaid_escape_label, parent_dir,
+    validate_architecture_scope, verifier_files_for_path,
+};
 
 /// Render a Mermaid `flowchart LR` diagram summarising direct importers
 /// (upstream) and blast-radius dependencies (downstream) of a target file.
@@ -149,50 +152,41 @@ pub(crate) fn render_module_mermaid(
     out
 }
 
-#[allow(deprecated)]
-pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
-    let path = required_string(arguments, "path")?;
-    let max_nodes = arguments
-        .get("max_nodes")
-        .and_then(Value::as_u64)
-        .unwrap_or(10) as usize;
-
-    let impact = crate::tools::graph::get_impact_analysis(
-        state,
-        &json!({"file_path": path, "max_depth": 2}),
-    )
-    .map(|out| out.0)
-    .unwrap_or_else(|_| json!({"blast_radius": [], "direct_importers": []}));
-
-    let importers: Vec<Value> = impact
+pub(super) fn insert_module_diagram_sections(
+    state: &AppState,
+    path: &str,
+    impact: &Value,
+    max_nodes: usize,
+    sections: &mut BTreeMap<String, Value>,
+) -> String {
+    let importers = impact
         .get("direct_importers")
-        .and_then(|v| v.as_array())
+        .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let downstream: Vec<Value> = impact
+    let downstream = impact
         .get("blast_radius")
-        .and_then(|v| v.as_array())
+        .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-
     let importer_count = importers.len();
     let downstream_count = downstream.len();
     let workspace_report =
-        build_workspace_module_graph_report(&state.project(), path, &impact, max_nodes);
-    let (mermaid, top_findings, stats, module_graph) = if let Some(report) = workspace_report {
+        build_workspace_module_graph_report(&state.project(), path, impact, max_nodes);
+    let (mermaid, top_finding, stats, module_graph) = if let Some(report) = workspace_report {
         (
             report.mermaid,
-            vec![report.top_finding],
+            report.top_finding,
             report.stats,
             Some(report.module_graph),
         )
     } else {
         (
             render_module_mermaid(path, &importers, &downstream, max_nodes),
-            vec![format!(
+            format!(
                 "{} upstream, {} downstream (rendered up to {} per side)",
                 importer_count, downstream_count, max_nodes
-            )],
+            ),
             json!({
                 "target": path,
                 "scope_kind": impact.get("scope_kind").and_then(Value::as_str).unwrap_or("file"),
@@ -207,7 +201,6 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
         )
     };
 
-    let mut sections = BTreeMap::new();
     sections.insert(
         "diagram".to_owned(),
         json!({
@@ -221,6 +214,32 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
     if let Some(module_graph) = module_graph {
         sections.insert("module_graph".to_owned(), module_graph);
     }
+    top_finding
+}
+
+#[allow(deprecated)]
+pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
+    let path = required_string(arguments, "path")?;
+    let max_nodes = arguments
+        .get("max_nodes")
+        .and_then(Value::as_u64)
+        .unwrap_or(10) as usize;
+
+    validate_architecture_scope(&state.project(), path)?;
+
+    let impact = crate::tools::graph::get_impact_analysis(
+        state,
+        &json!({"file_path": path, "max_depth": 2}),
+    )?
+    .0;
+
+    let mut sections = BTreeMap::new();
+    let top_finding =
+        insert_module_diagram_sections(state, path, &impact, max_nodes, &mut sections);
+    sections.insert(
+        "analysis_completeness".to_owned(),
+        analysis_completeness_section(&impact, false, false),
+    );
     sections.insert("raw_impact".to_owned(), impact);
 
     make_handle_response(
@@ -228,14 +247,14 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
         "mermaid_module_graph",
         stable_cache_key("mermaid_module_graph", arguments, &["path", "max_nodes"]),
         format!("Mermaid flowchart of module dependency boundaries for `{path}`."),
-        top_findings,
+        vec![top_finding],
         0.90,
         vec![
             "Embed the diagram in a PR body to visualise module risk".to_owned(),
             "Call module_boundary_report for structural coupling + cycle evidence".to_owned(),
         ],
         sections,
-        vec![path.to_owned()],
+        verifier_files_for_path(&state.project(), path),
         None,
         Some(arguments),
     )

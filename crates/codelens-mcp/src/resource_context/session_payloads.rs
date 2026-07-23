@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::error::CodeLensError;
 use crate::tool_defs::{ToolProfile, ToolSurface, preferred_namespaces, preferred_tier_labels};
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
 use serde_json::{Value, json};
@@ -9,10 +10,10 @@ use super::ResourceRequestContext;
 pub(crate) fn build_http_session_payload(
     state: &AppState,
     request: &ResourceRequestContext,
-) -> Value {
+) -> Result<Value, CodeLensError> {
     let surface = state.execution_surface(&request.session);
     let runtime_health = collect_runtime_health_snapshot(state, surface);
-    let coordination = state.coordination_counts_for_session(&request.session);
+    let coordination = state.coordination_counts_for_session(&request.session)?;
     // T3: the namespace/tier gates only apply when this session is actually
     // operating in deferred-loading mode. Reporting them as unconditionally
     // `true` contradicted `visible_tools.deferred_loading_active` (which is
@@ -22,7 +23,7 @@ pub(crate) fn build_http_session_payload(
     // `deferred_loading_supported` (a server capability) and the trust /
     // rename-preflight hooks are orthogonal to deferred loading and stay fixed.
     let deferred_active = request.deferred_loading_active();
-    json!({
+    Ok(json!({
         "enabled": state.session_resume_supported(),
         "active_sessions": state.active_session_count(),
         "active_coordination_agents": coordination.active_agents,
@@ -62,14 +63,14 @@ pub(crate) fn build_http_session_payload(
         "rename_requires_symbol_preflight": true,
         "requires_namespace_listing_before_tool_call": deferred_active,
         "requires_tier_listing_before_tool_call": deferred_active
-    })
+    }))
 }
 
 pub(crate) fn build_agent_activity_payload(
     state: &AppState,
     request: &ResourceRequestContext,
-) -> Value {
-    let snapshot = state.coordination_snapshot_for_session(&request.session);
+) -> Result<Value, CodeLensError> {
+    let snapshot = state.coordination_snapshot_for_session(&request.session)?;
     let mut session_ids = BTreeSet::new();
     for agent in &snapshot.agents {
         session_ids.insert(agent.session_id.clone());
@@ -160,12 +161,12 @@ pub(crate) fn build_agent_activity_payload(
         })
         .collect::<Vec<_>>();
 
-    json!({
+    Ok(json!({
         "project_scope": state.project_scope_for_session(&request.session),
         "active_agents": snapshot.counts.active_agents,
         "active_claims": snapshot.counts.active_claims,
         "http_attached_sessions": state.active_session_count(),
         "sessions": sessions,
         "claims": snapshot.claims,
-    })
+    }))
 }

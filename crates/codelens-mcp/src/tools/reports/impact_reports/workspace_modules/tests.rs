@@ -33,3 +33,30 @@ fn workspace_module_graph_counts_cross_module_edges() {
     assert_eq!(graph.edges.len(), 1);
     assert_eq!(graph.edges[0].file_pair_count, 1);
 }
+
+#[test]
+fn workspace_module_graph_keeps_blast_radius_edges_in_import_direction() {
+    let impact = json!({
+        "in_scope_files": [
+            "crates/engine/src/lib.rs",
+            "crates/mcp/src/lib.rs"
+        ],
+        "direct_importers": [{
+            "file": "crates/mcp/src/lib.rs",
+            "target_files": ["crates/engine/src/lib.rs"]
+        }],
+        "blast_radius": [{
+            "file": "crates/mcp/src/lib.rs",
+            "source_files": ["crates/engine/src/lib.rs"]
+        }]
+    });
+    let graph = WorkspaceModuleGraph::from_impact(
+        vec!["crates/engine".to_owned(), "crates/mcp".to_owned()],
+        &impact,
+    );
+
+    assert_eq!(graph.edges.len(), 1, "duplicate evidence should merge");
+    assert_eq!(graph.edges[0].source, "crates/mcp");
+    assert_eq!(graph.edges[0].target, "crates/engine");
+    assert_eq!(graph.edges[0].file_pair_count, 1);
+}

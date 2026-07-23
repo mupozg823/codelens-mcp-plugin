@@ -97,16 +97,16 @@ fn collect_blast_radius_edges(
     edge_pairs: &mut BTreeMap<(String, String), BTreeSet<(String, String)>>,
 ) {
     for entry in value_array(impact.get("blast_radius")) {
-        let Some(target_file) = entry.get("file").and_then(Value::as_str) else {
+        let Some(importer_file) = entry.get("file").and_then(Value::as_str) else {
             continue;
         };
-        for source_file in strings_from_array(entry.get("source_files")) {
+        for imported_file in strings_from_array(entry.get("source_files")) {
             record_edge(
                 workspace_members,
                 modules,
                 edge_pairs,
-                source_file,
-                target_file,
+                importer_file,
+                imported_file,
             );
         }
     }

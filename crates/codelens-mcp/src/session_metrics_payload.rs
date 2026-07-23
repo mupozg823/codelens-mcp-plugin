@@ -19,7 +19,7 @@ pub(crate) fn build_session_metrics_payload(
     state: &AppState,
     logical_session_id: Option<&str>,
     coordination_scope: Option<&str>,
-) -> SessionMetricsPayload {
+) -> Result<SessionMetricsPayload, crate::error::CodeLensError> {
     let session = logical_session_id
         .map(|session_id| state.metrics().session_snapshot_for(session_id))
         .unwrap_or_else(|| state.metrics().session_snapshot());
@@ -33,7 +33,7 @@ pub(crate) fn build_session_metrics_payload(
             state.coordination_counts_for_session(
                 &crate::session_context::SessionRequestContext::default(),
             )
-        });
+        })?;
     let coordination_lock = state.coordination_lock_stats();
 
     let session_json = build_session_fields(SessionFieldInputs {
@@ -56,9 +56,9 @@ pub(crate) fn build_session_metrics_payload(
     );
     let token_bill = build_token_bill_payload(&session);
 
-    SessionMetricsPayload {
+    Ok(SessionMetricsPayload {
         session: session_json,
         derived_kpis,
         token_bill,
-    }
+    })
 }

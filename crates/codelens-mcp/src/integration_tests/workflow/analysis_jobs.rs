@@ -527,6 +527,69 @@ fn foreign_project_scoped_analysis_is_ignored_for_reuse() {
 }
 
 #[test]
+fn analysis_section_handle_cannot_cross_project_scope() {
+    let project = project_root();
+    let state = make_state(&project);
+    let foreign_project = project_root();
+    let foreign_scope = foreign_project.as_path().to_string_lossy().into_owned();
+    let artifact = {
+        let _foreign_request = state
+            .bind_request_project_scope(&foreign_scope)
+            .expect("bind foreign project scope");
+        state
+            .store_analysis(
+                &foreign_scope,
+                "module_boundary_report",
+                None,
+                "foreign summary".to_owned(),
+                vec!["foreign finding".to_owned()],
+                "low".to_owned(),
+                0.9,
+                vec![],
+                vec![],
+                crate::runtime_types::AnalysisReadiness::default(),
+                vec![],
+                std::collections::BTreeMap::from([(
+                    "private_evidence".to_owned(),
+                    json!({"secret": "scope-bound-value"}),
+                )]),
+            )
+            .expect("store foreign-scope artifact")
+    };
+
+    let denied = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({
+            "analysis_id": artifact.id,
+            "section": "private_evidence"
+        }),
+    );
+    assert_eq!(denied["success"], json!(false));
+    assert!(
+        !denied.to_string().contains("scope-bound-value"),
+        "scope mismatch must not disclose section content: {denied}"
+    );
+
+    let _foreign_request = state
+        .bind_request_project_scope(&foreign_scope)
+        .expect("rebind foreign project scope");
+    let allowed = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({
+            "analysis_id": artifact.id,
+            "section": "private_evidence"
+        }),
+    );
+    assert_eq!(allowed["success"], json!(true));
+    assert_eq!(
+        allowed["data"]["content"]["secret"],
+        json!("scope-bound-value")
+    );
+}
+
+#[test]
 fn analysis_artifacts_expire_by_ttl() {
     let project = project_root();
     fs::write(
@@ -575,6 +638,7 @@ fn startup_cleanup_removes_expired_analysis_artifacts() {
         .unwrap();
 
     // Must use full constructor — this test verifies startup cleanup behavior.
+    drop(state);
     let restarted = crate::AppState::new(project.clone(), crate::tool_defs::ToolPreset::Full);
     assert!(!restarted.analysis_dir().join(&analysis_id).exists());
 }
@@ -588,12 +652,19 @@ fn startup_cleanup_preserves_analysis_jobs_dir() {
     )
     .unwrap();
     let state = make_state(&project);
-    let payload = call_tool(
-        &state,
-        "start_analysis_job",
-        json!({"kind": "impact_report", "path": "jobs_keep.py"}),
-    );
-    let job_id = payload["data"]["job_id"].as_str().unwrap().to_owned();
+    let job = state
+        .store_analysis_job_for_current_scope(
+            "impact_report",
+            None,
+            vec!["impact_rows".to_owned()],
+            crate::runtime_types::JobLifecycle::Queued,
+            0,
+            Some("queued".to_owned()),
+            None,
+            None,
+        )
+        .expect("persist queued analysis job");
+    let job_id = job.id;
     let job_path = project
         .as_path()
         .join(".codelens")
@@ -602,6 +673,7 @@ fn startup_cleanup_preserves_analysis_jobs_dir() {
         .join(format!("{job_id}.json"));
     assert!(job_path.exists());
 
+    drop(state);
     let restarted = make_state(&project);
     assert!(restarted.analysis_dir().join("jobs").exists());
     assert!(job_path.exists());
@@ -698,15 +770,28 @@ fn refresh_symbol_index_background_queues_and_completes_job() {
         "poll handle must target the queued job, got: {queued}"
     );
 
-    // Drive the queued job synchronously on the test thread (same code path
-    // as the background worker) to avoid worker-timing flakiness.
-    let final_status = crate::tools::report_jobs::run_analysis_job_from_queue(
-        &state,
-        job_id.clone(),
-        state.current_project_scope(),
-        "refresh_symbol_index".to_owned(),
-        json!({"background": true}),
-    );
+    // The queue call above already started the real background worker. Running
+    // the same job synchronously here as well races two writers on the same
+    // durable job record (`<job_id>.json.tmp`) and can fail with ENOENT when
+    // either writer renames the other's staging file. Poll the one queued
+    // execution instead, which also verifies the actual background contract.
+    let mut final_status = crate::runtime_types::JobLifecycle::Queued;
+    for _ in 0..100 {
+        let Some(job) = state.get_analysis_job(&job_id) else {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            continue;
+        };
+        final_status = job.status;
+        if matches!(
+            final_status,
+            crate::runtime_types::JobLifecycle::Completed
+                | crate::runtime_types::JobLifecycle::Cancelled
+                | crate::runtime_types::JobLifecycle::Error
+        ) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     // On mismatch, surface the stored job record — it carries the runner's
     // actual error note, which the bare lifecycle enum hides (CI-only
     // failures are otherwise undiagnosable).

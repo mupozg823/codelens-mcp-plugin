@@ -116,7 +116,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         }
     });
     let metrics_payload =
-        build_session_metrics_payload(state, requested_session_id, coordination_scope.as_deref());
+        build_session_metrics_payload(state, requested_session_id, coordination_scope.as_deref())?;
     let analysis_observability = json!({
         "analysis_jobs_enqueued": metrics_payload.session.get("analysis_jobs_enqueued").cloned().unwrap_or_else(|| json!(0)),
         "analysis_jobs_started": metrics_payload.session.get("analysis_jobs_started").cloned().unwrap_or_else(|| json!(0)),
