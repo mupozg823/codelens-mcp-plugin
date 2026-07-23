@@ -43,6 +43,7 @@ use crate::project::{collect_files, is_excluded_within};
 pub struct SymbolIndex {
     project: ProjectRoot,
     storage: IndexStorage,
+    mutations: std::sync::Arc<writer::MutationTracker>,
     writer: std::sync::Mutex<IndexDb>,
 }
 
@@ -51,9 +52,11 @@ impl SymbolIndex {
     pub fn new(project: ProjectRoot) -> Result<Self> {
         let db_path = index_db_path(project.as_path());
         let db = IndexDb::open(&db_path)?;
+        let mutations = writer::persistent_mutation_tracker(&db_path);
         let mut idx = Self {
             project,
             storage: IndexStorage::Persistent(db_path),
+            mutations,
             writer: std::sync::Mutex::new(db),
         };
         // Auto-migrate from legacy JSON index if DB is empty
@@ -87,6 +90,7 @@ impl SymbolIndex {
         Self {
             project,
             storage: IndexStorage::Memory,
+            mutations: std::sync::Arc::new(writer::MutationTracker::default()),
             writer: std::sync::Mutex::new(db),
         }
     }
@@ -115,6 +119,12 @@ impl SymbolIndex {
     pub fn file_count(&self) -> Result<usize> {
         let db = self.reader()?;
         db.file_count()
+    }
+
+    /// Monotonic process-local generation for successful index mutations.
+    /// Ticket allocation, read fast paths, failed writes, and no-op writes do not advance it.
+    pub fn committed_generation(&self) -> u64 {
+        self.mutations.committed_generation()
     }
 
     /// Per-language (extension) indexed-file counts, descending — see
