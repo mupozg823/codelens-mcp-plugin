@@ -69,7 +69,11 @@ fn lsp_install_hint(command: &str) -> &'static str {
 
 pub(super) fn enhance_lsp_error(err: anyhow::Error, command: &str) -> CodeLensError {
     let msg = err.to_string();
-    if msg.contains("No such file") || msg.contains("not found") || msg.contains("spawn") {
+    if msg.contains("No such file")
+        || msg.contains("not found")
+        || msg.contains("spawn")
+        || msg.contains("no trusted executable configured")
+    {
         CodeLensError::LspNotAttached(format!(
             "LSP server '{command}' not found. Install it:\n{}",
             lsp_install_hint(command)
@@ -111,5 +115,28 @@ pub(super) fn language_name_for_path(file_path: &str) -> &'static str {
         "java" => "java",
         "py" => "python",
         _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::enhance_lsp_error;
+    use crate::error::RecoveryHint;
+
+    #[test]
+    fn missing_trusted_executable_uses_symbol_fallback_when_lsp_cannot_attach() {
+        // Given: the engine rejects a recipe whose executable is unavailable in the daemon.
+        let engine_error = anyhow::anyhow!(
+            "Blocked: 'pyright' has no trusted executable configured in the daemon environment"
+        );
+
+        // When: the MCP boundary classifies the engine error.
+        let recovery_hint = enhance_lsp_error(engine_error, "pyright").recovery_hint();
+
+        // Then: clients receive the structured non-LSP fallback.
+        assert!(matches!(
+            recovery_hint,
+            Some(RecoveryHint::FallbackTool { tool, .. }) if tool == "find_symbol"
+        ));
     }
 }
