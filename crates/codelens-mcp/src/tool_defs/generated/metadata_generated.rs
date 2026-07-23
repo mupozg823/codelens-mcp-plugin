@@ -53,6 +53,46 @@ pub(in crate::tool_defs) fn tool_is_content_mutation(name: &str) -> bool {
     )
 }
 
+pub(in crate::tool_defs) fn tool_symbol_generation_consistent(name: &str) -> bool {
+    matches!(
+        name,
+        "get_symbols_overview"
+            | "find_symbol"
+            | "get_ranked_context"
+            | "bm25_symbol_search"
+            | "get_complexity"
+            | "search_symbols_fuzzy"
+            | "find_referencing_symbols"
+            | "get_type_hierarchy"
+            | "plan_symbol_rename"
+            | "get_changed_files"
+            | "get_symbol_importance"
+            | "find_scoped_references"
+            | "get_callers"
+            | "get_callees"
+            | "verify_change_readiness"
+            | "module_boundary_report"
+            | "mermaid_module_graph"
+            | "safe_rename_report"
+            | "unresolved_reference_check"
+            | "dead_code_report"
+            | "impact_report"
+            | "refactor_safety_report"
+            | "diff_aware_references"
+            | "explore_codebase"
+            | "trace_request_path"
+            | "review_architecture"
+            | "plan_safe_refactor"
+            | "cleanup_duplicate_logic"
+            | "review_changes"
+            | "diagnose_issues"
+            | "find_phantom_modules"
+            | "find_redundant_definitions"
+            | "find_over_visible_apis"
+            | "classify_symbol"
+    )
+}
+
 pub(in crate::tool_defs) fn tool_experimental_feature(name: &str) -> Option<&'static str> {
     match name {
         "add_queryable_project" => Some("secondary-projects"),

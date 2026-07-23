@@ -106,6 +106,8 @@ pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static
             "overview",
             "search",
             "graph",
+            "review",
+            "diagnose",
             "plan_safe_refactor",
             "prepare_harness_session",
             "analyze_change_request",
@@ -237,6 +239,13 @@ pub(crate) fn is_read_only_surface(surface: ToolSurface) -> bool {
 
 pub(crate) fn is_content_mutation_tool(name: &str) -> bool {
     generated::tool_is_content_mutation(name)
+}
+
+/// Whether a resolved handler must return a payload from one committed symbol
+/// index generation. The predicate is generated from `tools.toml`; verb
+/// facades inherit the contract of their resolved target.
+pub(crate) fn tool_symbol_generation_consistent(name: &str) -> bool {
+    generated::tool_symbol_generation_consistent(name)
 }
 
 pub(crate) fn experimental_feature_for_tool(name: &str) -> Option<&'static str> {
