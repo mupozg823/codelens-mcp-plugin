@@ -1,7 +1,6 @@
 use super::*;
 
 mod failures;
-mod guidance;
 mod metrics;
 mod parity;
 

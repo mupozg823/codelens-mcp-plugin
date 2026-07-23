@@ -90,7 +90,11 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     // Mutation allowed with caution = no fresh preflight was found
     let missing_preflight = had_caution;
 
-    let has_output_schema = tool_definition(name)
+    // Verb facades must preserve the resolved handler's structured-output
+    // contract. Looking up the outer facade here can silently drop fields when
+    // only the target declares an output schema.
+    let schema_tool_name = operation.target.unwrap_or(name);
+    let has_output_schema = tool_definition(schema_tool_name)
         .and_then(|tool| tool.output_schema.as_ref())
         .is_some();
     let structured_content = has_output_schema.then(|| payload.clone());
