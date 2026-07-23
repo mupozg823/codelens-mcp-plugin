@@ -14,6 +14,7 @@ use crate::util::now_ms;
 pub(crate) const DEFAULT_COORDINATION_TTL_SECS: u64 = 5 * 60;
 const MAX_COORDINATION_TTL_SECS: u64 = 60 * 60;
 const COORDINATION_DB_FILENAME: &str = "coordination.db";
+const COORDINATION_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn normalize_ttl_secs(ttl_secs: u64) -> u64 {
     ttl_secs.clamp(1, MAX_COORDINATION_TTL_SECS)
@@ -152,7 +153,7 @@ impl AgentCoordinationStore {
         }
         let conn = Connection::open(&db_path)
             .with_context(|| format!("failed to open coordination db {}", db_path.display()))?;
-        conn.busy_timeout(Duration::from_millis(250))
+        conn.busy_timeout(COORDINATION_DB_BUSY_TIMEOUT)
             .context("failed to set coordination db busy timeout")?;
         conn.pragma_update(None, "journal_mode", "WAL")
             .context("failed to enable coordination db WAL mode")?;
@@ -605,6 +606,7 @@ impl AgentCoordinationStore {
 mod lock_stats_tests {
     use super::*;
     use std::process::Command;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static TEST_SCOPE_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -870,6 +872,69 @@ mod lock_stats_tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn claim_waits_for_a_short_cross_connection_writer_lock() {
+        let scope = temp_scope("short-writer-lock");
+        let mut lock_holder =
+            AgentCoordinationStore::open_db(&scope).expect("open lock-holder database");
+        let configured_busy_timeout_ms: u64 = lock_holder
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .expect("read coordination busy timeout");
+        assert_eq!(
+            configured_busy_timeout_ms,
+            COORDINATION_DB_BUSY_TIMEOUT.as_millis() as u64,
+            "every coordination connection must install the bounded contention policy"
+        );
+        let transaction = lock_holder
+            .transaction()
+            .expect("start lock-holder transaction");
+        transaction
+            .execute(
+                "INSERT INTO agents
+                 (session_id, agent_name, branch, worktree, intent, expires_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    "lock-holder",
+                    "lock-holder",
+                    "branch",
+                    "worktree",
+                    "hold the WAL writer briefly",
+                    now_ms().saturating_add(60_000)
+                ],
+            )
+            .expect("acquire WAL writer lock");
+
+        let start_barrier = Arc::new(std::sync::Barrier::new(2));
+        let claim_scope = scope.clone();
+        let claimant_barrier = Arc::clone(&start_barrier);
+        let claimant = std::thread::spawn(move || {
+            claimant_barrier.wait();
+            let started_at = Instant::now();
+            let outcome = AgentCoordinationStore::new().claim_files(
+                &claim_scope,
+                "waiting-session",
+                "waiting-agent",
+                "branch",
+                "worktree",
+                vec!["src/shared.rs".to_owned()],
+                "wait for writer",
+                Some(60),
+            );
+            (started_at.elapsed(), outcome)
+        });
+
+        start_barrier.wait();
+        std::thread::sleep(Duration::from_millis(400));
+        transaction.commit().expect("release WAL writer lock");
+
+        let (elapsed, outcome) = claimant.join().expect("join waiting claimant");
+        assert!(
+            elapsed >= Duration::from_millis(300),
+            "claimant did not exercise writer contention: elapsed={elapsed:?}"
+        );
+        outcome.expect("a short cross-connection writer lock must not fail coordination");
     }
 
     #[test]
