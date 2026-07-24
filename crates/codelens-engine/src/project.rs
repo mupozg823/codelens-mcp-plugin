@@ -5,6 +5,7 @@ mod exclusions;
 mod frameworks;
 mod language;
 mod paths;
+mod remote_root;
 mod root_detect;
 mod workspace;
 
@@ -34,6 +35,7 @@ impl ProjectRoot {
             bail!("project root is not a directory: {}", start.display());
         }
         let root = detect_root(&start).unwrap_or_else(|| start.clone());
+        remote_root::ensure_local_root(&root)?;
         Ok(Self { root })
     }
 
@@ -45,6 +47,7 @@ impl ProjectRoot {
         if !root.is_dir() {
             bail!("project root is not a directory: {}", root.display());
         }
+        remote_root::ensure_local_root(&root)?;
         Ok(Self { root })
     }
 

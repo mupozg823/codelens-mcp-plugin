@@ -70,10 +70,12 @@
 - **P0 forwarded headers — met at the transport-config layer.** Non-local HTTP
   listen requires auth + TLS (`server/http_config.rs::validate_remote_transport_config`);
   cross-origin POST rejected (`post_from_remote_origin_is_forbidden`).
-- **P0 remote project roots — open.** `ProjectRoot::new` guards canonicalization,
-  directory-ness, path escape, and symlink escape, but has no explicit
-  network/remote-mount rejection; remote *transport* exposure is guarded above.
-  Path-level rejection needs a scope decision before implementation.
+- **P0 remote project roots — met.** `ProjectRoot::new`/`new_exact` reject roots
+  on network filesystems by default (`project/remote_root.rs`: statfs kind
+  detection, fail-open on detection error, opt-out via
+  `CODELENS_ALLOW_REMOTE_PROJECT_ROOT=1`). Rationale: the `.codelens` SQLite
+  index is unsafe on network mounts and a stalled mount wedges the shared
+  daemon. FUSE-backed remotes present as local and stay out of scope.
 - **Decision 3 — in progress.** The coordination quartet entered the deprecation
   window (569513da) with persisted removal-gate telemetry (27c897e5); removal
   lands in v2.0 after one clean release of telemetry.
