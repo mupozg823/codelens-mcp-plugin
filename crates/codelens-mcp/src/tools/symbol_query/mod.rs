@@ -6,6 +6,7 @@
 //! `semantic_retriever::semantic_results_for_query`) use the
 //! cross-cutting seam established in PR-A.
 
+pub(crate) mod batch;
 mod find_symbol;
 mod rank_fusion;
 mod ranked_context;

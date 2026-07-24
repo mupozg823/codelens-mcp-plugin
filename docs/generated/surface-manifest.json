@@ -149,7 +149,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 505
+        "estimated_tokens": 686
       },
       {
         "name": "get_ranked_context",
@@ -163,7 +163,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 1241
+        "estimated_tokens": 1419
       },
       {
         "name": "search",
@@ -177,7 +177,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 388
+        "estimated_tokens": 598
       },
       {
         "name": "overview",
@@ -275,7 +275,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 660
+        "estimated_tokens": 835
       },
       {
         "name": "get_file_diagnostics",

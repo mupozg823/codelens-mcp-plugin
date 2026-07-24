@@ -138,7 +138,12 @@ pub(crate) fn validate_required_params(
             }
             let present = arguments
                 .get(key)
-                .is_some_and(|v| !v.is_null() && v.as_str() != Some(""));
+                .is_some_and(|v| !v.is_null() && v.as_str() != Some(""))
+                // ADR-0016 decision 6: the array alias (`names`, `queries`,
+                // `symbol_names`) stands in for its singular required param.
+                || crate::tools::symbol_query::batch::satisfies_required_via_batch(
+                    name, key, arguments,
+                );
             if !present {
                 return Err(crate::error::CodeLensError::MissingParam(key.to_owned()));
             }

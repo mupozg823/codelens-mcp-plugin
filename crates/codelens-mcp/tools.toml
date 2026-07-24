@@ -234,6 +234,10 @@ include_body = { type = "boolean" }
 exact_match = { type = "boolean" }
 max_matches = { type = "integer" }
 name_path = { type = "string", description = "DEPRECATED v1.13.23 — use `name`. Soft alias maintained until v1.14.0." }
+names = { type = "array", items = { type = "string" }, description = "Batch form of `name`: one lookup per element, returned as a keyed `batch` array. A bad element is a per-item error entry, not a batch failure." }
+cursor = { type = "string", description = "Opaque continuation token from a previous `next_cursor`. Pages are pure slices of one deterministic result set." }
+page_size = { type = "integer", description = "Max entries per page; the response carries `next_cursor` when more remain." }
+snapshot = { type = "string", description = "Index snapshot token (`index_snapshot` from any response). Pins the read; a token that is not the current committed generation is rejected with retryable index_generation_changed (-32011)." }
 
 # ─────
 
@@ -262,6 +266,10 @@ depth = { type = "integer" }
 disable_semantic = { type = "boolean", description = "Disable semantic/hybrid ranking and use structural signals only" }
 expand_query = { type = "boolean", description = "When true (default), expand the query with snake_case / camelCase / cartesian-token derivatives. Set to false for natural-language queries that don't benefit from expansion." }
 anchor_files = { type = "array", items = { type = "string" }, description = "Optional working-set anchors: repo-relative file paths (e.g. files being actively edited) whose symbols are boosted in the user-context ranking lane. Reuses the recency lane's file-membership weighting — no graph recompute." }
+queries = { type = "array", items = { type = "string" }, description = "Batch form of `query`: one retrieval per element, returned as a keyed `batch` array. Satisfies the required `query` param on its own." }
+cursor = { type = "string", description = "Opaque continuation token from a previous `next_cursor`. Pages are pure slices of one deterministic result set." }
+page_size = { type = "integer", description = "Max entries per page; the response carries `next_cursor` when more remain." }
+snapshot = { type = "string", description = "Index snapshot token (`index_snapshot` from any response). Pins the read; a token that is not the current committed generation is rejected with retryable index_generation_changed (-32011)." }
 
 # ─────
 
@@ -287,6 +295,12 @@ symbol_name = { type = "string", description = "Symbol to look up references for
 include_body = { type = "boolean" }
 max_results = { type = "integer" }
 use_lsp = { type = "boolean", description = "Type-aware precision (mode=refs|defn|impl)" }
+names = { type = "array", items = { type = "string" }, description = "Batch form of `name` (mode=symbol); forwarded to the target tool unchanged." }
+queries = { type = "array", items = { type = "string" }, description = "Batch form of `query` (mode=ranked); forwarded to the target tool unchanged." }
+symbol_names = { type = "array", items = { type = "string" }, description = "Batch form of `symbol_name` (mode=refs); forwarded to the target tool unchanged." }
+cursor = { type = "string", description = "Opaque continuation token from a previous `next_cursor`; forwarded to the target tool unchanged." }
+page_size = { type = "integer", description = "Max entries per page; forwarded to the target tool unchanged." }
+snapshot = { type = "string", description = "Index snapshot token (`index_snapshot` from any response); forwarded to the target tool unchanged." }
 
 # ─────
 
@@ -497,6 +511,10 @@ path = { type = "string", description = "File containing or declaring the symbol
 file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 symbol_name = { type = "string", description = "Symbol name (default: tree-sitter search)" }
+symbol_names = { type = "array", items = { type = "string" }, description = "Batch form of `symbol_name`: one lookup per element against the same `path`, returned as a keyed `batch` array." }
+cursor = { type = "string", description = "Opaque continuation token from a previous `next_cursor`. Pages are pure slices of one deterministic result set." }
+page_size = { type = "integer", description = "Max entries per page; the response carries `next_cursor` when more remain." }
+snapshot = { type = "string", description = "Index snapshot token (`index_snapshot` from any response). Pins the read; a token that is not the current committed generation is rejected with retryable index_generation_changed (-32011)." }
 line = { type = "integer", description = "Line number (triggers LSP path)" }
 column = { type = "integer", description = "Column number (triggers LSP path)" }
 use_lsp = { type = "boolean", description = "Force LSP lookup (slower but type-aware, requires LSP server)" }

@@ -56,6 +56,17 @@ macro_rules! tool_registry {
     }};
 }
 
+/// Wrap a read handler with the array/cursor/snapshot layer (ADR-0016
+/// decision 6). The wrapper is transparent for singular calls and consumes only
+/// its own reserved keys, so handler contracts stay untouched. `search` picks
+/// this up through mode routing, which forwards arguments verbatim.
+fn programmatic_read(
+    tool: &'static str,
+    handler: fn(&AppState, &serde_json::Value) -> ToolResult,
+) -> impl Fn(&AppState, &serde_json::Value) -> ToolResult + Send + Sync + 'static {
+    move |state, arguments| symbol_query::batch::run_programmatic(tool, handler, state, arguments)
+}
+
 /// Build the dispatch table. Add new tools here — one line per tool.
 #[allow(deprecated)]
 pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHandler> {
@@ -69,14 +80,14 @@ pub fn dispatch_table() -> HashMap<&'static str, crate::tool_defs::tool::ToolHan
         "find_tests"                   => filesystem::find_tests,
         // ── Symbol ──
         "get_symbols_overview"         => symbols::get_symbols_overview,
-        "find_symbol"                  => symbols::find_symbol,
-        "get_ranked_context"           => symbols::get_ranked_context,
+        "find_symbol"                  => programmatic_read("find_symbol", symbols::find_symbol),
+        "get_ranked_context"           => programmatic_read("get_ranked_context", symbols::get_ranked_context),
         "bm25_symbol_search"          => symbols::bm25_symbol_search,
         "refresh_symbol_index"         => symbols::refresh_symbol_index,
         "get_complexity"               => symbols::get_complexity,
         "search_symbols_fuzzy"         => symbols::search_symbols_fuzzy,
         // ── LSP ──
-        "find_referencing_symbols"     => lsp::find_referencing_symbols,
+        "find_referencing_symbols"     => programmatic_read("find_referencing_symbols", lsp::find_referencing_symbols),
         "get_file_diagnostics"         => lsp::get_file_diagnostics,
         "search_workspace_symbols"     => lsp::search_workspace_symbols,
         "get_type_hierarchy"           => lsp::get_type_hierarchy,
@@ -332,5 +343,210 @@ mod tombstone_tests {
             "guidance must name the replacement path: {guidance}"
         );
         assert!(tombstone_guidance("find_symbol").is_none());
+    }
+}
+
+/// ADR-0016 decision 6 / execution-plan I2.3 — array, cursor, and snapshot
+/// inputs on the read tools, exercised through the real dispatch table so the
+/// wiring (not just the helper module) is under test.
+#[cfg(test)]
+mod programmatic_read_tests {
+    use super::dispatch_table;
+    use crate::test_helpers::fixtures::temp_project_root;
+    use crate::tool_defs::ToolPreset;
+    use serde_json::{Value, json};
+
+    fn test_state(label: &str) -> crate::AppState {
+        crate::AppState::new_minimal(temp_project_root(label), ToolPreset::Full)
+    }
+
+    fn call(state: &crate::AppState, tool: &str, args: &Value) -> crate::tool_runtime::ToolResult {
+        let table = dispatch_table();
+        let handler = table.get(tool).expect("tool must be dispatchable");
+        handler(state, args)
+    }
+
+    #[test]
+    fn batch_names_return_keyed_per_item_entries_and_snapshot_token() {
+        let state = test_state("batch-find-symbol-items");
+        let (payload, _) = call(
+            &state,
+            "find_symbol",
+            &json!({ "names": ["sample", "other_symbol", 42] }),
+        )
+        .expect("batch call must succeed as a whole");
+
+        let items = payload["batch"]
+            .as_array()
+            .expect("batch payload must carry a `batch` array");
+        assert_eq!(items.len(), 3, "one entry per requested name");
+        assert_eq!(items[0]["name"], json!("sample"));
+        assert_eq!(items[1]["name"], json!("other_symbol"));
+        assert_eq!(items[0]["ok"], json!(true));
+        assert!(items[0]["result"].is_object());
+        assert_eq!(
+            items[2]["ok"],
+            json!(false),
+            "a bad element is a per-item error, not a whole-batch failure"
+        );
+        assert!(
+            items[2]["error"]["message"].is_string(),
+            "per-item error entry must carry a message"
+        );
+        assert_eq!(payload["batch_count"], json!(3));
+        assert_eq!(payload["error_count"], json!(1));
+        assert!(
+            payload["index_snapshot"].is_string(),
+            "every response must advertise the snapshot token"
+        );
+    }
+
+    #[test]
+    fn cursor_pages_concatenate_to_the_unpaged_batch() {
+        let state = test_state("batch-cursor-continuity");
+        let names = json!(["sample", "other_symbol", "third_symbol"]);
+
+        let (full, _) = call(&state, "find_symbol", &json!({ "names": names }))
+            .expect("unpaged batch must succeed");
+        let full_items = full["batch"].as_array().expect("batch array").clone();
+        assert_eq!(full_items.len(), 3);
+        assert!(
+            full["next_cursor"].is_null(),
+            "unpaged response must not advertise a cursor"
+        );
+
+        let (page1, _) = call(
+            &state,
+            "find_symbol",
+            &json!({ "names": names, "page_size": 2 }),
+        )
+        .expect("first page must succeed");
+        let page1_items = page1["batch"].as_array().expect("batch array").clone();
+        assert_eq!(page1_items.len(), 2);
+        let cursor = page1["next_cursor"]
+            .as_str()
+            .expect("truncated page must advertise next_cursor")
+            .to_owned();
+
+        let (page2, _) = call(
+            &state,
+            "find_symbol",
+            &json!({ "names": names, "page_size": 2, "cursor": cursor }),
+        )
+        .expect("second page must succeed");
+        let page2_items = page2["batch"].as_array().expect("batch array").clone();
+        assert_eq!(page2_items.len(), 1);
+        assert!(
+            page2["next_cursor"].is_null(),
+            "final page must not advertise a cursor"
+        );
+
+        let mut stitched = page1_items;
+        stitched.extend(page2_items);
+        assert_eq!(
+            stitched, full_items,
+            "two stitched pages must equal the single unpaged result"
+        );
+    }
+
+    #[test]
+    fn stale_snapshot_pin_is_rejected_with_retryable_generation_error() {
+        let state = test_state("batch-snapshot-mismatch");
+        let error = call(
+            &state,
+            "find_symbol",
+            &json!({ "name": "sample", "snapshot": "gen:999999" }),
+        )
+        .expect_err("a snapshot pin that is not the current generation must be rejected");
+
+        assert_eq!(
+            error.jsonrpc_code(),
+            -32011,
+            "must reuse the retryable IndexGenerationChanged contract: {error:?}"
+        );
+    }
+
+    #[test]
+    fn same_snapshot_twice_is_byte_identical() {
+        let state = test_state("batch-determinism");
+        let (probe, _) = call(&state, "find_symbol", &json!({ "name": "sample" }))
+            .expect("probe call must succeed");
+        let snapshot = probe["index_snapshot"]
+            .as_str()
+            .expect("probe must advertise the snapshot token")
+            .to_owned();
+
+        let args = json!({ "names": ["sample", "other_symbol"], "snapshot": snapshot });
+        let (first, _) = call(&state, "find_symbol", &args).expect("first pinned call");
+        let (second, _) = call(&state, "find_symbol", &args).expect("second pinned call");
+
+        assert_eq!(
+            serde_json::to_string(&first).expect("serialize first"),
+            serde_json::to_string(&second).expect("serialize second"),
+            "identical snapshot + identical arguments must be byte-identical"
+        );
+    }
+
+    #[test]
+    fn referencing_symbols_accepts_a_target_array() {
+        let state = test_state("batch-referencing-symbols");
+        let (payload, _) = call(
+            &state,
+            "find_referencing_symbols",
+            &json!({ "path": "lib.rs", "symbol_names": ["sample", "other_symbol"] }),
+        )
+        .expect("batch reference lookup must succeed as a whole");
+
+        let items = payload["batch"].as_array().expect("batch array");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["symbol_name"], json!("sample"));
+        assert!(payload["index_snapshot"].is_string());
+    }
+
+    #[test]
+    fn ranked_context_batch_satisfies_the_required_singular_param() {
+        // `dispatch::envelope::validate_required_params` consults this predicate
+        // (the module itself is private to `dispatch`), so the contract is
+        // asserted on the shared hook.
+        assert!(
+            super::symbol_query::batch::satisfies_required_via_batch(
+                "get_ranked_context",
+                "query",
+                &json!({ "queries": ["alpha", "beta"] }),
+            ),
+            "the batch array must satisfy the singular required param"
+        );
+        assert!(
+            !super::symbol_query::batch::satisfies_required_via_batch(
+                "get_ranked_context",
+                "query",
+                &json!({}),
+            ),
+            "an absent batch array must not satisfy the required param"
+        );
+    }
+
+    #[test]
+    fn singular_calls_keep_their_legacy_shape() {
+        let state = test_state("batch-backcompat");
+        let (payload, _) = call(&state, "find_symbol", &json!({ "name": "sample" }))
+            .expect("singular call must keep working");
+
+        assert!(
+            payload.get("batch").is_none(),
+            "a singular call must not grow a batch envelope"
+        );
+        assert!(
+            payload["symbols"].is_array(),
+            "legacy `symbols` array stays"
+        );
+        assert!(payload["count"].is_number(), "legacy `count` stays");
+        let warnings = payload["warnings"].as_array().cloned().unwrap_or_default();
+        assert!(
+            !warnings
+                .iter()
+                .any(|w| w.as_str().is_some_and(|w| w.contains("unknown args"))),
+            "the batch layer must not leak reserved keys into the handler: {warnings:?}"
+        );
     }
 }
