@@ -596,8 +596,12 @@ async fn deferred_tier_load_expands_default_surface_and_allows_calls() {
                 .uri("/mcp")
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
+                // ADR-0016: find_symbol is now CORE-20 (default-listed) so it is
+                // always callable and can no longer demonstrate the tier gate.
+                // get_symbols_overview stays an unlisted primitive-tier alias, so
+                // it is still hidden until the `primitive` tier is loaded.
                 .body(axum::body::Body::from(format!(
-                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"find_symbol","arguments":{{"name":"beta","file_path":"{}","include_body":false}}}}}}"#,
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"get_symbols_overview","arguments":{{"path":"{}"}}}}}}"#,
                     file_path.display()
                 )))
                 .unwrap(),
@@ -659,7 +663,7 @@ async fn deferred_tier_load_expands_default_surface_and_allows_calls() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(format!(
-                    r#"{{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{{"name":"find_symbol","arguments":{{"name":"beta","file_path":"{}","include_body":false}}}}}}"#,
+                    r#"{{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{{"name":"get_symbols_overview","arguments":{{"path":"{}"}}}}}}"#,
                     file_path.display()
                 )))
                 .unwrap(),

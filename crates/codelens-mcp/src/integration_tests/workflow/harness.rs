@@ -909,8 +909,8 @@ fn prepare_harness_session_compact_exposes_visible_tools_omitted_count() {
         .as_u64()
         .expect("default_listed_tool_count present in compact response");
     assert!(
-        (5..=9).contains(&default_listed_tool_count),
-        "default tools/list slice should stay in the 5-9 range, got {default_listed_tool_count}"
+        (10..=20).contains(&default_listed_tool_count),
+        "default tools/list slice should be the ADR-0016 CORE-20 (10-20 range), got {default_listed_tool_count}"
     );
     let default_listed_names = visible_tools["default_listed_tool_names"]
         .as_array()

@@ -38,14 +38,24 @@ fn set_preset_changes_tools_list() {
         },
     )
     .unwrap();
-    let min_json = serde_json::to_string(&min_resp).unwrap();
+    // ADR-0016: the default listing is the static CORE-20 regardless of preset.
+    // Assert on tool *names* — `start_analysis_job` (a CORE-20 member) carries a
+    // `dead_code_report` enum value in its input schema, so a raw substring match
+    // no longer isolates the dead_code_report tool.
+    let min_value = serde_json::to_value(&min_resp).unwrap();
+    let min_names = min_value["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
     assert!(
-        !min_json.contains("dead_code_report"),
-        "Minimal preset should NOT include dead_code_report"
+        !min_names.contains(&"dead_code_report"),
+        "default listing must not list the dead_code_report tool, got {min_names:?}"
     );
     assert!(
-        min_json.contains("\"search\""),
-        "Default minimal listing should include the MVP retrieval entrypoint (search verb)"
+        min_names.contains(&"search"),
+        "default listing should include the MVP retrieval entrypoint (search verb)"
     );
 
     let bal_resp = call_tool(&state, "set_preset", json!({"preset": "balanced"}));

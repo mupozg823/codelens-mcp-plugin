@@ -1,9 +1,10 @@
 use crate::AppState;
 use crate::protocol::{Tool, ToolPhase};
 use crate::tool_defs::{
-    ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_tier_labels, tool_default_listed, tool_deprecation, tool_namespace, tool_phase_label,
-    tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
+    ToolPreset, ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools,
+    preferred_namespaces, preferred_tier_labels, tool_deprecation, tool_is_always_loaded_core,
+    tool_namespace, tool_phase_label, tool_tier_label, visible_namespaces, visible_tiers,
+    visible_tools,
 };
 
 use super::ResourceRequestContext;
@@ -26,7 +27,12 @@ pub(crate) struct VisibleToolContext {
 }
 
 fn is_initial_deferred_tool(name: &str) -> bool {
-    is_deferred_control_tool(name) || tool_default_listed(name)
+    // ADR-0016: the deferred *bootstrap* is the always-loaded CORE-10, not the
+    // wider CORE-20 static surface. A deferred (non-native-search) host gets
+    // CORE-10 up front and expands the rest on demand; the CORE-20 surface is
+    // reserved for hosts where deferred loading is switched off (native tool
+    // search, see request.rs / session_context.rs).
+    is_deferred_control_tool(name) || tool_is_always_loaded_core(name)
 }
 
 pub(crate) fn filter_listed_tools(
@@ -63,10 +69,19 @@ pub(crate) fn filter_default_listed_tools(
     if !request.default_listing_requested() || requested_phase.is_some() {
         return tools;
     }
+    // ADR-0016 decision 5: the default surface is the static CORE-20, exposed
+    // independent of the active preset/profile so every built-in surface shows
+    // the same ≤20 roster. Source the tool objects from the full registry
+    // rather than the surface-filtered `tools` set — a narrower surface
+    // (e.g. Balanced excludes `get_watch_status`; Minimal omits the async-job
+    // handlers) would otherwise silently drop CORE-20 members. Feature-gated
+    // members like `semantic_search` are absent from the registry when their
+    // feature is off, so they fall away naturally (effective surface = 19).
     let default_names = default_listed_tool_names(surface);
+    let registry = visible_tools(ToolSurface::Preset(ToolPreset::Full));
     default_names
         .iter()
-        .filter_map(|name| tools.iter().copied().find(|tool| tool.name == *name))
+        .filter_map(|name| registry.iter().copied().find(|tool| tool.name == *name))
         .collect()
 }
 

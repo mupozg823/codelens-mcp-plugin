@@ -39,11 +39,20 @@ impl ResourceRequestContext {
         let host_context = string_param(params, "host_context");
         let client_profile =
             ClientProfile::detect_request(session.client_name.as_deref(), host_context.as_deref());
-        let deferred_loading_requested = params
-            .and_then(|value| value.get("_session_deferred_tool_loading"))
-            .and_then(|value| value.as_bool())
-            .or_else(|| client_profile.default_deferred_tool_loading())
+        // ADR-0016 decision 5: hosts advertising native tool search own
+        // progressive disclosure, so CodeLens does not layer its own deferred
+        // gate on top — the default listing then falls through to the static
+        // CORE-20 surface. This mirrors the dispatch-side gate in
+        // `SessionRequestContext::from_json`.
+        let native_tool_search = params
+            .map(crate::session_context::host_declares_native_tool_search)
             .unwrap_or(false);
+        let deferred_loading_requested = !native_tool_search
+            && params
+                .and_then(|value| value.get("_session_deferred_tool_loading"))
+                .and_then(|value| value.as_bool())
+                .or_else(|| client_profile.default_deferred_tool_loading())
+                .unwrap_or(false);
         Self {
             session,
             deferred_loading_requested,
@@ -99,4 +108,31 @@ fn string_param(params: Option<&Value>, key: &str) -> Option<String> {
         .and_then(|params| params.get(key))
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn native_tool_search_disables_deferred_listing_gate() {
+        // ADR-0016 decision 5: even with an explicit deferred request, a host
+        // that advertises native tool search gets the static default surface.
+        let params = json!({
+            "_session_deferred_tool_loading": true,
+            "_session_host_capabilities": {"native_tool_search": true},
+        });
+        let ctx = ResourceRequestContext::from_request("codelens://tools/list", Some(&params));
+        assert!(!ctx.deferred_loading_requested);
+        assert!(!ctx.deferred_loading_active());
+    }
+
+    #[test]
+    fn deferred_listing_gate_active_without_native_tool_search() {
+        let params = json!({"_session_deferred_tool_loading": true});
+        let ctx = ResourceRequestContext::from_request("codelens://tools/list", Some(&params));
+        assert!(ctx.deferred_loading_requested);
+        assert!(ctx.deferred_loading_active());
+    }
 }

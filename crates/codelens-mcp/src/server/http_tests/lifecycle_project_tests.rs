@@ -1094,11 +1094,19 @@ async fn prepare_harness_session_expands_tools_list_surface() {
         !bootstrap_names.is_empty(),
         "bootstrap listing must not be empty"
     );
+    // ADR-0016: the default bootstrap is the static CORE-20, which now includes
+    // find_referencing_symbols. get_symbols_overview is a hidden alias (not
+    // CORE-20), so it stays off the bootstrap and only surfaces once
+    // prepare_harness_session expands to the full surface.
     assert!(
         !bootstrap_names
             .iter()
-            .any(|name| name == "find_referencing_symbols"),
-        "bootstrap listing is expected to be collapsed: {bootstrap_names:?}"
+            .any(|name| name == "get_symbols_overview"),
+        "bootstrap listing is expected to be collapsed (no hidden aliases): {bootstrap_names:?}"
+    );
+    assert!(
+        bootstrap_names.len() <= 20,
+        "bootstrap listing must stay within the ADR-0016 CORE-20 cap: {bootstrap_names:?}"
     );
 
     let prepare_body = call_tool(

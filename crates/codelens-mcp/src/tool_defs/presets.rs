@@ -148,6 +148,88 @@ impl ToolSurface {
     }
 }
 
+// ── ADR-0016 default surface (CORE-10 / CORE-20) ─────────────────────────
+//
+// These two constants are the declarative source-of-truth for the workflow-
+// first default surface (ADR-0016 decisions 1 & 2). They are *not* a runtime
+// filter — the live default `tools/list` is generated from `tools.toml`
+// `default_visible_rank` (`default_listed_tool_names()`), and the lock tests
+// below assert the two agree. The constants document the intended roster and
+// give the reference-audit / surface-manifest tooling a single place to read
+// the ADR composition.
+//
+// Relationship to the preset/profile surfaces: Minimal/Balanced/Full and the
+// planner/builder/reviewer profiles gate the *expanded* (`full` / namespace /
+// tier) listing and the callable surface. The default (non-expanded)
+// `tools/list` is surface-independent — every built-in surface exposes exactly
+// this CORE-20 roster (feature-gated members aside). See
+// `resource_context::visible_tools::filter_default_listed_tools`.
+
+/// ADR-0016 decision 1 — always-loaded core (10). Schemas are preloaded so the
+/// model can call them without a ToolSearch round-trip.
+pub(crate) const CORE_10_TOOLS: &[&str] = &[
+    "prepare_harness_session",
+    "search",
+    "overview",
+    "graph",
+    "diagnose",
+    "review",
+    "plan_safe_refactor",
+    "verify_change_readiness",
+    "get_changed_files",
+    "get_current_config",
+];
+
+/// ADR-0016 decision 2 — static default surface (≤ 20) = CORE-10 plus ten
+/// precision/analysis entrypoints.
+///
+/// `semantic_search` is listed here as part of the declared roster, but it is
+/// only *registered* when the `semantic` feature is compiled in. When the
+/// feature is off the tool is absent from the registry, so the runtime
+/// `tools/list` (`filter_default_listed_tools`) drops it and the effective
+/// default surface is 19. The constant stays feature-independent so it matches
+/// the equally feature-independent generated `default_listed_tool_names()`.
+pub(crate) const CORE_20_TOOLS: &[&str] = &[
+    // CORE-10 (ADR order)
+    "prepare_harness_session",
+    "search",
+    "overview",
+    "graph",
+    "diagnose",
+    "review",
+    "plan_safe_refactor",
+    "verify_change_readiness",
+    "get_changed_files",
+    "get_current_config",
+    // CORE-20 extras
+    "get_ranked_context",
+    "find_symbol",
+    "find_referencing_symbols",
+    "semantic_search",
+    "refresh_symbol_index",
+    "get_watch_status",
+    "start_analysis_job",
+    "get_analysis_job",
+    "get_analysis_section",
+    "cancel_analysis_job",
+];
+
+// Compile-time guard for the ADR-0016 roster sizes (also keeps CORE_20_TOOLS
+// load-bearing in non-test builds, where the full-composition checks in the
+// `adr_0016_default_surface_tests` module are compiled out). The exact roster
+// composition and its agreement with the generated `default_listed_tool_names`
+// are locked by that test module.
+const _: () = {
+    assert!(
+        CORE_10_TOOLS.len() == 10,
+        "ADR-0016 CORE-10 must have 10 tools"
+    );
+    assert!(
+        CORE_20_TOOLS.len() == 20,
+        "ADR-0016 CORE-20 must have 20 tools"
+    );
+};
+
 pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     // Verb facades (Phase-1/2 read-only consolidation)
     "search",
@@ -485,12 +567,221 @@ pub(crate) fn is_tool_callable_in_surface(name: &str, surface: ToolSurface) -> b
             .unwrap_or(false)
 }
 
+/// ADR-0016 decision 1: the always-loaded CORE-10. This is the deferred
+/// *bootstrap* slice — schemas preloaded so the model can call them without a
+/// ToolSearch round-trip. Deliberately narrower than the CORE-20 static default
+/// surface (`tool_default_listed`): a host using CodeLens-side deferred loading
+/// gets CORE-10 up front and expands the remaining CORE-20 (and beyond) on
+/// demand, whereas a host with native tool search (deferred disabled) receives
+/// the full static CORE-20 directly.
+pub(crate) fn tool_is_always_loaded_core(name: &str) -> bool {
+    CORE_10_TOOLS.contains(&name)
+}
+
 /// Check if a tool is included in a given preset.
 pub(crate) fn is_tool_in_preset(name: &str, preset: ToolPreset) -> bool {
     match preset {
         ToolPreset::Full => true,
         ToolPreset::Minimal => MINIMAL_TOOLS.contains(&name),
         ToolPreset::Balanced => !BALANCED_EXCLUDES.contains(&name),
+    }
+}
+
+#[cfg(test)]
+mod adr_0016_default_surface_tests {
+    use super::*;
+
+    /// The 39 hidden aliases from `docs/design/workflow-first-tool-surface-migration.md`
+    /// (disposition `alias→X`). They must be callable but never appear on the
+    /// default listed surface (ADR-0016 decision 3).
+    const HIDDEN_ALIASES_39: &[&str] = &[
+        "get_symbols_overview",
+        "bm25_symbol_search",
+        "search_symbols_fuzzy",
+        "search_workspace_symbols",
+        "resolve_symbol_target",
+        "find_declaration",
+        "find_implementations",
+        "get_type_hierarchy",
+        "get_callers",
+        "get_callees",
+        "find_scoped_references",
+        "trace_request_path",
+        "impact_report",
+        "diff_aware_references",
+        "get_file_diagnostics",
+        "get_diagnostics_for_symbol",
+        "unresolved_reference_check",
+        "diagnose_issues",
+        "review_architecture",
+        "review_changes",
+        "module_boundary_report",
+        "dead_code_report",
+        "cleanup_duplicate_logic",
+        "find_code_duplicates",
+        "find_similar_code",
+        "find_misplaced_code",
+        "mermaid_module_graph",
+        "safe_rename_report",
+        "plan_symbol_rename",
+        "refactor_safety_report",
+        "analyze_change_request",
+        "explore_codebase",
+        "onboard_project",
+        "analyze",
+        "find_tests",
+        "list_analysis_jobs",
+        "list_analysis_artifacts",
+        "activate_project",
+        "get_capabilities",
+    ];
+
+    /// Tools whose registration is gated behind the `semantic` feature; when the
+    /// feature is off they are legitimately unregistered, so callability is not
+    /// asserted for them.
+    fn is_semantic_gated_off(name: &str) -> bool {
+        matches!(tool_feature_gate(name), Some("semantic")) && !cfg!(feature = "semantic")
+    }
+
+    /// Mirrors `dispatch/access.rs::is_registered_tool` — the runtime callability
+    /// gate that keeps hidden aliases dispatchable without a listed slot.
+    fn alias_is_callable(name: &str) -> bool {
+        crate::tool_defs::tool_definition(name).is_some()
+            || deprecated_workflow_alias(name).is_some()
+            || whitelist_preset_member_union().contains(name)
+    }
+
+    #[test]
+    fn core_10_is_subset_of_core_20() {
+        for tool in CORE_10_TOOLS {
+            assert!(
+                CORE_20_TOOLS.contains(tool),
+                "CORE-10 member `{tool}` must also be in CORE-20"
+            );
+        }
+        assert_eq!(
+            CORE_10_TOOLS.len(),
+            10,
+            "ADR-0016 decision 1 fixes CORE-10 at 10"
+        );
+    }
+
+    #[test]
+    fn core_10_matches_adr_decision_1_roster() {
+        // ADR-0016 decision 1, verbatim.
+        let adr: std::collections::BTreeSet<&str> = [
+            "prepare_harness_session",
+            "search",
+            "overview",
+            "graph",
+            "diagnose",
+            "review",
+            "plan_safe_refactor",
+            "verify_change_readiness",
+            "get_changed_files",
+            "get_current_config",
+        ]
+        .into_iter()
+        .collect();
+        let core: std::collections::BTreeSet<&str> = CORE_10_TOOLS.iter().copied().collect();
+        assert_eq!(core, adr, "CORE_10_TOOLS must equal ADR-0016 decision 1");
+    }
+
+    #[test]
+    fn core_20_matches_adr_decision_2_roster() {
+        // ADR-0016 decision 2, verbatim (CORE-10 plus the ten extras).
+        let adr: std::collections::BTreeSet<&str> = [
+            "prepare_harness_session",
+            "search",
+            "overview",
+            "graph",
+            "diagnose",
+            "review",
+            "plan_safe_refactor",
+            "verify_change_readiness",
+            "get_changed_files",
+            "get_current_config",
+            "get_ranked_context",
+            "find_symbol",
+            "find_referencing_symbols",
+            "semantic_search",
+            "refresh_symbol_index",
+            "get_watch_status",
+            "start_analysis_job",
+            "get_analysis_job",
+            "get_analysis_section",
+            "cancel_analysis_job",
+        ]
+        .into_iter()
+        .collect();
+        let core: std::collections::BTreeSet<&str> = CORE_20_TOOLS.iter().copied().collect();
+        assert_eq!(core.len(), 20, "CORE-20 must contain exactly 20 names");
+        assert_eq!(core, adr, "CORE_20_TOOLS must equal ADR-0016 decision 2");
+        // No duplicates in the ordered constant.
+        assert_eq!(
+            CORE_20_TOOLS.len(),
+            20,
+            "CORE_20_TOOLS has duplicate entries"
+        );
+    }
+
+    /// The generated default listing (from tools.toml `default_visible_rank`)
+    /// is the single runtime source; it must agree with the declared CORE-20
+    /// roster. Both are feature-independent (semantic_search present in each).
+    #[test]
+    fn default_listed_tool_names_equals_core_20() {
+        let generated: std::collections::BTreeSet<&str> =
+            default_listed_tool_names().iter().copied().collect();
+        let core: std::collections::BTreeSet<&str> = CORE_20_TOOLS.iter().copied().collect();
+        assert_eq!(
+            generated, core,
+            "tools.toml default_visible_rank must generate exactly the CORE-20 roster"
+        );
+    }
+
+    #[test]
+    fn hidden_aliases_are_unlisted_but_callable() {
+        assert_eq!(
+            HIDDEN_ALIASES_39.len(),
+            39,
+            "migration table lists 39 aliases"
+        );
+        let listed: std::collections::BTreeSet<&str> =
+            default_listed_tool_names().iter().copied().collect();
+        for alias in HIDDEN_ALIASES_39 {
+            assert!(
+                !listed.contains(alias),
+                "hidden alias `{alias}` must not appear on the default listed surface (ADR-0016 decision 3)"
+            );
+            if is_semantic_gated_off(alias) {
+                continue;
+            }
+            assert!(
+                alias_is_callable(alias),
+                "hidden alias `{alias}` must stay callable via the registration gate (dispatch/access.rs::is_registered_tool)"
+            );
+        }
+    }
+
+    /// ADR-0016 decision 4: host-native duplicates leave the default surface and
+    /// remain behind the generic compatibility profile only. Their exclusion is
+    /// expressed by membership in `BALANCED_EXCLUDES` (and absence from CORE-20).
+    #[test]
+    fn host_native_duplicates_are_off_the_default_surface() {
+        for name in ["read_file", "list_dir", "find_file"] {
+            assert!(
+                BALANCED_EXCLUDES.contains(&name),
+                "{name} must stay in BALANCED_EXCLUDES (generic profile only)"
+            );
+            assert!(
+                !CORE_20_TOOLS.contains(&name),
+                "{name} must not be part of the CORE-20 default surface"
+            );
+            assert!(
+                !default_listed_tool_names().contains(&name),
+                "{name} must not be default-listed"
+            );
+        }
     }
 }
 

@@ -25,18 +25,23 @@ fn lists_tools() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
-    // 2026-07-05 cost-surface contract: default tools/list is the
-    // bootstrap/control slice only. Broader work expands by phase,
-    // namespace, tier, or full listing.
-    assert!(names.len() <= 9, "default tools/list must stay <=9 tools");
+    // ADR-0016: the default tools/list is the static CORE-20 surface (≤20).
+    // Broader work still expands by phase, namespace, tier, or full listing.
+    assert!(
+        names.len() <= 20,
+        "default tools/list must stay within the ADR-0016 CORE-20 cap (<=20)"
+    );
     assert!(names.contains(&"prepare_harness_session"));
     assert!(names.contains(&"search"));
     assert!(
         names.contains(&"review"),
         "default tools/list must keep the pre-merge review entrypoint (verb facade)"
     );
+    // CORE-20 members now surface on the default listing.
+    assert!(names.contains(&"start_analysis_job"));
+    assert!(names.contains(&"find_symbol"));
+    // Hidden aliases stay off the default surface (callable via dispatch only).
     assert!(!names.contains(&"get_callers"));
-    assert!(!names.contains(&"start_analysis_job"));
     assert!(!names.contains(&"get_symbols_overview"));
 }
 
@@ -100,30 +105,28 @@ fn default_tools_list_is_mvp_focused_but_full_and_namespace_expand() {
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
 
-    // 2026-07-05: keep first exposure to the local code-intelligence
-    // control plane compact. The list is ordered as defined in
-    // `tools.toml` default_visible_rank entries; wider surfaces are explicit
-    // namespace/tier/phase/full expansions.
-    // Phase-1/2 verb consolidation: the verb facades replaced the absorbed
-    // entries (review_architecture, review_changes, find_symbol,
-    // get_ranked_context, explore_codebase) in the ranked bootstrap slice.
-    let expected: Vec<&'static str> = vec![
-        "prepare_harness_session",
-        "get_current_config",
-        "overview",
-        "review",
-        "diagnose",
-        "plan_safe_refactor",
-        "verify_change_readiness",
-        "search",
-        "graph",
-    ];
-    assert_eq!(default_tools, expected);
+    // ADR-0016: the default tools/list is the static CORE-20, ordered by the
+    // tools.toml `default_visible_rank` entries. The runtime surface is the
+    // generated roster projected onto the registered tool set — feature-gated
+    // members (e.g. semantic_search when the semantic feature is off) fall away,
+    // so the effective surface is ≤20. Deriving `expected` from the generated
+    // source keeps the order-from-default_visible_rank contract intact without
+    // hard-coding a feature-sensitive length.
+    let expected: Vec<&str> = crate::tool_defs::default_listed_tool_names()
+        .iter()
+        .copied()
+        .filter(|name| crate::tool_defs::tool_definition(name).is_some())
+        .collect();
     assert_eq!(
-        crate::tool_defs::default_listed_tool_names(),
-        expected.as_slice(),
-        "default tools/list order must be generated from tools.toml default_visible_rank"
+        default_tools, expected,
+        "default tools/list order must be the registered projection of tools.toml default_visible_rank"
     );
+    assert!(
+        default_tools.len() <= 20,
+        "default tools/list must stay within the ADR-0016 CORE-20 cap"
+    );
+    assert!(default_tools.contains(&"start_analysis_job"));
+    assert!(default_tools.contains(&"find_symbol"));
 
     let full_resp = handle_request(
         &state,

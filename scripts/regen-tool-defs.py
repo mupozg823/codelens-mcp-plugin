@@ -530,9 +530,14 @@ def collect_default_listed_tools(tools: list[dict[str, Any]]) -> list[str]:
         seen_ranks[rank] = name
         ranked.append((rank, name))
 
-    if not 5 <= len(ranked) <= 9:
+    # ADR-0016: the default listed surface is the static CORE-20 (CORE-10
+    # always-load plus 10). semantic_search carries a rank but is only
+    # registered when the semantic feature is active, so the compile-time
+    # roster is a fixed 20 names while the runtime tools/list drops it when
+    # the feature is off (see filter_default_listed_tools).
+    if not 10 <= len(ranked) <= 20:
         raise SystemExit(
-            "default_visible_rank must mark 5-9 tools; "
+            "default_visible_rank must mark 10-20 tools (ADR-0016 CORE-20); "
             f"found {len(ranked)}"
         )
     return [name for _, name in sorted(ranked)]

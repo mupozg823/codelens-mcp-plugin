@@ -82,7 +82,14 @@ impl SessionRequestContext {
         Self {
             source,
             session_id: str_field(value, "_session_id").unwrap_or_else(|| "local".to_owned()),
-            deferred_loading: bool_field(value, "_session_deferred_tool_loading"),
+            // ADR-0016 decision 5: a host with native tool search owns
+            // progressive disclosure, so the CodeLens-side deferred-loading
+            // gate is switched off — the server exposes the static CORE-20 and
+            // lets the host search the rest. Zeroing `deferred_loading` here
+            // makes both the dispatch access gates (dispatch/access.rs) and the
+            // listing gate fall through to the static default surface.
+            deferred_loading: bool_field(value, "_session_deferred_tool_loading")
+                && !host_declares_native_tool_search(value),
             project_path: str_field(value, "_session_project_path"),
             project_binding_source: str_field(value, "_session_project_binding_source"),
             loaded_namespaces: string_array_field(value, "_session_loaded_namespaces"),
@@ -121,6 +128,15 @@ impl SessionRequestContext {
 
 fn bool_field(value: &serde_json::Value, key: &str) -> bool {
     value.get(key).and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// Whether the request declares a host with native tool search
+/// (`host_capabilities.native_tool_search == true`). Used to disable the
+/// CodeLens-side deferred-loading gate per ADR-0016 decision 5.
+pub(crate) fn host_declares_native_tool_search(value: &serde_json::Value) -> bool {
+    crate::host_capabilities::HostCapabilities::from_arguments(value)
+        .map(|caps| caps.native_tool_search)
+        .unwrap_or(false)
 }
 
 fn str_field(value: &serde_json::Value, key: &str) -> Option<String> {
@@ -187,6 +203,37 @@ mod tests {
         assert!(ctx.is_transport_authenticated());
         assert!(ctx.trusted_client);
         assert_eq!(ctx.principal_id.as_deref(), Some("alice@example.com"));
+    }
+
+    #[test]
+    fn native_tool_search_disables_codelens_deferred_gate() {
+        // ADR-0016 decision 5: a host with native tool search owns progressive
+        // disclosure, so CodeLens must not layer its deferred gate on top.
+        let ctx = SessionRequestContext::from_json(&json!({
+            "_session_deferred_tool_loading": true,
+            "_session_host_capabilities": {"native_tool_search": true},
+        }));
+        assert!(
+            !ctx.deferred_loading,
+            "native tool search must switch off the CodeLens deferred-loading gate"
+        );
+    }
+
+    #[test]
+    fn deferred_gate_stays_on_without_native_tool_search() {
+        let ctx = SessionRequestContext::from_json(&json!({
+            "_session_deferred_tool_loading": true,
+            "_session_host_capabilities": {"native_tool_search": false},
+        }));
+        assert!(
+            ctx.deferred_loading,
+            "hosts without native tool search keep the CodeLens deferred gate"
+        );
+        // No host_capabilities object at all also leaves the gate intact.
+        let ctx_absent = SessionRequestContext::from_json(&json!({
+            "_session_deferred_tool_loading": true,
+        }));
+        assert!(ctx_absent.deferred_loading);
     }
 
     #[test]

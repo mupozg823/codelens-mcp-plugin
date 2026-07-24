@@ -15,8 +15,8 @@ pub(crate) use presets::{
     compile_surface_overlay_for_agent, default_budget_for_preset, default_budget_for_profile,
     default_listed_tool_names, deprecated_workflow_alias, is_tool_in_surface,
     tool_anthropic_always_load, tool_anthropic_search_hint, tool_deprecation,
-    tool_execution_policy, tool_execution_policy_payload, tool_feature_gate, tool_namespace,
-    tool_phase_label, whitelist_preset_member_union,
+    tool_execution_policy, tool_execution_policy_payload, tool_feature_gate,
+    tool_is_always_loaded_core, tool_namespace, tool_phase_label, whitelist_preset_member_union,
 };
 // ADR-0016 decoupled runtime callability from listing, leaving
 // `is_tool_callable_in_surface` a test-only doc/overlay-integrity helper.

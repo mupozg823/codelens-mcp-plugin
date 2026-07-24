@@ -14,6 +14,17 @@ pub(in crate::tool_defs) fn default_listed_tool_names() -> &'static [&'static st
         "verify_change_readiness",
         "search",
         "graph",
+        "get_changed_files",
+        "get_ranked_context",
+        "find_symbol",
+        "find_referencing_symbols",
+        "semantic_search",
+        "refresh_symbol_index",
+        "get_watch_status",
+        "start_analysis_job",
+        "get_analysis_job",
+        "get_analysis_section",
+        "cancel_analysis_job",
     ]
 }
 
@@ -29,6 +40,17 @@ pub(in crate::tool_defs) fn tool_default_listed(name: &str) -> bool {
             | "verify_change_readiness"
             | "search"
             | "graph"
+            | "get_changed_files"
+            | "get_ranked_context"
+            | "find_symbol"
+            | "find_referencing_symbols"
+            | "semantic_search"
+            | "refresh_symbol_index"
+            | "get_watch_status"
+            | "start_analysis_job"
+            | "get_analysis_job"
+            | "get_analysis_section"
+            | "cancel_analysis_job"
     )
 }
 
