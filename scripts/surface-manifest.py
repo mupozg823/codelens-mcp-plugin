@@ -89,6 +89,83 @@ CANONICAL_TRUTH_PATTERNS = [
     ),
 ]
 
+# ── ADR-0016 reference audit ───────────────────────────────────────────
+# "Skills and agent definitions must reference only callable-surface names
+# (CI-checked)" — ADR-0016 Consequences. This audit extracts tool-name
+# candidates from inline backtick code spans in agent/skill docs and fails
+# if any names a tool that is not registered in tools.toml.
+
+TOOLS_TOML_PATH = REPO_ROOT / "crates" / "codelens-mcp" / "tools.toml"
+
+# Docs whose backtick tool references must resolve to a callable tool.
+# Globs are best-effort: a missing directory (e.g. v2-skills before it
+# lands) simply contributes no files.
+REFERENCE_AUDIT_DOC_GLOBS = ["agents/*.md", "skills/**/*.md", "v2-skills/**/*.md"]
+
+# Identifiers that match the tool-name shape (snake_case) but are response
+# fields, parameters, or config keys — not callable tools. Kept explicit so
+# the audit flags genuinely stale/unknown tool names without false-positiving
+# on these. Add here only after confirming a token is intentionally non-tool.
+REFERENCE_AUDIT_ALLOWLIST = frozenset(
+    {
+        "suggested_next_tools",  # response-envelope field emitted by tools
+    }
+)
+
+# A tool-reference candidate is a whole backtick span that is exactly one
+# snake_case identifier (>=1 underscore), optionally mcp__codelens__-prefixed.
+# Assignments (`k=v`), prose spans, and bare single words are ignored so
+# arbitrary identifiers do not produce false positives.
+_BACKTICK_SPAN = re.compile(r"`([^`\n]+)`")
+_TOOL_IDENT = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
+_MCP_TOOL_PREFIX = "mcp__codelens__"
+
+
+def registered_tool_names() -> set[str]:
+    """Registered tool names from tools.toml (the `name = "..."` table keys).
+
+    Excludes inline-table params that happen to be named `name`
+    (`name = { ... }`) by requiring the quoted-string value form.
+    """
+    if not TOOLS_TOML_PATH.exists():
+        return set()
+    pattern = re.compile(r'^name = "([^"]+)"', re.MULTILINE)
+    text = TOOLS_TOML_PATH.read_text(encoding="utf-8")
+    return {match.group(1) for match in pattern.finditer(text)}
+
+
+def reference_audit_violations() -> list[str]:
+    """Return `file:line: token` messages for backtick tool references in
+    agent/skill docs that are not callable (absent from tools.toml and the
+    allowlist). Empty list = pass."""
+    registered = registered_tool_names()
+    if not registered:
+        # tools.toml unreadable/empty — fail open rather than flag everything.
+        return []
+    violations: list[str] = []
+    seen: set[Path] = set()
+    for glob in REFERENCE_AUDIT_DOC_GLOBS:
+        for path in sorted(REPO_ROOT.glob(glob)):
+            if not path.is_file() or path in seen:
+                continue
+            seen.add(path)
+            text = path.read_text(encoding="utf-8")
+            for match in _BACKTICK_SPAN.finditer(text):
+                token = match.group(1)
+                if token.startswith(_MCP_TOOL_PREFIX):
+                    token = token[len(_MCP_TOOL_PREFIX) :]
+                if not _TOOL_IDENT.match(token):
+                    continue
+                if token in registered or token in REFERENCE_AUDIT_ALLOWLIST:
+                    continue
+                line = text[: match.start()].count("\n") + 1
+                violations.append(
+                    f"{path.relative_to(REPO_ROOT)}:{line}: `{token}` is not a callable tool "
+                    "(absent from tools.toml; if it is intentionally not a tool, add it to "
+                    "REFERENCE_AUDIT_ALLOWLIST)"
+                )
+    return violations
+
 
 def surface_manifest_command() -> list[str]:
     return [
@@ -795,6 +872,15 @@ def main() -> None:
                 print(f"- {violation}", file=sys.stderr)
             raise SystemExit(1)
         return
+
+    # ADR-0016 reference audit — independent of the manifest build, so a stale
+    # tool reference fails fast without the (slow) surface-manifest cargo run.
+    reference_violations = reference_audit_violations()
+    if reference_violations:
+        print("stale tool references detected (ADR-0016 reference audit):")
+        for violation in reference_violations:
+            print(f"- {violation}", file=sys.stderr)
+        raise SystemExit(1)
 
     manifest = load_manifest()
     expected = expected_files(manifest)

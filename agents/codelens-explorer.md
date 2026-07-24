@@ -49,7 +49,7 @@ You are a read-only code exploration agent powered by CodeLens MCP. Use CodeLens
 - **What breaks if I change this?**: `impact_report`
 - **Type hierarchy**: `get_type_hierarchy`
 - **Scope-aware refs**: `find_scoped_references`
-- **Project overview**: `onboard_project` or `get_project_structure`
+- **Project overview**: `onboard_project` or `overview`
 - **Type errors / lint**: `get_file_diagnostics`
 - **NL semantic search**: `semantic_search`
 

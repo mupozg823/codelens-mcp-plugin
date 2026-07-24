@@ -9,6 +9,7 @@
 mod harness;
 mod jobs;
 mod misc;
+mod surface_core;
 mod symbols;
 
 // Re-export symbols submodule at the original pub(super) = tool_defs level.
@@ -54,6 +55,13 @@ pub(super) use misc::prune_index_failures_output_schema;
 pub(super) use misc::session_markdown_output_schema;
 pub(super) use misc::tool_metrics_output_schema;
 pub(super) use misc::watch_status_output_schema;
+
+// Re-export the ADR-0016 default-surface supplemental-schema attachment map.
+// `tool_defs::build` consumes this in its post-build pass to bind output
+// schemas for the verb facades + reviewer-graph/ci-audit profile tools that
+// the `tools.toml` codegen path does not yet declare (keeps tools.toml
+// untouched while the surface-listing restructure is in flight).
+pub(super) use surface_core::supplemental_output_schema;
 
 // Re-export the 4 pub fn items from misc at their original pub visibility.
 pub use misc::claim_files_output_schema;

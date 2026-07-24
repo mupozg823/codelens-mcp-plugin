@@ -304,7 +304,7 @@ mod no_schema_stage5_dispatch_tests {
 
     #[test]
     fn no_schema_tool_stage5_text_stub_embeds_payload_preview_end_to_end() {
-        // End-to-end through `build_success_response`: `search` has NO
+        // End-to-end through `build_success_response`: `list_dir` has NO
         // output_schema, so `structured_content` is None. A large-array payload
         // over a tiny budget must (a) still emit NO structuredContent (the
         // gating at success.rs:95 is unchanged) and (b) put a payload-derived
@@ -319,7 +319,7 @@ mod no_schema_stage5_dispatch_tests {
         });
         let args = json!({});
         let response = build_success_response(SuccessResponseInput {
-            name: "search",
+            name: "list_dir",
             payload,
             meta: success_meta(BackendKind::TreeSitter, 0.9),
             state: &state,
@@ -328,7 +328,7 @@ mod no_schema_stage5_dispatch_tests {
             arguments: &args,
             logical_session_id: "test-session",
             recent_tools: Vec::new(),
-            operation: ResolvedOperation::direct("search").dispatched(),
+            operation: ResolvedOperation::direct("list_dir").dispatched(),
             gate_allowance: None,
             compact: false,
             lean: false,

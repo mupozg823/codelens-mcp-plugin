@@ -11,7 +11,7 @@
   },
   "tool_registry": {
     "definition_count": 100,
-    "output_schema_count": 57,
+    "output_schema_count": 71,
     "namespaces": {
       "filesystem": 5,
       "graph": 11,
@@ -176,8 +176,8 @@
           "cost_hint": "low",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 311
+        "has_output_schema": true,
+        "estimated_tokens": 383
       },
       {
         "name": "overview",
@@ -190,8 +190,8 @@
           "cost_hint": "low",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 233
+        "has_output_schema": true,
+        "estimated_tokens": 304
       },
       {
         "name": "bm25_symbol_search",
@@ -232,8 +232,8 @@
           "cost_hint": "low",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 102
+        "has_output_schema": true,
+        "estimated_tokens": 194
       },
       {
         "name": "refresh_symbol_index",
@@ -246,8 +246,8 @@
           "cost_hint": "medium",
           "concurrency_safe": false
         },
-        "has_output_schema": false,
-        "estimated_tokens": 146
+        "has_output_schema": true,
+        "estimated_tokens": 263
       },
       {
         "name": "diagnose",
@@ -260,8 +260,8 @@
           "cost_hint": "low",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 222
+        "has_output_schema": true,
+        "estimated_tokens": 294
       },
       {
         "name": "find_referencing_symbols",
@@ -414,8 +414,8 @@
           "cost_hint": "medium",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 324
+        "has_output_schema": true,
+        "estimated_tokens": 395
       },
       {
         "name": "analyze",
@@ -498,8 +498,8 @@
           "cost_hint": "medium",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 92
+        "has_output_schema": true,
+        "estimated_tokens": 124
       },
       {
         "name": "verify_change_readiness",
@@ -764,8 +764,8 @@
           "cost_hint": "medium",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 271
+        "has_output_schema": true,
+        "estimated_tokens": 343
       },
       {
         "name": "explore_codebase",
@@ -1142,8 +1142,8 @@
           "cost_hint": "low",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 212
+        "has_output_schema": true,
+        "estimated_tokens": 407
       },
       {
         "name": "audit_tool_surface_consistency",
@@ -1156,8 +1156,8 @@
           "cost_hint": "low",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 137
+        "has_output_schema": true,
+        "estimated_tokens": 376
       },
       {
         "name": "find_phantom_modules",
@@ -1170,8 +1170,8 @@
           "cost_hint": "low",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 181
+        "has_output_schema": true,
+        "estimated_tokens": 246
       },
       {
         "name": "find_redundant_definitions",
@@ -1184,8 +1184,8 @@
           "cost_hint": "low",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 193
+        "has_output_schema": true,
+        "estimated_tokens": 259
       },
       {
         "name": "find_over_visible_apis",
@@ -1198,8 +1198,8 @@
           "cost_hint": "low",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 207
+        "has_output_schema": true,
+        "estimated_tokens": 354
       },
       {
         "name": "audit_memory_consistency",
@@ -1394,8 +1394,8 @@
           "cost_hint": "high",
           "concurrency_safe": true
         },
-        "has_output_schema": false,
-        "estimated_tokens": 273
+        "has_output_schema": true,
+        "estimated_tokens": 304
       },
       {
         "name": "semantic_search",
@@ -3496,7 +3496,7 @@
     "workspace_member_count": 2,
     "registered_tool_definitions": 100,
     "tool_output_schemas": {
-      "declared": 57,
+      "declared": 71,
       "total": 100
     },
     "harness_mode_count": 4,

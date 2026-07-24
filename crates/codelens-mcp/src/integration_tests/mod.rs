@@ -28,6 +28,7 @@ mod lsp;
 mod memory;
 mod mutation_envelope;
 mod mutation_evidence;
+mod output_schema_coverage;
 mod protocol_observability;
 mod protocol_resources;
 mod protocol_security;
