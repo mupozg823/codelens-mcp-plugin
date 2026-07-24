@@ -5,10 +5,10 @@ trigger: "/codelens-review"
 tools:
   [
     get_changed_files,
-    impact_report,
+    graph,
     find_referencing_symbols,
     get_file_diagnostics,
-    get_symbols_overview,
+    overview,
   ]
 ---
 
@@ -19,7 +19,7 @@ Analyze the impact and safety of code changes using structural analysis.
 ## Workflow
 
 1. **Identify changes**: Call `get_changed_files` with the target ref (default: HEAD~1)
-2. **Assess impact**: For each changed file, call `impact_report` to find affected downstream files
+2. **Assess impact**: For each changed file, call `graph` with mode=impact to find affected downstream files
 3. **Check references**: For modified symbols, call `find_referencing_symbols` to find callers that may break
 4. **Run diagnostics**: Call `get_file_diagnostics` on changed files to detect type errors or warnings
 5. **Summarize**: Report the blast radius, breaking changes risk, and diagnostic issues
