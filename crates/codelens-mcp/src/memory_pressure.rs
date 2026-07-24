@@ -46,8 +46,15 @@ pub(crate) enum IndexAdmission {
 pub(crate) const HEAVY_INDEX_KINDS: &[&str] = &["refresh_symbol_index", "index_embeddings"];
 
 pub(crate) fn index_pressure_max_defer_ms() -> u64 {
+    // Under cargo test the defer budget defaults to 0 (gate admits
+    // immediately): a genuinely pressured dev machine otherwise stalls
+    // unrelated background-job tests past their poll budgets — measured on
+    // refresh_symbol_index_background_queues_and_completes_job with ~67MB
+    // free. Tests that want the deferral behavior opt in via the env var;
+    // the pure wait_for_index_admission seam stays fully testable either way.
+    let default_secs = if cfg!(test) { 0 } else { 120 };
     crate::env_compat::env_var_u64("CODELENS_INDEX_PRESSURE_MAX_DEFER_SECS")
-        .unwrap_or(120)
+        .unwrap_or(default_secs)
         .saturating_mul(1000)
 }
 
