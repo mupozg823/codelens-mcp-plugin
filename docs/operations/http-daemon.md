@@ -69,6 +69,25 @@ bash scripts/daemon-stale-check.sh                # read-only: compare daemon bi
 
 What the script does: `cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http`, `xattr -dr com.apple.provenance ${target}` (otherwise macOS gatekeeper SIGKILLs the daemon with `OS_REASON_CODESIGNING`), `codesign --force --sign -` (ad-hoc resign so launchd accepts the new mach-o), disable/bootout `gui/$UID/dev.codelens.mcp-readonly`, then `launchctl bootout/bootstrap` plus `kickstart -k gui/$UID/dev.codelens.mcp-mutation`, wait for LISTEN on `:7838`, and (with `--probe`) issue one `tools/list` request.
 
+### Deprecation removal-gate telemetry (ADR-0018 D3)
+
+The installer sets `CODELENS_TELEMETRY_ENABLED=1` on the daemon plist by
+default (`--telemetry 0` to opt out), so every dispatched call appends one
+JSONL line to `<repo>/.codelens/telemetry/tool_usage.jsonl`. This is the
+evidence stream for tool-removal gates: a deprecated tool may be removed
+after one release of telemetry shows no legitimate callers. To evaluate the
+coordination-quartet gate:
+
+```bash
+jq -r 'select(.tool == ("register_agent_work","list_active_agents","claim_files","release_files"))
+       | [(.timestamp_ms/1000 | todate), .tool, .surface, .success] | @tsv' \
+  .codelens/telemetry/tool_usage.jsonl
+```
+
+No output over the observation window ⇒ the removal gate is satisfied.
+The log is append-only with no rotation — truncate it manually if it grows
+past usefulness (the gate only needs the current observation window).
+
 ### Project-binding precedence and lifetime
 
 HTTP sessions resolve competing project declarations in this order:

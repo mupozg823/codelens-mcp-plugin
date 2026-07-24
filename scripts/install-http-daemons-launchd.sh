@@ -37,6 +37,10 @@ Options:
                               project's dominant indexed languages, or a
                               comma-separated server list)
   --rerank VALUE              CODELENS_RERANK for both daemons (default: 0)
+  --telemetry VALUE           CODELENS_TELEMETRY_ENABLED for the daemon
+                              (default: 1; appends per-call JSONL to
+                              <repo>/.codelens/telemetry/tool_usage.jsonl —
+                              the ADR-0018 deprecation removal-gate evidence)
   --embed-resource-profile P  CODELENS_EMBED_RESOURCE_PROFILE for semantic runtime
                               (default: low_power; use balanced/throughput to trade power for speed)
   --model-dir DIR             CODELENS_MODEL_DIR for semantic search model assets
@@ -88,6 +92,7 @@ EFFORT_LEVEL="high"
 RESPONSE_CONTRACT="full"
 LSP_PREWARM="off"
 RERANK_VALUE="0"
+TELEMETRY_ENABLED="1"
 EMBED_RESOURCE_PROFILE="low_power"
 MODEL_DIR=""
 SEMANTIC=1
@@ -273,6 +278,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--rerank)
 		RERANK_VALUE="${2:-}"
+		shift 2
+		;;
+	--telemetry)
+		TELEMETRY_ENABLED="${2:-}"
 		shift 2
 		;;
 	--embed-resource-profile)
@@ -526,6 +535,8 @@ create_plist() {
 		printf '    <string>%s</string>\n' "$LSP_PREWARM"
 		printf '%s\n' '    <key>CODELENS_RERANK</key>'
 		printf '    <string>%s</string>\n' "$RERANK_VALUE"
+		printf '%s\n' '    <key>CODELENS_TELEMETRY_ENABLED</key>'
+		printf '    <string>%s</string>\n' "$TELEMETRY_ENABLED"
 		printf '%s\n' '    <key>CODELENS_EMBED_RESOURCE_PROFILE</key>'
 		printf '    <string>%s</string>\n' "$embed_resource_profile_xml"
 		if [[ -n "$model_dir_xml" ]]; then
