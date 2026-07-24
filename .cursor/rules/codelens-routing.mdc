@@ -1,11 +1,55 @@
 ---
-description: Route CodeLens usage by task risk and phase
+description: CodeLens routing invariants and verification
 alwaysApply: true
 ---
 
-- Use native code search and local file reads first for trivial lookups and single-file edits.
-- Escalate to CodeLens when the task becomes multi-file, reviewer-heavy, refactor-sensitive, or needs durable analysis artifacts.
-- Prefer `review` for review/signoff and durable async analysis summaries.
-- In background-agent flows, assume localhost CodeLens is unavailable unless the daemon is reachable from the remote machine.
-- Pass `host_capabilities` only when the host can report concrete native tool-search, subagent, worktree, edit, task, dynamic-tool, workspace-binding, or approval support.
-- Treat `suggested_next_calls` as host-neutral follow-up or mutation intent; choose the native executor in the host and preserve concrete arguments through normal approval and mutation gates.
+## CodeLens Routing
+
+CodeLens is a code-evidence and analysis data plane. This host owns execution,
+approval, and mutation; CodeLens owns the evidence those decisions rest on.
+
+### Invariants
+
+- Native file reads and text search stay first for point lookups and single-file
+  edits. Escalate to CodeLens once a task spans multiple files, needs reference
+  or impact evidence, or has to leave a durable artifact.
+- Bind the workspace before the first analysis call: `prepare_harness_session`
+  with an absolute project path. `get_current_config` reports the binding that
+  is actually in effect; a stale binding is a reason to rebind, not a reason to
+  abandon the index.
+- Analysis answers are index reads, not file reads. They are only as fresh as
+  the committed index generation, so a result that contradicts an edit you just
+  made is stale rather than authoritative.
+- Pin a multi-call read to a single index snapshot, and retry the call unchanged
+  when the server reports that the generation moved underneath it.
+- One writable runtime per project. A second writer is rejected outright and is
+  never silently downgraded to a read-only fallback — surface the rejection.
+- Follow-up suggestions in a response are intent, not execution. The host picks
+  the executor and applies its own approval and mutation gates.
+- Report observable host facts through `host_capabilities` and its sibling
+  inputs: capability flags, MCP server and tool names, roots, and setting key
+  names. Names, paths, and flags only — never secret values.
+- Mutation is gated: run `verify_change_readiness` on the target paths, clear
+  the blockers it reports, then re-run `diagnose` on those paths afterwards.
+- An unreachable or failing daemon falls back to native tools. Nothing in this
+  contract may block work on CodeLens being available.
+
+### Default calls
+
+- Find code — `search` (mode=symbol|refs|defn|impl|semantic|ranked)
+- Read structure — `overview` (mode=file|explore)
+- Relationships and blast radius — `graph` (mode=callers|callees|impact|trace)
+- Health — `diagnose` (mode=file|symbol|unresolved)
+- Reports — `review` (mode=architecture|changes|dead|dupes)
+- Whole-repo work — `start_analysis_job`, poll `get_analysis_job`, then expand
+  only the sections you need with `get_analysis_section`
+
+### Verify
+
+- `codelens-mcp doctor cursor` — checks the MCP config entry and this rule file.
+- `codelens-mcp attach cursor` — reprints the canonical rule file; re-sync after
+  a CodeLens upgrade instead of hand-editing it.
+- The project's own build, test, and lint commands remain the acceptance gate.
+  CodeLens output is evidence, not a substitute for running them.
+- Background agents do not share the foreground trust boundary: assume a
+  localhost daemon is unreachable there until a probe says otherwise.

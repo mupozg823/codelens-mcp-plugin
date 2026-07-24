@@ -75,6 +75,50 @@ fn primary_bootstrap_sequence_for_host(host: &str) -> Vec<String> {
         .unwrap_or_else(|| vec!["prepare_harness_session".to_owned()])
 }
 
+/// E6.3 — the host-neutral core of every generated routing block.
+///
+/// Host adapters wrap this with their own heading, one-line framing, and
+/// verification commands, so the contract text itself cannot drift between
+/// `CLAUDE.md`, `AGENTS.md`, and `.cursor/rules/`. Deliberately free of role,
+/// lane, agent-topology, and model assignments (ADR-0015): the block states
+/// what is always true about the data plane and how to verify the wiring, and
+/// leaves executor choice entirely to the host.
+pub(super) const HOST_ROUTING_INVARIANTS: &str = r#"### Invariants
+
+- Native file reads and text search stay first for point lookups and single-file
+  edits. Escalate to CodeLens once a task spans multiple files, needs reference
+  or impact evidence, or has to leave a durable artifact.
+- Bind the workspace before the first analysis call: `prepare_harness_session`
+  with an absolute project path. `get_current_config` reports the binding that
+  is actually in effect; a stale binding is a reason to rebind, not a reason to
+  abandon the index.
+- Analysis answers are index reads, not file reads. They are only as fresh as
+  the committed index generation, so a result that contradicts an edit you just
+  made is stale rather than authoritative.
+- Pin a multi-call read to a single index snapshot, and retry the call unchanged
+  when the server reports that the generation moved underneath it.
+- One writable runtime per project. A second writer is rejected outright and is
+  never silently downgraded to a read-only fallback — surface the rejection.
+- Follow-up suggestions in a response are intent, not execution. The host picks
+  the executor and applies its own approval and mutation gates.
+- Report observable host facts through `host_capabilities` and its sibling
+  inputs: capability flags, MCP server and tool names, roots, and setting key
+  names. Names, paths, and flags only — never secret values.
+- Mutation is gated: run `verify_change_readiness` on the target paths, clear
+  the blockers it reports, then re-run `diagnose` on those paths afterwards.
+- An unreachable or failing daemon falls back to native tools. Nothing in this
+  contract may block work on CodeLens being available.
+
+### Default calls
+
+- Find code — `search` (mode=symbol|refs|defn|impl|semantic|ranked)
+- Read structure — `overview` (mode=file|explore)
+- Relationships and blast radius — `graph` (mode=callers|callees|impact|trace)
+- Health — `diagnose` (mode=file|symbol|unresolved)
+- Reports — `review` (mode=architecture|changes|dead|dupes)
+- Whole-repo work — `start_analysis_job`, poll `get_analysis_job`, then expand
+  only the sections you need with `get_analysis_section`"#;
+
 pub(super) fn managed_host_policy_block(body: &str) -> String {
     format!(
         "<!-- CODELENS_HOST_ROUTING:BEGIN -->\n{}\n<!-- CODELENS_HOST_ROUTING:END -->\n",

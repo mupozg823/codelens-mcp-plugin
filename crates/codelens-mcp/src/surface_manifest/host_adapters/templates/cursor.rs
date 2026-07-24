@@ -1,6 +1,34 @@
+use super::super::overlays::HOST_ROUTING_INVARIANTS;
 use serde_json::{Value, json};
 
 const HOST: &str = "cursor";
+
+fn routing_policy() -> String {
+    format!(
+        r#"---
+description: CodeLens routing invariants and verification
+alwaysApply: true
+---
+
+## CodeLens Routing
+
+CodeLens is a code-evidence and analysis data plane. This host owns execution,
+approval, and mutation; CodeLens owns the evidence those decisions rest on.
+
+{HOST_ROUTING_INVARIANTS}
+
+### Verify
+
+- `codelens-mcp doctor cursor` — checks the MCP config entry and this rule file.
+- `codelens-mcp attach cursor` — reprints the canonical rule file; re-sync after
+  a CodeLens upgrade instead of hand-editing it.
+- The project's own build, test, and lint commands remain the acceptance gate.
+  CodeLens output is evidence, not a substitute for running them.
+- Background agents do not share the foreground trust boundary: assume a
+  localhost daemon is unreachable there until a probe says otherwise.
+"#
+    )
+}
 
 pub(super) fn bundle() -> Value {
     json!({
@@ -59,18 +87,7 @@ pub(super) fn bundle() -> Value {
                 "path": ".cursor/rules/codelens-routing.mdc",
                 "format": "mdc",
                 "purpose": "Scope CodeLens to review-heavy and artifact-worthy tasks instead of every edit.",
-                "template": r#"---
-description: Route CodeLens usage by task risk and phase
-alwaysApply: true
----
-
-- Use native code search and local file reads first for trivial lookups and single-file edits.
-- Escalate to CodeLens when the task becomes multi-file, reviewer-heavy, refactor-sensitive, or needs durable analysis artifacts.
-- Prefer `review` for review/signoff and durable async analysis summaries.
-- In background-agent flows, assume localhost CodeLens is unavailable unless the daemon is reachable from the remote machine.
-- Pass `host_capabilities` only when the host can report concrete native tool-search, subagent, worktree, edit, task, dynamic-tool, workspace-binding, or approval support.
-- Treat `suggested_next_calls` as host-neutral follow-up or mutation intent; choose the native executor in the host and preserve concrete arguments through normal approval and mutation gates.
-"#
+                "template": routing_policy()
             }
         ]
     })

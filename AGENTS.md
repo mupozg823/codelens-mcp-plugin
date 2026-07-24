@@ -1,20 +1,56 @@
 # CodeLens MCP — Codex Repo Notes
 
 <!-- CODELENS_HOST_ROUTING:BEGIN -->
-
 ## CodeLens Routing
 
-- Native first for point lookups and already-local single-file edits.
-- Use `prepare_harness_session` before multi-file review or refactor-sensitive work.
-- Main Codex sessions call `prepare_harness_session` with `agent_role="main"`; delegated worker sessions call it with `agent_role="subagent"` so routing favors bounded context, diagnostics, and evidence return.
-- When available, pass host-observed `host_capabilities`, `available_mcp_servers`, `available_mcp_tools`, `skill_roots`, `memory_roots`, `host_setting_keys`, and `harness_profile`; send capability facts, names, paths, and key names only, never secret values.
-- If `get_current_config.project_root` is not the intended workspace, call `prepare_harness_session` or `activate_project` with `project=<absolute repo path>` and continue with CodeLens; do not fall back to native tools solely because the active project was stale.
-- Default execution profile: `builder`.
-- Run `verify_change_readiness` before broad refactors; for rename-heavy changes also run `safe_rename_report` or `unresolved_reference_check`.
-- After mutation, run `audit_builder_session` and export the session summary if the change must cross sessions or CI.
-- Treat `suggested_next_calls` as host-neutral follow-up or mutation intent; choose the native executor in the host and preserve concrete arguments through normal approval and mutation gates.
-- For non-trivial tasks, let `prepare_harness_session` compile skill hints from observed `skill_roots`; if more inventory is needed, inspect `codelens://host-adapters/codex/skill-catalog`, then read only the selected `SKILL.md` files before acting.
+CodeLens is a code-evidence and analysis data plane. This host owns execution,
+approval, and mutation; CodeLens owns the evidence those decisions rest on.
 
+### Invariants
+
+- Native file reads and text search stay first for point lookups and single-file
+  edits. Escalate to CodeLens once a task spans multiple files, needs reference
+  or impact evidence, or has to leave a durable artifact.
+- Bind the workspace before the first analysis call: `prepare_harness_session`
+  with an absolute project path. `get_current_config` reports the binding that
+  is actually in effect; a stale binding is a reason to rebind, not a reason to
+  abandon the index.
+- Analysis answers are index reads, not file reads. They are only as fresh as
+  the committed index generation, so a result that contradicts an edit you just
+  made is stale rather than authoritative.
+- Pin a multi-call read to a single index snapshot, and retry the call unchanged
+  when the server reports that the generation moved underneath it.
+- One writable runtime per project. A second writer is rejected outright and is
+  never silently downgraded to a read-only fallback — surface the rejection.
+- Follow-up suggestions in a response are intent, not execution. The host picks
+  the executor and applies its own approval and mutation gates.
+- Report observable host facts through `host_capabilities` and its sibling
+  inputs: capability flags, MCP server and tool names, roots, and setting key
+  names. Names, paths, and flags only — never secret values.
+- Mutation is gated: run `verify_change_readiness` on the target paths, clear
+  the blockers it reports, then re-run `diagnose` on those paths afterwards.
+- An unreachable or failing daemon falls back to native tools. Nothing in this
+  contract may block work on CodeLens being available.
+
+### Default calls
+
+- Find code — `search` (mode=symbol|refs|defn|impl|semantic|ranked)
+- Read structure — `overview` (mode=file|explore)
+- Relationships and blast radius — `graph` (mode=callers|callees|impact|trace)
+- Health — `diagnose` (mode=file|symbol|unresolved)
+- Reports — `review` (mode=architecture|changes|dead|dupes)
+- Whole-repo work — `start_analysis_job`, poll `get_analysis_job`, then expand
+  only the sections you need with `get_analysis_section`
+
+### Verify
+
+- `codelens-mcp doctor codex` — checks the MCP config entry and this block.
+- `codelens-mcp attach codex` — reprints the canonical block; re-sync after a
+  CodeLens upgrade instead of hand-editing inside the markers.
+- The project's own build, test, and lint commands remain the acceptance gate.
+  CodeLens output is evidence, not a substitute for running them.
+- Skill inventory, when needed, comes from `codelens://host-adapters/codex/skill-catalog`;
+  read only the SKILL.md files that shortlist selects.
 <!-- CODELENS_HOST_ROUTING:END -->
 
 ## Verify

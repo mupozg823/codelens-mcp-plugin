@@ -282,17 +282,21 @@ until you add `--features semantic` and a model directory — see the
 codelens-mcp doctor claude-code
 ```
 
-**선택 사항 — 편집 후 진단.** 이 저장소는 편집된 각 파일에 대해 CodeLens
-진단을 실행하는 `hooks/post-edit-diagnostics.sh`를 제공합니다. 이 hook은
-plugin에 의해 **자동 설치되지 않습니다**. 사용하려면 Claude Code 설정에서
-`Edit` matcher에 대해 해당 스크립트를 가리키는 `PostToolUse` hook을
-추가하세요.
+**Hook은 전부 선택 사항입니다.** plugin 설치는 hook을 **하나도 등록하지
+않습니다** (`hooks/hooks.json` 없음). `hooks/`의 스크립트는 모두 opt-in이며,
+바로 병합할 수 있는 등록 조각은 `hooks/optional/`에 있습니다 — 예:
+`codelens-first.hooks.json`(symbol 성격의 `Grep`/`Bash`를 CodeLens 호출로
+유도하는 `PreToolUse` hook). 편집한 파일마다 CodeLens 진단을 실행하는
+`hooks/post-edit-diagnostics.sh`도 같은 의미의 opt-in 예제입니다. 활성화
+절차와 비용은 [`hooks/README.md`](hooks/README.md)를 참고하세요.
 
-<sub>English: **Optional — post-edit diagnostics.** The repo ships
-`hooks/post-edit-diagnostics.sh`, which runs CodeLens diagnostics on each
-edited file. It is **not** auto-installed by the plugin. To enable it, add a
-`PostToolUse` hook for the `Edit` matcher pointing at that script in your
-Claude Code settings.</sub>
+<sub>English: **All hooks are optional.** Installing the plugin registers **zero**
+hooks (there is no `hooks/hooks.json`). Every script under `hooks/` is opt-in;
+ready-to-merge registration fragments live in `hooks/optional/` — e.g.
+`codelens-first.hooks.json`, the `PreToolUse` hook that steers symbol-shaped
+`Grep`/`Bash` calls toward CodeLens. `hooks/post-edit-diagnostics.sh`, which runs
+CodeLens diagnostics on each edited file, is an opt-in example in the same sense.
+See [`hooks/README.md`](hooks/README.md) for the enable procedure and costs.</sub>
 
 ## Setup
 

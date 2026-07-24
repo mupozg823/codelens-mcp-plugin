@@ -1,22 +1,49 @@
 # CodeLens plugin hooks
 
-## `hooks.json` — auto-activated on plugin install
+## Default install registers **zero** hooks (E6.1)
 
-> **Warning:** `hooks/hooks.json` is loaded and **activated automatically** when the
-> CodeLens plugin is installed. Every hook listed here runs for all users of the
-> plugin. Keep it minimal and cheap.
->
-> **Double-wiring:** if you registered `codelens-first.py` directly in your user
-> `settings.json` (the pre-plugin setup), remove that entry when installing the
-> plugin — otherwise the hook fires **twice** per `Grep`/`Bash` call and burns
-> the per-session advisory/deny throttle at double speed.
+There is no `hooks/hooks.json` in this repo, and that is intentional. A plugin
+`hooks/hooks.json` is loaded and **activated automatically** for every user of
+the plugin, so anything listed there is a cost the whole install pays whether or
+not it wants the behaviour. The CodeLens plugin therefore ships an empty default
+hook surface: installing it adds no `PreToolUse`, `PostToolUse`, or
+`SessionStart` hook. `scripts/validate-plugin-manifest.py --check` enforces this
+in CI.
 
-Currently it registers one `PreToolUse` hook on two matchers: the native
-`Grep` tool, and `Bash` (for shell-invoked `grep`/`rg`):
+Every script in this directory is **opt-in**. Ready-to-merge registration
+fragments live in `hooks/optional/`:
 
-| Hook                | Event         | Matcher      | Cost                                |
-| ------------------- | ------------- | ------------ | ----------------------------------- |
-| `codelens-first.py` | `PreToolUse`  | `Grep`, `Bash` | one short `python3` run, `timeout 5`|
+| Fragment                                   | Hook                | Event         | Matcher        | Cost                                 |
+| ------------------------------------------ | ------------------- | ------------- | -------------- | ------------------------------------ |
+| `hooks/optional/codelens-first.hooks.json` | `codelens-first.py` | `PreToolUse`  | `Grep`, `Bash` | one short `python3` run, `timeout 5` |
+
+### Enabling an optional hook
+
+Pick one of the two wirings (never both — see *Double-wiring* below):
+
+1. **Plugin-local** — copy the fragment to `hooks/hooks.json` inside your
+   installed plugin directory. `${CLAUDE_PLUGIN_ROOT}` resolves automatically,
+   so the file works verbatim:
+
+   ```bash
+   cp "$CLAUDE_PLUGIN_ROOT/hooks/optional/codelens-first.hooks.json" \
+      "$CLAUDE_PLUGIN_ROOT/hooks/hooks.json"
+   ```
+
+   A plugin upgrade overwrites the plugin directory, so re-apply after upgrades.
+
+2. **Settings-level (survives upgrades)** — merge the same `hooks` object into
+   your user `~/.claude/settings.json` or a project `.claude/settings.json`, and
+   replace `${CLAUDE_PLUGIN_ROOT}` with the absolute path of the installed
+   plugin (`${CLAUDE_PLUGIN_ROOT}` is only expanded for plugin-provided hook
+   files).
+
+Disable again by deleting the copied `hooks.json` / the merged settings entry,
+or set `CODELENS_FIRST_MODE=off` for a single session.
+
+> **Double-wiring:** registering `codelens-first.py` in both places fires the
+> hook **twice** per `Grep`/`Bash` call and burns the per-session advisory/deny
+> throttle at double speed. Keep exactly one registration.
 
 ### `codelens-first.py` — nudge symbol lookups toward CodeLens
 
@@ -93,9 +120,10 @@ The hook will never break your `Grep`.
 **Disable:**
 
 - `CODELENS_FIRST_MODE=off` — silence the hook for a session.
-- Remove the `Grep` and/or `Bash` entry from `hooks.json` — disable it for the whole plugin.
+- Remove the registration you added in *Enabling an optional hook* — the hook is
+  not registered by default, so an untouched install is already silent.
 
-## Manual-only helper scripts (not registered in `hooks.json`)
+## Manual-only helper scripts (no registration fragment)
 
 `hooks/codelens-session-probe.sh` is a host-side `SessionStart` hook (register
 it in your own `settings.json`, not here — matcher `startup|clear|compact`
@@ -115,7 +143,7 @@ that does use CodeLens. The home-session message instructs binding to the
 tree and times out (measured 2026-07-12).
 
 `hooks/post-edit-diagnostics.sh` and `hooks/clang-linker.sh` are **opt-in
-examples**, deliberately left out of `hooks.json`. If they were auto-activated,
+examples** with no fragment in `hooks/optional/`. If they were auto-activated,
 `post-edit-diagnostics.sh` would spawn a CodeLens diagnostics pass on every
 `Edit`, charging every plugin user that cost on each edit.
 

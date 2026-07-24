@@ -3,9 +3,9 @@
 
 Deterministic structure gate, mirroring scripts/surface-manifest.py --check.
 Verifies JSON validity, required fields, that bundled skills/agents directories
-exist and are non-empty, and that the marketplace entry is consistent with
-plugin.json. The codelens-mcp binary is an out-of-band prerequisite and is NOT
-checked here.
+exist and are non-empty, that the marketplace entry is consistent with
+plugin.json, and that a fresh install activates zero hooks (E6.1). The
+codelens-mcp binary is an out-of-band prerequisite and is NOT checked here.
 """
 from __future__ import annotations
 
@@ -20,6 +20,12 @@ MARKETPLACE_MANIFEST = ".claude-plugin/marketplace.json"
 CARGO_MANIFEST = "Cargo.toml"
 REQUIRED_PLUGIN_FIELDS = ("name", "version", "description", "mcpServers")
 REQUIRED_MARKET_FIELDS = ("name", "owner", "plugins")
+
+# E6.1 — a plugin `hooks/hooks.json` is auto-activated for every install, so the
+# default hook surface must stay empty. Optional registrations are shipped as
+# copy-in fragments under `hooks/optional/` and are never auto-loaded.
+DEFAULT_HOOKS_MANIFEST = "hooks/hooks.json"
+OPTIONAL_HOOKS_DIR = "hooks/optional"
 
 
 def workspace_version(repo_root: Path) -> str | None:
@@ -48,8 +54,56 @@ def _load_json(path: Path, label: str):
         return None, f"{label}: invalid JSON ({exc})"
 
 
+def collect_default_hook_errors(repo_root: Path) -> list[str]:
+    """E6.1 invariant: a fresh plugin install must activate zero hooks.
+
+    `hooks/hooks.json` is the only auto-activated hook manifest. It may be
+    absent (the shipped state) or present-but-empty; any registered event
+    (`PreToolUse`, `PostToolUse`, …) is a violation. Opt-in fragments under
+    `hooks/optional/` are exempt because nothing loads them automatically.
+    """
+    errors: list[str] = []
+
+    path = repo_root / DEFAULT_HOOKS_MANIFEST
+    if path.exists():
+        manifest, err = _load_json(path, DEFAULT_HOOKS_MANIFEST)
+        if err:
+            errors.append(err)
+        elif not isinstance(manifest, dict):
+            errors.append(f"{DEFAULT_HOOKS_MANIFEST}: top level must be an object")
+        else:
+            hooks = manifest.get("hooks", {})
+            if not isinstance(hooks, dict):
+                errors.append(f"{DEFAULT_HOOKS_MANIFEST}: 'hooks' must be an object")
+            else:
+                for event, entries in sorted(hooks.items()):
+                    if entries:
+                        errors.append(
+                            f"{DEFAULT_HOOKS_MANIFEST}: default install must register "
+                            f"zero hooks, but '{event}' has {len(entries)} entr"
+                            f"{'y' if len(entries) == 1 else 'ies'} (E6.1: move it to "
+                            f"{OPTIONAL_HOOKS_DIR}/ as an opt-in fragment)"
+                        )
+
+    optional_dir = repo_root / OPTIONAL_HOOKS_DIR
+    if optional_dir.is_dir():
+        for fragment in sorted(optional_dir.glob("*.json")):
+            label = str(fragment.relative_to(repo_root))
+            payload, err = _load_json(fragment, label)
+            if err:
+                errors.append(err)
+            elif not isinstance(payload, dict) or not payload.get("hooks"):
+                errors.append(
+                    f"{label}: opt-in fragment must carry a non-empty 'hooks' object"
+                )
+
+    return errors
+
+
 def collect_manifest_errors(repo_root: Path) -> list[str]:
     errors: list[str] = []
+
+    errors.extend(collect_default_hook_errors(repo_root))
 
     plugin, err = _load_json(repo_root / PLUGIN_MANIFEST, PLUGIN_MANIFEST)
     if err:

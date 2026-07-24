@@ -300,9 +300,12 @@ fn doctor_report_detects_machine_attachment_and_customized_policy_file() {
         .unwrap(),
     )
     .unwrap();
+    // E6.3: "customized" is recognised from the first significant template line
+    // (the frontmatter `description:`), so this fixture must track the current
+    // cursor rule template while diverging in the body.
     std::fs::write(
             cwd.join(".cursor/rules/codelens-routing.mdc"),
-            "---\ndescription: Route CodeLens usage by task risk and phase\nalwaysApply: true\n---\n\nCustomized locally.\n",
+            "---\ndescription: CodeLens routing invariants and verification\nalwaysApply: true\n---\n\nCustomized locally.\n",
         )
         .unwrap();
 
