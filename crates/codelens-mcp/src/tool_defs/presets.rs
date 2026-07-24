@@ -893,6 +893,27 @@ mod deprecation_tests {
         }
     }
 
+    /// The Minimal preset's deferred-namespace gate must mirror what
+    /// MINIMAL_TOOLS actually spans — the hardcoded list had drifted to a
+    /// pre-verb-era set (kept `mutation`, missed graph/reports/lsp/session),
+    /// which the I5.2 cross-host matrix surfaced as a blocked first call.
+    #[test]
+    fn minimal_preferred_namespaces_match_minimal_tool_membership() {
+        use std::collections::BTreeSet;
+        let spanned: BTreeSet<&str> = MINIMAL_TOOLS
+            .iter()
+            .map(|name| crate::tool_defs::tool_namespace(name))
+            .collect();
+        let preferred: BTreeSet<&str> =
+            crate::tool_defs::preferred_namespaces(ToolSurface::Preset(ToolPreset::Minimal))
+                .into_iter()
+                .collect();
+        assert_eq!(
+            preferred, spanned,
+            "Minimal deferred gate must mirror actual MINIMAL_TOOLS namespaces"
+        );
+    }
+
     /// #350: every read surface that exposes a fallback-hint emitter
     /// (find_symbol miss hint, the D1 LSP read trio) must also expose
     /// the hint targets, or the suggested recovery chain dead-ends on

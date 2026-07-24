@@ -81,7 +81,20 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
             vec!["reports", "symbols", "lsp", "session"]
         }
         ToolSurface::Profile(ToolProfile::WorkflowFirst) => vec!["workflow", "session"],
-        ToolSurface::Preset(ToolPreset::Minimal) => vec!["symbols", "filesystem", "mutation"],
+        ToolSurface::Preset(ToolPreset::Minimal) => {
+            // Mirrors MINIMAL_TOOLS membership (equality-locked by
+            // `minimal_preferred_namespaces_match_minimal_tool_membership`);
+            // the pre-verb-era list kept `mutation` and missed four spanned
+            // namespaces, deferred-hiding tools Minimal actually carries.
+            vec![
+                "filesystem",
+                "graph",
+                "lsp",
+                "reports",
+                "session",
+                "symbols",
+            ]
+        }
         ToolSurface::Preset(ToolPreset::Balanced) => {
             vec!["reports", "symbols", "graph", "filesystem", "session"]
         }
