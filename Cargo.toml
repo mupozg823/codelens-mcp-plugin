@@ -12,7 +12,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 license = "Apache-2.0"
-version = "1.13.34"
+version = "1.13.35"
 description = "Rust MCP code intelligence for coding agents — live indexes, bounded hybrid retrieval, host-neutral workflows, single-writer sessions, and mutation gates."
 repository = "https://github.com/mupozg823/codelens-mcp-plugin"
 homepage = "https://github.com/mupozg823/codelens-mcp-plugin"
@@ -24,7 +24,7 @@ categories = ["development-tools", "command-line-utilities"]
 # Internal workspace crate. Pinned to the current workspace version so
 # release-plz can bump it via the workspace `[workspace.package].version`
 # alone, instead of every member crate hand-editing the pin.
-codelens-engine = { path = "crates/codelens-engine", version = "=1.13.34", default-features = false }
+codelens-engine = { path = "crates/codelens-engine", version = "=1.13.35", default-features = false }
 anyhow = "1.0"
 axum = "0.8"
 axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }

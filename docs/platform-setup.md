@@ -615,7 +615,7 @@ agent = client.agents.create(
 
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:BEGIN -->
 
-- Workspace version: `1.13.34`
+- Workspace version: `1.13.35`
 - Presets: `minimal` (22), `balanced` (69), `full` (95)
 - Profiles: `readonly` (40), `builder` (40), `review` (20)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)

@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-runtime-surface-contract",
   "workspace": {
-    "version": "1.13.34",
+    "version": "1.13.35",
     "description": "Rust MCP code intelligence for coding agents \u2014 live indexes, bounded hybrid retrieval, host-neutral workflows, single-writer sessions, and mutation gates.",
     "members": [
       "crates/codelens-engine",
@@ -3458,7 +3458,7 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.13.34",
+    "version": "1.13.35",
     "transport": [
       "stdio",
       "streamable-http"
@@ -3495,7 +3495,7 @@
     ]
   },
   "summary": {
-    "workspace_version": "1.13.34",
+    "workspace_version": "1.13.35",
     "workspace_member_count": 2,
     "registered_tool_definitions": 100,
     "tool_output_schemas": {

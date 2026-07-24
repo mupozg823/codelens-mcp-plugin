@@ -79,7 +79,7 @@ sequenceDiagram
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
 
-- Workspace version: `1.13.34`
+- Workspace version: `1.13.35`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
 - Registered tool definitions in source: `100`
 - Tool output schemas in source: `71 / 100`

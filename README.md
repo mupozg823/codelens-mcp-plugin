@@ -81,7 +81,7 @@ CodeLens는 host가 대화를 소유하고, `codelens-mcp`가 MCP tool 표면과
 
 ## Surface Snapshot
 
-- Workspace version: `1.13.34`
+- Workspace version: `1.13.35`
 - Workspace members: `2` (`crates/codelens-engine`, `crates/codelens-mcp`)
 - Registered tool definitions: `100`
 - Tool output schemas: `71 / 100`

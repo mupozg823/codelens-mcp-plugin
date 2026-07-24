@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.35] - 2026-07-25
+
+### Deprecated
+
+- **Removal-gate window opens for the disposition remove wave (ADR-0016/0018)** — the coordination quartet (`register_agent_work`, `list_active_agents`, `claim_files`, `release_files`), `orchestrate_change`, `find_annotations`, `get_lsp_recipe`, and the nine-member memory family plus `audit_memory_consistency` are deprecated for v2.0 removal: still registered and callable, dropped from default listings, every response carrying `codelens/deprecated*` meta, with persisted call telemetry (`.codelens/telemetry/tool_usage.jsonl`) feeding the removal gate. One clean release of telemetry authorizes deletion.
+
 ### Changed
 
+- **Workflow-first default surface (ADR-0016)** — default `tools/list` is the static CORE-20 on every built-in profile (deferred hosts serve a 14-tool bootstrap slice); the migration aliases stay callable-unlisted; public tools ship complete output schemas and read-only/idempotent/destructive annotations; the three programmatic read tools accept array/cursor/snapshot inputs with deterministic paging.
+- **Host-neutral packaging (E6)** — default install registers zero hooks (opt-in fragment under `hooks/optional/`), the explorer agent is model-unpinned on the CORE-20 verb surface, and the attach-generated routing blocks carry invariants + verify commands only.
 - **Claude client parity on the shared daemon (#377)** — Claude Code sessions carried the worst combination: largest surface (Balanced) + fat per-entry `tools/list` contract (~34K tokens) + smallest response budget (4000 vs Codex 6000). The "Claude = tight context" premise is stale for Opus 4.8 (200K–1M context). `ClientProfile::Claude` now uses `default_budget = 6000` (Codex parity) and `default_tool_contract_mode = "lean"` — lean drops only per-entry scaffold (annotations, `visible_namespaces`), never code/symbol data; Generic clients keep the full contract; per-request `full:true` remains an escape hatch.
 
 ### Added
