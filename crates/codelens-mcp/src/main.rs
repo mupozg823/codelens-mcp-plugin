@@ -22,6 +22,7 @@ mod error;
 mod host_capabilities;
 mod instruction_audit;
 mod job_store;
+mod memory_pressure;
 mod mutation_gate;
 mod operation;
 mod operator;

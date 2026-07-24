@@ -464,6 +464,7 @@ dependencies = [
  "fs2",
  "http-body-util",
  "jsonwebtoken",
+ "libc",
  "mimalloc",
  "native-tls",
  "opentelemetry",

@@ -461,6 +461,58 @@ pub(crate) fn run_analysis_job_from_queue(
             return JobLifecycle::Error;
         }
     };
+    // I3.6 admission gate: heavy index kinds defer while the OS reports
+    // memory pressure (warning+), keeping heartbeats fresh so stale-recovery
+    // leaves the queued job alone and honoring cancellation between polls.
+    if crate::memory_pressure::HEAVY_INDEX_KINDS.contains(&kind.as_str()) {
+        let admission = crate::memory_pressure::wait_for_index_admission(
+            crate::memory_pressure::index_pressure_max_defer_ms(),
+            2_000,
+            crate::memory_pressure::current_memory_pressure,
+            |ms| std::thread::sleep(std::time::Duration::from_millis(ms)),
+            |waited_ms, level| {
+                let cancelled = worker_state
+                    .get_analysis_job_for_scope(&scope, &job_id)
+                    .as_ref()
+                    .map(|job| job.status)
+                    == Some(JobLifecycle::Cancelled);
+                if cancelled {
+                    return false;
+                }
+                patch_job_file(
+                    worker_state,
+                    &scope,
+                    &job_id,
+                    None,
+                    None,
+                    Some(Some(format!(
+                        "deferred: memory pressure {} ({}s)",
+                        level.as_str(),
+                        waited_ms / 1000
+                    ))),
+                    None,
+                    None,
+                );
+                true
+            },
+        );
+        match admission {
+            crate::memory_pressure::IndexAdmission::Aborted => return JobLifecycle::Cancelled,
+            crate::memory_pressure::IndexAdmission::Admitted {
+                waited_ms,
+                under_pressure,
+            } => {
+                if under_pressure {
+                    tracing::warn!(
+                        job_id = job_id.as_str(),
+                        kind = kind.as_str(),
+                        waited_ms,
+                        "index admission defer budget exhausted; proceeding under memory pressure"
+                    );
+                }
+            }
+        }
+    }
     patch_job_file(
         worker_state,
         &scope,

@@ -54,6 +54,19 @@ eager startup and is not a sandbox.
 
 Invalid or `0` values fall back to the compiled defaults. Raise both when chaining many `start_analysis_job` calls within one session, or when a builder depends on a multi-hour-old handle.
 
+## Index Admission Gate (memory pressure)
+
+Heavy background index jobs (`refresh_symbol_index`, `index_embeddings`) defer
+while macOS reports memory pressure at warning level or above
+(`kern.memorystatus_vm_pressure_level` ≥ 2), polling every 2s with fresh job
+heartbeats and honoring cancellation between polls. Non-macOS targets and
+probe failures read as normal pressure (fail-open).
+
+- `CODELENS_INDEX_PRESSURE_MAX_DEFER_SECS` (u64 seconds, default `120`) — defer
+  budget per job. After it elapses the job proceeds under pressure (with a
+  `tracing` warning) so admission gating can never starve a job. `0` disables
+  deferral entirely (useful for CI or benchmark runs).
+
 ## Backup Rotation
 
 Three backup patterns accumulate without retention if left unmanaged:
