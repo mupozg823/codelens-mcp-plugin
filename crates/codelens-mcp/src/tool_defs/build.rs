@@ -135,16 +135,11 @@ fn build_tools() -> Vec<Tool> {
             .with_namespace(tool_namespace(tool.name))
             .with_title(tool_title(tool.name));
         tool.annotations = Some(annotations);
-        // ADR-0016 decision 6: bind output schemas for default-surface tools
-        // whose `tools.toml` entry does not yet declare one (verb facades +
-        // reviewer-graph/ci-audit profile tools + refresh_symbol_index). The
-        // codegen-sourced schema always wins — this fills only genuine gaps —
-        // and runs before the token estimate so the serialized size includes it.
-        if tool.output_schema.is_none()
-            && let Some(schema) = super::output_schemas::supplemental_output_schema(tool.name)
-        {
-            tool.output_schema = Some(schema);
-        }
+        // Output schemas are single-sourced from `tools.toml` `output_schema`
+        // declarations (I5.1) — the codegen emits `.with_output_schema(..)`
+        // per entry, so no supplemental fallback runs here. Coverage is
+        // enforced by the ADR-0016 lock tests in
+        // `integration_tests/output_schema_coverage.rs`.
         tool.estimated_tokens = estimate_serialized_tokens(tool);
     }
 

@@ -282,6 +282,7 @@ default_visible_rank = 80
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name) | refs (usages) | defn (declaration) | impl (implementations) | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged."
 annotations = "ro_w"
+output_schema = "verb_facade_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -313,6 +314,7 @@ default_visible_rank = 90
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Verb] Structural relationships — who calls, what breaks, how it flows. mode=callers | callees | types (hierarchy) | trace (request path) | impact (blast radius) | diff-refs (changed-file references). Remaining parameters pass through to the target tool unchanged."
 annotations = "ro_w"
+output_schema = "verb_facade_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -337,6 +339,7 @@ default_visible_rank = 40
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Verb] Quality reports — one mode-routed entry point. mode=architecture (boundaries+diagram) | changes (pre-merge diff impact) | boundary (module report) | dead (dead code) | dupes (duplicates) | similar | misplaced. Remaining parameters pass through to the target tool unchanged."
 annotations = "ro_w"
+output_schema = "verb_facade_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -360,6 +363,7 @@ default_visible_rank = 30
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Verb] Structural maps — one mode-routed entry point. mode=file (symbols in a file) | project (directory tree) | explore (guided codebase exploration, compressed context) | classify (semantic symbol classification). Remaining parameters pass through to the target tool unchanged."
 annotations = "ro_w"
+output_schema = "verb_facade_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -383,6 +387,7 @@ default_visible_rank = 50
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Verb] Health checks — one mode-routed entry point. mode=file (LSP diagnostics) | symbol (diagnostics for a symbol) | unresolved (unresolved reference check) | issues (file issues or reference workflow). Remaining parameters pass through to the target tool unchanged."
 annotations = "ro_w"
+output_schema = "verb_facade_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -468,6 +473,7 @@ phase = "plan"
 preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Analysis] Cyclomatic complexity for functions. Use to find code needing refactoring."
 annotations = "ro_a"
+output_schema = "get_complexity_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -484,6 +490,7 @@ default_visible_rank = 150
 preset_tags = ["builder-minimal", "reviewer-graph"]
 description = "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale. Pass background=true for large re-scans that would exceed the request timeout."
 annotations = "mut_w"
+output_schema = "refresh_symbol_index_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -811,6 +818,7 @@ phase = "plan"
 preset_tags = ["balanced-excluded"]
 description = "[CodeLens:Analysis] PageRank file importance — find the most critical files in the project."
 annotations = "ro_a"
+output_schema = "get_symbol_importance_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -1646,6 +1654,7 @@ namespace = "session"
 preset_tags = []
 description = "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by operation_id and/or since_ms; default limit 100 rows. Requires Admin role."
 annotations = "ro_a"
+output_schema = "audit_log_query_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -1664,6 +1673,7 @@ namespace = "session"
 preset_tags = []
 description = "[CodeLens:Admin] Cross-layer drift detector for the tool surface. Compares tools.toml (schema registry) ↔ dispatch_table (runtime handlers) ↔ preset whitelists at runtime and reports three violation buckets: missing_in_dispatch, missing_in_toml, orphan_in_preset. Requires Admin role."
 annotations = "ro_a"
+output_schema = "audit_tool_surface_consistency_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -1677,6 +1687,7 @@ namespace = "session"
 preset_tags = []
 description = "[CodeLens:Audit] Surface `mod NAME;` declarations whose target name is never `use`d elsewhere in the workspace. Returns parent_file, module_name, line, visibility, kind. Heuristic — `pub mod` reported but may be intentional for re-export patterns. Resurrected from the v1.13.27 surface trim. Use after a deletion cascade to find leftover module declarations."
 annotations = "ro_a"
+output_schema = "find_phantom_modules_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -1691,6 +1702,7 @@ namespace = "session"
 preset_tags = []
 description = "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Run it before dead-code analysis — wrappers obscure substrates."
 annotations = "ro_a"
+output_schema = "find_redundant_definitions_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -1705,6 +1717,7 @@ namespace = "session"
 preset_tags = []
 description = "[CodeLens:Audit] Cross-layer policy detector: surfaces tools whose annotations contradict the readonly-intent of the preset/profile they're listed in. A `destructive_hint=true` or `approval_required=true` tool exposed on the `Minimal` preset or `PlannerReadonly`/`ReviewerGraph` profiles is leakage — the surface promises read-only safety but the tool reserves write/approval semantics. Resurrected from the v1.13.27 surface trim (\"495 over-visible cleanup\" item, 2026-05-18 dogfood memo). Runtime query only — no engine impl, data lives in the Tool registry + preset whitelists."
 annotations = "ro_a"
+output_schema = "find_over_visible_apis_output_schema"
 
 [tool.input_schema]
 type = "object"
@@ -1768,6 +1781,7 @@ phase = "review"
 preset_tags = []
 description = "[CodeLens:Audit] Classify a symbol against a list of caller-supplied categories using semantic similarity. Returns per-category scores ranked highest-first. Useful for triaging unfamiliar symbols (\"is this auth, persistence, or pure transformation?\"). Requires `file_path` + `symbol_name` + `categories` (array of strings). Requires the embedding index (semantic feature). Schema-only re-registration; handler has lived in `dispatch/table.rs` since v1.13.6."
 annotations = "ro_a"
+output_schema = "classify_symbol_output_schema"
 feature_gate = "semantic"
 
 [tool.input_schema]

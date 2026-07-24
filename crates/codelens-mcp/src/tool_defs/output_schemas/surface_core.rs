@@ -227,25 +227,3 @@ pub(crate) fn classify_symbol_output_schema() -> serde_json::Value {
         }
     })
 }
-
-/// Registry-build attachment map: the ADR-0016 default-surface tools whose
-/// `outputSchema` is supplied here (not via `tools.toml` codegen). Consumed
-/// by `tool_defs::build` when a generated tool has no schema of its own.
-/// Returns `None` for every other tool so the codegen-sourced schemas win.
-pub(crate) fn supplemental_output_schema(name: &str) -> Option<serde_json::Value> {
-    let schema = match name {
-        "search" | "overview" | "graph" | "diagnose" | "review" => verb_facade_output_schema(),
-        "refresh_symbol_index" => refresh_symbol_index_output_schema(),
-        "get_complexity" => get_complexity_output_schema(),
-        "get_symbol_importance" => get_symbol_importance_output_schema(),
-        "audit_log_query" => audit_log_query_output_schema(),
-        "audit_tool_surface_consistency" => audit_tool_surface_consistency_output_schema(),
-        "find_phantom_modules" => find_phantom_modules_output_schema(),
-        "find_redundant_definitions" => find_redundant_definitions_output_schema(),
-        "find_over_visible_apis" => find_over_visible_apis_output_schema(),
-        #[cfg(feature = "semantic")]
-        "classify_symbol" => classify_symbol_output_schema(),
-        _ => return None,
-    };
-    Some(schema)
-}

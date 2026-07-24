@@ -21,7 +21,7 @@ pub fn analysis_tools(
             "graph",
             "[CodeLens:Verb] Structural relationships — who calls, what breaks, how it flows. mode=callers | callees | types (hierarchy) | trace (request path) | impact (blast radius) | diff-refs (changed-file references). Remaining parameters pass through to the target tool unchanged.",
             json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["callers","callees","types","trace","impact","diff-refs"],"description":"Which graph analysis to run; other params pass through to the target tool"},"function_name":{"type":"string","description":"Function of interest (mode=callers|callees)"},"symbol":{"type":"string","description":"Symbol or entrypoint (mode=trace|types|impact)"},"path":{"type":"string","description":"File or directory scope"},"max_results":{"type":"integer"},"max_depth":{"type":"integer","description":"Trace depth (mode=trace)"},"full_results":{"type":"boolean","description":"mode=callers|callees only: return the full edge array through response summarization instead of the sampled preview (default: false). Passed through to the target tool; ignored by other modes."}}}),
-        ).with_annotations(ro_w.clone()),
+        ).with_output_schema(verb_facade_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "analyze",
             "[CodeLens:Verb] Durable analysis jobs — one mode-routed entry point. mode=start (launch job) | status (poll job) | section (expand report section) | list (jobs) | cancel | artifacts (stored reports). Remaining parameters pass through to the target tool unchanged.",
@@ -51,7 +51,7 @@ pub fn analysis_tools(
             "get_symbol_importance",
             "[CodeLens:Analysis] PageRank file importance — find the most critical files in the project.",
             json!({"type":"object","properties":{"top_n":{"type":"integer"}}}),
-        ).with_annotations(ro_a.clone()),
+        ).with_output_schema(get_symbol_importance_output_schema()).with_annotations(ro_a.clone()),
     ]
 }
 
@@ -199,7 +199,7 @@ pub fn lsp_tools(
             "diagnose",
             "[CodeLens:Verb] Health checks — one mode-routed entry point. mode=file (LSP diagnostics) | symbol (diagnostics for a symbol) | unresolved (unresolved reference check) | issues (file issues or reference workflow). Remaining parameters pass through to the target tool unchanged.",
             json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["file","symbol","unresolved","issues"],"description":"Which diagnosis to run; other params pass through to the target tool"},"path":{"type":"string","description":"File to diagnose (mode=file|issues|unresolved)"},"symbol":{"type":"string","description":"Symbol to check (mode=symbol|unresolved)"},"max_results":{"type":"integer"}}}),
-        ).with_annotations(ro_w.clone()),
+        ).with_output_schema(verb_facade_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "find_referencing_symbols",
             "[CodeLens:Symbol] Find all usages of a symbol. use_lsp=true for type-aware precision.",
@@ -334,7 +334,7 @@ pub fn semantic_tools(
             "classify_symbol",
             "[CodeLens:Audit] Classify a symbol against a list of caller-supplied categories using semantic similarity. Returns per-category scores ranked highest-first. Useful for triaging unfamiliar symbols (\"is this auth, persistence, or pure transformation?\"). Requires `file_path` + `symbol_name` + `categories` (array of strings). Requires the embedding index (semantic feature). Schema-only re-registration; handler has lived in `dispatch/table.rs` since v1.13.6.",
             json!({"type":"object","required":["file_path","symbol_name","categories"],"properties":{"file_path":{"type":"string","description":"Path of the file containing the target symbol"},"symbol_name":{"type":"string","description":"Name of the target symbol to classify"},"categories":{"type":"array","items":{"type":"string"},"minItems":1,"description":"Candidate category labels — the tool returns per-category similarity scores"}}}),
-        ).with_annotations(ro_a.clone()),
+        ).with_output_schema(classify_symbol_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "semantic_search",
             "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning.",
@@ -460,27 +460,27 @@ pub fn session_tools(
             "audit_log_query",
             "[CodeLens:Admin] Query the durable mutation audit log (`<project>/.codelens/audit/audit_log.sqlite`). Filter by operation_id and/or since_ms; default limit 100 rows. Requires Admin role.",
             json!({"type":"object","properties":{"operation_id":{"type":"string","description":"UUID from a mutation response (payload.data.operation_id). Returns rows for that invocation."},"transaction_id":{"type":"string","description":"DEPRECATED compatibility alias for operation_id."},"since_ms":{"type":"integer","description":"Earliest timestamp_ms (epoch millis) to include."},"limit":{"type":"integer","description":"Max rows (default 100, capped at 1000)."}}}),
-        ).with_annotations(ro_a.clone()),
+        ).with_output_schema(audit_log_query_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "audit_tool_surface_consistency",
             "[CodeLens:Admin] Cross-layer drift detector for the tool surface. Compares tools.toml (schema registry) ↔ dispatch_table (runtime handlers) ↔ preset whitelists at runtime and reports three violation buckets: missing_in_dispatch, missing_in_toml, orphan_in_preset. Requires Admin role.",
             json!({"type":"object"}),
-        ).with_annotations(ro_a.clone()),
+        ).with_output_schema(audit_tool_surface_consistency_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "find_phantom_modules",
             "[CodeLens:Audit] Surface `mod NAME;` declarations whose target name is never `use`d elsewhere in the workspace. Returns parent_file, module_name, line, visibility, kind. Heuristic — `pub mod` reported but may be intentional for re-export patterns. Resurrected from the v1.13.27 surface trim. Use after a deletion cascade to find leftover module declarations.",
             json!({"type":"object","properties":{"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on entries returned (default 50)"}}}),
-        ).with_annotations(ro_a.clone()),
+        ).with_output_schema(find_phantom_modules_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "find_redundant_definitions",
             "[CodeLens:Audit] Surface Rust one-line wrapper functions whose entire body forwards to another function with a literal default argument. Returns (wrapper, target) pairs. Group by `target` to find substrates with multiple wrappers — highest cleanup leverage. Syntactic only (regex). Resurrected from the v1.13.27 surface trim. Run it before dead-code analysis — wrappers obscure substrates.",
             json!({"type":"object","properties":{"max_results":{"type":"integer","minimum":1,"maximum":500,"description":"Cap on entries returned (default 50)"}}}),
-        ).with_annotations(ro_a.clone()),
+        ).with_output_schema(find_redundant_definitions_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "find_over_visible_apis",
             "[CodeLens:Audit] Cross-layer policy detector: surfaces tools whose annotations contradict the readonly-intent of the preset/profile they're listed in. A `destructive_hint=true` or `approval_required=true` tool exposed on the `Minimal` preset or `PlannerReadonly`/`ReviewerGraph` profiles is leakage — the surface promises read-only safety but the tool reserves write/approval semantics. Resurrected from the v1.13.27 surface trim (\"495 over-visible cleanup\" item, 2026-05-18 dogfood memo). Runtime query only — no engine impl, data lives in the Tool registry + preset whitelists.",
             json!({"type":"object"}),
-        ).with_annotations(ro_a.clone()),
+        ).with_output_schema(find_over_visible_apis_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "audit_memory_consistency",
             "[CodeLens:Audit] Surface project memory files (`.codelens/memories/*.md`) whose modification time exceeds the staleness threshold. Memories are frozen-in-time observations and silently drift from the codebase they describe (cited paths get renamed, cited symbols disappear). Self-auditability complement to the four tool-surface detectors. `threshold_days` (default 30, clamped 1..3650) configurable. Returns oldest-first list of `{file, age_days, mtime_epoch_secs}` for each stale entry plus `total_files`, `stale_count`, `all_clean`.",
@@ -515,12 +515,12 @@ pub fn symbol_tools(
             "search",
             "[CodeLens:Verb] Find code — one mode-routed entry point. mode=symbol (exact name) | refs (usages) | defn (declaration) | impl (implementations) | scoped | workspace | bm25 | fuzzy | semantic (meaning) | ranked (budgeted context). Remaining parameters pass through to the target tool unchanged.",
             json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["symbol","refs","defn","impl","scoped","workspace","bm25","fuzzy","semantic","ranked"],"description":"Which search family to run; other params pass through to the target tool"},"name":{"type":"string","description":"Symbol name (mode=symbol)"},"query":{"type":"string","description":"Search query (mode=semantic|ranked|bm25|fuzzy|workspace)"},"path":{"type":"string","description":"File or directory scope"},"symbol_name":{"type":"string","description":"Symbol to look up references for (mode=refs|scoped|defn|impl)"},"include_body":{"type":"boolean"},"max_results":{"type":"integer"},"use_lsp":{"type":"boolean","description":"Type-aware precision (mode=refs|defn|impl)"},"names":{"type":"array","items":{"type":"string"},"description":"Batch form of `name` (mode=symbol); forwarded to the target tool unchanged."},"queries":{"type":"array","items":{"type":"string"},"description":"Batch form of `query` (mode=ranked); forwarded to the target tool unchanged."},"symbol_names":{"type":"array","items":{"type":"string"},"description":"Batch form of `symbol_name` (mode=refs); forwarded to the target tool unchanged."},"cursor":{"type":"string","description":"Opaque continuation token from a previous `next_cursor`; forwarded to the target tool unchanged."},"page_size":{"type":"integer","description":"Max entries per page; forwarded to the target tool unchanged."},"snapshot":{"type":"string","description":"Index snapshot token (`index_snapshot` from any response); forwarded to the target tool unchanged."}}}),
-        ).with_annotations(ro_w.clone()),
+        ).with_output_schema(verb_facade_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "overview",
             "[CodeLens:Verb] Structural maps — one mode-routed entry point. mode=file (symbols in a file) | project (directory tree) | explore (guided codebase exploration, compressed context) | classify (semantic symbol classification). Remaining parameters pass through to the target tool unchanged.",
             json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["file","explore","classify"],"description":"Which overview to run; other params pass through to the target tool"},"path":{"type":"string","description":"File (mode=file) or directory scope"},"query":{"type":"string","description":"Exploration focus (mode=explore)"},"depth":{"type":"integer"},"include_body":{"type":"boolean"},"max_tokens":{"type":"integer"}}}),
-        ).with_annotations(ro_w.clone()),
+        ).with_output_schema(verb_facade_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "bm25_symbol_search",
             "[CodeLens:Symbol] Sparse BM25-F symbol retrieval — best for identifiers, signatures, path tokens, and short lexical phrases.",
@@ -535,12 +535,12 @@ pub fn symbol_tools(
             "get_complexity",
             "[CodeLens:Analysis] Cyclomatic complexity for functions. Use to find code needing refactoring.",
             json!({"type":"object","required":["path"],"properties":{"path":{"type":"string"},"symbol_name":{"type":"string"}}}),
-        ).with_annotations(ro_a.clone()),
+        ).with_output_schema(get_complexity_output_schema()).with_annotations(ro_a.clone()),
         Tool::new(
             "refresh_symbol_index",
             "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale. Pass background=true for large re-scans that would exceed the request timeout.",
             json!({"type":"object","properties":{"background":{"type":"boolean","description":"Run as a durable background job and poll with get_analysis_job (default false: synchronous stats response)"}}}),
-        ).with_annotations(mut_w.clone()),
+        ).with_output_schema(refresh_symbol_index_output_schema()).with_annotations(mut_w.clone()),
     ]
 }
 
@@ -550,7 +550,7 @@ pub fn workflow_first_tools(ro_w: &ToolAnnotations) -> Vec<Tool> {
             "review",
             "[CodeLens:Verb] Quality reports — one mode-routed entry point. mode=architecture (boundaries+diagram) | changes (pre-merge diff impact) | boundary (module report) | dead (dead code) | dupes (duplicates) | similar | misplaced. Remaining parameters pass through to the target tool unchanged.",
             json!({"type":"object","required":["mode"],"properties":{"mode":{"type":"string","enum":["architecture","changes","boundary","dead","dupes","similar","misplaced"],"description":"Which review to run; other params pass through to the target tool"},"path":{"type":"string","description":"Scope path"},"changed_files":{"type":"array","items":{"type":"string"},"description":"Changed file paths (mode=changes)"},"task":{"type":"string","description":"Review focus (mode=changes)"},"include_diagram":{"type":"boolean","description":"Render mermaid diagram (mode=architecture)"},"max_results":{"type":"integer"}}}),
-        ).with_annotations(ro_w.clone()),
+        ).with_output_schema(verb_facade_output_schema()).with_annotations(ro_w.clone()),
         Tool::new(
             "explore_codebase",
             "[CodeLens:Workflow] Problem-first entrypoint for codebase exploration. Use query for targeted context, or call without arguments for onboarding.",

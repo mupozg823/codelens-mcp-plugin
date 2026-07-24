@@ -61,7 +61,15 @@ pub(super) use misc::watch_status_output_schema;
 // schemas for the verb facades + reviewer-graph/ci-audit profile tools that
 // the `tools.toml` codegen path does not yet declare (keeps tools.toml
 // untouched while the surface-listing restructure is in flight).
-pub(super) use surface_core::supplemental_output_schema;
+#[cfg(feature = "semantic")]
+pub(super) use surface_core::classify_symbol_output_schema;
+pub(super) use surface_core::{
+    audit_log_query_output_schema, audit_tool_surface_consistency_output_schema,
+    find_over_visible_apis_output_schema, find_phantom_modules_output_schema,
+    find_redundant_definitions_output_schema, get_complexity_output_schema,
+    get_symbol_importance_output_schema, refresh_symbol_index_output_schema,
+    verb_facade_output_schema,
+};
 
 // Re-export the 4 pub fn items from misc at their original pub visibility.
 pub use misc::claim_files_output_schema;
