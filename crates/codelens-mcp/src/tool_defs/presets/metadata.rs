@@ -26,6 +26,23 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         "register_agent_work" | "list_active_agents" | "claim_files" | "release_files" => {
             Some(("1.13.34", "", "2.0"))
         }
+        // Disposition-table remove wave (workflow-first migration): hosts own
+        // orchestration (ADR-0015) and agent memory (approved 2026-07-21);
+        // find_annotations/get_lsp_recipe are host-native duplicates. Same
+        // removal gate as the quartet: one release of clean telemetry.
+        "orchestrate_change"
+        | "find_annotations"
+        | "get_lsp_recipe"
+        | "audit_memory_consistency"
+        | "list_memories"
+        | "read_memory"
+        | "write_memory"
+        | "delete_memory"
+        | "rename_memory"
+        | "archive_memory"
+        | "restore_memory"
+        | "list_archived"
+        | "read_policy" => Some(("1.13.34", "", "2.0")),
         _ => None,
     }
 }

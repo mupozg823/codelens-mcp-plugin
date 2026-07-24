@@ -858,6 +858,41 @@ mod deprecation_tests {
         }
     }
 
+    /// Disposition-table remove wave (docs/design/workflow-first-tool-surface-
+    /// migration.md): the remaining 13 "remove" entries — orchestration/file-io
+    /// remnants plus the memory family (removal approved 2026-07-21; agent
+    /// memory belongs to hosts) — enter the same deprecation window as the
+    /// coordination quartet: registered and callable, dropped from default
+    /// listings, `codelens/deprecated*` meta feeding removal-gate telemetry.
+    #[test]
+    fn disposition_remove_wave_is_deprecated_for_v2_removal() {
+        for name in [
+            "orchestrate_change",
+            "find_annotations",
+            "get_lsp_recipe",
+            "audit_memory_consistency",
+            "list_memories",
+            "read_memory",
+            "write_memory",
+            "delete_memory",
+            "rename_memory",
+            "archive_memory",
+            "restore_memory",
+            "list_archived",
+            "read_policy",
+        ] {
+            assert_eq!(
+                tool_deprecation(name),
+                Some(("1.13.34", "", "2.0")),
+                "{name} must carry disposition-table deprecation metadata"
+            );
+            assert!(
+                crate::tool_defs::tool_definition(name).is_some(),
+                "{name} stays registered through the deprecation window"
+            );
+        }
+    }
+
     /// #350: every read surface that exposes a fallback-hint emitter
     /// (find_symbol miss hint, the D1 LSP read trio) must also expose
     /// the hint targets, or the suggested recovery chain dead-ends on

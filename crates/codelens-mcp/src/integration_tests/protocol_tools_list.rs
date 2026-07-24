@@ -1082,10 +1082,8 @@ fn tools_list_exposes_annotation_titles() {
         .iter()
         .find(|tool| tool["name"] == "find_symbol")
         .expect("find_symbol present");
-    let lsp_recipe = tools
-        .iter()
-        .find(|tool| tool["name"] == "get_lsp_recipe")
-        .expect("get_lsp_recipe present");
+    // get_lsp_recipe was the fourth example here until it entered the
+    // disposition-table remove wave (deprecated → dropped from listings).
     let metrics = tools
         .iter()
         .find(|tool| tool["name"] == "get_tool_metrics")
@@ -1096,7 +1094,6 @@ fn tools_list_exposes_annotation_titles() {
         json!("Prepare Harness Session")
     );
     assert_eq!(find_symbol["annotations"]["title"], json!("Find Symbol"));
-    assert_eq!(lsp_recipe["annotations"]["title"], json!("LSP Recipe"));
     assert_eq!(metrics["annotations"]["title"], json!("Tool Metrics"));
 }
 
@@ -1220,8 +1217,11 @@ fn workflow_ghost_tools_are_registered_and_planner_visible() {
 fn workflow_ghost_tools_survive_server_listing_filters() {
     // Surface membership alone is not enough: the server listing path
     // additionally drops tools flagged by `tool_deprecation` (the live
-    // miss this test pins). The promoted trio must survive the real
-    // `tools/list` handler on the planner profile.
+    // miss this test pins). The promoted pair must survive the real
+    // `tools/list` handler on the planner profile. `orchestrate_change`
+    // left this roster when the disposition table re-classified it as
+    // remove (hosts own orchestration, ADR-0015) — deprecated, so the
+    // listing filter now drops it by design.
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
     let _ = call_tool(
@@ -1246,14 +1246,14 @@ fn workflow_ghost_tools_survive_server_listing_filters() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
-    for name in [
-        "onboard_project",
-        "analyze_change_request",
-        "orchestrate_change",
-    ] {
+    for name in ["onboard_project", "analyze_change_request"] {
         assert!(
             names.contains(&name),
             "{name} must survive the server tools/list filters, got {names:?}"
         );
     }
+    assert!(
+        !names.contains(&"orchestrate_change"),
+        "orchestrate_change is in the remove wave and must be dropped from listings"
+    );
 }
