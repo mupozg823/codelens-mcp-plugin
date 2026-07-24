@@ -1,8 +1,9 @@
 use super::evidence::evidence_output_schema;
+use super::programmatic::with_programmatic_read_properties;
 use serde_json::json;
 
 pub(crate) fn symbol_output_schema() -> serde_json::Value {
-    json!({
+    with_programmatic_read_properties(json!({
         "type": "object",
         "properties": {
             "symbols": {
@@ -29,5 +30,5 @@ pub(crate) fn symbol_output_schema() -> serde_json::Value {
             "body_preview": {"type": "boolean"},
             "evidence": evidence_output_schema()
         }
-    })
+    }))
 }

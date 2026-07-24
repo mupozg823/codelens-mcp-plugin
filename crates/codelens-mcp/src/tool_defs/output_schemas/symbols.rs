@@ -4,6 +4,7 @@ mod diagnostics;
 mod evidence;
 mod graph;
 mod navigation;
+mod programmatic;
 mod search;
 mod symbol_list;
 

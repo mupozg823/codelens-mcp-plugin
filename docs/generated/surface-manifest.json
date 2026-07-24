@@ -135,7 +135,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 436
+        "estimated_tokens": 585
       },
       {
         "name": "find_symbol",
@@ -149,7 +149,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 686
+        "estimated_tokens": 835
       },
       {
         "name": "get_ranked_context",
@@ -163,7 +163,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 1419
+        "estimated_tokens": 1568
       },
       {
         "name": "search",
@@ -275,7 +275,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 835
+        "estimated_tokens": 984
       },
       {
         "name": "get_file_diagnostics",
@@ -485,7 +485,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 410
+        "estimated_tokens": 559
       },
       {
         "name": "get_symbol_importance",

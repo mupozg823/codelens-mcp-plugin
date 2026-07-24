@@ -98,6 +98,42 @@ fn assert_has_full_annotations(names: &[&str]) {
     }
 }
 
+/// I2.3 follow-through: the three batch/cursor/snapshot read tools must
+/// advertise the programmatic-read envelope fields in their output schemas
+/// so callers can discover `index_snapshot`, batching, and pagination
+/// without reading source.
+#[test]
+fn programmatic_read_tools_advertise_batch_page_snapshot_fields() {
+    for name in [
+        "find_symbol",
+        "get_ranked_context",
+        "find_referencing_symbols",
+    ] {
+        let tool = tool_definition(name)
+            .unwrap_or_else(|| panic!("programmatic read tool `{name}` must be registered"));
+        let schema = tool
+            .output_schema
+            .as_ref()
+            .unwrap_or_else(|| panic!("`{name}` must have an outputSchema"));
+        let properties = schema
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .unwrap_or_else(|| panic!("`{name}` outputSchema must be an object schema"));
+        for field in [
+            "index_snapshot",
+            "batch",
+            "batch_count",
+            "page",
+            "next_cursor",
+        ] {
+            assert!(
+                properties.contains_key(field),
+                "`{name}` outputSchema must advertise `{field}`"
+            );
+        }
+    }
+}
+
 /// ADR-0016 decision 6 second half: public tools ship read-only /
 /// idempotent / destructive annotations, not just schemas.
 #[test]

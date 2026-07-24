@@ -1,8 +1,9 @@
 use super::evidence::evidence_output_schema;
+use super::programmatic::with_programmatic_read_properties;
 use serde_json::json;
 
 pub(crate) fn references_output_schema() -> serde_json::Value {
-    json!({
+    with_programmatic_read_properties(json!({
         "type": "object",
         "properties": {
             "references": {
@@ -26,7 +27,7 @@ pub(crate) fn references_output_schema() -> serde_json::Value {
             "backend": {"type": "string"},
             "evidence": evidence_output_schema()
         }
-    })
+    }))
 }
 
 pub(crate) fn resolve_symbol_target_output_schema() -> serde_json::Value {
