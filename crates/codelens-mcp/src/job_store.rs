@@ -10,6 +10,9 @@ use crate::util::matches_scope;
 pub(crate) const MAX_ANALYSIS_JOBS: usize = 128;
 const TTL_MS: u64 = 24 * 60 * 60 * 1000;
 
+/// Per-write staging-name nonce for `write_to_disk` — see the comment there.
+static STAGING_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn job_deadline_ms() -> u64 {
     crate::env_compat::env_var_u64("CODELENS_JOB_DEADLINE_SECS")
         .unwrap_or(30 * 60)
@@ -64,9 +67,23 @@ impl AnalysisJobStore {
         let bytes =
             serde_json::to_vec_pretty(job).map_err(|e| CodeLensError::Internal(e.into()))?;
         let path = dir.join(format!("{}.json", job.id));
-        let tmp = path.with_extension("json.tmp");
+        // Concurrent writers on one job (worker progress vs queue/cancel
+        // bookkeeping — update() holds no lock across this write) must not
+        // share a staging file: with a fixed `<id>.json.tmp`, whichever
+        // writer renames first steals the other's staging file and the loser
+        // fails with ENOENT. A per-write staging name keeps the final
+        // rename an atomic last-writer-wins.
+        let nonce = STAGING_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = dir.join(format!(
+            "{}.json.tmp.{}-{nonce}",
+            job.id,
+            std::process::id()
+        ));
         fs::write(&tmp, bytes)?;
-        fs::rename(tmp, path)?;
+        if let Err(error) = fs::rename(&tmp, &path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(error.into());
+        }
         Ok(())
     }
 
@@ -415,6 +432,65 @@ mod tests {
             "cleanup should not remove inflight tmp files"
         );
         let _ = fs::remove_file(tmp_path);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn concurrent_updates_to_one_job_never_lose_the_staging_file() {
+        let dir = temp_jobs_dir("concurrent-updates");
+        fs::create_dir_all(&dir).unwrap();
+        let store = AnalysisJobStore::new(dir.clone());
+        let job = store
+            .store(
+                "refresh_symbol_index",
+                None,
+                Vec::new(),
+                JobLifecycle::Queued,
+                0,
+                None,
+                None,
+                None,
+                "scope".to_owned(),
+            )
+            .unwrap();
+
+        // Worker progress transitions and queue/cancel bookkeeping write the
+        // same durable record concurrently (update() runs write_to_disk with
+        // no lock held). With a fixed `<id>.json.tmp` staging name, whichever
+        // writer renames first steals the other's staging file and the loser
+        // dies on ENOENT — this hammer pins the per-write staging name.
+        let errors: Vec<String> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut failures = Vec::new();
+                        for step in 0..100u8 {
+                            if let Err(error) = store.update(
+                                &job.id,
+                                Some(JobLifecycle::Running),
+                                Some(step.min(99)),
+                                None,
+                                None,
+                                None,
+                                None,
+                                Some("scope"),
+                            ) {
+                                failures.push(error.to_string());
+                            }
+                        }
+                        failures
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .flat_map(|handle| handle.join().unwrap())
+                .collect()
+        });
+        assert!(
+            errors.is_empty(),
+            "concurrent updates must not race the staging file: {errors:?}"
+        );
         let _ = fs::remove_dir_all(dir);
     }
 
