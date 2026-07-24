@@ -24,6 +24,7 @@ fn embedding_model_available_for_test() -> bool {
 }
 
 mod coordination;
+mod cross_host_skill_matrix;
 mod lsp;
 mod memory;
 mod mutation_envelope;
