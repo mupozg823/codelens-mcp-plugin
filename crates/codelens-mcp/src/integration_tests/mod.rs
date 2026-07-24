@@ -40,6 +40,8 @@ mod registry;
 #[cfg(feature = "semantic")]
 mod semantic;
 mod session_mutation;
+#[cfg(feature = "http")]
+mod soak_five_sessions;
 mod suggestion_drift;
 mod verbs;
 mod workflow;
