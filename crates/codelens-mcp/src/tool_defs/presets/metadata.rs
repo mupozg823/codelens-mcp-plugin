@@ -18,6 +18,14 @@ pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str
         | "search_for_pattern"
         | "get_project_structure"
         | "analyze_missing_imports" => Some(("1.13.27", "", "2.0")),
+        // ADR-0018 Decision #3: hosts own agent coordination (worktrees,
+        // task ownership), so the server-side claim registry is deprecated.
+        // Removal gate: one release of deprecation telemetry showing no
+        // legitimate callers. Snapshot/preflight evidence stays on
+        // `verify_change_readiness` / `get_changed_files`.
+        "register_agent_work" | "list_active_agents" | "claim_files" | "release_files" => {
+            Some(("1.13.34", "", "2.0"))
+        }
         _ => None,
     }
 }

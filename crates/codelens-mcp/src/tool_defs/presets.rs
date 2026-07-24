@@ -542,6 +542,31 @@ mod deprecation_tests {
         );
     }
 
+    /// ADR-0018 Decision #3: hosts own agent coordination, so the
+    /// server-side claim registry is deprecated for v2.0 removal. Through
+    /// the deprecation window the quartet stays registered (callable via
+    /// `tools/call`, callers see `codelens/deprecated*` response meta) and
+    /// is dropped from default listings by the `tool_deprecation` filter.
+    #[test]
+    fn coordination_quartet_is_deprecated_for_v2_removal() {
+        for name in [
+            "register_agent_work",
+            "list_active_agents",
+            "claim_files",
+            "release_files",
+        ] {
+            assert_eq!(
+                tool_deprecation(name),
+                Some(("1.13.34", "", "2.0")),
+                "{name} must carry ADR-0018 D3 deprecation metadata"
+            );
+            assert!(
+                crate::tool_defs::tool_definition(name).is_some(),
+                "{name} stays registered through the deprecation window"
+            );
+        }
+    }
+
     /// #350: every read surface that exposes a fallback-hint emitter
     /// (find_symbol miss hint, the D1 LSP read trio) must also expose
     /// the hint targets, or the suggested recovery chain dead-ends on
