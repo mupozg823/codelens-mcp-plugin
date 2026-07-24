@@ -115,3 +115,17 @@ Counts (sum = 100): CORE-20 = 20 (of which CORE-10 = 10) · alias = 39 ·
 profile-gated = 10 · experimental/mgmt/generic = 9 · admin/CLI = 5 ·
 remove = 17, including the 9 memory-family entries (removal **approved 2026-07-21**). Mutation tools (`rename_symbol` family) are not in
 `tools.toml`'s public set at this HEAD and enter only via the Q2'27 transaction ADR.
+
+## Implementation note — alias layer (I2.1c, 2026-07-24)
+
+The alias tier landed as *absent from the surface-independent default
+listing* (the CORE-20 static surface every built-in profile now returns),
+with callability preserved by the hidden-alias registration gate
+(`dispatch/access.rs`). Aliases were **not** purged from the expanded
+profile constants (`PLANNER_READONLY_TOOLS` etc.): those lists back the
+opt-in `full`/namespace/tier expansions and carry intentional lock tests
+(`fallback_hint_targets_are_present_wherever_their_emitters_are`,
+`reviewer_graph_core_surface_contains_alwaysload_and_verb_facades`) whose
+invariants a purge would break without changing default-surface behavior.
+The expanded-constant cleanup therefore rides the v2.0 removal wave, when
+each alias's telemetry decides deletion outright.

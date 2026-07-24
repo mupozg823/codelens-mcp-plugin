@@ -73,3 +73,37 @@ fn core20_and_profile_public_tools_declare_output_schema() {
     #[cfg(feature = "semantic")]
     assert_has_output_schema(SEMANTIC_GATED);
 }
+
+fn assert_has_full_annotations(names: &[&str]) {
+    for &name in names {
+        let tool = tool_definition(name).unwrap_or_else(|| {
+            panic!("ADR-0016 default-surface tool `{name}` is not registered in this build")
+        });
+        let annotations = tool
+            .annotations
+            .as_ref()
+            .unwrap_or_else(|| panic!("ADR-0016 decision 6: `{name}` is missing annotations"));
+        assert!(
+            annotations.read_only_hint.is_some(),
+            "ADR-0016 decision 6: `{name}` is missing readOnlyHint"
+        );
+        assert!(
+            annotations.destructive_hint.is_some(),
+            "ADR-0016 decision 6: `{name}` is missing destructiveHint"
+        );
+        assert!(
+            annotations.idempotent_hint.is_some(),
+            "ADR-0016 decision 6: `{name}` is missing idempotentHint"
+        );
+    }
+}
+
+/// ADR-0016 decision 6 second half: public tools ship read-only /
+/// idempotent / destructive annotations, not just schemas.
+#[test]
+fn core20_and_profile_public_tools_declare_full_annotations() {
+    assert_has_full_annotations(CORE_20_ALWAYS);
+    assert_has_full_annotations(PROFILE_PUBLIC_ALWAYS);
+    #[cfg(feature = "semantic")]
+    assert_has_full_annotations(SEMANTIC_GATED);
+}
