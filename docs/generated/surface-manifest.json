@@ -1612,37 +1612,40 @@
         "name": "minimal",
         "tool_count": 22,
         "preferred_namespaces": [
-          "symbols",
           "filesystem",
-          "mutation"
+          "graph",
+          "lsp",
+          "reports",
+          "session",
+          "symbols"
         ],
         "preferred_tiers": [
           "primitive",
           "analysis"
         ],
         "tools": [
-          "get_symbols_overview",
-          "find_symbol",
-          "find_referencing_symbols",
-          "search_workspace_symbols",
           "read_file",
           "list_dir",
           "find_file",
-          "get_current_config",
           "get_file_diagnostics",
+          "get_current_config",
           "activate_project",
           "prepare_harness_session",
           "set_preset",
           "set_profile",
+          "get_symbols_overview",
+          "find_symbol",
+          "find_referencing_symbols",
+          "search_workspace_symbols",
           "get_ranked_context",
           "get_type_hierarchy",
           "plan_symbol_rename",
-          "search",
-          "overview",
-          "diagnose",
           "graph",
+          "diagnose",
           "analyze",
-          "review"
+          "review",
+          "search",
+          "overview"
         ]
       },
       {
