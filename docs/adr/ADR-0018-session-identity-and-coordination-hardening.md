@@ -54,3 +54,26 @@
 - Chaos test: coordination store outage yields typed errors, zero silent successes.
 - P0 audit: LSP exec allowlist, remote-root rejection, and header-trust removal each
   covered by a regression test that fails on the pre-fix code.
+
+## Verification status (2026-07-24, evidence audit at HEAD 27c897e5)
+
+- **Forgery — met.** `from_json_ignores_unprovenanced_principal_id` and
+  `transport_scope_authenticates_server_injected_identity` (`session_context.rs`)
+  pin argument-forgery rejection; server-owned injection is centralized in
+  `server/session_injection.rs`.
+- **Chaos — met.** `every_coordination_operation_fails_closed_when_store_is_unavailable`
+  and `coordination_store_outage_fails_closed_across_processes`
+  (`agent_coordination.rs`): typed `coordination_unavailable` errors, no in-memory
+  fallback path remains.
+- **P0 LSP exec allowlist — met.** Registered-recipe policy plus
+  `lsp/command_security_tests.rs` (engine) landed in #402.
+- **P0 forwarded headers — met at the transport-config layer.** Non-local HTTP
+  listen requires auth + TLS (`server/http_config.rs::validate_remote_transport_config`);
+  cross-origin POST rejected (`post_from_remote_origin_is_forbidden`).
+- **P0 remote project roots — open.** `ProjectRoot::new` guards canonicalization,
+  directory-ness, path escape, and symlink escape, but has no explicit
+  network/remote-mount rejection; remote *transport* exposure is guarded above.
+  Path-level rejection needs a scope decision before implementation.
+- **Decision 3 — in progress.** The coordination quartet entered the deprecation
+  window (569513da) with persisted removal-gate telemetry (27c897e5); removal
+  lands in v2.0 after one clean release of telemetry.
