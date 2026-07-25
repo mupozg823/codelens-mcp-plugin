@@ -99,6 +99,11 @@ impl ProjectRuntimeLease {
     }
 }
 
+/// Explicit runtime-directory override. Deployments that cannot write to the
+/// user home need a seam, and the test suite needs one so it never leaves lock
+/// files in a developer's real `~/.codelens`.
+const RUNTIME_DIR_ENV: &str = "CODELENS_RUNTIME_DIR";
+
 /// Lock authority must live outside the repository. A project-local path lets
 /// an untrusted checkout replace the lock with a symlink and redirect metadata
 /// truncation to another user file.
@@ -110,7 +115,8 @@ fn trusted_runtime_dir() -> Result<PathBuf, CodeLensError> {
         }
         _ => None,
     };
-    let home = select_trusted_home(
+    resolve_runtime_dir(
+        std::env::var_os(RUNTIME_DIR_ENV).map(PathBuf::from),
         std::env::var_os("HOME").map(PathBuf::from),
         std::env::var_os("USERPROFILE").map(PathBuf::from),
         home_drive_path,
@@ -120,11 +126,42 @@ fn trusted_runtime_dir() -> Result<PathBuf, CodeLensError> {
             std::io::ErrorKind::NotFound,
             "an absolute HOME or Windows user profile is required for the trusted CodeLens runtime directory",
         ))
-    })?;
-    Ok(home
-        .join(".codelens")
-        .join("runtime")
-        .join("project-writers"))
+    })
+}
+
+fn resolve_runtime_dir(
+    explicit: Option<PathBuf>,
+    home: Option<PathBuf>,
+    user_profile: Option<PathBuf>,
+    home_drive_path: Option<PathBuf>,
+) -> Option<PathBuf> {
+    // 명시 override는 이미 완성된 디렉터리 경로다 — `.codelens/runtime/...`를
+    // 덧붙이면 override가 가리킨 자리를 벗어난다.
+    if let Some(explicit) = explicit.filter(|path| path.is_absolute()) {
+        return Some(explicit);
+    }
+    if let Some(fallback) = test_runtime_dir() {
+        return Some(fallback);
+    }
+    select_trusted_home(home, user_profile, home_drive_path).map(|home| {
+        home.join(".codelens")
+            .join("runtime")
+            .join("project-writers")
+    })
+}
+
+/// 테스트는 매번 새 임시 프로젝트 경로를 만들고, lock 이름은 그 경로의 해시라
+/// 실행마다 새 파일이 생긴다. 릴리스 경로와 같은 홈 디렉터리를 쓰면 그 파일이
+/// 사용자 `~/.codelens`에 영구 누적된다(실측 3일 27,964개·109MB, 2026-07-25).
+/// 프로세스별이 아니라 머신 공유 경로여야 교차 프로세스 배타성 테스트가 성립한다.
+#[cfg(test)]
+fn test_runtime_dir() -> Option<PathBuf> {
+    Some(std::env::temp_dir().join("codelens-test-runtime"))
+}
+
+#[cfg(not(test))]
+fn test_runtime_dir() -> Option<PathBuf> {
+    None
 }
 
 fn select_trusted_home(
@@ -189,7 +226,7 @@ fn write_metadata(file: &mut File, metadata: &LeaseMetadata) -> Result<(), CodeL
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectRuntimeLease, select_trusted_home};
+    use super::{ProjectRuntimeLease, resolve_runtime_dir, select_trusted_home};
     use crate::error::CodeLensError;
     use crate::test_helpers::fixtures::temp_project_root;
     use std::path::PathBuf;
@@ -221,6 +258,53 @@ mod tests {
             ),
             Some(fallback)
         );
+    }
+
+    #[test]
+    fn explicit_runtime_dir_override_wins_and_is_used_verbatim() {
+        let explicit = std::env::temp_dir().join("codelens-runtime-override");
+
+        assert_eq!(
+            resolve_runtime_dir(Some(explicit.clone()), Some(home_sentinel()), None, None),
+            Some(explicit)
+        );
+    }
+
+    #[test]
+    fn relative_runtime_dir_override_is_ignored() {
+        let resolved = resolve_runtime_dir(
+            Some(PathBuf::from("relative/runtime")),
+            Some(home_sentinel()),
+            None,
+            None,
+        )
+        .expect("a home fallback must still resolve");
+
+        assert!(!resolved.starts_with("relative"));
+    }
+
+    /// 이 테스트가 없으면 누수는 조용히 재발한다 — 테스트 lock이 사용자 홈으로
+    /// 돌아가도 어떤 단언도 깨지지 않기 때문이다.
+    #[test]
+    fn test_builds_never_place_lock_files_in_the_real_home() {
+        let home = home_sentinel();
+
+        let resolved = resolve_runtime_dir(None, Some(home.clone()), None, None)
+            .expect("test builds must resolve a runtime dir");
+
+        assert!(
+            !resolved.starts_with(&home),
+            "test lock files must not accumulate under the developer home: {}",
+            resolved.display()
+        );
+        assert!(resolved.starts_with(std::env::temp_dir()));
+    }
+
+    fn home_sentinel() -> PathBuf {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| PathBuf::from("/codelens-test-home"))
     }
 
     #[test]

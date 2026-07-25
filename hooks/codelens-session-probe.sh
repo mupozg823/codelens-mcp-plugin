@@ -19,8 +19,6 @@
 # 참고: 이 스크립트는 host 측 훅이다 (사용자 settings.json 의 SessionStart 에
 # 등록). 플러그인 hooks.json 에는 포함되지 않는다.
 
-CARD_URL="${CODELENS_CARD_URL:-http://127.0.0.1:7838/.well-known/mcp.json}"
-
 # resume 이벤트는 침묵 (stdin 이 비어 있으면 startup 으로 간주하고 진행)
 HOOK_INPUT=$(cat 2>/dev/null || true)
 case "$HOOK_INPUT" in
@@ -28,6 +26,50 @@ case "$HOOK_INPUT" in
 esac
 
 GIT_ROOT=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
+
+# 세션이 실제로 붙을 URL을 config 에서 해석한다 (project-scope .mcp.json 이
+# user-scope ~/.claude.json 동명을 override — Claude Code 와 같은 우선순위).
+#
+# 고정 포트를 프로브하면 설정이 죽은 포트를 가리켜도 "alive" 를 주입한다:
+# 2026-07-25 실측 — user-scope 가 폐기된 readonly 데몬 :7839 를 계속 가리켜
+# 홈 cwd 세션이 3일간 ConnectionRefused 였는데, 이 훅은 내내 "alive(:7838)" 라고
+# 보고했다. 프로브 대상과 세션 대상이 다르면 프로브는 아무것도 지키지 못한다.
+EFFECTIVE_URL=$(python3 - "$GIT_ROOT" <<'PY' 2>/dev/null
+import json, os, sys
+
+root = sys.argv[1]
+
+
+def codelens_url(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    entry = (data.get("mcpServers") or {}).get("codelens")
+    if not isinstance(entry, dict):
+        return None
+    url = entry.get("url")
+    return url if isinstance(url, str) and url.startswith("http") else None
+
+
+for candidate in (
+    os.path.join(root, ".mcp.json"),
+    os.path.expanduser("~/.claude.json"),
+):
+    url = codelens_url(candidate)
+    if url:
+        print(url)
+        break
+PY
+)
+EFFECTIVE_URL="${CODELENS_MCP_URL:-$EFFECTIVE_URL}"
+: "${EFFECTIVE_URL:=http://127.0.0.1:7838/mcp}"
+
+ORIGIN="${EFFECTIVE_URL%/*}"
+ORIGIN="${ORIGIN%/mcp}"
+PORT="${${EFFECTIVE_URL##*:}%%/*}"
+CARD_URL="${CODELENS_CARD_URL:-${ORIGIN%/}/.well-known/mcp.json}"
 
 HAS_INDEX=0
 [ -d "$GIT_ROOT/.codelens" ] && HAS_INDEX=1
@@ -50,15 +92,21 @@ for t in 0.7 1.2; do
   fi
 done
 if [ "$ALIVE" = "0" ]; then
-  echo "🔍 CodeLens 데몬 다운(:7838) — 쉘 폴백 허용, 심볼 게이트 자동 비활성."
+  # 설정 포트는 죽었는데 정본 포트에는 데몬이 살아 있으면 데몬 장애가 아니라
+  # 설정 드리프트다 — 둘을 구분해야 "데몬 다운" 오진으로 3일을 잃지 않는다.
+  if [ "$PORT" != "7838" ] && curl -sf -m 0.7 "http://127.0.0.1:7838/.well-known/mcp.json" -o /dev/null 2>/dev/null; then
+    echo "🔍 CodeLens 설정 드리프트 — 이 세션은 :$PORT 로 붙지만 리스너가 없고, 정본 :7838 데몬은 살아 있음. codelens MCP url 을 http://127.0.0.1:7838/mcp 로 고치고 세션 재시작(전송은 시작 시 바인딩)."
+    exit 0
+  fi
+  echo "🔍 CodeLens 데몬 다운(:$PORT) — 쉘 폴백 허용, 심볼 게이트 자동 비활성."
   exit 0
 fi
 
 if [ "$HAS_HEADER" = "1" ]; then
-  echo "🔍 CodeLens alive(:7838) — .mcp.json 헤더 자동 바인딩(prepare_harness_session 생략 가능). 심볼 라우팅 상세=rules/harness.md CodeLens-First."
+  echo "🔍 CodeLens alive(:$PORT) — .mcp.json 헤더 자동 바인딩(prepare_harness_session 생략 가능). 심볼 라우팅 상세=rules/harness.md CodeLens-First."
 elif [ "$GIT_ROOT" = "$HOME" ]; then
-  echo "🔍 CodeLens alive(:7838) — 홈 세션: \$HOME 자체 바인딩 금지(홈 전체 인덱싱→타임아웃). 코드 조회 전 대상 레포로 prepare_harness_session(project=<레포 절대경로>) 바인딩. 상세=rules/harness.md."
+  echo "🔍 CodeLens alive(:$PORT) — 홈 세션: \$HOME 자체 바인딩 금지(홈 전체 인덱싱→타임아웃). 코드 조회 전 대상 레포로 prepare_harness_session(project=<레포 절대경로>) 바인딩. 상세=rules/harness.md."
 else
-  echo "🔍 CodeLens alive(:7838) — 첫 호출 전 prepare_harness_session(project=\"$GIT_ROOT\") 필수(공유 데몬 오바인딩 방지). 미노출 시 ToolSearch \"select:mcp__codelens__search,mcp__codelens__graph\". 상세=rules/harness.md."
+  echo "🔍 CodeLens alive(:$PORT) — 첫 호출 전 prepare_harness_session(project=\"$GIT_ROOT\") 필수(공유 데몬 오바인딩 방지). 미노출 시 ToolSearch \"select:mcp__codelens__search,mcp__codelens__graph\". 상세=rules/harness.md."
 fi
 exit 0
