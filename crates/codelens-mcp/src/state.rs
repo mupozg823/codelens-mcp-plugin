@@ -128,6 +128,14 @@ pub(crate) struct AppState {
     /// embedding index.
     #[cfg(feature = "semantic")]
     pub(crate) embedding_root: Mutex<Option<PathBuf>>,
+    /// When the `embedding` engine was last handed out. The engine keeps an ONNX
+    /// model resident — ~265 MB of process footprint, most of it a wired GPU
+    /// allocation that neither compresses nor swaps out — and nothing dropped it
+    /// short of a project switch, so a daemon that ran one semantic query parked
+    /// that memory for its whole lifetime. The session-cleanup task drops the
+    /// engine once this goes stale; the next call reloads it.
+    #[cfg(feature = "semantic")]
+    pub(crate) embedding_last_used: Mutex<Option<std::time::Instant>>,
     /// Lazy-loaded SCIP precise backends, isolated per active project root.
     /// A shared HTTP daemon may switch projects between sessions; keying this
     /// cache by root prevents a SCIP index from the previous project from
