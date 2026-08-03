@@ -68,6 +68,17 @@ thread_local! {
     static REQUEST_BUDGET: std::cell::Cell<usize> = const { std::cell::Cell::new(4000) };
 }
 
+/// `true` when this call carries a non-empty `project` argument for a tool whose
+/// job is to (re)bind the session project. Such a call does not depend on the
+/// session's current binding still resolving, so it must survive a dead one.
+fn rebinds_project_explicitly(name: &str, arguments: &serde_json::Value) -> bool {
+    matches!(name, "prepare_harness_session" | "activate_project")
+        && arguments
+            .get("project")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|project| !project.trim().is_empty())
+}
+
 pub(crate) fn dispatch_tool(
     state: &AppState,
     id: Option<serde_json::Value>,
@@ -130,6 +141,12 @@ pub(crate) fn dispatch_tool(
         .or_else(|| crate::tools::infer_harness_phase(&ctx.recent_tools).map(str::to_owned));
     let _session_project_guard = match state.ensure_session_project(session) {
         Ok(guard) => guard,
+        // A tool that carries its own project argument is how a session *changes*
+        // its binding. Gating it on the previous binding still resolving deadlocks
+        // the session: once the bound directory is gone (deleted worktree, throwaway
+        // checkout), the only tool that could repair the binding is the one that
+        // cannot run. Let the explicit rebind through — it binds from its argument.
+        Err(_) if rebinds_project_explicitly(name, arguments) => None,
         Err(project_err) => {
             return build_error_response(
                 name,
