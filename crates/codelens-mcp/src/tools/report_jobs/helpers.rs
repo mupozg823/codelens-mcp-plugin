@@ -19,6 +19,12 @@ pub(super) fn run_job_kind(state: &AppState, kind: &str, arguments: &Value) -> T
             super::super::reports::verify_change_readiness(state, arguments)
         }
         "eval_session_audit" => super::super::reports::eval_session_audit(state, arguments),
+        // The two slowest tools in the daemon log — `explore_codebase` averaged
+        // 229 s and `review_architecture` 202 s over the recorded slow-execution
+        // samples. Called synchronously they stall an agent's tool loop for
+        // minutes, and until now neither had a job path to fall back to.
+        "explore_codebase" => super::super::workflows::explore_codebase(state, arguments),
+        "review_architecture" => super::super::workflows::review_architecture(state, arguments),
         // Always compiled (no semantic gate): the symbol index is a base
         // capability. No progress checkpoints — refresh_all has no callback
         // hook, so the job reports queued -> worker started -> completed.
