@@ -109,11 +109,29 @@ impl LspLaunchPolicy {
 
     pub(super) fn trusted_binary(&self, command: &str) -> Option<PathBuf> {
         let recipe = recipe_for_binary(command)?;
-        self.trusted_binaries
+        if let Some(cached) = self
+            .trusted_binaries
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(recipe.binary_name)
             .cloned()
+        {
+            return Some(cached);
+        }
+        // Cache miss. `from_environment` snapshots PATH once at daemon start, so a
+        // language server installed afterwards stayed invisible until the daemon was
+        // restarted — and the caller saw "not found. Install it:" for a binary that
+        // was already on PATH. Re-resolve this one recipe and memoise the hit.
+        // Resolution is a handful of `stat` calls over PATH, and only runs while the
+        // server is genuinely absent from the map.
+        let resolved = resolve_lsp_binary(recipe.binary_name)?
+            .canonicalize()
+            .ok()?;
+        self.trusted_binaries
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(recipe.binary_name, resolved.clone());
+        Some(resolved)
     }
 
     fn trusted_recipe_for_path(

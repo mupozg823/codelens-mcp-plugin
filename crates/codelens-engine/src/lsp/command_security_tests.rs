@@ -139,3 +139,40 @@ fn rejected_invocations_never_create_a_session() {
         assert_eq!(pool.session_count(), 0);
     }
 }
+
+#[test]
+fn trusted_binary_recovers_a_server_installed_after_the_policy_snapshot() {
+    // `from_environment` snapshots PATH once, at daemon start. A language server
+    // installed afterwards used to stay invisible until the daemon was restarted,
+    // and the caller was told "not found. Install it:" for a binary already on
+    // PATH. An empty policy is exactly that state — a daemon that booted before
+    // the install — so the lookup must recover the server on its own.
+    let Some(recipe) = LSP_RECIPES
+        .iter()
+        .find(|recipe| super::registry::resolve_lsp_binary(recipe.binary_name).is_some())
+    else {
+        eprintln!("skipped: no registered LSP server is installed in this environment");
+        return;
+    };
+
+    let policy = LspLaunchPolicy::default();
+
+    let recovered = policy.trusted_binary(recipe.binary_name);
+    assert!(
+        recovered.is_some(),
+        "`{}` resolves on PATH but an empty policy refused it",
+        recipe.binary_name
+    );
+    // The recovery memoises, so a second lookup agrees with the first.
+    assert_eq!(recovered, policy.trusted_binary(recipe.binary_name));
+}
+
+#[test]
+fn trusted_binary_still_refuses_a_server_that_is_not_installed() {
+    let policy = LspLaunchPolicy::default();
+    assert!(
+        policy
+            .trusted_binary("definitely-not-a-registered-lsp")
+            .is_none()
+    );
+}
