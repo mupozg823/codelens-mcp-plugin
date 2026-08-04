@@ -100,26 +100,6 @@ pub(crate) fn semantic_status(_state: &AppState) -> Value {
     })
 }
 
-/// `true` when most of the query's *letters* fall outside the Latin script the
-/// bundled embedding model was trained on. Digits, punctuation and whitespace are
-/// ignored, and a tie counts as Latin, so a mixed query like `detect_root 함수`
-/// still reaches the embedding index — only queries that are predominantly
-/// another script are diverted to sparse-only retrieval.
-#[cfg(feature = "semantic")]
-fn query_is_predominantly_non_latin(query: &str) -> bool {
-    let (latin, other) = query.chars().filter(|ch| ch.is_alphabetic()).fold(
-        (0usize, 0usize),
-        |(latin, other), ch| {
-            if ch.is_ascii_alphabetic() {
-                (latin + 1, other)
-            } else {
-                (latin, other + 1)
-            }
-        },
-    );
-    other > latin
-}
-
 #[cfg(feature = "semantic")]
 fn non_latin_semantic_allowed() -> bool {
     std::env::var("CODELENS_SEMANTIC_NON_LATIN")
@@ -160,7 +140,7 @@ pub(crate) fn semantic_results_for_query(
     // the gold symbol first at 0.38-0.48. Leave those queries to the sparse
     // retriever, which handles them well. Set CODELENS_SEMANTIC_NON_LATIN=allow to
     // opt out — appropriate once a multilingual model is bundled.
-    if query_is_predominantly_non_latin(&query_analysis.semantic_query)
+    if crate::util::query_is_predominantly_non_latin(&query_analysis.semantic_query)
         && !non_latin_semantic_allowed()
     {
         tracing::debug!(
@@ -220,7 +200,7 @@ pub(crate) fn semantic_results_for_query(
 
 #[cfg(all(test, feature = "semantic"))]
 mod tests {
-    use super::query_is_predominantly_non_latin as non_latin;
+    use crate::util::query_is_predominantly_non_latin as non_latin;
 
     #[test]
     fn korean_natural_language_queries_divert_to_sparse() {
