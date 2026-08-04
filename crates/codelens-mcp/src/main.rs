@@ -96,6 +96,30 @@ fn configured_daemon_mode_env() -> Option<RuntimeDaemonMode> {
     dual_prefix_env("CODELENS_DAEMON_MODE").map(|value| RuntimeDaemonMode::from_str(&value))
 }
 
+/// Daemon-wide override for the surface's default response budget.
+///
+/// The per-surface defaults were sized for small context windows — a builder
+/// profile gets 2400 tokens, below even the Balanced preset's 4000 — and a
+/// response over budget has its structured arrays clipped to three items, so a
+/// `max_results: 10` request quietly returns three. Without this, a host with a
+/// large context window has to pass `token_budget` on every
+/// `prepare_harness_session` call to avoid that.
+fn configured_token_budget() -> Option<usize> {
+    dual_prefix_env("CODELENS_TOKEN_BUDGET")
+        .as_deref()
+        .and_then(parse_token_budget_override)
+}
+
+/// Split from the environment lookup so the parsing rule stays testable. Values
+/// under 500 are refused: a budget that small clips almost every response, and it
+/// is far more likely to be a typo than an intent.
+fn parse_token_budget_override(raw: &str) -> Option<usize> {
+    raw.trim()
+        .parse::<usize>()
+        .ok()
+        .filter(|budget| *budget >= 500)
+}
+
 fn configured_compat_mode(args: &[String]) -> ServerCompatMode {
     cli_option_value(args, "--compat")
         .or_else(|| dual_prefix_env("CODELENS_COMPAT"))
@@ -333,13 +357,14 @@ fn main() -> Result<()> {
     app_state.configure_compat_mode(compat_mode);
     #[cfg(feature = "http")]
     app_state.configure_http_auth(http_runtime.auth.clone());
-    if let Some(profile) = profile {
+    let surface_budget = if let Some(profile) = profile {
         app_state.set_surface(ToolSurface::Profile(profile));
-        app_state.set_token_budget(default_budget_for_profile(profile));
+        default_budget_for_profile(profile)
     } else {
         app_state.set_surface(ToolSurface::Preset(preset));
-        app_state.set_token_budget(default_budget_for_preset(preset));
-    }
+        default_budget_for_preset(preset)
+    };
+    app_state.set_token_budget(configured_token_budget().unwrap_or(surface_budget));
 
     #[cfg(feature = "http")]
     if matches!(transport.as_str(), "http" | "https") {
@@ -467,5 +492,30 @@ mod env_config_tests {
                 assert_eq!(configured_otel_endpoint(), "http://symbiote-collector");
             },
         );
+    }
+
+    #[test]
+    fn token_budget_override_parses_and_enforces_a_floor() {
+        assert_eq!(parse_token_budget_override("8000"), Some(8000));
+        assert_eq!(parse_token_budget_override("  6000  "), Some(6000));
+        // Below the floor: such a budget clips nearly every response, so it reads
+        // as a typo rather than an intent.
+        assert_eq!(parse_token_budget_override("24"), None);
+        assert_eq!(parse_token_budget_override("0"), None);
+        assert_eq!(parse_token_budget_override("lots"), None);
+        assert_eq!(parse_token_budget_override(""), None);
+    }
+
+    #[test]
+    fn token_budget_env_supplies_a_daemon_wide_override() {
+        with_env(&[("CODELENS_TOKEN_BUDGET", Some("9000"))], || {
+            assert_eq!(configured_token_budget(), Some(9000));
+        });
+        with_env(&[("CODELENS_TOKEN_BUDGET", Some("12"))], || {
+            assert_eq!(configured_token_budget(), None);
+        });
+        with_env(&[("CODELENS_TOKEN_BUDGET", None)], || {
+            assert_eq!(configured_token_budget(), None);
+        });
     }
 }
