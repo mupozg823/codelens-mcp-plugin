@@ -235,6 +235,11 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     {
         map.insert("truncation_warning".to_owned(), info.to_json());
     }
+    if let Some(hint) = non_latin_empty_result_hint(name, arguments, resp.data.as_ref())
+        && let Some(Value::Object(map)) = structured_content.as_mut()
+    {
+        map.insert("query_language_hint".to_owned(), hint);
+    }
     let suggested_next_tools = resp.suggested_next_tools.as_deref().unwrap_or(&[]);
     let handoff_id = arguments.get("handoff_id").and_then(|value| value.as_str());
 
@@ -378,6 +383,160 @@ mod no_schema_stage5_dispatch_tests {
         assert!(
             parsed.get("error").is_none(),
             "degrade-to-summary: no error key when a preview exists: {text}"
+        );
+    }
+}
+
+/// Number of hits a search payload reports, across the field names the search
+/// family uses. `None` for a payload that carries no recognisable result array.
+fn payload_result_count(data: Option<&Value>) -> Option<usize> {
+    let Some(Value::Object(map)) = data else {
+        return None;
+    };
+    for key in ["results", "symbols", "matches", "hits", "references"] {
+        if let Some(Value::Array(items)) = map.get(key) {
+            return Some(items.len());
+        }
+    }
+    map.get("count")
+        .and_then(Value::as_u64)
+        .map(|count| count as usize)
+}
+
+/// Routing hint for a search that came back thin for a non-Latin query.
+///
+/// The symbol index holds identifiers and signatures. In these repositories those
+/// are English even where most source files carry Korean comments — measured at
+/// 52-81% of files with Korean, of which 53-81% is comment text and 0-1% is
+/// identifiers. A Korean query therefore has almost nothing to match against.
+///
+/// It rarely returns *nothing*, though: measured against a 594-file project,
+/// `알림박스 오프셋 계산` returned exactly one hit, unrelated to the query, which
+/// reads to a caller like a real answer. So a thin result counts the same as an
+/// empty one — both mean the index could not answer, and both should point at the
+/// layer that does hold the text: grep over the working tree.
+fn non_latin_empty_result_hint(
+    name: &str,
+    arguments: &Value,
+    data: Option<&Value>,
+) -> Option<Value> {
+    const SEARCH_TOOLS: &[&str] = &[
+        "search",
+        "get_ranked_context",
+        "find_symbol",
+        "semantic_search",
+        "bm25_symbol_search",
+        "search_symbols_fuzzy",
+    ];
+    if !SEARCH_TOOLS.contains(&name) {
+        return None;
+    }
+    let query = arguments
+        .get("query")
+        .or_else(|| arguments.get("name"))
+        .and_then(Value::as_str)?;
+    if !crate::util::query_is_predominantly_non_latin(query) {
+        return None;
+    }
+    // A handful of hits on a non-Latin query is incidental, not an answer.
+    const THIN_RESULT_CEILING: usize = 3;
+    if payload_result_count(data)? > THIN_RESULT_CEILING {
+        return None;
+    }
+    Some(serde_json::json!({
+        "code": "non_latin_query_no_symbol_match",
+        "message": "The symbol index stores identifiers and signatures, which are \
+                    typically English even in a codebase whose comments are not. A \
+                    query in another script has almost nothing to match, so a thin \
+                    or empty result here does not mean the code is absent — and the \
+                    few hits that do come back are likely incidental.",
+        "recommended_action": "grep_working_tree",
+        "action_target": "native_search",
+        "alternatives": [
+            "grep the working tree for the term — comments and UI strings live there, not in the symbol index",
+            "search by identifier instead; identifier queries score identically across retrieval modes",
+            "rephrase the concept in English if you want ranked semantic retrieval",
+        ],
+    }))
+}
+
+#[cfg(test)]
+mod non_latin_hint_tests {
+    use super::non_latin_empty_result_hint;
+    use serde_json::json;
+
+    #[test]
+    fn a_korean_query_with_no_symbol_hits_is_pointed_at_grep() {
+        let hint = non_latin_empty_result_hint(
+            "get_ranked_context",
+            &json!({"query": "알림박스 오프셋 계산"}),
+            Some(&json!({"results": []})),
+        )
+        .expect("empty non-Latin search should explain itself");
+        assert_eq!(hint["code"], "non_latin_query_no_symbol_match");
+        assert_eq!(hint["recommended_action"], "grep_working_tree");
+    }
+
+    #[test]
+    fn a_thin_result_still_gets_the_hint() {
+        // Measured: a Korean query against a 594-file project returned exactly one
+        // unrelated hit. One hit reads like an answer, so it must not silence this.
+        assert!(
+            non_latin_empty_result_hint(
+                "get_ranked_context",
+                &json!({"query": "알림박스"}),
+                Some(&json!({"symbols": [{"symbol_name": "alertbox_token"}]})),
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn a_substantial_result_suppresses_the_hint() {
+        // The index did answer — nothing to redirect.
+        let symbols: Vec<_> = (0..8)
+            .map(|i| json!({"symbol_name": format!("s{i}")}))
+            .collect();
+        assert!(
+            non_latin_empty_result_hint(
+                "get_ranked_context",
+                &json!({"query": "알림박스"}),
+                Some(&json!({"symbols": symbols})),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn a_latin_query_never_gets_the_hint() {
+        assert!(
+            non_latin_empty_result_hint(
+                "get_ranked_context",
+                &json!({"query": "alertbox offset"}),
+                Some(&json!({"results": []})),
+            )
+            .is_none()
+        );
+        // A mixed query counts as Latin — the identifier still carries signal.
+        assert!(
+            non_latin_empty_result_hint(
+                "find_symbol",
+                &json!({"name": "alertbox_offset 계산"}),
+                Some(&json!({"symbols": []})),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn non_search_tools_are_untouched() {
+        assert!(
+            non_latin_empty_result_hint(
+                "review",
+                &json!({"query": "알림박스"}),
+                Some(&json!({"results": []})),
+            )
+            .is_none()
         );
     }
 }

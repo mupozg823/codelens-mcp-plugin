@@ -16,6 +16,11 @@ pub(crate) fn analysis_job_cost_units(kind: &str) -> usize {
         "orchestrate_change" => 1,
         "refactor_safety_report" => 2,
         "dead_code_report" => 3,
+        // Whole-repo sweeps. The daemon log puts their slow-path averages at
+        // 229 s and 202 s, above every other report, so they hold a worker for
+        // far longer than a targeted analysis.
+        "explore_codebase" => 4,
+        "review_architecture" => 4,
         "index_embeddings" => 4,
         _ => 2,
     }
@@ -173,5 +178,26 @@ impl JobService {
         let weighted_depth = guard.pending_cost_units + guard.active_cost_units;
         condvar.notify_all();
         Ok((depth, weighted_depth, priority_promoted))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::analysis_job_cost_units;
+
+    #[test]
+    fn whole_repo_sweeps_reserve_more_capacity_than_targeted_reports() {
+        // `explore_codebase` and `review_architecture` average 229 s and 202 s in
+        // the daemon's slow-execution log — far longer than any targeted report —
+        // so they must not be priced like one, or a pair of them starves the pool.
+        assert_eq!(analysis_job_cost_units("explore_codebase"), 4);
+        assert_eq!(analysis_job_cost_units("review_architecture"), 4);
+        assert!(
+            analysis_job_cost_units("explore_codebase") > analysis_job_cost_units("impact_report")
+        );
+        assert!(
+            analysis_job_cost_units("review_architecture")
+                > analysis_job_cost_units("dead_code_report")
+        );
     }
 }

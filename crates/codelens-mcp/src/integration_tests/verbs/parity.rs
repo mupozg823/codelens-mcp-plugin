@@ -13,6 +13,16 @@ fn handler_data(payload: &serde_json::Value) -> serde_json::Value {
         ] {
             object.remove(response_only);
         }
+        // `semantic.status` / `semantic.loaded` report embedding-engine
+        // residency at call time, and the engine's lifecycle (lazy load,
+        // idle eviction) legitimately differs between two sequential
+        // calls. That is call-order state, not handler data — the facade
+        // is not the variable — so residency fields are masked while the
+        // stable identity fields (model, indexed_symbols) stay compared.
+        if let Some(semantic) = object.get_mut("semantic").and_then(|v| v.as_object_mut()) {
+            semantic.remove("status");
+            semantic.remove("loaded");
+        }
     }
     data
 }

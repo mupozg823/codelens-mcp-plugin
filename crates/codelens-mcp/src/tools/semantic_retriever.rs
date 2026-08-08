@@ -101,6 +101,13 @@ pub(crate) fn semantic_status(_state: &AppState) -> Value {
 }
 
 #[cfg(feature = "semantic")]
+fn non_latin_semantic_allowed() -> bool {
+    std::env::var("CODELENS_SEMANTIC_NON_LATIN")
+        .map(|value| value.trim().eq_ignore_ascii_case("allow"))
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "semantic")]
 pub(crate) fn semantic_results_for_query(
     state: &AppState,
     query: &str,
@@ -121,6 +128,25 @@ pub(crate) fn semantic_results_for_query(
     }
 
     if query_analysis.semantic_query.is_empty() {
+        return Vec::new();
+    }
+
+    // The bundled model is MiniLM-L12-CodeSearchNet — English code search. A query
+    // written mostly in another script embeds into a region of the space unrelated
+    // to the corpus, so its hits are noise that displaces good lexical matches.
+    // Measured on this repository: four Korean natural-language queries surfaced no
+    // gold symbol at all (top hits were `send_message`, `parse_function_parts`,
+    // `codex_function_output`), while English paraphrases of the same intent ranked
+    // the gold symbol first at 0.38-0.48. Leave those queries to the sparse
+    // retriever, which handles them well. Set CODELENS_SEMANTIC_NON_LATIN=allow to
+    // opt out — appropriate once a multilingual model is bundled.
+    if crate::util::query_is_predominantly_non_latin(&query_analysis.semantic_query)
+        && !non_latin_semantic_allowed()
+    {
+        tracing::debug!(
+            "skipping semantic retrieval: query is predominantly non-Latin and the \
+             bundled model is English-only; sparse retrieval handles it"
+        );
         return Vec::new();
     }
 
@@ -170,4 +196,35 @@ pub(crate) fn semantic_results_for_query(
     _path_scope: Option<&str>,
 ) -> Vec<SemanticMatch> {
     Vec::new()
+}
+
+#[cfg(all(test, feature = "semantic"))]
+mod tests {
+    use crate::util::query_is_predominantly_non_latin as non_latin;
+
+    #[test]
+    fn korean_natural_language_queries_divert_to_sparse() {
+        assert!(non_latin(
+            "홈 디렉터리를 프로젝트 루트로 삼는 것을 거부하는 가드"
+        ));
+        assert!(non_latin("유휴 상태의 임베딩 엔진을 해제하는 정책"));
+        assert!(non_latin("세션에 바인딩된 프로젝트를 보장하는 함수"));
+    }
+
+    #[test]
+    fn english_queries_reach_the_embedding_index() {
+        assert!(!non_latin(
+            "refuse the home directory as an inferred project root"
+        ));
+        assert!(!non_latin("drop the idle embedding engine after a timeout"));
+    }
+
+    #[test]
+    fn mixed_and_identifier_queries_stay_on_the_embedding_path() {
+        // An identifier plus a Korean noun — the Latin half still carries the signal.
+        assert!(!non_latin("detect_root 함수"));
+        assert!(!non_latin("ensure_session_project 바인딩"));
+        // Digits and punctuation must not tip the balance.
+        assert!(!non_latin("parse_json(v2) — 파싱"));
+    }
 }

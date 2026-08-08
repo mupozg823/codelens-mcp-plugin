@@ -172,6 +172,71 @@ async fn session_bound_missing_project_fails_closed() {
 }
 
 #[tokio::test]
+async fn explicit_prepare_harness_session_recovers_a_deleted_session_project() {
+    let state = test_state();
+    let app = build_router(state.clone());
+
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    // The bound directory is gone — a deleted worktree or throwaway checkout.
+    let missing = temp_project_dir("recover-missing").join("gone");
+    state
+        .session_store
+        .as_ref()
+        .unwrap()
+        .set_project_path(&sid, missing.to_string_lossy().as_ref());
+
+    // `prepare_harness_session` is how a session repairs its binding, so gating it
+    // on the dead binding still resolving deadlocks the session: the one tool that
+    // could fix it is the one that cannot run.
+    let target = temp_project_dir("recover-target");
+    std::fs::write(target.join("mod.py"), "def ok():\n    return 1\n").unwrap();
+    let payload = format!(
+        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"prepare_harness_session","arguments":{{"project":"{}"}}}}}}"#,
+        target.to_string_lossy()
+    );
+
+    let prepared = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = body_string(prepared).await;
+    assert!(
+        !body.contains("automatic rebind failed"),
+        "explicit rebind must not be blocked by the dead binding: {body}"
+    );
+    assert!(body.contains("activated"), "expected an activation: {body}");
+}
+
+#[tokio::test]
 async fn session_profiles_are_isolated_across_tools_list() {
     let state = test_state();
     let app = build_router(state.clone());

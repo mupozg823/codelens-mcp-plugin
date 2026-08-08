@@ -1053,7 +1053,7 @@ output_schema = "analysis_job_output_schema"
 type = "object"
 required = ["kind"]
 [tool.input_schema.properties]
-kind = { type = "string", enum = ["impact_report", "dead_code_report", "refactor_safety_report", "semantic_code_review", "orchestrate_change", "eval_session_audit"] }
+kind = { type = "string", enum = ["impact_report", "dead_code_report", "refactor_safety_report", "semantic_code_review", "orchestrate_change", "eval_session_audit", "explore_codebase", "review_architecture"] }
 task = { type = "string" }
 symbol = { type = "string" }
 path = { type = "string" }

@@ -1,6 +1,6 @@
 {
   "name": "codelens",
-  "version": "1.13.34",
+  "version": "1.13.35",
   "description": "CodeLens workflows for Codex using an existing host-level CodeLens MCP server.",
   "author": {
     "name": "mupozg823",

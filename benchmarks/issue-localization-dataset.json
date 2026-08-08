@@ -1,0 +1,377 @@
+{
+  "schema_version": "1.0",
+  "protocol": "CodeScout-style issue->location localization (arXiv 2603.17829)",
+  "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+  "head_sha": "6b8e1cb60ff1922f518532678dede0bbc5e30208",
+  "granularity": {
+    "files": "repo-relative path",
+    "containers": "<file>::impl X | impl T for X | mod m | struct S | enum E | trait T",
+    "functions": "<file>::<container>::<fn> when nested, else <file>::<fn>"
+  },
+  "ground_truth_rules": [
+    "member addition is attributed to the enclosing container and the file, never to a synthetic function",
+    "import and top-level static/const edits are file-level only",
+    "comment-only and doc-comment-only hunks are ignored",
+    "commits whose gold patch is entirely file creation or deletion are excluded; created/deleted files inside a mixed commit are dropped from the gold set",
+    "commits with any gold file absent from HEAD are excluded"
+  ],
+  "class_rule": "verbatim iff the query contains, as a whole word, a gold file basename stem or a gold container/function identifier (len>=4, excluding 'mod'/'tests'); otherwise descriptive",
+  "head_state_deviation": "The runner scores against the daemon index of the current HEAD, not the paper's pre-PR snapshot. Gold locations therefore refer to symbols as they exist after the fix landed.",
+  "manual_verification": "every entry below was checked against `git show <sha>` by hand; per-entry adjudication in `notes`",
+  "queries": [
+    {
+      "id": "Q01",
+      "sha": "00a6289a",
+      "class": "verbatim",
+      "class_evidence": [
+        "presets"
+      ],
+      "query": "fix(presets): remove refresh_symbol_index from MINIMAL_TOOLS (dogfood patch)\n\nDaemon redeploy of the b07d5773 binary surfaced a real violation\nfrom find_over_visible_apis:\n\n  refresh_symbol_index has annotations=\"mut_w\"\n  (audit_category=\"mutation\", approval_required=true)\n  but was listed in MINIMAL_TOOLS\n\nThe Minimal preset is the surface a planner agent uses when it should\nnot be able to initiate mutations — the leak meant a Minimal-bound\ncaller could trigger an index rebuild without surfacing the\napproval-required intent. find_over_visible_apis flagged it as a\nsingle concrete violation (violation_count=1, surface=preset:minimal).\n\nPatch:\n  - presets.rs::MINIMAL_TOOLS — removed refresh_symbol_index (line 167)\n    with an inline comment explaining the dogfood finding so the next\n    reader has the audit-trail without having to grep.\n  - tools.toml — refresh_symbol_index.preset_tags goes from\n    [\"minimal\", \"builder-minimal\"] to [\"builder-minimal\"] only.\n  - build_generated.rs regenerated via scripts/regen-tool-defs.py.\n\nThe tool remains in BUILDER_MINIMAL_TOOLS (where build-agent mutation\nis expected) and the broader Full preset (where set_preset full\nexplicitly opens the mutation surface). Callers that need it from a\nminimal-bound session must set_preset full first — surfacing the\nintent rather than hiding it.\n\nRe-running find_over_visible_apis against the patched binary will\nreport violation_count=0. This is the first real defect surfaced by\nthe Self-auditability detector family that was built up in Sprint 2.\nProof that the cycle is doing the job it was built for.\n\ncargo check + clippy --features http,semantic + fmt + 14\nsurface_audit_tests + regen-tool-defs.py --check all pass.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/tool_defs/presets.rs"
+        ],
+        "containers": [],
+        "functions": []
+      },
+      "verified": true,
+      "notes": "const-array member removal inside MINIMAL_TOOLS: file-level only per the global-variable rule (no container, no function)."
+    },
+    {
+      "id": "Q02",
+      "sha": "98388f57",
+      "class": "verbatim",
+      "class_evidence": [
+        "tool_deprecation"
+      ],
+      "query": "fix(g7): drop audit_tool_surface_consistency from deprecation list\n\nae8c6f2f resurrected `audit_tool_surface_consistency` (P1-4 Sprint A\n— added tools.toml entry + dispatch arm + tests) but left the\ndeprecation marker in `tool_deprecation()`. This produced the exact\ndaemon \"deprecated\" vs CLI \"Unknown tool\" mismatch that\ndogfood/results_2026_05_18 documented as issue #G7 — even after\nthe dispatch wiring was restored, daemon callers were still being\ntold the tool was deprecated via `_meta.codelens/deprecatedSince`.\n\nRemoving the deprecation entry closes the loop:\n  - daemon no longer attaches deprecation marker to responses\n  - tools.toml + dispatch_table both register the tool (ae8c6f2f)\n  - `tool_deprecation(\"audit_tool_surface_consistency\")` now returns None\n  - `deprecated_workflow_alias` correctly returns None — no alias\n\nThe other 27 entries are intentionally kept; they trace the\nv1.13.27 deprecation cycle of the four detector family (`find_*`)\nplus the deprecated mutation/edit/workflow tools that retain a\ndispatch arm \"for backward compat\" but no longer have a tools.toml\nschema. A follow-up Sprint B-2 will teach\n`audit_tool_surface_consistency` to recognize these via\n`tool_deprecation` and report them under an `intentional_deprecation`\nbucket instead of `missing_in_toml`, so the audit returns\n`all_clean: true` on a tree where the deprecation cycle is\non-policy.\n\nVerified locally:\n  cargo check --workspace --features http  → clean\n  cargo test --bin codelens-mcp surface_audit_tests\n    audit_returns_three_violation_buckets ... ok\n    audit_self_includes_itself_in_dispatch ... ok\n  cargo test --bin codelens-mcp deprecation\n    10 passed (no regression in the path-alias deprecation tests)\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs"
+        ],
+        "containers": [],
+        "functions": [
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs::tool_deprecation"
+        ]
+      },
+      "verified": true,
+      "notes": "match-arm removal inside the free fn tool_deprecation; no enclosing impl/mod."
+    },
+    {
+      "id": "Q03",
+      "sha": "44edfce4",
+      "class": "verbatim",
+      "class_evidence": [
+        "artifact_store",
+        "job_store",
+        "matches_scope",
+        "util"
+      ],
+      "query": "fix(scope): canonicalize before matches_scope (H1 G8-class root fix)\n\nmatches_scope was duplicated (job_store + artifact_store) with raw\nstring equality (j==c), so the same project under a different path\nrepresentation (trailing slash, ./..) silently missed — the G8-class\n\"Unknown analysis_id\"/\"Unknown job\" bug. G8's get_analysis_any_scope\nfallback only patched one read path; 6 other call sites stayed strict.\n\nUnify into util::matches_scope with lexical canonicalization (Path\ncomponents, no fs::canonicalize — stays pure for deleted/virtual scopes).\nBoth stores share it, fixing all 7 sites at the root.\n\n618 tests pass (scope 10/10); different-project scopes still miss.\n\nCo-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/artifact_store.rs",
+          "crates/codelens-mcp/src/job_store.rs",
+          "crates/codelens-mcp/src/util.rs"
+        ],
+        "containers": [
+          "crates/codelens-mcp/src/util.rs::mod tests"
+        ],
+        "functions": [
+          "crates/codelens-mcp/src/util.rs::canonicalize_scope",
+          "crates/codelens-mcp/src/util.rs::matches_scope",
+          "crates/codelens-mcp/src/util.rs::mod tests::matches_scope_canonicalizes_path_representation"
+        ]
+      },
+      "verified": true,
+      "notes": "hand-corrected: the auto-parser attributed the deleted module-level fn matches_scope in artifact_store.rs/job_store.rs to the preceding impl block (deletion-anchor artifact). Both dropped; those two files stay file-level (import add + free-fn removal)."
+    },
+    {
+      "id": "Q04",
+      "sha": "da621489",
+      "class": "verbatim",
+      "class_evidence": [
+        "artifact_store"
+      ],
+      "query": "fix(artifact_store): require tool_name match in L3 cold tier (#G2)\n\nL3 cold-tier fallback previously matched on scope + generic\ncache_key alone, allowing a stored `dead_code_report` artifact to\nbe returned verbatim for an unrelated `module_boundary_report`\ncall when the latter's `cache_key` happened to miss L1/L2. The two\ntools produce structurally different payloads (summary, findings,\nsection layout), so the fallback was payload-poisoning rather than\nuseful reuse.\n\nAdd `tool_name == tool_name` to the L3 predicate so all three tiers\nrequire tool match. L3's purpose now is \"same tool + same scope +\ngeneric artifact\" with surface relaxed (so e.g. planner-readonly\ncan reuse a refactor-full artifact). Replace the cross-tool hit\ntest with an isolation regression test and add an L3 same-tool\ndifferent-surface hit test.\n\nDiscovered via self-dogfood (2026-05-18).\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/artifact_store.rs"
+        ],
+        "containers": [
+          "crates/codelens-mcp/src/artifact_store.rs::impl AnalysisArtifactStore",
+          "crates/codelens-mcp/src/artifact_store.rs::mod tests"
+        ],
+        "functions": [
+          "crates/codelens-mcp/src/artifact_store.rs::impl AnalysisArtifactStore::find_reusable_tiered",
+          "crates/codelens-mcp/src/artifact_store.rs::mod tests::tiered_cold_hit_same_tool_different_surface",
+          "crates/codelens-mcp/src/artifact_store.rs::mod tests::tiered_miss_when_different_tool_even_if_scope_generic"
+        ]
+      },
+      "verified": true,
+      "notes": "impl AnalysisArtifactStore + mod tests both edited; one renamed test counts as the new name only."
+    },
+    {
+      "id": "Q05",
+      "sha": "f963b31a",
+      "class": "descriptive",
+      "class_evidence": [],
+      "query": "fix(db): raise SQLite busy_timeout 5s -> 30s on symbol-index connections\n\nCI macOS runners intermittently fail AppState init with Error code 5\n(\"database is locked\") during the fresh-DB journal_mode=WAL transition\nunder parallel `cargo test --features http` I/O load — the same #332\nfailure class the original 5s timeout mitigated, now instrumented and\nconfirmed via the payload-surfacing test assert (bd12af0e). Production\nruns four daemons against one symbols.db, so the wider wait also\nconverts potential hard failures there into bounded lock waits.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-engine/src/db/mod.rs"
+        ],
+        "containers": [
+          "crates/codelens-engine/src/db/mod.rs::impl IndexDb"
+        ],
+        "functions": [
+          "crates/codelens-engine/src/db/mod.rs::impl IndexDb::open",
+          "crates/codelens-engine/src/db/mod.rs::impl IndexDb::open_readonly"
+        ]
+      },
+      "verified": true,
+      "notes": "two PRAGMA string edits inside IndexDb::open and IndexDb::open_readonly."
+    },
+    {
+      "id": "Q06",
+      "sha": "d3cb909f",
+      "class": "verbatim",
+      "class_evidence": [
+        "boundary",
+        "dead_code_report",
+        "report_jobs"
+      ],
+      "query": "fix(dead_code_report): accept `path` as soft alias of `scope` (#G1)\n\n`dead_code_report` is the only composite report tool that argues\nover `scope`; the rest of the family (`impact_report`,\n`module_boundary_report`, `refactor_safety_report`,\n`diff_aware_references`, …) takes `path`. The dispatch envelope's\n`apply_path_alias_normalisation` normalises\n`file_path`/`path`/`relative_path` for handlers that opt in, but\n`scope` is not part of that contract. A caller copy-pasting the\nsibling-tool convention sent `{\"path\":\"crates/...\"}` and the\nhandler silently fell back to `scope = \".\"`, scanning the project\nroot and surfacing false positives like `.cargo/audit.toml`.\n\nAccept `path` as a soft alias in both the sync (`boundary.rs`) and\nasync-job (`report_jobs.rs`) handlers, include `path` in the cache\nkey so path-only callers still benefit from L1/L2 reuse, and add\n`path` to the tools.toml input schema with a description marking\nit as the alias. Re-run `scripts/regen-tool-defs.py --write` to\nsync the generated registry.\n\nBonus: with the narrower scope honored, the legacy false positives\nfrom `.cargo/audit.toml` etc. drop out of `top_findings` naturally.\n\nDiscovered via self-dogfood (2026-05-18).\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/tool_defs/generated/build_generated.rs",
+          "crates/codelens-mcp/src/tools/report_jobs.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs"
+        ],
+        "containers": [],
+        "functions": [
+          "crates/codelens-mcp/src/tool_defs/generated/build_generated.rs::composite_tools",
+          "crates/codelens-mcp/src/tools/report_jobs.rs::run_dead_code_report_job",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report"
+        ]
+      },
+      "verified": true,
+      "notes": "three free fns across three files; build_generated.rs is codegen output but is a genuine gold file for this patch."
+    },
+    {
+      "id": "Q07",
+      "sha": "45b76f38",
+      "class": "verbatim",
+      "class_evidence": [
+        "prepare_harness_session_warns_when_daemon_binary_is_stale"
+      ],
+      "query": "fix(test): make prepare_harness stale-daemon fixture deterministic (filetime) (#335)\n\n* fix(test): make prepare_harness stale-daemon fixture deterministic\n\n`prepare_harness_session_warns_when_daemon_binary_is_stale` had been\nflaking single-shot across our recent sweep (PR-K #328, #312, #334 each\nsaw it fail exactly once on ubuntu while the rest of the matrix was\ngreen). Two earlier remediations (PRs #174/#177/#184/#185/#187/#292) had\nlanded:\n\n  1. `TEST_ENV_LOCK` — serialises tests touching\n     `CODELENS_EXECUTABLE_PATH_OVERRIDE`.\n  2. A 1.5 s `thread::sleep` — tried to advance wall-clock past\n     `daemon_started_at`'s second boundary before writing the override\n     file so its `mtime` would land in a later RFC3339 second.\n\nLayer 2 still depended on `SystemTime::now()` actually advancing through\na full second during the sleep, which under contended CI scheduling is\nnot bounded by the requested duration. Same shape of bug as #332's\n`subsec_nanos`-only path collisions: the fixture relied on a wall-clock\nside-effect instead of a deterministic assignment.\n\nFix: replace the sleep with an explicit\n`filetime::set_file_mtime(override_path, daemon_started_at + 10s)`. The\n`mtime > daemon_started_seconds` relationship is now a property of the\nassignment, independent of the runner's scheduler. The 10 s headroom\ncomfortably clears any plausible second-boundary issue without\ndepending on wall-clock advancement.\n\n`filetime = \"0.2\"` is already a dev-dep; the rest of the test tree\nalready uses this exact pattern (`scip_health`, `metrics_config::capabilities`).\n\nValidation:\n- 10 consecutive local runs — all PASS in 0.05-0.11 s (vs 1.68 s\n  before; sleep removal saves ~1.5 s per run too).\n- `cargo test -p codelens-mcp --bin codelens-mcp` — 593 passed / 0 failed.\n- `cargo clippy --workspace --features http,semantic -- -D warnings`.\n- `cargo clippy --workspace --no-default-features -- -D warnings`.\n- `cargo fmt --all -- --check`.\n\nNo production code touched. `build_info::daemon_binary_drift_payload`\nalready enforces the second-precision contract correctly; the existing\n`build_info::tests::classify_drift_*` suite covers the boolean\ncombinations. This is a fixture-side fix only.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n* chore(docs): regen surface manifest for v1.13.29\n\nmain's v1.13.29 release didn't run scripts/surface-manifest.py --write,\nleaving four files pinning \"1.13.28\". CI surface-drift check fails on any\nPR until this lands.\n\nCo-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.7 (1M context) <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/harness.rs"
+        ],
+        "containers": [],
+        "functions": [
+          "crates/codelens-mcp/src/integration_tests/workflow/harness.rs::prepare_harness_session_warns_when_daemon_binary_is_stale"
+        ]
+      },
+      "verified": true,
+      "notes": "single test fn body rewrite; no container (free fn in a test module file)."
+    },
+    {
+      "id": "Q08",
+      "sha": "27b3a802",
+      "class": "descriptive",
+      "class_evidence": [],
+      "query": "fix(scip): downgrade derive macro warnings",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/tools/scip_health.rs"
+        ],
+        "containers": [
+          "crates/codelens-mcp/src/tools/scip_health.rs::mod tests",
+          "crates/codelens-mcp/src/tools/scip_health.rs::struct ScipGeneratorWarnings"
+        ],
+        "functions": [
+          "crates/codelens-mcp/src/tools/scip_health.rs::detect_scip_generator_warnings",
+          "crates/codelens-mcp/src/tools/scip_health.rs::mod tests::generator_warnings_payload_downgrades_noise_only_runs",
+          "crates/codelens-mcp/src/tools/scip_health.rs::mod tests::generator_warnings_payload_treats_known_missing_definitions_as_noise",
+          "crates/codelens-mcp/src/tools/scip_health.rs::mod tests::generator_warnings_summary_is_structured_when_current",
+          "crates/codelens-mcp/src/tools/scip_health.rs::mod tests::write_generation_summary",
+          "crates/codelens-mcp/src/tools/scip_health.rs::scip_generator_warnings_payload"
+        ]
+      },
+      "verified": true,
+      "notes": "struct ScipGeneratorWarnings gained fields -> attributed to the container, not to a synthetic function."
+    },
+    {
+      "id": "Q09",
+      "sha": "cf8e4e63",
+      "class": "descriptive",
+      "class_evidence": [],
+      "query": "fix(coordination): tolerate transient WAL contention (#408)",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/agent_coordination.rs"
+        ],
+        "containers": [
+          "crates/codelens-mcp/src/agent_coordination.rs::impl AgentCoordinationStore",
+          "crates/codelens-mcp/src/agent_coordination.rs::mod lock_stats_tests"
+        ],
+        "functions": [
+          "crates/codelens-mcp/src/agent_coordination.rs::impl AgentCoordinationStore::open_db",
+          "crates/codelens-mcp/src/agent_coordination.rs::mod lock_stats_tests::claim_waits_for_a_short_cross_connection_writer_lock"
+        ]
+      },
+      "verified": true,
+      "notes": "new module-level const is file-level; the code change lands in AgentCoordinationStore::open_db plus one new test."
+    },
+    {
+      "id": "Q10",
+      "sha": "08135d55",
+      "class": "verbatim",
+      "class_evidence": [
+        "AuditSink",
+        "open"
+      ],
+      "query": "fix(audit): set busy_timeout on audit_log connections\n\nThe instrumented preflight asserts (7f048dd8) surfaced the real CI\nfailure: mutations were rejected with \"mutation audit sink unavailable\n... failed to migrate audit_log schema\" before ever reaching the\npreflight gate. AuditSink::open had no busy_timeout (default 0ms), so\nany concurrent opener of the same audit_log.sqlite fails schema\ninit/migration with an immediate SQLITE_BUSY. Production shares one\nproject audit dir across four daemons, so this was a live mutation-path\nhazard, not just test flake. Match the symbol-index 30s policy.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/audit_sink.rs"
+        ],
+        "containers": [
+          "crates/codelens-mcp/src/audit_sink.rs::impl AuditSink"
+        ],
+        "functions": [
+          "crates/codelens-mcp/src/audit_sink.rs::impl AuditSink::open"
+        ]
+      },
+      "verified": true,
+      "notes": "single PRAGMA insert inside AuditSink::open."
+    },
+    {
+      "id": "Q11",
+      "sha": "7b7e1440",
+      "class": "verbatim",
+      "class_evidence": [
+        "configured_rerank_blend"
+      ],
+      "query": "fix(clippy): satisfy manual_filter lint on Rust 1.97 (unblock CI) (#381)\n\nCI's stable toolchain rolled to 1.97, whose clippy::manual_filter lint flags\nconfigured_rerank_blend's range clamp `.and_then(|v| if (0.0..=1.0).contains(&v)\n{ Some(v) } else { None })`. `cargo clippy --workspace -- -D warnings` fails on\nit across all five CI feature variants (default/http/otel/scip-backend/\nno-default), blocking every PR's `test` job — not any code change.\n\nRewrite to the equivalent `.filter(|v| (0.0..=1.0).contains(v))`. Behavior\nidentical: keep the parsed CODELENS_RERANK_BLEND only when in [0.0, 1.0], else\nfall back to 0.75.\n\nVerified with clippy 0.1.97 locally: all five variants clean under -D warnings,\ncargo check OK.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs"
+        ],
+        "containers": [],
+        "functions": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs::configured_rerank_blend"
+        ]
+      },
+      "verified": true,
+      "notes": "one clippy-driven expression rewrite inside configured_rerank_blend."
+    },
+    {
+      "id": "Q12",
+      "sha": "cd933346",
+      "class": "descriptive",
+      "class_evidence": [],
+      "query": "fix(codelens): scope daemon git drift to binary repo",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/build_info.rs"
+        ],
+        "containers": [
+          "crates/codelens-mcp/src/build_info.rs::mod tests"
+        ],
+        "functions": [
+          "crates/codelens-mcp/src/build_info.rs::daemon_binary_drift_payload",
+          "crates/codelens-mcp/src/build_info.rs::git_root_for_path",
+          "crates/codelens-mcp/src/build_info.rs::mod tests::head_sha_compare_only_when_project_matches_executable_git_root",
+          "crates/codelens-mcp/src/build_info.rs::mod tests::init_git_repo",
+          "crates/codelens-mcp/src/build_info.rs::should_compare_project_head"
+        ]
+      },
+      "verified": true,
+      "notes": "two new module-level fns plus edits in daemon_binary_drift_payload; mod tests gained a test and a helper."
+    },
+    {
+      "id": "Q13",
+      "sha": "1296b90f",
+      "class": "descriptive",
+      "class_evidence": [],
+      "query": "fix(codelens): exclude generated artifacts from indexing",
+      "gold": {
+        "files": [
+          "crates/codelens-engine/src/project.rs"
+        ],
+        "containers": [],
+        "functions": [
+          "crates/codelens-engine/src/project.rs::detect_workspace_packages",
+          "crates/codelens-engine/src/project.rs::is_excluded",
+          "crates/codelens-engine/src/project.rs::is_generated_or_lock_file"
+        ]
+      },
+      "verified": true,
+      "notes": "EXCLUDED_DIRS const addition is file-level; is_excluded rewritten and is_generated_or_lock_file added."
+    },
+    {
+      "id": "Q14",
+      "sha": "ac7aed70",
+      "class": "descriptive",
+      "class_evidence": [],
+      "query": "fix(jobs): give each durable job write a unique staging file\n\nupdate()/store()/cancel()/recover paths write the same job record with\nno lock held; the fixed <id>.json.tmp staging name let one writer rename\nthe other's staging file away, failing the loser with ENOENT — the\nrefresh_symbol_index_background_queues_and_completes_job flake under\nparallel test load. Staging names now carry pid + a process-wide nonce\nso the final rename stays an atomic last-writer-wins, and a failed\nrename cleans up its own staging file. Pinned by a 4-thread hammer test\nthat reproduced the race deterministically on the old code.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/job_store.rs"
+        ],
+        "containers": [
+          "crates/codelens-mcp/src/job_store.rs::impl AnalysisJobStore",
+          "crates/codelens-mcp/src/job_store.rs::mod tests"
+        ],
+        "functions": [
+          "crates/codelens-mcp/src/job_store.rs::impl AnalysisJobStore::write_to_disk",
+          "crates/codelens-mcp/src/job_store.rs::mod tests::concurrent_updates_to_one_job_never_lose_the_staging_file"
+        ]
+      },
+      "verified": true,
+      "notes": "new module-level static is file-level; the fix lands in AnalysisJobStore::write_to_disk plus one new test."
+    },
+    {
+      "id": "Q15",
+      "sha": "9ba6ae9a",
+      "class": "descriptive",
+      "class_evidence": [],
+      "query": "fix(tests): stop deleting the entire system temp dir in delegate test\n\nThe delegate-telemetry test placed its jsonl directly in\nstd::env::temp_dir() and cleaned up with remove_dir_all(parent) — the\nparent IS the system temp dir, so every run deleted every concurrent\ntest's fixture tree. This is the dominant root cause behind the\nrotating CI-macOS failures this cycle chased: symbols.db vanishing\nmid-write (\"database is locked\"), staged principals.toml vanishing\nbefore discovery (RBAC ReadOnly denials on a Refactor fixture), audit\ndirs vanishing (\"mutation audit sink unavailable\"), and background-job\nfixtures vanishing mid-refresh (IO ENOENT). The earlier busy_timeout\nand fixture-uniqueness fixes remain valid hardening, but this line was\nthe assassin. Delete only the test's own file.\n\nwriter_tests.rs remove_dir_all(parent) calls are safe — their paths\nlive inside per-test subdirectories, audited this commit.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/session.rs"
+        ],
+        "containers": [],
+        "functions": [
+          "crates/codelens-mcp/src/integration_tests/workflow/session.rs::delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry"
+        ]
+      },
+      "verified": true,
+      "notes": "one-line replacement inside a single test fn."
+    },
+    {
+      "id": "Q16",
+      "sha": "b9e79e30",
+      "class": "descriptive",
+      "class_evidence": [],
+      "query": "fix(reports): render workspace module architecture graph",
+      "gold": {
+        "files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mod.rs"
+        ],
+        "containers": [],
+        "functions": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs::mermaid_module_graph"
+        ]
+      },
+      "verified": true,
+      "notes": "the new integration-test file is excluded per the create/delete rule; the two mod.rs entries are pure `mod x;` declaration lines and stay file-level."
+    }
+  ]
+}

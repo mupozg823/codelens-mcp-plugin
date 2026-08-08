@@ -226,21 +226,15 @@ def test_extract_tombstones_parses_tuple_list() -> None:
 
 
 def test_default_visible_rank_orders_default_surface() -> None:
+    # 10 ranked tools — the ADR-0016 CORE-20 band floor — deliberately
+    # shuffled, plus one unranked tool that must stay hidden.
+    ordered = [f"tool_{idx:02d}" for idx in range(1, 11)]
     tools = [
-        {"name": "third", "default_visible_rank": 30},
-        {"name": "hidden"},
-        {"name": "first", "default_visible_rank": 10},
-        {"name": "fifth", "default_visible_rank": 50},
-        {"name": "second", "default_visible_rank": 20},
-        {"name": "fourth", "default_visible_rank": 40},
+        {"name": name, "default_visible_rank": (idx + 1) * 10}
+        for idx, name in enumerate(ordered)
     ]
-    assert collect_default_listed_tools(tools) == [
-        "first",
-        "second",
-        "third",
-        "fourth",
-        "fifth",
-    ]
+    tools = tools[5:] + [{"name": "hidden"}] + tools[:5]
+    assert collect_default_listed_tools(tools) == ordered
 
 
 def test_default_visible_rank_rejects_duplicate_rank() -> None:
@@ -260,14 +254,15 @@ def test_default_visible_rank_rejects_duplicate_rank() -> None:
 
 
 def test_default_visible_rank_rejects_overwide_surface() -> None:
+    # 21 ranked tools — one past the ADR-0016 CORE-20 ceiling.
     tools = [
         {"name": f"tool_{idx}", "default_visible_rank": idx}
-        for idx in range(1, 11)
+        for idx in range(1, 22)
     ]
     try:
         collect_default_listed_tools(tools)
     except SystemExit as exc:
-        assert "5-9 tools" in str(exc), str(exc)
+        assert "10-20 tools" in str(exc), str(exc)
         return
     raise AssertionError("overwide default visible surface should fail")
 

@@ -163,7 +163,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 1568
+        "estimated_tokens": 1732
       },
       {
         "name": "search",
@@ -681,7 +681,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 529
+        "estimated_tokens": 540
       },
       {
         "name": "get_analysis_job",

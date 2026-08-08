@@ -55,6 +55,8 @@ impl AppState {
             embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "semantic")]
             embedding_root: Mutex::new(None),
+            #[cfg(feature = "semantic")]
+            embedding_last_used: Mutex::new(None),
             #[cfg(feature = "scip-backend")]
             scip_backends: Mutex::new(HashMap::new()),
             #[cfg(feature = "http")]
@@ -154,6 +156,8 @@ impl AppState {
             embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "semantic")]
             embedding_root: Mutex::new(None),
+            #[cfg(feature = "semantic")]
+            embedding_last_used: Mutex::new(None),
             #[cfg(feature = "scip-backend")]
             scip_backends: Mutex::new(HashMap::new()),
             #[cfg(feature = "http")]

@@ -1,6 +1,7 @@
 //! Embedding engine and SCIP backend accessors for `AppState`.
 //!
-//! Pure move from `state.rs` — no logic changes.
+//! Originally a pure move from `state.rs`; it now also owns the idle-eviction
+//! policy that keeps a long-lived daemon from parking the ONNX model forever.
 
 #[cfg(feature = "semantic")]
 use codelens_engine::EmbeddingEngine;
@@ -8,6 +9,44 @@ use codelens_engine::EmbeddingEngine;
 use std::sync::Arc;
 
 use super::AppState;
+
+/// Idle window before a resident embedding engine is dropped. Long enough that an
+/// active session never pays the reload, short enough that a daemon left open
+/// overnight does not park the model's footprint.
+///
+/// The eviction cluster's only non-test caller is the `http` transport's
+/// cleanup loop, so a `semantic`-without-`http` build sees it as dead code;
+/// the unit tests below still exercise it in that combination.
+#[cfg(feature = "semantic")]
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
+const DEFAULT_EMBED_IDLE_TTL_SECS: u64 = 900;
+
+/// Idle policy, split from the clock and the lock so it is directly testable.
+/// All three conditions must hold: the sweep is enabled, the engine has actually
+/// been used (an untouched daemon has nothing to drop), and it is still resident.
+#[cfg(feature = "semantic")]
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
+fn embedding_is_idle(
+    idle_for: Option<std::time::Duration>,
+    ttl: Option<std::time::Duration>,
+    engine_resident: bool,
+) -> bool {
+    match (idle_for, ttl) {
+        (Some(idle_for), Some(ttl)) => engine_resident && idle_for >= ttl,
+        _ => false,
+    }
+}
+
+/// `None` disables the idle sweep (`CODELENS_EMBED_IDLE_TTL_SECS=0`).
+#[cfg(feature = "semantic")]
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
+fn configured_embedding_idle_ttl() -> Option<std::time::Duration> {
+    let secs = std::env::var("CODELENS_EMBED_IDLE_TTL_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_EMBED_IDLE_TTL_SECS);
+    (secs > 0).then(|| std::time::Duration::from_secs(secs))
+}
 
 impl AppState {
     /// `true` when the cached engine was built for a project other than
@@ -34,6 +73,7 @@ impl AppState {
         if self.embedding_root_mismatch() {
             self.reset_embedding();
         }
+        self.touch_embedding();
         // Fast path: already initialized
         {
             let guard = self.embedding.read().unwrap_or_else(|p| p.into_inner());
@@ -67,6 +107,49 @@ impl AppState {
             self.reset_embedding();
         }
         self.embedding.read().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Record that the engine was just handed out for real work. Deliberately not
+    /// called from `embedding_ref`, which also serves status readers like
+    /// `get_capabilities` — letting a status poll refresh the clock would keep the
+    /// model resident forever.
+    #[cfg(feature = "semantic")]
+    fn touch_embedding(&self) {
+        *self
+            .embedding_last_used
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(std::time::Instant::now());
+    }
+
+    /// Drop the engine once it has gone unused for the configured TTL, returning
+    /// `true` when it actually dropped one. Called from the daemon's periodic
+    /// cleanup task: a long-lived daemon that served a single semantic query would
+    /// otherwise hold the ONNX model for its whole lifetime. The next
+    /// `embedding_engine` call transparently reloads it.
+    ///
+    /// `CODELENS_EMBED_IDLE_TTL_SECS=0` disables the sweep.
+    #[cfg(feature = "semantic")]
+    #[cfg_attr(not(feature = "http"), allow(dead_code))]
+    pub(crate) fn drop_idle_embedding(&self) -> bool {
+        let idle_for = self
+            .embedding_last_used
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .map(|last_used| last_used.elapsed());
+        let engine_resident = self
+            .embedding
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some();
+        if !embedding_is_idle(idle_for, configured_embedding_idle_ttl(), engine_resident) {
+            return false;
+        }
+        self.reset_embedding();
+        *self
+            .embedding_last_used
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        true
     }
 
     /// Drop the current embedding engine (called on project switch).
@@ -123,5 +206,51 @@ impl AppState {
     pub(crate) fn drop_scip_backend_for_project(&self, project_root: &std::path::Path) {
         let mut cache = self.scip_backends.lock().unwrap_or_else(|p| p.into_inner());
         cache.remove(project_root);
+    }
+}
+
+#[cfg(all(test, feature = "semantic"))]
+mod tests {
+    use super::embedding_is_idle;
+    use std::time::Duration;
+
+    const TTL: Option<Duration> = Some(Duration::from_secs(900));
+
+    #[test]
+    fn idle_sweep_fires_only_past_the_ttl_on_a_resident_engine() {
+        assert!(embedding_is_idle(
+            Some(Duration::from_secs(1000)),
+            TTL,
+            true
+        ));
+        assert!(embedding_is_idle(Some(Duration::from_secs(900)), TTL, true));
+    }
+
+    #[test]
+    fn idle_sweep_holds_a_recently_used_engine() {
+        assert!(!embedding_is_idle(
+            Some(Duration::from_secs(899)),
+            TTL,
+            true
+        ));
+        assert!(!embedding_is_idle(Some(Duration::ZERO), TTL, true));
+    }
+
+    #[test]
+    fn idle_sweep_is_a_no_op_without_ttl_use_or_a_resident_engine() {
+        // `CODELENS_EMBED_IDLE_TTL_SECS=0`
+        assert!(!embedding_is_idle(
+            Some(Duration::from_secs(1000)),
+            None,
+            true
+        ));
+        // never handed out — nothing to drop
+        assert!(!embedding_is_idle(None, TTL, true));
+        // already dropped (e.g. by a project switch)
+        assert!(!embedding_is_idle(
+            Some(Duration::from_secs(1000)),
+            TTL,
+            false
+        ));
     }
 }

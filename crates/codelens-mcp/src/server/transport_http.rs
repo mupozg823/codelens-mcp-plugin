@@ -406,6 +406,10 @@ pub(crate) async fn run_http(state: Arc<AppState>, config: HttpServerConfig) -> 
                     tracing::debug!(removed, "expired sessions cleaned up");
                 }
             }
+            #[cfg(feature = "semantic")]
+            if cleanup_state.drop_idle_embedding() {
+                tracing::debug!("idle embedding engine dropped; next query reloads it");
+            }
         }
     });
 

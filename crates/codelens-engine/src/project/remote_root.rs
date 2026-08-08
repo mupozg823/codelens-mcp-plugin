@@ -49,6 +49,11 @@ fn override_enabled() -> bool {
 
 /// Well-known network filesystem kinds. Conservative: only kinds that are
 /// remote by construction reject; unknown kinds are treated as local.
+///
+/// Only the macOS probe classifies by name string (`statfs.f_fstypename`);
+/// the linux branch matches `f_type` magic numbers instead, so a linux
+/// non-test build has no caller and would flag this as dead code.
+#[cfg(any(target_os = "macos", test))]
 fn is_remote_fs_kind(kind: &str) -> bool {
     matches!(
         kind.to_ascii_lowercase().as_str(),

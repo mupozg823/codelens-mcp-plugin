@@ -26,10 +26,15 @@ pub(super) fn detect_root_with_bounds(
 ) -> Option<PathBuf> {
     let mut current = start.to_path_buf();
     loop {
-        // `~/.codelens` stores global CodeLens state, so treating the home directory as an
-        // inferred project root causes unrelated folders to collapse onto `$HOME`.
-        // If the user really wants to operate on `$HOME`, they can pass it explicitly.
-        if current != start && Some(current.as_path()) == home {
+        // `~/.codelens` stores global CodeLens state, and a stray `package.json`
+        // left behind by an `npm install` run from the home directory is enough to
+        // make `$HOME` look like a package root. Treating home as an inferred root
+        // collapses unrelated folders onto `$HOME`, and a home-cwd session indexes
+        // the entire home tree. Home is therefore never an *inferred* root — not
+        // even when the walk starts there, which the previous `current != start`
+        // qualifier allowed. Callers that genuinely mean `$HOME` pass it explicitly
+        // and go through the `CODELENS_ALLOW_HOME_PROJECT` escape hatch.
+        if Some(current.as_path()) == home {
             break;
         }
         for marker in ROOT_MARKERS {
@@ -39,10 +44,6 @@ pub(super) fn detect_root_with_bounds(
             if current.join(marker).exists() {
                 return Some(current);
             }
-        }
-        // Don't go above home directory.
-        if Some(current.as_path()) == home {
-            break;
         }
         if !current.pop() {
             break;
