@@ -175,6 +175,139 @@ impl LaneNorm {
     }
 }
 
+/// Stage-4b precision annotation: where the ranked list stops being
+/// worth reading, and whether it is worth reading at all.
+///
+/// CodeScout (§5.1) reports that for downstream issue resolution a
+/// polluting context costs more than a missing one, so the ranked
+/// surface marks its own weak tail instead of handing the caller every
+/// candidate the page window allows.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct RankedConfidence {
+    /// Keep `symbols[..cut_index]`; everything at or after it is the
+    /// weak tail. `None` means the distribution carries no defensible
+    /// cut and the whole list stands.
+    pub(super) cut_index: Option<usize>,
+    /// Every candidate is weak in absolute terms — the abstention
+    /// marker, emitted instead of an empty result.
+    pub(super) low_confidence: bool,
+    /// Raw fused score of the head candidate, kept in the annotation so
+    /// the floor decision is auditable from the response alone.
+    pub(super) head_score: f64,
+    /// Largest adjacent drop found, as a fraction of `head_score`.
+    /// `None` when the list was too short to search.
+    pub(super) drop_ratio: Option<f64>,
+}
+
+/// Below this many candidates there is no tail to speak of: the cut
+/// search would be deciding between "keep 3" and "keep 4".
+const CUT_MIN_CANDIDATES: usize = 5;
+
+/// The cut never lands above this index, so the head that hit@1 and
+/// hit@3 are scored on is structurally untouchable.
+const CUT_MIN_KEEP: usize = 3;
+
+/// The drop must be at least this fraction of the head score. Guards
+/// against cutting on a 1% wobble that merely happens to be the largest
+/// gap in a tightly packed list.
+const CUT_MIN_DROP_RATIO: f64 = 0.25;
+
+/// The drop must also be this many times the mean adjacent gap. Guards
+/// the opposite failure: an evenly descending ramp where every gap
+/// clears the ratio floor and the "largest" one means nothing.
+const CUT_GAP_DOMINANCE: f64 = 2.0;
+
+/// Score-aware fusion's evidence term is `Σ_member w·S / Σ_active w`, so
+/// a candidate that leads a single lane out of the four active ones
+/// lands near 0.29 and one corroborated across two lanes clears 0.58.
+/// A head below this floor is carried by one lane at a middling score —
+/// no corroboration, nothing to stand on.
+const LOW_CONFIDENCE_HEAD_FLOOR: f64 = 0.35;
+
+/// Locate the weak tail in a descending run of raw fused scores.
+///
+/// ```text
+/// gap(i)     = f[i-1] − f[i]                    for i in MIN_KEEP..n
+/// i*         = argmax gap(i), smallest i on a tie
+/// drop_ratio = gap(i*) / f[0]
+/// mean_gap   = (f[0] − f[n-1]) / (n − 1)
+/// cut fires  ⟺ drop_ratio ≥ 0.25  ∧  gap(i*) ≥ 2·mean_gap
+/// low_conf   ⟺ f[0] < 0.35
+/// ```
+///
+/// The input must be the **raw** fused scores, not the `relevance_score`
+/// the response carries. Fusion min-max normalizes relevance to 1..100,
+/// which pins the head at 100 and the tail at 1 for every query — that
+/// transform destroys both the absolute level `low_confidence` reads and
+/// the true gap scale, so a cut computed on it would fire on a list
+/// whose real spread was a thousandth of a point.
+///
+/// Rejected alternatives: a fixed top-k truncation (ignores the
+/// distribution, and the measured miss profile has gold at ranks 1..9);
+/// a percentile cut (same defect, plus it always trims, so recall pays
+/// on every query rather than the ones with a real tail); and running
+/// the cut under rank-only fusion too (pure RRF sums cluster by lane
+/// membership at ~1/(60+r) spacing, where a "gap" encodes a membership
+/// tier rather than an evidence drop).
+pub(super) fn ranked_confidence(fused_scores: &[f64]) -> RankedConfidence {
+    let head_score = fused_scores.first().copied().unwrap_or(0.0);
+    let low_confidence = head_score < LOW_CONFIDENCE_HEAD_FLOOR;
+    let count = fused_scores.len();
+    if count < CUT_MIN_CANDIDATES || head_score <= f64::EPSILON {
+        return RankedConfidence {
+            cut_index: None,
+            low_confidence,
+            head_score,
+            drop_ratio: None,
+        };
+    }
+
+    let mean_gap = (head_score - fused_scores[count - 1]) / (count as f64 - 1.0);
+    let mut cut_index = CUT_MIN_KEEP;
+    let mut widest_gap = f64::NEG_INFINITY;
+    for index in CUT_MIN_KEEP..count {
+        // Strict `>` keeps the smallest index among equal gaps, so the
+        // cut is a function of the score vector alone.
+        let gap = fused_scores[index - 1] - fused_scores[index];
+        if gap > widest_gap {
+            widest_gap = gap;
+            cut_index = index;
+        }
+    }
+    let drop_ratio = widest_gap / head_score;
+    let fires = drop_ratio >= CUT_MIN_DROP_RATIO && widest_gap >= CUT_GAP_DOMINANCE * mean_gap;
+
+    RankedConfidence {
+        cut_index: fires.then_some(cut_index),
+        low_confidence,
+        head_score,
+        drop_ratio: Some(drop_ratio),
+    }
+}
+
+/// Apply the precision cut to the ranked list, gated on
+/// `CODELENS_RANKED_PRECISION_TRIM=1`. Returns whether anything was
+/// dropped. With the flag off this is a no-op by construction: the
+/// annotation ships, the symbol array does not move.
+pub(super) fn apply_precision_trim(
+    result: &mut RankedContextResult,
+    confidence: Option<RankedConfidence>,
+    enabled: bool,
+) -> bool {
+    if !enabled {
+        return false;
+    }
+    let Some(cut_index) = confidence.and_then(|c| c.cut_index) else {
+        return false;
+    };
+    if cut_index >= result.symbols.len() {
+        return false;
+    }
+    result.symbols.truncate(cut_index);
+    result.count = result.symbols.len();
+    true
+}
+
 pub(super) fn rank_fusion_policy(
     query: &str,
     max_semantic: usize,
@@ -362,6 +495,9 @@ fn score_aware_fused_score(
     evidence / active_weight_sum + corroboration + RANK_PRIOR_GAIN * rank_prior
 }
 
+/// Returns the stage-4b precision annotation, or `None` under rank-only
+/// fusion — see [`ranked_confidence`] for why that arithmetic's scores
+/// carry no comparable gap.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fuse_ranked_entries_weighted_rrf(
     query: &str,
@@ -373,7 +509,7 @@ pub(super) fn fuse_ranked_entries_weighted_rrf(
     user_context_scores: Option<&std::collections::HashMap<String, f64>>,
     weights: RrfChannelWeights,
     mode: RankFusionMode,
-) {
+) -> Option<RankedConfidence> {
     let policy = resolve_rank_fusion_policy(query, max_semantic_entries, max_sparse_entries, mode);
     let mut entries_map = std::collections::HashMap::new();
 
@@ -554,6 +690,12 @@ pub(super) fn fuse_ranked_entries_weighted_rrf(
         scored_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     }
 
+    // Stage 4b, before the 1..100 rescale below eats the evidence scale.
+    let confidence = mode.score_aware.then(|| {
+        let fused_scores: Vec<f64> = scored_entries.iter().map(|(_, score)| *score).collect();
+        ranked_confidence(&fused_scores)
+    });
+
     if scored_entries.is_empty() {
         result.symbols.clear();
         result.count = 0;
@@ -597,6 +739,8 @@ pub(super) fn fuse_ranked_entries_weighted_rrf(
         result.symbols = final_symbols;
         result.count = result.symbols.len();
     }
+
+    confidence
 }
 
 pub(super) fn compact_sparse_evidence(
@@ -695,6 +839,154 @@ pub(super) fn annotate_ranked_context_provenance(
                 "sparse_score": sparse_score,
             }),
         );
+    }
+}
+
+#[cfg(test)]
+mod precision_cut_tests {
+    use super::{
+        LOW_CONFIDENCE_HEAD_FLOOR, RankedConfidence, apply_precision_trim, ranked_confidence,
+    };
+    use codelens_engine::{RankedContextEntry, RankedContextResult};
+
+    fn entry(name: &str, relevance_score: i32) -> RankedContextEntry {
+        RankedContextEntry {
+            name: name.to_owned(),
+            kind: "function".to_owned(),
+            file: format!("src/{name}.rs"),
+            line: 1,
+            signature: format!("fn {name}"),
+            body: None,
+            relevance_score,
+        }
+    }
+
+    fn result_of(names: &[&str]) -> RankedContextResult {
+        let symbols: Vec<RankedContextEntry> = names
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| entry(name, 100 - idx as i32))
+            .collect();
+        RankedContextResult {
+            query: "precision cut fixture".to_owned(),
+            count: symbols.len(),
+            token_budget: 1200,
+            chars_used: 128,
+            symbols,
+        }
+    }
+
+    /// A strong head, then a cliff: the cut must land on the cliff.
+    const CLIFF: &[f64] = &[0.91, 0.86, 0.82, 0.24, 0.19, 0.15];
+
+    /// Evenly spaced: every gap clears the ratio floor, none dominates.
+    const RAMP: &[f64] = &[1.0, 0.75, 0.5, 0.25, 0.0];
+
+    #[test]
+    fn cut_lands_on_the_score_cliff() {
+        let confidence = ranked_confidence(CLIFF);
+        assert_eq!(confidence.cut_index, Some(3));
+        assert!(!confidence.low_confidence);
+    }
+
+    #[test]
+    fn uniform_spacing_keeps_every_candidate() {
+        let confidence = ranked_confidence(RAMP);
+        assert_eq!(
+            confidence.cut_index, None,
+            "an even ramp has no weak tail to cut"
+        );
+    }
+
+    #[test]
+    fn shallow_wobble_is_not_a_cliff() {
+        // Largest gap dominates the mean but is only 8% of the head.
+        let confidence = ranked_confidence(&[1.0, 0.99, 0.98, 0.97, 0.89]);
+        assert_eq!(confidence.cut_index, None);
+    }
+
+    #[test]
+    fn a_uniformly_weak_field_is_flagged_not_cut() {
+        let weak = [0.21, 0.19, 0.18, 0.17, 0.16];
+        assert!(weak.iter().all(|s| *s < LOW_CONFIDENCE_HEAD_FLOOR));
+        let confidence = ranked_confidence(&weak);
+        assert!(confidence.low_confidence);
+        assert_eq!(
+            confidence.cut_index, None,
+            "abstention is a marker, never an empty return"
+        );
+    }
+
+    #[test]
+    fn a_short_list_is_never_cut() {
+        // Same cliff shape, one candidate under the search floor.
+        let confidence = ranked_confidence(&[0.91, 0.86, 0.82, 0.20]);
+        assert_eq!(confidence.cut_index, None);
+        assert_eq!(confidence.drop_ratio, None);
+    }
+
+    #[test]
+    fn the_head_the_hit_at_3_metric_reads_is_never_cut_away() {
+        // Cliff immediately after rank 1; the cut floor holds it at 3.
+        let confidence = ranked_confidence(&[1.0, 0.1, 0.09, 0.08, 0.07, 0.06]);
+        assert!(confidence.cut_index.is_none_or(|cut| cut >= 3));
+    }
+
+    #[test]
+    fn an_empty_field_is_low_confidence_without_a_cut() {
+        let confidence = ranked_confidence(&[]);
+        assert_eq!(
+            confidence,
+            RankedConfidence {
+                cut_index: None,
+                low_confidence: true,
+                head_score: 0.0,
+                drop_ratio: None,
+            }
+        );
+    }
+
+    #[test]
+    fn trim_off_leaves_the_symbol_array_untouched() {
+        let confidence = ranked_confidence(CLIFF);
+        assert_eq!(confidence.cut_index, Some(3));
+
+        let mut result = result_of(&["a", "b", "c", "d", "e", "f"]);
+        let trimmed = apply_precision_trim(&mut result, Some(confidence), false);
+
+        assert!(!trimmed);
+        assert_eq!(result.count, 6);
+        let names: Vec<&str> = result.symbols.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "b", "c", "d", "e", "f"]);
+    }
+
+    #[test]
+    fn trim_on_drops_exactly_the_weak_tail() {
+        let mut result = result_of(&["a", "b", "c", "d", "e", "f"]);
+        let trimmed = apply_precision_trim(&mut result, Some(ranked_confidence(CLIFF)), true);
+
+        assert!(trimmed);
+        assert_eq!(result.count, 3);
+        let names: Vec<&str> = result.symbols.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn trim_on_without_a_cut_is_still_a_no_op() {
+        let mut result = result_of(&["a", "b", "c", "d", "e"]);
+        let trimmed = apply_precision_trim(&mut result, Some(ranked_confidence(RAMP)), true);
+
+        assert!(!trimmed);
+        assert_eq!(result.count, 5);
+    }
+
+    #[test]
+    fn rank_only_fusion_carries_no_confidence_to_trim() {
+        let mut result = result_of(&["a", "b", "c", "d", "e", "f"]);
+        let trimmed = apply_precision_trim(&mut result, None, true);
+
+        assert!(!trimmed);
+        assert_eq!(result.count, 6);
     }
 }
 

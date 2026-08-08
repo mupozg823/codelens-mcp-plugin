@@ -38,6 +38,21 @@ pub(crate) fn ranked_context_output_schema() -> serde_json::Value {
             "token_budget": {"type": "integer"},
             "chars_used": {"type": "integer"},
             "cache_hit_tier": {"type": "string", "enum": ["disabled", "cold", "exact"]},
+            "confidence": {
+                "type": "object",
+                "properties": {
+                    "policy": {"type": "string", "enum": ["score_gap_v1"]},
+                    "cut_index": {"type": ["integer", "null"], "description": "symbols[..cut_index] is the confident head; entries at or after it are the weak tail."},
+                    "cut_status": {
+                        "type": "string",
+                        "enum": ["annotated", "trimmed", "no_cut", "invalidated_by_coverage_reorder"]
+                    },
+                    "trimmed": {"type": "boolean", "description": "Whether the weak tail was actually dropped (CODELENS_RANKED_PRECISION_TRIM=1)."},
+                    "low_confidence": {"type": "boolean", "description": "Abstention marker: every candidate is weak in absolute terms."},
+                    "head_score": {"type": "number"},
+                    "drop_ratio": {"type": ["number", "null"]}
+                }
+            },
             "coverage": {
                 "type": "object",
                 "properties": {

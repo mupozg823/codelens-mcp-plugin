@@ -27,8 +27,9 @@
 //! the rest of the ranked-context stages into a single deep module.
 
 use super::rank_fusion::{
-    RankFusionMode, annotate_ranked_context_provenance, compact_semantic_evidence,
-    compact_sparse_evidence, fuse_ranked_entries_weighted_rrf, resolve_rrf_channel_weights,
+    RankFusionMode, annotate_ranked_context_provenance, apply_precision_trim,
+    compact_semantic_evidence, compact_sparse_evidence, fuse_ranked_entries_weighted_rrf,
+    resolve_rrf_channel_weights,
 };
 use super::ranked_context_coverage::ranked_context_coverage;
 use super::retrieval_scope::normalize_path_scope;
@@ -343,7 +344,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
     let fusion_mode = RankFusionMode::resolve(rrf_score_aware, rrf_lift_policy_caps);
 
     // Weighted RRF를 적용해 네 검색 차선(Structural, Semantic, Sparse, UserContext)을 통합적으로 융합합니다.
-    fuse_ranked_entries_weighted_rrf(
+    let confidence = fuse_ranked_entries_weighted_rrf(
         query,
         &mut result,
         if effective_disable_semantic {
@@ -362,6 +363,17 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         channel_weights,
         fusion_mode,
     );
+
+    // Stage 4b — precision cut. The annotation ships in every score-aware
+    // response and leaves `symbols` alone; `CODELENS_RANKED_PRECISION_TRIM=1`
+    // additionally drops the weak tail. Trimming here, at the stage-4
+    // boundary, is what keeps the annotation honest under paging: the
+    // cursor layer slices whatever array this handler returns, so a cut
+    // applied later would be invisible to `page_size`.
+    let precision_trim_enabled = std::env::var("CODELENS_RANKED_PRECISION_TRIM")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let precision_trimmed = apply_precision_trim(&mut result, confidence, precision_trim_enabled);
 
     // Phase 3: adaptive granularity based on token budget
     if max_tokens < 4096 {
@@ -384,6 +396,10 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
     // `get_ranked_context_cached` + weighted RRF) also keeps the engine
     // layer free of query-semantics knowledge —
     // the engine ranks, the MCP layer decides what "the query" means.
+    // The coverage pass re-sorts, so a positional cut computed at stage 4
+    // can stop pointing at the same boundary. Tracked rather than assumed:
+    // the annotation drops `cut_index` when the order actually moved.
+    let mut coverage_reordered = false;
     if codelens_engine::sparse_weighting_enabled() {
         let query_lower_for_sparse = query.to_lowercase();
         let mut changed = false;
@@ -401,9 +417,19 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             }
         }
         if changed {
+            let order_before: Vec<(String, String)> = result
+                .symbols
+                .iter()
+                .map(|entry| (entry.file.clone(), entry.name.clone()))
+                .collect();
             result
                 .symbols
                 .sort_unstable_by_key(|b| std::cmp::Reverse(b.relevance_score));
+            coverage_reordered = result
+                .symbols
+                .iter()
+                .zip(order_before.iter())
+                .any(|(entry, (file, name))| &entry.file != file || &entry.name != name);
         }
     }
 
@@ -496,9 +522,37 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             "precise_result_count": 0,
         }),
     );
+    // Additive annotation: `symbols` keeps its shape, and an agent that
+    // ignores this object sees exactly the pre-change response.
+    let confidence_annotation = confidence.map(|conf| {
+        let (cut_index, cut_status) = if precision_trimmed {
+            // The tail is already gone, so the boundary is the array end
+            // and no later re-sort can move it.
+            (Some(result.symbols.len()), "trimmed")
+        } else if coverage_reordered {
+            (None, "invalidated_by_coverage_reorder")
+        } else if conf.cut_index.is_some() {
+            (conf.cut_index, "annotated")
+        } else {
+            (None, "no_cut")
+        };
+        json!({
+            "policy": "score_gap_v1",
+            "cut_index": cut_index,
+            "cut_status": cut_status,
+            "trimmed": precision_trimmed,
+            "low_confidence": conf.low_confidence,
+            "head_score": (conf.head_score * 1000.0).round() / 1000.0,
+            "drop_ratio": conf.drop_ratio.map(|r| (r * 1000.0).round() / 1000.0),
+        })
+    });
+
     if let Some(map) = payload.as_object_mut() {
         map.insert("retrieval".to_owned(), retrieval);
         map.insert("coverage".to_owned(), coverage);
+        if let Some(annotation) = confidence_annotation {
+            map.insert("confidence".to_owned(), annotation);
+        }
         if let Some(tier) = query_cache_hit_tier {
             map.insert("cache_hit_tier".to_owned(), json!(tier));
         }

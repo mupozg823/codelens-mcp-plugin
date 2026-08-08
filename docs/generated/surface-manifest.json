@@ -163,7 +163,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 1568
+        "estimated_tokens": 1732
       },
       {
         "name": "search",
