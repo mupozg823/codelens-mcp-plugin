@@ -326,15 +326,17 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         query_analysis.natural_language,
     );
 
-    // CODELENS_RRF_SCORE_AWARE=1 (experimental, default off): fold each
-    // lane's raw retrieval score into fusion instead of ranking on lane
-    // membership alone. `CODELENS_RRF_SCORE_AWARE_CAPS=1` additionally
-    // lifts the query-shape lane caps — measured as a wash on the
-    // issue-localization set, so it stays opt-in. Neither knob has any
-    // effect while score-aware fusion is off.
+    // Score-aware fusion is the default: per-lane raw scores enter fusion
+    // instead of ranking on lane membership alone (double-gated 2026-08-08:
+    // issue-localization hit@1 2/16→4/16, embedding-quality 112q MRR
+    // 0.730→0.744). `CODELENS_RRF_SCORE_AWARE=0` opts out back to rank-only
+    // RRF. `CODELENS_RRF_SCORE_AWARE_CAPS=1` additionally lifts the
+    // query-shape lane caps — measured as a wash on the issue-localization
+    // set, so it stays opt-in. The caps knob has no effect while score-aware
+    // fusion is off.
     let rrf_score_aware = std::env::var("CODELENS_RRF_SCORE_AWARE")
-        .map(|v| v == "1")
-        .unwrap_or(false);
+        .map(|v| v != "0")
+        .unwrap_or(true);
     let rrf_lift_policy_caps = std::env::var("CODELENS_RRF_SCORE_AWARE_CAPS")
         .map(|v| v == "1")
         .unwrap_or(false);

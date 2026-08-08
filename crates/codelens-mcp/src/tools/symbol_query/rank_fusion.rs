@@ -75,11 +75,11 @@ pub(super) fn resolve_rrf_channel_weights(
     }
 }
 
-/// Which fusion arithmetic stage 4 runs. `RANK_ONLY` is the shipped
-/// default: pure reciprocal-rank fusion, lane membership only. The
-/// score-aware variant (`CODELENS_RRF_SCORE_AWARE=1`) additionally
-/// folds each lane's raw retrieval score into the fused score — see
-/// [`score_aware_fused_score`].
+/// Which fusion arithmetic stage 4 runs. Score-aware fusion is the
+/// shipped default (double-gated 2026-08-08; `CODELENS_RRF_SCORE_AWARE=0`
+/// opts out): it folds each lane's raw retrieval score into the fused
+/// score — see [`score_aware_fused_score`]. `RANK_ONLY` is the opt-out
+/// arithmetic: pure reciprocal-rank fusion, lane membership only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RankFusionMode {
     pub(super) score_aware: bool,
@@ -100,14 +100,15 @@ pub(super) struct RankFusionMode {
 }
 
 impl RankFusionMode {
-    /// Shipped default. Every flag-off call must resolve to exactly this.
+    /// Opt-out arithmetic (`CODELENS_RRF_SCORE_AWARE=0`). Every opted-out
+    /// call must resolve to exactly this.
     pub(super) const RANK_ONLY: RankFusionMode = RankFusionMode {
         score_aware: false,
         lift_policy_caps: false,
     };
 
-    /// Flag off collapses to [`RankFusionMode::RANK_ONLY`] regardless of
-    /// the cap knob, so the default path can never pick up a lifted cap.
+    /// Opting out collapses to [`RankFusionMode::RANK_ONLY`] regardless of
+    /// the cap knob, so the opt-out path can never pick up a lifted cap.
     pub(super) fn resolve(score_aware: bool, lift_policy_caps: bool) -> RankFusionMode {
         if !score_aware {
             return RankFusionMode::RANK_ONLY;
@@ -711,8 +712,8 @@ mod score_aware_fusion_tests {
     /// semantic 6 / sparse 4 policy caps, matching the benchmark queries.
     const NL_QUERY: &str = "accept path as soft alias of scope";
 
-    /// The mode `CODELENS_RRF_SCORE_AWARE=1` actually ships: scores in
-    /// fusion, query-shape lane caps untouched.
+    /// The shipped default mode: scores in fusion, query-shape lane caps
+    /// untouched (`CODELENS_RRF_SCORE_AWARE=0` opts out to RANK_ONLY).
     const SCORE_AWARE: RankFusionMode = RankFusionMode {
         score_aware: true,
         lift_policy_caps: false,
