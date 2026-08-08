@@ -1,0 +1,1219 @@
+{
+  "generated_at": "2026-08-08T12:58:41+00:00",
+  "base_url": "http://127.0.0.1:7838",
+  "project": "/Users/bagjaeseog/codelens-mcp-plugin",
+  "head_sha": "6b8e1cb60ff1922f518532678dede0bbc5e30208",
+  "client_name": "claude-code",
+  "token_budget_override": null,
+  "query_count": 16,
+  "class_counts": {
+    "verbatim": 8,
+    "descriptive": 8
+  },
+  "ground_truth_rules": [
+    "member addition is attributed to the enclosing container and the file, never to a synthetic function",
+    "import and top-level static/const edits are file-level only",
+    "comment-only and doc-comment-only hunks are ignored",
+    "commits whose gold patch is entirely file creation or deletion are excluded; created/deleted files inside a mixed commit are dropped from the gold set",
+    "commits with any gold file absent from HEAD are excluded"
+  ],
+  "head_state_deviation": "The runner scores against the daemon index of the current HEAD, not the paper's pre-PR snapshot. Gold locations therefore refer to symbols as they exist after the fix landed.",
+  "scores": {
+    "analyze_change_request": {
+      "all": {
+        "files": {
+          "precision": 0.1667,
+          "recall": 0.4167,
+          "f1": 0.2292,
+          "scored_queries": 16
+        },
+        "containers": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "scored_queries": 8
+        },
+        "functions": {
+          "precision": 0.1556,
+          "recall": 0.2689,
+          "f1": 0.1759,
+          "scored_queries": 15
+        },
+        "file_hit_at_1": 0.0625,
+        "file_hit_at_3": 0.5,
+        "queries": 16
+      },
+      "verbatim": {
+        "files": {
+          "precision": 0.2083,
+          "recall": 0.4583,
+          "f1": 0.2708,
+          "scored_queries": 8
+        },
+        "containers": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "scored_queries": 3
+        },
+        "functions": {
+          "precision": 0.2381,
+          "recall": 0.5238,
+          "f1": 0.3095,
+          "scored_queries": 7
+        },
+        "file_hit_at_1": 0.125,
+        "file_hit_at_3": 0.625,
+        "queries": 8
+      },
+      "descriptive": {
+        "files": {
+          "precision": 0.125,
+          "recall": 0.375,
+          "f1": 0.1875,
+          "scored_queries": 8
+        },
+        "containers": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "scored_queries": 5
+        },
+        "functions": {
+          "precision": 0.0833,
+          "recall": 0.0458,
+          "f1": 0.059,
+          "scored_queries": 8
+        },
+        "file_hit_at_1": 0.0,
+        "file_hit_at_3": 0.375,
+        "queries": 8
+      }
+    },
+    "search_ranked": {
+      "all": {
+        "files": {
+          "precision": 0.1667,
+          "recall": 0.375,
+          "f1": 0.2188,
+          "scored_queries": 16
+        },
+        "containers": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "scored_queries": 8
+        },
+        "functions": {
+          "precision": 0.2222,
+          "recall": 0.2689,
+          "f1": 0.1944,
+          "scored_queries": 15
+        },
+        "file_hit_at_1": 0.0625,
+        "file_hit_at_3": 0.4375,
+        "queries": 16
+      },
+      "verbatim": {
+        "files": {
+          "precision": 0.25,
+          "recall": 0.5,
+          "f1": 0.3125,
+          "scored_queries": 8
+        },
+        "containers": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "scored_queries": 3
+        },
+        "functions": {
+          "precision": 0.2619,
+          "recall": 0.5238,
+          "f1": 0.3333,
+          "scored_queries": 7
+        },
+        "file_hit_at_1": 0.125,
+        "file_hit_at_3": 0.625,
+        "queries": 8
+      },
+      "descriptive": {
+        "files": {
+          "precision": 0.0833,
+          "recall": 0.25,
+          "f1": 0.125,
+          "scored_queries": 8
+        },
+        "containers": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "scored_queries": 5
+        },
+        "functions": {
+          "precision": 0.1875,
+          "recall": 0.0458,
+          "f1": 0.0729,
+          "scored_queries": 8
+        },
+        "file_hit_at_1": 0.0,
+        "file_hit_at_3": 0.25,
+        "queries": 8
+      }
+    }
+  },
+  "misses": {
+    "analyze_change_request": [
+      {
+        "id": "Q01",
+        "sha": "00a6289a",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/tool_defs/presets.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/symbols/writer.rs",
+          "crates/codelens-mcp/src/tools/admin/mod.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q03",
+        "sha": "44edfce4",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/artifact_store.rs",
+          "crates/codelens-mcp/src/job_store.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/symbol_query/retrieval_scope.rs",
+          "crates/codelens-mcp/src/util.rs",
+          "crates/codelens-engine/src/embedding/duplicates.rs"
+        ],
+        "cause": "right module, wrong file"
+      },
+      {
+        "id": "Q04",
+        "sha": "da621489",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/artifact_store.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs",
+          "crates/codelens-mcp/src/tool_defs/mod.rs",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q06",
+        "sha": "d3cb909f",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/tool_defs/generated/build_generated.rs",
+          "crates/codelens-mcp/src/tools/report_jobs.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs",
+          "crates/codelens-mcp/src/tools/report_jobs/runners.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q07",
+        "sha": "45b76f38",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/harness.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/session/metrics_config/health.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs",
+          "crates/codelens-engine/src/memory/policy.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q09",
+        "sha": "cf8e4e63",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-mcp/src/agent_coordination.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/db/mod.rs",
+          "crates/codelens-engine/src/symbols/mod.rs"
+        ],
+        "cause": "different subsystem entirely"
+      },
+      {
+        "id": "Q13",
+        "sha": "1296b90f",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-engine/src/project.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/embedding/vec_store.rs",
+          "crates/codelens-engine/src/embedding/engine_impl/index.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q14",
+        "sha": "ac7aed70",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-mcp/src/job_store.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/embedding/engine_impl/coverage.rs",
+          "crates/codelens-engine/src/symbols/writer.rs",
+          "crates/codelens-engine/src/embedding/engine_impl.rs"
+        ],
+        "cause": "different subsystem entirely"
+      },
+      {
+        "id": "Q15",
+        "sha": "9ba6ae9a",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/session.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/call_graph/tests.rs",
+          "crates/codelens-mcp/src/skill_catalog/tests.rs",
+          "crates/codelens-mcp/src/surface_manifest/tests.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q16",
+        "sha": "b9e79e30",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mod.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs"
+        ],
+        "cause": "right module, wrong file"
+      }
+    ],
+    "search_ranked": [
+      {
+        "id": "Q01",
+        "sha": "00a6289a",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/tool_defs/presets.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/symbols/writer.rs",
+          "crates/codelens-mcp/src/tools/admin/mod.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q03",
+        "sha": "44edfce4",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/artifact_store.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/symbol_query/retrieval_scope.rs",
+          "crates/codelens-mcp/src/util.rs",
+          "crates/codelens-mcp/src/job_store.rs"
+        ],
+        "cause": "right module, wrong file"
+      },
+      {
+        "id": "Q04",
+        "sha": "da621489",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/artifact_store.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs",
+          "crates/codelens-mcp/src/tool_defs/mod.rs",
+          "crates/codelens-mcp/src/tool_defs/build.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q05",
+        "sha": "f963b31a",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-engine/src/db/mod.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/embedding/ffi.rs",
+          "crates/codelens-engine/src/db/ops/failures.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q06",
+        "sha": "d3cb909f",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/tool_defs/generated/build_generated.rs",
+          "crates/codelens-mcp/src/tools/report_jobs.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs",
+          "crates/codelens-mcp/src/tools/report_jobs/runners.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q07",
+        "sha": "45b76f38",
+        "class": "verbatim",
+        "missing_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/harness.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/session/metrics_config/health.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs",
+          "crates/codelens-engine/src/memory/policy.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q09",
+        "sha": "cf8e4e63",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-mcp/src/agent_coordination.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/db/mod.rs",
+          "crates/codelens-engine/src/symbols/mod.rs"
+        ],
+        "cause": "different subsystem entirely"
+      },
+      {
+        "id": "Q13",
+        "sha": "1296b90f",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-engine/src/project.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/embedding/vec_store.rs",
+          "crates/codelens-engine/src/embedding/engine_impl/index.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q14",
+        "sha": "ac7aed70",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-mcp/src/job_store.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/embedding/engine_impl/coverage.rs",
+          "crates/codelens-engine/src/symbols/writer.rs",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q15",
+        "sha": "9ba6ae9a",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/session.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-engine/src/call_graph/tests.rs",
+          "crates/codelens-mcp/src/skill_catalog/tests.rs",
+          "crates/codelens-mcp/src/surface_manifest/tests.rs"
+        ],
+        "cause": "right crate, wrong module"
+      },
+      {
+        "id": "Q16",
+        "sha": "b9e79e30",
+        "class": "descriptive",
+        "missing_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mod.rs"
+        ],
+        "predicted_top3": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs"
+        ],
+        "cause": "right module, wrong file"
+      }
+    ]
+  },
+  "response_shape": {
+    "analyze_change_request": {
+      "truncated_queries": 0,
+      "stage5_queries": 0,
+      "median_parsed_items": 9
+    },
+    "search_ranked": {
+      "truncated_queries": 14,
+      "stage5_queries": 14,
+      "median_parsed_items": 6
+    }
+  },
+  "instrument_warnings": [],
+  "call_failures": [],
+  "per_query": {
+    "analyze_change_request": [
+      {
+        "id": "Q01",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-engine/src/symbols/writer.rs",
+          "crates/codelens-mcp/src/tools/admin/mod.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/symbols/writer.rs::refresh_all",
+          "crates/codelens-engine/src/symbols/writer.rs::refresh_file",
+          "crates/codelens-mcp/src/tools/admin/mod.rs::find_over_visible_apis"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/tool_defs/presets.rs"
+        ],
+        "gold_functions": [],
+        "elapsed_ms": 1042,
+        "compression_stage": null
+      },
+      {
+        "id": "Q02",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tool_defs/presets.rs",
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs",
+          "crates/codelens-mcp/src/tools/admin/mod.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tool_defs/presets.rs::is_deprecated",
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs::tool_deprecation",
+          "crates/codelens-mcp/src/tools/admin/mod.rs::audit_tool_surface_consistency"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs::tool_deprecation"
+        ],
+        "elapsed_ms": 677,
+        "compression_stage": null
+      },
+      {
+        "id": "Q03",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-engine/src/embedding/duplicates.rs",
+          "crates/codelens-mcp/src/tools/symbol_query/retrieval_scope.rs",
+          "crates/codelens-mcp/src/util.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/embedding/duplicates.rs::duplicate_pair_matches_scope",
+          "crates/codelens-mcp/src/tools/symbol_query/retrieval_scope.rs::file_matches_scope",
+          "crates/codelens-mcp/src/util.rs::matches_scope"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/artifact_store.rs",
+          "crates/codelens-mcp/src/job_store.rs",
+          "crates/codelens-mcp/src/util.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/util.rs::canonicalize_scope",
+          "crates/codelens-mcp/src/util.rs::matches_scope",
+          "crates/codelens-mcp/src/util.rs::matches_scope_canonicalizes_path_representation"
+        ],
+        "elapsed_ms": 367,
+        "compression_stage": null
+      },
+      {
+        "id": "Q04",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tool_defs/mod.rs",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tool_defs/mod.rs::tool",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs::list_analysis_artifacts",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/artifact_store.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/artifact_store.rs::find_reusable_tiered",
+          "crates/codelens-mcp/src/artifact_store.rs::tiered_cold_hit_same_tool_different_surface",
+          "crates/codelens-mcp/src/artifact_store.rs::tiered_miss_when_different_tool_even_if_scope_generic"
+        ],
+        "elapsed_ms": 448,
+        "compression_stage": null
+      },
+      {
+        "id": "Q05",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/db/mod.rs",
+          "crates/codelens-engine/src/embedding/ffi.rs",
+          "crates/codelens-engine/src/symbols/mod.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/db/mod.rs::open_derived_sqlite_with_recovery",
+          "crates/codelens-engine/src/embedding/ffi.rs::register_sqlite_vec",
+          "crates/codelens-engine/src/symbols/mod.rs::db"
+        ],
+        "gold_files": [
+          "crates/codelens-engine/src/db/mod.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-engine/src/db/mod.rs::open",
+          "crates/codelens-engine/src/db/mod.rs::open_readonly"
+        ],
+        "elapsed_ms": 365,
+        "compression_stage": null
+      },
+      {
+        "id": "Q06",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tools/report_jobs/runners.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tools/report_jobs/runners.rs::run_dead_code_report_job",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs::refactor_safety_report"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/tool_defs/generated/build_generated.rs",
+          "crates/codelens-mcp/src/tools/report_jobs.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/tool_defs/generated/build_generated.rs::composite_tools",
+          "crates/codelens-mcp/src/tools/report_jobs.rs::run_dead_code_report_job",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report"
+        ],
+        "elapsed_ms": 486,
+        "compression_stage": null
+      },
+      {
+        "id": "Q07",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-engine/src/memory/policy.rs",
+          "crates/codelens-mcp/src/tools/session/metrics_config/health.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/memory/policy.rs::is_stale",
+          "crates/codelens-mcp/src/tools/session/metrics_config/health.rs::stale_files",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs::stale_file_count"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/harness.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/integration_tests/workflow/harness.rs::prepare_harness_session_warns_when_daemon_binary_is_stale"
+        ],
+        "elapsed_ms": 751,
+        "compression_stage": null
+      },
+      {
+        "id": "Q08",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tools/scip_health.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/mod.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tools/scip_health.rs::scip_generator_warnings_payload",
+          "crates/codelens-mcp/src/tools/session/project_ops/mod.rs::prep_warnings",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings.rs::push_overlay_parse_warnings"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/tools/scip_health.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/tools/scip_health.rs::detect_scip_generator_warnings",
+          "crates/codelens-mcp/src/tools/scip_health.rs::generator_warnings_payload_downgrades_noise_only_runs",
+          "crates/codelens-mcp/src/tools/scip_health.rs::generator_warnings_payload_treats_known_missing_definitions_as_noise",
+          "crates/codelens-mcp/src/tools/scip_health.rs::generator_warnings_summary_is_structured_when_current",
+          "crates/codelens-mcp/src/tools/scip_health.rs::scip_generator_warnings_payload",
+          "crates/codelens-mcp/src/tools/scip_health.rs::write_generation_summary"
+        ],
+        "elapsed_ms": 242,
+        "compression_stage": null
+      },
+      {
+        "id": "Q09",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/db/mod.rs",
+          "crates/codelens-engine/src/symbols/mod.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/db/mod.rs::checkpoint_wal_passive",
+          "crates/codelens-engine/src/db/mod.rs::is_lock_contention",
+          "crates/codelens-engine/src/symbols/mod.rs::checkpoint_wal_passive"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/agent_coordination.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/agent_coordination.rs::claim_waits_for_a_short_cross_connection_writer_lock",
+          "crates/codelens-mcp/src/agent_coordination.rs::open_db"
+        ],
+        "elapsed_ms": 259,
+        "compression_stage": null
+      },
+      {
+        "id": "Q10",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-mcp/src/audit_sink.rs",
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+          "crates/codelens-mcp/src/state/project_accessors.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/audit_sink.rs::open",
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs::ci_audit",
+          "crates/codelens-mcp/src/state/project_accessors.rs::audit_dir"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/audit_sink.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/audit_sink.rs::open"
+        ],
+        "elapsed_ms": 339,
+        "compression_stage": null
+      },
+      {
+        "id": "Q11",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs",
+          "crates/codelens-engine/src/scip_backend/parse.rs",
+          "crates/codelens-mcp/build.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs::configured_rerank_blend",
+          "crates/codelens-engine/src/scip_backend/parse.rs::parse_range",
+          "crates/codelens-mcp/build.rs::copy_or_fallback"
+        ],
+        "gold_files": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs::configured_rerank_blend"
+        ],
+        "elapsed_ms": 350,
+        "compression_stage": null
+      },
+      {
+        "id": "Q12",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/lib.rs",
+          "crates/codelens-engine/src/rename.rs",
+          "crates/codelens-mcp/src/build_info.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/lib.rs::git",
+          "crates/codelens-engine/src/rename.rs::RenameScope",
+          "crates/codelens-mcp/src/build_info.rs::daemon_binary_drift_payload"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/build_info.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/build_info.rs::daemon_binary_drift_payload",
+          "crates/codelens-mcp/src/build_info.rs::git_root_for_path",
+          "crates/codelens-mcp/src/build_info.rs::head_sha_compare_only_when_project_matches_executable_git_root",
+          "crates/codelens-mcp/src/build_info.rs::init_git_repo",
+          "crates/codelens-mcp/src/build_info.rs::should_compare_project_head"
+        ],
+        "elapsed_ms": 208,
+        "compression_stage": null
+      },
+      {
+        "id": "Q13",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/embedding/engine_impl/index.rs",
+          "crates/codelens-engine/src/embedding/vec_store.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/embedding/engine_impl/index.rs::is_indexing",
+          "crates/codelens-engine/src/embedding/vec_store.rs::search_artifacts",
+          "crates/codelens-engine/src/embedding/vec_store.rs::upsert_artifacts"
+        ],
+        "gold_files": [
+          "crates/codelens-engine/src/project.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-engine/src/project.rs::detect_workspace_packages",
+          "crates/codelens-engine/src/project.rs::is_excluded",
+          "crates/codelens-engine/src/project.rs::is_generated_or_lock_file"
+        ],
+        "elapsed_ms": 238,
+        "compression_stage": null
+      },
+      {
+        "id": "Q14",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/embedding/engine_impl.rs",
+          "crates/codelens-engine/src/embedding/engine_impl/coverage.rs",
+          "crates/codelens-engine/src/symbols/writer.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/embedding/engine_impl.rs::changed_files",
+          "crates/codelens-engine/src/embedding/engine_impl/coverage.rs::record_stale_file",
+          "crates/codelens-engine/src/symbols/writer.rs::refresh_file"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/job_store.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/job_store.rs::concurrent_updates_to_one_job_never_lose_the_staging_file",
+          "crates/codelens-mcp/src/job_store.rs::write_to_disk"
+        ],
+        "elapsed_ms": 360,
+        "compression_stage": null
+      },
+      {
+        "id": "Q15",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/call_graph/tests.rs",
+          "crates/codelens-mcp/src/skill_catalog/tests.rs",
+          "crates/codelens-mcp/src/surface_manifest/tests.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/call_graph/tests.rs::temp_dir",
+          "crates/codelens-mcp/src/skill_catalog/tests.rs::temp_dir",
+          "crates/codelens-mcp/src/surface_manifest/tests.rs::temp_dir"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/session.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/integration_tests/workflow/session.rs::delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry"
+        ],
+        "elapsed_ms": 440,
+        "compression_stage": null
+      },
+      {
+        "id": "Q16",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs::build",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs::render",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs::module_for_file"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mod.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs::mermaid_module_graph"
+        ],
+        "elapsed_ms": 233,
+        "compression_stage": null
+      }
+    ],
+    "search_ranked": [
+      {
+        "id": "Q01",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-engine/src/symbols/writer.rs",
+          "crates/codelens-mcp/src/tools/admin/mod.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/symbols/writer.rs::refresh_all",
+          "crates/codelens-engine/src/symbols/writer.rs::refresh_file",
+          "crates/codelens-mcp/src/tools/admin/mod.rs::find_over_visible_apis"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/tool_defs/presets.rs"
+        ],
+        "gold_functions": [],
+        "elapsed_ms": 393,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q02",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tool_defs/presets.rs",
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs",
+          "crates/codelens-mcp/src/tools/admin/mod.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tool_defs/presets.rs::is_deprecated",
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs::tool_deprecation",
+          "crates/codelens-mcp/src/tools/admin/mod.rs::audit_tool_surface_consistency"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs::tool_deprecation"
+        ],
+        "elapsed_ms": 401,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q03",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-mcp/src/job_store.rs",
+          "crates/codelens-mcp/src/tools/symbol_query/retrieval_scope.rs",
+          "crates/codelens-mcp/src/util.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/job_store.rs::get",
+          "crates/codelens-mcp/src/tools/symbol_query/retrieval_scope.rs::file_matches_scope",
+          "crates/codelens-mcp/src/util.rs::matches_scope"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/artifact_store.rs",
+          "crates/codelens-mcp/src/job_store.rs",
+          "crates/codelens-mcp/src/util.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/util.rs::canonicalize_scope",
+          "crates/codelens-mcp/src/util.rs::matches_scope",
+          "crates/codelens-mcp/src/util.rs::matches_scope_canonicalizes_path_representation"
+        ],
+        "elapsed_ms": 178,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q04",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tool_defs/build.rs",
+          "crates/codelens-mcp/src/tool_defs/mod.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tool_defs/build.rs::tool_tier",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/artifact_store.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/artifact_store.rs::find_reusable_tiered",
+          "crates/codelens-mcp/src/artifact_store.rs::tiered_cold_hit_same_tool_different_surface",
+          "crates/codelens-mcp/src/artifact_store.rs::tiered_miss_when_different_tool_even_if_scope_generic"
+        ],
+        "elapsed_ms": 241,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q05",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/db/ops/failures.rs",
+          "crates/codelens-engine/src/embedding/ffi.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/db/ops/failures.rs::index_failure_summary",
+          "crates/codelens-engine/src/db/ops/failures.rs::record_index_failure",
+          "crates/codelens-engine/src/embedding/ffi.rs::register_sqlite_vec"
+        ],
+        "gold_files": [
+          "crates/codelens-engine/src/db/mod.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-engine/src/db/mod.rs::open",
+          "crates/codelens-engine/src/db/mod.rs::open_readonly"
+        ],
+        "elapsed_ms": 144,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q06",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tools/report_jobs/runners.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tools/report_jobs/runners.rs::run_dead_code_report_job",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs::refactor_safety_report"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/tool_defs/generated/build_generated.rs",
+          "crates/codelens-mcp/src/tools/report_jobs.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/tool_defs/generated/build_generated.rs::composite_tools",
+          "crates/codelens-mcp/src/tools/report_jobs.rs::run_dead_code_report_job",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report"
+        ],
+        "elapsed_ms": 294,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q07",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-engine/src/memory/policy.rs",
+          "crates/codelens-mcp/src/tools/session/metrics_config/health.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/memory/policy.rs::is_stale",
+          "crates/codelens-mcp/src/tools/session/metrics_config/health.rs::stale_files",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs::stale_file_count"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/harness.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/integration_tests/workflow/harness.rs::prepare_harness_session_warns_when_daemon_binary_is_stale"
+        ],
+        "elapsed_ms": 559,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q08",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tools/scip_health.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/mod.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tools/scip_health.rs::scip_generator_warnings_payload",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings.rs::push_overlay_parse_warnings"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/tools/scip_health.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/tools/scip_health.rs::detect_scip_generator_warnings",
+          "crates/codelens-mcp/src/tools/scip_health.rs::generator_warnings_payload_downgrades_noise_only_runs",
+          "crates/codelens-mcp/src/tools/scip_health.rs::generator_warnings_payload_treats_known_missing_definitions_as_noise",
+          "crates/codelens-mcp/src/tools/scip_health.rs::generator_warnings_summary_is_structured_when_current",
+          "crates/codelens-mcp/src/tools/scip_health.rs::scip_generator_warnings_payload",
+          "crates/codelens-mcp/src/tools/scip_health.rs::write_generation_summary"
+        ],
+        "elapsed_ms": 49,
+        "compression_stage": null
+      },
+      {
+        "id": "Q09",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/db/mod.rs",
+          "crates/codelens-engine/src/symbols/mod.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/db/mod.rs::checkpoint_wal_passive",
+          "crates/codelens-engine/src/db/mod.rs::is_lock_contention",
+          "crates/codelens-engine/src/symbols/mod.rs::checkpoint_wal_passive"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/agent_coordination.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/agent_coordination.rs::claim_waits_for_a_short_cross_connection_writer_lock",
+          "crates/codelens-mcp/src/agent_coordination.rs::open_db"
+        ],
+        "elapsed_ms": 55,
+        "compression_stage": null
+      },
+      {
+        "id": "Q10",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-mcp/src/audit_sink.rs",
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+          "crates/codelens-mcp/src/state/project_accessors.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/audit_sink.rs::open",
+          "crates/codelens-mcp/src/state/project_accessors.rs::audit_dir"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/audit_sink.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/audit_sink.rs::open"
+        ],
+        "elapsed_ms": 168,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q11",
+        "class": "verbatim",
+        "predicted_files": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs",
+          "crates/codelens-engine/src/scip_backend/parse.rs",
+          "crates/codelens-mcp/build.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs::configured_rerank_blend",
+          "crates/codelens-engine/src/scip_backend/parse.rs::parse_range",
+          "crates/codelens-mcp/build.rs::copy_or_fallback"
+        ],
+        "gold_files": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-engine/src/embedding/ranker_settings.rs::configured_rerank_blend"
+        ],
+        "elapsed_ms": 171,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q12",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/lib.rs",
+          "crates/codelens-engine/src/rename.rs",
+          "crates/codelens-mcp/src/build_info.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/build_info.rs::daemon_binary_drift_payload"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/build_info.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/build_info.rs::daemon_binary_drift_payload",
+          "crates/codelens-mcp/src/build_info.rs::git_root_for_path",
+          "crates/codelens-mcp/src/build_info.rs::head_sha_compare_only_when_project_matches_executable_git_root",
+          "crates/codelens-mcp/src/build_info.rs::init_git_repo",
+          "crates/codelens-mcp/src/build_info.rs::should_compare_project_head"
+        ],
+        "elapsed_ms": 28,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q13",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/embedding/engine_impl/index.rs",
+          "crates/codelens-engine/src/embedding/vec_store.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/embedding/engine_impl/index.rs::is_indexing",
+          "crates/codelens-engine/src/embedding/vec_store.rs::search_artifacts",
+          "crates/codelens-engine/src/embedding/vec_store.rs::upsert_artifacts"
+        ],
+        "gold_files": [
+          "crates/codelens-engine/src/project.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-engine/src/project.rs::detect_workspace_packages",
+          "crates/codelens-engine/src/project.rs::is_excluded",
+          "crates/codelens-engine/src/project.rs::is_generated_or_lock_file"
+        ],
+        "elapsed_ms": 71,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q14",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/embedding/engine_impl/coverage.rs",
+          "crates/codelens-engine/src/symbols/writer.rs",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/embedding/engine_impl/coverage.rs::record_stale_file",
+          "crates/codelens-engine/src/symbols/writer.rs::refresh_file",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs::retry_analysis_job"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/job_store.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/job_store.rs::concurrent_updates_to_one_job_never_lose_the_staging_file",
+          "crates/codelens-mcp/src/job_store.rs::write_to_disk"
+        ],
+        "elapsed_ms": 164,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q15",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-engine/src/call_graph/tests.rs",
+          "crates/codelens-mcp/src/skill_catalog/tests.rs",
+          "crates/codelens-mcp/src/surface_manifest/tests.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-engine/src/call_graph/tests.rs::temp_dir",
+          "crates/codelens-mcp/src/skill_catalog/tests.rs::temp_dir",
+          "crates/codelens-mcp/src/surface_manifest/tests.rs::temp_dir"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/session.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/integration_tests/workflow/session.rs::delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry"
+        ],
+        "elapsed_ms": 228,
+        "compression_stage": 5
+      },
+      {
+        "id": "Q16",
+        "class": "descriptive",
+        "predicted_files": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs"
+        ],
+        "predicted_functions": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs::module_for_file"
+        ],
+        "gold_files": [
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mod.rs"
+        ],
+        "gold_functions": [
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs::mermaid_module_graph"
+        ],
+        "elapsed_ms": 58,
+        "compression_stage": 5
+      }
+    ]
+  }
+}
