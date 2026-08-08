@@ -135,23 +135,38 @@ the runner records `compression_stage` per query so the distinction stays
 visible.
 
 **CORRECTION (same day, parent-gate probe).** The 3-item window is *not* a
-structural property of the ranked surface. A direct `get_ranked_context` call
-with `page_size=10` returns 10 symbols plus `page: {offset: 0, returned: 10,
-total: 20}` and a `next_cursor`. The window observed above is the composition
-of two facts:
+structural property of the ranked surface, and — second correction — it is
+*not* a facade defect either. The full diagnosis chain, kept here because each
+wrong turn is a reusable lesson:
 
-1. the surface's default page is small, and
-2. **the `search` facade (mode=ranked) silently drops the `page_size`
-   argument** — its schema promises "forwarded to the target tool unchanged",
-   but a facade call with `page_size=10` comes back with 3 symbols and no
-   `page` field at all (verified via `--page-size 10 --dump-raw`: Q01/Q02/Q09
-   all `symbols: 3`, `page: None`).
+1. `max_results` / `token_budget` were the wrong knobs (original probe above).
+2. `page_size` is the right knob, and the `search` facade forwards it fine
+   (`verbs.rs` strips only `mode`). An intermediate version of this note blamed
+   the facade — that was wrong.
+3. **The real eater is the response's text channel.** Every MCP result carries
+   two channels: `structuredContent` (full data) and `content[0].text` (a
+   summarized preview whose arrays are sampled to
+   `TEXT_CHANNEL_MAX_ARRAY_ITEMS = 3` and whose `page` / `next_cursor` /
+   evidence keys are dropped, `dispatch/response_support/payload_compact.rs`).
+   `runtime_common.extract_tool_payload` reads only the text channel, so every
+   probe in this file — including the "raised budget, still 3 symbols" table —
+   was measuring the preview, not the retrieval. Same-session A/B: text
+   channel `symbols=3, page=None, truncated=True` vs `structuredContent`
+   `symbols=10, page={offset:0, returned:10, total:21}, next_cursor` present.
 
-`max_results` and `token_budget` were the wrong knobs, and the right knob is
-eaten by the facade. This is an engine defect, filed from this bench. Until it
-is fixed, facade-path recall (what real agents get) is capped at the default
-page; `--page-size` in the runner only becomes meaningful against a fixed
-binary.
+The runner now prefers `structuredContent` (`extract_payload_channel`, local
+to this bench; the shared helper is untouched because other benchmarks depend
+on its text-channel behavior — which means **their arrays are also capped at
+the 3-item preview**, a repo-wide measurement caveat worth its own audit).
+With the channel fixed, the surface's true default page for ranked is still 3,
+so default-window scores are unchanged; `--page-size 10` now genuinely widens
+the window (file recall 0.375 → 0.542, precision 0.167 → 0.111, hit@1
+unchanged at 0.062).
+
+Engine follow-up filed from this saga: the text-channel preview drops `page` /
+`next_cursor`, so a text-only client that hits the sampled window has no
+discoverable way to page — preserving those two tiny keys under summarization
+would fix it.
 
 **Index self-contamination caveat.** Re-running the bench after its own
 artifacts (dataset/baseline JSON+MD) land in the working tree shifts

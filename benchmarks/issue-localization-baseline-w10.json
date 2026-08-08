@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-08T13:11:19+00:00",
+  "generated_at": "2026-08-08T13:11:28+00:00",
   "base_url": "http://127.0.0.1:7838",
   "project": "/Users/bagjaeseog/codelens-mcp-plugin",
   "head_sha": "6b8e1cb60ff1922f518532678dede0bbc5e30208",
   "client_name": "claude-code",
   "token_budget_override": null,
-  "page_size_override": null,
+  "page_size_override": 10,
   "query_count": 16,
   "class_counts": {
     "verbatim": 8,
@@ -94,9 +94,9 @@
     "search_ranked": {
       "all": {
         "files": {
-          "precision": 0.1667,
-          "recall": 0.375,
-          "f1": 0.2188,
+          "precision": 0.1109,
+          "recall": 0.5417,
+          "f1": 0.1752,
           "scored_queries": 16
         },
         "containers": {
@@ -106,20 +106,20 @@
           "scored_queries": 8
         },
         "functions": {
-          "precision": 0.2222,
-          "recall": 0.2689,
-          "f1": 0.1944,
+          "precision": 0.066,
+          "recall": 0.3022,
+          "f1": 0.0997,
           "scored_queries": 15
         },
         "file_hit_at_1": 0.0625,
-        "file_hit_at_3": 0.4375,
+        "file_hit_at_3": 0.5625,
         "queries": 16
       },
       "verbatim": {
         "files": {
-          "precision": 0.25,
+          "precision": 0.1107,
           "recall": 0.5,
-          "f1": 0.3125,
+          "f1": 0.1702,
           "scored_queries": 8
         },
         "containers": {
@@ -129,9 +129,9 @@
           "scored_queries": 3
         },
         "functions": {
-          "precision": 0.2619,
-          "recall": 0.5238,
-          "f1": 0.3333,
+          "precision": 0.0918,
+          "recall": 0.5714,
+          "f1": 0.1536,
           "scored_queries": 7
         },
         "file_hit_at_1": 0.125,
@@ -140,9 +140,9 @@
       },
       "descriptive": {
         "files": {
-          "precision": 0.0833,
-          "recall": 0.25,
-          "f1": 0.125,
+          "precision": 0.1111,
+          "recall": 0.5833,
+          "f1": 0.1802,
           "scored_queries": 8
         },
         "containers": {
@@ -152,13 +152,13 @@
           "scored_queries": 5
         },
         "functions": {
-          "precision": 0.1875,
-          "recall": 0.0458,
-          "f1": 0.0729,
+          "precision": 0.0434,
+          "recall": 0.0667,
+          "f1": 0.0526,
           "scored_queries": 8
         },
         "file_hit_at_1": 0.0,
-        "file_hit_at_3": 0.25,
+        "file_hit_at_3": 0.5,
         "queries": 8
       }
     }
@@ -316,7 +316,8 @@
         ],
         "predicted_top3": [
           "crates/codelens-engine/src/symbols/writer.rs",
-          "crates/codelens-mcp/src/tools/admin/mod.rs"
+          "crates/codelens-mcp/src/tools/admin/mod.rs",
+          "crates/codelens-mcp/src/tools/session/surface_mutation.rs"
         ],
         "cause": "right crate, wrong module"
       },
@@ -344,20 +345,7 @@
         "predicted_top3": [
           "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs",
           "crates/codelens-mcp/src/tool_defs/mod.rs",
-          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs"
-        ],
-        "cause": "right crate, wrong module"
-      },
-      {
-        "id": "Q05",
-        "sha": "f963b31a",
-        "class": "descriptive",
-        "missing_files": [
-          "crates/codelens-engine/src/db/mod.rs"
-        ],
-        "predicted_top3": [
-          "crates/codelens-engine/src/embedding/ffi.rs",
-          "crates/codelens-engine/src/db/ops/failures.rs"
+          "crates/codelens-mcp/src/tool_defs/build.rs"
         ],
         "cause": "right crate, wrong module"
       },
@@ -413,23 +401,10 @@
         ],
         "predicted_top3": [
           "crates/codelens-engine/src/embedding/vec_store.rs",
-          "crates/codelens-engine/src/embedding/engine_impl/index.rs"
+          "crates/codelens-engine/src/embedding/engine_impl/index.rs",
+          "scripts/artifact_maintenance.py"
         ],
         "cause": "right crate, wrong module"
-      },
-      {
-        "id": "Q14",
-        "sha": "ac7aed70",
-        "class": "descriptive",
-        "missing_files": [
-          "crates/codelens-mcp/src/job_store.rs"
-        ],
-        "predicted_top3": [
-          "crates/codelens-engine/src/embedding/engine_impl/coverage.rs",
-          "crates/codelens-engine/src/symbols/writer.rs",
-          "crates/codelens-engine/src/embedding/engine_impl.rs"
-        ],
-        "cause": "different subsystem entirely"
       },
       {
         "id": "Q15",
@@ -450,13 +425,12 @@
         "sha": "b9e79e30",
         "class": "descriptive",
         "missing_files": [
-          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
-          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs",
-          "crates/codelens-mcp/src/tools/reports/impact_reports/mod.rs"
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs"
         ],
         "predicted_top3": [
           "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs",
-          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs"
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs",
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs"
         ],
         "cause": "right module, wrong file"
       }
@@ -473,7 +447,7 @@
       "truncated_queries": 0,
       "stage5_queries": 0,
       "structured_channel_queries": 16,
-      "median_parsed_items": 6
+      "median_parsed_items": 18
     }
   },
   "instrument_warnings": [],
@@ -496,7 +470,7 @@
           "crates/codelens-mcp/src/tool_defs/presets.rs"
         ],
         "gold_functions": [],
-        "elapsed_ms": 1098,
+        "elapsed_ms": 562,
         "compression_stage": null
       },
       {
@@ -518,7 +492,7 @@
         "gold_functions": [
           "crates/codelens-mcp/src/tool_defs/presets/metadata.rs::tool_deprecation"
         ],
-        "elapsed_ms": 567,
+        "elapsed_ms": 564,
         "compression_stage": null
       },
       {
@@ -544,7 +518,7 @@
           "crates/codelens-mcp/src/util.rs::matches_scope",
           "crates/codelens-mcp/src/util.rs::matches_scope_canonicalizes_path_representation"
         ],
-        "elapsed_ms": 359,
+        "elapsed_ms": 346,
         "compression_stage": null
       },
       {
@@ -568,7 +542,7 @@
           "crates/codelens-mcp/src/artifact_store.rs::tiered_cold_hit_same_tool_different_surface",
           "crates/codelens-mcp/src/artifact_store.rs::tiered_miss_when_different_tool_even_if_scope_generic"
         ],
-        "elapsed_ms": 450,
+        "elapsed_ms": 408,
         "compression_stage": null
       },
       {
@@ -590,7 +564,7 @@
           "crates/codelens-engine/src/db/mod.rs::open",
           "crates/codelens-engine/src/db/mod.rs::open_readonly"
         ],
-        "elapsed_ms": 447,
+        "elapsed_ms": 321,
         "compression_stage": null
       },
       {
@@ -616,7 +590,7 @@
           "crates/codelens-mcp/src/tools/report_jobs.rs::run_dead_code_report_job",
           "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report"
         ],
-        "elapsed_ms": 485,
+        "elapsed_ms": 463,
         "compression_stage": null
       },
       {
@@ -638,7 +612,7 @@
         "gold_functions": [
           "crates/codelens-mcp/src/integration_tests/workflow/harness.rs::prepare_harness_session_warns_when_daemon_binary_is_stale"
         ],
-        "elapsed_ms": 714,
+        "elapsed_ms": 733,
         "compression_stage": null
       },
       {
@@ -665,7 +639,7 @@
           "crates/codelens-mcp/src/tools/scip_health.rs::scip_generator_warnings_payload",
           "crates/codelens-mcp/src/tools/scip_health.rs::write_generation_summary"
         ],
-        "elapsed_ms": 224,
+        "elapsed_ms": 238,
         "compression_stage": null
       },
       {
@@ -687,7 +661,7 @@
           "crates/codelens-mcp/src/agent_coordination.rs::claim_waits_for_a_short_cross_connection_writer_lock",
           "crates/codelens-mcp/src/agent_coordination.rs::open_db"
         ],
-        "elapsed_ms": 225,
+        "elapsed_ms": 245,
         "compression_stage": null
       },
       {
@@ -709,7 +683,7 @@
         "gold_functions": [
           "crates/codelens-mcp/src/audit_sink.rs::open"
         ],
-        "elapsed_ms": 319,
+        "elapsed_ms": 326,
         "compression_stage": null
       },
       {
@@ -731,7 +705,7 @@
         "gold_functions": [
           "crates/codelens-engine/src/embedding/ranker_settings.rs::configured_rerank_blend"
         ],
-        "elapsed_ms": 323,
+        "elapsed_ms": 345,
         "compression_stage": null
       },
       {
@@ -757,7 +731,7 @@
           "crates/codelens-mcp/src/build_info.rs::init_git_repo",
           "crates/codelens-mcp/src/build_info.rs::should_compare_project_head"
         ],
-        "elapsed_ms": 199,
+        "elapsed_ms": 204,
         "compression_stage": null
       },
       {
@@ -780,7 +754,7 @@
           "crates/codelens-engine/src/project.rs::is_excluded",
           "crates/codelens-engine/src/project.rs::is_generated_or_lock_file"
         ],
-        "elapsed_ms": 236,
+        "elapsed_ms": 228,
         "compression_stage": null
       },
       {
@@ -803,7 +777,7 @@
           "crates/codelens-mcp/src/job_store.rs::concurrent_updates_to_one_job_never_lose_the_staging_file",
           "crates/codelens-mcp/src/job_store.rs::write_to_disk"
         ],
-        "elapsed_ms": 356,
+        "elapsed_ms": 350,
         "compression_stage": null
       },
       {
@@ -825,7 +799,7 @@
         "gold_functions": [
           "crates/codelens-mcp/src/integration_tests/workflow/session.rs::delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry"
         ],
-        "elapsed_ms": 401,
+        "elapsed_ms": 413,
         "compression_stage": null
       },
       {
@@ -848,7 +822,7 @@
         "gold_functions": [
           "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs::mermaid_module_graph"
         ],
-        "elapsed_ms": 252,
+        "elapsed_ms": 299,
         "compression_stage": null
       }
     ],
@@ -858,31 +832,53 @@
         "class": "verbatim",
         "predicted_files": [
           "crates/codelens-engine/src/symbols/writer.rs",
-          "crates/codelens-mcp/src/tools/admin/mod.rs"
+          "crates/codelens-mcp/src/tools/admin/memory_consistency.rs",
+          "crates/codelens-mcp/src/tools/admin/mod.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/prep_recovery.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs",
+          "crates/codelens-mcp/src/tools/session/surface_mutation.rs",
+          "crates/codelens-mcp/src/tools/symbols/inventory.rs"
         ],
         "predicted_functions": [
           "crates/codelens-engine/src/symbols/writer.rs::refresh_all",
           "crates/codelens-engine/src/symbols/writer.rs::refresh_file",
-          "crates/codelens-mcp/src/tools/admin/mod.rs::find_over_visible_apis"
+          "crates/codelens-mcp/src/tools/admin/memory_consistency.rs::find_over_visible_apis_shape_and_policy_keys",
+          "crates/codelens-mcp/src/tools/admin/mod.rs::find_over_visible_apis",
+          "crates/codelens-mcp/src/tools/session/project_ops/prep_recovery.rs::refresh_symbol_index_remediation_for_surface",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs::push_index_refresh_skipped",
+          "crates/codelens-mcp/src/tools/session/surface_mutation.rs::set_preset",
+          "crates/codelens-mcp/src/tools/symbols/inventory.rs::queue_refresh_symbol_index_job",
+          "crates/codelens-mcp/src/tools/symbols/inventory.rs::refresh_symbol_index",
+          "crates/codelens-mcp/src/tools/symbols/inventory.rs::refresh_symbol_index_now"
         ],
         "gold_files": [
           "crates/codelens-mcp/src/tool_defs/presets.rs"
         ],
         "gold_functions": [],
-        "elapsed_ms": 374,
+        "elapsed_ms": 375,
         "compression_stage": null
       },
       {
         "id": "Q02",
         "class": "verbatim",
         "predicted_files": [
+          "crates/codelens-mcp/src/telemetry/registry/recording.rs",
           "crates/codelens-mcp/src/tool_defs/presets.rs",
           "crates/codelens-mcp/src/tool_defs/presets/metadata.rs",
+          "crates/codelens-mcp/src/tool_runtime.rs",
+          "crates/codelens-mcp/src/tools/admin/memory_consistency.rs",
           "crates/codelens-mcp/src/tools/admin/mod.rs"
         ],
         "predicted_functions": [
+          "crates/codelens-mcp/src/telemetry/registry/recording.rs::record_tool_call",
+          "crates/codelens-mcp/src/tool_defs/presets.rs::deprecation_target",
           "crates/codelens-mcp/src/tool_defs/presets.rs::is_deprecated",
+          "crates/codelens-mcp/src/tool_defs/presets.rs::is_tool_in_surface",
+          "crates/codelens-mcp/src/tool_defs/presets/metadata.rs::apply_tool_deprecation_meta",
           "crates/codelens-mcp/src/tool_defs/presets/metadata.rs::tool_deprecation",
+          "crates/codelens-mcp/src/tool_runtime.rs::PATH_ALIAS_DEPRECATION",
+          "crates/codelens-mcp/src/tools/admin/memory_consistency.rs::audit_returns_three_violation_buckets",
+          "crates/codelens-mcp/src/tools/admin/memory_consistency.rs::audit_self_includes_itself_in_dispatch",
           "crates/codelens-mcp/src/tools/admin/mod.rs::audit_tool_surface_consistency"
         ],
         "gold_files": [
@@ -891,20 +887,30 @@
         "gold_functions": [
           "crates/codelens-mcp/src/tool_defs/presets/metadata.rs::tool_deprecation"
         ],
-        "elapsed_ms": 365,
+        "elapsed_ms": 378,
         "compression_stage": null
       },
       {
         "id": "Q03",
         "class": "verbatim",
         "predicted_files": [
+          "crates/codelens-engine/src/embedding/duplicates.rs",
+          "crates/codelens-engine/src/scope_analysis.rs",
           "crates/codelens-mcp/src/job_store.rs",
           "crates/codelens-mcp/src/tools/symbol_query/retrieval_scope.rs",
+          "crates/codelens-mcp/src/tools/workflows/duplicate_cleanup.rs",
           "crates/codelens-mcp/src/util.rs"
         ],
         "predicted_functions": [
+          "crates/codelens-engine/src/embedding/duplicates.rs::duplicate_pair_matches_scope",
+          "crates/codelens-engine/src/scope_analysis.rs::find_scoped_references",
+          "crates/codelens-engine/src/scope_analysis.rs::find_scoped_references_in_file",
+          "crates/codelens-engine/src/scope_analysis.rs::node_text",
           "crates/codelens-mcp/src/job_store.rs::get",
           "crates/codelens-mcp/src/tools/symbol_query/retrieval_scope.rs::file_matches_scope",
+          "crates/codelens-mcp/src/tools/workflows/duplicate_cleanup.rs::file_in_duplicate_scope",
+          "crates/codelens-mcp/src/tools/workflows/duplicate_cleanup.rs::normalize_duplicate_scope",
+          "crates/codelens-mcp/src/util.rs::canonicalize_scope",
           "crates/codelens-mcp/src/util.rs::matches_scope"
         ],
         "gold_files": [
@@ -917,20 +923,29 @@
           "crates/codelens-mcp/src/util.rs::matches_scope",
           "crates/codelens-mcp/src/util.rs::matches_scope_canonicalizes_path_representation"
         ],
-        "elapsed_ms": 175,
+        "elapsed_ms": 176,
         "compression_stage": null
       },
       {
         "id": "Q04",
         "class": "verbatim",
         "predicted_files": [
+          "crates/codelens-mcp/src/tool_defs/build.rs",
           "crates/codelens-mcp/src/tool_defs/mod.rs",
+          "crates/codelens-mcp/src/tools/mod.rs",
+          "crates/codelens-mcp/src/tools/report_jobs.rs",
           "crates/codelens-mcp/src/tools/report_jobs/handlers.rs",
-          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs"
+          "crates/codelens-mcp/src/tools/report_utils.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs",
+          "scripts/test/test-regen-tool-defs-drift.py"
         ],
         "predicted_functions": [
+          "crates/codelens-mcp/src/tool_defs/build.rs::TOOLS",
+          "crates/codelens-mcp/src/tool_defs/build.rs::tool_tier",
           "crates/codelens-mcp/src/tools/report_jobs/handlers.rs::list_analysis_artifacts",
-          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report"
+          "crates/codelens-mcp/src/tools/report_utils.rs::stable_cache_key",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report",
+          "scripts/test/test-regen-tool-defs-drift.py::tools"
         ],
         "gold_files": [
           "crates/codelens-mcp/src/artifact_store.rs"
@@ -940,20 +955,30 @@
           "crates/codelens-mcp/src/artifact_store.rs::tiered_cold_hit_same_tool_different_surface",
           "crates/codelens-mcp/src/artifact_store.rs::tiered_miss_when_different_tool_even_if_scope_generic"
         ],
-        "elapsed_ms": 221,
+        "elapsed_ms": 225,
         "compression_stage": null
       },
       {
         "id": "Q05",
         "class": "descriptive",
         "predicted_files": [
+          "crates/codelens-engine/src/db/mod.rs",
           "crates/codelens-engine/src/db/ops/failures.rs",
-          "crates/codelens-engine/src/embedding/ffi.rs"
+          "crates/codelens-engine/src/embedding/ffi.rs",
+          "crates/codelens-engine/src/symbols/mod.rs",
+          "crates/codelens-engine/src/watcher.rs"
         ],
         "predicted_functions": [
+          "crates/codelens-engine/src/db/mod.rs::is_lock_contention",
+          "crates/codelens-engine/src/db/mod.rs::open_derived_sqlite_with_recovery",
+          "crates/codelens-engine/src/db/mod.rs::quarantine_corrupt_sqlite_files",
+          "crates/codelens-engine/src/db/mod.rs::sqlite_related_paths",
+          "crates/codelens-engine/src/db/ops/failures.rs::index_failure_count",
           "crates/codelens-engine/src/db/ops/failures.rs::index_failure_summary",
           "crates/codelens-engine/src/db/ops/failures.rs::record_index_failure",
-          "crates/codelens-engine/src/embedding/ffi.rs::register_sqlite_vec"
+          "crates/codelens-engine/src/embedding/ffi.rs::register_sqlite_vec",
+          "crates/codelens-engine/src/symbols/mod.rs::db",
+          "crates/codelens-engine/src/watcher.rs::is_lock_contention_error"
         ],
         "gold_files": [
           "crates/codelens-engine/src/db/mod.rs"
@@ -962,21 +987,32 @@
           "crates/codelens-engine/src/db/mod.rs::open",
           "crates/codelens-engine/src/db/mod.rs::open_readonly"
         ],
-        "elapsed_ms": 132,
+        "elapsed_ms": 138,
         "compression_stage": null
       },
       {
         "id": "Q06",
         "class": "verbatim",
         "predicted_files": [
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs",
           "crates/codelens-mcp/src/tools/report_jobs/runners.rs",
           "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs",
-          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs"
+          "crates/codelens-mcp/src/tools/reports/impact_reports/helpers.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/impact.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs",
+          "crates/codelens-mcp/src/tools/reports/orchestrator_reports.rs"
         ],
         "predicted_functions": [
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs::list_analysis_artifacts",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs::retry_analysis_job",
           "crates/codelens-mcp/src/tools/report_jobs/runners.rs::run_dead_code_report_job",
           "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report",
-          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs::refactor_safety_report"
+          "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::module_boundary_report",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/helpers.rs::file_name",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/helpers.rs::parent_dir",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/impact.rs::diff_aware_references",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/refactor.rs::refactor_safety_report",
+          "crates/codelens-mcp/src/tools/reports/orchestrator_reports.rs::target_paths"
         ],
         "gold_files": [
           "crates/codelens-mcp/src/tool_defs/generated/build_generated.rs",
@@ -988,20 +1024,32 @@
           "crates/codelens-mcp/src/tools/report_jobs.rs::run_dead_code_report_job",
           "crates/codelens-mcp/src/tools/reports/impact_reports/boundary.rs::dead_code_report"
         ],
-        "elapsed_ms": 284,
+        "elapsed_ms": 278,
         "compression_stage": null
       },
       {
         "id": "Q07",
         "class": "verbatim",
         "predicted_files": [
+          "crates/codelens-engine/src/embedding/engine_impl/coverage.rs",
           "crates/codelens-engine/src/memory/policy.rs",
+          "crates/codelens-mcp/src/instruction_audit.rs",
+          "crates/codelens-mcp/src/job_store.rs",
+          "crates/codelens-mcp/src/tools/scip_health.rs",
           "crates/codelens-mcp/src/tools/session/metrics_config/health.rs",
+          "crates/codelens-mcp/src/tools/session/metrics_config/probe_status.rs",
           "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs"
         ],
         "predicted_functions": [
+          "crates/codelens-engine/src/embedding/engine_impl/coverage.rs::record_stale_file",
           "crates/codelens-engine/src/memory/policy.rs::is_stale",
+          "crates/codelens-mcp/src/instruction_audit.rs::contains_stale_copy_paste_command",
+          "crates/codelens-mcp/src/job_store.rs::cleanup_stale_files",
+          "crates/codelens-mcp/src/tools/scip_health.rs::scip_stale_undercount_warning_payload",
+          "crates/codelens-mcp/src/tools/scip_health.rs::scip_stale_warning_payload",
           "crates/codelens-mcp/src/tools/session/metrics_config/health.rs::stale_files",
+          "crates/codelens-mcp/src/tools/session/metrics_config/probe_status.rs::is_scip_index_stale",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs::push_index_refresh_skipped",
           "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings/index.rs::stale_file_count"
         ],
         "gold_files": [
@@ -1010,20 +1058,32 @@
         "gold_functions": [
           "crates/codelens-mcp/src/integration_tests/workflow/harness.rs::prepare_harness_session_warns_when_daemon_binary_is_stale"
         ],
-        "elapsed_ms": 532,
+        "elapsed_ms": 534,
         "compression_stage": null
       },
       {
         "id": "Q08",
         "class": "descriptive",
         "predicted_files": [
+          "crates/codelens-engine/src/dead_code.rs",
+          "crates/codelens-mcp/src/tool_defs/output_schemas/harness/prepare/runtime.rs",
+          "crates/codelens-mcp/src/tools/filesystem.rs",
           "crates/codelens-mcp/src/tools/scip_health.rs",
           "crates/codelens-mcp/src/tools/session/project_ops/mod.rs",
-          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings.rs"
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings.rs",
+          "scripts/agent-contract-check.py",
+          "scripts/finetune/build_runtime_training_pipeline.py"
         ],
         "predicted_functions": [
+          "crates/codelens-engine/src/dead_code.rs::ts_request_files_downgrade_confidence",
+          "crates/codelens-mcp/src/tool_defs/output_schemas/harness/prepare/runtime.rs::warnings_output_schema",
+          "crates/codelens-mcp/src/tools/filesystem.rs::attach_deprecation_warnings",
+          "crates/codelens-mcp/src/tools/scip_health.rs::detect_scip_generator_warnings",
           "crates/codelens-mcp/src/tools/scip_health.rs::scip_generator_warnings_payload",
-          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings.rs::push_overlay_parse_warnings"
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings.rs::prepare_harness_warnings",
+          "crates/codelens-mcp/src/tools/session/project_ops/prepare_harness/warnings.rs::push_overlay_parse_warnings",
+          "scripts/agent-contract-check.py::total_warnings",
+          "scripts/finetune/build_runtime_training_pipeline.py::warnings"
         ],
         "gold_files": [
           "crates/codelens-mcp/src/tools/scip_health.rs"
@@ -1036,42 +1096,29 @@
           "crates/codelens-mcp/src/tools/scip_health.rs::scip_generator_warnings_payload",
           "crates/codelens-mcp/src/tools/scip_health.rs::write_generation_summary"
         ],
-        "elapsed_ms": 43,
+        "elapsed_ms": 60,
         "compression_stage": null
       },
       {
         "id": "Q09",
         "class": "descriptive",
         "predicted_files": [
-          "benchmarks/harness/tests/test_semantic_refactor_matrix.py",
           "crates/codelens-engine/src/db/mod.rs",
-          "crates/codelens-engine/src/db/tests.rs",
           "crates/codelens-engine/src/project/language.rs",
           "crates/codelens-engine/src/symbols/mod.rs",
           "crates/codelens-engine/src/watcher.rs",
-          "crates/codelens-mcp/src/integration_tests/protocol_observability.rs",
           "crates/codelens-mcp/src/main.rs",
           "crates/codelens-mcp/src/session_metrics_payload/derived_kpis.rs",
           "crates/codelens-mcp/src/state/coordination.rs",
-          "crates/codelens-mcp/src/state/project_runtime_lease.rs",
-          "crates/codelens-mcp/src/tools/lsp/references.rs"
+          "crates/codelens-mcp/src/state/project_runtime_lease.rs"
         ],
         "predicted_functions": [
-          "benchmarks/harness/tests/test_semantic_refactor_matrix.py::test_run_tool_retries_transient_lsp_content_modified",
           "crates/codelens-engine/src/db/mod.rs::checkpoint_wal_passive",
           "crates/codelens-engine/src/db/mod.rs::is_lock_contention",
           "crates/codelens-engine/src/db/mod.rs::is_lock_contention_anyhow",
-          "crates/codelens-engine/src/db/tests.rs::WAL_CHILD_DB_ENV",
-          "crates/codelens-engine/src/db/tests.rs::WAL_CHILD_MODE_ENV",
-          "crates/codelens-engine/src/db/tests.rs::WAL_CHILD_READY_ENV",
-          "crates/codelens-engine/src/db/tests.rs::WAL_CHILD_TEST",
-          "crates/codelens-engine/src/db/tests.rs::WAL_CHILD_WAIT",
-          "crates/codelens-engine/src/db/tests.rs::spawn_wal_child",
           "crates/codelens-engine/src/project/language.rs::WALK_CAP",
           "crates/codelens-engine/src/symbols/mod.rs::checkpoint_wal_passive",
-          "crates/codelens-engine/src/watcher.rs::detects_sqlite_lock_contention_errors",
           "crates/codelens-engine/src/watcher.rs::is_lock_contention_error",
-          "crates/codelens-mcp/src/integration_tests/protocol_observability.rs::watch_status_reports_lock_contention_field",
           "crates/codelens-mcp/src/session_metrics_payload/derived_kpis.rs::watcher_lock_contention_rate",
           "crates/codelens-mcp/src/state/coordination.rs::coordination_ttl_seconds",
           "crates/codelens-mcp/src/state/project_runtime_lease.rs::full_project_runtime_rejects_second_process_before_wal_contention"
@@ -1083,7 +1130,7 @@
           "crates/codelens-mcp/src/agent_coordination.rs::claim_waits_for_a_short_cross_connection_writer_lock",
           "crates/codelens-mcp/src/agent_coordination.rs::open_db"
         ],
-        "elapsed_ms": 52,
+        "elapsed_ms": 51,
         "compression_stage": null
       },
       {
@@ -1092,11 +1139,20 @@
         "predicted_files": [
           "crates/codelens-mcp/src/audit_sink.rs",
           "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
-          "crates/codelens-mcp/src/state/project_accessors.rs"
+          "crates/codelens-mcp/src/protocol.rs",
+          "crates/codelens-mcp/src/state/audit.rs",
+          "crates/codelens-mcp/src/state/project_accessors.rs",
+          "crates/codelens-mcp/src/tools/admin/mod.rs",
+          "crates/codelens-mcp/src/tools/session/audit_common.rs"
         ],
         "predicted_functions": [
           "crates/codelens-mcp/src/audit_sink.rs::open",
-          "crates/codelens-mcp/src/state/project_accessors.rs::audit_dir"
+          "crates/codelens-mcp/src/audit_sink.rs::path",
+          "crates/codelens-mcp/src/audit_sink.rs::query",
+          "crates/codelens-mcp/src/protocol.rs::with_audit_category",
+          "crates/codelens-mcp/src/state/audit.rs::audit_sink",
+          "crates/codelens-mcp/src/state/project_accessors.rs::audit_dir",
+          "crates/codelens-mcp/src/tools/admin/mod.rs::audit_log_query"
         ],
         "gold_files": [
           "crates/codelens-mcp/src/audit_sink.rs"
@@ -1104,7 +1160,7 @@
         "gold_functions": [
           "crates/codelens-mcp/src/audit_sink.rs::open"
         ],
-        "elapsed_ms": 154,
+        "elapsed_ms": 149,
         "compression_stage": null
       },
       {
@@ -1112,13 +1168,27 @@
         "class": "verbatim",
         "predicted_files": [
           "crates/codelens-engine/src/embedding/ranker_settings.rs",
+          "crates/codelens-engine/src/lsp/parsers.rs",
+          "crates/codelens-engine/src/lsp/position.rs",
           "crates/codelens-engine/src/scip_backend/parse.rs",
-          "crates/codelens-mcp/src/cli.rs"
+          "crates/codelens-engine/src/symbols/parser.rs",
+          "crates/codelens-mcp/build.rs",
+          "crates/codelens-mcp/src/cli.rs",
+          "crates/codelens-mcp/src/cli/host/detach.rs",
+          "crates/codelens-mcp/src/server/transport_http.rs",
+          "scripts/regen-tool-defs.py"
         ],
         "predicted_functions": [
           "crates/codelens-engine/src/embedding/ranker_settings.rs::configured_rerank_blend",
+          "crates/codelens-engine/src/lsp/parsers.rs::location_uri_and_range",
+          "crates/codelens-engine/src/lsp/position.rs::extract_text_for_range",
           "crates/codelens-engine/src/scip_backend/parse.rs::parse_range",
-          "crates/codelens-mcp/src/cli.rs::parse_cli_project_arg"
+          "crates/codelens-engine/src/symbols/parser.rs::slice_source",
+          "crates/codelens-mcp/build.rs::copy_or_fallback",
+          "crates/codelens-mcp/src/cli.rs::parse_cli_project_arg",
+          "crates/codelens-mcp/src/cli/host/detach.rs::parse_detach_hosts",
+          "crates/codelens-mcp/src/server/transport_http.rs::authenticate_request",
+          "scripts/regen-tool-defs.py::blocking"
         ],
         "gold_files": [
           "crates/codelens-engine/src/embedding/ranker_settings.rs"
@@ -1126,19 +1196,32 @@
         "gold_functions": [
           "crates/codelens-engine/src/embedding/ranker_settings.rs::configured_rerank_blend"
         ],
-        "elapsed_ms": 164,
+        "elapsed_ms": 167,
         "compression_stage": null
       },
       {
         "id": "Q12",
         "class": "descriptive",
         "predicted_files": [
+          "benchmarks/semantic-refactor-matrix.py",
+          "crates/codelens-engine/src/git.rs",
           "crates/codelens-engine/src/lib.rs",
           "crates/codelens-engine/src/rename.rs",
-          "crates/codelens-mcp/src/build_info.rs"
+          "crates/codelens-engine/src/scope_analysis.rs",
+          "crates/codelens-mcp/src/build_info.rs",
+          "crates/codelens-mcp/src/integration_tests/suggestion_drift.rs",
+          "crates/codelens-mcp/src/state/coordination.rs",
+          "scripts/public_release_channel_smoke.py"
         ],
         "predicted_functions": [
-          "crates/codelens-mcp/src/build_info.rs::daemon_binary_drift_payload"
+          "benchmarks/semantic-refactor-matrix.py::git_url",
+          "crates/codelens-engine/src/git.rs::get_changed_files",
+          "crates/codelens-engine/src/rename.rs::collect_project_scope_edits",
+          "crates/codelens-engine/src/scope_analysis.rs::SCOPE_NODES",
+          "crates/codelens-mcp/src/build_info.rs::daemon_binary_drift_payload",
+          "crates/codelens-mcp/src/integration_tests/suggestion_drift.rs::repo_root",
+          "crates/codelens-mcp/src/state/coordination.rs::resolve_git_dir",
+          "scripts/public_release_channel_smoke.py::repo"
         ],
         "gold_files": [
           "crates/codelens-mcp/src/build_info.rs"
@@ -1157,13 +1240,23 @@
         "id": "Q13",
         "class": "descriptive",
         "predicted_files": [
+          "crates/codelens-engine/src/embedding/engine_impl/analysis.rs",
           "crates/codelens-engine/src/embedding/engine_impl/index.rs",
-          "crates/codelens-engine/src/embedding/vec_store.rs"
+          "crates/codelens-engine/src/embedding/vec_store.rs",
+          "crates/codelens-mcp/src/tool_defs/presets.rs",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs",
+          "scripts/artifact_maintenance.py"
         ],
         "predicted_functions": [
+          "crates/codelens-engine/src/embedding/engine_impl/analysis.rs::prune_artifact_embeddings",
+          "crates/codelens-engine/src/embedding/engine_impl/analysis.rs::search_artifact_embeddings",
           "crates/codelens-engine/src/embedding/engine_impl/index.rs::is_indexing",
+          "crates/codelens-engine/src/embedding/vec_store.rs::prune_artifacts_by_age",
           "crates/codelens-engine/src/embedding/vec_store.rs::search_artifacts",
-          "crates/codelens-engine/src/embedding/vec_store.rs::upsert_artifacts"
+          "crates/codelens-engine/src/embedding/vec_store.rs::upsert_artifacts",
+          "crates/codelens-mcp/src/tool_defs/presets.rs::BALANCED_EXCLUDES",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs::list_analysis_artifacts",
+          "scripts/artifact_maintenance.py::artifacts"
         ],
         "gold_files": [
           "crates/codelens-engine/src/project.rs"
@@ -1173,7 +1266,7 @@
           "crates/codelens-engine/src/project.rs::is_excluded",
           "crates/codelens-engine/src/project.rs::is_generated_or_lock_file"
         ],
-        "elapsed_ms": 66,
+        "elapsed_ms": 60,
         "compression_stage": null
       },
       {
@@ -1182,11 +1275,21 @@
         "predicted_files": [
           "crates/codelens-engine/src/embedding/engine_impl.rs",
           "crates/codelens-engine/src/embedding/engine_impl/coverage.rs",
-          "crates/codelens-engine/src/symbols/writer.rs"
+          "crates/codelens-engine/src/symbols/writer.rs",
+          "crates/codelens-mcp/src/job_store.rs",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs",
+          "crates/codelens-mcp/src/tools/session/project_ops/prep_recovery.rs"
         ],
         "predicted_functions": [
           "crates/codelens-engine/src/embedding/engine_impl/coverage.rs::record_stale_file",
-          "crates/codelens-engine/src/symbols/writer.rs::refresh_file"
+          "crates/codelens-engine/src/symbols/writer.rs::refresh_all",
+          "crates/codelens-engine/src/symbols/writer.rs::refresh_file",
+          "crates/codelens-mcp/src/job_store.rs::cleanup_stale_files",
+          "crates/codelens-mcp/src/job_store.rs::jobs_dir",
+          "crates/codelens-mcp/src/job_store.rs::latest_job",
+          "crates/codelens-mcp/src/job_store.rs::update",
+          "crates/codelens-mcp/src/tools/report_jobs/handlers.rs::retry_analysis_job",
+          "crates/codelens-mcp/src/tools/session/project_ops/prep_recovery.rs::command"
         ],
         "gold_files": [
           "crates/codelens-mcp/src/job_store.rs"
@@ -1195,7 +1298,7 @@
           "crates/codelens-mcp/src/job_store.rs::concurrent_updates_to_one_job_never_lose_the_staging_file",
           "crates/codelens-mcp/src/job_store.rs::write_to_disk"
         ],
-        "elapsed_ms": 161,
+        "elapsed_ms": 160,
         "compression_stage": null
       },
       {
@@ -1203,12 +1306,26 @@
         "class": "descriptive",
         "predicted_files": [
           "crates/codelens-engine/src/call_graph/tests.rs",
+          "crates/codelens-engine/src/db/ops/files.rs",
+          "crates/codelens-engine/src/embedding/vec_store.rs",
+          "crates/codelens-engine/src/project/root_detect.rs",
+          "crates/codelens-engine/src/project/tests.rs",
+          "crates/codelens-engine/src/symbols/writer.rs",
+          "crates/codelens-engine/src/test_helpers.rs",
           "crates/codelens-mcp/src/skill_catalog/tests.rs",
+          "crates/codelens-mcp/src/state/project_runtime.rs",
           "crates/codelens-mcp/src/surface_manifest/tests.rs"
         ],
         "predicted_functions": [
           "crates/codelens-engine/src/call_graph/tests.rs::temp_dir",
+          "crates/codelens-engine/src/db/ops/files.rs::delete_file",
+          "crates/codelens-engine/src/embedding/vec_store.rs::delete_by_file",
+          "crates/codelens-engine/src/project/root_detect.rs::temp_dir_fallback",
+          "crates/codelens-engine/src/project/tests.rs::tempfile_dir",
+          "crates/codelens-engine/src/symbols/writer.rs::remove_files",
+          "crates/codelens-engine/src/test_helpers.rs::make_unique_temp_dir",
           "crates/codelens-mcp/src/skill_catalog/tests.rs::temp_dir",
+          "crates/codelens-mcp/src/state/project_runtime.rs::reap_deleted_roots",
           "crates/codelens-mcp/src/surface_manifest/tests.rs::temp_dir"
         ],
         "gold_files": [
@@ -1217,18 +1334,27 @@
         "gold_functions": [
           "crates/codelens-mcp/src/integration_tests/workflow/session.rs::delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry"
         ],
-        "elapsed_ms": 228,
+        "elapsed_ms": 255,
         "compression_stage": null
       },
       {
         "id": "Q16",
         "class": "descriptive",
         "predicted_files": [
+          "crates/codelens-engine/src/project.rs",
+          "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/mod.rs",
           "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs",
-          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs"
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/render.rs",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/tests.rs"
         ],
         "predicted_functions": [
-          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs::module_for_file"
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs::WORKSPACE_MODULE_GRANULARITY",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules.rs::build_workspace_module_graph_report",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/build.rs::module_for_file",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/render.rs::as_json",
+          "crates/codelens-mcp/src/tools/reports/impact_reports/workspace_modules/tests.rs::workspace_module_graph_counts_cross_module_edges"
         ],
         "gold_files": [
           "crates/codelens-mcp/src/integration_tests/workflow/mod.rs",
@@ -1238,7 +1364,7 @@
         "gold_functions": [
           "crates/codelens-mcp/src/tools/reports/impact_reports/mermaid.rs::mermaid_module_graph"
         ],
-        "elapsed_ms": 60,
+        "elapsed_ms": 59,
         "compression_stage": null
       }
     ]

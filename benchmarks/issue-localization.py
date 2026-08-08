@@ -266,6 +266,24 @@ def open_session(base_url: str, project: str, token_budget: int | None) -> str |
     return session_id
 
 
+def extract_payload_channel(response) -> tuple[dict, str]:
+    """Prefer ``structuredContent`` (full data) over the summarized text channel.
+
+    The text channel samples every array to 3 items and omits ``page`` /
+    ``next_cursor`` (``TEXT_CHANNEL_MAX_ARRAY_ITEMS`` in
+    ``dispatch/response_support``), so scoring it measures the preview, not the
+    retrieval. ``runtime_common.extract_tool_payload`` reads only the text
+    channel and stays untouched — other benchmarks depend on its behavior.
+    """
+    result = response.get("result") if isinstance(response, dict) else None
+    if isinstance(result, dict):
+        structured = result.get("structuredContent")
+        if isinstance(structured, dict) and structured:
+            return structured, "structuredContent"
+    payload = runtime_common.extract_tool_payload(response)
+    return payload if isinstance(payload, dict) else {}, "text"
+
+
 def run_query(
     base_url: str,
     session_id: str | None,
@@ -288,9 +306,7 @@ def run_query(
         timeout_seconds=timeout_seconds,
     )
     elapsed_ms = int((time.monotonic() - started) * 1000)
-    payload = runtime_common.extract_tool_payload(response)
-    if not isinstance(payload, dict):
-        payload = {}
+    payload, payload_channel = extract_payload_channel(response)
     if raw_dir is not None:
         raw_dir.mkdir(parents=True, exist_ok=True)
         (raw_dir / f"{query_id}.{surface}.json").write_text(
@@ -305,6 +321,7 @@ def run_query(
         "surface": surface,
         "elapsed_ms": elapsed_ms,
         "raw_chars": raw_chars,
+        "payload_channel": payload_channel,
         "success": bool(payload.get("success", False)),
         "truncated": bool(payload.get("truncated", False)),
         "compression_stage": payload.get("compression_stage"),
@@ -567,6 +584,11 @@ def main() -> int:
             ),
             "stage5_queries": sum(
                 1 for e in entries if e["prediction"]["compression_stage"] == 5
+            ),
+            "structured_channel_queries": sum(
+                1
+                for e in entries
+                if e["prediction"]["payload_channel"] == "structuredContent"
             ),
             "median_parsed_items": median,
         }
