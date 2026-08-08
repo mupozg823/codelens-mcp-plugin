@@ -131,7 +131,10 @@ class DaemonClient:
         resp = rc.mcp_http_tool_call(
             self.base_url, tool, args, session_id=self.session_id
         )
-        return rc.extract_tool_payload(resp)
+        # Structured-first: the text channel samples arrays to 3 items, so
+        # every pre-2026-08-08 F-beta number measured that preview and is not
+        # comparable with runs from this line onward.
+        return rc.extract_tool_payload_structured_first(resp)
 
     def gold_line(self, expected_symbol: str, suffix: str):
         """Authoritative definition line of expected_symbol in the gold file."""

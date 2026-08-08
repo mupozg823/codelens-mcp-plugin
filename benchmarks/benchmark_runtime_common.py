@@ -497,6 +497,23 @@ def mcp_http_resource_read(
     )
 
 
+def extract_tool_payload_structured_first(response):
+    """Prefer ``structuredContent`` (full data) over the summarized text channel.
+
+    ``extract_tool_payload`` below reads ``content[0].text``, whose arrays are
+    sampled to 3 items by the server's text-channel summarizer — correct for
+    token-cost benches (that preview is the measurand), wrong for retrieval
+    quality (it measures the preview, not the ranking; see
+    issue-localization-instrument-check.md). Quality benches use this variant.
+    """
+    result = response.get("result") if isinstance(response, dict) else None
+    if isinstance(result, dict):
+        structured = result.get("structuredContent")
+        if isinstance(structured, dict) and structured:
+            return structured
+    return extract_tool_payload(response)
+
+
 def extract_tool_payload(response):
     if not isinstance(response, dict):
         return {}
