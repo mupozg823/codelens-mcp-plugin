@@ -10,7 +10,12 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MemoryPressure {
     Normal,
+    // Only the macOS `memory_pressure(1)` classifier constructs the
+    // elevated variants; every other target reads Normal (fail-open), so
+    // a non-macOS non-test build never constructs them.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Warning,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Critical,
 }
 
