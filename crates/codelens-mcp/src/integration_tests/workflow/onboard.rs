@@ -30,12 +30,16 @@ fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
         "class App:\n    def run(self):\n        return 'ok'\n",
     )
     .unwrap();
-    let _bootstrap = make_state(&project);
+    let bootstrap = make_state(&project);
 
     let engine = codelens_engine::EmbeddingEngine::new(&project).unwrap();
     let indexed = engine.index_from_project(&project).unwrap();
     assert!(indexed > 0);
     drop(engine);
+    // Release the bootstrap state's writer lease before constructing the
+    // probe state — one project, one writer (ADR-0017). The isolated test
+    // lock dir enforces this even within a single process.
+    drop(bootstrap);
 
     let state = make_state(&project);
 

@@ -13,13 +13,19 @@ use super::AppState;
 /// Idle window before a resident embedding engine is dropped. Long enough that an
 /// active session never pays the reload, short enough that a daemon left open
 /// overnight does not park the model's footprint.
+///
+/// The eviction cluster's only non-test caller is the `http` transport's
+/// cleanup loop, so a `semantic`-without-`http` build sees it as dead code;
+/// the unit tests below still exercise it in that combination.
 #[cfg(feature = "semantic")]
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
 const DEFAULT_EMBED_IDLE_TTL_SECS: u64 = 900;
 
 /// Idle policy, split from the clock and the lock so it is directly testable.
 /// All three conditions must hold: the sweep is enabled, the engine has actually
 /// been used (an untouched daemon has nothing to drop), and it is still resident.
 #[cfg(feature = "semantic")]
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
 fn embedding_is_idle(
     idle_for: Option<std::time::Duration>,
     ttl: Option<std::time::Duration>,
@@ -33,6 +39,7 @@ fn embedding_is_idle(
 
 /// `None` disables the idle sweep (`CODELENS_EMBED_IDLE_TTL_SECS=0`).
 #[cfg(feature = "semantic")]
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
 fn configured_embedding_idle_ttl() -> Option<std::time::Duration> {
     let secs = std::env::var("CODELENS_EMBED_IDLE_TTL_SECS")
         .ok()
@@ -122,6 +129,7 @@ impl AppState {
     ///
     /// `CODELENS_EMBED_IDLE_TTL_SECS=0` disables the sweep.
     #[cfg(feature = "semantic")]
+    #[cfg_attr(not(feature = "http"), allow(dead_code))]
     pub(crate) fn drop_idle_embedding(&self) -> bool {
         let idle_for = self
             .embedding_last_used

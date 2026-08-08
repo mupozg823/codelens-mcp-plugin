@@ -2,7 +2,7 @@
   "name": "codelens",
   "displayName": "CodeLens",
   "description": "Rust MCP code intelligence for coding agents — live indexes, bounded hybrid retrieval, host-neutral workflows, single-writer sessions, and mutation gates.",
-  "version": "1.13.34",
+  "version": "1.13.35",
   "author": { "name": "mupozg823" },
   "homepage": "https://github.com/mupozg823/codelens-mcp-plugin",
   "repository": "https://github.com/mupozg823/codelens-mcp-plugin",

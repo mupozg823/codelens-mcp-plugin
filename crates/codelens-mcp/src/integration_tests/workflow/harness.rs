@@ -212,7 +212,7 @@ fn prepare_harness_session_reports_existing_embedding_index_as_ready() {
     ) {
         panic!("failed to write semantic fixture: {err}");
     }
-    let _bootstrap = make_state(&project);
+    let bootstrap = make_state(&project);
     let engine = match codelens_engine::EmbeddingEngine::new(&project) {
         Ok(engine) => engine,
         Err(err) => panic!("failed to create embedding engine: {err}"),
@@ -223,6 +223,9 @@ fn prepare_harness_session_reports_existing_embedding_index_as_ready() {
     };
     assert!(indexed > 0);
     drop(engine);
+    // One project, one writer (ADR-0017): release the bootstrap lease
+    // before the probe state acquires the same project.
+    drop(bootstrap);
     let state = make_state(&project);
 
     let payload = call_tool(

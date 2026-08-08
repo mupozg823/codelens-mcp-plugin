@@ -315,11 +315,14 @@ fn symbol_mutation_reindexes_existing_embedding_index_when_engine_is_not_loaded(
         "def winter_orbit_launch():\n    return 1\n",
     )
     .unwrap();
-    let _bootstrap = make_state(&project);
+    let bootstrap = make_state(&project);
     let engine = codelens_engine::EmbeddingEngine::new(&project).unwrap();
     let indexed = engine.index_from_project(&project).unwrap();
     assert!(indexed > 0);
     drop(engine);
+    // One project, one writer (ADR-0017): release the bootstrap lease
+    // before the probe state acquires the same project.
+    drop(bootstrap);
 
     let state = make_state(&project);
     assert!(state.embedding_ref().is_none());
