@@ -248,6 +248,14 @@ pub(super) fn summarize_text_object(source: &Map<String, Value>, depth: usize) -
             summarized.insert(key.clone(), value.clone());
             continue;
         }
+        // Pagination keys are how a text-only client learns there is a
+        // next page at all. They are two small scalars, so they neither
+        // consume a cap slot nor get string-truncated — a clipped cursor
+        // is worse than a dropped one, since it still looks usable.
+        if is_pagination_key(key) {
+            summarized.insert(key.clone(), value.clone());
+            continue;
+        }
         if !preserve_full && kept_index >= MAX_OBJECT_ITEMS {
             omitted_keys.push(key.clone());
             continue;
@@ -268,6 +276,14 @@ pub(super) fn summarize_text_object(source: &Map<String, Value>, depth: usize) -
         summarized.insert("truncated".to_owned(), Value::Bool(true));
     }
     Value::Object(summarized)
+}
+
+/// Keys carrying the paging contract, preserved verbatim by the text
+/// channel summarizer.
+pub(super) const PAGINATION_KEYS: [&str; 2] = ["page", "next_cursor"];
+
+fn is_pagination_key(key: &str) -> bool {
+    PAGINATION_KEYS.contains(&key)
 }
 
 fn summarize_text_value(value: &Value, depth: usize) -> Value {
@@ -857,5 +873,72 @@ mod full_results_preservation_tests {
         );
         assert_eq!(obj.get("backend").and_then(Value::as_str), Some("scip"));
         assert_eq!(obj.get("count").and_then(Value::as_i64), Some(12));
+    }
+}
+
+#[cfg(test)]
+mod pagination_key_preservation_tests {
+    use super::*;
+
+    /// Wide enough that `page` / `next_cursor` fall past the 8-key object
+    /// cap, which is exactly the shape that used to hide paging from
+    /// text-only clients.
+    fn wide_paginated_payload() -> Value {
+        let mut map = Map::new();
+        for n in 0..12 {
+            map.insert(format!("field_{n:02}"), json!(n));
+        }
+        map.insert("page".to_owned(), json!({"index": 2, "size": 10}));
+        map.insert("next_cursor".to_owned(), json!("c".repeat(400)));
+        Value::Object(map)
+    }
+
+    #[test]
+    fn text_channel_keeps_page_and_next_cursor_verbatim() {
+        let source = wide_paginated_payload();
+        let summarized = summarize_text_value(&source, 0);
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("page"),
+            source.get("page"),
+            "page must survive the object cap unchanged"
+        );
+        assert_eq!(
+            obj.get("next_cursor"),
+            source.get("next_cursor"),
+            "a truncated cursor is worse than a dropped one"
+        );
+    }
+
+    #[test]
+    fn pagination_keys_are_not_reported_as_omitted() {
+        let summarized = summarize_text_value(&wide_paginated_payload(), 0);
+        let obj = summarized.as_object().expect("object");
+        let omitted: Vec<&str> = obj
+            .get("_omitted_keys")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        assert!(!omitted.contains(&"page"));
+        assert!(!omitted.contains(&"next_cursor"));
+        assert!(
+            !omitted.is_empty(),
+            "the 12 plain fields should still trip the cap"
+        );
+    }
+
+    #[test]
+    fn pagination_keys_do_not_consume_object_cap_slots() {
+        let mut map = Map::new();
+        for n in 0..8 {
+            map.insert(format!("field_{n}"), json!(n));
+        }
+        map.insert("page".to_owned(), json!({"index": 1}));
+        map.insert("next_cursor".to_owned(), json!("abc"));
+        let summarized = summarize_text_value(&Value::Object(map), 0);
+        let obj = summarized.as_object().expect("object");
+        assert!(obj.get("_omitted_keys").is_none(), "8 fields fit the cap");
+        assert!(obj.get("page").is_some());
+        assert!(obj.get("next_cursor").is_some());
     }
 }
