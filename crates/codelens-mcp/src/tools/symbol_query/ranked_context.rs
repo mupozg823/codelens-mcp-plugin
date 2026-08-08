@@ -27,8 +27,8 @@
 //! the rest of the ranked-context stages into a single deep module.
 
 use super::rank_fusion::{
-    annotate_ranked_context_provenance, compact_semantic_evidence, compact_sparse_evidence,
-    fuse_ranked_entries_weighted_rrf, resolve_rrf_channel_weights,
+    RankFusionMode, annotate_ranked_context_provenance, compact_semantic_evidence,
+    compact_sparse_evidence, fuse_ranked_entries_weighted_rrf, resolve_rrf_channel_weights,
 };
 use super::ranked_context_coverage::ranked_context_coverage;
 use super::retrieval_scope::normalize_path_scope;
@@ -326,6 +326,20 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         query_analysis.natural_language,
     );
 
+    // CODELENS_RRF_SCORE_AWARE=1 (experimental, default off): fold each
+    // lane's raw retrieval score into fusion instead of ranking on lane
+    // membership alone. `CODELENS_RRF_SCORE_AWARE_CAPS=1` additionally
+    // lifts the query-shape lane caps — measured as a wash on the
+    // issue-localization set, so it stays opt-in. Neither knob has any
+    // effect while score-aware fusion is off.
+    let rrf_score_aware = std::env::var("CODELENS_RRF_SCORE_AWARE")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let rrf_lift_policy_caps = std::env::var("CODELENS_RRF_SCORE_AWARE_CAPS")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let fusion_mode = RankFusionMode::resolve(rrf_score_aware, rrf_lift_policy_caps);
+
     // Weighted RRF를 적용해 네 검색 차선(Structural, Semantic, Sparse, UserContext)을 통합적으로 융합합니다.
     fuse_ranked_entries_weighted_rrf(
         query,
@@ -344,6 +358,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
         6,
         Some(&user_context_scores),
         channel_weights,
+        fusion_mode,
     );
 
     // Phase 3: adaptive granularity based on token budget
@@ -505,7 +520,7 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
 
 #[cfg(test)]
 mod tests {
-    use super::super::rank_fusion::RrfChannelWeights;
+    use super::super::rank_fusion::{RankFusionMode, RrfChannelWeights};
     use super::*;
     use crate::symbol_corpus::SymbolDocument;
     use crate::symbol_retrieval::ScoredSymbol;
@@ -703,6 +718,7 @@ mod tests {
             6,
             Some(&std::collections::HashMap::new()),
             RrfChannelWeights::DEFAULT,
+            RankFusionMode::RANK_ONLY,
         );
 
         assert_eq!(result.symbols[0].name, "symbol_b");
@@ -790,6 +806,7 @@ mod tests {
             6,
             Some(&std::collections::HashMap::new()),
             RrfChannelWeights::DEFAULT,
+            RankFusionMode::RANK_ONLY,
         );
         assert_eq!(baseline.symbols[0].name, "symbol_other");
 
@@ -807,6 +824,7 @@ mod tests {
             6,
             Some(&user_context_scores),
             RrfChannelWeights::DEFAULT,
+            RankFusionMode::RANK_ONLY,
         );
         assert_eq!(anchored.symbols[0].name, "symbol_anchor");
     }
