@@ -59,12 +59,22 @@ for candidate in (
 ):
     url = codelens_url(candidate)
     if url:
-        print(url)
+        # 드리프트 보고에 "어느 파일을 고칠지"까지 실어야 경고가 행동이 된다
+        # (2026-07-29 실측: 이 훅이 드리프트를 정확히 감지하고도 파일을 짚지
+        #  않아 프로젝트 .mcp.json 15개가 폐기 포트에 방치돼 있었다).
+        print(f"{url}|{candidate}")
         break
 PY
 )
-EFFECTIVE_URL="${CODELENS_MCP_URL:-$EFFECTIVE_URL}"
+EFFECTIVE_SRC="${EFFECTIVE_URL#*|}"
+EFFECTIVE_URL="${EFFECTIVE_URL%%|*}"
+[ "$EFFECTIVE_SRC" = "$EFFECTIVE_URL" ] && EFFECTIVE_SRC=""
+if [ -n "${CODELENS_MCP_URL:-}" ]; then
+  EFFECTIVE_URL="$CODELENS_MCP_URL"
+  EFFECTIVE_SRC="env CODELENS_MCP_URL"
+fi
 : "${EFFECTIVE_URL:=http://127.0.0.1:7838/mcp}"
+: "${EFFECTIVE_SRC:=미설정(기본값)}"
 
 ORIGIN="${EFFECTIVE_URL%/*}"
 ORIGIN="${ORIGIN%/mcp}"
@@ -95,7 +105,7 @@ if [ "$ALIVE" = "0" ]; then
   # 설정 포트는 죽었는데 정본 포트에는 데몬이 살아 있으면 데몬 장애가 아니라
   # 설정 드리프트다 — 둘을 구분해야 "데몬 다운" 오진으로 3일을 잃지 않는다.
   if [ "$PORT" != "7838" ] && curl -sf -m 0.7 "http://127.0.0.1:7838/.well-known/mcp.json" -o /dev/null 2>/dev/null; then
-    echo "🔍 CodeLens 설정 드리프트 — 이 세션은 :$PORT 로 붙지만 리스너가 없고, 정본 :7838 데몬은 살아 있음. codelens MCP url 을 http://127.0.0.1:7838/mcp 로 고치고 세션 재시작(전송은 시작 시 바인딩)."
+    echo "🔍 CodeLens 설정 드리프트 — :$PORT 에 리스너 없음, 정본 :7838 은 살아 있음. 고칠 파일=$EFFECTIVE_SRC (url→http://127.0.0.1:7838/mcp) 후 세션 재시작(전송은 시작 시 바인딩). 머신 전역 점검=codelens-binding-healthcheck."
     exit 0
   fi
   echo "🔍 CodeLens 데몬 다운(:$PORT) — 쉘 폴백 허용, 심볼 게이트 자동 비활성."
