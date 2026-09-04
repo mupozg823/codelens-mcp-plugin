@@ -103,22 +103,22 @@ jobs:
         run: cargo check --workspace --no-default-features
 
       - name: cargo clippy (deny warnings)
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo clippy (http)
-        run: cargo clippy --workspace --features http -- -D warnings
+        run: cargo clippy --workspace --all-targets --features http -- -D warnings
 
       - name: cargo clippy (otel)
-        run: cargo clippy --workspace --features otel -- -D warnings
+        run: cargo clippy --workspace --all-targets --features otel -- -D warnings
 
       - name: cargo clippy (scip-backend)
-        run: cargo clippy --workspace --features scip-backend -- -D warnings
+        run: cargo clippy --workspace --all-targets --features scip-backend -- -D warnings
 
       - name: cargo clippy (semantic)
-        run: cargo clippy --workspace --features semantic -- -D warnings
+        run: cargo clippy --workspace --all-targets --features semantic -- -D warnings
 
       - name: cargo clippy (semantic-off)
-        run: cargo clippy --workspace --no-default-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest

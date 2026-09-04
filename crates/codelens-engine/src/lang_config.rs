@@ -314,7 +314,12 @@ const JULIA_QUERY: &str = r#"
 
 /// Quality benchmark: all 25 languages must parse and extract symbols correctly.
 /// This is the acceptance test for language support quality.
-#[cfg(test)]
+///
+/// Gated on `lang-extra` alongside its only caller, the `tests` module below.
+/// The helper itself is language-agnostic, but under `--no-default-features`
+/// that module is compiled out and a `#[cfg(test)]`-only helper is then dead
+/// code, which `--all-targets` clippy reports as a `-D warnings` failure.
+#[cfg(all(test, feature = "lang-extra"))]
 fn assert_extracts(
     lang_name: &str,
     lang: tree_sitter::Language,
@@ -360,9 +365,9 @@ fn assert_extracts(
 // `lang-extra` gate: the entire tests module exercises queries for the
 // niche tree-sitter languages (canonical list in Cargo.toml `lang-extra`).
 // Under `--no-default-features` builds those crates are not linked and the
-// test bodies would fail to compile. `assert_extracts` above remains under
-// `#[cfg(test)]` only — it is a generic helper that takes a
-// `tree_sitter::Language` and is language-agnostic.
+// test bodies would fail to compile. `assert_extracts` above carries the same
+// gate: it is language-agnostic, but this module is its only caller, so
+// gating only on `test` leaves it dead under `--no-default-features`.
 #[cfg(all(test, feature = "lang-extra"))]
 #[allow(clippy::items_after_test_module)]
 mod tests {
