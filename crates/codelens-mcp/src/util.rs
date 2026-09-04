@@ -87,6 +87,29 @@ pub(crate) fn matches_scope(scope: Option<&str>, current: Option<&str>) -> bool 
     }
 }
 
+/// `true` when most of a query's *letters* fall outside the Latin script.
+///
+/// Digits, punctuation and whitespace are ignored, and a tie counts as Latin, so
+/// a mixed query like `detect_root 함수` reads as Latin — only queries that are
+/// predominantly another script are treated as non-Latin.
+///
+/// Two callers rely on this: the semantic retriever skips the embedding lookup
+/// (the bundled model is English-only), and the success-response builder attaches
+/// a routing hint when such a query comes back empty.
+pub(crate) fn query_is_predominantly_non_latin(query: &str) -> bool {
+    let (latin, other) = query.chars().filter(|ch| ch.is_alphabetic()).fold(
+        (0usize, 0usize),
+        |(latin, other), ch| {
+            if ch.is_ascii_alphabetic() {
+                (latin + 1, other)
+            } else {
+                (latin, other + 1)
+            }
+        },
+    );
+    other > latin
+}
+
 #[cfg(test)]
 mod tests {
     use super::canonical_sha256_hex;
@@ -131,27 +154,4 @@ mod tests {
         let b = json!({ "outer": { "inner_a": 1, "inner_b": 2 } });
         assert_eq!(canonical_sha256_hex(&a), canonical_sha256_hex(&b));
     }
-}
-
-/// `true` when most of a query's *letters* fall outside the Latin script.
-///
-/// Digits, punctuation and whitespace are ignored, and a tie counts as Latin, so
-/// a mixed query like `detect_root 함수` reads as Latin — only queries that are
-/// predominantly another script are treated as non-Latin.
-///
-/// Two callers rely on this: the semantic retriever skips the embedding lookup
-/// (the bundled model is English-only), and the success-response builder attaches
-/// a routing hint when such a query comes back empty.
-pub(crate) fn query_is_predominantly_non_latin(query: &str) -> bool {
-    let (latin, other) = query.chars().filter(|ch| ch.is_alphabetic()).fold(
-        (0usize, 0usize),
-        |(latin, other), ch| {
-            if ch.is_ascii_alphabetic() {
-                (latin + 1, other)
-            } else {
-                (latin, other + 1)
-            }
-        },
-    );
-    other > latin
 }
