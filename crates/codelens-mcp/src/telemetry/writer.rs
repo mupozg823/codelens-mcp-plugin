@@ -7,7 +7,7 @@ use crate::telemetry::ToolCallEvent;
 use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A single telemetry event appended to the persistence log.
 #[derive(Debug, Serialize)]
@@ -83,17 +83,38 @@ impl<'a> PersistedEvent<'a> {
 ///
 /// The writer runs on the hot dispatch path. All I/O failures are logged once
 /// and swallowed so telemetry can never break tool execution.
+/// Size ceiling for one telemetry generation. Two generations are kept, so
+/// disk is bounded at twice this. Measured 2026-09-05, a daemon in daily use
+/// wrote ~193 KB/day, which puts one generation at roughly 85 days and the
+/// pair well clear of the 30-day window ADR-0010 evaluates gates over.
+/// Override with `CODELENS_TELEMETRY_MAX_BYTES` when traffic is heavier.
+const DEFAULT_MAX_BYTES: u64 = 16 * 1024 * 1024;
+
 pub(crate) struct TelemetryWriter {
     path: PathBuf,
+    max_bytes: u64,
+}
+
+/// `<name>.jsonl` -> `<name>.jsonl.1`. Built by appending rather than with
+/// `with_extension`, which would eat the `.jsonl` instead of following it.
+fn rotated_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".1");
+    path.with_file_name(name)
 }
 
 impl TelemetryWriter {
     /// Resolve a writer from environment variables. Returns `None` when
     /// persistence is disabled (the default).
     pub(crate) fn from_env() -> Option<Self> {
+        let max_bytes = dual_prefix_env("CODELENS_TELEMETRY_MAX_BYTES")
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(DEFAULT_MAX_BYTES);
         if let Some(custom) = dual_prefix_env("CODELENS_TELEMETRY_PATH") {
             return Some(Self {
                 path: PathBuf::from(custom),
+                max_bytes,
             });
         }
         let enabled = dual_prefix_env("CODELENS_TELEMETRY_ENABLED")
@@ -105,6 +126,7 @@ impl TelemetryWriter {
         if enabled {
             return Some(Self {
                 path: PathBuf::from(".codelens/telemetry/tool_usage.jsonl"),
+                max_bytes,
             });
         }
         None
@@ -123,6 +145,7 @@ impl TelemetryWriter {
                 std::fs::create_dir_all(parent)?;
             }
         }
+        self.rotate_if_oversized();
         let mut line = serde_json::to_string(event)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         line.push('\n');
@@ -133,9 +156,35 @@ impl TelemetryWriter {
         file.write_all(line.as_bytes())
     }
 
+    /// Roll the current generation aside once it reaches `max_bytes`.
+    ///
+    /// Best-effort on purpose: a rotation that fails must never cost the event
+    /// that triggered it, so the error is reported and the append proceeds
+    /// against the oversized file. `rename` replaces any existing `.1`, which
+    /// is what bounds retention at two generations.
+    fn rotate_if_oversized(&self) {
+        let Ok(metadata) = std::fs::metadata(&self.path) else {
+            return;
+        };
+        if metadata.len() < self.max_bytes {
+            return;
+        }
+        if let Err(err) = std::fs::rename(&self.path, rotated_path(&self.path)) {
+            eprintln!("codelens: telemetry rotation failed: {err}");
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn with_path(path: PathBuf) -> Self {
-        Self { path }
+        Self {
+            path,
+            max_bytes: DEFAULT_MAX_BYTES,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_path_and_max_bytes(path: PathBuf, max_bytes: u64) -> Self {
+        Self { path, max_bytes }
     }
 
     pub(crate) fn path(&self) -> &std::path::Path {

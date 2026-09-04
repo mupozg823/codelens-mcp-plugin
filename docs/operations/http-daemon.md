@@ -81,12 +81,24 @@ coordination-quartet gate:
 ```bash
 jq -r 'select(.tool == ("register_agent_work","list_active_agents","claim_files","release_files"))
        | [(.timestamp_ms/1000 | todate), .tool, .surface, .success] | @tsv' \
-  .codelens/telemetry/tool_usage.jsonl
+  .codelens/telemetry/tool_usage.jsonl.1 .codelens/telemetry/tool_usage.jsonl 2>/dev/null
 ```
 
 No output over the observation window ⇒ the removal gate is satisfied.
-The log is append-only with no rotation — truncate it manually if it grows
-past usefulness (the gate only needs the current observation window).
+
+**Read both generations.** The log rotates by size: once
+`tool_usage.jsonl` reaches `CODELENS_TELEMETRY_MAX_BYTES` (16 MiB by default)
+it is renamed to `tool_usage.jsonl.1` and a fresh file starts. The rename
+replaces any older `.1`, so exactly two generations survive and disk is
+bounded at twice the ceiling. Querying only the current file can therefore
+show a window shorter than you think and report a false zero — always pass
+both paths, oldest first, as above.
+
+Sizing: a daemon in daily use wrote about 193 KB/day when measured on
+2026-09-05, putting one generation near 85 days and the pair well clear of
+the 30-day window ADR-0010 evaluates gates over. Raise
+`CODELENS_TELEMETRY_MAX_BYTES` if your traffic is heavy enough that two
+generations would not span the window.
 
 ### Project-binding precedence and lifetime
 
