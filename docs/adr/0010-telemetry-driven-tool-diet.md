@@ -1,7 +1,26 @@
 # ADR-0010: Telemetry-Driven Tool Surface Diet
 
 ## Status
-Proposed
+Partially implemented (see *Implementation status*). The deprecation pipeline
+shipped and is load-bearing; the storage and retention decisions did not.
+
+## Implementation status (verified 2026-09-04)
+
+- **Shipped - decision 4, the deprecation pipeline.** Commit `27c897e5`
+  (2026-07-24) wired flag -> `#[deprecated]` annotation -> `_meta`
+  `deprecatedSince`/`removalTarget` -> removal target. ADR-0018's coordination
+  quartet is the first cohort to run through it, and ADR-0016 builds on this
+  ADR for the CORE-20 surface.
+- **Diverged - the storage decision.** The *Consequences* section specifies a
+  SQLite `tool_calls` table. What shipped is an append-only JSONL writer
+  (`crates/codelens-mcp/src/telemetry/writer.rs`) at
+  `.codelens/telemetry/tool_usage.jsonl`. No `tool_calls` table exists.
+- **Unmet - the daily retention sweep.** There is no rotation or sweep;
+  truncation is manual. Measured 2026-09-04: 11,066,801 bytes / 38,267 lines
+  accumulated since 2026-07-10. This grows without bound and is the open item.
+- **Removal gate, for reference.** The quartet's window is clean:
+  `register_agent_work` 0, `claim_files` 0, `release_files` 0,
+  `list_active_agents` 1, that single call landing on the gate-commit day.
 
 ## Context
 The plugin exposes ~35 tools. Not all are equally used. Phase 1-2 removed 5 deprecated v2.0 aliases and 2 dead external adapters (JetBrains/Roslyn stubs). The remaining tools need data-driven retirement criteria to avoid guesswork.
