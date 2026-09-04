@@ -67,6 +67,45 @@ probe failures read as normal pressure (fail-open).
   `tracing` warning) so admission gating can never starve a job. `0` disables
   deferral entirely (useful for CI or benchmark runs).
 
+## Index Exclusions (`.codelens/config.json`)
+
+The indexer skips a hardcoded directory set (`EXCLUDED_DIRS` in
+`crates/codelens-engine/src/project/exclusions.rs`): VCS and editor state,
+`node_modules`, `target`, `dist`, `build`, `out`, `generated`, `.next`,
+`vendor`, `__pycache__`, virtualenvs, and similar.
+
+**The indexer does not read `.gitignore`.** Build output that a repository
+ignores but that is not in `EXCLUDED_DIRS` is still indexed and still shows up
+in analysis output. Measured 2026-08-12 on a Next.js/Vercel repo: `.vercel/output`
+artifacts entered a 1,348-file symbol index and took over the top of the
+dead-code report, confirmed by cross-checking `git check-ignore`.
+
+Exclude them per project with `.codelens/config.json`. All three keys are read
+and merged, so use whichever reads best:
+
+```json
+{
+  "index": {
+    "exclude_paths": [".vercel/output", "coverage"],
+    "exclude": ["**/*.generated.ts"]
+  },
+  "exclude_paths": ["fixtures/large"]
+}
+```
+
+Pattern rules, from `expand_exclude_pattern`:
+
+- A plain path expands to both itself and `<path>/**`, so `".vercel/output"`
+  excludes the directory and everything under it.
+- A pattern already containing `*`, `?`, `[`, or `{`, or ending in `/`, is used
+  verbatim with no expansion.
+- A leading `./` is stripped and `\` is normalised to `/`.
+- Any pattern containing `..` is dropped, so exclusions cannot escape the
+  project root.
+
+Changing this file requires a reindex to take effect
+(`refresh_symbol_index`, or `analyze` with `mode=start`).
+
 ## Backup Rotation
 
 Three backup patterns accumulate without retention if left unmanaged:

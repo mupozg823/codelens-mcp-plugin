@@ -225,6 +225,10 @@ fn protected_resource_path(request_path: &str) -> Option<String> {
 /// enabled and validation succeeds, `Ok(None)` when auth is `Off`
 /// and no `X-Codelens-Principal` dev header is present, and `Err`
 /// (with the rejection response) on auth failure.
+// clippy::result_large_err — the Err payload is axum's own `Response`
+// (>=128 bytes) and this is the auth rejection path, so boxing it would
+// reshape control flow in security-sensitive code for no runtime gain.
+#[allow(clippy::result_large_err)]
 async fn authenticate_request(
     state: &AppState,
     headers: &HeaderMap,
