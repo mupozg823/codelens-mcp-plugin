@@ -130,6 +130,24 @@ fn excludes_generated_lock_and_backup_artifacts() {
 }
 
 #[test]
+fn excludes_framework_build_output_directories() {
+    // Generated bundles are referenced by nothing, so leaving them in the
+    // walk hands the dead-code report a pile of false leaders.
+    assert!(is_excluded(Path::new(".vercel/output/functions/index.js")));
+    assert!(is_excluded(Path::new("app/.turbo/cache/out.js")));
+    assert!(is_excluded(Path::new(".svelte-kit/generated/root.svelte")));
+    assert!(is_excluded(Path::new(".nuxt/dist/server/entry.mjs")));
+    assert!(is_excluded(Path::new(".astro/types.d.ts")));
+    assert!(is_excluded(Path::new(".parcel-cache/asset.js")));
+    // Names a project may legitimately author stay indexable: only the
+    // dot-prefixed, tool-owned directories are excluded.
+    assert!(!is_excluded(Path::new("src/coverage/report.ts")));
+    assert!(!is_excluded(Path::new("src/output/writer.ts")));
+    assert!(!is_excluded(Path::new("src/vercel_client.ts")));
+    assert!(!is_excluded(Path::new("packages/turbo/src/index.ts")));
+}
+
+#[test]
 fn excludes_suffixed_virtualenv_directories() {
     // Dogfooding regression: a `.venv-finetune` uv env added 24K+ files and
     // ~1.1M foreign symbols to this repo's own index because EXCLUDED_DIRS

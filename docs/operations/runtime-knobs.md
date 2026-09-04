@@ -71,14 +71,19 @@ probe failures read as normal pressure (fail-open).
 
 The indexer skips a hardcoded directory set (`EXCLUDED_DIRS` in
 `crates/codelens-engine/src/project/exclusions.rs`): VCS and editor state,
-`node_modules`, `target`, `dist`, `build`, `out`, `generated`, `.next`,
-`vendor`, `__pycache__`, virtualenvs, and similar.
+`node_modules`, `target`, `dist`, `build`, `out`, `generated`, `vendor`,
+`__pycache__`, virtualenvs, caches, git worktrees, and framework build output
+(`.next`, `.vercel`, `.turbo`, `.svelte-kit`, `.nuxt`, `.astro`,
+`.parcel-cache`).
 
-**The indexer does not read `.gitignore`.** Build output that a repository
-ignores but that is not in `EXCLUDED_DIRS` is still indexed and still shows up
-in analysis output. Measured 2026-08-12 on a Next.js/Vercel repo: `.vercel/output`
-artifacts entered a 1,348-file symbol index and took over the top of the
-dead-code report, confirmed by cross-checking `git check-ignore`.
+**The indexer does not read `.gitignore`.** That list is a curated set of names,
+not a rule, so anything a repository ignores under a name not on the list is
+still indexed and still shows up in analysis output. The cost lands on report
+precision rather than index size: generated bundles are referenced by nothing,
+so they flood dead-code rankings. Measured 2026-09-05 on a Next.js/Vercel repo,
+`.vercel` held 44 indexable JS/TS files against 1,259 real source files and led
+the dead-code report; it is excluded by default as of that change, but the
+general gap remains.
 
 Exclude them per project with `.codelens/config.json`. All three keys are read
 and merged, so use whichever reads best:
