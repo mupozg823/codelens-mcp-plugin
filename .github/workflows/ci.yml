@@ -11,6 +11,9 @@ env:
   RUST_BACKTRACE: short
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
+  # Selects [profile.ci] from .config/nextest.toml: same slow/terminate
+  # thresholds as local runs, plus failures repeated at the end of the log.
+  NEXTEST_PROFILE: ci
 
 # 2026-07-09 restructure: the former single 25-step serial job put hygiene,
 # the full feature matrix, coverage, security audit, and TWO cold release
@@ -23,6 +26,7 @@ jobs:
   # script contracts. No cargo build required beyond fmt.
   hygiene:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # No sccache-action in this job — unset the global wrapper so any
       # cargo invocation here doesn't fail on a missing sccache binary.
@@ -68,6 +72,7 @@ jobs:
   # gates (clippy, doctest, feature combos) run once, here.
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -103,22 +108,22 @@ jobs:
         run: cargo check --workspace --no-default-features
 
       - name: cargo clippy (deny warnings)
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo clippy (http)
-        run: cargo clippy --workspace --features http -- -D warnings
+        run: cargo clippy --workspace --all-targets --features http -- -D warnings
 
       - name: cargo clippy (otel)
-        run: cargo clippy --workspace --features otel -- -D warnings
+        run: cargo clippy --workspace --all-targets --features otel -- -D warnings
 
       - name: cargo clippy (scip-backend)
-        run: cargo clippy --workspace --features scip-backend -- -D warnings
+        run: cargo clippy --workspace --all-targets --features scip-backend -- -D warnings
 
       - name: cargo clippy (semantic)
-        run: cargo clippy --workspace --features semantic -- -D warnings
+        run: cargo clippy --workspace --all-targets --features semantic -- -D warnings
 
       - name: cargo clippy (semantic-off)
-        run: cargo clippy --workspace --no-default-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
@@ -166,6 +171,7 @@ jobs:
   # process behavior) without repeating the platform-independent matrix.
   test-macos:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -191,6 +197,7 @@ jobs:
   # instead of serializing it into the merge-gate path.
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -230,6 +237,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Cold release builds on two platforms; the widest budget here.
+    timeout-minutes: 60
     env:
       # Cold builds by design (PR #292: sccache temp-dir loss on macos) —
       # and this job never installs the sccache binary.

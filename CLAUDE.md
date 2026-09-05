@@ -79,9 +79,9 @@ cargo check --workspace --features http
 cargo check --workspace --features otel
 cargo check --workspace --features scip-backend
 cargo check --workspace --no-default-features        # "semantic-off" gate
-cargo clippy --workspace -- -D warnings
-cargo clippy --workspace --features scip-backend -- -D warnings
-cargo clippy --workspace --no-default-features -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --features scip-backend -- -D warnings
+cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 cargo nextest run --workspace                        # CI uses nextest
 cargo nextest run --workspace --features http
 cargo nextest run --workspace --no-default-features

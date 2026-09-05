@@ -24,6 +24,20 @@ pub const EXCLUDED_DIRS: &[&str] = &[
     "target",
     ".next",
     "win-unpacked",
+    // Framework build output. All are tool-owned, dot-prefixed and
+    // conventionally gitignored, so the name is unambiguous — unlike
+    // `coverage` or `output`, which a project may legitimately author.
+    // The harm is report precision rather than index size: generated
+    // bundles are referenced by nothing, so they flood dead-code
+    // rankings. Measured 2026-09-05 on a Next.js/Vercel repo, `.vercel`
+    // held 44 indexable JS/TS files against 1,259 real source files and
+    // took over the top of the dead-code report.
+    ".vercel",
+    ".turbo",
+    ".svelte-kit",
+    ".nuxt",
+    ".astro",
+    ".parcel-cache",
     // Virtual environments
     ".venv",
     "venv",

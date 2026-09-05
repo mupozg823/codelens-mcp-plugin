@@ -15,9 +15,14 @@ shipped and is load-bearing; the storage and retention decisions did not.
   SQLite `tool_calls` table. What shipped is an append-only JSONL writer
   (`crates/codelens-mcp/src/telemetry/writer.rs`) at
   `.codelens/telemetry/tool_usage.jsonl`. No `tool_calls` table exists.
-- **Unmet - the daily retention sweep.** There is no rotation or sweep;
-  truncation is manual. Measured 2026-09-04: 11,066,801 bytes / 38,267 lines
-  accumulated since 2026-07-10. This grows without bound and is the open item.
+- **Bounded, though not as specified - retention.** The *daily* sweep in
+  *Consequences* was never built. What shipped on 2026-09-05 is size-based
+  rotation: one generation is capped at `CODELENS_TELEMETRY_MAX_BYTES`
+  (16 MiB default), rotated to `tool_usage.jsonl.1`, and the rename replaces
+  any older `.1`, so disk is bounded at twice the ceiling instead of growing
+  without limit. The prior file had reached 11,066,801 bytes / 38,267 lines
+  since 2026-07-10. Consumers must read both generations; the gate query in
+  `docs/operations/http-daemon.md` does.
 - **Removal gate, for reference.** The quartet's window is clean:
   `register_agent_work` 0, `claim_files` 0, `release_files` 0,
   `list_active_agents` 1, that single call landing on the gate-commit day.

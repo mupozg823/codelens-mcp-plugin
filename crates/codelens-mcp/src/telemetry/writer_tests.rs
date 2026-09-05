@@ -130,6 +130,61 @@ fn telemetry_writer_appends_multiple_events_in_order() {
 }
 
 #[test]
+fn telemetry_writer_rotates_once_a_generation_fills() {
+    let path = unique_telemetry_path("rotation");
+    // One event is comfortably over 64 bytes, so the second append rotates.
+    let writer = TelemetryWriter::with_path_and_max_bytes(path.clone(), 64);
+
+    writer.append_event(&PersistedEvent::from_tool_call(1, &event("first", "full")));
+    writer.append_event(&PersistedEvent::from_tool_call(2, &event("second", "full")));
+
+    let mut rotated = path.file_name().expect("file name").to_os_string();
+    rotated.push(".1");
+    let rotated = path.with_file_name(rotated);
+
+    let previous = std::fs::read_to_string(&rotated).expect("previous generation");
+    assert!(
+        previous.contains("\"first\""),
+        "the filled generation keeps the older events"
+    );
+    let current = std::fs::read_to_string(&path).expect("current generation");
+    assert!(
+        current.contains("\"second\"") && !current.contains("\"first\""),
+        "the event that triggered rotation lands in the fresh generation"
+    );
+
+    let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
+}
+
+#[test]
+fn telemetry_writer_retains_exactly_two_generations() {
+    let path = unique_telemetry_path("rotation-depth");
+    let writer = TelemetryWriter::with_path_and_max_bytes(path.clone(), 64);
+
+    for i in 0..6 {
+        writer.append_event(&PersistedEvent::from_tool_call(i, &event("spin", "full")));
+    }
+
+    let dir = path.parent().expect("parent");
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .expect("read dir")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec![
+            "tool_usage.jsonl".to_owned(),
+            "tool_usage.jsonl.1".to_owned()
+        ],
+        "rename replaces the previous generation, so disk stays bounded at two"
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn telemetry_writer_persists_delegate_hint_fields() {
     let path = unique_telemetry_path("delegate");
     let writer = TelemetryWriter::with_path(path.clone());

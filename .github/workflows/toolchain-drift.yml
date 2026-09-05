@@ -1,0 +1,79 @@
+name: Toolchain Drift
+
+# The strict lint gate lives in ci.yml, which runs on push and pull_request.
+# That is the right trigger for code drift and the wrong one for toolchain
+# drift: this repo pins no toolchain and every workflow installs
+# `dtolnay/rust-toolchain@stable`, so a new stable release can turn `main`
+# red with zero commits and nothing will run to notice.
+#
+# Measured 2026-09-05: Rust 1.98 (released 2026-08-18) promoted
+# `chunks_exact_to_as_chunks`, `items_after_test_module` and
+# `result_large_err`. HEAD was dated 2026-08-09, no push followed, so ci.yml
+# never fired and the clippy gate sat red for roughly four weeks before a
+# local run surfaced it.
+#
+# Same reasoning audit.yml already applies to advisories: the clock belongs
+# to the upstream release, not to the PR. Weekly schedule plus manual
+# dispatch, deliberately no push/pull_request trigger since ci.yml owns those.
+on:
+  schedule:
+    - cron: "23 4 * * 4" # Thursdays 04:23 UTC, offset from audit.yml
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Printed before the gates so a failure log states which toolchain
+      # introduced the change, which is the first thing you need to know.
+      - name: Record toolchain versions
+        run: |
+          rustc --version
+          cargo clippy --version
+          cargo fmt --version
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      # Mirrors ci.yml's clippy matrix exactly. A failure here therefore means
+      # "the merge gate would fail right now", with no extra coverage of its
+      # own to explain away.
+      - name: cargo clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo clippy (http)
+        run: cargo clippy --workspace --all-targets --features http -- -D warnings
+
+      - name: cargo clippy (otel)
+        run: cargo clippy --workspace --all-targets --features otel -- -D warnings
+
+      - name: cargo clippy (scip-backend)
+        run: cargo clippy --workspace --all-targets --features scip-backend -- -D warnings
+
+      - name: cargo clippy (semantic)
+        run: cargo clippy --workspace --all-targets --features semantic -- -D warnings
+
+      - name: cargo clippy (semantic-off)
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::notice::Strict gates failed with no code change on main."
+          echo "::notice::Compare the toolchain versions above against the last green run."
+          echo "::notice::A new stable lint is the usual cause; fix the lint or add a"
+          echo "::notice::justified local #[allow] rather than relaxing -D warnings."

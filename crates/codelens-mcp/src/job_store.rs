@@ -63,7 +63,7 @@ impl AnalysisJobStore {
 
     fn write_to_disk(&self, job: &AnalysisJob) -> Result<(), CodeLensError> {
         let dir = self.jobs_dir();
-        fs::create_dir_all(&dir)?;
+        fs::create_dir_all(&dir).map_err(|e| CodeLensError::io_at("create_dir_all", &dir, e))?;
         let bytes =
             serde_json::to_vec_pretty(job).map_err(|e| CodeLensError::Internal(e.into()))?;
         let path = dir.join(format!("{}.json", job.id));
@@ -79,10 +79,20 @@ impl AnalysisJobStore {
             job.id,
             std::process::id()
         ));
-        fs::write(&tmp, bytes)?;
+        fs::write(&tmp, bytes).map_err(|e| CodeLensError::io_at("write staging", &tmp, e))?;
         if let Err(error) = fs::rename(&tmp, &path) {
             let _ = fs::remove_file(&tmp);
-            return Err(error.into());
+            // Both ends matter here: the staging file is the one that can go
+            // missing under a racing writer, the target is what a reader will
+            // later fail to find.
+            return Err(CodeLensError::Io(std::io::Error::new(
+                error.kind(),
+                format!(
+                    "rename staging {} -> {}: {error}",
+                    tmp.display(),
+                    path.display()
+                ),
+            )));
         }
         Ok(())
     }
@@ -414,6 +424,45 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+
+    #[test]
+    fn write_failures_name_the_path_they_failed_on() {
+        // K-0011 was stuck because a CI-only failure rendered as a bare
+        // "No such file or directory (os error 2)" with no subject. Pin the
+        // contract that a durable-store write failure names what it touched.
+        let blocker = temp_jobs_dir("io-context");
+        fs::write(&blocker, b"not a directory").expect("write blocker file");
+        let jobs_dir = blocker.join("jobs");
+        let store = AnalysisJobStore::new(jobs_dir.clone());
+
+        // `AnalysisJob` has no `Debug`, so `expect_err` is unavailable here.
+        let err = match store.store(
+            "refresh_symbol_index",
+            None,
+            Vec::new(),
+            JobLifecycle::Queued,
+            0,
+            None,
+            None,
+            None,
+            "/tmp/scope".to_owned(),
+        ) {
+            Ok(_) => panic!("a jobs dir under a regular file cannot be created"),
+            Err(err) => err,
+        };
+
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("create_dir_all"),
+            "the failing operation must be named, got: {rendered}"
+        );
+        assert!(
+            rendered.contains(&jobs_dir.display().to_string()),
+            "the failing path must be named, got: {rendered}"
+        );
+
+        let _ = fs::remove_file(&blocker);
     }
 
     #[test]

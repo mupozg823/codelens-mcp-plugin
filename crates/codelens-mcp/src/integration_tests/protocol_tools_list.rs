@@ -1128,6 +1128,57 @@ fn tools_list_exposes_latest_tool_title_without_advertising_unsupported_executio
     assert!(bootstrap.get("execution").is_none());
 }
 
+/// Context budget for the Claude-native always-load slice.
+///
+/// A host that pre-loads schemas pays for `name + description + inputSchema`
+/// on every turn of every session, and nothing in this repo used to measure
+/// that. Measured 2026-09-05 against a live daemon, the slice cost roughly
+/// 26 KB, about twice the entire always-on rules budget of the harness that
+/// consumes it. `outputSchema` is deliberately excluded: Claude Code injects
+/// tool definitions as `{name, description, parameters}` only, so output
+/// schemas are transport cost rather than prompt cost.
+///
+/// This is a ratchet, not a target. Raising it is a decision about how much
+/// of the caller's window CodeLens is entitled to, so it should be argued for
+/// in the diff rather than nudged up to make a build green.
+/// Measured 26,244 B across 35 tools on 2026-09-05. The cap is 28 KiB,
+/// roughly 9% of headroom: enough that ordinary description edits and one
+/// modest new tool do not break the build, tight enough that a doubling does.
+const ALWAYS_LOAD_SCHEMA_BUDGET_BYTES: usize = 28 * 1024;
+
+#[test]
+fn always_load_surface_stays_within_its_context_budget() {
+    let mut per_tool: Vec<(usize, &str)> = tools()
+        .iter()
+        .filter(|tool| crate::tool_defs::tool_anthropic_always_load(tool.name))
+        .map(|tool| {
+            let schema = serde_json::to_string(&tool.input_schema).expect("serialize schema");
+            (
+                tool.name.len() + tool.description.len() + schema.len(),
+                tool.name,
+            )
+        })
+        .collect();
+    per_tool.sort_unstable_by_key(|(bytes, _)| std::cmp::Reverse(*bytes));
+
+    let total: usize = per_tool.iter().map(|(bytes, _)| bytes).sum();
+    let worst = per_tool
+        .iter()
+        .take(5)
+        .map(|(bytes, name)| format!("{name} {bytes}B"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    assert!(
+        total <= ALWAYS_LOAD_SCHEMA_BUDGET_BYTES,
+        "always-load slice costs {total} B across {} tools, over the \
+         {ALWAYS_LOAD_SCHEMA_BUDGET_BYTES} B budget. Largest: {worst}. Either \
+         trim a description or schema, drop the tool from \
+         tool_anthropic_always_load so it loads on demand, or argue the budget up.",
+        per_tool.len()
+    );
+}
+
 #[test]
 fn deferred_tools_list_omits_output_schema_by_default() {
     let project = project_root();

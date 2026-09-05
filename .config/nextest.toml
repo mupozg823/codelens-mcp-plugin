@@ -1,0 +1,23 @@
+# nextest defaults warn at 60s and never terminate. Both halves of that are
+# wrong for this workspace.
+#
+# Measured 2026-09-05 across three full `cargo nextest run --workspace` runs:
+# wall clock 44.9s / 69.4s / 71.7s, with 0 / 1 / 3 tests crossing the 60s
+# warning. The tests it named are not slow — run on their own they finish in
+# about 0.4s. They stall intermittently under full parallelism, so at the
+# default threshold SLOW is noise rather than signal, and a reader learns to
+# ignore it.
+#
+# Raising the warning above the observed stall makes SLOW mean something
+# again. `terminate-after` then supplies what was missing entirely: without
+# it a genuinely hung test runs until the GitHub job limit, which is six
+# hours of runner time and no diagnosis. A test still running ten minutes
+# into a suite that finishes in about a minute is hung, not slow.
+[profile.default]
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+# CI inherits the same thresholds; the ratio between a normal run and a hang
+# is what matters, and it does not change with the runner.
+[profile.ci]
+slow-timeout = { period = "120s", terminate-after = 5 }
+failure-output = "immediate-final"

@@ -139,6 +139,25 @@ pub enum CodeLensError {
 }
 
 impl CodeLensError {
+    /// Build an [`Io`](Self::Io) that names the operation and the path.
+    ///
+    /// `std::fs` errors carry neither, so a bare `No such file or directory
+    /// (os error 2)` from a durable-store write says nothing about which file
+    /// went missing. That is what stalled K-0011: a background-refresh job
+    /// failed in CI with exactly that message and there was no way to tell
+    /// which of the directory, the staging file or the rename target was the
+    /// subject.
+    ///
+    /// The `ErrorKind` is preserved so downstream matching and the JSON-RPC
+    /// code are unchanged; only the message gains context.
+    pub(crate) fn io_at(operation: &str, path: &std::path::Path, source: std::io::Error) -> Self {
+        let kind = source.kind();
+        Self::Io(std::io::Error::new(
+            kind,
+            format!("{operation} {}: {source}", path.display()),
+        ))
+    }
+
     /// Map to a JSON-RPC error code. Used by dispatch_tool for protocol-level errors.
     pub fn jsonrpc_code(&self) -> i64 {
         match self {
@@ -454,6 +473,39 @@ pub(crate) fn did_you_mean(unknown: &str, known_tools: &[&str], limit: usize) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn io_at_names_the_operation_and_the_path() {
+        let err = CodeLensError::io_at(
+            "write staging",
+            std::path::Path::new("/tmp/jobs/job-1.json.tmp"),
+            std::io::Error::from(std::io::ErrorKind::NotFound),
+        );
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("write staging"),
+            "operation must survive into the message, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("/tmp/jobs/job-1.json.tmp"),
+            "path must survive into the message, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn io_at_preserves_kind_and_variant() {
+        let err = CodeLensError::io_at(
+            "create_dir_all",
+            std::path::Path::new("/tmp/jobs"),
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        );
+        // The JSON-RPC contract keys off the variant, so adding context must
+        // not reclassify the error.
+        let CodeLensError::Io(inner) = &err else {
+            panic!("io_at must stay in the Io variant, got: {err:?}");
+        };
+        assert_eq!(inner.kind(), std::io::ErrorKind::PermissionDenied);
+    }
 
     #[test]
     fn jsonrpc_code_mappings() {
