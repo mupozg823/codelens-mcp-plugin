@@ -11,6 +11,9 @@ env:
   RUST_BACKTRACE: short
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
+  # Selects [profile.ci] from .config/nextest.toml: same slow/terminate
+  # thresholds as local runs, plus failures repeated at the end of the log.
+  NEXTEST_PROFILE: ci
 
 # 2026-07-09 restructure: the former single 25-step serial job put hygiene,
 # the full feature matrix, coverage, security audit, and TWO cold release
@@ -23,6 +26,7 @@ jobs:
   # script contracts. No cargo build required beyond fmt.
   hygiene:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # No sccache-action in this job — unset the global wrapper so any
       # cargo invocation here doesn't fail on a missing sccache binary.
@@ -68,6 +72,7 @@ jobs:
   # gates (clippy, doctest, feature combos) run once, here.
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -166,6 +171,7 @@ jobs:
   # process behavior) without repeating the platform-independent matrix.
   test-macos:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -191,6 +197,7 @@ jobs:
   # instead of serializing it into the merge-gate path.
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -230,6 +237,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Cold release builds on two platforms; the widest budget here.
+    timeout-minutes: 60
     env:
       # Cold builds by design (PR #292: sccache temp-dir loss on macos) —
       # and this job never installs the sccache binary.
