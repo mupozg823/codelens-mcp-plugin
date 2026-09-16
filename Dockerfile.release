@@ -25,7 +25,9 @@ ENV CODELENS_MODEL_DIR=/usr/local/share/codelens/models
 
 USER 10001:10001
 
-EXPOSE 7837
+# HTTP mode only: run with `--transport http --port 7838` (the documented
+# default daemon port; the stdio ENTRYPOINT below never binds a port).
+EXPOSE 7838
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
     CMD ["/usr/local/bin/codelens-mcp", "/workspace", "--cmd", "get_capabilities", "--args", "{}"]
