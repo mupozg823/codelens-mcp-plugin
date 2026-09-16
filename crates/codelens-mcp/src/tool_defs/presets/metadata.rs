@@ -167,44 +167,26 @@ pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Claude Code MCP tools are deferred by default. The always-load set
-/// is what gets `meta["anthropic/alwaysLoad"] = true` — schemas
-/// pre-loaded so the model can call them without a `ToolSearch` round
-/// trip. Keep this as a Claude-native affordance list, separate from
-/// the compact default `tools/list` slice used by generic hosts.
+/// Claude Code MCP tools are deferred by default. The always-load set is
+/// what gets `meta["anthropic/alwaysLoad"] = true` — schemas pre-loaded so
+/// the model can call them without a `ToolSearch` round trip.
+///
+/// The set is exactly the ADR-0016 Decision #1 always-loaded core (10).
+/// It is deliberately narrower than the default listing: every fine-grained
+/// read tool has a verb facade in this set (`search`, `graph`, `review`,
+/// `overview`, `diagnose`), so preloading the fine-grained duplicates bought
+/// no capability while costing every Claude Code session roughly 26 KB of
+/// context (measured 2026-09-16 against the live daemon: 35 preloaded tools,
+/// 44 KB of listed schema after `prepare_harness_session`, versus the
+/// ADR's ten). Anything outside the core stays discoverable through the
+/// host's tool search via `anthropic/searchHint`; a direct call costs one
+/// search round trip instead of a permanent context tax.
 pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
-    crate::tool_defs::generated::tool_default_listed(name)
-        || matches!(
-            name,
-            "activate_project"
-                | "set_preset"
-                | "set_profile"
-                | "trace_request_path"
-                | "analyze_change_request"
-                | "cleanup_duplicate_logic"
-                | "diagnose_issues"
-                | "get_symbols_overview"
-                | "find_referencing_symbols"
-                | "bm25_symbol_search"
-                | "get_file_diagnostics"
-                | "semantic_search"
-                | "get_callers"
-                | "get_callees"
-                | "start_analysis_job"
-                | "get_analysis_job"
-                | "get_analysis_section"
-                // Phase-1/2 verb consolidation moved these out of the ranked
-                // bootstrap slice; keep the Claude-native always-load
-                // affordance (#365) so direct calls stay round-trip-free.
-                | "find_symbol"
-                | "get_ranked_context"
-                | "review_architecture"
-                | "review_changes"
-                | "explore_codebase"
-                // `analyze` verb is deliberately not default-listed (job
-                // control is not a bootstrap concern) but stays preloaded.
-                | "analyze"
-        )
+    // Single source: `presets::CORE_10_TOOLS` (ADR-0016 Decision #1). The
+    // integration test `always_load_surface_matches_adr_0016_core` pins the
+    // membership and `always_load_surface_stays_within_its_context_budget`
+    // pins the bytes.
+    super::tool_is_always_loaded_core(name)
 }
 
 pub(crate) fn tool_namespace(name: &str) -> &'static str {

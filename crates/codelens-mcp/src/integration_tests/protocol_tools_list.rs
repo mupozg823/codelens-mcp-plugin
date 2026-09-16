@@ -988,43 +988,31 @@ fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
         review["_meta"]["anthropic/searchHint"],
         json!("review changed files and risk")
     );
-    assert_eq!(symbol["_meta"]["anthropic/alwaysLoad"], json!(true));
+    // ADR-0016 Decision #1: fine-grained read tools are covered by the verb
+    // facades, so they are searchable (`anthropic/searchHint`) but not preloaded.
+    assert_ne!(symbol["_meta"]["anthropic/alwaysLoad"], json!(true));
+    assert_eq!(
+        symbol["_meta"]["anthropic/searchHint"],
+        json!("find function class type by exact name")
+    );
     let preflight = tools
         .iter()
         .find(|tool| tool["name"] == "plan_safe_refactor")
         .expect("plan_safe_refactor present");
     assert_eq!(preflight["_meta"]["anthropic/alwaysLoad"], json!(true));
 
+    // ADR-0016 Decision #1 — the always-loaded core, verbatim.
     let expected = [
-        "activate_project",
         "prepare_harness_session",
-        "get_current_config",
-        "set_preset",
-        "set_profile",
-        "explore_codebase",
-        "trace_request_path",
-        "analyze_change_request",
-        "review_architecture",
-        "plan_safe_refactor",
-        "cleanup_duplicate_logic",
-        "review_changes",
-        "diagnose_issues",
-        "verify_change_readiness",
-        "find_symbol",
-        "get_symbols_overview",
-        "find_referencing_symbols",
-        "bm25_symbol_search",
-        "get_file_diagnostics",
-        "get_ranked_context",
-        "get_callers",
-        "get_callees",
-        "start_analysis_job",
-        "get_analysis_job",
-        "get_analysis_section",
-        // Verb facades (Phase-1 consolidation) — bootstrap slice
         "search",
+        "overview",
         "graph",
+        "diagnose",
         "review",
+        "plan_safe_refactor",
+        "verify_change_readiness",
+        "get_changed_files",
+        "get_current_config",
     ];
     for name in expected {
         let tool = tools
@@ -1038,10 +1026,14 @@ fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
         );
     }
     if let Some(tool) = tools.iter().find(|tool| tool["name"] == "semantic_search") {
-        assert_eq!(
+        assert_ne!(
             tool["_meta"]["anthropic/alwaysLoad"],
             json!(true),
-            "semantic_search should be preloaded for Claude Code when enabled"
+            "semantic_search is reachable through search(mode=semantic); not preloaded"
+        );
+        assert_eq!(
+            tool["_meta"]["anthropic/searchHint"],
+            json!("natural language code search via embeddings")
         );
     }
     let low_frequency_report = tools
@@ -1141,10 +1133,12 @@ fn tools_list_exposes_latest_tool_title_without_advertising_unsupported_executio
 /// This is a ratchet, not a target. Raising it is a decision about how much
 /// of the caller's window CodeLens is entitled to, so it should be argued for
 /// in the diff rather than nudged up to make a build green.
-/// Measured 26,244 B across 35 tools on 2026-09-05. The cap is 28 KiB,
-/// roughly 9% of headroom: enough that ordinary description edits and one
-/// modest new tool do not break the build, tight enough that a doubling does.
-const ALWAYS_LOAD_SCHEMA_BUDGET_BYTES: usize = 28 * 1024;
+/// Measured 26,244 B across 35 tools on 2026-09-05 (cap was 28 KiB). On
+/// 2026-09-16 the slice was cut to the ADR-0016 core-10 — 10,800 B against the
+/// live daemon — and the cap ratcheted down to 12 KiB, roughly 14% of headroom:
+/// enough that ordinary description edits do not break the build, tight enough
+/// that re-adding even two fine-grained duplicates does.
+const ALWAYS_LOAD_SCHEMA_BUDGET_BYTES: usize = 12 * 1024;
 
 #[test]
 fn always_load_surface_stays_within_its_context_budget() {
@@ -1177,6 +1171,44 @@ fn always_load_surface_stays_within_its_context_budget() {
          tool_anthropic_always_load so it loads on demand, or argue the budget up.",
         per_tool.len()
     );
+}
+
+/// ADR-0016 Decision #1 names the always-loaded core; the `_meta` flag Claude
+/// Code reads must be exactly that set. Drift in either direction is a decision
+/// to record in the ADR, not a side effect of adding a tool.
+#[test]
+fn always_load_surface_matches_adr_0016_core() {
+    const ADR_0016_CORE: &[&str] = &[
+        "prepare_harness_session",
+        "search",
+        "overview",
+        "graph",
+        "diagnose",
+        "review",
+        "plan_safe_refactor",
+        "verify_change_readiness",
+        "get_changed_files",
+        "get_current_config",
+    ];
+    let mut preloaded: Vec<&str> = tools()
+        .iter()
+        .map(|tool| tool.name)
+        .filter(|name| crate::tool_defs::tool_anthropic_always_load(name))
+        .collect();
+    preloaded.sort_unstable();
+    let mut expected: Vec<&str> = ADR_0016_CORE.to_vec();
+    expected.sort_unstable();
+    assert_eq!(
+        preloaded, expected,
+        "anthropic/alwaysLoad must equal the ADR-0016 core-10; fine-grained \
+         tools stay searchable through anthropic/searchHint instead"
+    );
+    for name in ADR_0016_CORE {
+        assert!(
+            crate::tool_defs::tool_is_always_loaded_core(name),
+            "{name} is in the ADR core but not in CORE_10_TOOLS"
+        );
+    }
 }
 
 #[test]

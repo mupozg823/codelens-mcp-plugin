@@ -50,3 +50,13 @@ what the host deferred).
 - Zero skills/agents referencing non-callable names (`scripts/surface-manifest.py --check`
   extended with a reference audit).
 - Token-cost snapshot per host profile recorded before/after in `benchmarks/`.
+
+## Implementation notes
+
+- **2026-09-16 — Decision #1 drift closed.** `tool_anthropic_always_load` had diverged from
+  this ADR to 35 preloaded tools (the core plus 25 fine-grained duplicates retained under #365).
+  Measured against the live daemon a Claude Code session listed 63 tools with 35 preloaded and
+  44 KB of model-facing schema after `prepare_harness_session`, versus 14 / 13 / 12.6 KB before
+  binding. The flag now delegates to `CORE_10_TOOLS`, the context ratchet is 12 KiB, and
+  `always_load_surface_matches_adr_0016_core` pins membership to the list in Decision #1.
+
