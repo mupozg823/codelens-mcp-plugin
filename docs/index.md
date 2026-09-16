@@ -51,6 +51,8 @@ CodeLens MCP는 코딩 에이전트를 위한 살아 있는 코드 인덱스입�
 - [HTTP daemon operations](operations/http-daemon.md) — launchd 데몬 배포/재배포, 드리프트 신호 의미론, exit-78 웨지 복구, codesigning
 - [Runtime knobs](operations/runtime-knobs.md) — semantic edit backend, 분석 캐시, 백업 회전
 - [Tool routing matrix](operations/tool-routing-matrix.md) — CodeLens vs grep 시나리오 매트릭스, 규모 의존성 측정
+- [Build features & verify matrix](operations/build-features.md) — 피처 플래그별 필요 시점·누락 증상, CI 커맨드 미러 (CLAUDE.md 에서 이관)
+- [Mutation gate protocol](operations/mutation-gate.md) — `verify_change_readiness` → `mutation_ready` → 사후 진단, preflight TTL, 하네스 모드 A–D 요약 (CLAUDE.md 에서 이관)
 
 ## Reference
 
@@ -60,6 +62,7 @@ CodeLens MCP는 코딩 에이전트를 위한 살아 있는 코드 인덱스입�
 - [Serena comparison](serena-comparison.md)
 - [Observability](observability.md)
 - [Arg validation policy](design/arg-validation-policy.md)
+- [Symbol-query seam](design/symbol-query-seam.md) — `tools/symbol_query/` 모듈 배치, 스테이지 소유권, 단방향 의존 규칙 (CLAUDE.md 에서 이관)
 - [Refactor backend honesty](design/refactor-backend-honesty.md)
 
 ## Benchmarks
