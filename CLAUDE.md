@@ -100,17 +100,12 @@ approval, and mutation; CodeLens owns the evidence those decisions rest on.
 
 ### Claude Code host facts
 
-- Claude Code ships a native `LSP` tool (off by default; one locally installed
-  language server per language). Use it for go-to-definition and diagnostics
-  on a single open file when a server is present. Use CodeLens `search`,
-  `graph` and `review` for cross-file references, impact and architecture, and
-  for any session without a local language server (remote or cloud).
-- Bind with the host's real capabilities so routing is not computed from
-  defaults: `prepare_harness_session(project=<root>, host_context="claude-code",
-  host_capabilities={native_tool_search: true, native_subagents: true,
-  native_worktrees: true, native_edit: true, dynamic_tool_list: true,
-  approval_or_elicitation: true})`. Only the always-loaded core is preloaded;
-  every other CodeLens tool loads through the host's tool search on demand.
+- The native `LSP` tool (off by default, one locally installed server per
+  language) covers single-file definition and diagnostics; CodeLens covers
+  cross-file references, impact, architecture, and hosts without a server.
+- Bind with real host facts: `prepare_harness_session(project=<root>,
+  host_context="claude-code", host_capabilities={native_tool_search: true,
+  native_edit: true, native_worktrees: true, approval_or_elicitation: true})`.
 
 ### Verify
 

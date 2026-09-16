@@ -35,7 +35,7 @@
 7. **아키텍처 비대화.** dispatch 7,632줄 중 4,313줄(57%)이 응답 정형화 기계; presets.rs 가 tools.toml
    `preset_tags` 와 131개 도구명을 이중 관리; 40줄 미만 재수출 모듈 14개. 이번엔 계측·문서·백로그
    등재까지(K-0023~K-0025), 코드는 다음 사이클.
-8. **CLAUDE.md 17.2 KB → 8.0 KB.** 매 세션 로드되는 파일에서 서브시스템 레퍼런스 14.5 KB 를 docs 로
+8. **CLAUDE.md 17.2 KB → 7.7 KB.** 매 세션 로드되는 파일에서 서브시스템 레퍼런스 14.5 KB 를 docs 로
    원문 이관. 라우팅 블록은 host facts 절이 붙어 2.8 KB → 3.6 KB(재생성, doctor exact).
 9. **폐기 웨이브 제거 게이트 충족.** 07-24 창 개시 후 유기적 호출 0(검증 프로브 2건뿐), v1.13.35 가
    1회 클린 릴리스 → v2.0 컷에서 삭제 승인(ADR-0018 판정 절).
@@ -52,7 +52,7 @@
 | `prepare_harness_session` 엔트리 총 바이트 | 22,017 B(그중 outputSchema ≈18 KB) | 동일 — lean 계약은 outputSchema 를 이미 생략 | generic 프로파일 listing 분해 |
 | 텔레메트리 `tools/list` 비율 | 40,213 / 45,731 (88%) | 영속 0(인메모리 유지) | `persist_event_to_usage_log` |
 | 180초 폴러 | 세션 a8919779 8,041행(07-24→08-14) | 서버 측 변경 없음(외부 클라이언트) | timestamp gap 중앙값 180,029 ms |
-| CLAUDE.md | 17,226 B(손수 14,459 + 블록 2,767) | 8,045 B(손수 4,423 + 블록 3,622) | `surface-manifest.py --check` 통과 · `doctor claude-code` exact |
+| CLAUDE.md | 17,226 B(손수 14,459 + 블록 2,767) | 7,667 B(손수 4,423 + 블록 3,244) | `surface-manifest.py --check` 통과 · `doctor claude-code` exact |
 | 폐기 웨이브 호출 | list_active_agents 1 · list_memories 1 (둘 다 검증 프로브) | — | JSONL `client_name` |
 | 워크트리 / 로컬 브랜치 | 4 / 182 (병합 완료 84) | 3 / 102 | `git worktree list`, `git branch -d` |
 | git pack | 300 MiB — 최대 blob 172 MB(`scripts/finetune/pipelines/*.jsonl`, main 밖 커밋) | 미변경(히스토리 재작성 필요) | `rev-list --objects --all` |
