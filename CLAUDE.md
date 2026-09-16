@@ -98,6 +98,20 @@ approval, and mutation; CodeLens owns the evidence those decisions rest on.
 - Whole-repo work — `start_analysis_job`, poll `get_analysis_job`, then expand
   only the sections you need with `get_analysis_section`
 
+### Claude Code host facts
+
+- Claude Code ships a native `LSP` tool (off by default; one locally installed
+  language server per language). Use it for go-to-definition and diagnostics
+  on a single open file when a server is present. Use CodeLens `search`,
+  `graph` and `review` for cross-file references, impact and architecture, and
+  for any session without a local language server (remote or cloud).
+- Bind with the host's real capabilities so routing is not computed from
+  defaults: `prepare_harness_session(project=<root>, host_context="claude-code",
+  host_capabilities={native_tool_search: true, native_subagents: true,
+  native_worktrees: true, native_edit: true, dynamic_tool_list: true,
+  approval_or_elicitation: true})`. Only the always-loaded core is preloaded;
+  every other CodeLens tool loads through the host's tool search on demand.
+
 ### Verify
 
 - `codelens-mcp doctor claude-code` — checks the MCP config entry and this block.
