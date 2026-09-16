@@ -63,6 +63,7 @@ CodeLens MCP는 코딩 에이전트를 위한 살아 있는 코드 인덱스입�
 - [Observability](observability.md)
 - [Arg validation policy](design/arg-validation-policy.md)
 - [Symbol-query seam](design/symbol-query-seam.md) — `tools/symbol_query/` 모듈 배치, 스테이지 소유권, 단방향 의존 규칙 (CLAUDE.md 에서 이관)
+- [딥리서치 + 표면 감사 2026-09-16](research/landscape-deep-research-2026-09-16.md) — 유사 프로젝트 델타 · Claude Code 2.1.273 호환 · MCP 2026-07-28 · always-load 35→10 실측
 - [Refactor backend honesty](design/refactor-backend-honesty.md)
 
 ## Benchmarks
