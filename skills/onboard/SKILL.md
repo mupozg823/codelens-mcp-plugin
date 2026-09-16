@@ -1,7 +1,6 @@
 ---
 name: codelens-onboard
 description: "Quick project onboarding — understand structure, key symbols, and architecture"
-trigger: "/codelens-onboard"
 tools:
   [activate_project, onboard_project, overview, get_ranked_context]
 ---

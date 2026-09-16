@@ -10,5 +10,5 @@
   "keywords": ["code-intelligence", "tree-sitter", "mcp", "ast", "refactoring"],
   "mcpServers": { "codelens": { "command": "codelens-mcp" } },
   "skills": "./skills/",
-  "agents": "./agents/"
+  "agents": ["./agents/codelens-explorer.md"]
 }

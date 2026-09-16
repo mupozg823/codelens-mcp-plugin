@@ -1,7 +1,6 @@
 ---
 name: codelens-review
 description: "Analyze code changes for impact, quality, and safety using CodeLens MCP tools"
-trigger: "/codelens-review"
 tools:
   [
     get_changed_files,

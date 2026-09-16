@@ -1,7 +1,6 @@
 ---
 name: codelens-analyze
 description: "Deep architecture analysis — dependencies, coupling, dead code, circular imports"
-trigger: "/codelens-analyze"
 tools: [review, graph]
 ---
 
