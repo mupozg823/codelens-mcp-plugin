@@ -179,10 +179,29 @@ impl ToolMetricsRegistry {
 
         // Persist the event to the append-only telemetry log if enabled.
         // Failures are swallowed so telemetry can never break dispatch.
-        if let Some(writer) = &self.writer {
+        // `tools/list` stays in the in-memory metrics but is not persisted:
+        // long-lived clients re-list on a timer (a Python-SDK client polled
+        // every 180 s for weeks), and those rows made up 88% of the usage
+        // log (40,213 of 45,731 rows on 2026-09-16) while answering nothing
+        // the removal gate or the surface ratchet asks. See
+        // `persist_event_to_usage_log` for the rule.
+        if let Some(writer) = &self.writer
+            && persist_event_to_usage_log(event.tool)
+        {
             writer.append_event(&PersistedEvent::from_tool_call(now, &event));
         }
     }
+}
+
+/// Protocol-level listing traffic (`tools/list`) is a host cache refresh, not a
+/// tool call: it carries no arguments, no target, and no work class, and a
+/// polling client can emit thousands of rows per session. The usage log
+/// exists for the deprecation removal gate and the surface ratchet, both of
+/// which key on `tools/call` names, so listing rows are dropped at the
+/// persistence boundary only. In-memory metrics (per-tool counters, session
+/// windows, deferred-expansion counts) still see every listing.
+pub(crate) fn persist_event_to_usage_log(tool: &str) -> bool {
+    tool != "tools/list"
 }
 
 impl ToolMetricsRegistry {

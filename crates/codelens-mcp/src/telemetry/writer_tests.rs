@@ -281,6 +281,36 @@ fn registry_persists_record_call_when_writer_enabled() {
 }
 
 #[test]
+fn registry_does_not_persist_tools_list_rows() {
+    let path = unique_telemetry_path("registry-tools-list");
+    let registry =
+        ToolMetricsRegistry::new_with_writer(Some(TelemetryWriter::with_path(path.clone())));
+
+    registry.record_event(ToolCallEvent {
+        tokens: 6736,
+        ..event("tools/list", "builder")
+    });
+    registry.record_event(event("find_symbol", "primitive"));
+    registry.record_event(event("tools/list", "review"));
+
+    // The usage log carries the tool call only; listing traffic is a host
+    // cache refresh and a polling client would otherwise dominate the file.
+    let contents = std::fs::read_to_string(&path).expect("read jsonl");
+    let lines: Vec<&str> = contents.lines().collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "tools/list rows must not reach the usage log: {contents}"
+    );
+    let row: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(row["tool"], "find_symbol");
+    assert!(super::registry::persist_event_to_usage_log("find_symbol"));
+    assert!(!super::registry::persist_event_to_usage_log("tools/list"));
+
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
 fn registry_records_structured_event_without_jsonl_schema_drift() {
     let path = unique_telemetry_path("structured-event");
     let registry =
