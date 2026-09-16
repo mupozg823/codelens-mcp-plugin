@@ -79,3 +79,12 @@
 - **Decision 3 — in progress.** The coordination quartet entered the deprecation
   window (569513da) with persisted removal-gate telemetry (27c897e5); removal
   lands in v2.0 after one clean release of telemetry.
+
+## Removal-gate verdict (2026-09-16)
+
+Usage telemetry from the window open (2026-07-24) through 2026-09-16 holds 45,731 rows. The
+coordination quartet registers one call (`list_active_agents`, client `telemetry-verify`, the
+window-open verification itself); the memory family registers one (`list_memories`, client
+`e6-verify`). No organic caller touched the wave, and v1.13.35 shipped as the one clean release
+the gate required. Deletion is authorized for the v2.0 cut.
+
