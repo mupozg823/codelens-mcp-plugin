@@ -1211,6 +1211,31 @@ fn always_load_surface_matches_adr_0016_core() {
     }
 }
 
+/// MCP 2026-07-28 requires `ttlMs` + `cacheScope` on list results (SEP-2549)
+/// so clients can cache instead of polling. Surfaces are per session, hence
+/// `private`.
+#[test]
+fn tools_list_carries_cacheable_result_hints() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({})),
+        },
+    )
+    .expect("tools/list should return a response");
+    let value = serde_json::to_value(&response).expect("serialize");
+    assert_eq!(
+        value["result"]["ttlMs"],
+        json!(crate::server::tools_list::TOOLS_LIST_TTL_MS)
+    );
+    assert_eq!(value["result"]["cacheScope"], json!("private"));
+}
+
 #[test]
 fn deferred_tools_list_omits_output_schema_by_default() {
     let project = project_root();

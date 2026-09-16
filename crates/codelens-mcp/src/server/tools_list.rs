@@ -11,6 +11,12 @@ use crate::tool_defs::{
 };
 use serde_json::{Map, Value, json};
 
+/// Freshness hint for `tools/list` (`ttlMs`, MCP 2026-07-28). Five minutes:
+/// long enough that a polling client stops re-listing every few minutes, short
+/// enough that a client which ignores `listChanged` still converges after a
+/// profile switch.
+pub(crate) const TOOLS_LIST_TTL_MS: u64 = 300_000;
+
 fn list_param_bool(request: &JsonRpcRequest, camel: &str, snake: &str) -> Option<bool> {
     request
         .params
@@ -133,6 +139,12 @@ pub(crate) fn build_tools_list_response(
         hints: Default::default(),
     });
     let mut payload = Map::new();
+    // MCP 2026-07-28 `CacheableResult` (SEP-2549): a freshness hint so clients
+    // can stop re-listing on a timer. Surfaces are session-scoped (profile,
+    // deferred expansion, full exposure after bootstrap), so the scope is
+    // private; a surface change is still pushed through `listChanged`.
+    payload.insert("ttlMs".to_owned(), Value::from(TOOLS_LIST_TTL_MS));
+    payload.insert("cacheScope".to_owned(), Value::String("private".to_owned()));
     payload.insert(
         "client_profile".to_owned(),
         Value::String(request_context.client_profile.as_str().to_owned()),
