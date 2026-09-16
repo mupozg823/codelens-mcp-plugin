@@ -49,6 +49,7 @@
 | Claude 프로파일 `tools/list` 바인딩 전 | 14종 · alwaysLoad 13 · 12.1 KB | 14종 · alwaysLoad 9 · 10.6 KB | curl initialize(clientInfo claude-code) → tools/list |
 | 같은 세션, `prepare_harness_session` 후 | 63종 · **alwaysLoad 35 · 27.7 KB** | 56종¹ · **alwaysLoad 10 · 10.8 KB** | 에페메랄 서버(:7741, 브랜치 빌드) 동일 절차 |
 | always-load 래칫(name+desc+inputSchema) | 26,244 B / 35종, cap 28 KiB | 10,800 B / 10종, cap 12 KiB | `always_load_surface_stays_within_its_context_budget` |
+| `--profile` 사전 스코프 세션의 첫 tools/list(바인딩 전) | (미측정 — 리서치 C 갭 2) | planner-readonly 14/20종 · builder-minimal 14/20종 · builder 14/20종 (Claude Code 클라이언트/일반 클라이언트; alwaysLoad 10·9·9) | 에페메랄 서버 :7741~7743 순차 기동, 프로파일별 initialize→tools/list |
 | `prepare_harness_session` 엔트리 총 바이트 | 22,017 B(그중 outputSchema ≈18 KB) | 동일 — lean 계약은 outputSchema 를 이미 생략 | generic 프로파일 listing 분해 |
 | 텔레메트리 `tools/list` 비율 | 40,213 / 45,731 (88%) | 영속 0(인메모리 유지) | `persist_event_to_usage_log` |
 | 180초 폴러 | 세션 a8919779 8,041행(07-24→08-14) | 서버 측 변경 없음(외부 클라이언트) | timestamp gap 중앙값 180,029 ms |
@@ -121,10 +122,19 @@ UNVERIFIED: Claude Code 가 `initialize` 에서 `hostCapabilities` 를 보내는
   `toolNamespace`·`tier`)을 최상위에 주입. SEP 4건(1862/1913/1984/2417)이 이 객체를 재편 중이라
   strict 클라이언트가 거부/제거할 위험 → `_meta["codelens/…"]` 로 이동(**K-0026**, 별도 ADR).
 - **갭 3 (S)**: `ttlMs`/`cacheScope` — 이번에 반영(`ttlMs: 300000`, `cacheScope: "private"`).
-- **갭 2/5 (검증)**: 프로파일 스코프 세션의 첫 tools/list 크기 — 이번 실측으로 답함: Claude 프로파일은
-  부트스트랩 14종, 바인딩 후 full exposure(#357). 지연 로딩을 지원하는 호스트에선 always-load 만
-  컨텍스트 비용이므로 core-10 정렬이 정답. 비지연 호스트(Codex `codex-mcp-client`)는 바인딩 후 63종
-  전체 스키마를 받는다 → 그 호스트용 lean 리스팅은 후속 과제.
+- **갭 2 (실측으로 닫음)**: 프로파일을 `--profile` 로 사전 스코프한 세션(launchd 데몬은 `builder` 가
+  기본)의 첫 tools/list 는 41/47종이 아니라 20종 이하다 — Claude Code 클라이언트 14종(lean 계약), 일반
+  클라이언트 20종, 세 프로파일 모두 동일. 41/47종은 기본 목록이 아니라 바인딩 후 호출 가능 집합이므로
+  ADR-0016 ≤20 게이트는 기동 프로파일과 무관하게 유지된다. 단, builder·builder-minimal 은 core-10 중
+  `get_changed_files` 를 프리셋에서 빼 always-load 가 9종으로 줄어든다(**K-0032**, S).
+- **갭 5 (코드로 닫음)**: 호스트가 `host_capabilities.native_tool_search: true` 를 선언하면
+  `session_context.rs` 의 `host_declares_native_tool_search` 가 CodeLens 측 `_session_deferred_tool_loading`
+  게이트를 끈다. 단위 테스트 2건(`native_tool_search_disables_codelens_deferred_gate`,
+  `deferred_gate_stays_on_without_native_tool_search`)이 이를 고정하므로 런타임 배선은 확인됨.
+  지연 로딩을 지원하는 호스트에선 always-load 만 컨텍스트 비용이므로 core-10 정렬이 정답. 비지연
+  호스트(Codex `codex-mcp-client`)는 바인딩 후 63종 전체 스키마를 받는다 → 그 호스트용 lean 리스팅은 후속 과제.
+- **갭 4 (S, 미착수)**: Anthropic 가이드의 `response_format: concise|detailed` 패턴이 어떤 도구에도 없다
+  (tools.toml 0건). 5단계 응답 압축이 이미 같은 목적을 채우는지 먼저 계측한 뒤 결정(**K-0031**).
 - **갭 6 (M)**: verb mode 의 tool search 발견성 평가 부재("find callers of X" → `graph(mode=callers)`
   적중률) — 소형 eval 필요(**K-0028**).
 - **스펙 2026-07-28 전략 항목**: 무상태 MCP(핸드셰이크·세션 헤더 제거, 요청마다 `_meta` 에 protocolVersion/
