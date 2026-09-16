@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Always-load slice aligned to ADR-0016 (core-10)** — `tool_anthropic_always_load` had grown to 35 preloaded tools: the ADR's ten plus 25 fine-grained duplicates kept "round-trip-free" under #365. Every Claude Code session therefore paid roughly 26 KB of context after `prepare_harness_session` (measured 2026-09-16 on the live daemon: 14 tools / 12.6 KB listed before binding, 63 tools / 35 preloaded / 44 KB of model-facing schema after) for capability the `search` / `graph` / `review` / `overview` / `diagnose` facades already cover. The preloaded set is now exactly `CORE_10_TOOLS` (10.8 KB); everything else stays discoverable through the host's tool search via `anthropic/searchHint`, so a direct fine-grained call costs one search round trip instead of a permanent context tax. `ALWAYS_LOAD_SCHEMA_BUDGET_BYTES` ratchets 28 KiB → 12 KiB and `always_load_surface_matches_adr_0016_core` pins the membership to the ADR text.
+- **`tools/list` rows are no longer persisted to the usage log** — listing traffic is a host cache refresh, not a tool call, yet it made up 88% of `.codelens/telemetry/tool_usage.jsonl` (40,213 of 45,731 rows on 2026-09-16): long-lived MCP clients re-list on a timer (a Python-SDK client polled every 180 s for three weeks inside one session). Neither the deprecation removal gate nor the surface ratchet reads those rows. In-memory metrics still count every listing; only the JSONL boundary filters (`persist_event_to_usage_log`).
+- **`CLAUDE.md` always-on surface cut from 17.2 KB to under 8 KB** — the symbol-query seam description, the feature-flag matrix, the CI command mirror, and the mutation-gate / harness-mode quick reference moved verbatim to `docs/design/symbol-query-seam.md`, `docs/operations/build-features.md`, and `docs/operations/mutation-gate.md`. The generated `CODELENS_HOST_ROUTING` block is untouched; the hand-written part now carries only the architecture invariants, the short verify recipe, and the pitfalls list.
+
+### Deprecated
+
+- **Removal gate satisfied for the v1.13.35 disposition-remove wave (ADR-0016 / ADR-0018)** — usage telemetry from the 2026-07-24 window open through 2026-09-16 (45,731 rows) records two calls to deprecated tools, both verification probes (`list_active_agents` from `telemetry-verify`, `list_memories` from `e6-verify`) and zero organic calls. The one-clean-release condition is met by v1.13.35; the wave may be deleted at the v2.0 cut.
+
+
 ## [1.13.35] - 2026-07-25
 
 ### Deprecated
