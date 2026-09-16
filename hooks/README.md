@@ -132,8 +132,9 @@ whether the CodeLens daemon is alive and whether the project is auto-bound via
 an `.mcp.json` `x-codelens-project` header. Verb-routing detail is delegated to
 the host's always-on rules, not repeated here. It stays **silent** for projects
 that don't use CodeLens (no `.codelens/` index and no header) — zero token cost
-outside CodeLens projects — and also for `source: "resume"` events, which
-continue an existing context that already carries the original injection.
+outside CodeLens projects — and also for `source: "resume"` and `source: "fork"` events (fork is a distinct
+value since Claude Code 2.1.214), which continue an existing context that already
+carries the original injection.
 Documented exception: a session started directly in `$HOME` matches the global
 `~/.codelens` data directory and does fire (unlike `codelens-first.py`, which
 excludes it as a project-index marker), because home sessions are harness work

@@ -19,10 +19,13 @@
 # 참고: 이 스크립트는 host 측 훅이다 (사용자 settings.json 의 SessionStart 에
 # 등록). 플러그인 hooks.json 에는 포함되지 않는다.
 
-# resume 이벤트는 침묵 (stdin 이 비어 있으면 startup 으로 간주하고 진행)
+# resume / fork 이벤트는 침묵 (stdin 이 비어 있으면 startup 으로 간주하고 진행).
+# fork 는 Claude Code 2.1.214 부터 resume 과 구분되는 별도 source 값 — 포크된 세션도
+# 부모 컨텍스트(이전 주입 포함)를 물려받으므로 같은 이유로 재주입하지 않는다.
 HOOK_INPUT=$(cat 2>/dev/null || true)
 case "$HOOK_INPUT" in
   *'"source"'*'"resume"'*) exit 0 ;;
+  *'"source"'*'"fork"'*) exit 0 ;;
 esac
 
 GIT_ROOT=$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || echo "$PWD")

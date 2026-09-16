@@ -44,6 +44,8 @@ PLAIN="$TMP/proj-plain"; mkdir -p "$PLAIN"
 # ── 1. resume 침묵 ──
 OUT=$(cd "$IDX" && echo '{"session_id":"t","source":"resume"}' | CODELENS_CARD_URL="$ALIVE" zsh "$PROBE")
 check "resume: 침묵" "EMPTY" "$OUT"
+OUT=$(cd "$IDX" && echo '{"session_id":"t","source":"fork"}' | CODELENS_CARD_URL="$ALIVE" zsh "$PROBE")
+check "fork: 침묵 (2.1.214+ 별도 source)" "EMPTY" "$OUT"
 
 # ── 2. startup 발화 + 바이트 상한 ──
 OUT=$(cd "$IDX" && echo '{"source":"startup"}' | CODELENS_CARD_URL="$ALIVE" zsh "$PROBE")
