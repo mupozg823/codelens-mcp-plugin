@@ -16,7 +16,7 @@
    는 이미 lean 계약이다(바인딩 후 20종·24.5 KB·outputSchema 0). 무거운 리스팅은 generic 클라이언트의
    **바인딩 전** CORE-20(19종·59.6 KB·outputSchema 19) 하나뿐이다. 스펙상 생략은 합법이지만(클라이언트
    검증은 SHOULD) generic 클라이언트의 CI 계약이라 이번엔 조치하지 않았다.
-3. **프리셋 멤버십 이중 관리 제거(K-0023).** `presets.rs` 의 손수 배열 5개(131개 이름)를
+3. **프리셋 멤버십 이중 관리 제거(K-0023).** `presets.rs` 의 손수 배열 5개(항목 154개, 고유 이름 80개)를
    `tools.toml` `preset_tags` 에서 생성한다. 교체 전 생성 결과가 손수 배열과 멤버·순서까지 동일함을
    확인했다(25/26/41/46/20). `[[tool]]` 테이블이 없는 pending-D3 편집 코어 4종만
    `[dispatch_only_preset_members]` 로 분리하고 생성기가 허용목록 밖 이름을 거부한다.
@@ -70,7 +70,7 @@ tools/list` 를 클라이언트 이름별로 실행했다. 칸은 `도구 수 / 
 | 분류 | 수 | 판정 |
 |---|---|---|
 | 활성 표면에 한 번도 리스팅되지 않음 | 0 | — |
-| 이미 폐기(ADR-0018) | 18 | v2.0 컷에서 삭제 |
+| 이미 폐기(ADR-0018) | 18 | ADR-0018 제거 컷에서 삭제 |
 | 리스팅됐지만 도달 0 | 34 | 아래 |
 
 표면별 유기 호출: review 2,421 · builder 1,036 · preset:balanced 959 · readonly 423 · preset:full 19.
@@ -137,8 +137,9 @@ self CI 하한선(after): hybrid MRR 0.7435 ≥ 0.70, lexical(`get_ranked_contex
 
 **판정.** 측정 전에 정한 규칙은 "`bm25_symbol_search` MRR 이 self 와 외부 코퍼스 하나 이상에서
 개선 + CI 하한선 유지"였다. self 조건은 문자 그대로 미달이다(−0.0026). 그래도 채택한 이유: self 의
-변화는 순위 이동 13건에 득실이 섞인 쿼리 1개 규모(Acc@1 −1, Recall@10 +1)라 대역 안의 null 이고,
-외부 두 코퍼스의 이득은 그보다 두 자릿수 크며 hybrid 는 세 코퍼스 모두 올랐다. **self 는 개선이
+변화는 순위 이동 13건에 득실이 섞인 쿼리 1개 규모의 순변화다(Acc@1 −1, Recall@10 +1). 랭킹이 결정적이라
+노이즈 대역이 있는 것은 아니고, 실제로 생긴 작은 순손실이다. 외부 두 코퍼스의 이득은 그 24배(jest)~78배(gson)이고
+hybrid 는 세 코퍼스 모두 올랐다. 다만 gson 30개·jest 24개 쿼리로 표본이 작다. **self 는 개선이
 아니라 측정된 null 로 기록한다.** 벤치 요약의 `lexical_mrr` 필드는 `bm25_symbol_search` 가 아니라
 `get_ranked_context_no_semantic` 이고, 규칙은 `bm25_symbol_search` 로 읽었다.
 

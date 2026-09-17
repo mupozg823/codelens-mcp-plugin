@@ -289,7 +289,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = super::generated::BUILDER_MINI
 /// `get_changed_files` and `get_current_config` replaced `impact_report`,
 /// `diff_aware_references` and `safe_rename_report` — 0/2/0 direct calls over
 /// 68 days while listed, reached through `graph(mode=impact)`,
-/// `review(mode=changes)` and `plan_safe_refactor`; they stay callable as
+/// `graph(mode=diff-refs)` and `plan_safe_refactor`; they stay callable as
 /// hidden aliases. Background `refresh_symbol_index` points at
 /// `get_analysis_job`, which this surface does not list (cap 20) — switch to
 /// builder or readonly for that flow.

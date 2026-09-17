@@ -185,7 +185,7 @@ output is deterministic so reviewers see one canonical preset/profile
 list per build.
 
 **Status as of 2026-09-17 (K-0023):** implemented. Until then `presets.rs`
-kept five hand-written arrays (131 names) beside `preset_tags`, and
+kept five hand-written arrays (154 entries, 80 distinct names) beside `preset_tags`, and
 `validate_preset_tags` only checked that the two copies agreed. The arrays
 are now generated into `metadata_generated.rs` (not a separate
 `presets_generated.rs`) and `presets.rs` re-exports them with the rationale
