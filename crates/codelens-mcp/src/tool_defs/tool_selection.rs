@@ -277,11 +277,11 @@ mod tests {
 
     #[test]
     fn tool_selection_diagnostics_marks_current_listing_misses() {
-        let requests = tool_name_requests(vec!["impact_report".to_owned()]);
+        let requests = tool_name_requests(vec!["review_architecture".to_owned()]);
         let diagnostics = tool_selection_diagnostics(
             &requests,
             &[],
-            &["impact_report".to_owned()],
+            &["review_architecture".to_owned()],
             ToolSurface::Profile(ToolProfile::ReviewerGraph),
             false,
         );

@@ -1048,7 +1048,7 @@ fn prepare_harness_session_omitted_entrypoints_include_execution_policy_and_tier
             "detail": "compact",
             "preferred_entrypoints": [
                 "review_changes",
-                "plan_safe_refactor",
+                "trace_request_path",
                 "this_tool_does_not_exist_xyz",
             ],
         }),
@@ -1060,7 +1060,7 @@ fn prepare_harness_session_omitted_entrypoints_include_execution_policy_and_tier
         .expect("preferred_entrypoints_omitted array");
     let known = omitted
         .iter()
-        .find(|entry| entry["tool"] == "plan_safe_refactor")
+        .find(|entry| entry["tool"] == "trace_request_path")
         .expect("known hidden entrypoint");
     assert_eq!(
         known["execution_policy"],
@@ -1115,7 +1115,7 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
             "_session_full_tool_exposure": false,
             "preferred_entrypoints": [
                 "review_changes",
-                "diff_aware_references",
+                "review_architecture",
                 "find_tests",
             ],
         }),
@@ -1127,7 +1127,7 @@ fn prepare_harness_session_omitted_entrypoints_distinguish_deferred_tools() {
         .expect("preferred_entrypoints_omitted array");
     let deferred = omitted
         .iter()
-        .find(|entry| entry["tool"] == "diff_aware_references")
+        .find(|entry| entry["tool"] == "review_architecture")
         .expect("known active-surface tool hidden by deferred loading");
     assert_eq!(
         deferred["reason"],

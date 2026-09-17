@@ -243,7 +243,7 @@ fn tools_list_can_be_filtered_by_namespace() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"selected_namespace\":\"reports\""));
-    assert!(encoded.contains("\"impact_report\""));
+    assert!(encoded.contains("\"review_architecture\""));
     assert!(!encoded.contains("\"find_symbol\""));
 }
 

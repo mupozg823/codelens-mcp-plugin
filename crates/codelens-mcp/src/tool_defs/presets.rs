@@ -161,9 +161,12 @@ impl ToolSurface {
 // Relationship to the preset/profile surfaces: Minimal/Balanced/Full and the
 // planner/builder/reviewer profiles gate the *expanded* (`full` / namespace /
 // tier) listing and the callable surface. The default (non-expanded)
-// `tools/list` is surface-independent — every built-in surface exposes exactly
-// this CORE-20 roster (feature-gated members aside). See
-// `resource_context::visible_tools::filter_default_listed_tools`.
+// `tools/list` is this CORE-20 roster for generic clients on every surface,
+// but lean-contract clients (Claude Code, Codex) receive it intersected with
+// the active surface (measured 2026-09-17: before binding, `review` listed 8
+// tools and `builder` 14 for both). That intersection is why CORE-10 must be a
+// member of every built-in surface (`every_built_in_surface_lists_the_core_10`).
+// See `resource_context::visible_tools::filter_default_listed_tools`.
 
 /// ADR-0016 decision 1 — always-loaded core (10). Schemas are preloaded so the
 /// model can call them without a ToolSearch round-trip.
@@ -265,6 +268,11 @@ pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     // Mutation preflight (the symbolic edit core itself is dispatch-only
     // pending the ADR-0009/D3 re-listing decision, #346)
     "plan_symbol_rename",
+    // ADR-0016 CORE-10 members that are read-only planning / evidence tools
+    // (`every_built_in_surface_lists_the_core_10`).
+    "plan_safe_refactor",
+    "verify_change_readiness",
+    "get_changed_files",
 ];
 
 pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
@@ -443,6 +451,9 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "orchestrate_change",
     "analyze_change_request",
     "verify_change_readiness",
+    // ADR-0016 CORE-10: the diff-scoped evidence the mutation gate leans on.
+    // Missing here, the launchd default profile preloaded 9 of the 10.
+    "get_changed_files",
 ];
 
 // Curated default `review` surface (selected per session on :7838) — the core set from the
@@ -460,14 +471,22 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
 // lockstep so `regen-tool-defs.py::validate_preset_tags` stays green.
 //
 // Composition is locked by
-// `reviewer_graph_core_surface_contains_alwaysload_and_verb_facades`:
-//   - 5 canonical verb façades (search/graph are named directly by the
-//     codelens-first hook deny message + rules/harness.md; the other
-//     three complete the documented mode-routing façade family —
-//     hiding any of them would break that guidance)
-//   - 9 always-load entrypoints (v1.13.34 CHANGELOG)
-//   - 6 change-safety / diagnostics tools kept by the usage +
-//     "change safety" strategy axis
+// `reviewer_graph_core_surface_contains_alwaysload_and_verb_facades` and
+// `every_built_in_surface_lists_the_core_10`:
+//   - the ADR-0016 CORE-10 (five of them are the canonical verb façades;
+//     search/graph are named directly by the codelens-first hook deny
+//     message + rules/harness.md)
+//   - the pre-CORE-10 entrypoints hosts still route to by name
+//   - diagnostics / index upkeep
+//
+// This is also the surface a non-Claude host (Codex, generic MCP clients)
+// lands on after `prepare_harness_session`, so a CORE-10 member missing here
+// is missing from that host's whole tools/list. 2026-09-17: plan_safe_refactor,
+// get_changed_files and get_current_config replaced impact_report,
+// diff_aware_references and safe_rename_report — the latter three had 0/2/0
+// direct calls over 68 days of telemetry while listed (reached through
+// `graph(mode=impact)`, `review(mode=changes)` and `plan_safe_refactor`), and
+// stay callable as hidden aliases.
 pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     // Verb facades (canonical mode-routing entrypoints)
     "search",
@@ -475,21 +494,22 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "overview",
     "diagnose",
     "review",
-    // Always-load spine (bootstrap + precision ladder + change safety)
+    // Rest of the ADR-0016 CORE-10
     "prepare_harness_session",
+    "plan_safe_refactor",
+    "verify_change_readiness",
+    "get_changed_files",
+    "get_current_config",
+    // Pre-CORE-10 entrypoints (bootstrap + precision ladder + change safety)
     "explore_codebase",
     "review_changes",
     "review_architecture",
-    "verify_change_readiness",
     "find_symbol",
     "find_referencing_symbols",
     "get_symbols_overview",
     "get_ranked_context",
-    // Change-safety + diagnostics core
+    // Diagnostics core
     "get_file_diagnostics",
-    "impact_report",
-    "diff_aware_references",
-    "safe_rename_report",
     // #350 / ADR-0016: `find_referencing_symbols` (above) emits
     // `cross_file_callers_hint` → `get_callers`. That hint no longer requires a
     // listed slot here: get_callers/get_callees are registered in tools.toml
@@ -664,6 +684,38 @@ mod adr_0016_default_surface_tests {
             10,
             "ADR-0016 decision 1 fixes CORE-10 at 10"
         );
+    }
+
+    /// ADR-0016 decision 1 is only true if every surface a session can land on
+    /// lists the CORE-10: `anthropic/alwaysLoad` is stamped on the listed tools,
+    /// so a member missing from the surface is neither preloaded nor listed.
+    /// Measured before this test existed: the launchd default `builder` profile
+    /// preloaded 9, `review` 7, and non-Claude hosts after binding (which land
+    /// on `review`) 7.
+    #[test]
+    fn every_built_in_surface_lists_the_core_10() {
+        let surfaces = [
+            ("preset:minimal", ToolSurface::Preset(ToolPreset::Minimal)),
+            ("preset:balanced", ToolSurface::Preset(ToolPreset::Balanced)),
+            ("preset:full", ToolSurface::Preset(ToolPreset::Full)),
+            (
+                "readonly",
+                ToolSurface::Profile(ToolProfile::PlannerReadonly),
+            ),
+            ("builder", ToolSurface::Profile(ToolProfile::BuilderMinimal)),
+            ("review", ToolSurface::Profile(ToolProfile::ReviewerGraph)),
+        ];
+        for (label, surface) in surfaces {
+            let missing: Vec<&str> = CORE_10_TOOLS
+                .iter()
+                .copied()
+                .filter(|tool| !is_tool_in_surface(tool, surface))
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "{label} does not list CORE-10 members {missing:?}"
+            );
+        }
     }
 
     #[test]
@@ -947,13 +999,14 @@ mod deprecation_tests {
 
     /// 2026-07 tool-surface diet, step 1: the default `review` surface is
     /// the curated core-20. Lock its composition so a later edit can't
-    /// silently drop an always-load entrypoint or a canonical verb façade
-    /// (both are load-bearing — always-load per the v1.13.34 CHANGELOG;
-    /// search/graph are named by the codelens-first hook + rules/harness.md,
+    /// silently drop a routed entrypoint or a canonical verb façade
+    /// (search/graph are named by the codelens-first hook + rules/harness.md,
     /// the other façades by the documented mode-routing family), and
-    /// so the diet cap of 20 holds.
+    /// so the diet cap of 20 holds. CORE-10 membership is locked separately by
+    /// `every_built_in_surface_lists_the_core_10`.
     #[test]
     fn reviewer_graph_core_surface_contains_alwaysload_and_verb_facades() {
+        // The v1.13.34 always-load set; hosts still route to these by name.
         const ALWAYS_LOAD: &[&str] = &[
             "prepare_harness_session",
             "explore_codebase",

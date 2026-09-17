@@ -56,7 +56,7 @@ Generated from the canonical surface manifest. Runtime resources remain the auth
 - Recommended modes: `solo-local`, `reviewer-gate`, `batch-analysis`
 - Preferred profiles: `readonly`, `review`
 - Default profile: `review`
-- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `review_architecture`
+- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `review_changes` -> `review_architecture` -> `plan_safe_refactor`
 - Compiler targets: `.cursor/rules`, `AGENTS.md`, `.cursor/mcp.json`, `background-agent environment.json`
 
 ### `cline`

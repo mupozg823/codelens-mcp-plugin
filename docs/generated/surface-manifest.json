@@ -1505,7 +1505,7 @@
       },
       {
         "name": "builder",
-        "tool_count": 40,
+        "tool_count": 41,
         "preferred_namespaces": [
           "reports",
           "symbols",
@@ -1552,6 +1552,7 @@
           "semantic_search",
           "embedding_coverage_report",
           "index_embeddings",
+          "get_changed_files",
           "find_tests",
           "get_current_config",
           "find_declaration",
@@ -1588,19 +1589,19 @@
           "diagnose",
           "prepare_harness_session",
           "verify_change_readiness",
-          "safe_rename_report",
-          "impact_report",
-          "diff_aware_references",
           "explore_codebase",
           "review_architecture",
+          "plan_safe_refactor",
           "review_changes",
           "search",
           "overview",
           "refresh_symbol_index",
+          "get_changed_files",
           "get_symbols_overview",
           "find_symbol",
           "get_ranked_context",
           "find_referencing_symbols",
+          "get_current_config",
           "get_capabilities",
           "get_file_diagnostics"
         ],
@@ -1610,7 +1611,7 @@
     "presets": [
       {
         "name": "minimal",
-        "tool_count": 22,
+        "tool_count": 25,
         "preferred_namespaces": [
           "filesystem",
           "graph",
@@ -1627,6 +1628,7 @@
           "read_file",
           "list_dir",
           "find_file",
+          "get_changed_files",
           "get_file_diagnostics",
           "get_current_config",
           "activate_project",
@@ -1643,7 +1645,9 @@
           "graph",
           "diagnose",
           "analyze",
+          "verify_change_readiness",
           "review",
+          "plan_safe_refactor",
           "search",
           "overview"
         ]
@@ -1884,7 +1888,7 @@
               },
               {
                 "name": "builder",
-                "tool_count": 40
+                "tool_count": 41
               }
             ]
           }
@@ -1936,11 +1940,11 @@
             "profiles": [
               {
                 "name": "builder",
-                "tool_count": 40
+                "tool_count": 41
               },
               {
                 "name": "builder",
-                "tool_count": 40
+                "tool_count": 41
               }
             ]
           }
@@ -2101,11 +2105,11 @@
             "profiles": [
               {
                 "name": "builder",
-                "tool_count": 40
+                "tool_count": 41
               },
               {
                 "name": "builder",
-                "tool_count": 40
+                "tool_count": 41
               }
             ]
           }
@@ -2710,9 +2714,8 @@
           "prepare_harness_session",
           "explore_codebase",
           "review_changes",
-          "impact_report",
-          "diff_aware_references",
-          "review_architecture"
+          "review_architecture",
+          "plan_safe_refactor"
         ],
         "native_primitives": [
           ".cursor/rules",
