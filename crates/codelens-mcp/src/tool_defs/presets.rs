@@ -233,299 +233,67 @@ const _: () = {
     );
 };
 
-pub(crate) const MINIMAL_TOOLS: &[&str] = &[
-    // Verb facades (Phase-1/2 read-only consolidation)
-    "search",
-    "graph",
-    "review",
-    "overview",
-    "diagnose",
-    "analyze",
-    "activate_project",
-    "prepare_harness_session",
-    "get_current_config",
-    "set_preset",
-    "set_profile",
-    // File (kept for non-Claude-Code clients)
-    "read_file",
-    "list_dir",
-    "find_file",
-    // Symbol (core)
-    "get_symbols_overview",
-    "find_symbol",
-    "get_ranked_context",
-    "find_referencing_symbols",
-    "get_type_hierarchy",
-    // `refresh_symbol_index` removed from Minimal (b07d5773 dogfood):
-    // `find_over_visible_apis` flagged it as leakage — the annotation is
-    // `approval_required=true` + `audit_category="mutation"`, but the
-    // Minimal preset promises read-only safety. The tool remains in
-    // `BUILDER_MINIMAL_TOOLS` and `REVIEWER_GRAPH_TOOLS` (line 291) where
-    // mutation surface is expected. Callers that need it from a minimal
-    // surface should `set_preset full` first.
-    "get_file_diagnostics",
-    "search_workspace_symbols",
-    // Mutation preflight (the symbolic edit core itself is dispatch-only
-    // pending the ADR-0009/D3 re-listing decision, #346)
-    "plan_symbol_rename",
-    // ADR-0016 CORE-10 members that are read-only planning / evidence tools
-    // (`every_built_in_surface_lists_the_core_10`).
-    "plan_safe_refactor",
-    "verify_change_readiness",
-    "get_changed_files",
-];
-
-pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
-    // ── Niche analysis (use Full preset for these) ──
-    "get_symbol_importance",
-    "get_complexity",
-    "search_symbols_fuzzy",
-    "get_lsp_recipe",
-    // ── Overlap with Claude Code built-in tools ──
-    "read_file",
-    "list_dir",
-    "find_file",
-    // ── Diagnostics / session (not needed for normal work) ──
-    "get_watch_status",
-    "prune_index_failures",
-    "get_tool_metrics",
-    "audit_builder_session",
-    "audit_planner_session",
-    "export_session_markdown",
-    // ── 2026-07 tool-surface diet, step 2: four host-owned subsystems
-    //    (docs/operations/tool-surface-diet-2026-07.md "결정 확정", 2026-07-19).
-    //    Non-destructive and reversible: tools.toml definitions + dispatch
-    //    arms stay intact, so every one is still callable via `tools/call`
-    //    under the Full preset (or after `set_preset full`); they are only
-    //    dropped from the default listed surfaces. The paired
-    //    `preset_tags = ["balanced-excluded"]` entries in tools.toml are kept
-    //    in lockstep so `regen-tool-defs.py::validate_preset_tags` stays green.
-    // Memory subsystem (host harness owns memory) — was preset_tags = []
-    // (already off Minimal/planner/builder/reviewer), now also off Balanced.
-    "list_memories",
-    "read_memory",
-    "write_memory",
-    "delete_memory",
-    "rename_memory",
-    "archive_memory",
-    "restore_memory",
-    "list_archived",
-    "read_policy",
-    // Agent coordination (host harness owns multi-agent coordination) —
-    // also removed from MINIMAL_TOOLS / PLANNER_READONLY_TOOLS /
-    // BUILDER_MINIMAL_TOOLS above.
-    "register_agent_work",
-    "list_active_agents",
-    "claim_files",
-    "release_files",
-];
-
-pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
-    // Verb facades (Phase-1/2 read-only consolidation)
-    "search",
-    "graph",
-    "review",
-    "overview",
-    "diagnose",
-    "analyze",
-    // Session
-    "activate_project",
-    "prepare_harness_session",
-    "get_current_config",
-    "get_capabilities",
-    "set_profile",
-    "set_preset",
-    "get_tool_metrics",
-    "audit_builder_session",
-    "audit_planner_session",
-    // Workflow-first entrypoints
-    "explore_codebase",
-    "review_architecture",
-    "plan_safe_refactor",
-    "review_changes",
-    "diagnose_issues",
-    // Symbol exploration
-    "find_symbol",
-    "get_symbols_overview",
-    "get_ranked_context",
-    "find_referencing_symbols",
-    // #350: target of find_symbol / D1-trio fallback hints — must be
-    // present wherever those emitters are, or the hint chain dead-ends.
-    "bm25_symbol_search",
-    // #350 / ADR-0016: `find_referencing_symbols` emits
-    // `cross_file_callers_hint` → `get_callers`. The hint chain now resolves
-    // through *callability*, not listing — get_callers/get_callees are
-    // registered in tools.toml and stay dispatchable here as hidden aliases
-    // (see dispatch/access.rs::is_tool_registered), so they no longer occupy a
-    // listed slot on this read surface. They remain listed on builder-minimal.
-    // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
-    "find_declaration",
-    "find_implementations",
-    "get_diagnostics_for_symbol",
-    // Phase 4a §capability-reporting: semantic_search belongs in
-    // planner surface. Planners are read-only/exploratory — natural-
-    // language search is the primary use case, and the engine now
-    // lazy-initializes on first call so there is no startup cost.
-    // `index_embeddings` is exposed alongside so planners whose
-    // project lacks an on-disk index can remediate directly.
-    "semantic_search",
-    "embedding_coverage_report",
-    "index_embeddings",
-    // Graph / impact
-    "get_changed_files",
-    "onboard_project",
-    // Workflow composites
-    "orchestrate_change",
-    "analyze_change_request",
-    "verify_change_readiness",
-    "impact_report",
-    "mermaid_module_graph",
-    // Async analysis
-    "start_analysis_job",
-    "get_analysis_job",
-    "get_analysis_section",
-];
-
-pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
-    // Verb facades (Phase-1/2 read-only consolidation)
-    "search",
-    "graph",
-    "review",
-    "overview",
-    "diagnose",
-    "analyze",
-    "activate_project",
-    "prepare_harness_session",
-    "get_current_config",
-    "get_capabilities",
-    "set_profile",
-    "set_preset",
-    "get_tool_metrics",
-    "audit_builder_session",
-    "audit_planner_session",
-    "export_session_markdown",
-    "explore_codebase",
-    "trace_request_path",
-    "plan_safe_refactor",
-    "cleanup_duplicate_logic",
-    "find_symbol",
-    "get_symbols_overview",
-    "get_ranked_context",
-    "find_referencing_symbols",
-    // #350: target of find_symbol / D1-trio fallback hints — must be
-    // present wherever those emitters are, or the hint chain dead-ends.
-    "bm25_symbol_search",
-    "get_file_diagnostics",
-    // D1 LSP read trio (#346 Phase 4) — degrade gracefully without LSP
-    "find_declaration",
-    "find_implementations",
-    "get_diagnostics_for_symbol",
-    "find_tests",
-    "refresh_symbol_index",
-    "get_callers",
-    "get_callees",
-    // Phase 4a §capability-reporting: builders occasionally need NL
-    // lookups ("where is the error handler for invalid credentials?"
-    // type questions during mid-edit debugging). Exposing
-    // `semantic_search` + `index_embeddings` keeps the builder
-    // surface aligned with planner surface and removes the
-    // "surface policy blocks a healthy feature" reporting mismatch.
-    "semantic_search",
-    "embedding_coverage_report",
-    "index_embeddings",
-    // Poll-handle coherence: index_embeddings / refresh_symbol_index
-    // background responses direct the caller to get_analysis_job — a
-    // surface that advertises the queueing tools must expose the poll
-    // tool too (live-verified gap: builder sessions could queue but
-    // not poll).
-    "get_analysis_job",
-    "plan_symbol_rename",
-    // Pending-D3 symbolic edit core (#346): callable on builder surfaces
-    // but schemaless (not in tools.toml) until the ADR-0009/D3 re-listing
-    // decision — i.e. dispatchable yet absent from tools/list.
-    "rename_symbol",
-    "replace_symbol_body",
-    "insert_before_symbol",
-    "insert_after_symbol",
-    // Workflow orchestration
-    "orchestrate_change",
-    "analyze_change_request",
-    "verify_change_readiness",
-    // ADR-0016 CORE-10: the diff-scoped evidence the mutation gate leans on.
-    // Missing here, the launchd default profile preloaded 9 of the 10.
-    "get_changed_files",
-];
-
-// Curated default `review` surface (selected per session on :7838) — the core set from the
-// 2026-07 tool-surface diet, step 1. Reduced from 49 → 20 to match the
-// 14-day usage telemetry (docs/operations/tool-surface-diet-2026-07.md).
-// ADR-0016 keeps this at ≤20: the #350 call-graph hint targets
-// (get_callers/get_callees) resolve through hidden-alias callability rather
-// than a listed slot, so the surface holds the core-20 cap.
+// ── Surface membership (generated) ──────────────────────────────────────
 //
-// Reversible and non-destructive: the 33 tools dropped here are NOT
-// deleted — their tools.toml definitions and dispatch arms stay intact,
-// so every one remains callable via `tools/call`; they are simply no
-// longer advertised on the default listed surface. The paired
-// `preset_tags["reviewer-graph"]` entries in tools.toml are kept in
-// lockstep so `regen-tool-defs.py::validate_preset_tags` stays green.
-//
-// Composition is locked by
-// `reviewer_graph_core_surface_contains_alwaysload_and_verb_facades` and
-// `every_built_in_surface_lists_the_core_10`:
-//   - the ADR-0016 CORE-10 (five of them are the canonical verb façades;
-//     search/graph are named directly by the codelens-first hook deny
-//     message + rules/harness.md)
-//   - the pre-CORE-10 entrypoints hosts still route to by name
-//   - diagnostics / index upkeep
-//
-// This is also the surface a non-Claude host (Codex, generic MCP clients)
-// lands on after `prepare_harness_session`, so a CORE-10 member missing here
-// is missing from that host's whole tools/list. 2026-09-17: plan_safe_refactor,
-// get_changed_files and get_current_config replaced impact_report,
-// diff_aware_references and safe_rename_report — the latter three had 0/2/0
-// direct calls over 68 days of telemetry while listed (reached through
-// `graph(mode=impact)`, `review(mode=changes)` and `plan_safe_refactor`), and
-// stay callable as hidden aliases.
-pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
-    // Verb facades (canonical mode-routing entrypoints)
-    "search",
-    "graph",
-    "overview",
-    "diagnose",
-    "review",
-    // Rest of the ADR-0016 CORE-10
-    "prepare_harness_session",
-    "plan_safe_refactor",
-    "verify_change_readiness",
-    "get_changed_files",
-    "get_current_config",
-    // Pre-CORE-10 entrypoints (bootstrap + precision ladder + change safety)
-    "explore_codebase",
-    "review_changes",
-    "review_architecture",
-    "find_symbol",
-    "find_referencing_symbols",
-    "get_symbols_overview",
-    "get_ranked_context",
-    // Diagnostics core
-    "get_file_diagnostics",
-    // #350 / ADR-0016: `find_referencing_symbols` (above) emits
-    // `cross_file_callers_hint` → `get_callers`. That hint no longer requires a
-    // listed slot here: get_callers/get_callees are registered in tools.toml
-    // and stay callable as hidden aliases on this surface (dispatch/access.rs
-    // ::is_tool_registered), so the recovery chain resolves through dispatch,
-    // not the listing. Keeping them off the listed surface restores the diet
-    // core-20 cap (ADR-0016 ≤20; P1 had temporarily lifted it to 22).
-    // Known scope cut: refresh_symbol_index background responses point at
-    // get_analysis_job, which this surface does NOT expose (diet cap 20,
-    // enforced by reviewer_graph_core_surface_contains_alwaysload_and_
-    // verb_facades). Reviewer sessions needing background refresh should
-    // switch to builder-minimal/planner-readonly; the sync default works
-    // here unchanged.
-    "refresh_symbol_index",
-    "get_capabilities",
-];
+// Membership is written once, as `preset_tags` in `tools.toml` (plus
+// `dispatch_only_preset_members` for the pending-D3 edit core), and
+// `scripts/regen-tool-defs.py` generates these arrays (#200 stage 3, K-0023).
+// Edit the tags, run `--write`; CI fails on drift. The notes below keep the
+// reasons each surface looks the way it does — the invariants they describe
+// are locked by the tests at the bottom of this file.
+
+/// Read-only core. Verb façades, session control, the file trio (kept for
+/// non-Claude-Code clients), the symbol precision ladder, `plan_symbol_rename`
+/// as mutation preflight, and the read-only CORE-10 members.
+/// `refresh_symbol_index` is deliberately absent (b07d5773 dogfood): it is
+/// `approval_required` + `audit_category = "mutation"`, which this surface
+/// promises not to expose; use `set_preset full` for it.
+pub(crate) const MINIMAL_TOOLS: &[&str] = super::generated::MINIMAL_TOOLS;
+
+/// Deny-list for the balanced preset: niche analysis, overlaps with host
+/// built-ins (`read_file`/`list_dir`/`find_file`), diagnostics/session
+/// internals, and — 2026-07 tool-surface diet step 2
+/// (docs/operations/tool-surface-diet-2026-07.md) — the host-owned memory and
+/// agent-coordination subsystems. Reversible: every excluded tool keeps its
+/// definition and dispatch arm and stays callable under `preset:full`.
+pub(crate) const BALANCED_EXCLUDES: &[&str] = super::generated::BALANCED_EXCLUDES;
+
+/// Planner / reviewer read surface. Carries `bm25_symbol_search` because
+/// `find_symbol` and the D1 LSP read trio emit fallback hints to it (#350),
+/// and `semantic_search` + `index_embeddings` so a planner without an
+/// on-disk embedding index can remediate directly (Phase 4a). The call-graph
+/// hint targets `get_callers`/`get_callees` resolve through hidden-alias
+/// callability (`dispatch/access.rs::is_tool_registered`) instead of a listed
+/// slot (ADR-0016).
+pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = super::generated::PLANNER_READONLY_TOOLS;
+
+/// Builder surface, and the launchd daemon's default profile. Same #350 /
+/// Phase 4a hint targets as the planner, lists `get_callers`/`get_callees`
+/// outright for mid-edit call-graph work, and exposes `get_analysis_job`
+/// because `index_embeddings` / `refresh_symbol_index` background responses
+/// point to it (a surface that can queue must be able to poll). The
+/// pending-D3 symbolic edit core (`rename_symbol`, `replace_symbol_body`,
+/// `insert_before_symbol`, `insert_after_symbol`) is admitted here but has no
+/// `tools.toml` entry, so it is dispatchable yet absent from `tools/list`
+/// until the ADR-0009/D3 re-listing decision (#346).
+pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = super::generated::BUILDER_MINIMAL_TOOLS;
+
+/// Curated review surface (≤ 20, ADR-0016), reduced from 49 → 20 by the
+/// 2026-07 diet step 1 against 14-day usage telemetry. It is also the surface
+/// a non-Claude host (Codex, generic MCP clients) lands on after
+/// `prepare_harness_session`, so a CORE-10 member missing here is missing from
+/// that host's whole tools/list. Composition: the CORE-10 (five of them the
+/// canonical verb façades that the codelens-first hook and
+/// `rules/harness.md` name), the pre-CORE-10 entrypoints hosts still route to
+/// by name, and diagnostics / index upkeep. 2026-09-17: `plan_safe_refactor`,
+/// `get_changed_files` and `get_current_config` replaced `impact_report`,
+/// `diff_aware_references` and `safe_rename_report` — 0/2/0 direct calls over
+/// 68 days while listed, reached through `graph(mode=impact)`,
+/// `review(mode=changes)` and `plan_safe_refactor`; they stay callable as
+/// hidden aliases. Background `refresh_symbol_index` points at
+/// `get_analysis_job`, which this surface does not list (cap 20) — switch to
+/// builder or readonly for that flow.
+pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = super::generated::REVIEWER_GRAPH_TOOLS;
 
 // ── Deprecated profile tool lists removed (v1.13.27 diet).
 // EvaluatorCompact, RefactorFull, CiAudit, WorkflowFirst now resolve to

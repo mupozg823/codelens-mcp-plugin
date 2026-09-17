@@ -184,6 +184,16 @@ are reconstructed on the fly (the regen script collects all
 output is deterministic so reviewers see one canonical preset/profile
 list per build.
 
+**Status as of 2026-09-17 (K-0023):** implemented. Until then `presets.rs`
+kept five hand-written arrays (131 names) beside `preset_tags`, and
+`validate_preset_tags` only checked that the two copies agreed. The arrays
+are now generated into `metadata_generated.rs` (not a separate
+`presets_generated.rs`) and `presets.rs` re-exports them with the rationale
+for each surface. The one membership that cannot live inline is the
+pending-D3 symbolic edit core, which has no `[[tool]]` table to carry tags;
+it sits in a top-level `[dispatch_only_preset_members]` table that the
+generator restricts to the pending-D3 allowlist.
+
 ### Out-of-scope sub-decisions
 
 - **Per-language input-schema validation.** JSON Schema validates

@@ -30,7 +30,6 @@ TOOLS_TOML = REPO_ROOT / "crates" / "codelens-mcp" / "tools.toml"
 OUT_DIR = REPO_ROOT / "crates" / "codelens-mcp" / "src" / "tool_defs" / "generated"
 BUILD_GEN = OUT_DIR / "build_generated.rs"
 METADATA_GEN = OUT_DIR / "metadata_generated.rs"
-PRESETS_RS = REPO_ROOT / "crates" / "codelens-mcp" / "src" / "tool_defs" / "presets.rs"
 
 SUPPORTED_SCHEMA = "v1"
 VALID_PHASES = {"plan", "build", "review", "eval"}
@@ -41,11 +40,11 @@ ANALYZE_CATEGORIES = {"analysis", "composite", "workflow_first", "semantic"}
 MUTATING_ANNOTATIONS = {"mut_p", "mut_w", "mutating", "mut_coord", "destructive", "dest_a"}
 DESTRUCTIVE_ANNOTATIONS = {"destructive", "dest_a"}
 
-# Maps the `preset_tags` token used in tools.toml to the Rust constant in
-# `tool_defs/presets.rs` that should mirror its inversion. Drift between
-# the two surfaces is a CI failure (see `validate_preset_tags`). #200
-# stage 2 only validates equivalence; stage 3 will switch the Rust side
-# to a codegen path so tools.toml becomes the single source.
+# Maps the `preset_tags` token used in tools.toml to the generated Rust
+# constant holding its inversion (`metadata_generated.rs`, re-exported by
+# `tool_defs/presets.rs`). #200 stage 3 (K-0023): tools.toml is the only
+# place surface membership is written; the hand-kept arrays in presets.rs
+# and the lockstep validator that watched them are gone.
 PRESET_TAG_TO_CONST: dict[str, str] = {
     "minimal": "MINIMAL_TOOLS",
     "balanced-excluded": "BALANCED_EXCLUDES",
@@ -186,22 +185,64 @@ def _strip_line_comments(src: str) -> str:
     return "\n".join(cleaned_lines)
 
 
-def extract_preset_const(name: str, src: str) -> set[str]:
-    """Return the &str literals inside `pub(crate) const <name>: &[&str] = &[ ... ];`.
+def collect_preset_members(data: dict[str, Any]) -> dict[str, list[str]]:
+    """Invert `[[tool]].preset_tags` into one ordered member list per tag.
 
-    Strips `// ...` line comments from the body before extracting string
-    literals — the constants contain prose rationale that would
-    otherwise contribute false-positive matches.
+    Members follow tools.toml declaration order. `dispatch_only_preset_members`
+    appends names that a surface must admit but that have no `[[tool]]` entry —
+    only the pending-D3 dispatch-only set may appear there, so the escape hatch
+    cannot become a second registry.
     """
-    pat = re.compile(
-        rf"pub\(crate\) const {re.escape(name)}: &\[&str\] = &\[(.*?)\];",
-        re.DOTALL,
-    )
-    m = pat.search(src)
-    if not m:
-        raise SystemExit(f"could not locate const {name} in presets.rs")
-    cleaned = _strip_line_comments(m.group(1))
-    return set(re.findall(r'"([^"]+)"', cleaned))
+    tools = data.get("tool", [])
+    schema_names = {tool["name"] for tool in tools}
+    members: dict[str, list[str]] = {tag: [] for tag in PRESET_TAG_TO_CONST}
+    unknown_tags: set[str] = set()
+    for tool in tools:
+        for tag in tool.get("preset_tags", []) or []:
+            if tag in members:
+                members[tag].append(tool["name"])
+            else:
+                unknown_tags.add(tag)
+    if unknown_tags:
+        raise SystemExit(
+            f"unknown preset_tags values (not in PRESET_TAG_TO_CONST): "
+            f"{sorted(unknown_tags)}"
+        )
+
+    extras = data.get("dispatch_only_preset_members", {})
+    for tag, names in extras.items():
+        if tag not in members:
+            raise SystemExit(
+                f"dispatch_only_preset_members.{tag}: unknown preset tag"
+            )
+        for name in names:
+            if name in schema_names:
+                raise SystemExit(
+                    f"dispatch_only_preset_members.{tag}: `{name}` has a "
+                    "[[tool]] entry — tag it with preset_tags instead"
+                )
+            if name not in DISPATCH_ONLY_ALLOWLIST:
+                raise SystemExit(
+                    f"dispatch_only_preset_members.{tag}: `{name}` is not in "
+                    "the pending-D3 dispatch-only allowlist"
+                )
+            if name in members[tag]:
+                raise SystemExit(
+                    f"dispatch_only_preset_members.{tag}: `{name}` listed twice"
+                )
+            members[tag].append(name)
+    return members
+
+
+def render_preset_members(members: dict[str, list[str]]) -> str:
+    lines: list[str] = []
+    for tag, const_name in PRESET_TAG_TO_CONST.items():
+        lines.append(f"/// Tools tagged `{tag}` in tools.toml.")
+        lines.append(f"pub(in crate::tool_defs) const {const_name}: &[&str] = &[")
+        for name in members[tag]:
+            lines.append(f'    "{name}",')
+        lines.extend(["];", ""])
+    return "\n".join(lines)
 
 
 # ── Surface drift report + description lint ────────────────────────────
@@ -391,14 +432,14 @@ def enforce_failures(
 
 
 def collect_surface_state(
-    tools: list[dict[str, Any]],
+    data: dict[str, Any],
 ) -> tuple[dict[str, list[str]], list[str], list[str]]:
     """Live (report, lint_offenses, tombstone_hits) for the working tree."""
+    tools = data.get("tool", [])
     schema_names = {tool["name"] for tool in tools}
-    presets_src = PRESETS_RS.read_text()
     preset_members: set[str] = set()
-    for const_name in PRESET_TAG_TO_CONST.values():
-        preset_members |= extract_preset_const(const_name, presets_src)
+    for names in collect_preset_members(data).values():
+        preset_members |= set(names)
     dispatch = collect_dispatch_names()
     report = three_way_report(
         dispatch,
@@ -415,60 +456,11 @@ def collect_surface_state(
         if name in schema_names:
             tombstone_hits.append(f"tombstoned tool `{name}` re-introduced in tools.toml")
         if name in preset_members:
-            tombstone_hits.append(f"tombstoned tool `{name}` re-introduced in presets.rs")
+            tombstone_hits.append(
+                f"tombstoned tool `{name}` re-introduced in a preset membership"
+            )
     return report, lint_offenses, tombstone_hits
 
-
-
-def validate_preset_tags(tools: list[dict[str, Any]]) -> list[str]:
-    """Return human-readable mismatch lines between preset_tags and presets.rs.
-
-    Inverts `[[tool]].preset_tags` into one set per preset tag. The Rust
-    side holds the same data as five `pub(crate) const <NAME>: &[&str]`
-    arrays in `tool_defs/presets.rs`. The two must agree **for tools
-    that exist in tools.toml**. Members listed in presets.rs but absent
-    from tools.toml ("orphans" — dead members `tools()` cannot surface)
-    are reported by `surface_drift_warnings` as `preset_dead`.
-    """
-    src = PRESETS_RS.read_text()
-    tools_in_toml = {tool["name"] for tool in tools}
-
-    inverse: dict[str, set[str]] = {tag: set() for tag in PRESET_TAG_TO_CONST}
-    for tool in tools:
-        for tag in tool.get("preset_tags", []) or []:
-            if tag in inverse:
-                inverse[tag].add(tool["name"])
-
-    mismatches: list[str] = []
-
-    for tag, const_name in PRESET_TAG_TO_CONST.items():
-        toml_set = inverse.get(tag, set())
-        rs_set = extract_preset_const(const_name, src)
-        rs_in_toml = rs_set & tools_in_toml
-        only_toml = toml_set - rs_in_toml
-        only_rs = rs_in_toml - toml_set
-        if only_toml:
-            mismatches.append(
-                f"{const_name}: in tools.toml preset_tags but not in "
-                f"presets.rs: {sorted(only_toml)}"
-            )
-        if only_rs:
-            mismatches.append(
-                f"{const_name}: in presets.rs but missing from "
-                f"tools.toml preset_tags: {sorted(only_rs)}"
-            )
-
-    unknown_tags: set[str] = set()
-    for tool in tools:
-        for tag in tool.get("preset_tags", []) or []:
-            if tag not in PRESET_TAG_TO_CONST:
-                unknown_tags.add(tag)
-    if unknown_tags:
-        mismatches.append(
-            f"unknown preset_tags values (not in PRESET_TAG_TO_CONST): "
-            f"{sorted(unknown_tags)}"
-        )
-    return mismatches
 
 
 def render() -> str:
@@ -713,6 +705,7 @@ def render_metadata() -> str:
     parts.append(render_option_match("tool_namespace", namespaces))
     parts.append(render_option_match("tool_annotation_key", annotations))
     parts.append(render_execution_policy_match(execution_policies))
+    parts.append(render_preset_members(collect_preset_members(data)))
     return "\n".join(parts).rstrip() + "\n"
 
 
@@ -730,25 +723,8 @@ def main() -> int:
 
     with TOOLS_TOML.open("rb") as f:
         toml_data = tomllib.load(f)
-    preset_mismatches = validate_preset_tags(toml_data.get("tool", []))
-    if preset_mismatches:
-        print(
-            "preset_tags drift between tools.toml and "
-            "crates/codelens-mcp/src/tool_defs/presets.rs:",
-            file=sys.stderr,
-        )
-        for line in preset_mismatches:
-            print(f"  - {line}", file=sys.stderr)
-        print(
-            "edit tools.toml preset_tags or presets.rs constants so they "
-            "agree, then re-run.",
-            file=sys.stderr,
-        )
-        return 1
 
-    report, lint_offenses, tombstone_hits = collect_surface_state(
-        toml_data.get("tool", [])
-    )
+    report, lint_offenses, tombstone_hits = collect_surface_state(toml_data)
     blocking = enforce_failures(report, lint_offenses, tombstone_hits)
     info_lines = list(blocking)
     if report["allowlisted_dispatch_only"]:

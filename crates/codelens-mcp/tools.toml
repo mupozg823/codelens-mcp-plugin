@@ -102,6 +102,14 @@ symbol_generation_consistent_tools = [
 secondary-projects = ["add_queryable_project", "remove_queryable_project", "query_project", "list_queryable_projects"]
 orchestration = ["orchestrate_change"]
 
+# Surface members that have no [[tool]] entry: the pending-D3 symbolic edit
+# core is callable on builder surfaces but schemaless until ADR-0009/D3
+# decides re-listing (#346). `preset_tags` below is the membership source for
+# everything else; regen-tool-defs.py rejects any name here that has a
+# [[tool]] entry or sits outside the pending-D3 allowlist.
+[dispatch_only_preset_members]
+builder-minimal = ["rename_symbol", "replace_symbol_body", "insert_before_symbol", "insert_after_symbol"]
+
 # ── File I/O ─────────────────────────────────────────────────────────
 
 [[tool]]
