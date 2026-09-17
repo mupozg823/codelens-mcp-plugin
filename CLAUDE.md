@@ -17,7 +17,7 @@ Re-sync it from that command after a CodeLens upgrade; never edit inside the mar
      `python3 scripts/regen-tool-defs.py --write` regenerates `src/tool_defs/generated/`. CI fails on drift.
   2. **Surfaces gate visibility.** A tool registered, dispatched and implemented is still absent from
      `tools/list` unless its `preset_tags` in `tools.toml` put it on a preset/profile (generated into
-     `src/tool_defs/presets.rs`; never hand-edit membership there). The always-loaded
+     `src/tool_defs/generated/`, re-exported by `presets.rs`; never hand-edit membership). The always-loaded
      (`anthropic/alwaysLoad`) set is exactly ADR-0016's `CORE_10_TOOLS`; everything else is searchable.
   3. **Generated doc blocks round-trip.** `scripts/surface-manifest.py` owns the `SURFACE_MANIFEST_*`
      markers; `codelens-mcp attach` owns `CODELENS_HOST_ROUTING`. Do not hand-edit inside either.

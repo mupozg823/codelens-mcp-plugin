@@ -263,7 +263,7 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = super::generated::BALANCED_EXCLUDE
 /// and `semantic_search` + `index_embeddings` so a planner without an
 /// on-disk embedding index can remediate directly (Phase 4a). The call-graph
 /// hint targets `get_callers`/`get_callees` resolve through hidden-alias
-/// callability (`dispatch/access.rs::is_tool_registered`) instead of a listed
+/// callability (`dispatch/access.rs::is_registered_tool`) instead of a listed
 /// slot (ADR-0016).
 pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = super::generated::PLANNER_READONLY_TOOLS;
 
@@ -343,7 +343,7 @@ pub(crate) fn is_tool_in_surface(name: &str, surface: ToolSurface) -> bool {
 
 /// Listed-callable membership for a surface (surface listing ∪ deprecated-alias
 /// resolution). Since ADR-0016 decoupled runtime callability from listing
-/// (`dispatch/access.rs::is_tool_registered`), this predicate is no longer a
+/// (`dispatch/access.rs::is_registered_tool`), this predicate is no longer a
 /// runtime gate — it survives only as a doc/overlay-integrity invariant helper
 /// (host-adapter overlay tests assert overlays reference listed tools), so it
 /// is test-only.
@@ -820,7 +820,7 @@ mod deprecation_tests {
     /// `cross_file_callers_hint` → `get_callers`. The hint no longer dead-ends
     /// on read surfaces because the targets resolve through *callability*, not
     /// listing: get_callers/get_callees are registered in tools.toml, so
-    /// `dispatch/access.rs::is_tool_registered` keeps them dispatchable as
+    /// `dispatch/access.rs::is_registered_tool` keeps them dispatchable as
     /// hidden aliases even on planner-readonly / reviewer-graph, which no longer
     /// spend a listed slot on them. builder-minimal still lists them outright.
     #[test]

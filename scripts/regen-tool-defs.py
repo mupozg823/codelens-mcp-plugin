@@ -200,6 +200,10 @@ def collect_preset_members(data: dict[str, Any]) -> dict[str, list[str]]:
     for tool in tools:
         for tag in tool.get("preset_tags", []) or []:
             if tag in members:
+                if tool["name"] in members[tag]:
+                    raise SystemExit(
+                        f"{tool['name']}: preset tag `{tag}` listed twice"
+                    )
                 members[tag].append(tool["name"])
             else:
                 unknown_tags.add(tag)

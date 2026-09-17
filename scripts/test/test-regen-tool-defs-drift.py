@@ -34,6 +34,7 @@ three_way_report = _MOD.three_way_report
 lint_description_crossrefs = _MOD.lint_description_crossrefs
 collect_dispatch_names = _MOD.collect_dispatch_names
 collect_default_listed_tools = _MOD.collect_default_listed_tools
+collect_preset_members = _MOD.collect_preset_members
 
 
 MATCH_ARM_FIXTURE = """
@@ -267,6 +268,56 @@ def test_default_visible_rank_rejects_overwide_surface() -> None:
     raise AssertionError("overwide default visible surface should fail")
 
 
+def _expect_preset_members_failure(data: dict, fragment: str) -> None:
+    try:
+        collect_preset_members(data)
+    except SystemExit as exc:
+        assert fragment in str(exc), str(exc)
+        return
+    raise AssertionError(f"collect_preset_members should fail with {fragment!r}")
+
+
+def test_preset_members_follow_toml_order_then_dispatch_only() -> None:
+    data = {
+        "tool": [
+            {"name": "b_tool", "preset_tags": ["builder-minimal", "minimal"]},
+            {"name": "a_tool", "preset_tags": ["builder-minimal"]},
+            {"name": "untagged"},
+        ],
+        "dispatch_only_preset_members": {"builder-minimal": ["rename_symbol"]},
+    }
+    members = collect_preset_members(data)
+    assert members["builder-minimal"] == ["b_tool", "a_tool", "rename_symbol"], members
+    assert members["minimal"] == ["b_tool"], members
+    assert members["reviewer-graph"] == [], members
+
+
+def test_preset_members_reject_bad_input() -> None:
+    _expect_preset_members_failure(
+        {"tool": [{"name": "t", "preset_tags": ["no-such-surface"]}]},
+        "unknown preset_tags",
+    )
+    _expect_preset_members_failure(
+        {"tool": [{"name": "t", "preset_tags": ["minimal", "minimal"]}]},
+        "listed twice",
+    )
+    _expect_preset_members_failure(
+        {
+            "tool": [{"name": "rename_symbol"}],
+            "dispatch_only_preset_members": {"builder-minimal": ["rename_symbol"]},
+        },
+        "has a [[tool]] entry",
+    )
+    _expect_preset_members_failure(
+        {"tool": [], "dispatch_only_preset_members": {"builder-minimal": ["read_file"]}},
+        "dispatch-only allowlist",
+    )
+    _expect_preset_members_failure(
+        {"tool": [], "dispatch_only_preset_members": {"nope": ["rename_symbol"]}},
+        "unknown preset tag",
+    )
+
+
 def main() -> int:
     failures: list[str] = []
     tests = [
@@ -284,6 +335,8 @@ def main() -> int:
         test_default_visible_rank_orders_default_surface,
         test_default_visible_rank_rejects_duplicate_rank,
         test_default_visible_rank_rejects_overwide_surface,
+        test_preset_members_follow_toml_order_then_dispatch_only,
+        test_preset_members_reject_bad_input,
     ]
     for t in tests:
         try:
