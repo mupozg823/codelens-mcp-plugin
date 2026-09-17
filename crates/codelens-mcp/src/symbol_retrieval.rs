@@ -291,18 +291,25 @@ fn tokenize_fields(doc: &SymbolDocument) -> FieldTokens {
     }
 }
 
-/// Symbol-aware tokenizer: emits both the compound identifier
-/// (`mutation_gate`) AND its underscore-split parts (`mutation`,
-/// `gate`). This makes `"mutation gate"` and `"mutation_gate"` both
-/// match the same symbol without query rewriting. Non-alphanumeric
-/// characters split tokens; underscores remain token-internal for the
-/// compound but also mark split boundaries for the atomic parts.
+/// Symbol-aware tokenizer: emits both the lowercased compound identifier
+/// (`mutation_gate`, `sparsesymbolindex`) AND its word parts split at `_`
+/// and camelCase boundaries (`mutation`, `gate`; `sparse`, `symbol`,
+/// `index`). This makes `"mutation gate"`, `"mutation_gate"` and
+/// `"MutationGate"` all match the same symbol without query rewriting.
+/// Non-alphanumeric characters split tokens. Casing is read before
+/// lowercasing — lowercasing first would erase the camelCase boundaries,
+/// which left PascalCase and camelCase names as single opaque tokens.
+///
+/// This lane only. The SQLite `symbols_fts` table still tokenizes with
+/// `unicode61 … separators _` (snake_case split, camelCase whole), and
+/// `codelens_engine::symbols::sparse_query_tokens` splits on
+/// non-alphanumerics for the ranked-context coverage bonus.
 fn tokenize(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();
     for ch in text.chars() {
         if ch.is_alphanumeric() || ch == '_' {
-            current.push(ch.to_ascii_lowercase());
+            current.push(ch);
         } else if !current.is_empty() {
             emit_compound_and_parts(&current, &mut out);
             current.clear();
@@ -316,12 +323,14 @@ fn tokenize(text: &str) -> Vec<String> {
 
 fn emit_compound_and_parts(compound: &str, out: &mut Vec<String>) {
     if compound.len() >= MIN_TOKEN_LEN {
-        out.push(compound.to_owned());
+        out.push(compound.to_lowercase());
     }
-    if compound.contains('_') {
-        for part in compound.split('_') {
+    let parts = codelens_engine::unicode::identifier_words(compound);
+    // `__init__` has one word but still yields `init`, as before camel splitting.
+    if parts.len() > 1 || compound.contains('_') {
+        for part in parts {
             if part.len() >= MIN_TOKEN_LEN {
-                out.push(part.to_owned());
+                out.push(part.to_lowercase());
             }
         }
     }
@@ -414,6 +423,52 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].document.name, "evaluate_mutation_gate");
         assert!(results[0].score > results[1].score);
+    }
+
+    #[test]
+    fn camel_case_names_match_their_words() {
+        let corpus = vec![
+            doc(
+                "SparseSymbolIndex",
+                "SparseSymbolIndex",
+                "pub struct SparseSymbolIndex",
+                "src/symbol_retrieval.rs",
+                "symbol_retrieval",
+                "",
+                false,
+                false,
+                true,
+            ),
+            doc(
+                "unrelated",
+                "misc::unrelated",
+                "fn unrelated()",
+                "src/misc.rs",
+                "misc",
+                "",
+                false,
+                false,
+                true,
+            ),
+        ];
+        for query in [
+            "sparse symbol index",
+            "symbol_index",
+            "SymbolIndex",
+            "sparseSymbolIndex",
+        ] {
+            let results = search_symbols_bm25f(&corpus, query, 3, false, false);
+            assert_eq!(
+                results.first().map(|hit| hit.document.name.as_str()),
+                Some("SparseSymbolIndex"),
+                "query {query:?} must reach the PascalCase name through its words"
+            );
+        }
+        assert_eq!(
+            tokenize("getHTTPResponse"),
+            ["gethttpresponse", "get", "http", "response"]
+        );
+        assert_eq!(tokenize("__init__"), ["__init__", "init"]);
     }
 
     #[test]

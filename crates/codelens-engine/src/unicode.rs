@@ -25,10 +25,73 @@ pub fn nfc_identifier(name: &str) -> Cow<'_, str> {
     }
 }
 
+/// Split an identifier into its words at `_` and camelCase boundaries,
+/// keeping the source casing: `parseSymbols` → `parse`, `Symbols`;
+/// `HTTPServer` → `HTTP`, `Server`; `build_non_code_ranges` → `build`,
+/// `non`, `code`, `ranges`. An uppercase letter starts a new word when the
+/// letter before it is lowercase or the letter after it is, so acronyms stay
+/// whole. This is the one boundary rule shared by the BM25F tokenizer, query
+/// expansion and the embedding prompt.
+pub fn identifier_words(name: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut prev: Option<char> = None;
+    let mut chars = name.char_indices().peekable();
+    while let Some((offset, ch)) = chars.next() {
+        if ch == '_' {
+            if let Some(word_start) = start.take() {
+                words.push(&name[word_start..offset]);
+            }
+            prev = None;
+            continue;
+        }
+        match start {
+            None => start = Some(offset),
+            Some(word_start) => {
+                let next_is_lowercase = chars.peek().is_some_and(|&(_, next)| next.is_lowercase());
+                if ch.is_uppercase() && (prev.is_some_and(char::is_lowercase) || next_is_lowercase)
+                {
+                    words.push(&name[word_start..offset]);
+                    start = Some(offset);
+                }
+            }
+        }
+        prev = Some(ch);
+    }
+    if let Some(word_start) = start {
+        words.push(&name[word_start..]);
+    }
+    words
+}
+
 #[cfg(test)]
 mod tests {
-    use super::nfc_identifier;
+    use super::{identifier_words, nfc_identifier};
     use std::borrow::Cow;
+
+    #[test]
+    fn identifier_words_split_camel_snake_and_acronyms() {
+        assert_eq!(identifier_words("parseSymbols"), ["parse", "Symbols"]);
+        assert_eq!(
+            identifier_words("SparseSymbolIndex"),
+            ["Sparse", "Symbol", "Index"]
+        );
+        assert_eq!(identifier_words("HTTPServer"), ["HTTP", "Server"]);
+        assert_eq!(
+            identifier_words("getHTTPResponse"),
+            ["get", "HTTP", "Response"]
+        );
+        assert_eq!(
+            identifier_words("build_non_code_ranges"),
+            ["build", "non", "code", "ranges"]
+        );
+        assert_eq!(identifier_words("__init__"), ["init"]);
+        assert_eq!(identifier_words("MAX_RESULTS"), ["MAX", "RESULTS"]);
+        assert_eq!(identifier_words("utf8Decode"), ["utf8", "Decode"]);
+        assert_eq!(identifier_words("후원금_정산"), ["후원금", "정산"]);
+        assert!(identifier_words("").is_empty());
+        assert!(identifier_words("___").is_empty());
+    }
 
     #[test]
     fn ascii_borrows() {

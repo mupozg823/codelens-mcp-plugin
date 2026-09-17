@@ -76,6 +76,14 @@ fn semantic_query_splits_camel_case_identifiers() {
     assert!(semantic.contains("dispatch tool request"));
 }
 
+#[test]
+fn semantic_query_keeps_acronyms_whole() {
+    // The pre-2026-09-17 splitter read case after lowercasing and produced
+    // "get h t t p response".
+    let semantic = semantic_query_for_retrieval("getHTTPResponse");
+    assert!(semantic.contains("get http response"), "{semantic}");
+}
+
 #[cfg(feature = "semantic")]
 #[test]
 fn embedding_search_query_frames_natural_language_with_code_prefix() {

@@ -99,34 +99,13 @@ fn split_identifier_terms(query: &str) -> Option<String> {
         return None;
     }
 
-    let mut split = String::with_capacity(trimmed.len() + 4);
-    let mut last_emitted_is_lowercase = false;
-    let mut in_segment = false;
-    let mut iter = trimmed.chars().peekable();
-
-    while let Some(ch) = iter.next() {
-        if ch == '_' || ch == '-' {
-            if !split.is_empty() && !split.ends_with(' ') {
-                split.push(' ');
-            }
-            in_segment = false;
-            last_emitted_is_lowercase = false;
-            continue;
-        }
-
-        let next_is_lowercase = iter.peek().map(|c| c.is_lowercase()).unwrap_or(false);
-        if ch.is_uppercase() && in_segment && (last_emitted_is_lowercase || next_is_lowercase) {
-            split.push(' ');
-        }
-
-        for lowered in ch.to_lowercase() {
-            split.push(lowered);
-            last_emitted_is_lowercase = lowered.is_lowercase();
-        }
-        in_segment = true;
-    }
-
-    split.contains(' ').then_some(split)
+    // Same boundary rule as the BM25F tokenizer and the embedding prompt.
+    let words: Vec<String> = trimmed
+        .split('-')
+        .flat_map(codelens_engine::unicode::identifier_words)
+        .map(str::to_lowercase)
+        .collect();
+    (words.len() > 1).then(|| words.join(" "))
 }
 
 fn semantic_identifier_query(alias: &str) -> String {

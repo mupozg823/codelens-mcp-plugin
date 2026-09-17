@@ -40,35 +40,7 @@ pub fn split_identifier(name: &str) -> String {
     if !name.contains('_') && !name.chars().any(|c| c.is_uppercase()) {
         return name.to_string();
     }
-    let mut words = Vec::new();
-    let mut current = String::new();
-    let chars: Vec<char> = name.chars().collect();
-    for (i, &ch) in chars.iter().enumerate() {
-        if ch == '_' {
-            if !current.is_empty() {
-                words.push(current.clone());
-                current.clear();
-            }
-        } else if ch.is_uppercase()
-            && !current.is_empty()
-            && (current
-                .chars()
-                .last()
-                .map(|c| c.is_lowercase())
-                .unwrap_or(false)
-                || chars.get(i + 1).map(|c| c.is_lowercase()).unwrap_or(false))
-        {
-            // Split at CamelCase boundary, but not for ALL_CAPS
-            words.push(current.clone());
-            current.clear();
-            current.push(ch);
-        } else {
-            current.push(ch);
-        }
-    }
-    if !current.is_empty() {
-        words.push(current);
-    }
+    let words = crate::unicode::identifier_words(name);
     if words.len() <= 1 {
         return name.to_string(); // No meaningful split
     }
