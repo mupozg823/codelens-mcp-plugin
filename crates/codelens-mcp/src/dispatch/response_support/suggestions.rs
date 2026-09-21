@@ -1,5 +1,96 @@
-use crate::protocol::SuggestedNextCall;
+use crate::protocol::{SuggestedNextCall, ToolCallResponse};
 use serde_json::{Value, json};
+use std::collections::HashSet;
+
+/// Restrict response-level follow-up metadata to an explicitly observed host
+/// MCP inventory.
+///
+/// An omitted inventory keeps the historical suggestion behavior. An explicit
+/// array, including an empty array, is authoritative for the current host: only
+/// names advertised by the host survive, and foreign `mcp__<server>__` names
+/// never become CodeLens suggestions by accident. The helper also cleans up
+/// pre-existing calls/reasons so the three response fields remain a consistent
+/// set for clients that consume one channel without the others.
+pub(crate) fn filter_host_suggestions(response: &mut ToolCallResponse, arguments: &Value) {
+    let Some(available_tools) = normalized_host_tool_inventory(arguments) else {
+        return;
+    };
+
+    let Some(suggestions) = response.suggested_next_tools.take() else {
+        response.suggested_next_calls = None;
+        response.suggestion_reasons = None;
+        return;
+    };
+    let suggestions = suggestions
+        .into_iter()
+        .filter(|tool| available_tools.contains(tool))
+        .collect::<Vec<_>>();
+    if suggestions.is_empty() {
+        response.suggested_next_tools = None;
+        response.suggested_next_calls = None;
+        response.suggestion_reasons = None;
+        return;
+    }
+
+    let suggestion_names = suggestions.iter().cloned().collect::<HashSet<_>>();
+    response.suggested_next_tools = Some(suggestions);
+    response.suggested_next_calls = response.suggested_next_calls.take().and_then(|calls| {
+        let calls = calls
+            .into_iter()
+            .filter(|call| {
+                available_tools.contains(&call.tool) && suggestion_names.contains(&call.tool)
+            })
+            .collect::<Vec<_>>();
+        (!calls.is_empty()).then_some(calls)
+    });
+    response.suggestion_reasons = response.suggestion_reasons.take().and_then(|reasons| {
+        let reasons = reasons
+            .into_iter()
+            .filter(|(tool, _)| available_tools.contains(tool) && suggestion_names.contains(tool))
+            .collect::<std::collections::HashMap<_, _>>();
+        (!reasons.is_empty()).then_some(reasons)
+    });
+}
+
+/// Return the host's canonical CodeLens tool names when an inventory was
+/// explicitly observed. Current session metadata cannot distinguish an omitted
+/// inventory from an empty one, so only non-empty legacy session arrays narrow
+/// suggestions. An explicit request array, including empty, takes precedence.
+fn normalized_host_tool_inventory(arguments: &Value) -> Option<HashSet<String>> {
+    let direct_inventory = arguments
+        .get("available_mcp_tools")
+        .filter(|value| value.is_array());
+    let session_inventory = arguments
+        .get("_session_available_mcp_tools")
+        .filter(|value| value.is_array());
+
+    let inventory = direct_inventory.or_else(|| {
+        session_inventory.filter(|value| value.as_array().is_some_and(|items| !items.is_empty()))
+    });
+    inventory.map(normalize_host_tool_array)
+}
+
+fn normalize_host_tool_array(value: &Value) -> HashSet<String> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|tool| {
+            let trimmed = tool.trim();
+            if trimmed.is_empty()
+                || (trimmed.starts_with("mcp__") && !trimmed.starts_with("mcp__codelens__"))
+            {
+                return None;
+            }
+            let canonical = trimmed
+                .strip_prefix("mcp__codelens__")
+                .unwrap_or(trimmed)
+                .trim();
+            crate::tool_defs::tool_definition(canonical).map(|_| canonical.to_owned())
+        })
+        .collect()
+}
 
 /// Build the additive `suggested_next_calls` list for the current response.
 ///
@@ -209,4 +300,93 @@ pub(crate) fn build_suggested_next_calls(
         }
     }
     calls
+}
+
+#[cfg(test)]
+mod host_inventory_tests {
+    use super::*;
+
+    fn response_with_suggestions() -> ToolCallResponse {
+        let mut response = ToolCallResponse::error("test");
+        response.suggested_next_tools = Some(vec!["search".to_owned(), "review".to_owned()]);
+        response.suggested_next_calls = Some(vec![SuggestedNextCall {
+            tool: "search".to_owned(),
+            arguments: json!({}),
+            reason: "search".to_owned(),
+        }]);
+        response.suggestion_reasons = Some(
+            [("search".to_owned(), "search".to_owned())]
+                .into_iter()
+                .collect(),
+        );
+        response
+    }
+
+    #[test]
+    fn host_inventory_keeps_codelens_facades_and_ignores_foreign_servers() {
+        let mut response = response_with_suggestions();
+
+        filter_host_suggestions(
+            &mut response,
+            &json!({
+                "available_mcp_tools": [
+                    " mcp__codelens__search ",
+                    "mcp__github__review",
+                    "search"
+                ]
+            }),
+        );
+
+        assert_eq!(
+            response.suggested_next_tools,
+            Some(vec!["search".to_owned()])
+        );
+        assert_eq!(
+            response.suggested_next_calls.as_ref().map(|calls| calls
+                .iter()
+                .map(|call| call.tool.as_str())
+                .collect::<Vec<_>>()),
+            Some(vec!["search"])
+        );
+        assert_eq!(
+            response
+                .suggestion_reasons
+                .as_ref()
+                .map(|reasons| reasons.keys().map(String::as_str).collect::<Vec<_>>()),
+            Some(vec!["search"])
+        );
+    }
+
+    #[test]
+    fn host_inventory_preserves_payload_and_legacy_session_semantics() {
+        let mut response = response_with_suggestions();
+        response.data = Some(json!({
+            "warnings": [{"code": "partial_index_coverage"}],
+            "readiness": {"mutation_ready": "blocked"}
+        }));
+        let data = response.data.clone();
+        filter_host_suggestions(&mut response, &json!({"_session_available_mcp_tools": []}));
+        assert_eq!(response.suggested_next_tools.as_ref().unwrap().len(), 2);
+        filter_host_suggestions(
+            &mut response,
+            &json!({
+                "_session_available_mcp_tools": ["mcp__codelens__review"]
+            }),
+        );
+        assert_eq!(
+            response.suggested_next_tools,
+            Some(vec!["review".to_owned()])
+        );
+        filter_host_suggestions(
+            &mut response,
+            &json!({
+                "available_mcp_tools": [],
+                "_session_available_mcp_tools": ["mcp__codelens__review"]
+            }),
+        );
+        assert!(response.suggested_next_tools.is_none());
+        assert!(response.suggested_next_calls.is_none());
+        assert!(response.suggestion_reasons.is_none());
+        assert_eq!(response.data, data);
+    }
 }

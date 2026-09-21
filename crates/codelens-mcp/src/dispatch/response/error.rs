@@ -1,5 +1,5 @@
 use crate::AppState;
-use crate::dispatch::response_support::text_payload_for_response;
+use crate::dispatch::response_support::{filter_host_suggestions, text_payload_for_response};
 use crate::error::CodeLensError;
 use crate::mutation_gate::MutationGateFailure;
 use crate::operation::ResolvedOperation;
@@ -100,6 +100,7 @@ pub(crate) fn build_error_response<'a>(
         resp.suggested_next_calls = None;
         resp.suggestion_reasons = None;
     }
+    filter_host_suggestions(&mut resp, arguments);
     let suggested_next_tools = resp.suggested_next_tools.as_deref().unwrap_or(&[]);
     let handoff_id = arguments.get("handoff_id").and_then(|value| value.as_str());
     state.metrics().record_event(ToolCallEvent {
@@ -178,5 +179,57 @@ mod tests {
         assert_eq!(invocation.work_class, OperationWorkClass::Primitive);
         assert_eq!(invocation.downstream_call_count, 0);
         assert!(!invocation.success);
+    }
+
+    #[test]
+    fn explicit_host_inventory_filters_gate_recovery_suggestions() {
+        let project = crate::tests::project_root();
+        let state = crate::tests::make_state(&project);
+        let arguments = json!({
+            "available_mcp_tools": ["mcp__codelens__get_analysis_section"]
+        });
+
+        let response = build_error_response(
+            "rename_symbol",
+            CodeLensError::Validation("blocked before mutation".to_owned()),
+            Some(MutationGateFailure {
+                message: "missing preflight".to_owned(),
+                kind: crate::mutation_gate::MutationFailureKind::MissingPreflight,
+                analysis_id: None,
+                suggested_next_tools: vec![
+                    "verify_change_readiness".to_owned(),
+                    "get_analysis_section".to_owned(),
+                ],
+                budget_hint: "run preflight".to_owned(),
+            }),
+            &arguments,
+            "preset:full",
+            "host-inventory-error",
+            &state,
+            std::time::Instant::now(),
+            Some(json!(1)),
+            0,
+            false,
+            None,
+        );
+
+        let value = serde_json::to_value(response).expect("serialize error response");
+        let payload: serde_json::Value = serde_json::from_str(
+            value["result"]["content"][0]["text"]
+                .as_str()
+                .expect("text content present"),
+        )
+        .expect("text payload is valid JSON");
+        assert_eq!(
+            payload["suggested_next_tools"],
+            json!(["get_analysis_section"])
+        );
+        assert_eq!(
+            payload["suggestion_reasons"]
+                .as_object()
+                .map(|reasons| reasons.len()),
+            Some(1)
+        );
+        assert!(payload.get("suggested_next_calls").is_none());
     }
 }

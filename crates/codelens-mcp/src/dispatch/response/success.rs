@@ -10,8 +10,9 @@ use serde_json::Value;
 use crate::dispatch::response_support::{
     apply_contextual_guidance, attach_index_freshness, bounded_result_payload, budget_hint,
     build_suggested_next_calls, compact_response_payload, effective_budget_for_tool,
-    max_result_size_chars_for_tool, record_verifier_preflight, routing_hint_for_payload,
-    success_jsonrpc_response, text_payload_for_response, trim_scaffold_for_lean,
+    filter_host_suggestions, max_result_size_chars_for_tool, record_verifier_preflight,
+    routing_hint_for_payload, success_jsonrpc_response, text_payload_for_response,
+    trim_scaffold_for_lean,
 };
 
 pub(crate) struct SuccessResponseInput<'a> {
@@ -181,6 +182,14 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         resp.suggested_next_tools = None;
         resp.suggested_next_calls = None;
         resp.suggestion_reasons = None;
+        emitted_composite_guidance = false;
+    }
+
+    // An explicitly observed host inventory narrows server-side follow-up
+    // metadata to the tools this host can actually invoke. Omitted inventories
+    // preserve the legacy suggestion contract for older clients.
+    filter_host_suggestions(&mut resp, arguments);
+    if resp.suggested_next_tools.is_none() {
         emitted_composite_guidance = false;
     }
 
@@ -384,6 +393,176 @@ mod no_schema_stage5_dispatch_tests {
             parsed.get("error").is_none(),
             "degrade-to-summary: no error key when a preview exists: {text}"
         );
+    }
+}
+
+#[cfg(test)]
+mod host_inventory_suggestion_tests {
+    use super::*;
+    use crate::protocol::BackendKind;
+    use crate::tool_defs::{ToolPreset, ToolSurface};
+    use crate::tool_runtime::success_meta;
+    use codelens_engine::ProjectRoot;
+    use serde_json::{Value, json};
+
+    fn temp_state() -> crate::AppState {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-host-inventory-suggestions-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".codelens")).unwrap();
+        std::fs::write(
+            dir.join(".codelens").join("principals.toml"),
+            "[default]\nrole = \"Refactor\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("hello.txt"), "hello world\n").unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        crate::AppState::new_minimal(project, ToolPreset::Full)
+    }
+
+    fn text_payload(name: &str, arguments: Value) -> Value {
+        let state = temp_state();
+        let response = build_success_response(SuccessResponseInput {
+            name,
+            payload: json!({"ok": true}),
+            meta: success_meta(BackendKind::TreeSitter, 0.9),
+            state: &state,
+            surface: ToolSurface::Preset(ToolPreset::Full),
+            active_surface: "full",
+            arguments: &arguments,
+            logical_session_id: "host-inventory-test",
+            recent_tools: Vec::new(),
+            gate_allowance: None,
+            compact: false,
+            lean: false,
+            harness_phase: None,
+            operation: ResolvedOperation::direct(name).dispatched(),
+            request_budget: 4000,
+            start: std::time::Instant::now(),
+            id: Some(json!(1)),
+            doom_loop_count: 0,
+            doom_loop_rapid: false,
+        });
+        let value = serde_json::to_value(response).expect("serialize response");
+        serde_json::from_str(
+            value["result"]["content"][0]["text"]
+                .as_str()
+                .expect("text content present"),
+        )
+        .expect("text payload is valid JSON")
+    }
+
+    #[test]
+    fn restricted_host_inventory_filters_suggestions_calls_and_reasons() {
+        let payload = text_payload(
+            "review_changes",
+            json!({
+                "path": "hello.txt",
+                "changed_files": ["hello.txt"],
+                "available_mcp_tools": [
+                    " mcp__codelens__impact_report ",
+                    "mcp__foreign__diagnose_issues"
+                ]
+            }),
+        );
+
+        assert_eq!(
+            payload["suggested_next_tools"],
+            json!(["impact_report"]),
+            "only the host-advertised CodeLens tool may be suggested: {payload}"
+        );
+        assert_eq!(
+            payload["suggestion_reasons"],
+            json!({"impact_report": "Assess blast radius of the changes"}),
+            "reasons must be recomputed after filtering: {payload}"
+        );
+        assert_eq!(
+            payload["suggested_next_calls"][0]["tool"],
+            json!("impact_report"),
+            "concrete calls must not retain unavailable suggestions: {payload}"
+        );
+        assert_eq!(
+            payload["suggested_next_calls"].as_array().unwrap().len(),
+            1,
+            "foreign and unavailable calls must be removed: {payload}"
+        );
+    }
+
+    #[test]
+    fn explicit_empty_host_inventory_suppresses_all_suggestion_metadata() {
+        let payload = text_payload(
+            "prepare_harness_session",
+            json!({"available_mcp_tools": []}),
+        );
+
+        for key in [
+            "suggested_next_tools",
+            "suggestion_reasons",
+            "suggested_next_calls",
+        ] {
+            assert!(
+                payload.get(key).is_none(),
+                "explicit empty inventory must suppress {key}: {payload}"
+            );
+        }
+    }
+
+    #[test]
+    fn omitted_host_inventory_preserves_legacy_suggestions() {
+        let payload = text_payload("prepare_harness_session", json!({}));
+
+        assert_eq!(
+            payload["suggested_next_tools"],
+            json!([
+                "get_current_config",
+                "get_capabilities",
+                "get_ranked_context"
+            ]),
+            "omitted inventory keeps legacy routing behavior: {payload}"
+        );
+    }
+
+    #[test]
+    fn host_inventory_payload_is_smaller_without_losing_result_data() {
+        for (label, name, arguments) in [
+            (
+                "empty",
+                "prepare_harness_session",
+                json!({"available_mcp_tools": []}),
+            ),
+            (
+                "restricted",
+                "review_changes",
+                json!({
+                    "path": "hello.txt", "changed_files": ["hello.txt"],
+                    "available_mcp_tools": ["mcp__codelens__impact_report"]
+                }),
+            ),
+        ] {
+            let mut legacy_arguments = arguments.clone();
+            legacy_arguments
+                .as_object_mut()
+                .unwrap()
+                .remove("available_mcp_tools");
+            let before = text_payload(name, legacy_arguments);
+            let after = text_payload(name, arguments);
+            assert_eq!(before["data"], after["data"]);
+            assert_eq!(before["success"], after["success"]);
+            assert!(
+                serde_json::to_vec(&after).unwrap().len()
+                    < serde_json::to_vec(&before).unwrap().len()
+            );
+            eprintln!(
+                "CONTEXT_PAYLOAD {}",
+                json!({"case": label,
+                "before": before, "after": after})
+            );
+        }
     }
 }
 

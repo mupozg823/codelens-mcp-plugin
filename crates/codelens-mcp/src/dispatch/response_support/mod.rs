@@ -14,6 +14,6 @@ pub(crate) use freshness::should_attach_index_freshness;
 pub(crate) use payload_compact::{compact_response_payload, trim_scaffold_for_lean};
 pub(crate) use routing_hint::{apply_contextual_guidance, routing_hint_for_payload};
 pub(crate) use success_signals::{attach_index_freshness, record_verifier_preflight};
-pub(crate) use suggestions::build_suggested_next_calls;
+pub(crate) use suggestions::{build_suggested_next_calls, filter_host_suggestions};
 pub(crate) use text_channel::text_payload_for_response;
 pub(crate) use truncation::bounded_result_payload;
