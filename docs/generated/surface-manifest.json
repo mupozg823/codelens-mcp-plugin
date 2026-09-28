@@ -275,7 +275,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 984
+        "estimated_tokens": 1004
       },
       {
         "name": "get_file_diagnostics",
@@ -345,7 +345,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 550
+        "estimated_tokens": 584
       },
       {
         "name": "find_implementations",
@@ -359,7 +359,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 559
+        "estimated_tokens": 593
       },
       {
         "name": "get_diagnostics_for_symbol",
