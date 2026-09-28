@@ -11,8 +11,8 @@ use crate::dispatch::response_support::{
     apply_contextual_guidance, attach_index_freshness, bounded_result_payload, budget_hint,
     build_suggested_next_calls, compact_response_payload, effective_budget_for_tool,
     filter_host_suggestions, max_result_size_chars_for_tool, record_verifier_preflight,
-    routing_hint_for_payload, success_jsonrpc_response, text_payload_for_response,
-    trim_scaffold_for_lean,
+    retarget_suggestions_to_surface, routing_hint_for_payload, success_jsonrpc_response,
+    text_payload_for_response, trim_scaffold_for_lean,
 };
 
 pub(crate) struct SuccessResponseInput<'a> {
@@ -185,20 +185,21 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         emitted_composite_guidance = false;
     }
 
-    // An explicitly observed host inventory narrows server-side follow-up
-    // metadata to the tools this host can actually invoke. Omitted inventories
-    // preserve the legacy suggestion contract for older clients.
-    filter_host_suggestions(&mut resp, arguments);
-    if resp.suggested_next_tools.is_none() {
-        emitted_composite_guidance = false;
-    }
-
+    // Reasons and pre-filled calls are keyed by the fine-grained tool names,
+    // so build them first, then retarget onto the active surface, then narrow
+    // to an explicitly observed host inventory (omitted inventories preserve
+    // the legacy suggestion contract for older clients).
     if let Some(ref next_tools) = resp.suggested_next_tools {
         resp.suggestion_reasons = Some(tools::suggestion_reasons_for(next_tools, name));
         let calls = build_suggested_next_calls(name, arguments, next_tools, resp.data.as_ref());
         if !calls.is_empty() {
             resp.suggested_next_calls = Some(calls);
         }
+    }
+    retarget_suggestions_to_surface(&mut resp, surface);
+    filter_host_suggestions(&mut resp, arguments);
+    if resp.suggested_next_tools.is_none() {
+        emitted_composite_guidance = false;
     }
 
     if compact {

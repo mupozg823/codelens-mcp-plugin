@@ -34,10 +34,16 @@ fn primitive_verb_chain_emits_host_neutral_composite_guidance() {
 
     assert_eq!(payload["success"], json!(true));
     let suggested = payload["suggested_next_tools"].as_array();
+    // Guidance is retargeted onto the active surface: `cleanup_duplicate_logic`
+    // is builder-only, so on reviewer-graph the listed composites remain.
     assert!(
-        suggested
-            .is_some_and(|tools| { tools.iter().any(|tool| tool == "cleanup_duplicate_logic") }),
+        suggested.is_some_and(|tools| { tools.iter().any(|tool| tool == "review_architecture") }),
         "the third resolved primitive must emit composite recovery guidance: {payload}"
+    );
+    assert!(
+        !suggested
+            .is_some_and(|tools| { tools.iter().any(|tool| tool == "cleanup_duplicate_logic") }),
+        "a tool the surface does not list must not be suggested: {payload}"
     );
     assert!(
         !suggested

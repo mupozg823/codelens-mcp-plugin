@@ -149,6 +149,27 @@ pub(crate) fn resolve_verb_operation<'a>(
     Ok(Some((target, mode)))
 }
 
+/// The facade verb and mode that route to `tool`, if one does — the inverse
+/// of the verb tables. Used to point a suggestion at a listed facade when the
+/// fine-grained tool itself is not listed on the active surface.
+pub(crate) fn facade_for_tool(tool: &str) -> Option<(&'static str, &'static str)> {
+    [
+        ("search", SEARCH_MODES),
+        ("graph", GRAPH_MODES),
+        ("review", REVIEW_MODES),
+        ("overview", OVERVIEW_MODES),
+        ("diagnose", DIAGNOSE_MODES),
+        ("analyze", ANALYZE_MODES),
+    ]
+    .into_iter()
+    .find_map(|(verb, modes)| {
+        modes
+            .iter()
+            .find(|(_, target)| *target == tool)
+            .map(|(mode, _)| (verb, *mode))
+    })
+}
+
 fn modes_for_verb(verb: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match verb {
         "search" => Some(SEARCH_MODES),

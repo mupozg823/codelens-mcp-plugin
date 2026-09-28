@@ -11,6 +11,75 @@ use std::collections::HashSet;
 /// never become CodeLens suggestions by accident. The helper also cleans up
 /// pre-existing calls/reasons so the three response fields remain a consistent
 /// set for clients that consume one channel without the others.
+/// Point every suggestion at something the model can actually call on the
+/// active surface: deprecated tools are dropped, a fine-grained tool that is
+/// not listed becomes its listed facade (`get_ranked_context` ->
+/// `search` + `mode: "ranked"`), and anything else is dropped. Before, 99% of
+/// suggestions went unfollowed — several named deprecated or unlisted tools
+/// the host never exposed (2026-09 telemetry).
+pub(crate) fn retarget_suggestions_to_surface(
+    response: &mut ToolCallResponse,
+    surface: crate::tool_defs::ToolSurface,
+) {
+    let Some(suggestions) = response.suggested_next_tools.take() else {
+        return;
+    };
+    // original name -> (listed name, facade mode)
+    let mut routes: std::collections::HashMap<String, (String, Option<&'static str>)> =
+        std::collections::HashMap::new();
+    let mut retargeted: Vec<String> = Vec::new();
+    for tool in suggestions {
+        if crate::tool_defs::tool_deprecation(&tool).is_some() {
+            continue;
+        }
+        let route = if crate::tool_defs::is_tool_in_surface(&tool, surface) {
+            Some((tool.clone(), None))
+        } else {
+            crate::tools::verbs::facade_for_tool(&tool)
+                .filter(|(verb, _)| crate::tool_defs::is_tool_in_surface(verb, surface))
+                .map(|(verb, mode)| (verb.to_owned(), Some(mode)))
+        };
+        let Some(route) = route else {
+            continue;
+        };
+        if !retargeted.contains(&route.0) {
+            retargeted.push(route.0.clone());
+        }
+        routes.insert(tool, route);
+    }
+    if retargeted.is_empty() {
+        response.suggested_next_calls = None;
+        response.suggestion_reasons = None;
+        return;
+    }
+    response.suggested_next_tools = Some(retargeted);
+    response.suggestion_reasons = response.suggestion_reasons.take().and_then(|reasons| {
+        let mut remapped = std::collections::HashMap::new();
+        for (tool, reason) in reasons {
+            if let Some((listed, _)) = routes.get(&tool) {
+                remapped.entry(listed.clone()).or_insert(reason);
+            }
+        }
+        (!remapped.is_empty()).then_some(remapped)
+    });
+    response.suggested_next_calls = response.suggested_next_calls.take().and_then(|calls| {
+        let calls = calls
+            .into_iter()
+            .filter_map(|mut call| {
+                let (listed, mode) = routes.get(&call.tool)?;
+                if let Some(mode) = mode {
+                    if let Some(arguments) = call.arguments.as_object_mut() {
+                        arguments.insert("mode".to_owned(), json!(mode));
+                    }
+                    call.tool = listed.clone();
+                }
+                Some(call)
+            })
+            .collect::<Vec<_>>();
+        (!calls.is_empty()).then_some(calls)
+    });
+}
+
 pub(crate) fn filter_host_suggestions(response: &mut ToolCallResponse, arguments: &Value) {
     let Some(available_tools) = normalized_host_tool_inventory(arguments) else {
         return;
@@ -388,5 +457,55 @@ mod host_inventory_tests {
         assert!(response.suggested_next_calls.is_none());
         assert!(response.suggestion_reasons.is_none());
         assert_eq!(response.data, data);
+    }
+}
+
+#[cfg(test)]
+mod surface_retarget_tests {
+    use super::*;
+    use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface, tool_deprecation};
+
+    #[test]
+    fn suggestions_are_retargeted_onto_callable_tools() {
+        let surface = ToolSurface::Profile(ToolProfile::ReviewerGraph);
+        // Preconditions that make this fixture meaningful.
+        assert!(tool_deprecation("orchestrate_change").is_some());
+        assert!(!is_tool_in_surface("bm25_symbol_search", surface));
+        assert!(is_tool_in_surface("search", surface));
+        assert!(is_tool_in_surface("review_changes", surface));
+
+        let mut response = ToolCallResponse::error("test");
+        response.suggested_next_tools = Some(vec![
+            "orchestrate_change".to_owned(),
+            "bm25_symbol_search".to_owned(),
+            "review_changes".to_owned(),
+            "not_a_registered_tool".to_owned(),
+        ]);
+        response.suggested_next_calls = Some(vec![SuggestedNextCall {
+            tool: "bm25_symbol_search".to_owned(),
+            arguments: json!({ "query": "q" }),
+            reason: "r".to_owned(),
+        }]);
+        response.suggestion_reasons = Some(
+            [
+                ("orchestrate_change".to_owned(), "deprecated".to_owned()),
+                ("bm25_symbol_search".to_owned(), "ranked".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        retarget_suggestions_to_surface(&mut response, surface);
+
+        assert_eq!(
+            response.suggested_next_tools,
+            Some(vec!["search".to_owned(), "review_changes".to_owned()])
+        );
+        let calls = response.suggested_next_calls.expect("calls");
+        assert_eq!(calls[0].tool, "search");
+        assert_eq!(calls[0].arguments, json!({ "query": "q", "mode": "bm25" }));
+        let reasons = response.suggestion_reasons.expect("reasons");
+        assert_eq!(reasons.get("search").map(String::as_str), Some("ranked"));
+        assert!(!reasons.contains_key("orchestrate_change"));
     }
 }

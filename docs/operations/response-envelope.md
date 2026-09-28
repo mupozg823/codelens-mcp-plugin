@@ -101,6 +101,18 @@ on a >1h-old index, `refresh_symbol_index` is prepended to `suggested_next_tools
 (the documented Index Freshness Signal contract, finally live), which also changes
 `suggestion_reasons` and telemetry rows for those calls.
 
+## Suggestion Targeting
+
+Every `suggested_next_tools` entry names something the model can call on the
+active surface. Deprecated tools are dropped; a fine-grained tool the surface
+does not list is replaced by its listed facade verb, and its pre-filled
+`suggested_next_calls` entry gains the matching `mode` (for example
+`bm25_symbol_search` becomes `search` with `mode: "bm25"`); anything else is
+dropped. An explicit host inventory (`available_mcp_tools`) narrows the list
+further. Measured before this rule (2026-09 telemetry): 1-2% of suggestions
+were followed within the next three calls, several naming deprecated or
+unlisted tools.
+
 ## Doom-Loop Protection
 
 The server detects identical tool+args called 3+ times consecutively:
