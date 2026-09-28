@@ -103,6 +103,11 @@ impl ToolMetricsRegistry {
         }
     }
 
+    /// The persisted usage log, when telemetry persistence is enabled.
+    pub(crate) fn usage_log_path(&self) -> Option<&std::path::Path> {
+        self.writer.as_ref().map(TelemetryWriter::path)
+    }
+
     /// Record a single tool invocation (per-tool + session).
     #[allow(dead_code)] // used in tests and as convenience wrapper
     pub fn record_call(&self, name: &str, elapsed_ms: u64, success: bool) {

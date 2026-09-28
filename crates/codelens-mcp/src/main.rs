@@ -22,6 +22,7 @@ mod error;
 mod host_capabilities;
 mod instruction_audit;
 mod job_store;
+mod judgement;
 mod memory_pressure;
 mod mutation_gate;
 mod operation;
@@ -290,6 +291,12 @@ fn main() -> Result<()> {
             .unwrap_or_else(|| ToolSurface::Preset(preset));
         let manifest = surface_manifest::build_surface_manifest(surface, daemon_mode);
         println!("{}", serde_json::to_string_pretty(&manifest)?);
+        return Ok(());
+    }
+
+    if let Some(usage_log) = cli_option_value(&args, "--calibration-report") {
+        let report = crate::judgement::ledger::calibration_report(std::path::Path::new(&usage_log));
+        println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());
     }
 

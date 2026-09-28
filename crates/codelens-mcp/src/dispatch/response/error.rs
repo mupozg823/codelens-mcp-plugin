@@ -123,6 +123,8 @@ pub(crate) fn build_error_response<'a>(
             delegate_target_tool: None,
             delegate_handoff_id: None,
             handoff_id,
+            suggestion_gate_mode: None,
+            suggestion_gate_abstained: &[],
         },
     });
     let text = text_payload_for_response(&resp, None, false);

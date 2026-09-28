@@ -198,6 +198,15 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     }
     retarget_suggestions_to_surface(&mut resp, surface);
     filter_host_suggestions(&mut resp, arguments);
+    // Calibrated suggestion gate (`judgement`): judge each remaining
+    // suggestion against the ledger; shadow records, enforce withholds.
+    let gate_mode = crate::judgement::gate::GateMode::from_env();
+    let gate_abstained = gate_suggestions(
+        &mut resp,
+        gate_mode,
+        operation.target.unwrap_or(name),
+        state.metrics().usage_log_path(),
+    );
     if resp.suggested_next_tools.is_none() {
         emitted_composite_guidance = false;
     }
@@ -274,6 +283,9 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
             delegate_target_tool: None,
             delegate_handoff_id: None,
             handoff_id,
+            suggestion_gate_mode: (gate_mode != crate::judgement::gate::GateMode::Off)
+                .then(|| gate_mode.as_str()),
+            suggestion_gate_abstained: &gate_abstained,
         },
     });
     if emitted_composite_guidance
@@ -286,6 +298,47 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
 
     let max_result_size = max_result_size_chars_for_tool(response_contract_tool, truncated);
     success_jsonrpc_response(id, name, text, structured_content, Some(max_result_size))
+}
+
+/// Apply the suggestion gate to `resp`. Returns the suggestions the gate
+/// withholds (enforce) or would withhold (shadow); `off` judges nothing.
+fn gate_suggestions(
+    resp: &mut crate::protocol::ToolCallResponse,
+    mode: crate::judgement::gate::GateMode,
+    source: &str,
+    usage_log: Option<&std::path::Path>,
+) -> Vec<String> {
+    use crate::judgement::gate::{GateMode, abstentions};
+    let Some(suggested) = resp.suggested_next_tools.as_deref() else {
+        return Vec::new();
+    };
+    if mode == GateMode::Off {
+        return Vec::new();
+    }
+    let ledger = crate::judgement::ledger::snapshot(usage_log);
+    let evaluator = ledger
+        .as_deref()
+        .map(|ledger| ledger as &dyn crate::judgement::Evaluator);
+    let abstained = abstentions(evaluator, source, suggested);
+    if mode == GateMode::Enforce && !abstained.is_empty() {
+        let keep = |tool: &str| !abstained.iter().any(|withheld| withheld == tool);
+        let kept: Vec<String> = suggested
+            .iter()
+            .filter(|tool| keep(tool))
+            .cloned()
+            .collect();
+        resp.suggested_next_calls = resp.suggested_next_calls.take().and_then(|calls| {
+            let calls: Vec<_> = calls.into_iter().filter(|call| keep(&call.tool)).collect();
+            (!calls.is_empty()).then_some(calls)
+        });
+        resp.suggestion_reasons = resp.suggestion_reasons.take().and_then(|reasons| {
+            let reasons: std::collections::HashMap<_, _> =
+                reasons.into_iter().filter(|(tool, _)| keep(tool)).collect();
+            (!reasons.is_empty()).then_some(reasons)
+        });
+        resp.suggested_next_tools = (!kept.is_empty()).then_some(kept);
+    }
+    abstained
 }
 
 #[cfg(test)]

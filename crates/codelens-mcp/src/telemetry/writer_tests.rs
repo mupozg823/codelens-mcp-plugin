@@ -60,6 +60,8 @@ fn telemetry_writer_persists_single_event() {
         delegate_target_tool: None,
         delegate_handoff_id: None,
         handoff_id: None,
+        suggestion_gate_mode: None,
+        suggestion_gate_abstained: &[],
     });
 
     let contents = std::fs::read_to_string(&path).expect("read jsonl");
@@ -110,6 +112,8 @@ fn telemetry_writer_appends_multiple_events_in_order() {
             delegate_target_tool: None,
             delegate_handoff_id: None,
             handoff_id: None,
+            suggestion_gate_mode: None,
+            suggestion_gate_abstained: &[],
         });
     }
 
@@ -215,6 +219,8 @@ fn telemetry_writer_persists_delegate_hint_fields() {
         delegate_target_tool: Some("rename_symbol"),
         delegate_handoff_id: Some("codelens-handoff-1"),
         handoff_id: Some("codelens-handoff-1"),
+        suggestion_gate_mode: None,
+        suggestion_gate_abstained: &[],
     });
 
     let contents = std::fs::read_to_string(&path).expect("read jsonl");
@@ -336,6 +342,8 @@ fn registry_records_structured_event_without_jsonl_schema_drift() {
             delegate_target_tool: Some("rename_symbol"),
             delegate_handoff_id: Some("handoff-structured"),
             handoff_id: Some("handoff-structured"),
+            suggestion_gate_mode: None,
+            suggestion_gate_abstained: &[],
         },
     });
 

@@ -45,6 +45,10 @@ pub(crate) struct PersistedEvent<'a> {
     pub(crate) delegate_handoff_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) handoff_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) suggestion_gate_mode: Option<&'static str>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty", default)]
+    pub(crate) suggestion_gate_abstained: &'a [String],
 }
 
 impl<'a> PersistedEvent<'a> {
@@ -71,6 +75,8 @@ impl<'a> PersistedEvent<'a> {
             delegate_target_tool: event.hints.delegate_target_tool,
             delegate_handoff_id: event.hints.delegate_handoff_id,
             handoff_id: event.hints.handoff_id,
+            suggestion_gate_mode: event.hints.suggestion_gate_mode,
+            suggestion_gate_abstained: event.hints.suggestion_gate_abstained,
         }
     }
 }

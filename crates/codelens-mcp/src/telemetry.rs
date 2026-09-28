@@ -57,6 +57,10 @@ pub struct CallTelemetryHints<'a> {
     pub delegate_target_tool: Option<&'a str>,
     pub delegate_handoff_id: Option<&'a str>,
     pub handoff_id: Option<&'a str>,
+    /// Suggestion-gate mode when it judged this response (`shadow`/`enforce`).
+    pub suggestion_gate_mode: Option<&'static str>,
+    /// Suggestions the gate withheld (enforce) or would withhold (shadow).
+    pub suggestion_gate_abstained: &'a [String],
 }
 
 /// One completed tool call captured at the dispatch boundary.

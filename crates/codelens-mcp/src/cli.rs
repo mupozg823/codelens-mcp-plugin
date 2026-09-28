@@ -104,6 +104,7 @@ pub(crate) fn render_help() -> String {
         "  --daemon-mode standard|read-only|mutation-enabled".to_owned(),
         "  --compat default|anthropic-remote".to_owned(),
         "  --print-surface-manifest     Print canonical surface manifest JSON".to_owned(),
+        "  --calibration-report <log>   Suggestion-gate calibration from a usage log".to_owned(),
         "  --version                    Print version and build metadata".to_owned(),
         "  -h, --help                   Print help".to_owned(),
     ];
