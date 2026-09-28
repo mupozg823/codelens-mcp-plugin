@@ -210,7 +210,7 @@ impl AppState {
 
         // Only one thread may construct a runtime for this scope. Followers
         // wait without holding the cache mutex, then reuse the leader's entry.
-        let _build_guard = build_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let _build_guard = acquire_build_lock(&build_lock, scope)?;
         {
             let mut cache = self
                 .project_context_cache
@@ -307,5 +307,75 @@ impl AppState {
         self.active_project_context()
             .map(|context| Arc::clone(&context.lsp_pool))
             .unwrap_or_else(|| Arc::clone(&self.default_context.lsp_pool))
+    }
+}
+
+/// Default ceiling on how long a request waits for another request that is
+/// already building the same project's runtime. Override with
+/// `CODELENS_PROJECT_BUILD_WAIT_SECS`.
+const DEFAULT_PROJECT_BUILD_WAIT_SECS: u64 = 120;
+
+/// Wait for the per-scope build lock with a deadline. A plain `lock()` let
+/// every follower hang for as long as the leader did (two binds stuck for
+/// 2.8 h on 2026-09-28); a follower now gets a retryable error instead.
+fn acquire_build_lock<'a>(
+    build_lock: &'a std::sync::Mutex<()>,
+    scope: &str,
+) -> anyhow::Result<std::sync::MutexGuard<'a, ()>> {
+    let limit = std::env::var("CODELENS_PROJECT_BUILD_WAIT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_PROJECT_BUILD_WAIT_SECS);
+    let started = std::time::Instant::now();
+    loop {
+        match build_lock.try_lock() {
+            Ok(guard) => return Ok(guard),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => return Ok(poisoned.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if started.elapsed() >= std::time::Duration::from_secs(limit) {
+                    return Err(anyhow::Error::new(
+                        crate::error::CodeLensError::ResourceExhausted(format!(
+                            "project runtime for `{scope}` is still being built by another \
+                             request after {limit}s; retry shortly"
+                        )),
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod build_lock_tests {
+    use super::acquire_build_lock;
+
+    #[test]
+    fn follower_gives_up_after_the_deadline() {
+        let _env_guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = std::env::var("CODELENS_PROJECT_BUILD_WAIT_SECS").ok();
+        // SAFETY: process-wide environment access is serialized by TEST_ENV_LOCK.
+        unsafe { std::env::set_var("CODELENS_PROJECT_BUILD_WAIT_SECS", "0") };
+        let lock = std::sync::Mutex::new(());
+        let leader = lock.lock().expect("leader holds the build lock");
+        let follower = acquire_build_lock(&lock, "/tmp/project");
+        drop(leader);
+        let after_release = acquire_build_lock(&lock, "/tmp/project").map(drop);
+        // SAFETY: as above.
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_PROJECT_BUILD_WAIT_SECS", value),
+                None => std::env::remove_var("CODELENS_PROJECT_BUILD_WAIT_SECS"),
+            }
+        }
+
+        let error = follower.expect_err("a held lock must time out");
+        assert!(matches!(
+            error.downcast_ref::<crate::error::CodeLensError>(),
+            Some(crate::error::CodeLensError::ResourceExhausted(_))
+        ));
+        assert!(after_release.is_ok());
     }
 }
