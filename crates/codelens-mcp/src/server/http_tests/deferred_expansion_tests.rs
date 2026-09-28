@@ -52,8 +52,8 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
                                 "profile": "reviewer-graph",
                                 "detail": "compact",
                                 "preferred_entrypoints": [
-                                    "review_changes",
-                                    "diff_aware_references"
+                                    "review_architecture",
+                                    "review_changes"
                                 ]
                             }
                         }
@@ -73,8 +73,8 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
         .expect("preferred_entrypoints_omitted");
     let recovery = omitted
         .iter()
-        .find(|entry| entry["tool"] == "diff_aware_references")
-        .expect("diff_aware_references should be deferred before namespace expansion");
+        .find(|entry| entry["tool"] == "review_changes")
+        .expect("review_changes should be deferred before namespace expansion");
     assert_eq!(recovery["reason"], json!("deferred_tool_not_loaded"));
     assert_eq!(
         recovery["tool_loading_request"],
@@ -115,7 +115,7 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
     let expand_body = body_string(expand).await;
     assert!(expand_body.contains("\"selected_namespace\":\"reports\""));
     assert!(expand_body.contains("\"selected_tier\":\"workflow\""));
-    assert!(expand_body.contains("\"diff_aware_references\""));
+    assert!(expand_body.contains("\"review_changes\""));
 
     let mut allowed_body = None;
     for request_id in [4, 5] {
@@ -133,7 +133,7 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
                             "id": request_id,
                             "method": "tools/call",
                             "params": {
-                                "name": "diff_aware_references",
+                                "name": "review_changes",
                                 "arguments": {
                                     "changed_files": [file_path]
                                 }
@@ -175,11 +175,11 @@ async fn prepare_harness_session_deferred_recovery_drives_namespace_expansion() 
     // reports-namespace primitive-tier recovery + expansion path is no longer
     // exercisable on this surface. Primitive tier/namespace recovery stays
     // covered by the sibling deferred_* tests; the load-bearing assertion here
-    // is the workflow-tier recovery contract for diff_aware_references above,
+    // is the workflow-tier recovery contract for review_changes above,
     // which the expansion + call verified.
     assert!(
         analysis_payload["data"]["analysis_id"].as_str().is_some(),
-        "diff_aware_references must return an analysis_id: {allowed_body}"
+        "review_changes must return an analysis_id: {allowed_body}"
     );
 }
 
