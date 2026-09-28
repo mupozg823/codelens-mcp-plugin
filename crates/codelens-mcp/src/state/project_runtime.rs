@@ -261,10 +261,14 @@ pub(super) fn active_project_context(state: &AppState) -> Option<Arc<ProjectCont
         .cloned()
 }
 
+/// Builds slower than this are logged at warn with a per-phase breakdown.
+const SLOW_PROJECT_BUILD_MS: u128 = 10_000;
+
 pub(super) fn build_project_runtime_context(
     project: ProjectRoot,
     start_watcher: bool,
 ) -> anyhow::Result<ProjectContext> {
+    let started = std::time::Instant::now();
     let runtime_lease = super::project_runtime_lease::ProjectRuntimeLease::try_acquire(&project)
         .map_err(anyhow::Error::new)?;
     tracing::info!(
@@ -276,6 +280,7 @@ pub(super) fn build_project_runtime_context(
     // A new worktree has no index; start from a sibling checkout's copy so
     // the build below parses only files that differ instead of the whole
     // tree inside the bind request.
+    let lease_ms = started.elapsed().as_millis();
     let seeded = match codelens_engine::seed_index_from_sibling_checkout(project.as_path()) {
         Ok(Some(source)) => {
             tracing::info!(
@@ -295,6 +300,7 @@ pub(super) fn build_project_runtime_context(
             false
         }
     };
+    let seed_ms = started.elapsed().as_millis() - lease_ms;
     let symbol_index = Arc::new(SymbolIndex::new(project.clone())?);
     // `file_count` is one COUNT(*); `stats()` re-reads and hashes every file.
     // A seeded index carries the sibling's mtimes, so reconcile it now.
@@ -306,6 +312,7 @@ pub(super) fn build_project_runtime_context(
     {
         let _ = symbol_index.refresh_all();
     }
+    let index_ms = started.elapsed().as_millis() - lease_ms - seed_ms;
     let graph_cache = Arc::new(GraphCache::new(30));
     let memories_dir = project.as_path().join(".codelens").join("memories");
     let analysis_dir = project.as_path().join(".codelens").join("analysis-cache");
@@ -344,6 +351,21 @@ pub(super) fn build_project_runtime_context(
     } else {
         None
     };
+    // Log slow builds at warn (the daemon's default level) with a phase split,
+    // so a stall like the 2.8 h bind of 2026-09-28 names its phase next time.
+    let total_ms = started.elapsed().as_millis();
+    if total_ms >= SLOW_PROJECT_BUILD_MS {
+        tracing::warn!(
+            project = %project.as_path().display(),
+            total_ms,
+            lease_ms,
+            seed_ms,
+            seeded,
+            index_ms,
+            rest_ms = total_ms - lease_ms - seed_ms - index_ms,
+            "slow project runtime build"
+        );
+    }
     Ok(ProjectContext {
         project,
         symbol_index,
