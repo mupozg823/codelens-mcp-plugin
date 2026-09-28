@@ -73,6 +73,23 @@ pub(crate) fn delete_file(conn: &Connection, relative_path: &str) -> Result<()> 
     Ok(())
 }
 
+/// Re-stamp the mtime of a file whose content is unchanged, keeping its
+/// symbols, imports and calls. The hash guard makes this a no-op when the row
+/// was rewritten with different content in the meantime. Returns true when a
+/// row was updated.
+pub(crate) fn retime_file(
+    conn: &Connection,
+    relative_path: &str,
+    mtime_ms: i64,
+    content_hash: &str,
+) -> Result<bool> {
+    let changed = conn.execute(
+        "UPDATE files SET mtime_ms = ?2 WHERE relative_path = ?1 AND content_hash = ?3",
+        params![relative_path, mtime_ms, content_hash],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Clear all symbol-index content in bulk.
 pub(crate) fn clear_symbol_index(conn: &Connection) -> Result<()> {
     conn.execute_batch(

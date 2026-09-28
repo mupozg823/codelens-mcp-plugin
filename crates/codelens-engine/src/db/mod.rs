@@ -122,7 +122,7 @@ pub struct NewCall {
 // Re-export free functions for crate-internal use (e.g. symbols::writer uses db::upsert_file)
 pub(crate) use ops::{
     all_file_paths, clear_symbol_index, delete_file, get_fresh_file, insert_calls, insert_imports,
-    insert_symbols, upsert_file,
+    insert_symbols, retime_file, upsert_file,
 };
 
 impl IndexDb {

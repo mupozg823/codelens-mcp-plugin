@@ -482,6 +482,19 @@ fn analyze_file(project: &ProjectRoot, file: &Path) -> Option<AnalyzedFile> {
     })
 }
 
+/// A file whose content matches the index but whose mtime moved.
+struct RetimedFile {
+    relative_path: String,
+    mtime: i64,
+    content_hash: String,
+}
+
+enum RefreshOutcome {
+    Analyzed(AnalyzedFile),
+    Retimed(RetimedFile),
+    Unchanged,
+}
+
 struct EnsureSource<'a> {
     file: &'a Path,
     relative: &'a str,
@@ -661,6 +674,41 @@ impl SymbolIndex {
             .run(fingerprint, || analyze_ensure(&self.project, source))
     }
 
+    /// Classify one refresh candidate against its indexed fingerprint,
+    /// parsing only when the content actually changed.
+    fn refresh_outcome(
+        &self,
+        file: &Path,
+        indexed: &HashMap<String, (i64, String)>,
+    ) -> Option<RefreshOutcome> {
+        let relative = self.project.to_relative(file);
+        let content = fs::read(file).ok()?;
+        let mtime = file_modified_ms(file).ok()? as i64;
+        let hash = content_hash(&content);
+        if let Some((indexed_mtime, indexed_hash)) = indexed.get(&relative)
+            && *indexed_hash == hash
+        {
+            if *indexed_mtime == mtime {
+                return Some(RefreshOutcome::Unchanged);
+            }
+            return Some(RefreshOutcome::Retimed(RetimedFile {
+                relative_path: relative,
+                mtime,
+                content_hash: hash,
+            }));
+        }
+        self.analyze_singleflight(EnsureSource {
+            file,
+            relative: &relative,
+            mtime,
+            content,
+            content_hash: Some(hash),
+        })
+        .ok()?
+        .as_analyzed_file()
+        .map(RefreshOutcome::Analyzed)
+    }
+
     fn analyze_file_singleflight(&self, file: &Path) -> Option<AnalyzedFile> {
         let relative = self.project.to_relative(file);
         let content = fs::read(file).ok()?;
@@ -775,11 +823,13 @@ impl SymbolIndex {
         &self,
         ticket: &MutationTicket,
         analyzed: &[AnalyzedFile],
+        retimed: &[RetimedFile],
+        unchanged: usize,
         snapshot: &HashSet<String>,
         bulk_rebuild_requested: bool,
     ) -> Result<()> {
         let mut mutations = self.mutations.lock();
-        let analysis_complete = analyzed.len() == snapshot.len();
+        let analysis_complete = analyzed.len() + retimed.len() + unchanged == snapshot.len();
         let bulk_rebuild = bulk_rebuild_requested
             && analysis_complete
             && !mutations.has_newer_observation(ticket.generation);
@@ -808,6 +858,16 @@ impl SymbolIndex {
             for file in analyzed {
                 if mutations.allows(ticket.generation, &file.relative_path) {
                     did_write |= commit_analyzed(conn, file)?;
+                }
+            }
+            for retime in retimed {
+                if mutations.allows(ticket.generation, &retime.relative_path) {
+                    did_write |= db::retime_file(
+                        conn,
+                        &retime.relative_path,
+                        retime.mtime,
+                        &retime.content_hash,
+                    )?;
                 }
             }
 
@@ -851,14 +911,43 @@ impl SymbolIndex {
             sb.cmp(&sa)
         });
 
+        // A bulk rebuild clears the index, so it needs every file analyzed.
+        // Otherwise compare each file against its indexed fingerprint before
+        // parsing: an unchanged file is skipped, and a file whose content is
+        // unchanged but whose mtime moved (a fresh checkout or worktree, a
+        // seeded index) only has its mtime re-stamped. Previously every
+        // refresh re-parsed the whole project even for one stale file.
+        let indexed: HashMap<String, (i64, String)> = if bulk_rebuild {
+            HashMap::new()
+        } else {
+            self.reader()?.file_fingerprints()?
+        };
+
         // Phase 1: parallel analysis (CPU-bound, no DB access)
-        let analyzed: Vec<AnalyzedFile> = files
+        let outcomes: Vec<RefreshOutcome> = files
             .par_iter()
-            .filter_map(|file| self.analyze_file_singleflight(file))
+            .filter_map(|file| self.refresh_outcome(file, &indexed))
             .collect();
+        let mut analyzed = Vec::with_capacity(outcomes.len());
+        let mut retimed = Vec::new();
+        let mut unchanged = 0usize;
+        for outcome in outcomes {
+            match outcome {
+                RefreshOutcome::Analyzed(file) => analyzed.push(file),
+                RefreshOutcome::Retimed(retime) => retimed.push(retime),
+                RefreshOutcome::Unchanged => unchanged += 1,
+            }
+        }
 
         // Phase 2: sequential newest-wins DB commit.
-        self.commit_refresh_snapshot(&ticket, &analyzed, &snapshot, bulk_rebuild)?;
+        self.commit_refresh_snapshot(
+            &ticket,
+            &analyzed,
+            &retimed,
+            unchanged,
+            &snapshot,
+            bulk_rebuild,
+        )?;
         if let Err(error) = self.checkpoint_wal_passive() {
             tracing::debug!(%error, "symbol index WAL checkpoint skipped after refresh");
         }
@@ -1022,13 +1111,17 @@ mod tests {
     }
 
     fn race_project() -> (PathBuf, ProjectRoot) {
+        // Parallel tests can read the same nanosecond; the sequence number
+        // keeps every fixture root distinct.
+        static FIXTURE_SEQ: AtomicU64 = AtomicU64::new(0);
         let root = std::env::temp_dir().join(format!(
-            "codelens-symbol-generation-{}-{}",
+            "codelens-symbol-generation-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("system time")
-                .as_nanos()
+                .as_nanos(),
+            FIXTURE_SEQ.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(root.join("src")).expect("create fixture source directory");
         fs::write(root.join(".git"), "gitdir: fixture\n").expect("write root marker");
@@ -1388,7 +1481,7 @@ mod tests {
             .index_files(std::slice::from_ref(&newer))
             .expect("index newer source");
         index
-            .commit_refresh_snapshot(&refresh_ticket, &analyzed, &snapshot, true)
+            .commit_refresh_snapshot(&refresh_ticket, &analyzed, &[], 0, &snapshot, true)
             .expect("commit old refresh");
 
         // Then: fallback commit preserves the file outside the old snapshot.
@@ -1423,7 +1516,7 @@ mod tests {
 
         // When: the incomplete refresh requests a bulk rebuild.
         index
-            .commit_refresh_snapshot(&refresh_ticket, &analyzed, &snapshot, true)
+            .commit_refresh_snapshot(&refresh_ticket, &analyzed, &[], 0, &snapshot, true)
             .expect("commit incomplete refresh");
 
         // Then: the unanalyzed file's existing symbols survive.
@@ -1547,5 +1640,86 @@ mod tests {
 
         // Then: the failure is reported and committed generation remains unchanged.
         assert_eq!(index.committed_generation(), 0);
+    }
+
+    #[test]
+    fn refresh_all_retimes_unchanged_content_without_reparsing() {
+        // Given: an indexed file whose mtime moves while its content stays put
+        // (a fresh checkout or worktree of the same commit).
+        let (root, project) = race_project();
+        let path = root.join("src/retime.rs");
+        fs::write(&path, "pub fn kept_symbol() {}\n").expect("write source");
+        let index = SymbolIndex::new_memory(project);
+        index.refresh_all().expect("initial refresh");
+        let indexed_at_before = index
+            .reader()
+            .expect("reader")
+            .max_files_indexed_at()
+            .expect("indexed_at");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .expect("open source")
+            .set_modified(later)
+            .expect("move mtime");
+
+        // When
+        let stats = index.refresh_all().expect("refresh after mtime move");
+
+        // Then: the row is re-stamped (no longer stale) but not re-parsed.
+        assert_eq!(stats.stale_files, 0);
+        let fingerprints = index
+            .reader()
+            .expect("reader")
+            .file_fingerprints()
+            .expect("fingerprints");
+        assert_eq!(
+            fingerprints.get("src/retime.rs").map(|(mtime, _)| *mtime),
+            Some(file_modified_ms(&path).expect("mtime") as i64)
+        );
+        assert_eq!(
+            index
+                .reader()
+                .expect("reader")
+                .max_files_indexed_at()
+                .expect("indexed_at"),
+            indexed_at_before,
+            "an unchanged file must not be rewritten through upsert"
+        );
+        assert_eq!(
+            index
+                .find_symbol("kept_symbol", None, false, true, 10)
+                .expect("find")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn refresh_all_reparses_changed_content() {
+        let (root, project) = race_project();
+        let path = root.join("src/changed.rs");
+        fs::write(&path, "pub fn before_edit() {}\n").expect("write source");
+        let index = SymbolIndex::new_memory(project);
+        index.refresh_all().expect("initial refresh");
+        fs::write(&path, "pub fn after_edit() {}\n").expect("edit source");
+
+        index.refresh_all().expect("refresh after edit");
+
+        assert_eq!(
+            index
+                .find_symbol("after_edit", None, false, true, 10)
+                .expect("find new")
+                .len(),
+            1
+        );
+        assert!(
+            index
+                .find_symbol("before_edit", None, false, true, 10)
+                .expect("find old")
+                .is_empty()
+        );
     }
 }

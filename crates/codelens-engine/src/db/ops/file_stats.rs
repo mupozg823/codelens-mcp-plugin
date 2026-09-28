@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rusqlite::Connection;
+use std::collections::HashMap;
 
 use super::super::{DirStats, IndexDb};
 
@@ -116,6 +117,23 @@ impl IndexDb {
             .query_row("SELECT MIN(indexed_at) FROM files", [], |row| {
                 row.get::<_, Option<i64>>(0)
             })?)
+    }
+
+    /// `relative_path -> (mtime_ms, content_hash)` for every indexed file, in
+    /// one query, so a refresh can skip unchanged files before parsing.
+    pub fn file_fingerprints(&self) -> Result<HashMap<String, (i64, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT relative_path, mtime_ms, content_hash FROM files")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, (row.get(1)?, row.get(2)?)))
+        })?;
+        let mut fingerprints = HashMap::new();
+        for row in rows {
+            let (path, fingerprint) = row?;
+            fingerprints.insert(path, fingerprint);
+        }
+        Ok(fingerprints)
     }
 
     /// Return all indexed file paths.
