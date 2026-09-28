@@ -26,6 +26,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use url::Url;
 
+/// How long to wait for push diagnostics when a server lacks pull support.
+const PUSH_DIAGNOSTICS_WAIT_SECS: u64 = 10;
+
 impl LspSession {
     pub(super) fn find_references(&mut self, request: &LspRequest) -> Result<Vec<LspReference>> {
         let absolute_path = self.project.resolve(&request.file_path)?;
@@ -54,15 +57,40 @@ impl LspSession {
         let (uri_string, _source) = self.prepare_document(&absolute_path)?;
         self.sync_imported_project_documents(&absolute_path, &_source, 32)?;
 
-        let id = self.next_id();
-        self.send_request(
-            id,
-            "textDocument/diagnostic",
-            json!({
-                "textDocument":{"uri":uri_string}
-            }),
-        )?;
-        let response = self.read_response_for_id(id)?;
+        if !self.pull_diagnostics_unsupported {
+            let id = self.next_id();
+            self.send_request(
+                id,
+                "textDocument/diagnostic",
+                json!({
+                    "textDocument":{"uri":uri_string}
+                }),
+            )?;
+            match self.read_response_for_id(id) {
+                Ok(response) => {
+                    return diagnostics_from_response(&self.project, response, request.max_results);
+                }
+                Err(error) if error.to_string().contains("(-32601)") => {
+                    self.pull_diagnostics_unsupported = true;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        // Push fallback: the server publishes diagnostics for an open
+        // document on its own schedule after didOpen/didChange.
+        let Some(items) = self.wait_for_published_diagnostics(
+            &uri_string,
+            std::time::Duration::from_secs(PUSH_DIAGNOSTICS_WAIT_SECS),
+        )?
+        else {
+            anyhow::bail!(
+                "LSP server published no diagnostics for {} within {PUSH_DIAGNOSTICS_WAIT_SECS}s \
+                 (it does not support pull diagnostics)",
+                request.file_path
+            );
+        };
+        let response = json!({"result":{"kind":"full","uri":uri_string,"items":items}});
         diagnostics_from_response(&self.project, response, request.max_results)
     }
 

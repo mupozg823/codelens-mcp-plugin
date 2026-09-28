@@ -63,6 +63,13 @@ pub(super) struct LspSession {
     /// Consumed by warm-routing/confidence calibration — a warm session is
     /// not necessarily a *quiescent* one.
     server_quiescent: Option<bool>,
+    /// Latest `textDocument/publishDiagnostics` payload per document URI.
+    /// Cleared when the document is re-synced, so an entry is always for the
+    /// text the server currently holds.
+    pub(super) published_diagnostics: HashMap<String, Value>,
+    /// The server rejected pull diagnostics (`textDocument/diagnostic`) with
+    /// MethodNotFound — typescript-language-server does — so use push.
+    pub(super) pull_diagnostics_unsupported: bool,
 }
 
 fn ensure_validated_session<'a>(
@@ -416,6 +423,8 @@ impl LspSession {
             documents: HashMap::new(),
             stderr_buffer,
             server_quiescent: None,
+            published_diagnostics: HashMap::new(),
+            pull_diagnostics_unsupported: false,
         };
         session.initialize(invocation.recipe_binary())?;
         if let Some(grace) = configured_startup_grace() {
@@ -474,6 +483,7 @@ impl LspSession {
             return Ok(());
         }
 
+        self.published_diagnostics.remove(&diagnostics_key(uri));
         if let Some(state) = self.documents.get_mut(uri) {
             state.version += 1;
             state.text = source.to_owned();
@@ -618,6 +628,15 @@ impl LspSession {
 
     /// Harvest readiness state from server notifications (P1.1).
     fn observe_server_notification(&mut self, method: &str, params: Option<&Value>) {
+        if method == "textDocument/publishDiagnostics"
+            && let Some(params) = params
+            && let Some(uri) = params.get("uri").and_then(Value::as_str)
+        {
+            let diagnostics = params.get("diagnostics").cloned().unwrap_or(json!([]));
+            self.published_diagnostics
+                .insert(diagnostics_key(uri), diagnostics);
+            return;
+        }
         if method == "experimental/serverStatus"
             && let Some(quiescent) = params
                 .and_then(|params| params.get("quiescent"))
@@ -632,6 +651,44 @@ impl LspSession {
     /// treat that as "unknown", not "ready".
     pub(super) fn server_quiescent(&self) -> Option<bool> {
         self.server_quiescent
+    }
+
+    /// Wait until the server has published diagnostics for `uri`, answering
+    /// server requests and harvesting notifications meanwhile. Returns `None`
+    /// when nothing arrives before `timeout`.
+    pub(super) fn wait_for_published_diagnostics(
+        &mut self,
+        uri: &str,
+        timeout: Duration,
+    ) -> Result<Option<Value>> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(diagnostics) = self.published_diagnostics.get(&diagnostics_key(uri)) {
+                return Ok(Some(diagnostics.clone()));
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(None);
+            }
+            if !poll_readable(
+                self.reader.get_ref(),
+                remaining.min(Duration::from_millis(500)),
+            ) {
+                continue;
+            }
+            let message = read_message(&mut self.reader)?;
+            let Some(method) = message.get("method").and_then(Value::as_str) else {
+                continue; // a late response to an abandoned request
+            };
+            if let Some(request_id) = message.get("id").filter(|id| !id.is_null()) {
+                let request_id = request_id.clone();
+                let reply = server_request_reply_payload(method, message.get("params"));
+                self.answer_server_request(&request_id, reply)?;
+            } else {
+                let method = method.to_owned();
+                self.observe_server_notification(&method, message.get("params"));
+            }
+        }
     }
 
     fn shutdown(&mut self) -> Result<()> {
@@ -702,6 +759,16 @@ fn initialization_options_for_command(command: &str) -> Option<Value> {
     }
 }
 
+/// Key published diagnostics by file path: servers may re-encode the URI
+/// (percent-encoding of non-ASCII paths differs between clients and servers).
+fn diagnostics_key(uri: &str) -> String {
+    Url::parse(uri)
+        .ok()
+        .and_then(|url| url.to_file_path().ok())
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| uri.to_owned())
+}
+
 /// Build the `initialize` request params. The capabilities payload is
 /// invariant across servers; `initialization_options` is attached as the
 /// `initializationOptions` field only when `Some` — a `None` entry must
@@ -731,6 +798,7 @@ fn initialize_params(
                 "references":{"dynamicRegistration":false},
                 "rename":{"dynamicRegistration":false,"prepareSupport":true},
                 "diagnostic":{"dynamicRegistration":false},
+                "publishDiagnostics":{"relatedInformation":false},
                 "typeHierarchy":{"dynamicRegistration":false},
                 "codeAction":{
                     "dynamicRegistration":false,

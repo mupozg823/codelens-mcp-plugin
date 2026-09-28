@@ -146,6 +146,41 @@ fn diagnostics_sync_project_imports_before_request() {
     );
 }
 
+/// typescript-language-server answers `textDocument/diagnostic` with
+/// MethodNotFound and only publishes diagnostics (2026-09: 6 of 10 diagnose
+/// calls on TS/JS failed with -32601). The session must fall back to push.
+#[test]
+fn diagnostics_fall_back_to_published_when_pull_is_unsupported() {
+    let dir = temp_dir("codelens-lsp-diagnostics-push-only");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(dir.join("sample.py"), "x = (\n").expect("write sample");
+    let server_path = dir.join("mock_push_only_lsp.py");
+    fs::write(&server_path, push_only_diagnostics_mock_server_script()).expect("write mock server");
+    chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
+    let request = LspDiagnosticRequest {
+        command: "pyright-langserver".to_owned(),
+        args: vec!["--stdio".to_owned()],
+        file_path: "sample.py".to_owned(),
+        max_results: 10,
+    };
+
+    let first = pool.get_diagnostics(&request).expect("push diagnostics");
+    // The document is unchanged, so no new publish arrives: the cached
+    // payload must answer without re-trying pull.
+    let second = pool
+        .get_diagnostics(&request)
+        .expect("cached push diagnostics");
+
+    for diagnostics in [&first, &second] {
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].file_path, "sample.py");
+        assert!(diagnostics[0].message.contains("unclosed"));
+    }
+}
+
 #[test]
 fn diagnostics_retry_once_after_stale_lsp_transport() {
     let dir = temp_dir("codelens-lsp-diagnostics-stale-transport");
@@ -1073,4 +1108,54 @@ while True:
 fn python_path_literal(path: Option<&Path>) -> String {
     path.map(|path| serde_json::json!(path.display().to_string()).to_string())
         .unwrap_or_else(|| "None".to_owned())
+}
+
+fn push_only_diagnostics_mock_server_script() -> &'static str {
+    r#"#!/usr/bin/env python3
+import json
+import sys
+
+def read_message():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        key, value = line.decode("utf-8").split(":", 1)
+        headers[key.strip().lower()] = value.strip()
+    body = sys.stdin.buffer.read(int(headers["content-length"]))
+    return json.loads(body.decode("utf-8"))
+
+def send(payload):
+    body = json.dumps(payload).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8"))
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+
+while True:
+    message = read_message()
+    if message is None:
+        break
+    method = message.get("method")
+    if method == "initialize":
+        send({"jsonrpc":"2.0","id":message["id"],"result":{"capabilities":{}}})
+    elif method in ("textDocument/didOpen", "textDocument/didChange"):
+        uri = message["params"]["textDocument"]["uri"]
+        send({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{
+            "uri":uri,
+            "diagnostics":[{
+                "range":{"start":{"line":0,"character":4},"end":{"line":0,"character":5}},
+                "severity":1,
+                "message":"unclosed parenthesis"
+            }]
+        }})
+    elif method == "textDocument/diagnostic":
+        send({"jsonrpc":"2.0","id":message["id"],"error":{"code":-32601,"message":"Unhandled method textDocument/diagnostic"}})
+    elif method == "shutdown":
+        send({"jsonrpc":"2.0","id":message["id"],"result":None})
+    elif method == "exit":
+        break
+"#
 }
