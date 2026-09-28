@@ -147,26 +147,19 @@ impl SymbolIndex {
     pub fn stats(&self) -> Result<IndexStats> {
         let db = self.reader()?;
         let supported_files = collect_candidate_files(self.project.as_path())?;
-        let indexed_files = db.file_count()?;
-        let indexed_paths = db.all_file_paths()?;
+        let rows = db.file_freshness_rows()?;
+        let indexed_files = rows.len();
 
         let mut stale = 0usize;
-        for rel in &indexed_paths {
+        for (rel, (indexed_mtime, indexed_hash, indexed_size, indexed_at)) in &rows {
             let path = self.project.as_path().join(rel);
-            if !path.is_file() {
-                stale += 1;
-                continue;
-            }
-            let content = match fs::read(&path) {
-                Ok(c) => c,
-                Err(_) => {
-                    stale += 1;
-                    continue;
-                }
-            };
-            let hash = content_hash(&content);
-            let mtime = file_modified_ms(&path).unwrap_or(0) as i64;
-            if db.get_fresh_file(rel, mtime, &hash)?.is_none() {
+            if !stat_fresh(
+                &path,
+                *indexed_mtime,
+                indexed_hash,
+                *indexed_size,
+                *indexed_at,
+            ) {
                 stale += 1;
             }
         }
@@ -705,6 +698,42 @@ fn get_file_symbols(project: &ProjectRoot, file: &Path, depth: usize) -> Result<
 
 fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
     collect_files(root, |path| language_for_path(path).is_some())
+}
+
+/// A file modified this close to (or after) its indexing time may have been
+/// rewritten within the same mtime tick, so its content must be hashed.
+const RACY_WINDOW_MS: i64 = 2_000;
+
+/// Whether an indexed file is still fresh — same rule as `get_fresh_file`
+/// (equal mtime and content hash), answered from `stat` when possible. A
+/// moved mtime is stale without reading; an unchanged mtime and size outside
+/// the racy window is fresh without reading (git's racy-clean rule); anything
+/// else is read and hashed. `stats()` previously read and hashed every file.
+fn stat_fresh(
+    path: &Path,
+    indexed_mtime: i64,
+    indexed_hash: &str,
+    indexed_size: i64,
+    indexed_at: i64,
+) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_millis() as i64);
+    if mtime != indexed_mtime {
+        return false;
+    }
+    if metadata.len() as i64 == indexed_size && indexed_at - mtime > RACY_WINDOW_MS {
+        return true;
+    }
+    fs::read(path).is_ok_and(|content| content_hash(&content) == indexed_hash)
 }
 
 fn file_modified_ms(path: &Path) -> Result<u128> {

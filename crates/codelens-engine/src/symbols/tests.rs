@@ -733,3 +733,67 @@ fn refresh_all_indexes_extensionless_wellknown_files() {
     );
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn stat_fresh_follows_the_racy_clean_rule() {
+    use crate::db::content_hash;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    let root = fixture_root();
+    let path = root.join("src/racy.py");
+    fs::write(&path, "a = 1\n").expect("write");
+    let modified = fs::metadata(&path)
+        .expect("meta")
+        .modified()
+        .expect("mtime");
+    let mtime = modified
+        .duration_since(UNIX_EPOCH)
+        .expect("epoch")
+        .as_millis() as i64;
+    let old_hash = content_hash(b"a = 1\n");
+
+    // Indexed long after the last write: same mtime and size is trusted.
+    assert!(super::stat_fresh(
+        &path,
+        mtime,
+        &old_hash,
+        6,
+        mtime + 60_000
+    ));
+
+    // Same-size rewrite that keeps the mtime, indexed inside the racy window:
+    // the hash must be checked, so the edit is caught.
+    fs::write(&path, "b = 2\n").expect("rewrite");
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .expect("open")
+        .set_modified(modified)
+        .expect("restore mtime");
+    assert!(!super::stat_fresh(&path, mtime, &old_hash, 6, mtime + 500));
+
+    // A moved mtime is stale without looking at the content.
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .expect("open")
+        .set_modified(modified + Duration::from_secs(5))
+        .expect("move mtime");
+    let new_hash = content_hash(b"b = 2\n");
+    assert!(!super::stat_fresh(
+        &path,
+        mtime,
+        &new_hash,
+        6,
+        mtime + 60_000
+    ));
+
+    // A missing file is stale.
+    assert!(!super::stat_fresh(
+        &root.join("src/absent.py"),
+        mtime,
+        &new_hash,
+        6,
+        mtime + 60_000
+    ));
+}

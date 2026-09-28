@@ -136,6 +136,26 @@ impl IndexDb {
         Ok(fingerprints)
     }
 
+    /// `relative_path -> (mtime_ms, content_hash, size_bytes, indexed_at_ms)`
+    /// for every indexed file — what a stat-first freshness check needs.
+    pub fn file_freshness_rows(&self) -> Result<HashMap<String, (i64, String, i64, i64)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT relative_path, mtime_ms, content_hash, size_bytes, indexed_at FROM files",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?),
+            ))
+        })?;
+        let mut freshness = HashMap::new();
+        for row in rows {
+            let (path, fields) = row?;
+            freshness.insert(path, fields);
+        }
+        Ok(freshness)
+    }
+
     /// Return all indexed file paths.
     pub fn all_file_paths(&self) -> Result<Vec<String>> {
         all_file_paths(&self.conn)
