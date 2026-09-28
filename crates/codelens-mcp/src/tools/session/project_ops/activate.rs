@@ -66,11 +66,8 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         .as_deref()
         .map(|name| crate::client_profile::ClientProfile::detect(Some(name)))
         .unwrap_or_else(|| state.client_profile());
-    let file_count = state
-        .symbol_index()
-        .stats()
-        .map(|s| s.indexed_files)
-        .unwrap_or(0);
+    // One COUNT(*) — `stats()` would re-read and hash every indexed file.
+    let file_count = state.symbol_index().file_count().unwrap_or(0);
     // For Claude Code clients, keep Balanced preset (all tools accessible).
     // Profile auto-selection only applies to Codex/generic clients.
     let (auto_surface, auto_budget, auto_label) =

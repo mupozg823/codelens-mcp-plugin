@@ -273,11 +273,36 @@ pub(super) fn build_project_runtime_context(
         generation = runtime_lease.generation(),
         "acquired project writer lease"
     );
+    // A new worktree has no index; start from a sibling checkout's copy so
+    // the build below parses only files that differ instead of the whole
+    // tree inside the bind request.
+    let seeded = match codelens_engine::seed_index_from_sibling_checkout(project.as_path()) {
+        Ok(Some(source)) => {
+            tracing::info!(
+                project = %project.as_path().display(),
+                source = %source.display(),
+                "seeded symbol index from a sibling checkout"
+            );
+            true
+        }
+        Ok(None) => false,
+        Err(error) => {
+            tracing::warn!(
+                project = %project.as_path().display(),
+                %error,
+                "sibling index seed failed; building the index from scratch"
+            );
+            false
+        }
+    };
     let symbol_index = Arc::new(SymbolIndex::new(project.clone())?);
-    if symbol_index
-        .stats()
-        .map(|s| s.indexed_files == 0)
-        .unwrap_or(true)
+    // `file_count` is one COUNT(*); `stats()` re-reads and hashes every file.
+    // A seeded index carries the sibling's mtimes, so reconcile it now.
+    if seeded
+        || symbol_index
+            .file_count()
+            .map(|count| count == 0)
+            .unwrap_or(true)
     {
         let _ = symbol_index.refresh_all();
     }

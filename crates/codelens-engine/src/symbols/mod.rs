@@ -2,6 +2,7 @@ mod parser;
 mod ranking;
 mod reader;
 pub mod scoring;
+mod seed;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -13,6 +14,7 @@ use scoring::score_symbol;
 pub use scoring::{
     sparse_coverage_bonus_from_fields, sparse_max_bonus, sparse_threshold, sparse_weighting_enabled,
 };
+pub use seed::seed_index_from_sibling_checkout;
 use types::IndexStorage;
 pub(crate) use types::ReadDb;
 pub use types::{
