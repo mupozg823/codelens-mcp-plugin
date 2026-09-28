@@ -1134,6 +1134,14 @@ def send(payload):
     sys.stdout.buffer.write(body)
     sys.stdout.buffer.flush()
 
+def send_all(payloads):
+    frames = b""
+    for payload in payloads:
+        body = json.dumps(payload).encode("utf-8")
+        frames += f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8") + body
+    sys.stdout.buffer.write(frames)
+    sys.stdout.buffer.flush()
+
 while True:
     message = read_message()
     if message is None:
@@ -1152,7 +1160,12 @@ while True:
             }]
         }})
     elif method == "textDocument/diagnostic":
-        send({"jsonrpc":"2.0","id":message["id"],"error":{"code":-32601,"message":"Unhandled method textDocument/diagnostic"}})
+        # A notification and the response in ONE write: both land in the
+        # client's read buffer together, so the pipe is empty afterwards.
+        send_all([
+            {"jsonrpc":"2.0","method":"window/logMessage","params":{"type":3,"message":"diagnostic pull unsupported"}},
+            {"jsonrpc":"2.0","id":message["id"],"error":{"code":-32601,"message":"Unhandled method textDocument/diagnostic"}},
+        ])
     elif method == "shutdown":
         send({"jsonrpc":"2.0","id":message["id"],"result":None})
     elif method == "exit":

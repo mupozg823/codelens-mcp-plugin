@@ -566,7 +566,7 @@ impl LspSession {
             }
 
             // Poll the pipe before blocking read — prevents infinite hang
-            if !poll_readable(self.reader.get_ref(), remaining.min(Duration::from_secs(5))) {
+            if !self.message_ready(remaining.min(Duration::from_secs(5))) {
                 continue; // no data yet, re-check deadline
             }
 
@@ -611,6 +611,14 @@ impl LspSession {
             }
             discarded += 1;
         }
+    }
+
+    /// True when a message can be read without blocking. Bytes already pulled
+    /// into the `BufReader` count: a server that writes several messages at
+    /// once leaves the pipe empty after the first read, and polling only the
+    /// file descriptor then stalled until the 30 s response timeout.
+    fn message_ready(&self, timeout: Duration) -> bool {
+        !self.reader.buffer().is_empty() || poll_readable(self.reader.get_ref(), timeout)
     }
 
     /// Send the prepared reply for a server→client request.
@@ -670,10 +678,7 @@ impl LspSession {
             if remaining.is_zero() {
                 return Ok(None);
             }
-            if !poll_readable(
-                self.reader.get_ref(),
-                remaining.min(Duration::from_millis(500)),
-            ) {
+            if !self.message_ready(remaining.min(Duration::from_millis(500))) {
                 continue;
             }
             let message = read_message(&mut self.reader)?;
