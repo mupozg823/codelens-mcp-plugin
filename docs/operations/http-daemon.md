@@ -17,6 +17,25 @@ other projects' sessions:
 | Consumption | `dev.codelens.mcp-mutation` | 7838 | `codelens-mcp-http` | global Codex/Claude/Cursor host attach overrides |
 | Dev | `dev.codelens.mcp-dev-mutation` | 7736 | `codelens-mcp-http-dev` | this repo's `.mcp.json` — **rebuild freely** |
 
+The two can only coexist if the consumption daemon does **not** use this repo
+as its default project: the default project's writer lease is held for the
+daemon's lifetime, so a consumption daemon started on the repo keeps the dev
+daemon in a `project_writer_busy` respawn loop. Install the consumption daemon
+with an empty default project (the working directory, telemetry and logs stay
+in the repo); unbound sessions then see an empty project instead of this repo:
+
+```bash
+bash scripts/install-http-daemons-launchd.sh . --default-project ~/.codelens/daemon-default --run-at-load --load
+bash scripts/install-http-daemons-launchd.sh . --label-prefix dev.codelens.mcp-dev \
+  --bin-path "$PWD/.codelens/bin/codelens-mcp-http-dev" --mutation-port 7736 \
+  --semantic --run-at-load --load
+```
+
+Only the daemon whose default project is the repo writes the repo-local
+`.codelens/config.json` host attach URLs, so the consumption install no longer
+flips them away from `:7736`. After redeploying either daemon, `/mcp reconnect
+all` (Claude Code 2.1.284+) re-attaches every failed server at once.
+
 The old `*-readonly` labels are compatibility leftovers only. The installer and
 redeploy script disable and boot them out before touching the canonical writer;
 they never generate or bootstrap a readonly plist.
