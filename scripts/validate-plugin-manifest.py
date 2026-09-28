@@ -140,6 +140,21 @@ def collect_manifest_errors(repo_root: Path) -> list[str]:
             rel = plugin.get(key)
             if rel is None:
                 continue
+            if isinstance(rel, list):
+                # Claude Code 2.1.273+ `plugin validate --strict` wants
+                # `agents` as an array of `.md` files, not a directory.
+                if not rel:
+                    errors.append(f"{PLUGIN_MANIFEST}: {key} array is empty")
+                for entry in rel:
+                    path = (repo_root / entry).resolve() if isinstance(entry, str) else None
+                    if path is None or not path.is_file() or path.suffix != ".md":
+                        errors.append(
+                            f"{PLUGIN_MANIFEST}: {key} entry '{entry}' is not an existing .md file"
+                        )
+                continue
+            if not isinstance(rel, str):
+                errors.append(f"{PLUGIN_MANIFEST}: {key} must be a path string or an array")
+                continue
             directory = (repo_root / rel).resolve()
             if not directory.is_dir() or not any(directory.iterdir()):
                 errors.append(

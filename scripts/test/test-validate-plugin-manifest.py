@@ -119,6 +119,22 @@ def test_empty_plugins_array_reported() -> None:
         assert any("plugins" in e for e in errs)
 
 
+def test_agents_md_array_passes() -> None:
+    # Claude Code 2.1.273+ shape: `agents` is an array of .md files.
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        _write(root, {**VALID_PLUGIN, "agents": ["./agents/a.md"]}, VALID_MARKET)
+        assert collect_manifest_errors(root) == []
+
+
+def test_agents_array_missing_file_reported() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        _write(root, {**VALID_PLUGIN, "agents": ["./agents/missing.md"]}, VALID_MARKET)
+        errs = collect_manifest_errors(root)
+        assert any("missing.md" in e for e in errs), errs
+
+
 def main() -> int:
     failures: list[str] = []
     tests = [
@@ -130,6 +146,8 @@ def main() -> int:
         test_dangling_skills_path_reported,
         test_marketplace_name_mismatch_reported,
         test_empty_plugins_array_reported,
+        test_agents_md_array_passes,
+        test_agents_array_missing_file_reported,
     ]
     for t in tests:
         try:
