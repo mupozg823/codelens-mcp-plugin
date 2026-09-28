@@ -58,8 +58,24 @@ pub struct FileNode {
 
 pub struct GraphCache {
     inner: Mutex<GraphCacheInner>,
+    /// Other structures derived from the same files (e.g. resolved call
+    /// graphs per scope), dropped on the same invalidation as the graph.
+    derived: Mutex<DerivedSlots>,
     /// Monotonically increasing counter -- bumped on every invalidation.
     generation: AtomicU64,
+}
+
+/// Upper bound on cached derived entries; a full cache is cleared rather than
+/// evicted piecemeal — entries are per-scope and cheap to rebuild relative to
+/// the memory a long-lived daemon would otherwise accumulate.
+const MAX_DERIVED_ENTRIES: usize = 8;
+
+type DerivedEntry = Arc<dyn std::any::Any + Send + Sync>;
+
+#[derive(Default)]
+struct DerivedSlots {
+    generation: u64,
+    entries: HashMap<String, DerivedEntry>,
 }
 
 struct GraphCacheInner {
@@ -86,6 +102,7 @@ impl GraphCache {
                 semantic_scores: None,
                 built_generation: 0,
             }),
+            derived: Mutex::new(DerivedSlots::default()),
             generation: AtomicU64::new(1), // start at 1 so default 0 is always stale
         }
     }
@@ -174,6 +191,36 @@ impl GraphCache {
         } else {
             Arc::clone(&pr)
         }
+    }
+
+    /// Return the value cached under `key` for the current generation, or
+    /// build and cache it. The build runs outside the lock; a result whose
+    /// generation was invalidated mid-build is returned but not cached.
+    pub fn get_or_build_derived<T: std::any::Any + Send + Sync>(
+        &self,
+        key: &str,
+        build: impl FnOnce() -> Result<T>,
+    ) -> Result<Arc<T>> {
+        let generation = self.generation.load(Ordering::Acquire);
+        if let Ok(slots) = self.derived.lock()
+            && slots.generation == generation
+            && let Some(entry) = slots.entries.get(key)
+            && let Ok(value) = Arc::clone(entry).downcast::<T>()
+        {
+            return Ok(value);
+        }
+        let built = Arc::new(build()?);
+        if let Ok(mut slots) = self.derived.lock()
+            && self.generation.load(Ordering::Acquire) == generation
+        {
+            if slots.generation != generation || slots.entries.len() >= MAX_DERIVED_ENTRIES {
+                slots.entries.clear();
+                slots.generation = generation;
+            }
+            let entry: DerivedEntry = built.clone();
+            slots.entries.insert(key.to_owned(), entry);
+        }
+        Ok(built)
     }
 
     /// Bump the generation counter, causing the next `get_or_build` to rebuild.
@@ -771,5 +818,41 @@ import (
         ));
         fs::create_dir_all(&dir).expect("create tempdir");
         dir
+    }
+
+    #[test]
+    fn derived_entries_follow_the_cache_generation() {
+        let cache = GraphCache::new(30);
+        let builds = std::cell::Cell::new(0);
+        let build = || {
+            builds.set(builds.get() + 1);
+            Ok(builds.get())
+        };
+
+        let first = cache.get_or_build_derived("k", build).expect("first");
+        let again = cache.get_or_build_derived("k", build).expect("again");
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &again),
+            "same generation is shared"
+        );
+        assert_eq!(builds.get(), 1);
+
+        cache.invalidate();
+        let rebuilt = cache.get_or_build_derived("k", build).expect("rebuilt");
+        assert_eq!(*rebuilt, 2, "invalidation forces a rebuild");
+
+        // Invalidated while building: returned, but not cached.
+        let raced = cache
+            .get_or_build_derived("k2", || {
+                cache.invalidate();
+                Ok(10)
+            })
+            .expect("raced");
+        assert_eq!(*raced, 10);
+        let fresh = cache.get_or_build_derived("k2", || Ok(11)).expect("fresh");
+        assert_eq!(
+            *fresh, 11,
+            "a result built across an invalidation must not be served"
+        );
     }
 }

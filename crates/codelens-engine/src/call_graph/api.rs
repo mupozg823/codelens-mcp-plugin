@@ -3,6 +3,7 @@ use crate::project::ProjectRoot;
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::extract::extract_calls;
 use super::js_imports::{build_js_import_binding_index, filter_external_import_edges};
@@ -31,22 +32,47 @@ struct CallGraphSnapshot {
 }
 
 impl CallGraphSnapshot {
+    /// Resolved call graph for `path` (whole project when `None`). With a
+    /// `GraphCache` the snapshot is shared until the cache is invalidated
+    /// (file watcher, index refresh) — before, every callers/callees query
+    /// re-parsed the whole scope (p50 8 s on a 3k-file repo).
     fn build(
         project: &ProjectRoot,
         path: Option<&str>,
         graph_cache: Option<&GraphCache>,
+    ) -> Result<Arc<Self>> {
+        match graph_cache {
+            Some(cache) => cache
+                .get_or_build_derived(&format!("call_graph:{}", path.unwrap_or("")), || {
+                    Self::build_uncached(project, path, graph_cache)
+                }),
+            None => Self::build_uncached(project, path, None).map(Arc::new),
+        }
+    }
+
+    fn build_uncached(
+        project: &ProjectRoot,
+        path: Option<&str>,
+        graph_cache: Option<&GraphCache>,
     ) -> Result<Self> {
+        use rayon::prelude::*;
+
         let files = collect_scope_files(project, path)?;
         let scoped_files = files.iter().map(|file| project.to_relative(file)).collect();
-        let mut edges = Vec::new();
-
-        for file in &files {
-            let mut file_edges = extract_calls(file);
-            for edge in &mut file_edges {
-                edge.caller_file = project.to_relative(file);
-            }
-            edges.extend(file_edges);
-        }
+        // Per-file extraction is independent; collect per file so the edge
+        // order stays the sequential order.
+        let per_file: Vec<Vec<CallEdge>> = files
+            .par_iter()
+            .map(|file| {
+                let caller_file = project.to_relative(file);
+                let mut file_edges = extract_calls(file);
+                for edge in &mut file_edges {
+                    edge.caller_file = caller_file.clone();
+                }
+                file_edges
+            })
+            .collect();
+        let mut edges: Vec<CallEdge> = per_file.into_iter().flatten().collect();
 
         let import_bindings = build_js_import_binding_index(project, &files);
         filter_external_import_edges(&mut edges, &import_bindings);
@@ -219,8 +245,8 @@ impl CallGraphSnapshot {
 pub struct ResolvedCallGraph<'a> {
     project: &'a ProjectRoot,
     graph_cache: Option<&'a GraphCache>,
-    base: CallGraphSnapshot,
-    escaped_files: HashMap<String, CallGraphSnapshot>,
+    base: Arc<CallGraphSnapshot>,
+    escaped_files: HashMap<String, Arc<CallGraphSnapshot>>,
     #[cfg(test)]
     materialization_count: usize,
 }
