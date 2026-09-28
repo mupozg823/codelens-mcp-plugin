@@ -520,9 +520,8 @@ output_schema = "references_output_schema"
 
 [tool.input_schema]
 type = "object"
-required = ["path"]
 [tool.input_schema.properties]
-path = { type = "string", description = "File containing or declaring the symbol" }
+path = { type = "string", description = "File declaring the symbol. Optional with symbol_name: a unique declaring file is inferred from the symbol index (reported as path_inference)" }
 file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 symbol_name = { type = "string", description = "Symbol name (default: tree-sitter search)" }
@@ -642,9 +641,8 @@ output_schema = "lsp_navigation_output_schema"
 
 [tool.input_schema]
 type = "object"
-required = ["path"]
 [tool.input_schema.properties]
-path = { type = "string" }
+path = { type = "string", description = "File declaring the symbol. Optional with symbol_name: a unique declaring file is inferred from the symbol index (reported as path_inference)" }
 file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 symbol_name = { type = "string", description = "Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given." }
@@ -665,9 +663,8 @@ output_schema = "lsp_navigation_output_schema"
 
 [tool.input_schema]
 type = "object"
-required = ["path"]
 [tool.input_schema.properties]
-path = { type = "string" }
+path = { type = "string", description = "File declaring the symbol. Optional with symbol_name: a unique declaring file is inferred from the symbol index (reported as path_inference)" }
 file_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 relative_path = { type = "string", description = "DEPRECATED v1.13.23 — use `path`. Soft alias maintained until v1.14.0." }
 symbol_name = { type = "string", description = "Symbol to navigate from; resolved to a position via the symbol index. Omit only when line+column are given." }

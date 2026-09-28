@@ -269,3 +269,60 @@ fn review_verb_missing_mode_is_missing_param() {
         "response must be a missing-required-parameter error: {encoded}"
     );
 }
+
+// 2026-09 transcript audit: `search(mode=refs)` advertises only `mode` as
+// required, yet the target rejected calls without `path` (70 errors across
+// 59 sessions). A unique declaring file is now inferred from the index.
+#[test]
+fn search_refs_without_path_infers_unique_declaring_file() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("refs_infer.py"),
+        "def refs_infer_target():\n    pass\n\ndef refs_infer_caller():\n    refs_infer_target()\n",
+    )
+    // SAFE-UNWRAP: a fixture write failure must fail this integration test.
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let payload = call_tool(
+        &state,
+        "search",
+        json!({ "mode": "refs", "symbol_name": "refs_infer_target" }),
+    );
+
+    assert_eq!(payload["success"], json!(true), "payload: {payload}");
+    assert_eq!(
+        payload["data"]["path_inference"]["path"],
+        json!("refs_infer.py"),
+        "the inferred declaring file must be reported: {payload}"
+    );
+}
+
+#[test]
+fn search_refs_without_path_lists_candidates_when_ambiguous() {
+    let project = project_root();
+    for file in ["refs_amb_a.py", "refs_amb_b.py"] {
+        fs::write(
+            project.as_path().join(file),
+            "def refs_ambiguous_target():\n    pass\n",
+        )
+        // SAFE-UNWRAP: a fixture write failure must fail this integration test.
+        .unwrap();
+    }
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let payload = call_tool(
+        &state,
+        "search",
+        json!({ "mode": "refs", "symbol_name": "refs_ambiguous_target" }),
+    );
+
+    assert_eq!(payload["success"], json!(false), "payload: {payload}");
+    let error = payload["error"].to_string();
+    assert!(
+        error.contains("refs_amb_a.py") && error.contains("refs_amb_b.py"),
+        "an ambiguous name must list every declaring file: {error}"
+    );
+}

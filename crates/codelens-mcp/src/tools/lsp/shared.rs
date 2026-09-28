@@ -21,6 +21,84 @@ pub(super) fn resolve_path_argument(
     Err(CodeLensError::MissingParam("path".to_owned()))
 }
 
+/// Surface an inferred declaring path on a successful result so the caller
+/// sees which file the answer was computed against.
+pub(super) fn attach_path_inference(
+    result: crate::tool_runtime::ToolResult,
+    path_inference: Option<Value>,
+) -> crate::tool_runtime::ToolResult {
+    let (mut payload, meta) = result?;
+    if let (Some(inference), Some(map)) = (path_inference, payload.as_object_mut()) {
+        map.insert("path_inference".to_owned(), inference);
+    }
+    Ok((payload, meta))
+}
+
+/// Upper bound on declaring files listed when a symbol name is ambiguous.
+const PATH_INFERENCE_CANDIDATE_LIMIT: usize = 8;
+
+/// Read-navigation variant of [`resolve_path_argument`]: when no path is
+/// given but `symbol_name` is, infer the declaring file from the symbol
+/// index. A unique declaring file is used (reported as `path_inference`);
+/// several candidates fail with the list so the caller can pick one.
+///
+/// `search(mode=refs|impl|defn)` advertises only `mode` as required, so
+/// agents routinely omitted `path` and hit a bare `Missing required
+/// parameter: path` (70 transcript errors across 59 sessions, 2026-09).
+pub(super) fn resolve_declaring_path_argument(
+    state: &crate::AppState,
+    arguments: &Value,
+) -> Result<(String, Vec<Value>, Option<Value>), CodeLensError> {
+    match resolve_path_argument(arguments) {
+        Ok((path, warnings)) => return Ok((path.to_owned(), warnings, None)),
+        Err(CodeLensError::MissingParam(_)) => {}
+        Err(other) => return Err(other),
+    }
+    let Some(symbol_name) = optional_string(arguments, "symbol_name") else {
+        return Err(CodeLensError::MissingParam(
+            "path (or symbol_name, to infer the declaring file from the index)".to_owned(),
+        ));
+    };
+    let symbols = state
+        .symbol_index()
+        .find_symbol(symbol_name, None, false, true, 64)
+        .map_err(CodeLensError::Internal)?;
+    let mut files: Vec<String> = Vec::new();
+    for symbol in symbols {
+        if !files.contains(&symbol.file_path) {
+            files.push(symbol.file_path);
+        }
+    }
+    match files.len() {
+        0 => Err(CodeLensError::MissingParam(format!(
+            "path — symbol '{symbol_name}' is not in the symbol index, so its declaring file \
+             cannot be inferred; pass path, or run refresh_symbol_index if it was just added"
+        ))),
+        1 => {
+            let path = files.remove(0);
+            let inference = json!({
+                "source": "symbol_index",
+                "symbol_name": symbol_name,
+                "path": &path,
+            });
+            Ok((path, Vec::new(), Some(inference)))
+        }
+        count => {
+            let shown: Vec<&str> = files
+                .iter()
+                .take(PATH_INFERENCE_CANDIDATE_LIMIT)
+                .map(String::as_str)
+                .collect();
+            Err(CodeLensError::Validation(format!(
+                "path omitted and symbol '{symbol_name}' is declared in {count} files; \
+                 pass path set to one of: {}{}",
+                shown.join(", "),
+                if count > shown.len() { ", …" } else { "" }
+            )))
+        }
+    }
+}
+
 pub(super) fn insert_response_annotations(
     payload: &mut Value,
     unknown_args: &[String],

@@ -3,7 +3,10 @@ use super::super::{
     optional_usize, parse_lsp_args, success_meta,
 };
 use super::rename::resolve_symbol_position;
-use super::shared::{enhance_lsp_error, insert_response_annotations, resolve_path_argument};
+use super::shared::{
+    attach_path_inference, enhance_lsp_error, insert_response_annotations,
+    resolve_declaring_path_argument,
+};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::tool_evidence::{meta_degraded, meta_for_backend};
@@ -467,6 +470,20 @@ fn lsp_confidence_for_quiescence(
 /// over IDE-grade type precision. LSP adds latency (cold start 2-30s),
 /// requires external server installation, and fails on incomplete code.
 pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let (file_path, deprecation_warnings, path_inference) =
+        resolve_declaring_path_argument(state, arguments)?;
+    attach_path_inference(
+        find_referencing_symbols_in(state, arguments, file_path, deprecation_warnings),
+        path_inference,
+    )
+}
+
+fn find_referencing_symbols_in(
+    state: &AppState,
+    arguments: &serde_json::Value,
+    file_path: String,
+    deprecation_warnings: Vec<serde_json::Value>,
+) -> ToolResult {
     // P1-B — limit/top_k aliases + unknown_args.
     // See docs/design/arg-validation-policy.md.
     const KNOWN_ARGS: &[&str] = &[
@@ -486,8 +503,6 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         "command",
         "args",
     ];
-    let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
-    let file_path = file_path_arg.to_owned();
     let symbol_name_param = optional_string(arguments, "symbol_name");
     let max_results = crate::tool_runtime::optional_usize_with_aliases(
         arguments,

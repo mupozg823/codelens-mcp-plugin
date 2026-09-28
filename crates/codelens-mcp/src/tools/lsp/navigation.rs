@@ -14,7 +14,10 @@ use super::super::{
     parse_lsp_args, success_meta,
 };
 use super::rename::resolve_symbol_position;
-use super::shared::{insert_response_annotations, language_name_for_path, resolve_path_argument};
+use super::shared::{
+    attach_path_inference, insert_response_annotations, language_name_for_path,
+    resolve_declaring_path_argument,
+};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::tool_runtime::degraded_meta;
@@ -49,9 +52,22 @@ fn run_lsp_navigation(
     arguments: &serde_json::Value,
     target: &'static str,
 ) -> ToolResult {
-    let (file_path_arg, deprecation_warnings) = resolve_path_argument(arguments)?;
+    let (file_path, deprecation_warnings, path_inference) =
+        resolve_declaring_path_argument(state, arguments)?;
+    attach_path_inference(
+        run_lsp_navigation_in(state, arguments, target, file_path, deprecation_warnings),
+        path_inference,
+    )
+}
+
+fn run_lsp_navigation_in(
+    state: &AppState,
+    arguments: &serde_json::Value,
+    target: &'static str,
+    file_path: String,
+    deprecation_warnings: Vec<serde_json::Value>,
+) -> ToolResult {
     let unknown_args = crate::tool_runtime::collect_unknown_args(arguments, KNOWN_ARGS);
-    let file_path = file_path_arg.to_owned();
     let symbol_name = optional_string(arguments, "symbol_name").map(ToOwned::to_owned);
 
     // Position: explicit line/column wins; otherwise resolve the named
