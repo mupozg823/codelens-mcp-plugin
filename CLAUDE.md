@@ -29,6 +29,7 @@ Re-sync it from that command after a CodeLens upgrade; never edit inside the mar
 
 ```bash
 cargo check && cargo test -p codelens-engine && cargo test -p codelens-mcp --bin codelens-mcp
+cargo test -p codelens-mcp --features http --bin codelens-mcp   # http-only tests; CI runs them, the line above does not
 cargo clippy --workspace --all-targets -- -D warnings   # CI adds --no-default-features and --features scip-backend
 cargo fmt --all -- --check                               # the exit code is the truth, not the editor
 python3 scripts/regen-tool-defs.py --check && python3 scripts/surface-manifest.py --check
