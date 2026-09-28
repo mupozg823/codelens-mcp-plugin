@@ -113,6 +113,29 @@ further. Measured before this rule (2026-09 telemetry): 1-2% of suggestions
 were followed within the next three calls, several naming deprecated or
 unlisted tools.
 
+## Suggestion Gate (calibrated judgements)
+
+`suggested_next_tools` is treated as a judgement with an outcome (module
+`judgement`). A suggestion is *followed* when the tool, or a facade resolving
+to it, is called within the next three calls of the same session. A ledger
+built hourly off the request path from the usage log (and its `.1`
+generation, 28-day window, runtime rows only) gives each `(source, target)`
+pair its labeled/followed counts and the target's base rate.
+
+Policy, fixed in `judgement/gate.rs`: emit when labeled >= 50, follow rate
+>= 0.10 and lift over the base rate >= 2.0; otherwise abstain (no data is
+"uncalibrated"). `CODELENS_SUGGESTION_GATE`:
+
+- `shadow` (default) — responses unchanged; each usage-log row records
+  `suggestion_gate_mode` and `suggestion_gate_abstained`.
+- `enforce` — abstained suggestions (and their reasons and pre-filled calls)
+  are removed.
+- `off` — no judging.
+
+`codelens-mcp --calibration-report .codelens/telemetry/tool_usage.jsonl`
+prints the same per-pair numbers and decisions offline. Without persisted
+telemetry every suggestion is uncalibrated, so `enforce` withholds them all.
+
 ## Doom-Loop Protection
 
 The server detects identical tool+args called 3+ times consecutively:
