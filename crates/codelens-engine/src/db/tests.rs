@@ -743,3 +743,54 @@ fn nfd_hangul_call_edges_round_trip_via_nfc() {
     assert_eq!(callees.len(), 1);
     assert_eq!(callees[0].0, nfc_callee);
 }
+
+/// `symbols.parent_id` is a self-referencing foreign key with foreign_keys
+/// ON: without an index, every deleted symbol scans the whole table for
+/// children, which made re-indexing a changed worktree take minutes.
+#[test]
+fn symbol_parent_lookup_uses_an_index() {
+    fn plan(db: &IndexDb) -> String {
+        db.conn
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT 1 FROM symbols WHERE parent_id = ?1",
+                [1],
+                |row| row.get::<_, String>(3),
+            )
+            .expect("query plan")
+    }
+
+    let fresh = IndexDb::open_memory().expect("fresh db");
+    assert!(
+        plan(&fresh).contains("idx_symbols_parent"),
+        "{}",
+        plan(&fresh)
+    );
+
+    // An index created at schema v6 picks the index up on the next open.
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-db-parent-index-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).expect("dir");
+    let path = dir.join("symbols.db");
+    {
+        let db = IndexDb::open(&path).expect("open");
+        db.conn
+            .execute_batch(
+                "DROP INDEX idx_symbols_parent;
+                 UPDATE meta SET value = '6' WHERE key = 'schema_version';",
+            )
+            .expect("downgrade to v6");
+    }
+    let reopened = IndexDb::open(&path).expect("reopen");
+    assert!(
+        plan(&reopened).contains("idx_symbols_parent"),
+        "{}",
+        plan(&reopened)
+    );
+    let _ = fs::remove_dir_all(&dir);
+}

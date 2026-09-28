@@ -10,7 +10,7 @@ mod ops;
 #[cfg(test)]
 mod tests;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 /// Version of the analysis LOGIC (import resolver + import/symbol extractors)
 /// whose output is persisted in `imports`/`symbols`/`calls`. Distinct from
@@ -272,6 +272,14 @@ impl IndexDb {
                 content=symbols, content_rowid=id,
                 tokenize='unicode61 remove_diacritics 2 separators _'
              );",
+        ),
+        (
+            7,
+            // `symbols.parent_id` references `symbols(id)` and foreign_keys is
+            // ON, so every deleted symbol made SQLite scan the whole table for
+            // children. Re-indexing ~1.2k changed files of a 74k-symbol index
+            // spent 70 s of CPU there (delete of 27k symbols: 53.9 s -> 0.13 s).
+            "CREATE INDEX IF NOT EXISTS idx_symbols_parent ON symbols(parent_id);",
         ),
     ];
 
