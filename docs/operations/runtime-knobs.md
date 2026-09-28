@@ -45,6 +45,23 @@ hostile repositories, isolate the daemon at the OS/container layer and omit
 LSP tools from the exposed surface. `CODELENS_LSP_PREWARM=off` only disables
 eager startup and is not a sandbox.
 
+## Project Binding Gate (HTTP sessions)
+
+An HTTP session without an explicit project binding (initialize `project`,
+the `x-codelens-project` header, or `prepare_harness_session` /
+`activate_project` with `project=`) is served from the daemon's default
+project, which is usually not the caller's repository.
+
+- Content mutations on such a session are refused with
+  `project_binding_required` (`-32003`). `CODELENS_ALLOW_UNBOUND_MUTATION=1`
+  restores advisory-only behavior.
+- Reads are advisory by default: the payload carries a `project_binding`
+  block with `bound: false`. Agents routinely ignored that block and trusted
+  empty results from the wrong repository, so `CODELENS_REQUIRE_EXPLICIT_BINDING=1`
+  refuses unbound reads with the same error. Session tools
+  (`prepare_harness_session`, `get_current_config`, ...) stay callable so the
+  caller can bind and retry.
+
 ## Analysis Artifact Cache (LRU + TTL)
 
 `artifact_store` keeps recent analysis results (the `analysis_id` values returned by `review_architecture`, `module_boundary_report`, `dead_code_report`, etc.) so chained calls like `get_analysis_section` can resolve them. Two caps with runtime overrides:

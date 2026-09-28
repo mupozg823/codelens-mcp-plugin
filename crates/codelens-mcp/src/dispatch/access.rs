@@ -159,11 +159,16 @@ pub(crate) fn validate_tool_access(
     // so content mutations are blocked pre-execution; read tools keep the
     // advisory `project_binding` hint (dispatch/mod.rs). Escape hatch:
     // CODELENS_ALLOW_UNBOUND_MUTATION=1 restores advisory-only behavior.
+    //
+    // Reads opt in via CODELENS_REQUIRE_EXPLICIT_BINDING=1: the advisory hint
+    // was routinely ignored, so unbound sessions silently read the daemon's
+    // default repo and got empty answers (2026-09 transcript audit). An error
+    // is never ignored. Session tools stay open so the caller can bind.
     #[cfg(feature = "http")]
-    if is_content_mutation_tool(name)
-        && state.should_route_to_session(session)
+    if state.should_route_to_session(session)
         && !session.project_binding_is_explicit()
-        && crate::env_compat::env_var_bool("CODELENS_ALLOW_UNBOUND_MUTATION") != Some(true)
+        && crate::tool_defs::tool_namespace(name) != "session"
+        && unbound_call_blocked(is_content_mutation_tool(name))
     {
         return Err(CodeLensError::ProjectBindingRequired {
             tool: name.to_owned(),
@@ -171,6 +176,19 @@ pub(crate) fn validate_tool_access(
     }
 
     Ok(())
+}
+
+/// Whether a call on a session without an explicit project binding must be
+/// refused: mutations by default (opt out with
+/// `CODELENS_ALLOW_UNBOUND_MUTATION=1`), reads only when the operator opts in
+/// with `CODELENS_REQUIRE_EXPLICIT_BINDING=1`.
+#[cfg(feature = "http")]
+fn unbound_call_blocked(is_mutation: bool) -> bool {
+    if is_mutation {
+        crate::env_compat::env_var_bool("CODELENS_ALLOW_UNBOUND_MUTATION") != Some(true)
+    } else {
+        crate::env_compat::env_var_bool("CODELENS_REQUIRE_EXPLICIT_BINDING") == Some(true)
+    }
 }
 
 // ── Role gate (merged from role_gate.rs) ────────────────────────────────────────
@@ -283,5 +301,67 @@ mod tests {
             result,
             Err(CodeLensError::ProjectBindingRequired { .. })
         ));
+    }
+
+    /// Reads on an unbound session stay advisory by default and are refused
+    /// only under `CODELENS_REQUIRE_EXPLICIT_BINDING=1`; session tools (the
+    /// way to bind) are never refused.
+    #[test]
+    fn unbound_reads_are_blocked_only_when_explicit_binding_is_required() {
+        let _env_guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let previous = std::env::var("CODELENS_REQUIRE_EXPLICIT_BINDING").ok();
+
+        let project_dir = tempfile::tempdir().expect("project dir");
+        let project = codelens_engine::ProjectRoot::new(
+            project_dir.path().to_str().expect("UTF-8 project path"),
+        )
+        .expect("project root");
+        let state = AppState::new(project, ToolPreset::Balanced).with_session_store();
+        let store = state.session_store.as_ref().expect("session store");
+        let live_session = store.create();
+        let project_path = state.project().as_path().to_string_lossy().into_owned();
+        let unbound = with_http_transport_context(|| {
+            SessionRequestContext::from_json(&json!({
+                "_session_id": live_session.id,
+                "_session_trusted_client": true,
+                "_session_project_path": project_path,
+                "_session_project_binding_source": "daemon_default",
+            }))
+        });
+        let surface = ToolSurface::Preset(ToolPreset::Balanced);
+        let check = |tool: &str| validate_tool_access(tool, &unbound, surface, &state);
+
+        // SAFETY: process-wide environment access is serialized by TEST_ENV_LOCK.
+        unsafe { std::env::remove_var("CODELENS_REQUIRE_EXPLICIT_BINDING") };
+        let advisory_read = check("find_symbol");
+        // SAFETY: as above.
+        unsafe { std::env::set_var("CODELENS_REQUIRE_EXPLICIT_BINDING", "1") };
+        let strict_read = check("find_symbol");
+        let strict_bootstrap = check("prepare_harness_session");
+        // SAFETY: as above.
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_REQUIRE_EXPLICIT_BINDING", value),
+                None => std::env::remove_var("CODELENS_REQUIRE_EXPLICIT_BINDING"),
+            }
+        }
+
+        assert!(
+            advisory_read.is_ok(),
+            "default stays advisory: {advisory_read:?}"
+        );
+        assert!(
+            matches!(
+                strict_read,
+                Err(CodeLensError::ProjectBindingRequired { .. })
+            ),
+            "opt-in must refuse unbound reads: {strict_read:?}"
+        );
+        assert!(
+            strict_bootstrap.is_ok(),
+            "session tools must stay callable so the caller can bind: {strict_bootstrap:?}"
+        );
     }
 }

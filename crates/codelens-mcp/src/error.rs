@@ -28,7 +28,7 @@ pub enum CodeLensError {
     /// default project instead of the caller's repository.
     #[cfg(feature = "http")]
     #[error(
-        "project_binding_required: tool `{tool}` is blocked because this HTTP session has no explicit project binding, so the mutation may target the wrong repository. Bind first via `prepare_harness_session` with project=<absolute workspace root>, `activate_project`, the `x-codelens-project` header, or initialize `params.project`. Operator override: CODELENS_ALLOW_UNBOUND_MUTATION=1."
+        "project_binding_required: tool `{tool}` is blocked because this HTTP session has no explicit project binding, so the call may target the wrong repository. Bind first via `prepare_harness_session` with project=<absolute workspace root>, `activate_project`, the `x-codelens-project` header, or initialize `params.project`. Operator overrides: CODELENS_ALLOW_UNBOUND_MUTATION=1 (mutations); reads are only blocked under CODELENS_REQUIRE_EXPLICIT_BINDING=1."
     )]
     ProjectBindingRequired { tool: String },
 
@@ -234,7 +234,7 @@ impl CodeLensError {
             #[cfg(feature = "http")]
             Self::ProjectBindingRequired { .. } => Some(RecoveryHint::FallbackTool {
                 tool: "prepare_harness_session".to_owned(),
-                reason: "bind this session to a workspace: pass project=<absolute workspace root> (or attach the x-codelens-project header), then retry the mutation".to_owned(),
+                reason: "bind this session to a workspace: pass project=<absolute workspace root> (or attach the x-codelens-project header), then retry the call".to_owned(),
             }),
             Self::HomeRootRejected { .. } => Some(RecoveryHint::FallbackTool {
                 tool: "prepare_harness_session".to_owned(),
