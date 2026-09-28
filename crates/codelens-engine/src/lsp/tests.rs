@@ -181,6 +181,38 @@ fn diagnostics_fall_back_to_published_when_pull_is_unsupported() {
     }
 }
 
+/// Push path twin of `diagnostics_sync_project_imports_before_request`: after
+/// an imported module changes, the cached publish for the importer must not
+/// be served — the server's fresh publish must be.
+#[test]
+fn push_diagnostics_refresh_after_an_imported_module_changes() {
+    let dir = temp_dir("codelens-lsp-push-import-refresh");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(dir.join("helper.py"), "VALUE = 1\n").expect("write helper");
+    fs::write(dir.join("main.py"), "from helper import VALUE\n").expect("write main");
+    let server_path = dir.join("mock_push_import_lsp.py");
+    fs::write(&server_path, push_import_diagnostics_mock_server_script())
+        .expect("write mock server");
+    chmod_exec(&server_path);
+    let pool = LspSessionPool::new(project.clone());
+    pool.register_trusted_lsp_binary("pyright-langserver", &server_path)
+        .expect("register mock server");
+    let request = LspDiagnosticRequest {
+        command: "pyright-langserver".to_owned(),
+        args: vec!["--stdio".to_owned()],
+        file_path: "main.py".to_owned(),
+        max_results: 10,
+    };
+
+    let before = pool.get_diagnostics(&request).expect("first diagnostics");
+    fs::write(dir.join("helper.py"), "OTHER = 1\n").expect("rename export");
+    let after = pool.get_diagnostics(&request).expect("second diagnostics");
+
+    assert!(before.is_empty(), "{before:?}");
+    assert_eq!(after.len(), 1, "stale cached publish was served: {after:?}");
+    assert!(after[0].message.contains("VALUE"));
+}
+
 #[test]
 fn diagnostics_retry_once_after_stale_lsp_transport() {
     let dir = temp_dir("codelens-lsp-diagnostics-stale-transport");
@@ -1166,6 +1198,71 @@ while True:
             {"jsonrpc":"2.0","method":"window/logMessage","params":{"type":3,"message":"diagnostic pull unsupported"}},
             {"jsonrpc":"2.0","id":message["id"],"error":{"code":-32601,"message":"Unhandled method textDocument/diagnostic"}},
         ])
+    elif method == "shutdown":
+        send({"jsonrpc":"2.0","id":message["id"],"result":None})
+    elif method == "exit":
+        break
+"#
+}
+
+fn push_import_diagnostics_mock_server_script() -> &'static str {
+    r#"#!/usr/bin/env python3
+import json
+import sys
+from urllib.parse import urlparse, unquote
+
+documents = {}
+
+def read_message():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        key, value = line.decode("utf-8").split(":", 1)
+        headers[key.strip().lower()] = value.strip()
+    body = sys.stdin.buffer.read(int(headers["content-length"]))
+    return json.loads(body.decode("utf-8"))
+
+def send(payload):
+    body = json.dumps(payload).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8"))
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+
+def publish_all():
+    helper = next((text for uri, text in documents.items() if uri.endswith("helper.py")), "VALUE")
+    for uri in documents:
+        items = []
+        if uri.endswith("main.py") and "VALUE" not in helper:
+            items.append({
+                "range":{"start":{"line":0,"character":19},"end":{"line":0,"character":24}},
+                "severity":1,
+                "message":"\"VALUE\" is unknown import symbol"
+            })
+        send({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":uri,"diagnostics":items}})
+
+while True:
+    message = read_message()
+    if message is None:
+        break
+    method = message.get("method")
+    if method == "initialize":
+        send({"jsonrpc":"2.0","id":message["id"],"result":{"capabilities":{}}})
+    elif method == "textDocument/didOpen":
+        doc = message["params"]["textDocument"]
+        documents[doc["uri"]] = doc.get("text", "")
+        publish_all()
+    elif method == "textDocument/didChange":
+        doc = message["params"]["textDocument"]
+        changes = message["params"].get("contentChanges", [])
+        if changes:
+            documents[doc["uri"]] = changes[-1].get("text", "")
+        publish_all()
+    elif method == "textDocument/diagnostic":
+        send({"jsonrpc":"2.0","id":message["id"],"error":{"code":-32601,"message":"Unhandled method textDocument/diagnostic"}})
     elif method == "shutdown":
         send({"jsonrpc":"2.0","id":message["id"],"result":None})
     elif method == "exit":

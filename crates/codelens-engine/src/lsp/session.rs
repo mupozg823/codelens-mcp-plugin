@@ -64,8 +64,8 @@ pub(super) struct LspSession {
     /// not necessarily a *quiescent* one.
     server_quiescent: Option<bool>,
     /// Latest `textDocument/publishDiagnostics` payload per document URI.
-    /// Cleared when the document is re-synced, so an entry is always for the
-    /// text the server currently holds.
+    /// Cleared whenever any document is re-synced, so an entry always reflects
+    /// the texts the server currently holds.
     pub(super) published_diagnostics: HashMap<String, Value>,
     /// The server rejected pull diagnostics (`textDocument/diagnostic`) with
     /// MethodNotFound — typescript-language-server does — so use push.
@@ -483,7 +483,10 @@ impl LspSession {
             return Ok(());
         }
 
-        self.published_diagnostics.remove(&diagnostics_key(uri));
+        // Any edit can change another open document's diagnostics (an import
+        // changed underneath it), so drop every cached publish, not only this
+        // document's; the server re-publishes what is still open.
+        self.published_diagnostics.clear();
         if let Some(state) = self.documents.get_mut(uri) {
             state.version += 1;
             state.text = source.to_owned();
