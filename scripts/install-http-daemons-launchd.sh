@@ -50,6 +50,11 @@ Options:
   --run-at-load               add RunAtLoad=true to generated plists
   --load                      bootstrap generated plists after writing
   --no-build                  reuse an existing http-capable binary at --bin-path
+  --default-project PATH      project the daemon serves before a session binds
+                              (default: the repo root). A shared daemon should
+                              point at an empty directory: it holds the project
+                              writer lease on this path, and unbound sessions
+                              read it. The working directory stays the repo.
   --print-only                print the canonical plist to stdout instead of writing it
                               (with --principals-scaffold also previews the scaffold)
   --principals-scaffold       write a commented RBAC starter to <repo>/.codelens/principals.toml
@@ -99,6 +104,7 @@ SEMANTIC=1
 RUN_AT_LOAD=1
 LOAD_AFTER_WRITE=0
 NO_BUILD=0
+DEFAULT_PROJECT=""
 PRINT_ONLY=0
 PRINCIPALS_SCAFFOLD=0
 PORT_RELEASE_SECS="${CODELENS_PORT_RELEASE_SECS:-15}"
@@ -230,6 +236,10 @@ while [[ $# -gt 0 ]]; do
 		LABEL_PREFIX="${2:-}"
 		shift 2
 		;;
+	--default-project)
+		DEFAULT_PROJECT="${2:-}"
+		shift 2
+		;;
 	--bin-path)
 		BIN_PATH="${2:-}"
 		shift 2
@@ -353,6 +363,13 @@ if [[ -z "$REPO_ROOT" ]]; then
 	REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 else
 	REPO_ROOT="$(cd -- "$REPO_ROOT" && pwd)"
+fi
+
+if [[ -z "$DEFAULT_PROJECT" ]]; then
+	DEFAULT_PROJECT="$REPO_ROOT"
+else
+	mkdir -p "$DEFAULT_PROJECT"
+	DEFAULT_PROJECT="$(cd -- "$DEFAULT_PROJECT" && pwd)"
 fi
 
 if [[ ! -f "$REPO_ROOT/Cargo.toml" || ! -f "$REPO_ROOT/crates/codelens-mcp/Cargo.toml" ]]; then
@@ -487,6 +504,7 @@ create_plist() {
 	label_xml="$(xml_escape "$label")"
 	bin_xml="$(xml_escape "$BIN_PATH")"
 	repo_xml="$(xml_escape "$REPO_ROOT")"
+	project_xml="$(xml_escape "$DEFAULT_PROJECT")"
 	stdout_xml="$(xml_escape "$stdout_path")"
 	stderr_xml="$(xml_escape "$stderr_path")"
 	embed_resource_profile_xml="$(xml_escape "$EMBED_RESOURCE_PROFILE")"
@@ -507,7 +525,7 @@ create_plist() {
 		printf '%s\n' '  <key>ProgramArguments</key>'
 		printf '%s\n' '  <array>'
 		printf '    <string>%s</string>\n' "$bin_xml"
-		printf '    <string>%s</string>\n' "$repo_xml"
+		printf '    <string>%s</string>\n' "$project_xml"
 		printf '%s\n' '    <string>--transport</string>'
 		printf '%s\n' '    <string>http</string>'
 		printf '%s\n' '    <string>--profile</string>'
@@ -681,7 +699,13 @@ if [[ "$PRINT_ONLY" == "1" ]]; then
 fi
 
 create_plist "$mutation_label" "$MUTATION_PROFILE" "mutation-enabled" "$MUTATION_PORT" "$MUTATION_LOG_LEVEL" "$mutation_stdout" "$mutation_stderr" "$mutation_plist"
-update_host_attach_config
+# The repo-local attach URL names the daemon that owns this repo; a daemon
+# serving another default project must not take it over.
+if [[ "$DEFAULT_PROJECT" == "$REPO_ROOT" ]]; then
+	update_host_attach_config
+else
+	echo "==> Default project is $DEFAULT_PROJECT; leaving repo host attach overrides untouched"
+fi
 if [[ "$PRINCIPALS_SCAFFOLD" == "1" ]]; then
 	scaffold_principals_toml
 fi
