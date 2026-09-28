@@ -19,15 +19,34 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Copy the freshest sibling-checkout index into `project_root`'s index path
-/// when that path has no index yet. Returns the source database on success,
-/// `None` when there is nothing to seed from or an index already exists.
+/// Default ceiling on the copy. Seeding only saves parse time; past this it
+/// costs more than it saves, so it is abandoned for a normal build. Live
+/// binds on 2026-09-28 spent 1-2 h here (seed source under concurrent write).
+const DEFAULT_SEED_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn seed_timeout() -> std::time::Duration {
+    std::env::var("CODELENS_SEED_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map_or(DEFAULT_SEED_TIMEOUT, std::time::Duration::from_secs)
+}
+
+/// Copy a sibling-checkout index into `project_root`'s index path when that
+/// path has no index yet. Returns the source database on success, `None`
+/// when there is nothing to seed from or an index already exists.
 pub fn seed_index_from_sibling_checkout(project_root: &Path) -> Result<Option<PathBuf>> {
+    seed_index_with_timeout(project_root, seed_timeout())
+}
+
+fn seed_index_with_timeout(
+    project_root: &Path,
+    timeout: std::time::Duration,
+) -> Result<Option<PathBuf>> {
     let destination = index_db_path(project_root);
     if destination.exists() {
         return Ok(None);
     }
-    let Some(source) = freshest_sibling_index(project_root) else {
+    let Some(source) = preferred_sibling_index(project_root) else {
         return Ok(None);
     };
     let parent = destination
@@ -48,8 +67,38 @@ pub fn seed_index_from_sibling_checkout(project_root: &Path) -> Result<Option<Pa
         )
         .with_context(|| format!("open seed source {}", source.display()))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        conn.execute("VACUUM INTO ?1", [staging.to_string_lossy().as_ref()])
-            .with_context(|| format!("copy seed index from {}", source.display()))?;
+        // Watchdog: interrupt the copy at the deadline instead of letting
+        // the bind wait on it.
+        let interrupt = conn.get_interrupt_handle();
+        let (done, finished) = std::sync::mpsc::channel::<()>();
+        let watchdog = std::thread::Builder::new()
+            .name("codelens-seed-watchdog".to_owned())
+            .spawn(move || {
+                use std::sync::mpsc::RecvTimeoutError;
+                if finished.recv_timeout(timeout) != Err(RecvTimeoutError::Timeout) {
+                    return;
+                }
+                // An interrupt issued before the statement starts is a no-op,
+                // so keep interrupting until the copy reports back.
+                loop {
+                    interrupt.interrupt();
+                    match finished.recv_timeout(std::time::Duration::from_millis(10)) {
+                        Err(RecvTimeoutError::Timeout) => continue,
+                        _ => return,
+                    }
+                }
+            })
+            .context("spawn seed watchdog")?;
+        let copied = conn.execute("VACUUM INTO ?1", [staging.to_string_lossy().as_ref()]);
+        let _ = done.send(());
+        let _ = watchdog.join();
+        copied.with_context(|| {
+            format!(
+                "copy seed index from {} (limit {}s)",
+                source.display(),
+                timeout.as_secs()
+            )
+        })?;
         Ok(())
     };
     if let Err(error) = copy() {
@@ -66,20 +115,33 @@ pub fn seed_index_from_sibling_checkout(project_root: &Path) -> Result<Option<Pa
     Ok(Some(source))
 }
 
-/// The most recently written index among the other checkouts of the
-/// repository containing `project_root`, at the same path inside each
-/// checkout (a project may be a subdirectory of the worktree).
-fn freshest_sibling_index(project_root: &Path) -> Option<PathBuf> {
+/// The index to seed from, at the same path inside another checkout of the
+/// repository (a project may be a subdirectory of the worktree): the main
+/// checkout's when it has one — it is the long-lived, rarely rebuilt copy —
+/// otherwise the linked worktree whose database file was written last. The
+/// WAL is deliberately ignored: a fresh WAL marks an index being rebuilt
+/// right now, the worst copy source.
+fn preferred_sibling_index(project_root: &Path) -> Option<PathBuf> {
     let (toplevel, dot_git) = find_git_toplevel(project_root)?;
     let subpath = project_root.strip_prefix(&toplevel).ok()?.to_path_buf();
     let common_dir = git_common_dir(&toplevel, &dot_git)?;
     let own = canonical(&toplevel);
-    sibling_checkouts(&common_dir)
-        .into_iter()
-        .filter(|checkout| canonical(checkout) != own)
-        .filter_map(|checkout| {
-            let candidate = index_db_path(&checkout.join(&subpath));
-            let written = last_write(&candidate)?;
+    let (main, linked) = sibling_checkouts(&common_dir);
+    let candidate_for = |checkout: &PathBuf| -> Option<PathBuf> {
+        if canonical(checkout) == own {
+            return None;
+        }
+        let candidate = index_db_path(&checkout.join(&subpath));
+        candidate.is_file().then_some(candidate)
+    };
+    if let Some(main_index) = main.as_ref().and_then(candidate_for) {
+        return Some(main_index);
+    }
+    linked
+        .iter()
+        .filter_map(candidate_for)
+        .filter_map(|candidate| {
+            let written = fs::metadata(&candidate).ok()?.modified().ok()?;
             Some((written, candidate))
         })
         .max_by_key(|(written, _)| *written)
@@ -109,17 +171,17 @@ fn git_common_dir(toplevel: &Path, dot_git: &Path) -> Option<PathBuf> {
     Some(canonical(&resolve_relative(&gitdir, common.trim())))
 }
 
-/// The main checkout (for a non-bare repository) plus every linked worktree
+/// The main checkout (for a non-bare repository) and every linked worktree
 /// registered under `<common>/worktrees/*/gitdir`.
-fn sibling_checkouts(common_dir: &Path) -> Vec<PathBuf> {
+fn sibling_checkouts(common_dir: &Path) -> (Option<PathBuf>, Vec<PathBuf>) {
+    let main = common_dir
+        .file_name()
+        .is_some_and(|name| name == ".git")
+        .then(|| common_dir.parent().map(Path::to_path_buf))
+        .flatten();
     let mut checkouts = Vec::new();
-    if common_dir.file_name().is_some_and(|name| name == ".git")
-        && let Some(main) = common_dir.parent()
-    {
-        checkouts.push(main.to_path_buf());
-    }
     let Ok(entries) = fs::read_dir(common_dir.join("worktrees")) else {
-        return checkouts;
+        return (main, checkouts);
     };
     for entry in entries.flatten() {
         let Ok(gitdir) = fs::read_to_string(entry.path().join("gitdir")) else {
@@ -131,7 +193,7 @@ fn sibling_checkouts(common_dir: &Path) -> Vec<PathBuf> {
             checkouts.push(checkout.to_path_buf());
         }
     }
-    checkouts
+    (main, checkouts)
 }
 
 fn resolve_relative(base: &Path, path: &str) -> PathBuf {
@@ -145,15 +207,6 @@ fn resolve_relative(base: &Path, path: &str) -> PathBuf {
 
 fn canonical(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
-/// Latest modification across the database and its WAL, or `None` when the
-/// database does not exist.
-fn last_write(db: &Path) -> Option<std::time::SystemTime> {
-    let main = fs::metadata(db).ok()?.modified().ok()?;
-    let wal = db.with_extension("db-wal");
-    let wal = fs::metadata(wal).ok().and_then(|meta| meta.modified().ok());
-    Some(wal.map_or(main, |wal| wal.max(main)))
 }
 
 #[cfg(test)]
@@ -231,6 +284,59 @@ mod tests {
                 .expect("find")
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn main_checkout_is_preferred_over_a_newer_linked_worktree() {
+        let (main, worktree) = repository_with_worktree("prefer-main");
+        // A second linked worktree whose index is written after main's.
+        let other = main.parent().expect("root").join("wt2");
+        let admin = main.join(".git/worktrees/wt2");
+        fs::create_dir_all(&admin).expect("admin");
+        fs::create_dir_all(other.join("sub")).expect("sub");
+        fs::write(admin.join("commondir"), "../..\n").expect("commondir");
+        fs::write(
+            admin.join("gitdir"),
+            format!("{}\n", other.join(".git").display()),
+        )
+        .expect("gitdir");
+        fs::write(other.join(".git"), format!("gitdir: {}\n", admin.display())).expect("dot git");
+        fs::write(other.join("sub/lib.py"), "def seeded_symbol():\n    pass\n").expect("source");
+        for checkout in [&main, &other] {
+            SymbolIndex::new(ProjectRoot::new_exact(checkout.join("sub")).expect("root"))
+                .expect("index")
+                .refresh_all()
+                .expect("refresh");
+        }
+
+        let seeded = seed_index_from_sibling_checkout(&worktree.join("sub")).expect("seed");
+
+        assert_eq!(
+            seeded.map(|path| canonical(&path)),
+            Some(canonical(&index_db_path(&main.join("sub"))))
+        );
+    }
+
+    #[test]
+    fn a_copy_past_the_deadline_is_abandoned_without_installing_anything() {
+        let (main, worktree) = repository_with_worktree("deadline");
+        SymbolIndex::new(ProjectRoot::new_exact(main.join("sub")).expect("main root"))
+            .expect("main index")
+            .refresh_all()
+            .expect("index main");
+
+        let result = seed_index_with_timeout(&worktree.join("sub"), std::time::Duration::ZERO);
+
+        assert!(result.is_err(), "a zero deadline must interrupt the copy");
+        let index_dir = index_db_path(&worktree.join("sub"));
+        assert!(!index_dir.exists(), "no partial index may be installed");
+        let leftovers: Vec<_> = fs::read_dir(index_dir.parent().expect("dir"))
+            .map(|entries| entries.flatten().map(|e| e.file_name()).collect())
+            .unwrap_or_default();
+        assert!(
+            leftovers.is_empty(),
+            "staging file must be removed: {leftovers:?}"
         );
     }
 

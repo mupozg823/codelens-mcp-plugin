@@ -302,6 +302,7 @@ pub(super) fn build_project_runtime_context(
     };
     let seed_ms = started.elapsed().as_millis() - lease_ms;
     let symbol_index = Arc::new(SymbolIndex::new(project.clone())?);
+    let index_open_ms = started.elapsed().as_millis() - lease_ms - seed_ms;
     // `file_count` is one COUNT(*); `stats()` re-reads and hashes every file.
     // A seeded index carries the sibling's mtimes, so reconcile it now.
     if seeded
@@ -362,6 +363,7 @@ pub(super) fn build_project_runtime_context(
             seed_ms,
             seeded,
             index_ms,
+            index_open_ms,
             rest_ms = total_ms - lease_ms - seed_ms - index_ms,
             "slow project runtime build"
         );
