@@ -170,6 +170,13 @@ pub fn find_scoped_references_in_file(
 }
 
 /// Find all scope-aware references across the project.
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    needle.is_empty()
+        || haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+}
+
 pub fn find_scoped_references(
     project: &ProjectRoot,
     symbol_name: &str,
@@ -186,21 +193,33 @@ pub fn find_scoped_references(
         .filter(|paths| !paths.is_empty());
 
     if let Some(rel_paths) = indexed_files {
-        for rel in &rel_paths {
-            let abs = project.as_path().join(rel);
-            if language_for_path(&abs).is_none() {
-                continue;
-            }
-            match find_scoped_references_in_file(project, rel, symbol_name, None) {
-                Ok(refs) => {
-                    for r in refs {
-                        all_results.push(r);
-                        if all_results.len() >= max_results {
-                            return Ok(all_results);
-                        }
-                    }
+        use rayon::prelude::*;
+
+        // Parse only files whose text contains the name — a reference cannot
+        // exist elsewhere — and do it in parallel. Per-file results are joined
+        // in index order and truncated exactly like the sequential loop was.
+        // Before, every indexed file was read and parsed on one thread
+        // (review(mode=changes) spent most of its 13-45 s here).
+        let per_file: Vec<Vec<ScopedReference>> = rel_paths
+            .par_iter()
+            .map(|rel| {
+                let abs = project.as_path().join(rel);
+                if language_for_path(&abs).is_none() {
+                    return Vec::new();
                 }
-                Err(_) => continue,
+                match fs::read(&abs) {
+                    Ok(bytes) if contains_bytes(&bytes, symbol_name.as_bytes()) => {}
+                    _ => return Vec::new(),
+                }
+                find_scoped_references_in_file(project, rel, symbol_name, None).unwrap_or_default()
+            })
+            .collect();
+        for refs in per_file {
+            for r in refs {
+                all_results.push(r);
+                if all_results.len() >= max_results {
+                    return Ok(all_results);
+                }
             }
         }
     } else {
