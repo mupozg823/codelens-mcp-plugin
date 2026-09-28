@@ -646,12 +646,17 @@ fn persistent_index_open_failure_is_reported_without_memory_fallback() {
 }
 
 fn fixture_root() -> std::path::PathBuf {
+    // Parallel tests can read the same nanosecond, and some of them rewrite
+    // fixture files; the sequence number keeps every root private.
+    static FIXTURE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "codelens-symbols-fixture-{}",
+        "codelens-symbols-fixture-{}-{}-{}",
+        std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("time")
-            .as_nanos()
+            .as_nanos(),
+        FIXTURE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     fs::create_dir_all(dir.join("src")).expect("create src");
     fs::write(
