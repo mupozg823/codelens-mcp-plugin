@@ -794,3 +794,26 @@ fn symbol_parent_lookup_uses_an_index() {
     );
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn open_connections_are_counted_per_path_while_alive() {
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-db-open-count-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).expect("dir");
+    let path = dir.join("symbols.db");
+
+    let first = IndexDb::open(&path).expect("open");
+    let reader = IndexDb::open_readonly(&path).expect("ro").expect("exists");
+    assert_eq!(open_connections_for(&path), 2);
+    drop(first);
+    assert_eq!(open_connections_for(&path), 1);
+    drop(reader);
+    assert_eq!(open_connections_for(&path), 0);
+    let _ = fs::remove_dir_all(&dir);
+}

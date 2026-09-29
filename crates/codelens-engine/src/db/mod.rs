@@ -25,7 +25,54 @@ const ANALYZER_VERSION: i64 = 2;
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {
     pub(super) conn: Connection,
+    /// Counts this connection in [`OPEN_CONNECTIONS`] while it lives.
+    _open: Option<OpenConnectionGuard>,
 }
+
+/// Index databases currently open in this process, per path. Reported when
+/// an open is slow, to tell in-process lock contention (several connections
+/// on one file) from another process holding the lock.
+static OPEN_CONNECTIONS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, usize>>,
+> = std::sync::LazyLock::new(Default::default);
+
+struct OpenConnectionGuard {
+    path: std::path::PathBuf,
+}
+
+impl OpenConnectionGuard {
+    fn register(path: &Path) -> Self {
+        let path = path.to_path_buf();
+        if let Ok(mut open) = OPEN_CONNECTIONS.lock() {
+            *open.entry(path.clone()).or_default() += 1;
+        }
+        Self { path }
+    }
+}
+
+impl Drop for OpenConnectionGuard {
+    fn drop(&mut self) {
+        if let Ok(mut open) = OPEN_CONNECTIONS.lock()
+            && let Some(count) = open.get_mut(&self.path)
+        {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                open.remove(&self.path);
+            }
+        }
+    }
+}
+
+fn open_connections_for(path: &Path) -> usize {
+    OPEN_CONNECTIONS
+        .lock()
+        .ok()
+        .and_then(|open| open.get(path).copied())
+        .unwrap_or(0)
+}
+
+/// Opens slower than this are logged at warn with a step breakdown.
+const SLOW_OPEN: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct FileRow {
@@ -129,8 +176,10 @@ impl IndexDb {
     /// Open or create the index database at the given path.
     pub fn open(db_path: &Path) -> Result<Self> {
         open_derived_sqlite_with_recovery(db_path, "symbol index", || {
+            let started = std::time::Instant::now();
             let conn = Connection::open(db_path)
                 .with_context(|| format!("failed to open db at {}", db_path.display()))?;
+            let connect = started.elapsed();
             // `busy_timeout` first — every subsequent PRAGMA (especially
             // `journal_mode = WAL`, which takes a schema-level write lock)
             // would otherwise fail with `SQLITE_BUSY` immediately under
@@ -147,9 +196,29 @@ impl IndexDb {
             conn.execute_batch(
                 "PRAGMA busy_timeout = 30000; PRAGMA page_size = 16384; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000; PRAGMA auto_vacuum = INCREMENTAL;",
             )?;
-            let mut db = Self { conn };
+            let pragmas = started.elapsed();
+            let mut db = Self {
+                conn,
+                _open: Some(OpenConnectionGuard::register(db_path)),
+            };
             db.migrate()?;
+            let migrate = started.elapsed();
             db.invalidate_analysis_if_logic_changed()?;
+            let total = started.elapsed();
+            if total >= SLOW_OPEN {
+                // A busy_timeout wait shows up as one step eating ~30 s; the
+                // open count says whether the holder may be this process.
+                tracing::warn!(
+                    path = %db_path.display(),
+                    total_ms = total.as_millis() as u64,
+                    connect_ms = connect.as_millis() as u64,
+                    pragmas_ms = (pragmas - connect).as_millis() as u64,
+                    migrate_ms = (migrate - pragmas).as_millis() as u64,
+                    invalidate_ms = (total - migrate).as_millis() as u64,
+                    open_in_process = open_connections_for(db_path),
+                    "slow symbol index open"
+                );
+            }
             Ok(db)
         })
     }
@@ -170,14 +239,17 @@ impl IndexDb {
         conn.execute_batch(
             "PRAGMA busy_timeout = 30000; PRAGMA mmap_size = 268435456; PRAGMA cache_size = -32000;",
         )?;
-        Ok(Some(Self { conn }))
+        Ok(Some(Self {
+            conn,
+            _open: Some(OpenConnectionGuard::register(db_path)),
+        }))
     }
 
     /// Open an in-memory database (for testing).
     pub fn open_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        let mut db = Self { conn };
+        let mut db = Self { conn, _open: None };
         db.migrate()?;
         db.invalidate_analysis_if_logic_changed()?;
         Ok(db)
