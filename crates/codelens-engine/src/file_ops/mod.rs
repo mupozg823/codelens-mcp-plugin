@@ -9,7 +9,10 @@ use std::fs;
 use std::path::Path;
 
 // Re-export reader functions
-pub use reader::{find_files, list_dir, read_file, search_for_pattern, search_for_pattern_smart};
+pub use reader::{
+    find_files, list_dir, read_file, search_for_pattern, search_for_pattern_in_files,
+    search_for_pattern_smart, test_files_for_path,
+};
 
 // Re-export writer functions
 pub use writer::{
@@ -336,9 +339,55 @@ fn has_declaration_recursive(symbols: &[crate::symbols::SymbolInfo], name: &str)
 
 #[cfg(test)]
 mod tests {
-    use super::{find_files, list_dir, read_file, search_for_pattern};
+    use super::{find_files, list_dir, read_file, search_for_pattern, test_files_for_path};
     use crate::ProjectRoot;
     use std::fs;
+
+    #[test]
+    fn test_files_for_a_file_are_itself_and_its_named_companions() {
+        let dir = tempfile::tempdir().expect("dir");
+        let root = dir.path();
+        for file in [
+            "src/button.tsx",
+            "src/button.test.tsx",
+            "src/__tests__/button.tsx",
+            "tests/test_button.py",
+            "pkg/button_test.go",
+            "java/ButtonTest.java",
+            "src/buttons.test.tsx",
+            "src/dialog.test.tsx",
+            "src/button.stories.tsx",
+        ] {
+            let path = root.join(file);
+            fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            fs::write(path, "test('x', () => {})\n").expect("write");
+        }
+        let project = ProjectRoot::new(root).expect("project");
+
+        let mut found: Vec<String> = test_files_for_path(&project, "src/button.tsx")
+            .expect("files")
+            .iter()
+            .map(|path| project.to_relative(path))
+            .collect();
+        found.sort();
+
+        assert_eq!(
+            found,
+            [
+                "java/ButtonTest.java",
+                "pkg/button_test.go",
+                "src/__tests__/button.tsx",
+                "src/button.test.tsx",
+                "src/button.tsx",
+                "tests/test_button.py",
+            ]
+        );
+        assert_eq!(
+            test_files_for_path(&project, "pkg").expect("dir").len(),
+            1,
+            "a directory scopes to the files under it"
+        );
+    }
 
     #[test]
     fn reads_partial_file() {

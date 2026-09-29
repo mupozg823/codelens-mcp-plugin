@@ -1086,6 +1086,38 @@ fn returns_tests_via_tool_call() {
 }
 
 #[test]
+fn find_tests_with_a_path_returns_only_that_files_tests() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("widget.py"),
+        "def build():\n    pass\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("test_widget.py"),
+        "def test_build():\n    assert True\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("test_unrelated.py"),
+        "def test_other():\n    assert True\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(&state, "find_tests", json!({ "path": "widget.py" }));
+
+    assert_eq!(payload["success"], json!(true));
+    let files: Vec<&str> = payload["data"]["tests"]
+        .as_array()
+        .expect("tests")
+        .iter()
+        .map(|entry| entry["file_path"].as_str().expect("file_path"))
+        .collect();
+    assert_eq!(files, ["test_widget.py"]);
+}
+
+#[test]
 fn returns_complexity_via_tool_call() {
     let project = project_root();
     fs::write(project.as_path().join("complex.py"), "def decide(x):\n    if x > 0:\n        if x > 10:\n            return 'big'\n        return 'small'\n    return 'neg'\n").unwrap();

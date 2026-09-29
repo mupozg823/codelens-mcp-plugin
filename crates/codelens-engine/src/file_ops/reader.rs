@@ -144,6 +144,44 @@ pub fn search_for_pattern(
         files.push(entry.into_path());
     }
 
+    search_files_for_regex(
+        project,
+        &regex,
+        &files,
+        max_results,
+        context_lines_before,
+        context_lines_after,
+    )
+}
+
+/// Pattern search restricted to `files` (absolute paths inside `project`).
+pub fn search_for_pattern_in_files(
+    project: &ProjectRoot,
+    pattern: &str,
+    files: &[PathBuf],
+    max_results: usize,
+    context_lines_before: usize,
+    context_lines_after: usize,
+) -> Result<Vec<PatternMatch>> {
+    let regex = Regex::new(pattern).with_context(|| format!("invalid regex: {pattern}"))?;
+    search_files_for_regex(
+        project,
+        &regex,
+        files,
+        max_results,
+        context_lines_before,
+        context_lines_after,
+    )
+}
+
+fn search_files_for_regex(
+    project: &ProjectRoot,
+    regex: &Regex,
+    files: &[PathBuf],
+    max_results: usize,
+    context_lines_before: usize,
+    context_lines_after: usize,
+) -> Result<Vec<PatternMatch>> {
     // Search each file for pattern matches
     let search_file = |path: &PathBuf| -> Vec<PatternMatch> {
         let content = match fs::read_to_string(path) {
@@ -183,7 +221,7 @@ pub fn search_for_pattern(
     } else {
         // Sequential for small projects — avoids rayon thread-pool overhead
         let mut seq_results = Vec::new();
-        for path in &files {
+        for path in files {
             seq_results.extend(search_file(path));
             if seq_results.len() >= max_results {
                 break;
@@ -195,6 +233,80 @@ pub fn search_for_pattern(
     results.sort_by(|a, b| a.file_path.cmp(&b.file_path).then(a.line.cmp(&b.line)));
     results.truncate(max_results);
     Ok(results)
+}
+
+/// The files that hold tests for `path`: the file itself plus companion test
+/// files anywhere in the project whose name pairs with its stem
+/// (`x.test.ts`, `x.spec.js`, `test_x.py`, `x_test.go`, `XTest.java`,
+/// `__tests__/x.tsx`, ...). A directory yields every file under it. Only
+/// names are compared; no file is read.
+pub fn test_files_for_path(project: &ProjectRoot, path: &str) -> Result<Vec<PathBuf>> {
+    let target = project.resolve(path)?;
+    let walk = |root: &std::path::Path| -> Result<Vec<PathBuf>> {
+        let mut files = Vec::new();
+        for entry in WalkDir::new(root)
+            .into_iter()
+            .filter_entry(|entry| !is_excluded_within(project.as_path(), entry.path()))
+        {
+            let entry = entry?;
+            if entry.file_type().is_file() {
+                files.push(entry.into_path());
+            }
+        }
+        Ok(files)
+    };
+    if target.is_dir() {
+        return walk(&target);
+    }
+    let stem = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.split('.').next())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let mut files: Vec<PathBuf> = if target.is_file() {
+        vec![target.clone()]
+    } else {
+        Vec::new()
+    };
+    if stem.is_empty() {
+        return Ok(files);
+    }
+    for candidate in walk(project.as_path())? {
+        if candidate != target && is_test_companion(&candidate, &stem) {
+            files.push(candidate);
+        }
+    }
+    Ok(files)
+}
+
+fn is_test_companion(candidate: &std::path::Path, stem: &str) -> bool {
+    let Some(name) = candidate.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let name = name.to_ascii_lowercase();
+    let Some(candidate_stem) = name.split('.').next() else {
+        return false;
+    };
+    if candidate_stem == stem {
+        let marked = name.contains(".test.") || name.contains(".spec.");
+        let in_test_dir = candidate
+            .parent()
+            .and_then(|dir| dir.file_name())
+            .and_then(|dir| dir.to_str())
+            .is_some_and(|dir| matches!(dir, "__tests__" | "tests" | "test" | "spec"));
+        return marked || in_test_dir;
+    }
+    [
+        format!("test_{stem}"),
+        format!("{stem}_test"),
+        format!("{stem}_tests"),
+        format!("{stem}test"),
+        format!("{stem}tests"),
+        format!("{stem}_spec"),
+    ]
+    .iter()
+    .any(|paired| paired == candidate_stem)
 }
 
 /// Smart search: pattern search enriched with enclosing symbol context.

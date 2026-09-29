@@ -121,7 +121,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 153
+        "estimated_tokens": 193
       },
       {
         "name": "get_symbols_overview",

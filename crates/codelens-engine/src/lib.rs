@@ -75,7 +75,7 @@ pub use file_ops::{
     TextReference, create_text_file, delete_lines, extract_word_at_position, find_files,
     find_referencing_symbols_via_text, insert_after_symbol, insert_at_line, insert_before_symbol,
     list_dir, read_file, replace_content, replace_lines, replace_symbol_body, search_for_pattern,
-    search_for_pattern_smart,
+    search_for_pattern_in_files, search_for_pattern_smart, test_files_for_path,
 };
 pub use git::{ChangedFile, DiffSymbol, DiffSymbolEntry, get_changed_files, get_diff_symbols};
 pub use import_graph::{

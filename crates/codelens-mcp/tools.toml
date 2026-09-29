@@ -200,7 +200,7 @@ output_schema = "find_tests_output_schema"
 
 [tool.input_schema]
 type = "object"
-properties = { path = { type = "string" }, max_results = { type = "integer" } }
+properties = { path = { type = "string", description = "File or directory. A file scopes the search to it and its companion test files (x.test.ts, test_x.py, x_test.go); omit for the whole project." }, max_results = { type = "integer" } }
 
 # ── Symbol Lookup ────────────────────────────────────────────────────
 

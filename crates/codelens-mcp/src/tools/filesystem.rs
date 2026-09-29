@@ -6,7 +6,7 @@ use crate::client_profile::ClientProfile;
 use crate::protocol::BackendKind;
 use codelens_engine::{
     detect_frameworks, detect_workspace_packages, find_files, list_dir, read_file,
-    search_for_pattern,
+    search_for_pattern, search_for_pattern_in_files, test_files_for_path,
 };
 use serde_json::{Value, json};
 
@@ -217,12 +217,19 @@ pub fn find_annotations(state: &AppState, arguments: &serde_json::Value) -> Tool
 pub fn find_tests(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let max_results = optional_usize(arguments, "max_results", 100);
     let pattern = r"\b(def test_|func Test|@Test\b|it\s*\(|describe\s*\(|test\s*\()";
-    Ok(
-        search_for_pattern(&state.project(), pattern, None, max_results, 0, 0).map(|value| {
-            (
-                json!({ "tests": value, "count": value.len() }),
-                success_meta(BackendKind::Filesystem, 0.97),
-            )
-        })?,
-    )
+    let project = state.project();
+    // A path scopes the search to that file and its companion test files;
+    // without one the whole project is scanned.
+    let found = match optional_string(arguments, "path").filter(|path| !path.is_empty()) {
+        Some(path) => test_files_for_path(&project, path).and_then(|files| {
+            search_for_pattern_in_files(&project, pattern, &files, max_results, 0, 0)
+        }),
+        None => search_for_pattern(&project, pattern, None, max_results, 0, 0),
+    };
+    Ok(found.map(|value| {
+        (
+            json!({ "tests": value, "count": value.len() }),
+            success_meta(BackendKind::Filesystem, 0.97),
+        )
+    })?)
 }

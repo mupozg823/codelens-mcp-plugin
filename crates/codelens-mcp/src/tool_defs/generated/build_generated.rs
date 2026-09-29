@@ -184,7 +184,7 @@ pub fn file_io_tools(ro_p: &ToolAnnotations) -> Vec<Tool> {
         Tool::new(
             "find_tests",
             "[CodeLens:File] Find test functions and test modules.",
-            json!({"type":"object","properties":{"path":{"type":"string"},"max_results":{"type":"integer"}}}),
+            json!({"type":"object","properties":{"path":{"type":"string","description":"File or directory. A file scopes the search to it and its companion test files (x.test.ts, test_x.py, x_test.go); omit for the whole project."},"max_results":{"type":"integer"}}}),
         ).with_output_schema(find_tests_output_schema()).with_annotations(ro_p.clone()),
     ]
 }
