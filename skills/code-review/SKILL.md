@@ -3,6 +3,7 @@ name: codelens-review
 description: "Analyze code changes for impact, quality, and safety using CodeLens MCP tools"
 tools:
   [
+    prepare_harness_session,
     get_changed_files,
     graph,
     find_referencing_symbols,
@@ -17,11 +18,16 @@ Analyze the impact and safety of code changes using structural analysis.
 
 ## Workflow
 
-1. **Identify changes**: Call `get_changed_files` with the target ref (default: HEAD~1)
-2. **Assess impact**: For each changed file, call `graph` with mode=impact to find affected downstream files
-3. **Check references**: For modified symbols, call `find_referencing_symbols` to find callers that may break
+1. **Bind and identify changes**: Reuse a confirmed project binding, or call `prepare_harness_session` with the absolute project and `detail=compact`. Identify the requested diff with native Git; use `get_changed_files` only if exposed to this host.
+2. **Assess impact**: Where downstream effects remain uncertain, call `graph` with mode=impact on the relevant changed paths
+3. **Check references**: For modified symbols with uncertain callers, call `find_referencing_symbols` and retain the relevant source locations
 4. **Run diagnostics**: Call `get_file_diagnostics` on changed files to detect type errors or warnings
 5. **Summarize**: Report the blast radius, breaking changes risk, and diagnostic issues
+
+Load deferred tools with native tool search when supported. If a tool or language
+diagnostic is unavailable, use the project's native checks and report the gap.
+Expand impact or references only where the initial evidence leaves uncertainty;
+avoid repeating a full scan for every file when one bounded report answers it.
 
 ## Usage
 

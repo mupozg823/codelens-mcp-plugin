@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An explicitly empty host tool inventory is no longer read as "not sent"** — session metadata kept only the tool array, so a host that reported `available_mcp_tools: []` (or an `x-codelens-available-mcp-tools` header with an empty value) was treated like a host that sent nothing, and both `prepare_harness_session` entrypoints and every response's suggested next tools kept naming tools the host cannot call. Sessions now record `available_mcp_tools_observed`, which survives seed and resurrection; an observed inventory, including an empty one, filters the harness entrypoints and response suggestions, with compact omission reasons. Sessions without the marker keep the previous behaviour.
 - **`search(mode=refs|impl|defn)` without `path`** — the verb schema requires only `mode`, but the targets required `path` and rejected the call (70 errors across 59 sessions). With `symbol_name`, a unique declaring file is inferred from the index (`path_inference`); several candidates fail with the list.
 - **`diagnose(mode=file)` on TS/JS** — typescript-language-server rejects pull diagnostics (-32601). Published diagnostics are cached per document (dropped on any re-sync) and used after up to 10 s when pull is unsupported.
 - **LSP responses stalled for 30 s when a server wrote two messages at once** — readiness polled only the pipe, not bytes already buffered by the `BufReader`.

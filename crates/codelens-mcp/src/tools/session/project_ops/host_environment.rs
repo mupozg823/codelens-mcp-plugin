@@ -23,6 +23,7 @@ pub(super) struct HostEnvironmentSnapshot {
     pub full_tool_exposure: bool,
     pub available_mcp_servers: Vec<String>,
     pub available_mcp_tools: Vec<String>,
+    available_mcp_tools_observed: bool,
     pub skill_roots: Vec<String>,
     pub skill_root_source: HostRootSource,
     pub memory_roots: Vec<String>,
@@ -72,6 +73,20 @@ impl HostEnvironmentSnapshot {
             "available_mcp_tools",
             "_session_available_mcp_tools",
         );
+        // The HTTP session injector always supplies an inherited array. Its
+        // presence marker keeps an omitted inventory distinct from an
+        // explicitly supplied empty snapshot.
+        let available_mcp_tools_observed = arguments
+            .get("available_mcp_tools")
+            .is_some_and(Value::is_array)
+            || arguments
+                .get("_session_available_mcp_tools_observed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            || arguments
+                .get("_session_available_mcp_tools")
+                .and_then(Value::as_array)
+                .is_some_and(|items| !items.is_empty());
         let mut skill_roots = first_string_array(arguments, "skill_roots", "_session_skill_roots");
         let memory_roots = first_string_array(arguments, "memory_roots", "_session_memory_roots");
         let host_setting_keys =
@@ -81,6 +96,7 @@ impl HostEnvironmentSnapshot {
                 .or_else(|| session.requested_profile.clone());
         let explicit_snapshot = !available_mcp_servers.is_empty()
             || !available_mcp_tools.is_empty()
+            || available_mcp_tools_observed
             || !skill_roots.is_empty()
             || !memory_roots.is_empty()
             || !host_setting_keys.is_empty()
@@ -118,6 +134,7 @@ impl HostEnvironmentSnapshot {
             full_tool_exposure: session.full_tool_exposure,
             available_mcp_servers,
             available_mcp_tools,
+            available_mcp_tools_observed,
             skill_roots,
             skill_root_source,
             memory_roots,
@@ -131,6 +148,11 @@ impl HostEnvironmentSnapshot {
 
     pub(super) fn skill_root_paths(&self) -> Vec<PathBuf> {
         self.skill_roots.iter().map(PathBuf::from).collect()
+    }
+
+    pub(super) fn available_mcp_tools_snapshot(&self) -> Option<&[String]> {
+        self.available_mcp_tools_observed
+            .then_some(self.available_mcp_tools.as_slice())
     }
 
     pub(super) fn payload(&self) -> Value {

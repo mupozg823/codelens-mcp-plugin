@@ -3,7 +3,9 @@ use crate::tool_defs::{
     AgentRole, ToolSurface, preferred_bootstrap_tools, tool_name_requests, tool_request_omissions,
 };
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+
+const VISIBLE_FACADES: &[&str] = &["overview", "search", "graph", "review", "diagnose"];
 
 pub(super) struct PrepareHarnessRoutingInput<'a> {
     pub(super) arguments: &'a Value,
@@ -11,6 +13,7 @@ pub(super) struct PrepareHarnessRoutingInput<'a> {
     pub(super) visible: &'a VisibleToolContext,
     pub(super) agent_role: Option<AgentRole>,
     pub(super) overlay_preferred_entrypoints: &'a [&'static str],
+    pub(super) host_available_mcp_tools: Option<&'a [String]>,
 }
 
 pub(super) struct PrepareHarnessRouting {
@@ -72,7 +75,13 @@ pub(super) fn prepare_harness_routing(
         .iter()
         .map(|request| request.tool.clone())
         .collect::<Vec<_>>();
-    let preferred_entrypoints_visible = visible_subset(&preferred_entrypoints, &visible_tool_names);
+    let host_available_tools = input
+        .host_available_mcp_tools
+        .map(normalize_host_tool_inventory);
+    let preferred_entrypoints_visible = host_filter(
+        visible_subset(&preferred_entrypoints, &visible_tool_names),
+        host_available_tools.as_deref(),
+    );
     let preferred_entrypoints_with_policies = preferred_entrypoints_visible
         .iter()
         .map(|tool| {
@@ -82,13 +91,31 @@ pub(super) fn prepare_harness_routing(
             })
         })
         .collect::<Vec<_>>();
-    let preferred_entrypoints_omitted = tool_request_omissions(
+    let mut preferred_entrypoints_omitted = tool_request_omissions(
         &preferred_entrypoint_requests,
         &preferred_entrypoints_visible,
         input.active_surface,
         input.visible.deferred_loading_active,
     );
-    let recommended_entrypoint = preferred_entrypoints_visible.first().cloned();
+    mark_host_unavailable_omissions(
+        &mut preferred_entrypoints_omitted,
+        host_available_tools.as_deref(),
+        &visible_tool_names,
+        input.active_surface,
+        input.visible.deferred_loading_active,
+    );
+    let recommended_entrypoint = preferred_entrypoints_visible.first().cloned().or_else(|| {
+        host_available_tools.as_deref().and_then(|available| {
+            let fallback = preferred_bootstrap_tools(input.active_surface)?;
+            let fallback = to_owned_tools(fallback);
+            host_filter(
+                visible_facade_subset(&fallback, &visible_tool_names),
+                Some(available),
+            )
+            .first()
+            .cloned()
+        })
+    });
     let recommended_entrypoint_execution_policy = recommended_entrypoint
         .as_deref()
         .and_then(crate::tool_defs::tool_execution_policy_payload);
@@ -142,6 +169,83 @@ fn visible_subset(tools: &[String], visible_tool_names: &[String]) -> Vec<String
         .filter(|tool| visible_tool_names.iter().any(|name| name == *tool))
         .cloned()
         .collect()
+}
+
+fn visible_facade_subset(tools: &[String], visible_tool_names: &[String]) -> Vec<String> {
+    visible_subset(tools, visible_tool_names)
+        .into_iter()
+        .filter(|tool| VISIBLE_FACADES.contains(&tool.as_str()))
+        .collect()
+}
+
+fn host_filter(tools: Vec<String>, host_available_tools: Option<&[String]>) -> Vec<String> {
+    tools
+        .into_iter()
+        .filter(|tool| match host_available_tools {
+            Some(available) => available.iter().any(|candidate| candidate == tool),
+            None => true,
+        })
+        .collect()
+}
+
+fn normalize_host_tool_inventory(tools: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    tools
+        .iter()
+        .filter_map(|tool| {
+            let trimmed = tool.trim();
+            if trimmed.starts_with("mcp__") && !trimmed.starts_with("mcp__codelens__") {
+                return None;
+            }
+            let canonical = trimmed.strip_prefix("mcp__codelens__").unwrap_or(trimmed);
+            crate::tool_defs::tool_definition(canonical).map(|_| canonical.to_owned())
+        })
+        .filter(|tool| seen.insert(tool.clone()))
+        .collect()
+}
+
+fn mark_host_unavailable_omissions(
+    omissions: &mut [Value],
+    host_available_tools: Option<&[String]>,
+    visible_tool_names: &[String],
+    active_surface: ToolSurface,
+    deferred_loading_active: bool,
+) {
+    let Some(host_available_tools) = host_available_tools else {
+        return;
+    };
+    for omission in omissions {
+        let Some(object) = omission.as_object_mut() else {
+            continue;
+        };
+        let Some(tool) = object
+            .get("tool")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+        else {
+            continue;
+        };
+        if object
+            .get("reason")
+            .and_then(Value::as_str)
+            .is_some_and(|reason| reason == "unknown_tool")
+            || (!visible_tool_names.iter().any(|visible| visible == &tool)
+                && !(deferred_loading_active
+                    && crate::tool_defs::is_tool_in_surface(&tool, active_surface)))
+            || host_available_tools
+                .iter()
+                .any(|available| available == &tool)
+        {
+            continue;
+        }
+        object.insert("reason".to_owned(), json!("host_tool_unavailable"));
+        object.insert(
+            "recommended_action".to_owned(),
+            json!("use_host_available_tools_or_native_fallback"),
+        );
+        object.remove("recommended_profile");
+        object.remove("tool_loading_request");
+    }
 }
 
 fn to_owned_tools(tools: &[&'static str]) -> Vec<String> {

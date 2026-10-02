@@ -256,6 +256,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         visible: &visible,
         agent_role,
         overlay_preferred_entrypoints: &overlay_plan.preferred_entrypoints,
+        host_available_mcp_tools: host_environment.available_mcp_tools_snapshot(),
     });
     let result = response::prepare_harness_response(response::PrepareHarnessResponseInput {
         detail,

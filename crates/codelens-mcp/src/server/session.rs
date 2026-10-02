@@ -104,6 +104,9 @@ pub struct SessionClientMetadata {
     pub full_tool_exposure: Option<bool>,
     pub available_mcp_servers: Vec<String>,
     pub available_mcp_tools: Vec<String>,
+    /// Distinguishes an explicitly supplied empty inventory from an omitted
+    /// inventory while preserving the public `Vec` API above.
+    pub available_mcp_tools_observed: bool,
     pub skill_roots: Vec<String>,
     pub memory_roots: Vec<String>,
     pub host_setting_keys: Vec<String>,
@@ -129,6 +132,9 @@ pub struct SessionSeed {
     pub project_path: Option<String>,
     pub available_mcp_servers: Vec<String>,
     pub available_mcp_tools: Vec<String>,
+    /// Header presence survives session resurrection even when its CSV value
+    /// is empty, so an explicit clear remains an observed empty snapshot.
+    pub available_mcp_tools_observed: bool,
     pub skill_roots: Vec<String>,
     pub memory_roots: Vec<String>,
     pub host_setting_keys: Vec<String>,
@@ -338,8 +344,9 @@ impl SessionState {
             if !seed.available_mcp_servers.is_empty() {
                 metadata.available_mcp_servers = seed.available_mcp_servers.clone();
             }
-            if !seed.available_mcp_tools.is_empty() {
+            if seed.available_mcp_tools_observed || !seed.available_mcp_tools.is_empty() {
                 metadata.available_mcp_tools = seed.available_mcp_tools.clone();
+                metadata.available_mcp_tools_observed = true;
             }
             if !seed.skill_roots.is_empty() {
                 metadata.skill_roots = seed.skill_roots.clone();
@@ -959,6 +966,29 @@ mod tests {
             metadata.project_binding_source,
             ProjectBindingSource::RequestHeader
         );
+    }
+
+    #[test]
+    fn session_seed_empty_inventory_clears_observed_metadata_only() {
+        let session = SessionState::new("session".to_owned());
+        session.set_client_metadata(SessionClientMetadata {
+            available_mcp_tools: vec!["graph".to_owned()],
+            available_mcp_tools_observed: true,
+            ..Default::default()
+        });
+
+        session.apply_seed(&SessionSeed::default());
+        let metadata = session.client_metadata();
+        assert_eq!(metadata.available_mcp_tools, vec!["graph"]);
+        assert!(metadata.available_mcp_tools_observed);
+
+        session.apply_seed(&SessionSeed {
+            available_mcp_tools_observed: true,
+            ..Default::default()
+        });
+        let metadata = session.client_metadata();
+        assert!(metadata.available_mcp_tools.is_empty());
+        assert!(metadata.available_mcp_tools_observed);
     }
 
     #[test]

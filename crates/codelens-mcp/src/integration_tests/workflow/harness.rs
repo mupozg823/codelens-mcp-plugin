@@ -845,6 +845,207 @@ fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
 }
 
 #[test]
+fn prepare_harness_session_filters_recommendations_to_observed_host_tools() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("host_inventory_routing.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "builder-minimal",
+            "detail": "compact",
+            "host_context": "codex",
+            "host_capabilities": {"native_tool_search": true},
+            "available_mcp_tools": [
+                "diagnose",
+                "get_capabilities",
+                "graph",
+                "prepare_harness_session",
+                "review",
+            ],
+            "preferred_entrypoints": ["explore_codebase", "review_changes"],
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["routing"]["recommended_entrypoint"],
+        json!("graph"),
+        "host inventory must prevent an unavailable composite from being recommended"
+    );
+    let omitted = payload["data"]["routing"]["preferred_entrypoints_omitted"]
+        .as_array()
+        .expect("preferred entrypoint omissions");
+    let unavailable = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "explore_codebase")
+        .expect("unavailable active-surface entrypoint");
+    assert_eq!(unavailable["reason"], json!("host_tool_unavailable"));
+    assert_eq!(
+        unavailable["recommended_action"],
+        json!("use_host_available_tools_or_native_fallback")
+    );
+    assert!(unavailable.get("recommended_profile").is_none());
+    assert!(unavailable.get("execution_policy").is_none());
+    assert!(unavailable.get("included_in").is_none());
+
+    let full = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "builder-minimal",
+            "detail": "full",
+            "host_context": "codex",
+            "available_mcp_tools": ["graph"],
+            "preferred_entrypoints": ["explore_codebase"],
+        }),
+    );
+    let full_omission = &full["data"]["routing"]["preferred_entrypoints_omitted"][0];
+    assert_eq!(full_omission["reason"], "host_tool_unavailable");
+    assert!(full_omission["execution_policy"].is_object());
+    assert!(full_omission["included_in"].is_array());
+}
+
+#[test]
+fn prepare_harness_session_normalizes_host_inventory_and_ignores_other_servers() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("host_inventory_names.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "builder-minimal",
+            "detail": "compact",
+            "host_context": "claude-code",
+            "available_mcp_tools": [
+                "mcp__codelens__review",
+                "mcp__context7__query-docs",
+                "review",
+            ],
+            "preferred_entrypoints": [
+                "mcp__codelens__explore_codebase",
+                "mcp__codelens__review_changes",
+            ],
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["routing"]["recommended_entrypoint"],
+        json!("review"),
+        "the canonical CodeLens inventory should support the visible facade fallback"
+    );
+    assert_eq!(
+        payload["data"]["routing"]["preferred_entrypoints_visible"],
+        json!([]),
+        "foreign server tools must not make a CodeLens composite appear available"
+    );
+    let omitted = payload["data"]["routing"]["preferred_entrypoints_omitted"]
+        .as_array()
+        .expect("preferred entrypoint omissions");
+    assert_eq!(omitted.len(), 2);
+    let unavailable = omitted
+        .iter()
+        .find(|entry| entry["tool"] == "explore_codebase")
+        .expect("unavailable active-surface entrypoint");
+    assert_eq!(unavailable["reason"], json!("host_tool_unavailable"));
+    assert_eq!(
+        unavailable["recommended_action"],
+        json!("use_host_available_tools_or_native_fallback")
+    );
+    assert!(unavailable.get("recommended_profile").is_none());
+}
+
+#[test]
+fn prepare_harness_session_does_not_fallback_outside_empty_host_inventory() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("empty_host_inventory.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "builder-minimal",
+            "detail": "compact",
+            "host_context": "codex",
+            "available_mcp_tools": [],
+            "preferred_entrypoints": ["explore_codebase"],
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["routing"]["recommended_entrypoint"],
+        json!(null),
+        "an explicitly empty inventory must not trigger an unobserved fallback"
+    );
+    assert_eq!(
+        payload["data"]["routing"]["preferred_entrypoints_visible"],
+        json!([])
+    );
+    assert_eq!(
+        payload["data"]["routing"]["preferred_entrypoints_omitted"][0]["reason"],
+        json!("host_tool_unavailable")
+    );
+}
+
+#[test]
+fn prepare_harness_session_uses_inherited_partial_inventory_with_deferred_loading() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("inherited_host_inventory.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "builder-minimal",
+            "detail": "compact",
+            "_session_host_context": "claude-code",
+            "_session_deferred_tool_loading": true,
+            "_session_available_mcp_tools": ["mcp__codelens__graph"],
+            "preferred_entrypoints": ["mcp__codelens__explore_codebase"],
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["routing"]["recommended_entrypoint"],
+        json!("graph"),
+        "an inherited partial snapshot must constrain deferred bootstrap routing"
+    );
+    assert_eq!(
+        payload["data"]["host_environment"]["snapshot_source"],
+        json!("explicit_host_snapshot")
+    );
+    let omitted = payload["data"]["routing"]["preferred_entrypoints_omitted"]
+        .as_array()
+        .expect("preferred entrypoint omissions");
+    assert_eq!(omitted[0]["reason"], json!("host_tool_unavailable"));
+}
+
+#[test]
 fn prepare_harness_session_agent_role_compiles_worker_routing() {
     let project = project_root();
     fs::write(

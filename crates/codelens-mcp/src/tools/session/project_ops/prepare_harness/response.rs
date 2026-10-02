@@ -211,11 +211,28 @@ fn compact_response(input: PrepareHarnessResponseInput<'_>) -> Value {
             "recommended_entrypoint": &input.routing.recommended_entrypoint,
             "agent_role": input.routing.overlay_agent_role,
             "preferred_entrypoints_visible": &input.routing.preferred_entrypoints_visible,
-            "preferred_entrypoints_omitted": &input.routing.preferred_entrypoints_omitted,
+            "preferred_entrypoints_omitted": compact_host_omissions(&input.routing.preferred_entrypoints_omitted),
             "preferred_entrypoints_visible_omitted_count":
                 input.routing.preferred_entrypoints_visible_omitted_count(),
         },
     })
+}
+
+fn compact_host_omissions(omissions: &[Value]) -> Vec<Value> {
+    omissions
+        .iter()
+        .map(|omission| {
+            if omission["reason"] == "host_tool_unavailable" {
+                json!({
+                    "tool": omission["tool"],
+                    "reason": omission["reason"],
+                    "recommended_action": omission["recommended_action"],
+                })
+            } else {
+                omission.clone()
+            }
+        })
+        .collect()
 }
 
 fn first_compact_tools(visible_tool_names: &[String]) -> Vec<String> {
