@@ -82,6 +82,10 @@ pub(super) fn inject_tool_call_session(
         serde_json::json!(metadata.available_mcp_tools),
     );
     args.insert(
+        "_session_available_mcp_tools_observed".to_owned(),
+        serde_json::json!(metadata.available_mcp_tools_observed),
+    );
+    args.insert(
         "_session_skill_roots".to_owned(),
         serde_json::json!(metadata.skill_roots),
     );
@@ -241,6 +245,7 @@ fn inject_deferred_params(
         "_session_full_tool_exposure": metadata.full_tool_exposure,
         "_session_available_mcp_servers": metadata.available_mcp_servers,
         "_session_available_mcp_tools": metadata.available_mcp_tools,
+        "_session_available_mcp_tools_observed": metadata.available_mcp_tools_observed,
         "_session_skill_roots": metadata.skill_roots,
         "_session_memory_roots": metadata.memory_roots,
         "_session_host_setting_keys": metadata.host_setting_keys,

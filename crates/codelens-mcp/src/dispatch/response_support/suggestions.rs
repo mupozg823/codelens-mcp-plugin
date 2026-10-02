@@ -122,9 +122,11 @@ pub(crate) fn filter_host_suggestions(response: &mut ToolCallResponse, arguments
 }
 
 /// Return the host's canonical CodeLens tool names when an inventory was
-/// explicitly observed. Current session metadata cannot distinguish an omitted
-/// inventory from an empty one, so only non-empty legacy session arrays narrow
-/// suggestions. An explicit request array, including empty, takes precedence.
+/// explicitly observed. An explicit request array, including empty, takes
+/// precedence. A session array narrows suggestions when it is non-empty or when
+/// the session marks it observed (`_session_available_mcp_tools_observed`), so
+/// an explicitly supplied empty inventory stays distinct from an omitted one.
+/// Legacy session payloads without the marker keep treating `[]` as omitted.
 fn normalized_host_tool_inventory(arguments: &Value) -> Option<HashSet<String>> {
     let direct_inventory = arguments
         .get("available_mcp_tools")
@@ -132,9 +134,15 @@ fn normalized_host_tool_inventory(arguments: &Value) -> Option<HashSet<String>> 
     let session_inventory = arguments
         .get("_session_available_mcp_tools")
         .filter(|value| value.is_array());
+    let session_observed = arguments
+        .get("_session_available_mcp_tools_observed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     let inventory = direct_inventory.or_else(|| {
-        session_inventory.filter(|value| value.as_array().is_some_and(|items| !items.is_empty()))
+        session_inventory.filter(|value| {
+            session_observed || value.as_array().is_some_and(|items| !items.is_empty())
+        })
     });
     inventory.map(normalize_host_tool_array)
 }
@@ -457,6 +465,30 @@ mod host_inventory_tests {
         assert!(response.suggested_next_calls.is_none());
         assert!(response.suggestion_reasons.is_none());
         assert_eq!(response.data, data);
+    }
+
+    #[test]
+    fn observed_empty_session_inventory_clears_suggestions() {
+        let mut response = response_with_suggestions();
+        filter_host_suggestions(
+            &mut response,
+            &json!({
+                "_session_available_mcp_tools": [],
+                "_session_available_mcp_tools_observed": false
+            }),
+        );
+        assert_eq!(response.suggested_next_tools.as_ref().unwrap().len(), 2);
+
+        filter_host_suggestions(
+            &mut response,
+            &json!({
+                "_session_available_mcp_tools": [],
+                "_session_available_mcp_tools_observed": true
+            }),
+        );
+        assert!(response.suggested_next_tools.is_none());
+        assert!(response.suggested_next_calls.is_none());
+        assert!(response.suggestion_reasons.is_none());
     }
 }
 

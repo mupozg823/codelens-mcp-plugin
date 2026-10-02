@@ -156,3 +156,110 @@ description: Use for React UI work.
             .any(|term| term == "rust")
     );
 }
+
+#[test]
+fn skill_recommendations_ignore_common_words_and_installation_root_names() {
+    let root = temp_dir("codex-root-noise");
+    let android = root.join("android-performance/SKILL.md");
+    let codelens = root.join("codelens/SKILL.md");
+    for path in [&android, &codelens] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    }
+    std::fs::write(
+        android,
+        "---\nname: android-performance\ndescription: Use for Android performance and profiling.\n---\n",
+    )
+    .unwrap();
+    std::fs::write(
+        codelens,
+        "---\nname: codelens\ndescription: CodeLens structural analysis.\n---\n",
+    )
+    .unwrap();
+
+    let candidates = recommend::recommend_codex_skills_for_roots(
+        std::slice::from_ref(&root),
+        Some("CodeLens for Codex and Claude"),
+        None,
+        3,
+    );
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0]["name"], "codelens");
+    assert_eq!(candidates[0]["matched_terms"], json!(["codelens"]));
+    let korean = recommend::recommend_codex_skills_for_roots(
+        std::slice::from_ref(&root),
+        Some("코드렌즈를 코덱스와 클로드에 적용"),
+        None,
+        3,
+    );
+    assert_eq!(korean.len(), 1);
+    assert_eq!(korean[0]["name"], "codelens");
+    assert!(
+        recommend::recommend_codex_skills_for_roots(&[root], Some("and for the with"), None, 3)
+            .is_empty()
+    );
+}
+
+#[test]
+fn skill_shortlist_deduplicates_identical_copies_without_hiding_distinct_skills() {
+    let root = temp_dir("duplicates");
+    let user_root = root.join("z-user-skills");
+    let cache_root = root.join("a-plugin-cache");
+    let metadata = "---\nname: rust-codelens\ndescription: Rust CodeLens analysis.\n---\n";
+    for (base, name, body) in [
+        (&user_root, "primary", metadata),
+        (&cache_root, "old-release", metadata),
+        (&cache_root, "new-release", metadata),
+        (
+            &cache_root,
+            "different",
+            "---\nname: rust-tests\ndescription: Rust tests.\n---\n",
+        ),
+    ] {
+        let path = base.join(name).join("SKILL.md");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+    let roots = [user_root.clone(), cache_root];
+    let candidates = recommend::recommend_codex_skills_for_roots(&roots, Some("Rust"), None, 3);
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(
+        candidates[0]["source_root"],
+        user_root.to_string_lossy().as_ref()
+    );
+    assert_eq!(candidates[1]["name"], "rust-tests");
+    assert_eq!(
+        codex_skill_catalog_for_roots(&roots, 8)["total_skill_count"],
+        4
+    );
+    // Alphabetical names must not outrank the user's root at equal relevance.
+    let alphabetical = roots[1].join("alphabetical/SKILL.md");
+    std::fs::create_dir_all(alphabetical.parent().unwrap()).unwrap();
+    std::fs::write(
+        alphabetical,
+        "---\nname: aaa-rust\ndescription: Rust tests.\n---\n",
+    )
+    .unwrap();
+    let first = recommend::recommend_codex_skills_for_roots(&roots, Some("Rust"), None, 1);
+    assert_eq!(
+        first[0]["source_root"],
+        user_root.to_string_lossy().as_ref()
+    );
+}
+
+#[test]
+fn skill_shortlist_preserves_long_bodies_with_identical_metadata_prefixes() {
+    let root = temp_dir("long-bodies");
+    let prefix = format!(
+        "---\nname: rust-review\ndescription: Rust review.\n---\n{}",
+        "x".repeat(metadata::METADATA_READ_LIMIT as usize)
+    );
+    for (name, suffix) in [("first", "rule A"), ("second", "rule B")] {
+        let path = root.join(name).join("SKILL.md");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, format!("{prefix}{suffix}")).unwrap();
+    }
+    let candidates = recommend::recommend_codex_skills_for_roots(&[root], Some("Rust"), None, 3);
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(candidates[0]["content_hash"], candidates[1]["content_hash"]);
+    assert_ne!(candidates[0]["path"], candidates[1]["path"]);
+}

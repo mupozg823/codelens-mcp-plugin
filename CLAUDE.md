@@ -66,18 +66,16 @@ approval, and mutation; CodeLens owns the evidence those decisions rest on.
 
 ### Invariants
 
-- Native file reads and text search stay first for point lookups and single-file
-  edits. Escalate to CodeLens once a task spans multiple files, needs reference
-  or impact evidence, or has to leave a durable artifact.
-- Bind the workspace before the first analysis call: `prepare_harness_session`
-  with an absolute project path. `get_current_config` reports the binding that
-  is actually in effect; a stale binding is a reason to rebind, not a reason to
-  abandon the index.
-- Analysis answers are index reads, not file reads. They are only as fresh as
-  the committed index generation, so a result that contradicts an edit you just
-  made is stale rather than authoritative.
-- Pin a multi-call read to a single index snapshot, and retry the call unchanged
-  when the server reports that the generation moved underneath it.
+- Use native reads and text search for exact lookups and local edits. Use
+  CodeLens when references, call paths, or multi-file impact replace wider scans.
+- Bind once with `prepare_harness_session(project=<absolute-root>, detail=compact)`;
+  check the effective project, then reuse the session until binding changes.
+- Call only tools available to this host. Use native tool search when supported
+  to discover a needed tool; do not assume server visibility bypasses a host allowlist.
+- Keep evidence bounded to relevant files, symbols, and source locations. Reuse
+  existing results; a server cache hit still incurs a host tool round and context.
+- Index evidence may be stale after edits. Pin multi-call reads to one snapshot;
+  retry a generation conflict once, then use fresh native evidence if it persists.
 - One writable runtime per project. A second writer is rejected outright and is
   never silently downgraded to a read-only fallback — surface the rejection.
 - Follow-up suggestions in a response are intent, not execution. The host picks
@@ -85,10 +83,10 @@ approval, and mutation; CodeLens owns the evidence those decisions rest on.
 - Report observable host facts through `host_capabilities` and its sibling
   inputs: capability flags, MCP server and tool names, roots, and setting key
   names. Names, paths, and flags only — never secret values.
-- Mutation is gated: run `verify_change_readiness` on the target paths, clear
-  the blockers it reports, then re-run `diagnose` on those paths afterwards.
-- An unreachable or failing daemon falls back to native tools. Nothing in this
-  contract may block work on CodeLens being available.
+- CodeLens mutation tools require `verify_change_readiness` on the target paths
+  and diagnostics afterwards; native edits use the host's normal approval gates.
+- On unavailable tools, unsupported diagnostics, or a failing daemon, use native
+  tools and report the evidence gap instead of repeating discovery or bootstrap.
 
 ### Default calls
 

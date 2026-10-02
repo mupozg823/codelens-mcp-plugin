@@ -241,3 +241,74 @@ async fn prepare_harness_session_degrades_with_malformed_codex_memory_roots() ->
     }));
     Ok(())
 }
+
+#[tokio::test]
+async fn prepare_harness_session_filters_explicit_empty_codex_inventory() -> anyhow::Result<()> {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "clientInfo": {"name": "CodexHarness", "version": "1.0.0"},
+                            "hostContext": "codex",
+                            "availableMcpTools": [],
+                            "harnessProfile": "builder-minimal"
+                        }
+                    })
+                    .to_string(),
+                ))?,
+        )
+        .await?;
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| anyhow::anyhow!("missing mcp-session-id"))?
+        .to_owned();
+    let session = state
+        .session_store
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("missing session store"))?
+        .get(&sid)
+        .ok_or_else(|| anyhow::anyhow!("missing initialized session"))?;
+    assert!(session.client_metadata().available_mcp_tools.is_empty());
+
+    let bootstrap = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"prepare_harness_session","arguments":{{"project":"{}","task":"empty Codex tool inventory","detail":"compact"}}}}}}"#,
+                    state.project().as_path().display()
+                )))?,
+        )
+        .await?;
+
+    assert_eq!(bootstrap.status(), StatusCode::OK);
+    let payload = first_tool_payload(&body_string(bootstrap).await);
+    assert_eq!(payload["success"], serde_json::json!(true));
+    assert_eq!(
+        payload["data"]["routing"]["recommended_entrypoint"],
+        serde_json::Value::Null,
+        "an explicitly empty host inventory must not use legacy bootstrap defaults"
+    );
+    assert_eq!(
+        payload["data"]["routing"]["preferred_entrypoints_visible"],
+        serde_json::json!([])
+    );
+    Ok(())
+}

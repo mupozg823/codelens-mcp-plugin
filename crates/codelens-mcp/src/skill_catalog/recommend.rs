@@ -1,6 +1,7 @@
-use super::metadata::read_skill_metadata;
+use super::metadata::{METADATA_READ_LIMIT, read_skill_metadata};
 use super::scan::collect_skill_paths;
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub(super) fn recommend_codex_skills_for_roots(
@@ -15,9 +16,9 @@ pub(super) fn recommend_codex_skills_for_roots(
     }
 
     let mut candidates = Vec::new();
-    for root in roots {
+    for (root_priority, root) in roots.iter().enumerate() {
         for path in collect_skill_paths(root) {
-            if let Some(candidate) = score_skill_candidate(root, &path, &terms) {
+            if let Some(candidate) = score_skill_candidate(root, &path, &terms, root_priority) {
                 candidates.push(candidate);
             }
         }
@@ -25,11 +26,19 @@ pub(super) fn recommend_codex_skills_for_roots(
     candidates.sort_by(|a, b| {
         b.score
             .cmp(&a.score)
+            .then_with(|| a.root_priority.cmp(&b.root_priority))
             .then_with(|| a.name.cmp(&b.name))
             .then_with(|| a.path.cmp(&b.path))
     });
+    // Deduplicate the shortlist only; the catalog retains every source path.
+    let mut seen = HashSet::new();
     candidates
         .into_iter()
+        .filter(|candidate| {
+            // A prefix hash cannot establish equality of long skill bodies.
+            !candidate.content_fully_scanned
+                || seen.insert((candidate.name.clone(), candidate.content_hash.clone()))
+        })
         .take(limit)
         .map(SkillCandidate::into_json)
         .collect()
@@ -39,11 +48,13 @@ struct SkillCandidate {
     name: String,
     path: String,
     source_root: String,
+    root_priority: usize,
     score: usize,
     matched_terms: Vec<String>,
     description: String,
     mtime_epoch_secs: u64,
     content_hash: String,
+    content_fully_scanned: bool,
 }
 
 impl SkillCandidate {
@@ -62,11 +73,21 @@ impl SkillCandidate {
     }
 }
 
-fn score_skill_candidate(root: &Path, path: &Path, terms: &[String]) -> Option<SkillCandidate> {
+fn score_skill_candidate(
+    root: &Path,
+    path: &Path,
+    terms: &[String],
+    root_priority: usize,
+) -> Option<SkillCandidate> {
     let metadata = read_skill_metadata(path)?;
     let haystack_name = metadata.name.to_ascii_lowercase();
     let haystack_description = metadata.description.to_ascii_lowercase();
-    let haystack_path = path.to_string_lossy().to_ascii_lowercase();
+    // Host names in ~/.codex or plugin-cache roots are not task relevance.
+    let haystack_path = path
+        .strip_prefix(root)
+        .ok()?
+        .to_string_lossy()
+        .to_ascii_lowercase();
     let mut score = 0usize;
     let mut matched_terms = Vec::new();
 
@@ -93,11 +114,14 @@ fn score_skill_candidate(root: &Path, path: &Path, terms: &[String]) -> Option<S
         name: metadata.name,
         path: path.to_string_lossy().to_string(),
         source_root: root.to_string_lossy().to_string(),
+        root_priority,
         score,
         matched_terms,
         description: metadata.description,
         mtime_epoch_secs: metadata.mtime_epoch_secs,
         content_hash: metadata.content_hash,
+        content_fully_scanned: std::fs::metadata(path)
+            .is_ok_and(|metadata| metadata.len() <= METADATA_READ_LIMIT),
     })
 }
 
@@ -124,6 +148,30 @@ fn query_terms(task: Option<&str>, file_path: Option<&str>) -> Vec<String> {
     let mut terms = lower
         .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-')
         .filter(|term| term.len() >= 3)
+        .filter(|term| {
+            !matches!(
+                *term,
+                "and"
+                    | "are"
+                    | "for"
+                    | "from"
+                    | "into"
+                    | "its"
+                    | "not"
+                    | "only"
+                    | "that"
+                    | "the"
+                    | "their"
+                    | "this"
+                    | "use"
+                    | "using"
+                    | "when"
+                    | "with"
+                    | "without"
+                    | "you"
+                    | "your"
+            )
+        })
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
     push_alias_terms(&lower, &mut terms);
@@ -135,6 +183,7 @@ fn query_terms(task: Option<&str>, file_path: Option<&str>) -> Vec<String> {
 fn push_alias_terms(lower: &str, terms: &mut Vec<String>) {
     for (needle, alias) in [
         ("러스트", "rust"),
+        ("코드렌즈", "codelens"),
         ("코덱스", "codex"),
         ("클로드", "claude"),
         ("엠씨피", "mcp"),

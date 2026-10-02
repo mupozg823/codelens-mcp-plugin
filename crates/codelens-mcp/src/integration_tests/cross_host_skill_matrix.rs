@@ -44,36 +44,28 @@ struct PackagedSkill {
     first_args: fn(&Path) -> Value,
 }
 
-fn analyze_first_args(_project: &Path) -> Value {
-    json!({ "mode": "architecture" })
-}
-
-fn review_first_args(_project: &Path) -> Value {
-    json!({ "ref": "HEAD" })
-}
-
-fn onboard_first_args(project: &Path) -> Value {
-    json!({ "project": project.to_string_lossy() })
+fn bind_first_args(project: &Path) -> Value {
+    json!({ "project": project.to_string_lossy(), "detail": "compact" })
 }
 
 const PACKAGED_SKILLS: &[PackagedSkill] = &[
     PackagedSkill {
         dir: "analyze",
         name: "codelens-analyze",
-        first_tool: "review",
-        first_args: analyze_first_args,
+        first_tool: "prepare_harness_session",
+        first_args: bind_first_args,
     },
     PackagedSkill {
         dir: "code-review",
         name: "codelens-review",
-        first_tool: "get_changed_files",
-        first_args: review_first_args,
+        first_tool: "prepare_harness_session",
+        first_args: bind_first_args,
     },
     PackagedSkill {
         dir: "onboard",
         name: "codelens-onboard",
-        first_tool: "activate_project",
-        first_args: onboard_first_args,
+        first_tool: "prepare_harness_session",
+        first_args: bind_first_args,
     },
 ];
 
@@ -133,10 +125,10 @@ fn skill_doc(skill: &PackagedSkill) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
-/// The first `` Call `tool` `` reference inside the `## Workflow` section.
+/// The first `` call `tool` `` reference inside the `## Workflow` section.
 fn documented_first_tool(skill_md: &str) -> Option<String> {
     let workflow = skill_md.split("## Workflow").nth(1)?;
-    let re = regex::Regex::new(r"Call `([a-z][a-z0-9_]*)`").expect("static regex");
+    let re = regex::Regex::new(r"(?i)\bcall `([a-z][a-z0-9_]*)`").expect("static regex");
     re.captures(workflow).map(|caps| caps[1].to_owned())
 }
 

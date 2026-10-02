@@ -102,6 +102,12 @@ pub(crate) fn extract_initialize_metadata(
     let available_mcp_servers =
         string_array_param(params, "availableMcpServers", "available_mcp_servers")
             .unwrap_or_else(|| csv_header_values(headers, "x-codelens-available-mcp-servers"));
+    let available_mcp_tools_param = params
+        .get("availableMcpTools")
+        .or_else(|| params.get("available_mcp_tools"));
+    let available_mcp_tools_observed = available_mcp_tools_param
+        .is_some_and(|value| value.is_array())
+        || headers.contains_key("x-codelens-available-mcp-tools");
     let available_mcp_tools =
         string_array_param(params, "availableMcpTools", "available_mcp_tools")
             .unwrap_or_else(|| csv_header_values(headers, "x-codelens-available-mcp-tools"));
@@ -130,6 +136,7 @@ pub(crate) fn extract_initialize_metadata(
         && deferred_tool_loading.is_none()
         && project_path.is_none()
         && available_mcp_servers.is_empty()
+        && !available_mcp_tools_observed
         && available_mcp_tools.is_empty()
         && skill_roots.is_empty()
         && memory_roots.is_empty()
@@ -154,6 +161,7 @@ pub(crate) fn extract_initialize_metadata(
         full_tool_exposure: None,
         available_mcp_servers,
         available_mcp_tools,
+        available_mcp_tools_observed,
         skill_roots,
         memory_roots,
         host_setting_keys,
@@ -188,6 +196,7 @@ impl SessionSeed {
             project_path: project_header_value(headers),
             available_mcp_servers: csv_header_values(headers, "x-codelens-available-mcp-servers"),
             available_mcp_tools: csv_header_values(headers, "x-codelens-available-mcp-tools"),
+            available_mcp_tools_observed: headers.contains_key("x-codelens-available-mcp-tools"),
             skill_roots: csv_header_values(headers, "x-codelens-skill-roots"),
             memory_roots: csv_header_values(headers, "x-codelens-memory-roots"),
             host_setting_keys: csv_header_values(headers, "x-codelens-host-setting-keys"),
@@ -408,5 +417,19 @@ mod tests {
         assert_eq!(seed.deferred_tool_loading, Some(true));
         assert_eq!(seed.client_name.as_deref(), Some("codex"));
         // SessionSeed has no trusted_client field — guard #2 enforced by type.
+    }
+
+    #[test]
+    fn session_seed_preserves_empty_available_tools_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-codelens-available-mcp-tools",
+            HeaderValue::from_static(""),
+        );
+
+        let seed = SessionSeed::from_headers(&headers);
+
+        assert!(seed.available_mcp_tools.is_empty());
+        assert!(seed.available_mcp_tools_observed);
     }
 }
