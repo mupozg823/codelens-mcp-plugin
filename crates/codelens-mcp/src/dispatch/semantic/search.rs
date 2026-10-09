@@ -46,13 +46,24 @@ pub(in crate::dispatch) fn semantic_search_handler(
     } else {
         max_results.saturating_mul(4).clamp(max_results, 80)
     };
-    let mut lexical_candidates = codelens_engine::search::search_symbols_hybrid(
-        &project,
-        &query_analysis.expanded_query,
-        candidate_limit,
-        0.7,
-    )
-    .unwrap_or_default();
+    // The lexical lane used to fail silently (`unwrap_or_default`), which
+    // made a failed lane look like "no lexical matches". On serde-json the
+    // runs without lexical candidates ranked unrelated symbols first, while a
+    // run with them did not; say so when it happens.
+    let (mut lexical_candidates, lexical_lane_error) =
+        match codelens_engine::search::search_symbols_hybrid(
+            &project,
+            &query_analysis.expanded_query,
+            candidate_limit,
+            0.7,
+        ) {
+            Ok(candidates) => (candidates, None),
+            Err(error) => {
+                let message = format!("{error:#}");
+                tracing::warn!(error = %message, "semantic_search lexical lane failed");
+                (Vec::new(), Some(message))
+            }
+        };
     lexical_candidates.retain(|result| {
         crate::tools::symbol_query::retrieval_scope::file_matches_scope(
             &result.file,
@@ -124,6 +135,16 @@ pub(in crate::dispatch) fn semantic_search_handler(
     });
     annotate_provenance(&mut payload, &result_scores);
     add_unknown_args_hint(&mut payload, &unknown_args, SEMANTIC_SEARCH_KNOWN_ARGS);
+    if let Some(error) = lexical_lane_error {
+        let reason = format!("lexical lane failed; results are embedding-only: {error}");
+        payload["retrieval"]["lexical_lane"] = json!("failed");
+        payload["degraded_reason"] = json!(reason);
+        return Ok((
+            payload,
+            crate::tool_runtime::degraded_meta(BackendKind::Semantic, 0.6, &reason),
+        ));
+    }
+    payload["retrieval"]["lexical_lane"] = json!("ok");
     Ok((payload, tools::success_meta(BackendKind::Semantic, 0.85)))
 }
 

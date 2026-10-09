@@ -102,3 +102,13 @@ After the cleanup, 3,354 of SignatureStudio's 5,124 indexed files were still und
 
 Durable fixes, both the user's call: sign the daemon with a stable identity (a self-signed code-signing certificate in the login keychain) so a consent survives rebuilds, or keep active repositories outside the protected folders.
 
+## 8. serde-json `semantic_search`: an unstable single-query check, not a lane regression
+
+- The pure semantic lane is not regressed overall: in the CI self-retrieval run of this cycle (112 queries on this repository) `semantic_search` scored MRR 0.672 / Acc@1 0.56, against the historical baseline 0.502 / 44%; hybrid `get_ranked_context` scored 0.748.
+- The embedding model is unchanged since April (`model.onnx` pinned by SHA in CI). Embedding-directory commits since 07-08 touch indexing, cleanup and lints, not scoring.
+- `semantic_search` merges lexical candidates at `(bm25 / 100) × 0.35`. On serde-json the embedding similarities for this query sit at 0.16–0.23, so injected lexical candidates and score ties decide the top three. The same index and query ranked `serialize_*` first with the release (CoreML) binary, `into_float`/`json_internal` first with a debug (ONNX CPU) build, and `from_borrowed`/`from_iter` first in CI. The upstream expectation (`serialize_bool` in the top three) passes or fails on that instability.
+- The lexical lane failed silently (`unwrap_or_default`); it now reports `retrieval.lexical_lane` and a `degraded_reason` when it fails.
+- 07-10 (`a3a96131`) changed `index_embeddings` to default to a background job, which is what broke the fixture smoke until the harness asked for `background: false`.
+
+Next: check whether CoreML and ONNX embeddings rank the same on a fixed query set, and replace the single-query upstream expectation with a small query set per project.
+
