@@ -244,7 +244,7 @@ python3 benchmarks/embedding-quality.py . \
 - CI/agent 실행은 `--stdout summary`를 사용해 full JSON은 파일 artifact로 남기고 대화/로그 토큰을 줄인다.
 - 빠른 ranker 반복은 `--methods get_ranked_context --query-cache-probe off`로 hybrid lane만 먼저 확인한다.
 - `--batch-size`는 여러 tool call을 한 `codelens-mcp` subprocess로 묶어 프로세스 startup cost를 줄인다. 이때 latency는 `*_batch_amortized_elapsed_ms`로 별도 기록되며, per-query latency gate인 `--max-hybrid-avg-ms`는 `--batch-size 1`에서만 사용한다.
-- `--workers`·`--method-workers`는 기본 `1`을 유지한다. 실제 `codelens-mcp` 는 프로젝트당 writable runtime 하나만 허용(`project_writer_busy`)하므로 같은 프로젝트에 1 초과로 돌리면 두 번째 프로세스부터 거부된다. Upstream Smoke 가 07-08 이후 이 이유로 매일 실패했다. 1 초과 값은 fake binary 하네스 테스트(순서 보존 검증)용이다.
+- `--workers`·`--method-workers`는 기본 `1`을 유지한다. 실제 `codelens-mcp` 는 프로젝트당 writable runtime 하나만 허용(`project_writer_busy`)하므로 같은 프로젝트에 1 초과로 돌리면 두 번째 프로세스부터 거부된다. Upstream Smoke 의 self retrieval 게이트가 이 이유로 실패했다(08-15·10-09 실행 확인; 07-20 실행은 그보다 뒤 단계인 fixture 매트릭스에서 실패). 1 초과 값은 fake binary 하네스 테스트(순서 보존 검증)용이다.
 - `--max-hybrid-p95-response-tokens`로 retrieval payload token 폭증을 `--check` 단계에서 fail-close
 
 Historical local baseline (`embedding-quality-results.json`, sequential + `--isolated-copy`):
