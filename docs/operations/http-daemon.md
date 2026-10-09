@@ -116,6 +116,13 @@ The binary is signed with identifier `dev.codelens.mcp-http`
 missing or fails to sign aborts the redeploy before the binary is replaced;
 it never falls back to ad hoc, which would bring the dialog back silently.
 
+A keychain other than the login keychain locks again after a reboot (or on
+its own lock timeout). `codesign` then waits on a password dialog that a
+non-interactive shell cannot answer, so the signing step gives up after
+`CODELENS_CODESIGN_TIMEOUT_SECS` (default 60) and prints the keychain to
+unlock: run `security unlock-keychain <that keychain>` and redeploy. The
+dialog stays on screen after the timeout; cancel it.
+
 ### Deprecation removal-gate telemetry (ADR-0018 D3)
 
 The installer sets `CODELENS_TELEMETRY_ENABLED=1` on the daemon plist by

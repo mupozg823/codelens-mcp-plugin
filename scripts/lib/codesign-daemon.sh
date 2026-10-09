@@ -14,8 +14,21 @@
 # to sign with that certificate and a fixed identifier instead. The consent
 # then survives rebuilds. An identity that is missing or fails to sign is an
 # error: falling back to ad hoc would bring the dialog back silently.
+#
+# An identity in a locked keychain makes codesign wait on a GUI password
+# prompt with no timeout, so a redeploy from a non-interactive shell hung
+# (2026-10-10: a dedicated keychain locked again after a reboot). The wait is
+# bounded by CODELENS_CODESIGN_TIMEOUT_SECS, and a timeout names the keychain
+# to unlock.
 
 CODELENS_CODESIGN_IDENTIFIER="${CODELENS_CODESIGN_IDENTIFIER:-dev.codelens.mcp-http}"
+CODELENS_CODESIGN_TIMEOUT_SECS="${CODELENS_CODESIGN_TIMEOUT_SECS:-60}"
+
+# Keychain file holding the certificate named `$1`, or nothing when the
+# identity was given as a SHA-1 or the lookup fails.
+codelens_identity_keychain() {
+	security find-certificate -c "$1" 2>/dev/null | sed -n 's/^keychain: "\(.*\)"$/\1/p' | head -n 1
+}
 
 codelens_sign_daemon() {
 	local bin="$1"
@@ -36,7 +49,19 @@ codelens_sign_daemon() {
 		return 1
 	fi
 	echo "==> signing ${bin} with '${identity}' as ${CODELENS_CODESIGN_IDENTIFIER}"
-	if ! codesign --force --sign "${identity}" --identifier "${CODELENS_CODESIGN_IDENTIFIER}" "${bin}"; then
+	local status=0
+	# perl's alarm survives exec, so SIGALRM ends codesign itself (status 142).
+	perl -e 'alarm shift @ARGV; exec @ARGV or die "exec: $!\n"' "${CODELENS_CODESIGN_TIMEOUT_SECS}" \
+		codesign --force --sign "${identity}" --identifier "${CODELENS_CODESIGN_IDENTIFIER}" "${bin}" || status=$?
+	if [[ ${status} -eq 142 ]]; then
+		local keychain
+		keychain="$(codelens_identity_keychain "${identity}")"
+		echo "error: codesign with '${identity}' did not finish in ${CODELENS_CODESIGN_TIMEOUT_SECS}s; its keychain is probably locked and waiting on a password prompt" >&2
+		echo "       unlock it, then redeploy: security unlock-keychain ${keychain:-<keychain holding the identity>}" >&2
+		echo "       (the password dialog stays on screen after this timeout; cancel it)" >&2
+		return 1
+	fi
+	if [[ ${status} -ne 0 ]]; then
 		echo "error: codesign with '${identity}' failed" >&2
 		return 1
 	fi
