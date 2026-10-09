@@ -68,9 +68,10 @@ project, which is usually not the caller's repository.
 
 ### Session journal (`CODELENS_SESSION_JOURNAL`, default on)
 
-HTTP sessions keep their soft state in `<runtime dir>/sessions/<session id>.json`
-(the same trusted runtime directory as the writer leases, `CODELENS_RUNTIME_DIR`
-overrides it): the project binding when the caller chose it (initialize
+HTTP sessions keep their soft state in
+`~/.codelens/runtime/project-writers/sessions/<session id>.json`, beside the
+writer leases (with `CODELENS_RUNTIME_DIR` set, `$CODELENS_RUNTIME_DIR/sessions/`):
+the project binding when the caller chose it (initialize
 parameter or prepare/activate), client name, version and host context, and the
 requested profile. When a client comes back under the same id after the
 daemon restarted or the session idled out (30 minutes), the resurrected
