@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A client keeps its identity across an idle-expiry resurrection** — sessions expire after 30 idle minutes and a returning client is resurrected without `initialize`; the seed reads only `x-codelens-client`, which Claude Code and Codex do not send, so later calls lost `client_name` (39 of 233 sessions had none on any telemetry row, 26 lost it mid-session). Expiry now remembers client name, version and host context (at most 1,024 for 24 h) and resurrection restores what the headers did not seed; `trusted_client` is never carried over.
+- **Errors in an unbound HTTP session say it is unbound** — only success payloads carried the `project_binding` hint, so `get_changed_files` failing with "not a git repository: ~/.codelens/daemon-default" (9 calls) gave no remediation.
+- **Seed copy deadline is enforced inside SQLite** — a watchdog thread interrupted every 10 ms, and an interrupt before the statement starts is a no-op, so a small `VACUUM INTO` could escape the deadline (the zero-deadline test failed on CI). The deadline is now checked in the progress callback (rusqlite `hooks`).
+- **`h2` 0.4.19 and `rustls` 0.23.45** — RUSTSEC-2026-0258 and RUSTSEC-2026-0285 (lockfile only).
+
 - **`review(mode=changes)` no longer reports diagnostics that never ran as clean** — on drawboard it said "No diagnostics reported for 4 touched file(s)" with `diagnostics_ready: ready` while every LSP start had failed and only 3 of the 4 files were checked. Any file that could not be checked keeps the verdict at `caution`, the summary names the first error, and the cap is stated.
 - **`diagnose(mode=file)` on a file type with no language server returns `checked: false`** with `degraded_reason` instead of an error (15–25% of its failures were CSS/JSON/Markdown/images); `count` is omitted so it never reads as clean. Successful runs carry `checked: true`.
 - **Pull diagnostics carry their file path** — a `DocumentDiagnosticReport` has no `uri`, so rows from pull servers (pyright, TypeScript 7) had an empty `file_path`.
