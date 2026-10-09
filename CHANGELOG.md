@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Binding answers within a budget** — a project's runtime is built on a background thread and a request waits at most `CODELENS_BIND_BUDGET_SECS` (default 20); then `prepare_harness_session` returns `activated: false, binding_status: "building"` (the session is bound to the project) and project tools return the retryable `index_not_ready`, while the build continues and the next request installs it. On 2026-10-10 an index open in `~/Downloads` waited 234.8 s on an unresponsive macOS `sandboxd`, past Claude Code's 60 s cutoff. Replaces the 120 s follower wait; `index_not_ready` is now retryable.
+- **Binding answers within a budget** — a project's runtime is built on a background thread and a request waits at most `CODELENS_BIND_BUDGET_SECS` (default 20); then `prepare_harness_session` returns `activated: false, binding_status: "building"` (the session is bound to the project) and project tools return the retryable `index_not_ready`, while the build continues and the next request installs it. On 2026-10-10 an index open in `~/Downloads` waited 234.8 s on the macOS consent dialog a freshly re-signed daemon gets for that folder, past Claude Code's 60 s cutoff. Replaces the 120 s follower wait; `index_not_ready` is now retryable.
 
 - **Linked worktrees inside a project are not indexed** — after the `.gitignore` cleanup, SignatureStudio still held 3,354 of its 5,124 indexed files under `.codex-worktrees/<name>`, linked worktrees that duplicate the tree. A directory below the root whose `.git` file points into `.git/worktrees/` is skipped by the walk and the watcher; submodules (`.git/modules/`) stay. The discovery signature becomes `gitignore=on;nested-worktrees=off`, so each index gets one cleanup refresh on its next bind.
 
@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`CLAUDE.md` always-on surface cut from 17.2 KB to 7.7 KB** (7.2 KB before the regenerated routing block gained its host-facts section) — the symbol-query seam description, the feature-flag matrix, the CI command mirror, and the mutation-gate / harness-mode quick reference moved verbatim to `docs/design/symbol-query-seam.md`, `docs/operations/build-features.md`, and `docs/operations/mutation-gate.md`. The generated `CODELENS_HOST_ROUTING` block is untouched; the hand-written part now carries only the architecture invariants, the short verify recipe, and the pitfalls list.
 
 ### Fixed
+
+- **Re-running `prepare_harness_session` on a project still building took twice the budget** — dispatch first waited out the bind budget on the session's previous binding, then the tool waited again (40 s in production). Tools that rebind from their own `project` argument no longer wait on the previous binding.
 
 - **A watched index no longer reads as stale** — `index_freshness` bucketed the age of the newest indexed file, so an untouched repository was `stale` after an hour and every symbol response put `refresh_symbol_index` first in its suggestions, even right after a bind whose refresh had verified every file. With the project's file watcher running the hint is `fresh` (`basis: "watcher_running"`); the age buckets remain for runtimes without a watcher.
 

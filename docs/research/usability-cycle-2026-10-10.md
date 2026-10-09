@@ -88,22 +88,17 @@ Found during acceptance and fixed in the follow-up: `index_freshness` called thi
 
 Claude Code's user MCP entry now sends `x-codelens-client: claude-code`, so a session resurrected after a daemon restart (which the in-memory identity cache cannot cover) keeps its attribution; verified with a resurrected probe session (`client_name: claude-code` in telemetry).
 
-## 7. The long bind stalls: an unresponsive sandboxd
+## 7. The long bind stalls: a consent dialog nobody saw
 
-Pre-warming the largest project after the redeploy (SignatureStudio, `~/Downloads`) took 238 s. The phase split in the daemon log put 234.8 s inside `IndexDb::open`, all of it in `Connection::open` (`connect_ms=234,819`); the discovery cleanup refresh itself took about 3 s (6,942 → 5,124 files).
+Pre-warming the largest project after the redeploy (SignatureStudio, `~/Downloads`) took 238 s. The phase split in the daemon log put 234.8 s inside `IndexDb::open`, all of it in `Connection::open` (`connect_ms=234,819`); the discovery cleanup refresh itself took about 3 s (6,942 → 5,124 files). `~/drawboard` bound in 4.9 s at the same time.
 
-The system log shows what the open waited on:
+After the next redeploy (845e8d3) the same bind did not finish for more than ten minutes. A `sample` of the daemon showed the build thread inside `open()` (`IndexDb::open` → `sqlite3BtreeOpen` → `unixOpen` → `__open`), the system log showed `sandboxd` sending "request approval" for the daemon at 06:42:14, and the screen held the macOS dialog "‘codelens-mcp-http’이(가) 다운로드 폴더의 파일에 접근하려고 합니다." with "허용 안 함" / "허용" (read through the accessibility tree; nothing was clicked).
 
-- 06:01:09.976 — `sandboxd` (pid 3757) asks `tccd` about the daemon (`kTCCServiceSystemPolicyAllFiles`, preflight, answered in 5 ms).
-- 06:05:02.697 — launchd: `service inactive: com.apple.sandboxd`.
-- 06:05:02.725 — launchd spawns `sandboxd` (pid 15140) "because ipc (mach)"; 36 ms later it serves the daemon's request.
-- 06:05:04.8 — the open returns.
+Mechanism: `scripts/redeploy-daemons.sh` re-signs the binary ad hoc (`codesign --force --sign -`), so every redeploy is a new code identity to TCC. The first open in a TCC-protected folder (`~/Downloads`, `~/Documents`, `~/Desktop`) by this launchd agent asks for consent, and the open blocks until the dialog is answered. The first incident released at 06:05:02, when launchd also recorded `sandboxd` going inactive and respawning; an earlier draft of this record read that as a hung `sandboxd`, which the second incident rules out. The 2026-09-28/29 stalls recorded as unexplained (`seed_ms` 1–2 h, several builds released within seconds of each other) followed redeploys too and fit the same mechanism, though no dialog was observed then.
 
-File access in TCC-protected folders (`~/Downloads`, `~/Documents`, `~/Desktop`) by this non-sandboxed launchd agent goes through `sandboxd`, so while it is unresponsive every such open blocks: the index open, source reads during refresh, and later tool calls alike. `~/drawboard` bound in 4.9 s at the same time. Why `sandboxd` stopped answering is not established; swap was above 90% (15.7 of 17.4 GB). The same shape explains the 2026-09-28/29 stalls recorded as unexplained (`seed_ms` 1–2 h, three builds released within three seconds of each other).
-
-CodeLens cannot make such an open fast. PR #415 keeps requests out of it: builds run in the background and a request answers within `CODELENS_BIND_BUDGET_SECS`.
+CodeLens cannot answer the dialog. PR #415 keeps requests from waiting on it: builds run in the background and a request answers within `CODELENS_BIND_BUDGET_SECS`.
 
 After the cleanup, 3,354 of SignatureStudio's 5,124 indexed files were still under `.codex-worktrees/<name>`, linked worktrees that duplicate the tree; #415 also stops indexing those.
 
-User-side options, not applied: keep active repositories outside `~/Downloads`, or give the daemon a stable code-signing identity (it is re-signed ad hoc on every redeploy, so TCC sees a new binary each time) and grant it the needed folder access once.
+Durable fixes, both the user's call: sign the daemon with a stable identity (a self-signed code-signing certificate in the login keychain) so a consent survives rebuilds, or keep active repositories outside the protected folders.
 
