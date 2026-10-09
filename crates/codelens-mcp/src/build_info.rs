@@ -309,6 +309,36 @@ pub(crate) struct DriftEvidence {
     /// `Some(false)` downgrades the head-mismatch warning; `None` keeps
     /// it (fail-open).
     pub(crate) binary_relevant_delta: Option<bool>,
+    /// The daemon's own launchd label (`XPC_SERVICE_NAME`), when it runs
+    /// under launchd. Names the service in the restart command.
+    pub(crate) launchd_label: Option<String>,
+    /// The checkout the binary was built from, when HEAD was compared.
+    pub(crate) project_root: Option<std::path::PathBuf>,
+}
+
+/// A command that recovers a stale daemon (#301). The status fields alone
+/// were easy to miss in a large capabilities payload. A binary replaced on
+/// disk only needs a restart; a checkout ahead of the binary needs a rebuild,
+/// through the dev script when the daemon is the dev one.
+fn drift_workaround(
+    reason_code: Option<&str>,
+    launchd_label: Option<&str>,
+    project_root: Option<&std::path::Path>,
+) -> Option<String> {
+    match reason_code? {
+        "stale_daemon_binary" => {
+            launchd_label.map(|label| format!("launchctl kickstart -k \"gui/$(id -u)/{label}\""))
+        }
+        "head_git_sha_mismatch" => project_root.map(|root| {
+            let script = if launchd_label.is_some_and(|label| label.contains("-dev-")) {
+                "redeploy-dev-daemon.sh"
+            } else {
+                "redeploy-daemons.sh --build --probe"
+            };
+            format!("bash {}/scripts/{script}", root.display())
+        }),
+        _ => None,
+    }
 }
 
 /// Pure JSON shaping from already-collected evidence. Kept side-effect
@@ -339,6 +369,12 @@ pub(crate) fn build_drift_payload(
         "reason_code": reason_code,
         "recommended_action": recommended_action,
         "action_target": if stale_daemon { Some("daemon") } else { None },
+        "severity": if stale_daemon { "high" } else { "info" },
+        "workaround_command": drift_workaround(
+            reason_code,
+            evidence.launchd_label.as_deref(),
+            evidence.project_root.as_deref(),
+        ),
         "executable_path": evidence.executable_path.to_string_lossy(),
         "executable_modified_at": format_rfc3339_utc(evidence.modified_seconds),
         "daemon_started_at": daemon_started_at,
@@ -415,12 +451,20 @@ pub(crate) fn daemon_binary_drift_payload(
         }
         _ => None,
     };
+    let compared_root = head_git_sha
+        .is_some()
+        .then(|| project_root.map(std::path::Path::to_path_buf))
+        .flatten();
     let evidence = DriftEvidence {
         mtime_stale: modified_seconds > daemon_started_seconds,
         head_git_sha,
         executable_path,
         modified_seconds,
         binary_relevant_delta,
+        launchd_label: std::env::var("XPC_SERVICE_NAME")
+            .ok()
+            .filter(|label| label.starts_with("dev.codelens.")),
+        project_root: compared_root,
     };
     build_drift_payload(&evidence, daemon_started_at)
 }
@@ -690,6 +734,8 @@ mod tests {
             modified_seconds: 1_779_032_712,
             head_git_sha: None,
             binary_relevant_delta: None,
+            launchd_label: None,
+            project_root: None,
         };
         let payload = build_drift_payload(&evidence, "2026-05-18T06:25:12Z");
         assert_eq!(payload["status"], json!("stale"));
@@ -711,6 +757,8 @@ mod tests {
             modified_seconds: 1_779_032_000,
             head_git_sha: Some(BUILD_GIT_SHA.to_owned()),
             binary_relevant_delta: None,
+            launchd_label: None,
+            project_root: None,
         };
         let payload = build_drift_payload(&evidence, "2026-05-18T06:25:12Z");
         assert_eq!(payload["status"], json!("ok"));
@@ -730,6 +778,8 @@ mod tests {
             modified_seconds: 1_779_032_000,
             head_git_sha: Some("ffffffff".to_owned()),
             binary_relevant_delta: None,
+            launchd_label: None,
+            project_root: None,
         };
         let payload = build_drift_payload(&evidence, "2026-05-18T06:25:12Z");
         if BUILD_GIT_SHA == "unknown" {
@@ -742,5 +792,53 @@ mod tests {
             assert_eq!(payload["reason_code"], json!("head_git_sha_mismatch"));
             assert_eq!(payload["recommended_action"], json!("restart_mcp_server"));
         }
+    }
+
+    #[test]
+    fn a_binary_replaced_on_disk_restarts_the_daemon_by_its_own_label() {
+        assert_eq!(
+            super::drift_workaround(
+                Some("stale_daemon_binary"),
+                Some("dev.codelens.mcp-mutation"),
+                None
+            )
+            .as_deref(),
+            Some("launchctl kickstart -k \"gui/$(id -u)/dev.codelens.mcp-mutation\"")
+        );
+        assert_eq!(
+            super::drift_workaround(Some("stale_daemon_binary"), None, None),
+            None
+        );
+    }
+
+    #[test]
+    fn a_checkout_ahead_of_the_binary_redeploys_through_the_matching_script() {
+        let root = std::path::Path::new("/repo");
+        assert_eq!(
+            super::drift_workaround(
+                Some("head_git_sha_mismatch"),
+                Some("dev.codelens.mcp-mutation"),
+                Some(root)
+            )
+            .as_deref(),
+            Some("bash /repo/scripts/redeploy-daemons.sh --build --probe")
+        );
+        assert_eq!(
+            super::drift_workaround(
+                Some("head_git_sha_mismatch"),
+                Some("dev.codelens.mcp-dev-mutation"),
+                Some(root)
+            )
+            .as_deref(),
+            Some("bash /repo/scripts/redeploy-dev-daemon.sh")
+        );
+    }
+
+    #[test]
+    fn an_in_sync_daemon_has_no_workaround() {
+        assert_eq!(
+            super::drift_workaround(None, Some("dev.codelens.mcp-mutation"), None),
+            None
+        );
     }
 }
