@@ -152,19 +152,42 @@ fn classify_index_freshness(now_secs: i64, raw_indexed_at: i64) -> (i64, i64, &'
 /// Returns `None` when the index is empty (callers omit the hint to
 /// avoid noise on a fresh project).
 pub fn index_freshness_hint(state: &AppState) -> Option<serde_json::Value> {
-    use serde_json::json;
     let raw = state.symbol_index().max_indexed_at().ok().flatten()?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
         .as_secs() as i64;
-    let (max_at, age_secs, hint, refresh_recommended) = classify_index_freshness(now, raw);
-    Some(json!({
+    let watcher_running = state.watcher_stats().is_some_and(|stats| stats.running);
+    Some(index_freshness_payload(now, raw, watcher_running))
+}
+
+/// The age of the newest indexed file says when the index last changed, not
+/// whether it matches the disk. With a file watcher keeping the project's
+/// index current, an untouched repository reached `stale` after an hour and
+/// every symbol response pushed `refresh_symbol_index` to the top of its
+/// suggestions (seen on drawboard, 2026-10-10: "stale" 31 h after a bind
+/// whose refresh had just verified every file). The age bucket is kept for
+/// runtimes without a watcher, such as one-shot CLI calls.
+fn index_freshness_payload(
+    now_secs: i64,
+    raw_indexed_at: i64,
+    watcher_running: bool,
+) -> serde_json::Value {
+    use serde_json::json;
+    let (max_at, age_secs, age_hint, age_refresh) =
+        classify_index_freshness(now_secs, raw_indexed_at);
+    let (hint, refresh_recommended, basis) = if watcher_running {
+        ("fresh", false, "watcher_running")
+    } else {
+        (age_hint, age_refresh, "newest_indexed_age")
+    };
+    json!({
         "newest_indexed_at_epoch_secs": max_at,
         "newest_indexed_age_secs": age_secs,
         "staleness_hint": hint,
         "refresh_recommended": refresh_recommended,
-    }))
+        "basis": basis,
+    })
 }
 
 /// Return the names of every top-level key in `value` that does not
@@ -315,5 +338,22 @@ mod tests {
         // Return empty so the handler's existing parsing handles it.
         assert!(collect_unknown_args(&json!("plain"), &["query"]).is_empty());
         assert!(collect_unknown_args(&json!(null), &["query"]).is_empty());
+    }
+
+    #[test]
+    fn a_watched_index_is_fresh_however_long_ago_it_last_changed() {
+        let now_secs = 2_000_000_000;
+        let thirty_one_hours_ago_ms = (now_secs - 31 * 3600) * 1000;
+
+        let watched = index_freshness_payload(now_secs, thirty_one_hours_ago_ms, true);
+        assert_eq!(watched["staleness_hint"], "fresh");
+        assert_eq!(watched["refresh_recommended"], false);
+        assert_eq!(watched["basis"], "watcher_running");
+        assert_eq!(watched["newest_indexed_age_secs"], 31 * 3600);
+
+        let unwatched = index_freshness_payload(now_secs, thirty_one_hours_ago_ms, false);
+        assert_eq!(unwatched["staleness_hint"], "stale");
+        assert_eq!(unwatched["refresh_recommended"], true);
+        assert_eq!(unwatched["basis"], "newest_indexed_age");
     }
 }
