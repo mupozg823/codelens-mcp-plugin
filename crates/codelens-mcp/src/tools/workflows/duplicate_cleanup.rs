@@ -8,6 +8,26 @@ pub(super) struct DuplicateFilterOutcome {
     pub(super) suppressed_signature_only_pairs: usize,
 }
 
+/// Drop pairs whose either side names a file no longer on disk (#296). The
+/// embedding index can still carry entries for renamed, split or deleted
+/// source: in a self-audit 14 of 25 proposed pairs pointed at a deleted
+/// `call_graph.rs`. Kept apart from `filter_duplicate_pairs_for_cleanup`,
+/// whose fixtures use paths that do not exist on disk.
+pub(super) fn drop_phantom_path_pairs(
+    project: &ProjectRoot,
+    pairs: Vec<DuplicatePair>,
+) -> (Vec<DuplicatePair>, usize) {
+    let root = project.as_path();
+    let exists = |relative: &str| !relative.is_empty() && root.join(relative).exists();
+    let before = pairs.len();
+    let kept: Vec<DuplicatePair> = pairs
+        .into_iter()
+        .filter(|pair| exists(&pair.file_a) && exists(&pair.file_b))
+        .collect();
+    let suppressed = before - kept.len();
+    (kept, suppressed)
+}
+
 pub(super) fn normalize_duplicate_scope(
     project: &ProjectRoot,
     scope: Option<&str>,
@@ -708,5 +728,24 @@ mod tests {
 
         assert_eq!(filtered.suppressed_same_file_same_symbol_pairs, 0);
         assert_eq!(filtered.pairs.len(), 1);
+    }
+
+    #[test]
+    fn pairs_naming_a_file_no_longer_on_disk_are_dropped() {
+        let project = temp_project();
+        std::fs::create_dir_all(project.as_path().join("src")).unwrap();
+        std::fs::write(project.as_path().join("src/a.rs"), "").unwrap();
+        std::fs::write(project.as_path().join("src/b.rs"), "").unwrap();
+        let pairs = vec![
+            duplicate_pair("src/a.rs", "src/b.rs"),
+            duplicate_pair("src/a.rs", "src/deleted.rs"),
+            duplicate_pair("src/gone.rs", "src/b.rs"),
+        ];
+
+        let (kept, suppressed) = drop_phantom_path_pairs(&project, pairs);
+
+        assert_eq!(suppressed, 2);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].file_b, "src/b.rs");
     }
 }
