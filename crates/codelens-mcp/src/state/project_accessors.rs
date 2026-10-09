@@ -252,7 +252,10 @@ impl AppState {
         };
         let built = match outcome {
             Some(Ok(context)) => Arc::new(context),
-            Some(Err(error)) => return Err(error),
+            Some(Err(error)) => {
+                ticket.record_failure(&error);
+                return Err(error);
+            }
             None => return self.await_installed(scope, &ticket, deadline),
         };
         Ok(self.install_built_context(scope, built))
@@ -283,11 +286,14 @@ impl AppState {
                 Some(Ok(context)) => {
                     self.install_built_context(&scope, Arc::new(context));
                 }
-                Some(Err(error)) => tracing::warn!(
-                    project = %scope,
-                    error = %format!("{error:#}"),
-                    "background project runtime build failed; the next request retries it"
-                ),
+                Some(Err(error)) => {
+                    ticket.record_failure(&error);
+                    tracing::warn!(
+                        project = %scope,
+                        error = %format!("{error:#}"),
+                        "background project runtime build failed; the next request retries it"
+                    );
+                }
                 None => {}
             }
         }
@@ -308,6 +314,14 @@ impl AppState {
                 .get(scope)
             {
                 return Ok(cached);
+            }
+            if let Some(failure) = ticket.failure() {
+                return Err(anyhow::Error::new(
+                    crate::error::CodeLensError::IndexNotReady(format!(
+                        "the project runtime build for `{scope}` failed ({failure}); the next \
+                         request starts a new build"
+                    )),
+                ));
             }
             if std::time::Instant::now() >= deadline {
                 return Err(still_building(scope, ticket));
@@ -551,6 +565,44 @@ mod bind_budget_tests {
         assert_eq!(
             attempts, 1,
             "callers during the build must not start another"
+        );
+    }
+
+    #[test]
+    fn waiters_on_a_failed_build_return_without_waiting_out_the_budget() {
+        let state = Arc::new(AppState::new_minimal(
+            temp_project("default-fail"),
+            ToolPreset::Balanced,
+        ));
+        let project = temp_project("busy");
+        // Another writer holds the project, so the build fails.
+        let _held = super::super::project_runtime_lease::ProjectRuntimeLease::try_acquire(&project)
+            .expect("hold the writer lease");
+        let path = project.as_path().to_string_lossy().to_string();
+        let barrier = Arc::new(std::sync::Barrier::new(4));
+        let started = std::time::Instant::now();
+        let handles = (0..4)
+            .map(|_| {
+                let state = Arc::clone(&state);
+                let path = path.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    TEST_BIND_OVERRIDE
+                        .with(|cell| cell.set(Some((std::time::Duration::from_secs(10), 200))));
+                    barrier.wait();
+                    state.bind_request_project_scope(&path).map(drop)
+                })
+            })
+            .collect::<Vec<_>>();
+        let results = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("bind thread panicked"))
+            .collect::<Vec<_>>();
+
+        assert!(results.iter().all(Result::is_err), "{results:?}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "waiters must not sit out the 10 s budget after the build failed"
         );
     }
 

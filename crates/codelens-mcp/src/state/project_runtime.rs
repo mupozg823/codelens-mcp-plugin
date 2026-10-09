@@ -47,6 +47,10 @@ impl ProjectContext {
 /// while requests return at the bind budget.
 pub(super) struct InFlightBuild {
     outcome: Mutex<Option<anyhow::Result<ProjectContext>>>,
+    /// Set by whoever took a failed outcome, so the other waiters on this
+    /// build return at once instead of waiting out the budget for a runtime
+    /// that will never be installed.
+    failure: Mutex<Option<String>>,
     finished: Mutex<bool>,
     done: Condvar,
     pub(super) started: std::time::Instant,
@@ -56,6 +60,7 @@ impl InFlightBuild {
     pub(super) fn new() -> Self {
         Self {
             outcome: Mutex::new(None),
+            failure: Mutex::new(None),
             finished: Mutex::new(false),
             done: Condvar::new(),
             started: std::time::Instant::now(),
@@ -87,6 +92,17 @@ impl InFlightBuild {
 
     pub(super) fn is_finished(&self) -> bool {
         *self.finished.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub(super) fn record_failure(&self, error: &anyhow::Error) {
+        *self.failure.lock().unwrap_or_else(|p| p.into_inner()) = Some(format!("{error:#}"));
+    }
+
+    pub(super) fn failure(&self) -> Option<String> {
+        self.failure
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// The outcome, for exactly one caller.
