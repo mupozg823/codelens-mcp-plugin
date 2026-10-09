@@ -275,6 +275,8 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
                 scan_limit,
                 normalized_scope.as_deref(),
             )?;
+            let (pairs, suppressed_phantom_path_pairs) =
+                duplicate_cleanup::drop_phantom_path_pairs(&state.project(), pairs);
             let filtered = duplicate_cleanup::filter_duplicate_pairs_for_cleanup(
                 &state.project(),
                 scope,
@@ -306,6 +308,7 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
                     "suppressed_same_file_cross_symbol_pairs": suppressed_same_file_cross_symbol_pairs,
                     "signature_only_matches": if include_signature_only_matches { "included" } else { "suppressed_by_default" },
                     "suppressed_signature_only_pairs": suppressed_signature_only_pairs,
+                    "suppressed_phantom_path_pairs": suppressed_phantom_path_pairs,
                 },
                 "duplicates": filtered.pairs,
                 "count": count,
