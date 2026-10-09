@@ -91,6 +91,24 @@ pub(crate) fn build_error_response<'a>(
         resp.suggested_next_tools = Some(failure.suggested_next_tools);
         resp.budget_hint = Some(failure.budget_hint);
     }
+    // #347 on the failure path: success payloads of an implicitly bound HTTP
+    // session carry a `project_binding` hint, errors did not, so a call that
+    // failed against the daemon's default project ("not a git repository:
+    // ~/.codelens/daemon-default") never said the session was unbound.
+    #[cfg(feature = "http")]
+    {
+        let session = crate::session_context::SessionRequestContext::from_json(arguments);
+        if state.should_route_to_session(&session)
+            && crate::tool_defs::tool_namespace(name) != "session"
+            && !session.project_binding_is_explicit()
+            && let Some(message) = resp.error.as_mut()
+        {
+            message.push_str(&format!(
+                " | project_binding: this HTTP session has no explicit project binding, so the call ran against `{}`. Call prepare_harness_session with project=<absolute workspace root> (or send the x-codelens-project header) and retry.",
+                state.current_project_scope()
+            ));
+        }
+    }
     if resp.suggested_next_tools.is_some() {
         resp.suggestion_reasons = resp
             .suggested_next_tools

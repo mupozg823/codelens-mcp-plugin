@@ -1210,3 +1210,55 @@ async fn prepare_harness_session_expands_tools_list_surface() {
         expanded_names.len()
     );
 }
+
+/// The failure path carries the binding hint too. 9 `get_changed_files` calls
+/// in two weeks failed with "not a git repository: ~/.codelens/daemon-default"
+/// and never said the session was unbound.
+#[tokio::test]
+async fn unbound_session_errors_name_the_missing_binding() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"binding-qa"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let call = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_file_diagnostics","arguments":{"path":"does/not/exist.py"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = body_string(call).await;
+    assert!(body.contains("isError"), "the call must fail: {body}");
+    assert!(
+        body.contains("project_binding: this HTTP session has no explicit project binding")
+            && body.contains("prepare_harness_session"),
+        "an unbound session's error must name the missing binding: {body}"
+    );
+}
