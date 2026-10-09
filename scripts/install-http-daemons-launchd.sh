@@ -457,7 +457,11 @@ if [[ "$(uname)" == "Darwin" ]]; then
 	if command -v xattr >/dev/null 2>&1; then
 		xattr -cr "$BIN_PATH" 2>/dev/null || true
 	fi
-	if command -v codesign >/dev/null 2>&1; then
+	if [[ -n "${CODELENS_CODESIGN_IDENTITY:-}" ]]; then
+		# shellcheck source=lib/codesign-daemon.sh
+		source "${SCRIPT_DIR}/lib/codesign-daemon.sh"
+		codelens_sign_daemon "$BIN_PATH" || exit 1
+	elif command -v codesign >/dev/null 2>&1; then
 		echo "==> Ad-hoc signing http binary (macOS Hardened Runtime)"
 		codesign -s - --force \
 			--preserve-metadata=identifier,entitlements,flags,runtime \

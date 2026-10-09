@@ -10,7 +10,7 @@ the friction discovered during the 2026-05-18 self-dogfood session:
 
   1. cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http
   2. xattr -dr com.apple.provenance ${TARGET}     # macOS gatekeeper
-  3. codesign --force --sign - ${TARGET}          # ad-hoc resign
+  3. codesign (ad hoc, or CODELENS_CODESIGN_IDENTITY)  # see lib/codesign-daemon.sh
   4. launchctl bootout/bootstrap + kickstart      # refresh launchd LWCR
   5. wait for LISTEN on the canonical mutation port
   6. (optional) tools/list health probe on that one endpoint
@@ -173,19 +173,24 @@ fi
 
 mkdir -p "$(dirname "${TARGET_BIN}")"
 log "copying ${SOURCE_BIN} -> ${TARGET_BIN}"
-cp -f "${SOURCE_BIN}" "${TARGET_BIN}"
+# Sign a staging copy and swap it in, so a signing failure leaves the running
+# daemon's binary untouched.
+# shellcheck source=lib/codesign-daemon.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/codesign-daemon.sh"
+STAGING_BIN="${TARGET_BIN}.staging"
+cp -f "${SOURCE_BIN}" "${STAGING_BIN}"
 
 if command -v xattr >/dev/null 2>&1; then
 	log "stripping com.apple.provenance xattr (macOS gatekeeper)"
-	xattr -dr com.apple.provenance "${TARGET_BIN}" 2>/dev/null || true
+	xattr -dr com.apple.provenance "${STAGING_BIN}" 2>/dev/null || true
 fi
 
-if command -v codesign >/dev/null 2>&1; then
-	log "ad-hoc resigning ${TARGET_BIN}"
-	codesign --force --sign - "${TARGET_BIN}" || {
-		log "WARNING: codesign failed; daemon may be killed by Gatekeeper" >&2
-	}
+if ! codelens_sign_daemon "${STAGING_BIN}"; then
+	rm -f "${STAGING_BIN}"
+	log "ERROR: signing failed; ${TARGET_BIN} and the running daemon are unchanged" >&2
+	exit 1
 fi
+mv -f "${STAGING_BIN}" "${TARGET_BIN}"
 
 NEW_VERSION="$("${TARGET_BIN}" --version 2>/dev/null || true)"
 if [[ -n "${NEW_VERSION}" ]]; then
