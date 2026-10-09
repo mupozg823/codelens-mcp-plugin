@@ -85,6 +85,10 @@ impl InFlightBuild {
         true
     }
 
+    pub(super) fn is_finished(&self) -> bool {
+        *self.finished.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     /// The outcome, for exactly one caller.
     pub(super) fn take(&self) -> Option<anyhow::Result<ProjectContext>> {
         self.outcome

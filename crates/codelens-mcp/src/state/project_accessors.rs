@@ -203,6 +203,7 @@ impl AppState {
         scope: &str,
     ) -> anyhow::Result<Arc<super::project_runtime::ProjectContext>> {
         let deadline = std::time::Instant::now() + bind_budget();
+        self.install_finished_builds();
         let ticket = {
             let mut cache = self
                 .project_context_cache
@@ -255,6 +256,41 @@ impl AppState {
             None => return self.await_installed(scope, &ticket, deadline),
         };
         Ok(self.install_built_context(scope, built))
+    }
+
+    /// Install builds that finished after every waiting request gave up.
+    /// Without this, a runtime nobody asked for again stayed outside the
+    /// cache, holding its writer lease and watcher, beyond LRU eviction.
+    fn install_finished_builds(&self) {
+        let finished = {
+            let mut cache = self
+                .project_context_cache
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let scopes = cache
+                .in_flight
+                .iter()
+                .filter(|(_, ticket)| ticket.is_finished())
+                .map(|(scope, _)| scope.clone())
+                .collect::<Vec<_>>();
+            scopes
+                .into_iter()
+                .filter_map(|scope| cache.in_flight.remove(&scope).map(|ticket| (scope, ticket)))
+                .collect::<Vec<_>>()
+        };
+        for (scope, ticket) in finished {
+            match ticket.take() {
+                Some(Ok(context)) => {
+                    self.install_built_context(&scope, Arc::new(context));
+                }
+                Some(Err(error)) => tracing::warn!(
+                    project = %scope,
+                    error = %format!("{error:#}"),
+                    "background project runtime build failed; the next request retries it"
+                ),
+                None => {}
+            }
+        }
     }
 
     /// Another caller took the finished build and is installing it.
@@ -516,5 +552,33 @@ mod bind_budget_tests {
             attempts, 1,
             "callers during the build must not start another"
         );
+    }
+
+    #[test]
+    fn a_build_nobody_came_back_for_is_installed_by_the_next_bind() {
+        let state = Arc::new(AppState::new_minimal(
+            temp_project("default-sweep"),
+            ToolPreset::Balanced,
+        ));
+        let abandoned = temp_project("abandoned");
+        let abandoned_scope = abandoned.as_path().to_string_lossy().to_string();
+        {
+            let _slow = SlowBuild::with_delay(100);
+            let gave_up = state.bind_request_project_scope(&abandoned_scope).map(drop);
+            assert!(
+                gave_up.as_ref().is_err_and(is_index_not_ready),
+                "{gave_up:?}"
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(600));
+
+        let other = temp_project("other");
+        let _binding = state
+            .bind_request_project_scope(other.as_path().to_string_lossy().as_ref())
+            .unwrap();
+
+        let cache = state.project_context_cache.lock().unwrap();
+        assert!(cache.entries.contains_key(&abandoned_scope));
+        assert!(!cache.in_flight.contains_key(&abandoned_scope));
     }
 }
