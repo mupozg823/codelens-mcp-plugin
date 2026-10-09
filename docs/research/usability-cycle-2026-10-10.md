@@ -100,7 +100,7 @@ CodeLens cannot answer the dialog. PR #415 keeps requests from waiting on it: bu
 
 After the cleanup, 3,354 of SignatureStudio's 5,124 indexed files were still under `.codex-worktrees/<name>`, linked worktrees that duplicate the tree; #415 also stops indexing those.
 
-Durable fixes, both the user's call: sign the daemon with a stable identity (a self-signed code-signing certificate in the login keychain) so a consent survives rebuilds, or keep active repositories outside the protected folders.
+Durable fixes, both the user's call: sign the daemon with a stable identity (a self-signed code-signing certificate in the login keychain) so a consent survives rebuilds, or keep active repositories outside the protected folders. The user chose the stable identity (§9).
 
 ## 8. serde-json `semantic_search`: an unstable single-query check, not a lane regression
 
@@ -112,3 +112,17 @@ Durable fixes, both the user's call: sign the daemon with a stable identity (a s
 
 Next: check whether CoreML and ONNX embeddings rank the same on a fixed query set, and replace the single-query upstream expectation with a small query set per project.
 
+
+## 9. Session state across a restart, and the signing identity (a55ad0b, 2026-10-10)
+
+Same steps before and after, on the dev daemon (`:7736`): initialize with client name `journal-probe`, `prepare_harness_session(project=~/panda-alert-skin)`, `get_current_config`, then `launchctl kickstart -k` the daemon and call `get_current_config` again under the same `Mcp-Session-Id` with no new initialize.
+
+| | before the restart | after the restart | `client_name` in the post-restart telemetry row |
+| --- | --- | --- | --- |
+| ebc5c12 (no journal) | `~/panda-alert-skin` | `~/codelens-mcp-plugin` (the daemon default, no error) | null |
+| a55ad0b (#421) | `~/panda-alert-skin` | `~/panda-alert-skin` (pid 50468 → 52547) | `journal-probe` |
+
+- The entry is `~/.codelens/runtime/project-writers/sessions/<id>.json`, mode 0600: client name and version, host context, requested profile, project path and binding source (`explicit_tool`). It has no trust field.
+- Sessions created by the pre-journal binary have no entry, so the redeploy that installed #421 still dropped their bindings once. Sessions created after it survive later restarts.
+- Both daemons are now signed with the `native-orchestrator-helper` identity (designated requirement `identifier "dev.codelens.mcp-http" and certificate leaf = H"ab22b72e…"`). That identity sits in a dedicated keychain, which a reboot had locked: the first signing attempt waited on a keychain password dialog and was still waiting at 45 s. #422 bounds that wait. After unlocking, signing took 0.13 s and both redeploys completed in 3 min 22 s.
+- Not measured yet: whether one folder consent under the new requirement survives the next redeploy. The screen was locked after the deploy, and no bind in a protected folder had run. The last ad-hoc stall before the switch held a SignatureStudio bind in `open()` for 501 s (`connect_ms=501,247`, 07:12).
