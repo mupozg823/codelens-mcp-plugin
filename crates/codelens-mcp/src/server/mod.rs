@@ -11,6 +11,8 @@ pub(crate) mod router;
 pub(crate) mod session;
 #[cfg(feature = "http")]
 mod session_injection;
+#[cfg(feature = "http")]
+pub(crate) mod session_journal;
 pub(crate) mod tools_list;
 pub(crate) mod transport_http;
 #[cfg(feature = "http")]

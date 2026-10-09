@@ -221,3 +221,38 @@ fn prepare_reports_building_instead_of_failing_when_the_bind_budget_runs_out() {
     crate::state::TEST_BIND_OVERRIDE.with(|cell| cell.set(None));
     assert_eq!(ready["data"]["binding_status"], json!(null), "{ready}");
 }
+
+#[test]
+fn prepare_without_project_reports_building_for_the_sessions_own_project() {
+    // A header-bound session (e.g. a repo's .mcp.json x-codelens-project)
+    // re-preparing without `project` got the dispatch-level error while its
+    // project was still building.
+    let default_project = project_root();
+    let slow = project_root();
+    fs::write(
+        slow.as_path().join("lib.py"),
+        "def header_probe():\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&default_project);
+    let path = slow.as_path().to_string_lossy().to_string();
+    crate::state::TEST_BIND_OVERRIDE.with(|cell| cell.set(Some((std::time::Duration::ZERO, 400))));
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "_session_project_path": path,
+            "_session_project_binding_source": "request_header",
+        }),
+    );
+
+    crate::state::TEST_BIND_OVERRIDE.with(|cell| cell.set(None));
+    assert_eq!(payload["success"], json!(true), "{payload}");
+    assert_eq!(
+        payload["data"]["binding_status"],
+        json!("building"),
+        "{payload}"
+    );
+    assert_eq!(payload["data"]["project"]["requested_project"], json!(path));
+}

@@ -36,6 +36,23 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         .and_then(|v| v.as_str())
         .map(str::to_owned);
     let explicit_project_request = arguments.get("project").and_then(|v| v.as_str()).is_some();
+    // A session that already chose its project (initialize, header or an
+    // earlier prepare) and calls prepare without `project` re-prepares that
+    // project. Bind it here within the budget, so a project still building
+    // answers `building` like an explicit prepare does, without turning a
+    // header binding into an explicit one.
+    let _session_binding = if explicit_project_request {
+        None
+    } else {
+        match session_project_binding(state, arguments)? {
+            SessionBinding::Bound(guard) => guard,
+            SessionBinding::Building { project, message } => {
+                return Ok(binding_in_progress(
+                    state, arguments, &project, &message, false,
+                ));
+            }
+        }
+    };
     let preset_dropped_for_profile = requested_profile.is_some() && requested_preset.is_some();
     // Drop `preset` for the downstream `activate_project` call so
     // the existing single-knob path runs unchanged. Working on a
@@ -67,7 +84,16 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         // 25 transcripts recovered after a failed prepare), so answer with
         // an explicit not-yet-bound result they can act on.
         Err(crate::error::CodeLensError::IndexNotReady(message)) if explicit_project_request => {
-            return Ok(binding_in_progress(state, arguments, &message));
+            let requested = arguments
+                .get("project")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let project = codelens_engine::ProjectRoot::new(requested)
+                .map(|root| root.as_path().to_string_lossy().into_owned())
+                .unwrap_or_else(|_| requested.to_owned());
+            return Ok(binding_in_progress(
+                state, arguments, &project, &message, true,
+            ));
         }
         Err(error) => return Err(error),
     };
@@ -297,24 +323,19 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
 fn binding_in_progress(
     state: &AppState,
     arguments: &serde_json::Value,
+    project: &str,
     message: &str,
+    bind_session: bool,
 ) -> (serde_json::Value, crate::protocol::ToolResponseMeta) {
-    let requested = arguments
-        .get("project")
-        .and_then(|value| value.as_str())
-        .unwrap_or_default();
-    let project = codelens_engine::ProjectRoot::new(requested)
-        .map(|root| root.as_path().to_string_lossy().into_owned())
-        .unwrap_or_else(|_| requested.to_owned());
     #[cfg(feature = "http")]
     let session_bound = {
         let session = crate::session_context::SessionRequestContext::from_json(arguments);
         state.should_route_to_session(&session)
-            && state.bind_project_to_session(&session.session_id, &project)
+            && (!bind_session || state.bind_project_to_session(&session.session_id, project))
     };
     #[cfg(not(feature = "http"))]
     let session_bound = {
-        let _ = state;
+        let _ = (state, arguments, bind_session);
         false
     };
     (
@@ -329,4 +350,33 @@ fn binding_in_progress(
         }),
         crate::tool_runtime::success_meta(crate::protocol::BackendKind::Config, 1.0),
     )
+}
+
+enum SessionBinding {
+    Bound(Option<crate::state::RequestProjectGuard>),
+    Building { project: String, message: String },
+}
+
+fn session_project_binding(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> Result<SessionBinding, crate::error::CodeLensError> {
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let Some(project) = session
+        .project_path
+        .clone()
+        .filter(|_| session.project_binding_is_explicit())
+    else {
+        return Ok(SessionBinding::Bound(None));
+    };
+    match state.bind_request_project_scope(&project) {
+        Ok(guard) => Ok(SessionBinding::Bound(Some(guard))),
+        Err(error) => match error.downcast::<crate::error::CodeLensError>() {
+            Ok(crate::error::CodeLensError::IndexNotReady(message)) => {
+                Ok(SessionBinding::Building { project, message })
+            }
+            Ok(other) => Err(other),
+            Err(other) => Err(crate::error::CodeLensError::Internal(other)),
+        },
+    }
 }

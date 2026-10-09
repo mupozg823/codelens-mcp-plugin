@@ -72,11 +72,21 @@ thread_local! {
 /// job is to (re)bind the session project. Such a call does not depend on the
 /// session's current binding still resolving, so it must survive a dead one.
 fn rebinds_project_explicitly(name: &str, arguments: &serde_json::Value) -> bool {
-    matches!(name, "prepare_harness_session" | "activate_project")
-        && arguments
-            .get("project")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|project| !project.trim().is_empty())
+    let named_project = arguments
+        .get("project")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|project| !project.trim().is_empty());
+    match name {
+        "activate_project" => named_project,
+        // prepare without `project` in a session that chose its project binds
+        // that project itself (prepare_harness::effective_prepare_arguments).
+        "prepare_harness_session" => {
+            named_project
+                || crate::session_context::SessionRequestContext::from_json(arguments)
+                    .project_binding_is_explicit()
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn dispatch_tool(

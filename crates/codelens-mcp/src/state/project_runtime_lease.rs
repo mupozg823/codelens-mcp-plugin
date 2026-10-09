@@ -107,7 +107,7 @@ const RUNTIME_DIR_ENV: &str = "CODELENS_RUNTIME_DIR";
 /// Lock authority must live outside the repository. A project-local path lets
 /// an untrusted checkout replace the lock with a symlink and redirect metadata
 /// truncation to another user file.
-fn trusted_runtime_dir() -> Result<PathBuf, CodeLensError> {
+pub(super) fn trusted_runtime_dir() -> Result<PathBuf, CodeLensError> {
     let home_drive_path = match (std::env::var_os("HOMEDRIVE"), std::env::var_os("HOMEPATH")) {
         (Some(mut drive), Some(path)) => {
             drive.push(path);

@@ -66,6 +66,24 @@ project, which is usually not the caller's repository.
   (`prepare_harness_session`, `get_current_config`, ...) stay callable so the
   caller can bind and retry.
 
+### Session journal (`CODELENS_SESSION_JOURNAL`, default on)
+
+HTTP sessions keep their soft state in `<runtime dir>/sessions/<session id>.json`
+(the same trusted runtime directory as the writer leases, `CODELENS_RUNTIME_DIR`
+overrides it): the project binding when the caller chose it (initialize
+parameter or prepare/activate), client name, version and host context, and the
+requested profile. When a client comes back under the same id after the
+daemon restarted or the session idled out (30 minutes), the resurrected
+session gets that state back instead of falling to the daemon's default
+project. Request headers still win. `trusted_client` is never written. Files
+are owner-only, removed on an explicit DELETE, and pruned after 7 days or past
+2,048 entries. `CODELENS_SESSION_JOURNAL=0` keeps sessions memory-only.
+
+A session that chose its project and calls `prepare_harness_session` without
+`project` re-prepares that project, so it gets `binding_status: "building"`
+within the bind budget like an explicit prepare, and a header binding stays a
+header binding.
+
 ### Bind budget (`CODELENS_BIND_BUDGET_SECS`, default 20)
 
 A project's runtime (writer lease, index open, discovery refresh) is built on a
