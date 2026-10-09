@@ -9,6 +9,7 @@ use crate::project::ProjectRoot;
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use std::fs;
+use std::path::Path;
 use url::Url;
 
 pub(super) fn references_from_response(
@@ -63,10 +64,15 @@ pub(super) fn references_from_response(
     Ok(references)
 }
 
+/// `document` is the file the diagnostics were requested for. A pull report
+/// (`DocumentDiagnosticReport`) has no `uri` of its own, so without this
+/// every row from a pull server (pyright, TypeScript 7) had an empty
+/// `file_path`.
 pub(super) fn diagnostics_from_response(
     project: &ProjectRoot,
     response: Value,
     max_results: usize,
+    document: &Path,
 ) -> Result<Vec<LspDiagnostic>> {
     let Some(result) = response.get("result") else {
         return Ok(Vec::new());
@@ -81,7 +87,8 @@ pub(super) fn diagnostics_from_response(
         .and_then(Value::as_str)
         .and_then(|uri| Url::parse(uri).ok())
         .and_then(|uri| uri.to_file_path().ok())
-        .map(|path| project.to_relative(path));
+        .map(|path| project.to_relative(path))
+        .unwrap_or_else(|| project.to_relative(document));
 
     let mut diagnostics = Vec::new();
     for item in items.iter().take(max_results) {
@@ -95,7 +102,7 @@ pub(super) fn diagnostics_from_response(
             continue;
         };
         diagnostics.push(LspDiagnostic {
-            file_path: file_path.clone().unwrap_or_default(),
+            file_path: file_path.clone(),
             line: start.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1,
             column: start.get("character").and_then(Value::as_u64).unwrap_or(0) as usize + 1,
             end_line: end.get("line").and_then(Value::as_u64).unwrap_or(0) as usize + 1,

@@ -68,7 +68,12 @@ impl LspSession {
             )?;
             match self.read_response_for_id(id) {
                 Ok(response) => {
-                    return diagnostics_from_response(&self.project, response, request.max_results);
+                    return diagnostics_from_response(
+                        &self.project,
+                        response,
+                        request.max_results,
+                        &absolute_path,
+                    );
                 }
                 Err(error) if error.to_string().contains("(-32601)") => {
                     self.pull_diagnostics_unsupported = true;
@@ -91,7 +96,7 @@ impl LspSession {
             );
         };
         let response = json!({"result":{"kind":"full","uri":uri_string,"items":items}});
-        diagnostics_from_response(&self.project, response, request.max_results)
+        diagnostics_from_response(&self.project, response, request.max_results, &absolute_path)
     }
 
     fn sync_imported_project_documents(

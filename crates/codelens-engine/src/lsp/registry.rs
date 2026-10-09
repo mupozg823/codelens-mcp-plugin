@@ -31,6 +31,18 @@ pub const LSP_RECIPES: &[LspRecipe] = &[
         args: &["--stdio"],
         package_manager: "npm",
     },
+    // TypeScript 7's own server. Never the default for an extension: it is
+    // chosen per project by `typescript::typescript_server_for_project` only
+    // when typescript-language-server would find no `tsserver.js`.
+    LspRecipe {
+        language: "typescript",
+        extensions: &["ts", "tsx", "js", "jsx", "mjs", "cjs"],
+        server_name: "tsc --lsp (TypeScript 7+)",
+        install_command: "npm install -g typescript@7",
+        binary_name: "tsc",
+        args: &["--lsp", "--stdio"],
+        package_manager: "npm",
+    },
     LspRecipe {
         language: "rust",
         extensions: &["rs"],
@@ -455,6 +467,22 @@ pub fn default_lsp_command_for_path(file_path: &str) -> Option<&'static str> {
         .extension()
         .and_then(|ext| ext.to_str())
         .and_then(default_lsp_command_for_extension)
+}
+
+/// Like [`default_lsp_command_for_path`], but picks the TypeScript server
+/// that can actually start in `project_root` (see `lsp::typescript`).
+pub fn default_lsp_command_for_project_path(
+    project_root: &Path,
+    file_path: &str,
+) -> Option<&'static str> {
+    let command = default_lsp_command_for_path(file_path)?;
+    if command == super::typescript::TS_LANGUAGE_SERVER {
+        Some(super::typescript::typescript_server_for_project(
+            project_root,
+        ))
+    } else {
+        Some(command)
+    }
 }
 
 pub fn default_lsp_args_for_command(command: &str) -> Option<&'static [&'static str]> {

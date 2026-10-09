@@ -1,5 +1,5 @@
 use super::super::{
-    AppState, ToolResult, default_lsp_command_for_path, optional_string, optional_usize,
+    AppState, ToolResult, default_lsp_command_for_file, optional_string, optional_usize,
     parse_lsp_args, success_meta,
 };
 use super::shared::{enhance_lsp_error, insert_response_annotations, resolve_path_argument};
@@ -226,7 +226,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
     // Fall back to LSP diagnostics.
     let Some(command) = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
-        .or_else(|| default_lsp_command_for_path(&file_path))
+        .or_else(|| default_lsp_command_for_file(state, &file_path))
     else {
         // A file type with no language server (CSS, JSON, Markdown, images)
         // has nothing to check. That is not a failure, but it is not a clean

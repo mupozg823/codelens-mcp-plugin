@@ -21,7 +21,7 @@ pub(crate) fn code_action_refactor_with_lsp_backend(
     let file_path = required_string(arguments, "file_path")?.to_owned();
     let (start_line, start_column, end_line, end_column, position_source) =
         code_action_range(state, arguments, &file_path, operation)?;
-    let (command, args) = lsp_command_and_args(arguments, &file_path)?;
+    let (command, args) = lsp_command_and_args(state, arguments, &file_path)?;
     let dry_run = arguments
         .get("dry_run")
         .and_then(|value| value.as_bool())

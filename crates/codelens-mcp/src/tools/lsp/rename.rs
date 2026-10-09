@@ -1,5 +1,5 @@
 use super::super::{
-    AppState, ToolResult, default_lsp_command_for_path, optional_string, optional_usize,
+    AppState, ToolResult, default_lsp_command_for_file, optional_string, optional_usize,
     parse_lsp_args, success_meta,
 };
 use super::shared::{
@@ -47,7 +47,7 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
     let new_name = optional_string(arguments, "new_name").map(ToOwned::to_owned);
     let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
-        .or_else(|| default_lsp_command_for_path(&file_path))
+        .or_else(|| default_lsp_command_for_file(state, &file_path))
         .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
     let args = parse_lsp_args(arguments, &command);
 
@@ -113,7 +113,7 @@ pub fn resolve_symbol_target(state: &AppState, arguments: &serde_json::Value) ->
     }
     let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
-        .or_else(|| default_lsp_command_for_path(&file_path))
+        .or_else(|| default_lsp_command_for_file(state, &file_path))
         .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
     let args = parse_lsp_args(arguments, &command);
     let max_results = optional_usize(arguments, "max_results", 20);

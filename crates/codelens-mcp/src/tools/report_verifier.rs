@@ -839,7 +839,10 @@ mod tests {
         let (status, summary) = super::diagnostics_verdict(tally(3, 2, 1, 0));
         assert_eq!(status, super::VERIFIER_CAUTION);
         assert!(summary.contains("2 checked"), "{summary}");
-        assert!(summary.contains("1 file(s) could not be checked"), "{summary}");
+        assert!(
+            summary.contains("1 file(s) could not be checked"),
+            "{summary}"
+        );
     }
 
     #[test]
@@ -858,7 +861,10 @@ mod tests {
     fn files_without_a_language_server_are_not_applicable() {
         let (status, summary) = super::diagnostics_verdict(tally(2, 0, 0, 2));
         assert_eq!(status, super::VERIFIER_READY);
-        assert!(summary.starts_with("Diagnostics not applicable"), "{summary}");
+        assert!(
+            summary.starts_with("Diagnostics not applicable"),
+            "{summary}"
+        );
     }
 
     #[test]

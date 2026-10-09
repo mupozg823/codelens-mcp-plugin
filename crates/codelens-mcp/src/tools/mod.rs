@@ -311,6 +311,14 @@ pub fn default_lsp_command_for_path(file_path: &str) -> Option<String> {
     codelens_engine::default_lsp_command_for_path(file_path).map(str::to_owned)
 }
 
+/// The LSP server for `file_path` in the bound project. Unlike
+/// [`default_lsp_command_for_path`] it picks the TypeScript server that can
+/// start there (TypeScript 7 has no `tsserver.js`; see `lsp::typescript`).
+pub fn default_lsp_command_for_file(state: &AppState, file_path: &str) -> Option<String> {
+    codelens_engine::default_lsp_command_for_project_path(state.project().as_path(), file_path)
+        .map(str::to_owned)
+}
+
 pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
     codelens_engine::default_lsp_args_for_command(command)
         .unwrap_or(&[])
