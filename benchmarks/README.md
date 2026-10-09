@@ -206,7 +206,6 @@ python3 benchmarks/embedding-index-lifecycle.py . \
 ```bash
 python3 benchmarks/embedding-quality.py . \
   --methods get_ranked_context \
-  --workers 4 \
   --batch-size 16 \
   --query-cache-probe off \
   --output /tmp/codelens-embedding-quality-hybrid-only.json \
@@ -219,7 +218,6 @@ python3 benchmarks/embedding-quality.py . \
   --max-hybrid-p95-response-tokens 20000
 
 python3 benchmarks/embedding-quality.py . \
-  --method-workers 4 \
   --batch-size 16 \
   --query-cache-probe on \
   --output /tmp/codelens-embedding-quality-results.json \
@@ -246,8 +244,7 @@ python3 benchmarks/embedding-quality.py . \
 - CI/agent 실행은 `--stdout summary`를 사용해 full JSON은 파일 artifact로 남기고 대화/로그 토큰을 줄인다.
 - 빠른 ranker 반복은 `--methods get_ranked_context --query-cache-probe off`로 hybrid lane만 먼저 확인한다.
 - `--batch-size`는 여러 tool call을 한 `codelens-mcp` subprocess로 묶어 프로세스 startup cost를 줄인다. 이때 latency는 `*_batch_amortized_elapsed_ms`로 별도 기록되며, per-query latency gate인 `--max-hybrid-avg-ms`는 `--batch-size 1`에서만 사용한다.
-- `--workers`는 batch 단위 병렬 실행이다. promotion 품질 gate는 deterministic 비교를 위해 기본 worker count를 유지하고, fast iteration에서만 높인다.
-- `--method-workers`는 full comparator의 독립 method lane 병렬 실행이다. 결과 배열은 `METHOD_ORDER` 순서를 유지하므로 CI full gate에서는 `4`를 사용해 wall time을 줄이고, 문제 재현이 필요할 때만 `1`로 되돌린다.
+- `--workers`·`--method-workers`는 기본 `1`을 유지한다. 실제 `codelens-mcp` 는 프로젝트당 writable runtime 하나만 허용(`project_writer_busy`)하므로 같은 프로젝트에 1 초과로 돌리면 두 번째 프로세스부터 거부된다. Upstream Smoke 가 07-08 이후 이 이유로 매일 실패했다. 1 초과 값은 fake binary 하네스 테스트(순서 보존 검증)용이다.
 - `--max-hybrid-p95-response-tokens`로 retrieval payload token 폭증을 `--check` 단계에서 fail-close
 
 Historical local baseline (`embedding-quality-results.json`, sequential + `--isolated-copy`):
