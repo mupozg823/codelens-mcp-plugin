@@ -315,6 +315,22 @@ impl SessionState {
         }
     }
 
+    /// Restore the identity an expired predecessor declared, without
+    /// overriding anything this request's headers already seeded.
+    fn restore_identity(&self, identity: RetiredIdentity) {
+        if let Ok(mut metadata) = self.client_metadata.write() {
+            if metadata.client_name.is_none() {
+                metadata.client_name = identity.client_name;
+            }
+            if metadata.client_version.is_none() {
+                metadata.client_version = identity.client_version;
+            }
+            if metadata.host_context.is_none() {
+                metadata.host_context = identity.host_context;
+            }
+        }
+    }
+
     /// Guard #2/#8: apply a [`SessionSeed`] onto a freshly-resurrected session.
     /// Sets only soft surface state (profile/deferred/client_name) and, when a
     /// profile is supplied, mirrors initialize's surface+budget so the
@@ -493,6 +509,74 @@ impl SessionState {
     }
 }
 
+/// Client identity a session declared at `initialize`, kept for a while
+/// after the session expires. A client idle past the session timeout comes
+/// back under the same id and is resurrected (#300) without `initialize`, so
+/// without this every later call lost its `client_name` (39 of 233 sessions
+/// in two weeks had none on any telemetry row, 26 more lost it mid-session).
+/// Only identity is kept: `trusted_client` and every other privilege-bearing
+/// field stay at their fail-closed defaults (guard #2).
+#[derive(Debug, Clone)]
+struct RetiredIdentity {
+    client_name: Option<String>,
+    client_version: Option<String>,
+    host_context: Option<String>,
+    retired_at: Instant,
+}
+
+#[derive(Debug)]
+struct RetiredIdentities {
+    entries: Mutex<HashMap<SessionId, RetiredIdentity>>,
+    ttl: Duration,
+    cap: usize,
+}
+
+impl RetiredIdentities {
+    fn new(ttl: Duration, cap: usize) -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            ttl,
+            cap,
+        }
+    }
+
+    fn remember(&self, id: &str, metadata: &SessionClientMetadata) {
+        if metadata.client_name.is_none()
+            && metadata.client_version.is_none()
+            && metadata.host_context.is_none()
+        {
+            return;
+        }
+        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        let ttl = self.ttl;
+        entries.retain(|_, identity| identity.retired_at.elapsed() <= ttl);
+        if entries.len() >= self.cap
+            && let Some(oldest) = entries
+                .iter()
+                .min_by_key(|(_, identity)| identity.retired_at)
+                .map(|(id, _)| id.clone())
+        {
+            entries.remove(&oldest);
+        }
+        entries.insert(
+            id.to_owned(),
+            RetiredIdentity {
+                client_name: metadata.client_name.clone(),
+                client_version: metadata.client_version.clone(),
+                host_context: metadata.host_context.clone(),
+                retired_at: Instant::now(),
+            },
+        );
+    }
+
+    fn take(&self, id: &str) -> Option<RetiredIdentity> {
+        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        entries
+            .remove(id)
+            .filter(|identity| identity.retired_at.elapsed() <= self.ttl)
+    }
+}
+
 /// Thread-safe session store for HTTP mode.
 pub struct SessionStore {
     sessions: RwLock<HashMap<SessionId, Arc<SessionState>>>,
@@ -503,6 +587,8 @@ pub struct SessionStore {
     tombstone: Tombstone,
     /// Guard #11: unknown-session handling at the POST gate.
     policy: SessionPolicy,
+    /// Identities of expired sessions, restored on resurrection.
+    retired: RetiredIdentities,
 }
 
 /// Active session bindings guarded against concurrent project-path mutation.
@@ -567,6 +653,7 @@ impl SessionStore {
             timeout,
             tombstone: Tombstone::new(Duration::from_secs(300), 256),
             policy: SessionPolicy::Lenient,
+            retired: RetiredIdentities::new(Duration::from_secs(24 * 60 * 60), 1024),
         }
     }
 
@@ -592,8 +679,7 @@ impl SessionStore {
         if let Ok(mut sessions) = self.sessions.write() {
             // Evict expired sessions first
             if sessions.len() >= Self::MAX_SESSIONS {
-                let timeout = self.timeout;
-                sessions.retain(|_, s| !s.is_expired(timeout));
+                self.reap_expired(&mut sessions);
             }
             // If still over limit, remove oldest
             if sessions.len() >= Self::MAX_SESSIONS
@@ -606,8 +692,10 @@ impl SessionStore {
                             .unwrap_or(std::time::Instant::now())
                     })
                     .map(|(id, _)| id.clone())
+                && let Some(evicted) = sessions.remove(&oldest_id)
             {
-                sessions.remove(&oldest_id);
+                self.retired
+                    .remember(&oldest_id, &evicted.client_metadata());
             }
             sessions.insert(id, Arc::clone(&session));
         }
@@ -651,13 +739,15 @@ impl SessionStore {
         }
         // Guard #6: reclaim only EXPIRED slots; if the map is still full of
         // active sessions, refuse rather than evict a live client.
-        let timeout = self.timeout;
-        sessions.retain(|_, session| !session.is_expired(timeout));
+        self.reap_expired(&mut sessions);
         if sessions.len() >= Self::MAX_SESSIONS {
             return None;
         }
         let session = Arc::new(SessionState::new(id.to_owned()));
         session.apply_seed(seed);
+        if let Some(identity) = self.retired.take(id) {
+            session.restore_identity(identity);
+        }
         sessions.insert(id.to_owned(), Arc::clone(&session));
         Some((session, true))
     }
@@ -773,8 +863,21 @@ impl SessionStore {
             Err(_) => return 0,
         };
         let before = sessions.len();
-        sessions.retain(|_, session| !session.is_expired(self.timeout));
+        self.reap_expired(&mut sessions);
         before - sessions.len()
+    }
+
+    /// Drop expired sessions, remembering each one's client identity.
+    fn reap_expired(&self, sessions: &mut HashMap<SessionId, Arc<SessionState>>) {
+        let timeout = self.timeout;
+        sessions.retain(|id, session| {
+            if session.is_expired(timeout) {
+                self.retired.remember(id, &session.client_metadata());
+                false
+            } else {
+                true
+            }
+        });
     }
 
     /// Number of active sessions.
@@ -1111,5 +1214,72 @@ mod tests {
     fn session_store_with_policy_sets_strict() {
         let store = SessionStore::new(Duration::from_secs(300)).with_policy(SessionPolicy::Strict);
         assert!(matches!(store.policy(), SessionPolicy::Strict));
+    }
+
+    fn expired_session_with_identity(store: &SessionStore) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let (session, _) = store
+            .get_or_resurrect(&id, &SessionSeed::default())
+            .expect("session");
+        session.set_client_metadata(SessionClientMetadata {
+            client_name: Some("claude-code".to_owned()),
+            client_version: Some("2.1.290".to_owned()),
+            host_context: Some("claude-code".to_owned()),
+            trusted_client: Some(true),
+            ..SessionClientMetadata::default()
+        });
+        std::thread::sleep(Duration::from_millis(20));
+        assert_eq!(store.cleanup(), 1, "the idle session must expire");
+        id
+    }
+
+    #[test]
+    fn resurrection_after_idle_expiry_restores_client_identity() {
+        let store = SessionStore::new(Duration::from_millis(5));
+        let id = expired_session_with_identity(&store);
+
+        let (session, resurrected) = store
+            .get_or_resurrect(&id, &SessionSeed::default())
+            .expect("resurrect");
+
+        assert!(resurrected);
+        let metadata = session.client_metadata();
+        assert_eq!(metadata.client_name.as_deref(), Some("claude-code"));
+        assert_eq!(metadata.client_version.as_deref(), Some("2.1.290"));
+        assert_eq!(metadata.host_context.as_deref(), Some("claude-code"));
+        // Guard #2: trust is never carried across a resurrection.
+        assert_ne!(metadata.trusted_client, Some(true));
+    }
+
+    #[test]
+    fn resurrection_headers_win_over_a_remembered_identity() {
+        let store = SessionStore::new(Duration::from_millis(5));
+        let id = expired_session_with_identity(&store);
+        let seed = SessionSeed {
+            client_name: Some("codex-mcp-client".to_owned()),
+            ..SessionSeed::default()
+        };
+
+        let (session, _) = store.get_or_resurrect(&id, &seed).expect("resurrect");
+
+        let metadata = session.client_metadata();
+        assert_eq!(metadata.client_name.as_deref(), Some("codex-mcp-client"));
+        assert_eq!(metadata.client_version.as_deref(), Some("2.1.290"));
+    }
+
+    #[test]
+    fn a_remembered_identity_is_used_once() {
+        let store = SessionStore::new(Duration::from_millis(5));
+        let id = expired_session_with_identity(&store);
+        store
+            .get_or_resurrect(&id, &SessionSeed::default())
+            .expect("first");
+        store.remove(&id);
+
+        let (session, _) = store
+            .get_or_resurrect(&id, &SessionSeed::default())
+            .expect("second");
+
+        assert_eq!(session.client_metadata().client_name, None);
     }
 }
