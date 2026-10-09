@@ -30,6 +30,7 @@ axum = "0.8"
 axum-server = { version = "0.8", default-features = false, features = ["tls-rustls-no-provider"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 globset = "0.4"
+ignore = "0.4.23"
 petgraph = "0.7"
 rayon = "1.10"
 regex = "1.12"

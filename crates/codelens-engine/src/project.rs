@@ -9,7 +9,10 @@ mod remote_root;
 mod root_detect;
 mod workspace;
 
-pub use exclusions::{EXCLUDED_DIRS, collect_files, is_excluded, is_excluded_within};
+pub use exclusions::{
+    EXCLUDED_DIRS, GitignoreFilter, collect_files, discovery_signature, is_excluded,
+    is_excluded_within, respects_gitignore,
+};
 pub use frameworks::detect_frameworks;
 pub use language::compute_dominant_language;
 use paths::normalize_path;

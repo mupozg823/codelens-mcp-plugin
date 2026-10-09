@@ -76,7 +76,35 @@ pub(crate) fn files_with_symbol_kinds(conn: &Connection, kinds: &[&str]) -> Resu
     Ok(paths)
 }
 
+/// Record which discovery rules produced the current file set
+/// (`project::discovery_signature`). Written by a full refresh only, since
+/// only a full walk removes rows the rules no longer admit.
+pub(crate) fn set_discovery_signature(conn: &Connection, signature: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('discovery_signature', ?1)",
+        [signature],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn stored_discovery_signature(conn: &Connection) -> Result<Option<String>> {
+    use rusqlite::OptionalExtension;
+    Ok(conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'discovery_signature'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
 impl IndexDb {
+    /// Discovery rules recorded by the last full refresh; `None` for an index
+    /// built before they were recorded.
+    pub fn discovery_signature(&self) -> Result<Option<String>> {
+        stored_discovery_signature(&self.conn)
+    }
+
     /// Count indexed files.
     pub fn file_count(&self) -> Result<usize> {
         let count: i64 = self

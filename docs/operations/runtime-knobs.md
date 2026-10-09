@@ -28,7 +28,11 @@ The engine authorizes one immutable tuple before any spawn:
 At pool construction, trusted executables come from the daemon's inherited
 `PATH`, conservative platform fallback directories, and
 `CODELENS_LSP_PATH_EXTRA`. Project `node_modules/.bin` directories are not
-searched implicitly. `register_trusted_lsp_binary` exists for an embedding host
+searched implicitly. TypeScript and JavaScript files go to
+`typescript-language-server` unless the TypeScript it would load has no
+`lib/tsserver.js` (TypeScript 7, the Go port); then the trusted `tsc` serves
+them with `tsc --lsp --stdio`, but only when that `tsc` is itself TypeScript 7
+or later. `register_trusted_lsp_binary` exists for an embedding host
 to add an explicit mapping; it is a host configuration API and must never
 receive tool-call input.
 
@@ -93,16 +97,28 @@ The indexer skips a hardcoded directory set (`EXCLUDED_DIRS` in
 (`.next`, `.vercel`, `.turbo`, `.svelte-kit`, `.nuxt`, `.astro`,
 `.parcel-cache`).
 
-**The indexer does not read `.gitignore`.** That list is a curated set of names,
-not a rule, so anything a repository ignores under a name not on the list is
-still indexed and still shows up in analysis output. The cost lands on report
-precision rather than index size: generated bundles are referenced by nothing,
-so they flood dead-code rankings. Measured 2026-09-05 on a Next.js/Vercel repo,
-`.vercel` held 44 indexable JS/TS files against 1,259 real source files and led
-the dead-code report; it is excluded by default as of that change, but the
-general gap remains.
+**The indexer honors `.gitignore`** (since 2026-10-10): the repository's
+`.gitignore` files at every level, `.git/info/exclude`, and ignore files in
+parent directories of a project rooted inside a larger checkout. It does so
+only inside a git checkout (a `.git` directory or a linked worktree's `.git`
+file), like git itself, and it leaves out the user's global excludes file so
+the index does not depend on per-machine git config. Hidden directories stay
+indexed unless excluded by name. The file watcher applies the same rule, so a
+build that rewrites ignored output does not re-add it.
 
-Exclude them per project with `.codelens/config.json`. All three keys are read
+Before this, 16.9% of indexed files across 23 local git projects were
+gitignored (one repository 64%: archived production snapshots and a build-output
+`public/`), and every copy re-declared the same symbols, so path-less reference
+lookups gave up on ambiguity. Files a repository force-adds despite an ignore
+pattern are skipped too; list such paths in the repository's `.gitignore` with
+a `!` negation if they must be indexed.
+
+`CODELENS_INDEX_GITIGNORE=0` restores the previous name-list-only walk. The
+rule in effect is recorded in the index (`meta.discovery_signature`); when it
+differs at bind time, one full refresh runs and removes rows for files the
+current rule no longer admits. Unchanged files are not re-parsed.
+
+Exclude anything else per project with `.codelens/config.json`. All three keys are read
 and merged, so use whichever reads best:
 
 ```json

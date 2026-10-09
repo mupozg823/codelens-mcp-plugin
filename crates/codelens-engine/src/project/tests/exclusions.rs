@@ -1,4 +1,4 @@
-use super::super::{collect_files, is_excluded, is_excluded_within};
+use super::super::{GitignoreFilter, collect_files, is_excluded, is_excluded_within};
 use super::tempfile_dir;
 use std::{fs, path::Path};
 
@@ -204,4 +204,97 @@ fn project_config_excludes_opt_in_vendor_paths() {
     assert!(!is_excluded(Path::new(
         "companion-core-v4.3.4/companion/lib/Registry.ts"
     )));
+}
+
+fn collected_ts(root: &Path) -> Vec<String> {
+    let mut relative: Vec<String> =
+        collect_files(root, |path| path.extension().is_some_and(|ext| ext == "ts"))
+            .expect("collect files")
+            .iter()
+            .map(|path| {
+                path.strip_prefix(root)
+                    .expect("relative")
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+    relative.sort();
+    relative
+}
+
+fn write_ts(root: &Path, relative: &str) {
+    let path = root.join(relative);
+    fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+    fs::write(path, "export const x = 1;\n").expect("write ts");
+}
+
+#[test]
+fn walk_skips_gitignored_files_but_keeps_hidden_ones() {
+    // drawboard 2026-10-10: 676 of 1,219 indexed files were gitignored
+    // archive snapshots, so `renderBoard` was "declared" in 53 files.
+    let (_guard, temp) = super::tempfile_dir();
+    fs::create_dir_all(temp.join(".git")).expect("git dir");
+    fs::write(temp.join(".gitignore"), ".archive/\npublic/\n").expect("gitignore");
+    write_ts(&temp, "src/app.ts");
+    write_ts(&temp, ".archive/snap-1/src/app.ts");
+    write_ts(&temp, "public/app.ts");
+    write_ts(&temp, ".github/scripts/check.ts");
+
+    assert_eq!(
+        collected_ts(&temp),
+        vec![".github/scripts/check.ts", "src/app.ts"]
+    );
+}
+
+#[test]
+fn walk_honors_nested_gitignore_and_negation() {
+    let (_guard, temp) = super::tempfile_dir();
+    fs::create_dir_all(temp.join(".git")).expect("git dir");
+    fs::write(temp.join(".gitignore"), "*.gen.d.ts\n").expect("root gitignore");
+    fs::create_dir_all(temp.join("pkg")).expect("pkg");
+    fs::write(temp.join("pkg/.gitignore"), "out/\n!out/keep.ts\n").expect("nested gitignore");
+    write_ts(&temp, "pkg/src/lib.ts");
+    write_ts(&temp, "pkg/out/drop.ts");
+    write_ts(&temp, "pkg/types.gen.d.ts");
+
+    assert_eq!(collected_ts(&temp), vec!["pkg/src/lib.ts"]);
+}
+
+#[test]
+fn walk_honors_gitignore_in_a_linked_worktree() {
+    // A linked worktree has a `.git` file, not a directory.
+    let (_guard, temp) = super::tempfile_dir();
+    fs::write(temp.join(".git"), "gitdir: /elsewhere/.git/worktrees/wt\n").expect("git file");
+    fs::write(temp.join(".gitignore"), "build-output/\n").expect("gitignore");
+    write_ts(&temp, "src/app.ts");
+    write_ts(&temp, "build-output/app.ts");
+
+    assert_eq!(collected_ts(&temp), vec!["src/app.ts"]);
+}
+
+#[test]
+fn walk_outside_git_ignores_gitignore_like_git_does() {
+    let (_guard, temp) = super::tempfile_dir();
+    fs::write(temp.join(".gitignore"), "public/\n").expect("gitignore");
+    write_ts(&temp, "src/app.ts");
+    write_ts(&temp, "public/app.ts");
+
+    assert_eq!(collected_ts(&temp), vec!["public/app.ts", "src/app.ts"]);
+}
+
+#[test]
+fn watcher_filter_matches_the_walk() {
+    let (_guard, temp) = super::tempfile_dir();
+    fs::create_dir_all(temp.join(".git/info")).expect("git dir");
+    fs::write(temp.join(".git/info/exclude"), "scratch.ts\n").expect("exclude");
+    fs::write(temp.join(".gitignore"), ".archive/\n").expect("gitignore");
+    fs::create_dir_all(temp.join("pkg")).expect("pkg");
+    fs::write(temp.join("pkg/.gitignore"), "out/\n!out/keep.ts\n").expect("nested");
+    let mut filter = GitignoreFilter::new(&temp);
+
+    assert!(filter.is_ignored(&temp.join(".archive/snap/src/app.ts")));
+    assert!(filter.is_ignored(&temp.join("scratch.ts")));
+    assert!(filter.is_ignored(&temp.join("pkg/out/drop.ts")));
+    assert!(!filter.is_ignored(&temp.join("pkg/out/keep.ts")));
+    assert!(!filter.is_ignored(&temp.join("src/app.ts")));
 }
