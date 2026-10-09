@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A watched index no longer reads as stale** — `index_freshness` bucketed the age of the newest indexed file, so an untouched repository was `stale` after an hour and every symbol response put `refresh_symbol_index` first in its suggestions, even right after a bind whose refresh had verified every file. With the project's file watcher running the hint is `fresh` (`basis: "watcher_running"`); the age buckets remain for runtimes without a watcher.
+
 - **A client keeps its identity across an idle-expiry resurrection** — sessions expire after 30 idle minutes and a returning client is resurrected without `initialize`; the seed reads only `x-codelens-client`, which Claude Code and Codex do not send, so later calls lost `client_name` (39 of 233 sessions had none on any telemetry row, 26 lost it mid-session). Expiry now remembers client name, version and host context (at most 1,024 for 24 h) and resurrection restores what the headers did not seed; `trusted_client` is never carried over.
 - **Errors in an unbound HTTP session say it is unbound** — only success payloads carried the `project_binding` hint, so `get_changed_files` failing with "not a git repository: ~/.codelens/daemon-default" (9 calls) gave no remediation.
 - **Seed copy deadline is enforced inside SQLite** — a watchdog thread interrupted every 10 ms, and an interrupt before the statement starts is a no-op, so a small `VACUUM INTO` could escape the deadline (the zero-deadline test failed on CI). The deadline is now checked in the progress callback (rusqlite `hooks`).

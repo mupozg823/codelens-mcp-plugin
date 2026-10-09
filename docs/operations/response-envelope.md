@@ -154,11 +154,12 @@ The four read-hot symbol tools (`find_referencing_symbols`, `find_symbol`, `get_
   "newest_indexed_at_epoch_secs": 1779032712,
   "newest_indexed_age_secs": 642,
   "staleness_hint": "possibly_stale",
-  "refresh_recommended": false
+  "refresh_recommended": false,
+  "basis": "newest_indexed_age"
 }
 ```
 
-Buckets (newest `files.indexed_at` vs wall-clock): `fresh` < 60s · `recent` 60s..600s · `possibly_stale` 600s..3600s · `stale` ≥ 3600s. When `refresh_recommended: true`, the response also prepends `refresh_symbol_index` to `suggested_next_tools` so an agent doesn't need to know the recovery path — just follow the chain.
+When the project's `FileWatcher` is running, the index is kept current as files change, so the hint is `fresh` with `basis: "watcher_running"` however long ago a file was last indexed (an untouched repository used to read `stale` after an hour). Without a watcher (one-shot CLI, watcher start failure) the age buckets apply, `basis: "newest_indexed_age"`: newest `files.indexed_at` vs wall-clock, `fresh` < 60s · `recent` 60s..600s · `possibly_stale` 600s..3600s · `stale` ≥ 3600s. When `refresh_recommended: true`, the response also prepends `refresh_symbol_index` to `suggested_next_tools` so an agent doesn't need to know the recovery path — just follow the chain.
 
 The daemon auto-watches the project: `FileWatcher` (300ms debounce, incremental per-file re-index, rename/tombstone handling) is started on the standard daemon and project-activation paths (`state/constructors.rs`, `state/project_accessors.rs` → `build_project_runtime_context(project, true)`). `refresh_symbol_index` remains useful as a forced full reconciliation — after a large move/rename burst you want reflected immediately, or in minimal/one-shot constructions where the watcher is not started (watcher start failure degrades silently to no watcher).
 

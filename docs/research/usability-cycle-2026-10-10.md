@@ -71,3 +71,20 @@ The host rules were reconciled in the same cycle (`~/.claude` commit b4241e9).
 - **Bind latency.** Re-measure after the gitignore cleanup before designing a bounded or asynchronous bind; prepare p90 was 14 s after the 10-03 deploy.
 - **LSP pre-warm** picks servers by extension only (it is pure by design), so on a TypeScript-7-only machine `auto` pre-warm would start typescript-language-server and fail. Pre-warm is `off` in the deployed plist.
 - **`get_changed_files` on an unbound session** fails with "not a git repository: ~/.codelens/daemon-default" (9 calls); the message does not say to bind first.
+
+## 6. After the redeploy (c802d6c, 2026-10-10)
+
+Both daemons redeployed (`:7838`, `:7736`; rollback binaries `codelens-mcp-http.rollback-212f33b`, `codelens-mcp-http-dev.rollback-be9e0ab`), `daemon-stale-check` in sync.
+
+| check on drawboard | before | after |
+|---|---|---|
+| indexed files | 1,219 | 442 (first bind ran the one-time cleanup refresh; prepare 4.9 s) |
+| gitignored rows / `.archive/` rows | 777 / 676 | 0 / 0, `discovery_signature = gitignore=on` |
+| `search(mode=refs, symbol_name=renderBoard)` without `path` | error: declared in 53 files | 16 references, path inferred `src/web/draw-board-app.js` |
+| `diagnose` `.mjs` / `.js` / `.css` | LSP init error / LSP init error / error | `checked:true` 0 / `checked:true` 27 TypeScript hints / `checked:false` + reason |
+| `review(mode=changes)` diagnostic verdict | "No diagnostics reported for 4 touched file(s)" | "No blocking diagnostics in 3 checked file(s) … (1 not checked (cap 3))" |
+
+Found during acceptance and fixed in the follow-up: `index_freshness` called this freshly verified index `stale` (31 h) because it measured the age of the last write, not whether the watcher keeps the index current.
+
+Claude Code's user MCP entry now sends `x-codelens-client: claude-code`, so a session resurrected after a daemon restart (which the in-memory identity cache cannot cover) keeps its attribution; verified with a resurrected probe session (`client_name: claude-code` in telemetry).
+
