@@ -304,12 +304,15 @@ pub(super) fn build_project_runtime_context(
     let symbol_index = Arc::new(SymbolIndex::new(project.clone())?);
     let index_open_ms = started.elapsed().as_millis() - lease_ms - seed_ms;
     // `file_count` is one COUNT(*); `stats()` re-reads and hashes every file.
-    // A seeded index carries the sibling's mtimes, so reconcile it now.
+    // A seeded index carries the sibling's mtimes, so reconcile it now. An
+    // index walked under other discovery rules (before .gitignore was
+    // honored) keeps rows for files the walk now skips until a full refresh.
     if seeded
         || symbol_index
             .file_count()
             .map(|count| count == 0)
             .unwrap_or(true)
+        || symbol_index.discovery_outdated()
     {
         let _ = symbol_index.refresh_all();
     }

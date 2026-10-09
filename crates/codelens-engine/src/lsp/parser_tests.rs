@@ -1,6 +1,8 @@
 #![allow(deprecated)]
 
-use super::parsers::{rename_edits_from_workspace_edit_response, rename_plan_from_response};
+use super::parsers::{
+    diagnostics_from_response, rename_edits_from_workspace_edit_response, rename_plan_from_response,
+};
 use super::workspace_edit::workspace_edit_transaction_from_response;
 use crate::ProjectRoot;
 use serde_json::json;
@@ -228,4 +230,31 @@ fn rename_plan_translates_lsp_utf16_offsets() {
     assert_eq!(plan.column, "🙂 ".len() + 1);
     assert_eq!(plan.end_column, "🙂 old_name".len() + 1);
     assert_eq!(plan.current_name, "old_name");
+}
+
+#[test]
+fn pull_diagnostics_without_uri_belong_to_the_requested_document() {
+    // A DocumentDiagnosticReport has no `uri`; TypeScript 7 and pyright rows
+    // came back with an empty file_path (2026-10-10).
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::create_dir_all(dir.path().join("src")).expect("mkdir");
+    let project = ProjectRoot::new_exact(dir.path()).expect("project root");
+    let response = json!({"result": {"kind": "full", "items": [{
+        "range": {"start": {"line": 0, "character": 6}, "end": {"line": 0, "character": 7}},
+        "severity": 1,
+        "code": 2322,
+        "source": "ts",
+        "message": "Type 'string' is not assignable to type 'number'."
+    }]}});
+
+    let diagnostics = diagnostics_from_response(
+        &project,
+        response,
+        10,
+        &project.as_path().join("src/bad.ts"),
+    )
+    .expect("parse diagnostics");
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].file_path, "src/bad.ts");
 }

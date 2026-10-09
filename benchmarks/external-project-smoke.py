@@ -199,6 +199,16 @@ def default_env() -> dict[str, str]:
     return env
 
 
+def stage_refactor_principal(project: Path) -> None:
+    """RBAC (ADR-0009) fails closed without principals.toml, which the copy
+    or clone does not carry, so the dry-run rename would be denied."""
+    codelens_dir = project / ".codelens"
+    codelens_dir.mkdir(parents=True, exist_ok=True)
+    principals = codelens_dir / "principals.toml"
+    if not principals.exists():
+        principals.write_text('[default]\nrole = "Refactor"\n', encoding="utf-8")
+
+
 def smoke_project(
     item: dict[str, Any],
     binary: Path,
@@ -218,12 +228,18 @@ def smoke_project(
         }
 
     try:
+        stage_refactor_principal(project)
         refresh_step = run_tool(binary, project, "refresh_symbol_index", {}, timeout, env)
+        # One-shot --cmd exits as soon as the call returns, so a queued
+        # background job never runs and semantic_search finds an empty index.
         index_step = run_tool(
             binary,
             project,
             "index_embeddings",
-            {"prewarm_queries": item.get("prewarm_queries", [item["query"]])},
+            {
+                "background": False,
+                "prewarm_queries": item.get("prewarm_queries", [item["query"]]),
+            },
             timeout,
             env,
         )

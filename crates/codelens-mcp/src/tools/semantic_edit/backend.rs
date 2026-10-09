@@ -1,6 +1,7 @@
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::tool_runtime::optional_string;
-use crate::tools::{default_lsp_command_for_path, parse_lsp_args};
+use crate::tools::{default_lsp_command_for_file, default_lsp_command_for_path, parse_lsp_args};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SemanticEditBackendSelection {
@@ -35,12 +36,13 @@ pub(crate) fn selected_backend(
 }
 
 pub(super) fn lsp_command_and_args(
+    state: &AppState,
     arguments: &serde_json::Value,
     file_path: &str,
 ) -> Result<(String, Vec<String>), CodeLensError> {
     let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
-        .or_else(|| default_lsp_command_for_path(file_path))
+        .or_else(|| default_lsp_command_for_file(state, file_path))
         .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
     let args = parse_lsp_args(arguments, &command);
     Ok((command, args))

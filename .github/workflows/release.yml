@@ -176,7 +176,7 @@ jobs:
         run: |
           python3 benchmarks/embedding-quality.py . \
             --binary ./codelens-mcp \
-            --method-workers 4 \
+            --method-workers 1 \
             --batch-size 16 \
             --query-cache-probe on \
             --output "${{ runner.temp }}/codelens-self-retrieval-quality.json" \

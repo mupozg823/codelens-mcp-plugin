@@ -112,20 +112,156 @@ fn is_generated_or_lock_file(file_name: &str) -> bool {
         || file_name.ends_with(".generated.tsx")
 }
 
-/// Walk `root` collecting files that pass `filter`, skipping excluded dirs.
+/// Opt-out for the `.gitignore` rule: `CODELENS_INDEX_GITIGNORE=0`.
+const GITIGNORE_ENV: &str = "CODELENS_INDEX_GITIGNORE";
+
+/// Whether discovery honors the repository's ignore rules (default on).
+///
+/// Measured 2026-10-10 across 23 indexed git projects: 16.9% of indexed
+/// files were gitignored (one repo 64% — archived production snapshots and
+/// a build-output `public/`). Each copy re-declares the same symbols, so a
+/// path-less `refs` lookup saw `renderBoard` declared in 53 files and gave up.
+pub fn respects_gitignore() -> bool {
+    !matches!(
+        std::env::var(GITIGNORE_ENV).ok().as_deref().map(str::trim),
+        Some("0" | "false" | "off" | "no")
+    )
+}
+
+/// The rules that decide which files belong in the index. A stored value that
+/// differs from this means rows for files the current rules drop are still
+/// in the index (they look fresh, so nothing marks them stale).
+pub fn discovery_signature() -> &'static str {
+    if respects_gitignore() {
+        "gitignore=on"
+    } else {
+        "gitignore=off"
+    }
+}
+
+/// Walk `root` collecting files that pass `filter`, skipping excluded dirs
+/// and, unless opted out, files the repository's `.gitignore` excludes.
 pub fn collect_files(root: &Path, filter: impl Fn(&Path) -> bool) -> Result<Vec<PathBuf>> {
-    use walkdir::WalkDir;
-    let project_excludes = ProjectExcludeConfig::load(root);
+    let project_excludes = std::sync::Arc::new(ProjectExcludeConfig::load(root));
     let mut files = Vec::new();
-    for entry in WalkDir::new(root).into_iter().filter_entry(|entry| {
-        !is_excluded_within(root, entry.path()) && !project_excludes.is_excluded(root, entry.path())
-    }) {
+    if !respects_gitignore() {
+        use walkdir::WalkDir;
+        for entry in WalkDir::new(root).into_iter().filter_entry(|entry| {
+            !is_excluded_within(root, entry.path())
+                && !project_excludes.is_excluded(root, entry.path())
+        }) {
+            let entry = entry?;
+            if entry.file_type().is_file() && filter(entry.path()) {
+                files.push(entry.path().to_path_buf());
+            }
+        }
+        return Ok(files);
+    }
+
+    let walk_root = root.to_path_buf();
+    let mut builder = ignore::WalkBuilder::new(root);
+    builder
+        // Only the git rules: hidden files stay (EXCLUDED_DIRS already drops
+        // `.git` and friends), and the user's global excludes file is left
+        // out so the index does not depend on per-machine git config.
+        .standard_filters(false)
+        .git_ignore(true)
+        .git_exclude(true)
+        .parents(true)
+        .require_git(true)
+        .follow_links(false)
+        .filter_entry(move |entry| {
+            !is_excluded_within(&walk_root, entry.path())
+                && !project_excludes.is_excluded(&walk_root, entry.path())
+        });
+    for entry in builder.build() {
         let entry = entry?;
-        if entry.file_type().is_file() && filter(entry.path()) {
+        if entry.file_type().is_some_and(|kind| kind.is_file()) && filter(entry.path()) {
             files.push(entry.path().to_path_buf());
         }
     }
     Ok(files)
+}
+
+/// Per-path form of the walker's `.gitignore` rule, for paths that arrive one
+/// at a time (file watcher events). Matchers are read once per directory.
+#[derive(Default)]
+pub struct GitignoreFilter {
+    git_root: Option<PathBuf>,
+    matchers: std::collections::HashMap<PathBuf, Option<ignore::gitignore::Gitignore>>,
+}
+
+impl GitignoreFilter {
+    /// A filter for paths under `root`; inert when the rule is opted out or
+    /// `root` is not inside a git checkout (the walker's `require_git`).
+    pub fn new(root: &Path) -> Self {
+        let git_root = respects_gitignore()
+            .then(|| {
+                root.ancestors()
+                    .find(|dir| dir.join(".git").exists())
+                    .map(Path::to_path_buf)
+            })
+            .flatten();
+        Self {
+            git_root,
+            matchers: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Whether `path` (a file) is excluded by `.git/info/exclude` or any
+    /// `.gitignore` from the git root down to its directory. Deeper files
+    /// override shallower ones, as in git.
+    pub fn is_ignored(&mut self, path: &Path) -> bool {
+        use ignore::Match;
+        let Some(git_root) = self.git_root.clone() else {
+            return false;
+        };
+        let Ok(relative) = path.strip_prefix(&git_root) else {
+            return false;
+        };
+        let mut levels = vec![git_root.clone()];
+        let mut dir = git_root.clone();
+        if let Some(parent) = relative.parent() {
+            for component in parent.components() {
+                dir.push(component);
+                levels.push(dir.clone());
+            }
+        }
+        let mut ignored = false;
+        for level in levels {
+            let matcher = self
+                .matchers
+                .entry(level.clone())
+                .or_insert_with(|| Self::matcher_for(&git_root, &level));
+            if let Some(matcher) = matcher {
+                match matcher.matched_path_or_any_parents(path, false) {
+                    Match::Ignore(_) => ignored = true,
+                    Match::Whitelist(_) => ignored = false,
+                    Match::None => {}
+                }
+            }
+        }
+        ignored
+    }
+
+    fn matcher_for(git_root: &Path, level: &Path) -> Option<ignore::gitignore::Gitignore> {
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(level);
+        let mut any = false;
+        if level == git_root {
+            let exclude = git_root.join(".git").join("info").join("exclude");
+            if exclude.is_file() {
+                any |= builder.add(exclude).is_none();
+            }
+        }
+        let gitignore = level.join(".gitignore");
+        if gitignore.is_file() {
+            any |= builder.add(gitignore).is_none();
+        }
+        if !any {
+            return None;
+        }
+        builder.build().ok()
+    }
 }
 
 #[derive(Debug, Default)]

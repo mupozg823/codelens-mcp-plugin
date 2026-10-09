@@ -565,6 +565,14 @@ def require_tool_success(name, result, context=""):
     stderr = result.get("stderr")
     if stderr:
         message.append(f"stderr={stderr}")
+    if stderr and "project_writer_busy" in stderr and (
+        ARGS.workers > 1 or ARGS.method_workers > 1
+    ):
+        message.append(
+            "hint=codelens-mcp allows one writable runtime per project, so "
+            "parallel --workers/--method-workers against one project collide; "
+            "rerun with --workers 1 --method-workers 1"
+        )
     raise SystemExit(" | ".join(message))
 
 

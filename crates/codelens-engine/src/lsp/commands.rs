@@ -9,6 +9,7 @@ use std::sync::RwLock;
 pub(super) const ALLOWED_COMMANDS: &[&str] = &[
     "pyright-langserver",
     "typescript-language-server",
+    "tsc",
     "rust-analyzer",
     "gopls",
     "jdtls",

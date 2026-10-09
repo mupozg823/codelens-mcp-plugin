@@ -1,5 +1,5 @@
 use super::super::{
-    AppState, ToolResult, default_lsp_command_for_path, optional_string, optional_usize,
+    AppState, ToolResult, default_lsp_command_for_file, optional_string, optional_usize,
     parse_lsp_args, required_string, success_meta,
 };
 use super::shared::{attach_alias_warning, enhance_lsp_error};
@@ -69,7 +69,7 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
         .or_else(|| {
             relative_path
                 .as_deref()
-                .and_then(default_lsp_command_for_path)
+                .and_then(|path| default_lsp_command_for_file(state, path))
         });
 
     if let Some(command) = command {

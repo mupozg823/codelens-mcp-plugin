@@ -10,7 +10,7 @@
 //! hard-fail just because a language server is absent.
 
 use super::super::{
-    AppState, ToolResult, default_lsp_command_for_path, optional_string, optional_usize,
+    AppState, ToolResult, default_lsp_command_for_file, optional_string, optional_usize,
     parse_lsp_args, success_meta,
 };
 use super::rename::resolve_symbol_position;
@@ -92,7 +92,7 @@ fn run_lsp_navigation_in(
 
     let Some(command) = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
-        .or_else(|| default_lsp_command_for_path(&file_path))
+        .or_else(|| default_lsp_command_for_file(state, &file_path))
     else {
         return degraded_navigation(
             target,

@@ -1,5 +1,5 @@
 use super::super::{
-    AppState, ToolResult, default_lsp_command_for_path, optional_bool, optional_string,
+    AppState, ToolResult, default_lsp_command_for_file, optional_bool, optional_string,
     optional_usize, parse_lsp_args, success_meta,
 };
 use super::rename::resolve_symbol_position;
@@ -919,7 +919,7 @@ fn find_referencing_symbols_in(
         // mapping it only advertises that use_lsp=true adds annotation-aware
         // precision (explicit opt-in), so warmth never changes the answer.
         let cold_lsp_hint: Option<Value> =
-            default_lsp_command_for_path(&file_path).map(|command| {
+            default_lsp_command_for_file(state, &file_path).map(|command| {
                 json!({
                     "code": "lsp_precision_available",
                     "server": command,
@@ -990,7 +990,7 @@ fn find_referencing_symbols_in(
 
     let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
-        .or_else(|| default_lsp_command_for_path(&file_path));
+        .or_else(|| default_lsp_command_for_file(state, &file_path));
     let lsp_command_attempted = command.is_some();
 
     if let Some(command) = command {

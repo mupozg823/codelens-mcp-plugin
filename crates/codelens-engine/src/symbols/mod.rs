@@ -123,6 +123,16 @@ impl SymbolIndex {
         db.file_count()
     }
 
+    /// Whether the index was last walked under different discovery rules
+    /// (or before they were recorded). Rows for files the current rules drop
+    /// still look fresh, so only a full refresh removes them.
+    pub fn discovery_outdated(&self) -> bool {
+        self.reader()
+            .and_then(|db| db.discovery_signature())
+            .map(|stored| stored.as_deref() != Some(crate::project::discovery_signature()))
+            .unwrap_or(false)
+    }
+
     /// Monotonic process-local generation for successful index mutations.
     /// Ticket allocation, read fast paths, failed writes, and no-op writes do not advance it.
     pub fn committed_generation(&self) -> u64 {

@@ -5,7 +5,7 @@
 //! - Detects rename via delete+create with same content hash
 //! - Filters unsupported file types and excluded paths
 
-use crate::project::is_excluded_within;
+use crate::project::{GitignoreFilter, is_excluded_within};
 use crate::symbols::language_for_path;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -28,10 +28,17 @@ pub enum FileEvent {
 /// events for a project rooted under an excluded-name ancestor (e.g.
 /// `~/.claude/...`) are not silently dropped (#358).
 pub fn normalize_events(root: &Path, changed: &[PathBuf], removed: &[PathBuf]) -> Vec<FileEvent> {
-    // Filter to supported files only
+    // Filter to supported files only. Gitignored files are dropped here too,
+    // or a build that rewrites ignored output would re-add what the
+    // discovery walk leaves out.
+    let mut gitignore = GitignoreFilter::new(root);
     let changed: Vec<&PathBuf> = changed
         .iter()
-        .filter(|p| !is_excluded_within(root, p) && language_for_path(p).is_some())
+        .filter(|p| {
+            !is_excluded_within(root, p)
+                && language_for_path(p).is_some()
+                && !gitignore.is_ignored(p)
+        })
         .collect();
     let removed: Vec<&PathBuf> = removed
         .iter()

@@ -26,7 +26,10 @@ pub(crate) fn diagnostics_output_schema() -> serde_json::Value {
                 }
             },
             "count": {"type": "integer"},
-            "backend": {"type": "string", "enum": ["lsp", "scip"]},
+            "checked": {"type": "boolean"},
+            "backend": {"type": "string", "enum": ["lsp", "scip", "none"]},
+            "degraded_reason": {"type": "string"},
+            "fallback_hint": {"type": "array", "items": {"type": "string"}},
             "suppressed_diagnostics_count": {"type": "integer"},
             "suppressed_diagnostics": {
                 "type": "array",
@@ -72,6 +75,7 @@ pub(crate) fn symbol_diagnostics_output_schema() -> serde_json::Value {
             "diagnostics": {"type": "array", "items": {"type": "object"}},
             "count": {"type": "integer"},
             "file_diagnostics_count": {"type": "integer"},
+            "checked": {"type": "boolean"},
             "backend": {"type": ["string", "null"]},
             "degraded_reason": {"type": "string"},
             "fallback_hint": {"type": "array", "items": {"type": "string"}}

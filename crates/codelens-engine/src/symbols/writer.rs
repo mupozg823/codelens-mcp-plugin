@@ -882,6 +882,11 @@ impl SymbolIndex {
                 }
             }
 
+            let signature = crate::project::discovery_signature();
+            if db::stored_discovery_signature(conn)?.as_deref() != Some(signature) {
+                db::set_discovery_signature(conn, signature)?;
+            }
+
             Ok(did_write)
         })?;
         if did_write {
@@ -1721,5 +1726,49 @@ mod tests {
                 .expect("find old")
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn refresh_all_drops_rows_the_discovery_walk_now_skips() {
+        // Given: an index walked before .gitignore was honored, holding a
+        // gitignored snapshot that is still on disk (so it looks fresh).
+        let (root, project) = race_project();
+        fs::write(root.join("src/app.rs"), "pub fn render_board() {}\n").expect("write app");
+        fs::create_dir_all(root.join("archive/snap")).expect("mkdir archive");
+        fs::write(
+            root.join("archive/snap/app.rs"),
+            "pub fn render_board() {}\n",
+        )
+        .expect("write archived copy");
+        let index = SymbolIndex::new_memory(project);
+        index.refresh_all().expect("initial refresh");
+        assert_eq!(
+            index
+                .find_symbol("render_board", None, false, true, 10)
+                .expect("find")
+                .len(),
+            2
+        );
+        // An index from before the signature was recorded.
+        index
+            .writer()
+            .with_transaction(|conn| {
+                conn.execute("DELETE FROM meta WHERE key = 'discovery_signature'", [])?;
+                Ok(())
+            })
+            .expect("forget signature");
+        assert!(index.discovery_outdated());
+
+        // When: the repository starts ignoring the archive and a full refresh runs.
+        fs::write(root.join(".gitignore"), "archive/\n").expect("gitignore");
+        index.refresh_all().expect("refresh under new rules");
+
+        // Then: the archived copy is gone and the rules are recorded.
+        let hits = index
+            .find_symbol("render_board", None, false, true, 10)
+            .expect("find");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].file_path, "src/app.rs");
+        assert!(!index.discovery_outdated());
     }
 }

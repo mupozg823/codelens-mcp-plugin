@@ -289,7 +289,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 488
+        "estimated_tokens": 521
       },
       {
         "name": "search_workspace_symbols",
@@ -373,7 +373,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 445
+        "estimated_tokens": 452
       },
       {
         "name": "plan_symbol_rename",

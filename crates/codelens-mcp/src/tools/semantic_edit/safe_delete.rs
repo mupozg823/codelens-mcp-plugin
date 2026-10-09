@@ -22,7 +22,7 @@ pub(crate) fn safe_delete_with_lsp_backend(
     let name_path = arguments.get("name_path").and_then(|value| value.as_str());
     let position_source = position_source(arguments);
     let (line, column) = symbol_position(state, arguments, &file_path, &symbol_name, name_path)?;
-    let (command, args) = lsp_command_and_args(arguments, &file_path)?;
+    let (command, args) = lsp_command_and_args(state, arguments, &file_path)?;
     let dry_run = arguments
         .get("dry_run")
         .and_then(|value| value.as_bool())
