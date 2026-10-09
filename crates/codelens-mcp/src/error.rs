@@ -233,6 +233,7 @@ impl CodeLensError {
             Self::IndexGenerationChanged { .. }
                 | Self::ProjectWriterBusy { .. }
                 | Self::ResourceExhausted(_)
+                | Self::IndexNotReady(_)
         )
     }
 

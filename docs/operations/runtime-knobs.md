@@ -66,6 +66,25 @@ project, which is usually not the caller's repository.
   (`prepare_harness_session`, `get_current_config`, ...) stay callable so the
   caller can bind and retry.
 
+### Bind budget (`CODELENS_BIND_BUDGET_SECS`, default 20)
+
+A project's runtime (writer lease, index open, discovery refresh) is built on a
+background thread. A request waits for it at most this long; past that,
+`prepare_harness_session` answers `activated: false, binding_status:
+"building", retry_after_ms` and binds the HTTP session to the project, and
+project tools answer the retryable `index_not_ready` (`-32004`, retry after
+5 s). The build keeps going, concurrent requests for the same project wait on
+the same build, and the first request after it finishes installs the runtime.
+This replaces the follower wait `CODELENS_PROJECT_BUILD_WAIT_SECS`.
+
+Why: on macOS, opening a file in a TCC-protected folder (`~/Downloads`,
+`~/Documents`, `~/Desktop`) goes through `sandboxd`. On 2026-10-10 sandboxd
+stopped answering for about four minutes and the index open of a
+`~/Downloads` project took 234.8 s (`connect_ms`), released the moment launchd
+respawned sandboxd. The cause of the hang was not established; heavy swap was
+in effect. A request that builds inline holds the client past its timeout
+(Claude Code gives up at 60 s).
+
 ## Analysis Artifact Cache (LRU + TTL)
 
 `artifact_store` keeps recent analysis results (the `analysis_id` values returned by `review_architecture`, `module_boundary_report`, `dead_code_report`, etc.) so chained calls like `get_analysis_section` can resolve them. Two caps with runtime overrides:
@@ -113,7 +132,9 @@ lookups gave up on ambiguity. Files a repository force-adds despite an ignore
 pattern are skipped too; list such paths in the repository's `.gitignore` with
 a `!` negation if they must be indexed.
 
-`CODELENS_INDEX_GITIGNORE=0` restores the previous name-list-only walk. The
+Linked git worktrees kept inside the project (a directory whose `.git` file points into another checkout's `.git/worktrees/`, such as `.codex-worktrees/<name>`) are skipped whatever the ignore rules say: on one repository they were 3,354 of 5,124 indexed files. Submodules (`.git` file pointing into `.git/modules/`) stay indexed, and a project bound at a worktree root is walked normally.
+
+`CODELENS_INDEX_GITIGNORE=0` restores the previous name-list-only walk (nested worktrees are still skipped). The
 rule in effect is recorded in the index (`meta.discovery_signature`); when it
 differs at bind time, one full refresh runs and removes rows for files the
 current rule no longer admits. Unchanged files are not re-parsed.

@@ -88,3 +88,22 @@ Found during acceptance and fixed in the follow-up: `index_freshness` called thi
 
 Claude Code's user MCP entry now sends `x-codelens-client: claude-code`, so a session resurrected after a daemon restart (which the in-memory identity cache cannot cover) keeps its attribution; verified with a resurrected probe session (`client_name: claude-code` in telemetry).
 
+## 7. The long bind stalls: an unresponsive sandboxd
+
+Pre-warming the largest project after the redeploy (SignatureStudio, `~/Downloads`) took 238 s. The phase split in the daemon log put 234.8 s inside `IndexDb::open`, all of it in `Connection::open` (`connect_ms=234,819`); the discovery cleanup refresh itself took about 3 s (6,942 → 5,124 files).
+
+The system log shows what the open waited on:
+
+- 06:01:09.976 — `sandboxd` (pid 3757) asks `tccd` about the daemon (`kTCCServiceSystemPolicyAllFiles`, preflight, answered in 5 ms).
+- 06:05:02.697 — launchd: `service inactive: com.apple.sandboxd`.
+- 06:05:02.725 — launchd spawns `sandboxd` (pid 15140) "because ipc (mach)"; 36 ms later it serves the daemon's request.
+- 06:05:04.8 — the open returns.
+
+File access in TCC-protected folders (`~/Downloads`, `~/Documents`, `~/Desktop`) by this non-sandboxed launchd agent goes through `sandboxd`, so while it is unresponsive every such open blocks: the index open, source reads during refresh, and later tool calls alike. `~/drawboard` bound in 4.9 s at the same time. Why `sandboxd` stopped answering is not established; swap was above 90% (15.7 of 17.4 GB). The same shape explains the 2026-09-28/29 stalls recorded as unexplained (`seed_ms` 1–2 h, three builds released within three seconds of each other).
+
+CodeLens cannot make such an open fast. PR #415 keeps requests out of it: builds run in the background and a request answers within `CODELENS_BIND_BUDGET_SECS`.
+
+After the cleanup, 3,354 of SignatureStudio's 5,124 indexed files were still under `.codex-worktrees/<name>`, linked worktrees that duplicate the tree; #415 also stops indexing those.
+
+User-side options, not applied: keep active repositories outside `~/Downloads`, or give the daemon a stable code-signing identity (it is re-signed ad hoc on every redeploy, so TCC sees a new binary each time) and grant it the needed folder access once.
+

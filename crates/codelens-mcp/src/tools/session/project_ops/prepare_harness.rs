@@ -60,7 +60,17 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     let prior_surface = *state.surface();
     let explicit_surface_request = requested_profile.is_some() || requested_preset.is_some();
 
-    let (activate_payload, _) = activate_project(state, effective_arguments)?;
+    let (activate_payload, _) = match activate_project(state, effective_arguments) {
+        Ok(activated) => activated,
+        // The runtime build outlived the bind budget and continues in the
+        // background. An error here taught agents to abandon CodeLens (5 of
+        // 25 transcripts recovered after a failed prepare), so answer with
+        // an explicit not-yet-bound result they can act on.
+        Err(crate::error::CodeLensError::IndexNotReady(message)) if explicit_project_request => {
+            return Ok(binding_in_progress(state, arguments, &message));
+        }
+        Err(error) => return Err(error),
+    };
 
     // Restore surface if the caller did not explicitly ask for a new one.
     if !explicit_surface_request {
@@ -278,4 +288,45 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     })?;
 
     Ok((result, success_meta(BackendKind::Session, 1.0)))
+}
+
+/// `prepare_harness_session` result while the project's runtime is still
+/// being built. The HTTP session is bound to the project now, so later calls
+/// wait on the same build (they get a retryable `index_not_ready`) instead of
+/// silently reading the daemon's default project.
+fn binding_in_progress(
+    state: &AppState,
+    arguments: &serde_json::Value,
+    message: &str,
+) -> (serde_json::Value, crate::protocol::ToolResponseMeta) {
+    let requested = arguments
+        .get("project")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let project = codelens_engine::ProjectRoot::new(requested)
+        .map(|root| root.as_path().to_string_lossy().into_owned())
+        .unwrap_or_else(|_| requested.to_owned());
+    #[cfg(feature = "http")]
+    let session_bound = {
+        let session = crate::session_context::SessionRequestContext::from_json(arguments);
+        state.should_route_to_session(&session)
+            && state.bind_project_to_session(&session.session_id, &project)
+    };
+    #[cfg(not(feature = "http"))]
+    let session_bound = {
+        let _ = state;
+        false
+    };
+    (
+        serde_json::json!({
+            "activated": false,
+            "binding_status": "building",
+            "project": {"requested_project": project},
+            "session_bound": session_bound,
+            "retry_after_ms": 5000,
+            "reason": message,
+            "next_step": "Call prepare_harness_session again with the same project in a few seconds. Until the build finishes, project tools return the retryable index_not_ready error; native Read/Grep work meanwhile.",
+        }),
+        crate::tool_runtime::success_meta(crate::protocol::BackendKind::Config, 1.0),
+    )
 }

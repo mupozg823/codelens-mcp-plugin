@@ -133,10 +133,42 @@ pub fn respects_gitignore() -> bool {
 /// in the index (they look fresh, so nothing marks them stale).
 pub fn discovery_signature() -> &'static str {
     if respects_gitignore() {
-        "gitignore=on"
+        "gitignore=on;nested-worktrees=off"
     } else {
-        "gitignore=off"
+        "gitignore=off;nested-worktrees=off"
     }
+}
+
+/// Whether `dir` is a linked git worktree: its `.git` is a file whose
+/// `gitdir:` points into another repository's `.git/worktrees/`. A worktree
+/// kept inside the project (`.codex-worktrees/<name>`) is a second copy of the
+/// tree; on one repository 3,354 of 5,124 indexed files (65%) were such
+/// copies, so every symbol was declared several times. Submodules also have a
+/// `.git` file, but it points into `.git/modules/`, and they stay indexed.
+pub fn is_linked_worktree_dir(dir: &Path) -> bool {
+    let dot_git = dir.join(".git");
+    if !dot_git.is_file() {
+        return false;
+    }
+    std::fs::read_to_string(&dot_git)
+        .ok()
+        .and_then(|text| {
+            text.lines().find_map(|line| {
+                line.strip_prefix("gitdir:")
+                    .map(str::trim)
+                    .map(str::to_owned)
+            })
+        })
+        .is_some_and(|gitdir| {
+            let normalized = gitdir.replace('\\', "/");
+            normalized.contains("/worktrees/")
+        })
+}
+
+/// A directory below `root` that is a linked worktree. The root itself may be
+/// one (a session bound to a worktree) and is always walked.
+fn is_nested_linked_worktree(root: &Path, path: &Path, is_dir: bool) -> bool {
+    is_dir && path != root && is_linked_worktree_dir(path)
 }
 
 /// Walk `root` collecting files that pass `filter`, skipping excluded dirs
@@ -149,6 +181,7 @@ pub fn collect_files(root: &Path, filter: impl Fn(&Path) -> bool) -> Result<Vec<
         for entry in WalkDir::new(root).into_iter().filter_entry(|entry| {
             !is_excluded_within(root, entry.path())
                 && !project_excludes.is_excluded(root, entry.path())
+                && !is_nested_linked_worktree(root, entry.path(), entry.file_type().is_dir())
         }) {
             let entry = entry?;
             if entry.file_type().is_file() && filter(entry.path()) {
@@ -173,6 +206,11 @@ pub fn collect_files(root: &Path, filter: impl Fn(&Path) -> bool) -> Result<Vec<
         .filter_entry(move |entry| {
             !is_excluded_within(&walk_root, entry.path())
                 && !project_excludes.is_excluded(&walk_root, entry.path())
+                && !is_nested_linked_worktree(
+                    &walk_root,
+                    entry.path(),
+                    entry.file_type().is_some_and(|kind| kind.is_dir()),
+                )
         });
     for entry in builder.build() {
         let entry = entry?;
@@ -187,13 +225,16 @@ pub fn collect_files(root: &Path, filter: impl Fn(&Path) -> bool) -> Result<Vec<
 /// at a time (file watcher events). Matchers are read once per directory.
 #[derive(Default)]
 pub struct GitignoreFilter {
+    root: PathBuf,
     git_root: Option<PathBuf>,
     matchers: std::collections::HashMap<PathBuf, Option<ignore::gitignore::Gitignore>>,
+    linked_worktrees: std::collections::HashMap<PathBuf, bool>,
 }
 
 impl GitignoreFilter {
-    /// A filter for paths under `root`; inert when the rule is opted out or
-    /// `root` is not inside a git checkout (the walker's `require_git`).
+    /// A filter for paths under `root`. Linked worktrees below the root are
+    /// always skipped; the `.gitignore` part is inert when the rule is opted
+    /// out or `root` is not inside a git checkout (the walker's `require_git`).
     pub fn new(root: &Path) -> Self {
         let git_root = respects_gitignore()
             .then(|| {
@@ -203,8 +244,10 @@ impl GitignoreFilter {
             })
             .flatten();
         Self {
+            root: root.to_path_buf(),
             git_root,
             matchers: std::collections::HashMap::new(),
+            linked_worktrees: std::collections::HashMap::new(),
         }
     }
 
@@ -212,6 +255,33 @@ impl GitignoreFilter {
     /// `.gitignore` from the git root down to its directory. Deeper files
     /// override shallower ones, as in git.
     pub fn is_ignored(&mut self, path: &Path) -> bool {
+        self.inside_nested_linked_worktree(path) || self.gitignored(path)
+    }
+
+    /// The walk never enters a linked worktree below the root; an event from
+    /// inside one must not add its copy either.
+    fn inside_nested_linked_worktree(&mut self, path: &Path) -> bool {
+        let Ok(relative) = path.strip_prefix(&self.root) else {
+            return false;
+        };
+        let mut dir = self.root.clone();
+        let Some(parent) = relative.parent() else {
+            return false;
+        };
+        for component in parent.components() {
+            dir.push(component);
+            let linked = *self
+                .linked_worktrees
+                .entry(dir.clone())
+                .or_insert_with(|| is_linked_worktree_dir(&dir));
+            if linked {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn gitignored(&mut self, path: &Path) -> bool {
         use ignore::Match;
         let Some(git_root) = self.git_root.clone() else {
             return false;

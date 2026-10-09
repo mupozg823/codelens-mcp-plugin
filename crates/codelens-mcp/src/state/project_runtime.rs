@@ -4,7 +4,7 @@ use codelens_engine::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, Symb
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex};
 
 /// Holds project-specific resources that can be reused across rebinds.
 pub(super) struct ProjectContext {
@@ -39,13 +39,89 @@ impl ProjectContext {
     }
 }
 
+/// One project runtime build running off the request thread. A file open in
+/// a macOS TCC-protected folder can block for minutes when `sandboxd` stops
+/// answering (2026-10-10: `connect_ms=234,819` on a `~/Downloads` project,
+/// released the moment launchd respawned sandboxd), and a build inside the
+/// request held the client past its timeout. The build now continues here
+/// while requests return at the bind budget.
+pub(super) struct InFlightBuild {
+    outcome: Mutex<Option<anyhow::Result<ProjectContext>>>,
+    /// Set by whoever took a failed outcome, so the other waiters on this
+    /// build return at once instead of waiting out the budget for a runtime
+    /// that will never be installed.
+    failure: Mutex<Option<String>>,
+    finished: Mutex<bool>,
+    done: Condvar,
+    pub(super) started: std::time::Instant,
+}
+
+impl InFlightBuild {
+    pub(super) fn new() -> Self {
+        Self {
+            outcome: Mutex::new(None),
+            failure: Mutex::new(None),
+            finished: Mutex::new(false),
+            done: Condvar::new(),
+            started: std::time::Instant::now(),
+        }
+    }
+
+    pub(super) fn complete(&self, outcome: anyhow::Result<ProjectContext>) {
+        *self.outcome.lock().unwrap_or_else(|p| p.into_inner()) = Some(outcome);
+        *self.finished.lock().unwrap_or_else(|p| p.into_inner()) = true;
+        self.done.notify_all();
+    }
+
+    /// Wait until the build finishes or `deadline` passes; `true` if finished.
+    pub(super) fn wait_until(&self, deadline: std::time::Instant) -> bool {
+        let mut finished = self.finished.lock().unwrap_or_else(|p| p.into_inner());
+        while !*finished {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                return false;
+            }
+            finished = self
+                .done
+                .wait_timeout(finished, deadline - now)
+                .unwrap_or_else(|p| p.into_inner())
+                .0;
+        }
+        true
+    }
+
+    pub(super) fn is_finished(&self) -> bool {
+        *self.finished.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub(super) fn record_failure(&self, error: &anyhow::Error) {
+        *self.failure.lock().unwrap_or_else(|p| p.into_inner()) = Some(format!("{error:#}"));
+    }
+
+    pub(super) fn failure(&self) -> Option<String> {
+        self.failure
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// The outcome, for exactly one caller.
+    pub(super) fn take(&self) -> Option<anyhow::Result<ProjectContext>> {
+        self.outcome
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+    }
+}
+
 #[derive(Default)]
 pub(super) struct ProjectContextCache {
     pub(super) entries: HashMap<String, Arc<ProjectContext>>,
     pub(super) access_order: VecDeque<String>,
-    /// Per-scope singleflight gates. Weak references keep failed or evicted
-    /// scopes from accumulating while concurrent callers retain the same gate.
-    build_locks: HashMap<String, Weak<Mutex<()>>>,
+    /// Runtime builds running on a background thread, one per scope. A
+    /// request waits for its scope's build up to the bind budget; whichever
+    /// request finds it finished installs the runtime and removes the entry.
+    pub(super) in_flight: HashMap<String, Arc<InFlightBuild>>,
     #[cfg(test)]
     build_attempts: HashMap<String, usize>,
 }
@@ -60,19 +136,6 @@ impl ProjectContextCache {
     pub(super) fn insert(&mut self, scope: String, context: Arc<ProjectContext>) {
         self.entries.insert(scope.clone(), context);
         self.touch(&scope);
-    }
-
-    pub(super) fn build_lock(&mut self, scope: &str) -> Arc<Mutex<()>> {
-        self.build_locks
-            .retain(|_, build_lock| build_lock.strong_count() > 0);
-        if let Some(build_lock) = self.build_locks.get(scope).and_then(Weak::upgrade) {
-            return build_lock;
-        }
-
-        let build_lock = Arc::new(Mutex::new(()));
-        self.build_locks
-            .insert(scope.to_owned(), Arc::downgrade(&build_lock));
-        build_lock
     }
 
     #[cfg(test)]

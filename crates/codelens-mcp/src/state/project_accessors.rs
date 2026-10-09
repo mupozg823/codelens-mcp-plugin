@@ -192,12 +192,19 @@ impl AppState {
 
     /// Get-or-build a non-default project context through the LRU cache.
     /// Evicted entries are retired before the active-session guard is released.
+    ///
+    /// The build runs on a background thread, one per scope. A request waits
+    /// for it up to the bind budget (`CODELENS_BIND_BUDGET_SECS`, default 20)
+    /// and otherwise returns a retryable `IndexNotReady`; the build keeps
+    /// going, and the next request after it finishes installs the runtime.
     fn resolve_cached_project_context(
         &self,
         project: codelens_engine::ProjectRoot,
         scope: &str,
     ) -> anyhow::Result<Arc<super::project_runtime::ProjectContext>> {
-        let build_lock = {
+        let deadline = std::time::Instant::now() + bind_budget();
+        self.install_finished_builds();
+        let ticket = {
             let mut cache = self
                 .project_context_cache
                 .lock()
@@ -205,13 +212,28 @@ impl AppState {
             if let Some(cached) = cache.get(scope) {
                 return Ok(cached);
             }
-            cache.build_lock(scope)
+            match cache.in_flight.get(scope) {
+                Some(ticket) => Arc::clone(ticket),
+                None => {
+                    let ticket = Arc::new(super::project_runtime::InFlightBuild::new());
+                    cache
+                        .in_flight
+                        .insert(scope.to_owned(), Arc::clone(&ticket));
+                    #[cfg(test)]
+                    cache.record_build_attempt(scope);
+                    spawn_project_build(project, Arc::clone(&ticket))?;
+                    ticket
+                }
+            }
         };
 
-        // Only one thread may construct a runtime for this scope. Followers
-        // wait without holding the cache mutex, then reuse the leader's entry.
-        let _build_guard = acquire_build_lock(&build_lock, scope)?;
-        {
+        if !ticket.wait_until(deadline) {
+            return Err(still_building(scope, &ticket));
+        }
+
+        // Exactly one caller takes the outcome; the others wait for the
+        // runtime it installs.
+        let outcome = {
             let mut cache = self
                 .project_context_cache
                 .lock()
@@ -219,12 +241,100 @@ impl AppState {
             if let Some(cached) = cache.get(scope) {
                 return Ok(cached);
             }
-            #[cfg(test)]
-            cache.record_build_attempt(scope);
+            if cache
+                .in_flight
+                .get(scope)
+                .is_some_and(|current| Arc::ptr_eq(current, &ticket))
+            {
+                cache.in_flight.remove(scope);
+            }
+            ticket.take()
+        };
+        let built = match outcome {
+            Some(Ok(context)) => Arc::new(context),
+            Some(Err(error)) => {
+                ticket.record_failure(&error);
+                return Err(error);
+            }
+            None => return self.await_installed(scope, &ticket, deadline),
+        };
+        Ok(self.install_built_context(scope, built))
+    }
+
+    /// Install builds that finished after every waiting request gave up.
+    /// Without this, a runtime nobody asked for again stayed outside the
+    /// cache, holding its writer lease and watcher, beyond LRU eviction.
+    fn install_finished_builds(&self) {
+        let finished = {
+            let mut cache = self
+                .project_context_cache
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let scopes = cache
+                .in_flight
+                .iter()
+                .filter(|(_, ticket)| ticket.is_finished())
+                .map(|(scope, _)| scope.clone())
+                .collect::<Vec<_>>();
+            scopes
+                .into_iter()
+                .filter_map(|scope| cache.in_flight.remove(&scope).map(|ticket| (scope, ticket)))
+                .collect::<Vec<_>>()
+        };
+        for (scope, ticket) in finished {
+            match ticket.take() {
+                Some(Ok(context)) => {
+                    self.install_built_context(&scope, Arc::new(context));
+                }
+                Some(Err(error)) => {
+                    ticket.record_failure(&error);
+                    tracing::warn!(
+                        project = %scope,
+                        error = %format!("{error:#}"),
+                        "background project runtime build failed; the next request retries it"
+                    );
+                }
+                None => {}
+            }
         }
+    }
 
-        let built = Arc::new(Self::build_project_runtime_context(project, true)?);
+    /// Another caller took the finished build and is installing it.
+    fn await_installed(
+        &self,
+        scope: &str,
+        ticket: &super::project_runtime::InFlightBuild,
+        deadline: std::time::Instant,
+    ) -> anyhow::Result<Arc<super::project_runtime::ProjectContext>> {
+        loop {
+            if let Some(cached) = self
+                .project_context_cache
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .get(scope)
+            {
+                return Ok(cached);
+            }
+            if let Some(failure) = ticket.failure() {
+                return Err(anyhow::Error::new(
+                    crate::error::CodeLensError::IndexNotReady(format!(
+                        "the project runtime build for `{scope}` failed ({failure}); the next \
+                         request starts a new build"
+                    )),
+                ));
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(still_building(scope, ticket));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
 
+    fn install_built_context(
+        &self,
+        scope: &str,
+        built: Arc<super::project_runtime::ProjectContext>,
+    ) -> Arc<super::project_runtime::ProjectContext> {
         // Acquire after the potentially long build, immediately before cache
         // insertion. SessionStore project-path mutations require the matching
         // sessions write lock, so this read guard makes bind-vs-evict atomic.
@@ -246,7 +356,7 @@ impl AppState {
         if let Some(cached) = cache.get(scope) {
             drop(cache);
             built.shutdown_resources();
-            return Ok(cached);
+            return cached;
         }
 
         cache.insert(scope.to_owned(), Arc::clone(&built));
@@ -274,7 +384,7 @@ impl AppState {
         }
         #[cfg(feature = "http")]
         drop(active_session_paths);
-        Ok(built)
+        built
     }
 
     /// Sweep the per-project runtime registry and drop cached contexts whose
@@ -310,72 +420,217 @@ impl AppState {
     }
 }
 
-/// Default ceiling on how long a request waits for another request that is
-/// already building the same project's runtime. Override with
-/// `CODELENS_PROJECT_BUILD_WAIT_SECS`.
-const DEFAULT_PROJECT_BUILD_WAIT_SECS: u64 = 120;
+/// Default ceiling on how long a request waits for its project's runtime
+/// build. Override with `CODELENS_BIND_BUDGET_SECS`. Well under the 60 s at
+/// which Claude Code gave up on `prepare_harness_session` (23 timeouts in two
+/// weeks), so the client always gets an answer it can act on.
+const DEFAULT_BIND_BUDGET_SECS: u64 = 20;
 
-/// Wait for the per-scope build lock with a deadline. A plain `lock()` let
-/// every follower hang for as long as the leader did (two binds stuck for
-/// 2.8 h on 2026-09-28); a follower now gets a retryable error instead.
-fn acquire_build_lock<'a>(
-    build_lock: &'a std::sync::Mutex<()>,
-    scope: &str,
-) -> anyhow::Result<std::sync::MutexGuard<'a, ()>> {
-    let limit = std::env::var("CODELENS_PROJECT_BUILD_WAIT_SECS")
-        .ok()
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .unwrap_or(DEFAULT_PROJECT_BUILD_WAIT_SECS);
-    let started = std::time::Instant::now();
-    loop {
-        match build_lock.try_lock() {
-            Ok(guard) => return Ok(guard),
-            Err(std::sync::TryLockError::Poisoned(poisoned)) => return Ok(poisoned.into_inner()),
-            Err(std::sync::TryLockError::WouldBlock) => {
-                if started.elapsed() >= std::time::Duration::from_secs(limit) {
-                    return Err(anyhow::Error::new(
-                        crate::error::CodeLensError::ResourceExhausted(format!(
-                            "project runtime for `{scope}` is still being built by another \
-                             request after {limit}s; retry shortly"
-                        )),
-                    ));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-        }
+fn bind_budget() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some((budget, _)) = TEST_BIND_OVERRIDE.with(std::cell::Cell::get) {
+        return budget;
     }
+    std::time::Duration::from_secs(
+        std::env::var("CODELENS_BIND_BUDGET_SECS")
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or(DEFAULT_BIND_BUDGET_SECS),
+    )
+}
+
+fn still_building(scope: &str, ticket: &super::project_runtime::InFlightBuild) -> anyhow::Error {
+    anyhow::Error::new(crate::error::CodeLensError::IndexNotReady(format!(
+        "project runtime for `{scope}` is still being built ({}s so far); it continues in \
+         the background, retry in a few seconds",
+        ticket.started.elapsed().as_secs()
+    )))
 }
 
 #[cfg(test)]
-mod build_lock_tests {
-    use super::acquire_build_lock;
+thread_local! {
+    /// Test hook: `(bind budget, build delay)` for requests on this thread
+    /// and the builds they start. The delay stands in for a stalled
+    /// filesystem (the sandboxd case). Thread-local, so parallel tests that
+    /// build runtimes are unaffected.
+    pub(crate) static TEST_BIND_OVERRIDE: std::cell::Cell<Option<(std::time::Duration, u64)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn spawn_project_build(
+    project: codelens_engine::ProjectRoot,
+    ticket: Arc<super::project_runtime::InFlightBuild>,
+) -> anyhow::Result<()> {
+    #[cfg(test)]
+    let delay_ms = TEST_BIND_OVERRIDE
+        .with(std::cell::Cell::get)
+        .map_or(0, |(_, delay)| delay);
+    std::thread::Builder::new()
+        .name("codelens-project-build".to_owned())
+        .spawn(move || {
+            #[cfg(test)]
+            if delay_ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            }
+            let outcome = AppState::build_project_runtime_context(project, true);
+            ticket.complete(outcome);
+        })
+        .map(drop)
+        .map_err(anyhow::Error::new)
+}
+
+#[cfg(test)]
+mod bind_budget_tests {
+    use super::TEST_BIND_OVERRIDE;
+    use crate::AppState;
+    use crate::tool_defs::ToolPreset;
+    use std::sync::Arc;
+
+    /// Zero bind budget and a slow build for requests on this thread.
+    struct SlowBuild;
+
+    impl SlowBuild {
+        fn with_delay(delay_ms: u64) -> Self {
+            TEST_BIND_OVERRIDE.with(|cell| cell.set(Some((std::time::Duration::ZERO, delay_ms))));
+            Self
+        }
+    }
+
+    impl Drop for SlowBuild {
+        fn drop(&mut self) {
+            TEST_BIND_OVERRIDE.with(|cell| cell.set(None));
+        }
+    }
+
+    fn temp_project(label: &str) -> codelens_engine::ProjectRoot {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-bind-budget-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("lib.rs"), "pub fn budget_probe() {}\n").unwrap();
+        codelens_engine::ProjectRoot::new_exact(&dir).unwrap()
+    }
+
+    fn is_index_not_ready(error: &anyhow::Error) -> bool {
+        matches!(
+            error.downcast_ref::<crate::error::CodeLensError>(),
+            Some(crate::error::CodeLensError::IndexNotReady(_))
+        )
+    }
 
     #[test]
-    fn follower_gives_up_after_the_deadline() {
-        let _env_guard = crate::env_compat::TEST_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let previous = std::env::var("CODELENS_PROJECT_BUILD_WAIT_SECS").ok();
-        // SAFETY: process-wide environment access is serialized by TEST_ENV_LOCK.
-        unsafe { std::env::set_var("CODELENS_PROJECT_BUILD_WAIT_SECS", "0") };
-        let lock = std::sync::Mutex::new(());
-        let leader = lock.lock().expect("leader holds the build lock");
-        let follower = acquire_build_lock(&lock, "/tmp/project");
-        drop(leader);
-        let after_release = acquire_build_lock(&lock, "/tmp/project").map(drop);
-        // SAFETY: as above.
-        unsafe {
-            match previous {
-                Some(value) => std::env::set_var("CODELENS_PROJECT_BUILD_WAIT_SECS", value),
-                None => std::env::remove_var("CODELENS_PROJECT_BUILD_WAIT_SECS"),
-            }
-        }
-
-        let error = follower.expect_err("a held lock must time out");
-        assert!(matches!(
-            error.downcast_ref::<crate::error::CodeLensError>(),
-            Some(crate::error::CodeLensError::ResourceExhausted(_))
+    fn a_slow_build_returns_at_the_budget_and_installs_on_a_later_call() {
+        let _slow = SlowBuild::with_delay(400);
+        let state = Arc::new(AppState::new_minimal(
+            temp_project("default"),
+            ToolPreset::Balanced,
         ));
-        assert!(after_release.is_ok());
+        let project = temp_project("slow");
+        let path = project.as_path().to_string_lossy().to_string();
+
+        let first = state.bind_request_project_scope(&path).map(drop);
+        let follower = state.bind_request_project_scope(&path).map(drop);
+        assert!(
+            first.as_ref().is_err_and(is_index_not_ready),
+            "the leader must return at the budget: {first:?}"
+        );
+        assert!(
+            follower.as_ref().is_err_and(is_index_not_ready),
+            "a follower must join the same build: {follower:?}"
+        );
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let installed = loop {
+            match state.bind_request_project_scope(&path) {
+                Ok(_binding) => break state.symbol_index(),
+                Err(error) if is_index_not_ready(&error) => {
+                    assert!(std::time::Instant::now() < deadline, "build never finished");
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(error) => panic!("unexpected error: {error:#}"),
+            }
+        };
+        let _again = state.bind_request_project_scope(&path).unwrap();
+        assert!(Arc::ptr_eq(&installed, &state.symbol_index()));
+        let attempts = state
+            .project_context_cache
+            .lock()
+            .unwrap()
+            .build_attempt_count(project.as_path().to_string_lossy().as_ref());
+        assert_eq!(
+            attempts, 1,
+            "callers during the build must not start another"
+        );
+    }
+
+    #[test]
+    fn waiters_on_a_failed_build_return_without_waiting_out_the_budget() {
+        let state = Arc::new(AppState::new_minimal(
+            temp_project("default-fail"),
+            ToolPreset::Balanced,
+        ));
+        let project = temp_project("busy");
+        // Another writer holds the project, so the build fails.
+        let _held = super::super::project_runtime_lease::ProjectRuntimeLease::try_acquire(&project)
+            .expect("hold the writer lease");
+        let path = project.as_path().to_string_lossy().to_string();
+        let barrier = Arc::new(std::sync::Barrier::new(4));
+        let started = std::time::Instant::now();
+        let handles = (0..4)
+            .map(|_| {
+                let state = Arc::clone(&state);
+                let path = path.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    TEST_BIND_OVERRIDE
+                        .with(|cell| cell.set(Some((std::time::Duration::from_secs(10), 200))));
+                    barrier.wait();
+                    state.bind_request_project_scope(&path).map(drop)
+                })
+            })
+            .collect::<Vec<_>>();
+        let results = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("bind thread panicked"))
+            .collect::<Vec<_>>();
+
+        assert!(results.iter().all(Result::is_err), "{results:?}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "waiters must not sit out the 10 s budget after the build failed"
+        );
+    }
+
+    #[test]
+    fn a_build_nobody_came_back_for_is_installed_by_the_next_bind() {
+        let state = Arc::new(AppState::new_minimal(
+            temp_project("default-sweep"),
+            ToolPreset::Balanced,
+        ));
+        let abandoned = temp_project("abandoned");
+        let abandoned_scope = abandoned.as_path().to_string_lossy().to_string();
+        {
+            let _slow = SlowBuild::with_delay(100);
+            let gave_up = state.bind_request_project_scope(&abandoned_scope).map(drop);
+            assert!(
+                gave_up.as_ref().is_err_and(is_index_not_ready),
+                "{gave_up:?}"
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(600));
+
+        let other = temp_project("other");
+        let _binding = state
+            .bind_request_project_scope(other.as_path().to_string_lossy().as_ref())
+            .unwrap();
+
+        let cache = state.project_context_cache.lock().unwrap();
+        assert!(cache.entries.contains_key(&abandoned_scope));
+        assert!(!cache.in_flight.contains_key(&abandoned_scope));
     }
 }
