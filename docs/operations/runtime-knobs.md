@@ -77,13 +77,14 @@ project tools answer the retryable `index_not_ready` (`-32004`, retry after
 the same build, and the first request after it finishes installs the runtime.
 This replaces the follower wait `CODELENS_PROJECT_BUILD_WAIT_SECS`.
 
-Why: on macOS, opening a file in a TCC-protected folder (`~/Downloads`,
-`~/Documents`, `~/Desktop`) goes through `sandboxd`. On 2026-10-10 sandboxd
-stopped answering for about four minutes and the index open of a
-`~/Downloads` project took 234.8 s (`connect_ms`), released the moment launchd
-respawned sandboxd. The cause of the hang was not established; heavy swap was
-in effect. A request that builds inline holds the client past its timeout
-(Claude Code gives up at 60 s).
+Why: the daemon is re-signed ad hoc on every redeploy, so macOS treats each
+build as a new app. Its first open of a file in a TCC-protected folder
+(`~/Downloads`, `~/Documents`, `~/Desktop`) shows the consent dialog "‘codelens-mcp-http’
+would like to access files in your Downloads folder" and the `open()` blocks
+until someone answers it. On 2026-10-10 that held a `~/Downloads` index open
+for 234.8 s (`connect_ms`), and after the next redeploy the build thread sat in
+`open()` with the dialog on screen. A request that builds inline holds the
+client past its timeout (Claude Code gives up at 60 s).
 
 ## Analysis Artifact Cache (LRU + TTL)
 

@@ -139,7 +139,16 @@ pub(crate) fn dispatch_tool(
         .harness_phase
         .clone()
         .or_else(|| crate::tools::infer_harness_phase(&ctx.recent_tools).map(str::to_owned));
-    let _session_project_guard = match state.ensure_session_project(session) {
+    // A tool that binds from its own `project` argument must not first wait
+    // out the bind budget on the session's previous project: re-running
+    // prepare on a project still building took 40 s (20 s here, 20 s in the
+    // tool) on 2026-10-10.
+    let session_binding = {
+        let _no_wait =
+            rebinds_project_explicitly(name, arguments).then(crate::state::NoBindWait::enter);
+        state.ensure_session_project(session)
+    };
+    let _session_project_guard = match session_binding {
         Ok(guard) => guard,
         // A tool that carries its own project argument is how a session *changes*
         // its binding. Gating it on the previous binding still resolving deadlocks

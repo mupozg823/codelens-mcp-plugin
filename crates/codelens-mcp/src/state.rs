@@ -26,6 +26,7 @@ mod metrics_host;
 mod orchestration;
 mod preflight;
 mod project_accessors;
+pub(crate) use project_accessors::NoBindWait;
 #[cfg(test)]
 pub(crate) use project_accessors::TEST_BIND_OVERRIDE;
 mod project_runtime;
