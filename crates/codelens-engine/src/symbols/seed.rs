@@ -24,6 +24,9 @@ use std::path::{Path, PathBuf};
 /// binds on 2026-09-28 spent 1-2 h here (seed source under concurrent write).
 const DEFAULT_SEED_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// SQLite virtual-machine steps between deadline checks during the copy.
+const SEED_PROGRESS_OPS: std::os::raw::c_int = 64;
+
 fn seed_timeout() -> std::time::Duration {
     std::env::var("CODELENS_SEED_TIMEOUT_SECS")
         .ok()
@@ -67,31 +70,19 @@ fn seed_index_with_timeout(
         )
         .with_context(|| format!("open seed source {}", source.display()))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        // Watchdog: interrupt the copy at the deadline instead of letting
-        // the bind wait on it.
-        let interrupt = conn.get_interrupt_handle();
-        let (done, finished) = std::sync::mpsc::channel::<()>();
-        let watchdog = std::thread::Builder::new()
-            .name("codelens-seed-watchdog".to_owned())
-            .spawn(move || {
-                use std::sync::mpsc::RecvTimeoutError;
-                if finished.recv_timeout(timeout) != Err(RecvTimeoutError::Timeout) {
-                    return;
-                }
-                // An interrupt issued before the statement starts is a no-op,
-                // so keep interrupting until the copy reports back.
-                loop {
-                    interrupt.interrupt();
-                    match finished.recv_timeout(std::time::Duration::from_millis(10)) {
-                        Err(RecvTimeoutError::Timeout) => continue,
-                        _ => return,
-                    }
-                }
-            })
-            .context("spawn seed watchdog")?;
+        // Abort the copy at the deadline instead of letting the bind wait on
+        // it. The check runs inside SQLite's progress callback, i.e. only
+        // while the statement executes. The previous watchdog thread called
+        // `interrupt()` every 10 ms, and an interrupt issued before the
+        // statement starts is a no-op, so a small copy finishing inside one
+        // tick escaped the deadline (the zero-deadline test failed on CI).
+        let deadline = std::time::Instant::now() + timeout;
+        conn.progress_handler(
+            SEED_PROGRESS_OPS,
+            Some(move || std::time::Instant::now() >= deadline),
+        );
         let copied = conn.execute("VACUUM INTO ?1", [staging.to_string_lossy().as_ref()]);
-        let _ = done.send(());
-        let _ = watchdog.join();
+        conn.progress_handler(0, None::<fn() -> bool>);
         copied.with_context(|| {
             format!(
                 "copy seed index from {} (limit {}s)",
