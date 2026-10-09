@@ -426,7 +426,32 @@ impl AppState {
 /// weeks), so the client always gets an answer it can act on.
 const DEFAULT_BIND_BUDGET_SECS: u64 = 20;
 
+thread_local! {
+    static SKIP_BIND_WAIT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While alive, binds on this thread do not wait for an in-flight build:
+/// a cached runtime still binds, anything else returns `IndexNotReady` at
+/// once (and a missing build is still started).
+pub(crate) struct NoBindWait(());
+
+impl NoBindWait {
+    pub(crate) fn enter() -> Self {
+        SKIP_BIND_WAIT.with(|cell| cell.set(true));
+        Self(())
+    }
+}
+
+impl Drop for NoBindWait {
+    fn drop(&mut self) {
+        SKIP_BIND_WAIT.with(|cell| cell.set(false));
+    }
+}
+
 fn bind_budget() -> std::time::Duration {
+    if SKIP_BIND_WAIT.with(std::cell::Cell::get) {
+        return std::time::Duration::ZERO;
+    }
     #[cfg(test)]
     if let Some((budget, _)) = TEST_BIND_OVERRIDE.with(std::cell::Cell::get) {
         return budget;
@@ -603,6 +628,36 @@ mod bind_budget_tests {
         assert!(
             started.elapsed() < std::time::Duration::from_secs(5),
             "waiters must not sit out the 10 s budget after the build failed"
+        );
+    }
+
+    #[test]
+    fn an_explicit_rebind_does_not_wait_on_the_previous_project() {
+        let state = Arc::new(AppState::new_minimal(
+            temp_project("default-nowait"),
+            ToolPreset::Balanced,
+        ));
+        let project = temp_project("nowait");
+        let path = project.as_path().to_string_lossy().to_string();
+        TEST_BIND_OVERRIDE.with(|cell| cell.set(Some((std::time::Duration::from_secs(10), 1_500))));
+        let started = std::time::Instant::now();
+
+        let result = {
+            let _no_wait = super::NoBindWait::enter();
+            state.bind_request_project_scope(&path).map(drop)
+        };
+
+        TEST_BIND_OVERRIDE.with(|cell| cell.set(None));
+        assert!(result.as_ref().is_err_and(is_index_not_ready), "{result:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert!(
+            state
+                .project_context_cache
+                .lock()
+                .unwrap()
+                .in_flight
+                .contains_key(&path),
+            "the build must still start"
         );
     }
 
