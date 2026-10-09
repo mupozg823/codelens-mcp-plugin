@@ -298,3 +298,52 @@ fn watcher_filter_matches_the_walk() {
     assert!(!filter.is_ignored(&temp.join("pkg/out/keep.ts")));
     assert!(!filter.is_ignored(&temp.join("src/app.ts")));
 }
+
+fn write_git_file(dir: &Path, gitdir: &str) {
+    fs::create_dir_all(dir).expect("mkdir");
+    fs::write(dir.join(".git"), format!("gitdir: {gitdir}\n")).expect("git file");
+}
+
+#[test]
+fn walk_skips_linked_worktrees_kept_inside_the_project() {
+    // SignatureStudio 2026-10-10: 3,354 of 5,124 indexed files were copies
+    // under `.codex-worktrees/<name>`, each a linked worktree.
+    let (_guard, temp) = super::tempfile_dir();
+    fs::create_dir_all(temp.join(".git/worktrees/feature")).expect("git dir");
+    write_ts(&temp, "src/app.ts");
+    write_git_file(
+        &temp.join(".codex-worktrees/feature"),
+        &temp.join(".git/worktrees/feature").display().to_string(),
+    );
+    write_ts(&temp, ".codex-worktrees/feature/src/app.ts");
+    // A submodule also has a `.git` file, pointing into `.git/modules/`.
+    write_git_file(&temp.join("vendor-lib"), "../.git/modules/vendor-lib");
+    write_ts(&temp, "vendor-lib/lib.ts");
+
+    assert_eq!(collected_ts(&temp), vec!["src/app.ts", "vendor-lib/lib.ts"]);
+}
+
+#[test]
+fn a_root_that_is_itself_a_linked_worktree_is_walked() {
+    let (_guard, temp) = super::tempfile_dir();
+    write_git_file(&temp, "/elsewhere/.git/worktrees/wt");
+    write_ts(&temp, "src/app.ts");
+
+    assert_eq!(collected_ts(&temp), vec!["src/app.ts"]);
+}
+
+#[test]
+fn watcher_filter_skips_files_inside_nested_linked_worktrees() {
+    let (_guard, temp) = super::tempfile_dir();
+    fs::create_dir_all(temp.join(".git/worktrees/feature")).expect("git dir");
+    write_git_file(
+        &temp.join(".codex-worktrees/feature"),
+        &temp.join(".git/worktrees/feature").display().to_string(),
+    );
+    write_git_file(&temp.join("vendor-lib"), "../.git/modules/vendor-lib");
+    let mut filter = GitignoreFilter::new(&temp);
+
+    assert!(filter.is_ignored(&temp.join(".codex-worktrees/feature/src/app.ts")));
+    assert!(!filter.is_ignored(&temp.join("vendor-lib/lib.ts")));
+    assert!(!filter.is_ignored(&temp.join("src/app.ts")));
+}

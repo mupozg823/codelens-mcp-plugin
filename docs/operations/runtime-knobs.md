@@ -113,7 +113,9 @@ lookups gave up on ambiguity. Files a repository force-adds despite an ignore
 pattern are skipped too; list such paths in the repository's `.gitignore` with
 a `!` negation if they must be indexed.
 
-`CODELENS_INDEX_GITIGNORE=0` restores the previous name-list-only walk. The
+Linked git worktrees kept inside the project (a directory whose `.git` file points into another checkout's `.git/worktrees/`, such as `.codex-worktrees/<name>`) are skipped whatever the ignore rules say: on one repository they were 3,354 of 5,124 indexed files. Submodules (`.git` file pointing into `.git/modules/`) stay indexed, and a project bound at a worktree root is walked normally.
+
+`CODELENS_INDEX_GITIGNORE=0` restores the previous name-list-only walk (nested worktrees are still skipped). The
 rule in effect is recorded in the index (`meta.discovery_signature`); when it
 differs at bind time, one full refresh runs and removes rows for files the
 current rule no longer admits. Unchanged files are not re-parsed.
