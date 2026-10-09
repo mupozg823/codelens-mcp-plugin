@@ -27,6 +27,7 @@ pub(crate) fn build_error_response<'a>(
     let operation = operation.unwrap_or_else(|| ResolvedOperation::from_request(name, arguments));
 
     let target_paths = state.extract_target_paths(arguments);
+    let error_kind = error.kind();
 
     if error.is_protocol_error() {
         state.metrics().record_event(ToolCallEvent {
@@ -43,7 +44,10 @@ pub(crate) fn build_error_response<'a>(
                 .get("_session_client_name")
                 .and_then(|value| value.as_str()),
             target_paths: &target_paths,
-            hints: CallTelemetryHints::default(),
+            hints: CallTelemetryHints {
+                error_kind: Some(error_kind),
+                ..CallTelemetryHints::default()
+            },
         });
         // Protocol errors used to terminate as a bare JSON-RPC string. Carry
         // the structured recovery hint (RequireField / did-you-mean +
@@ -125,6 +129,7 @@ pub(crate) fn build_error_response<'a>(
             handoff_id,
             suggestion_gate_mode: None,
             suggestion_gate_abstained: &[],
+            error_kind: Some(error_kind),
         },
     });
     let text = text_payload_for_response(&resp, None, false);

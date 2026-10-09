@@ -286,6 +286,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
             suggestion_gate_mode: (gate_mode != crate::judgement::gate::GateMode::Off)
                 .then(|| gate_mode.as_str()),
             suggestion_gate_abstained: &gate_abstained,
+            error_kind: None,
         },
     });
     if emitted_composite_guidance

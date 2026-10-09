@@ -191,6 +191,35 @@ impl CodeLensError {
     }
 
     /// Whether this is a protocol-level error (should be returned as JSON-RPC error).
+    /// Stable, argument-free label for telemetry. The message is never
+    /// recorded: it can carry symbol names, queries and paths.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::MissingParam(_) => "missing_param",
+            Self::ToolNotFound(_) => "tool_not_found",
+            Self::NotFound(_) => "not_found",
+            Self::Validation(_) => "validation",
+            #[cfg(feature = "http")]
+            Self::ProjectBindingRequired { .. } => "project_binding_required",
+            Self::HomeRootRejected { .. } => "home_root_rejected",
+            #[cfg(feature = "semantic")]
+            Self::FeatureUnavailable(_) => "feature_unavailable",
+            Self::LanguageUnsupported { .. } => "language_unsupported",
+            Self::LspNotAttached(_) => "lsp_not_attached",
+            Self::IndexNotReady(_) => "index_not_ready",
+            Self::LspError(_) => "lsp_error",
+            Self::Timeout { .. } => "timeout",
+            Self::StaleSession(_) => "stale_session",
+            Self::ResourceExhausted(_) => "resource_exhausted",
+            Self::CoordinationUnavailable { .. } => "coordination_unavailable",
+            Self::ProjectWriterBusy { .. } => "project_writer_busy",
+            Self::IndexGenerationChanged { .. } => "index_generation_changed",
+            Self::PermissionDenied { .. } => "permission_denied",
+            Self::Io(_) => "io",
+            Self::Internal(_) => "internal",
+        }
+    }
+
     pub fn is_protocol_error(&self) -> bool {
         matches!(self, Self::ToolNotFound(_) | Self::MissingParam(_))
     }

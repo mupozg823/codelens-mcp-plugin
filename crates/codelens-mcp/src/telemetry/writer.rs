@@ -49,6 +49,8 @@ pub(crate) struct PersistedEvent<'a> {
     pub(crate) suggestion_gate_mode: Option<&'static str>,
     #[serde(skip_serializing_if = "<[_]>::is_empty", default)]
     pub(crate) suggestion_gate_abstained: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) error_kind: Option<&'static str>,
 }
 
 impl<'a> PersistedEvent<'a> {
@@ -77,6 +79,7 @@ impl<'a> PersistedEvent<'a> {
             handoff_id: event.hints.handoff_id,
             suggestion_gate_mode: event.hints.suggestion_gate_mode,
             suggestion_gate_abstained: event.hints.suggestion_gate_abstained,
+            error_kind: event.hints.error_kind,
         }
     }
 }

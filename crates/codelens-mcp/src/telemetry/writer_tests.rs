@@ -62,6 +62,7 @@ fn telemetry_writer_persists_single_event() {
         handoff_id: None,
         suggestion_gate_mode: None,
         suggestion_gate_abstained: &[],
+        error_kind: None,
     });
 
     let contents = std::fs::read_to_string(&path).expect("read jsonl");
@@ -114,6 +115,7 @@ fn telemetry_writer_appends_multiple_events_in_order() {
             handoff_id: None,
             suggestion_gate_mode: None,
             suggestion_gate_abstained: &[],
+            error_kind: None,
         });
     }
 
@@ -221,6 +223,7 @@ fn telemetry_writer_persists_delegate_hint_fields() {
         handoff_id: Some("codelens-handoff-1"),
         suggestion_gate_mode: None,
         suggestion_gate_abstained: &[],
+        error_kind: None,
     });
 
     let contents = std::fs::read_to_string(&path).expect("read jsonl");
@@ -344,6 +347,7 @@ fn registry_records_structured_event_without_jsonl_schema_drift() {
             handoff_id: Some("handoff-structured"),
             suggestion_gate_mode: None,
             suggestion_gate_abstained: &[],
+            error_kind: None,
         },
     });
 
@@ -591,4 +595,46 @@ fn telemetry_writer_from_env_accepts_symbiote_enabled_flag() {
             None => std::env::remove_var("CODELENS_TELEMETRY_PATH"),
         }
     }
+}
+
+#[test]
+fn telemetry_writer_records_error_kind_only_for_failures() {
+    let path = unique_telemetry_path("error-kind");
+    let writer = TelemetryWriter::with_path(path.clone());
+    for (success, error_kind) in [(false, Some("lsp_error")), (true, None)] {
+        writer.append_event(&PersistedEvent {
+            timestamp_ms: 1,
+            tool: "diagnose",
+            resolved_target: Some("get_file_diagnostics"),
+            mode: Some("file"),
+            work_class: crate::operation::operation_work_class("get_file_diagnostics"),
+            downstream_call_count: 1,
+            surface: "builder",
+            elapsed_ms: 3,
+            tokens: 0,
+            success,
+            truncated: false,
+            session_id: Some("session-e"),
+            client_name: None,
+            phase: None,
+            recording_origin: "test",
+            target_paths: None,
+            suggested_next_tools: &[],
+            delegate_hint_trigger: None,
+            delegate_target_tool: None,
+            delegate_handoff_id: None,
+            handoff_id: None,
+            suggestion_gate_mode: None,
+            suggestion_gate_abstained: &[],
+            error_kind,
+        });
+    }
+
+    let contents = std::fs::read_to_string(&path).expect("read jsonl");
+    let rows: Vec<serde_json::Value> = contents
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("parse row"))
+        .collect();
+    assert_eq!(rows[0]["error_kind"], "lsp_error");
+    assert!(rows[1].get("error_kind").is_none());
 }

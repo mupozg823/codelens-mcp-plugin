@@ -61,6 +61,9 @@ pub struct CallTelemetryHints<'a> {
     pub suggestion_gate_mode: Option<&'static str>,
     /// Suggestions the gate withheld (enforce) or would withhold (shadow).
     pub suggestion_gate_abstained: &'a [String],
+    /// `CodeLensError::kind` for a failed call. Failed rows used to carry no
+    /// reason at all, so triage meant reproducing every failure by hand.
+    pub error_kind: Option<&'static str>,
 }
 
 /// One completed tool call captured at the dispatch boundary.
