@@ -19,6 +19,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 REDEPLOY_SCRIPT = REPO_ROOT / "scripts" / "redeploy-daemons.sh"
 
 
+def hermetic_env() -> dict[str, str]:
+    """The caller's environment without its signing setup: a developer who
+    exports CODELENS_CODESIGN_IDENTITY would otherwise have these tests sign
+    the fake binary with a real keychain identity, which fails under a fake
+    HOME before the behaviour under test is reached."""
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("CODELENS_CODESIGN_")
+    }
+
+
 def write_fake_executable(path: Path) -> None:
     path.write_text("#!/bin/sh\necho fake\nexit 0\n", encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
@@ -73,7 +85,7 @@ def test_redeploy_reaches_listen_wait_when_plist_missing() -> None:
         # High port unlikely to be in real use; it will never LISTEN here.
         mutation_port = "18838"
 
-        env = dict(os.environ)
+        env = hermetic_env()
         env["HOME"] = str(fake_home)
         shim_dir = tmp / "shim"
         shim_dir.mkdir()
@@ -133,7 +145,7 @@ def test_redeploy_fails_when_plist_missing_even_if_ports_already_listen() -> Non
         write_fake_executable(source_bin)
 
         label_prefix = f"codelens-test-fixture-{os.getpid()}"
-        env = dict(os.environ)
+        env = hermetic_env()
         env["HOME"] = str(fake_home)
         shim_dir = tmp / "shim"
         shim_dir.mkdir()
@@ -212,7 +224,7 @@ def test_redeploy_waits_for_port_release_before_bootstrap() -> None:
         shim_log = tmp / "launchctl.log"
         write_launchctl_shim(shim_dir, shim_log)
 
-        env = dict(os.environ)
+        env = hermetic_env()
         env["HOME"] = str(fake_home)
         env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
         env["LAUNCHCTL_SHIM_LOG"] = str(shim_log)
@@ -296,7 +308,7 @@ def test_redeploy_bootstraps_after_port_released() -> None:
         with contextlib.closing(open_listener(0)) as probe:
             free_port = str(probe.getsockname()[1])
 
-        env = dict(os.environ)
+        env = hermetic_env()
         env["HOME"] = str(fake_home)
         env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
         env["LAUNCHCTL_SHIM_LOG"] = str(shim_log)

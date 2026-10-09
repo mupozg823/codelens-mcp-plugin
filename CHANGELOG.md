@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A locked signing keychain no longer hangs a redeploy** — with `CODELENS_CODESIGN_IDENTITY` in a locked keychain, `codesign` waited on a GUI password prompt with no timeout, so a redeploy from a non-interactive shell never finished (seen 2026-10-10 after a reboot relocked a dedicated keychain). The signing step now gives up after `CODELENS_CODESIGN_TIMEOUT_SECS` (default 60) and names the keychain to unlock; the running daemon's binary is left untouched.
+
 - **`cleanup_duplicate_logic` drops pairs naming files that no longer exist** (revived #307) — stale embedding entries proposed 14 of 25 pairs against a deleted file; the count is reported as `quality_filters.suppressed_phantom_path_pairs`.
 
 - **`semantic_search` says when its lexical lane failed** — the lexical candidates were fetched with `unwrap_or_default`, so a failed lane looked like "no lexical matches" and the ranking silently became embedding-only. The response now carries `retrieval.lexical_lane` (`ok`/`failed`) and, on failure, `degraded_reason`.
