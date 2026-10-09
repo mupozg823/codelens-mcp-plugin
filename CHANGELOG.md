@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`cleanup_duplicate_logic` drops pairs naming files that no longer exist** (revived #307) — stale embedding entries proposed 14 of 25 pairs against a deleted file; the count is reported as `quality_filters.suppressed_phantom_path_pairs`.
 
+- **`semantic_search` says when its lexical lane failed** — the lexical candidates were fetched with `unwrap_or_default`, so a failed lane looked like "no lexical matches" and the ranking silently became embedding-only. The response now carries `retrieval.lexical_lane` (`ok`/`failed`) and, on failure, `degraded_reason`.
+
 - **Re-running `prepare_harness_session` on a project still building took twice the budget** — dispatch first waited out the bind budget on the session's previous binding, then the tool waited again (40 s in production). Tools that rebind from their own `project` argument no longer wait on the previous binding.
 
 - **A watched index no longer reads as stale** — `index_freshness` bucketed the age of the newest indexed file, so an untouched repository was `stale` after an hour and every symbol response put `refresh_symbol_index` first in its suggestions, even right after a bind whose refresh had verified every file. With the project's file watcher running the hint is `fresh` (`basis: "watcher_running"`); the age buckets remain for runtimes without a watcher.
