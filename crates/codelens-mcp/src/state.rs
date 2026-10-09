@@ -30,7 +30,14 @@ pub(crate) use project_accessors::NoBindWait;
 #[cfg(test)]
 pub(crate) use project_accessors::TEST_BIND_OVERRIDE;
 mod project_runtime;
+pub(crate) use project_runtime::RequestProjectGuard;
 mod project_runtime_lease;
+
+/// The trusted per-user runtime directory (writer leases, session journal).
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
+pub(crate) fn runtime_dir() -> Result<std::path::PathBuf, crate::error::CodeLensError> {
+    project_runtime_lease::trusted_runtime_dir()
+}
 mod runtime_config;
 mod secondary_projects;
 mod session_host;

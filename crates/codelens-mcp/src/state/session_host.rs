@@ -263,7 +263,8 @@ impl AppState {
             crate::server::session::SessionStore::new(
                 std::time::Duration::from_secs(30 * 60), // 30 minutes
             )
-            .with_policy(policy),
+            .with_policy(policy)
+            .with_journal(session_journal()),
         );
         self
     }
@@ -302,5 +303,16 @@ impl AppState {
     #[cfg(not(feature = "http"))]
     pub(crate) fn session_resume_supported(&self) -> bool {
         false
+    }
+}
+
+/// The on-disk session journal for the daemon; tests never touch the user's
+/// runtime directory.
+#[cfg(feature = "http")]
+fn session_journal() -> Option<crate::server::session_journal::SessionJournal> {
+    if cfg!(test) {
+        None
+    } else {
+        crate::server::session_journal::SessionJournal::default_location()
     }
 }
