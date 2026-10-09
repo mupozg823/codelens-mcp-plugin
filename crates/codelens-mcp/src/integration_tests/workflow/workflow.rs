@@ -178,3 +178,46 @@ fn workflow_guidance_miss_tracks_origin_without_counting_profile_switch() {
         "expected read_file miss origin, got {missed_by_origin:?}"
     );
 }
+
+#[test]
+fn prepare_reports_building_instead_of_failing_when_the_bind_budget_runs_out() {
+    let default_project = project_root();
+    let slow = project_root();
+    fs::write(
+        slow.as_path().join("lib.py"),
+        "def budget_probe():\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&default_project);
+    let path = slow.as_path().to_string_lossy().to_string();
+    crate::state::TEST_BIND_OVERRIDE.with(|cell| cell.set(Some((std::time::Duration::ZERO, 400))));
+
+    let first = call_tool(&state, "prepare_harness_session", json!({"project": path}));
+
+    assert_eq!(first["success"], json!(true), "{first}");
+    assert_eq!(first["data"]["activated"], json!(false), "{first}");
+    assert_eq!(
+        first["data"]["binding_status"],
+        json!("building"),
+        "{first}"
+    );
+    assert!(
+        first["data"]["retry_after_ms"].as_u64().is_some(),
+        "{first}"
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let ready = loop {
+        let again = call_tool(&state, "prepare_harness_session", json!({"project": path}));
+        if again["data"]["activated"] == json!(true) {
+            break again;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "bind never completed: {again}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    crate::state::TEST_BIND_OVERRIDE.with(|cell| cell.set(None));
+    assert_eq!(ready["data"]["binding_status"], json!(null), "{ready}");
+}

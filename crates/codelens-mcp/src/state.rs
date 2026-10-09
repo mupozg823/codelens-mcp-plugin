@@ -26,6 +26,8 @@ mod metrics_host;
 mod orchestration;
 mod preflight;
 mod project_accessors;
+#[cfg(test)]
+pub(crate) use project_accessors::TEST_BIND_OVERRIDE;
 mod project_runtime;
 mod project_runtime_lease;
 mod runtime_config;
