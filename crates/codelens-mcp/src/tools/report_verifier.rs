@@ -33,6 +33,105 @@ fn push_verifier_check(
     });
 }
 
+/// Touched files beyond this many are not diagnosed; the summary says so.
+const DIAGNOSTIC_FILE_CAP: usize = 3;
+
+struct DiagnosticsTally<'a> {
+    touched: usize,
+    checked: usize,
+    errored: usize,
+    skipped: usize,
+    unchecked_over_cap: usize,
+    blocking: usize,
+    informational: usize,
+    first_error: Option<&'a str>,
+}
+
+/// A file whose diagnostics could not run is unknown, not clean, so any
+/// error keeps the verdict at caution. Files with no language server
+/// (`skipped`) have nothing to check and do not lower it.
+fn diagnostics_verdict(tally: DiagnosticsTally<'_>) -> (&'static str, String) {
+    let DiagnosticsTally {
+        touched,
+        checked,
+        errored,
+        skipped,
+        unchecked_over_cap,
+        blocking,
+        informational,
+        first_error,
+    } = tally;
+    let mut notes = Vec::new();
+    if skipped > 0 {
+        notes.push(format!("{skipped} without a language server"));
+    }
+    if unchecked_over_cap > 0 {
+        notes.push(format!(
+            "{unchecked_over_cap} not checked (cap {DIAGNOSTIC_FILE_CAP})"
+        ));
+    }
+    let suffix = if notes.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", notes.join("; "))
+    };
+    let error_detail = first_error
+        .map(|error| {
+            let short: String = error.chars().take(160).collect();
+            format!(": {short}")
+        })
+        .unwrap_or_default();
+
+    if touched == 0 {
+        return (
+            VERIFIER_READY,
+            "No touched files were available for diagnostics checks.".to_owned(),
+        );
+    }
+    if blocking > 0 {
+        return (
+            VERIFIER_BLOCKED,
+            format!(
+                "{blocking} blocking diagnostic(s) reported across touched files (plus {informational} informational hint(s)).{suffix}"
+            ),
+        );
+    }
+    if errored > 0 && checked == 0 {
+        return (
+            VERIFIER_CAUTION,
+            format!(
+                "Diagnostics could not run for {errored} touched file(s){error_detail}. Treat edits as provisional and use the project's own typecheck or lint.{suffix}"
+            ),
+        );
+    }
+    if errored > 0 {
+        return (
+            VERIFIER_CAUTION,
+            format!(
+                "No blocking diagnostics in {checked} checked file(s), but {errored} file(s) could not be checked{error_detail}.{suffix}"
+            ),
+        );
+    }
+    if checked == 0 {
+        return (
+            VERIFIER_READY,
+            format!("Diagnostics not applicable to the touched files{suffix}."),
+        );
+    }
+    if informational > 0 {
+        return (
+            VERIFIER_READY,
+            format!(
+                "No blocking diagnostics in {checked} checked file(s); {informational} informational hint(s) (cfg-gated inactive-code, deprecation notes, etc.) surfaced for context only.{suffix}"
+            ),
+        );
+    }
+    (
+        VERIFIER_READY,
+        format!("No diagnostics reported for {checked} checked file(s).{suffix}"),
+    )
+}
+
 fn verifier_status_rank(status: &str) -> u8 {
     match status {
         VERIFIER_BLOCKED => 2,
@@ -156,14 +255,23 @@ pub(crate) fn build_verifier_contract(
 
     let mut diagnostic_rows = Vec::new();
     let mut diagnostic_errors = Vec::new();
+    let mut diagnostic_skipped = Vec::new();
     let mut diagnostic_count = 0usize;
     let mut blocking_diagnostic_count = 0usize;
     let mut informational_diagnostic_count = 0usize;
-    for file in touched_files.iter().take(3) {
+    for file in touched_files.iter().take(DIAGNOSTIC_FILE_CAP) {
         match super::lsp::get_file_diagnostics(
             state,
             &json!({"file_path": file, "max_results": 20}),
         ) {
+            // No language server for this file type: nothing ran, so it
+            // counts as neither clean nor failed.
+            Ok((payload, _meta)) if payload["checked"] == json!(false) => {
+                diagnostic_skipped.push(json!({
+                    "file_path": file,
+                    "reason": payload["degraded_reason"],
+                }));
+            }
             Ok((payload, _meta)) => {
                 let count = payload
                     .get("count")
@@ -206,12 +314,18 @@ pub(crate) fn build_verifier_contract(
             })),
         }
     }
-    let diagnostics_section = if !diagnostic_rows.is_empty() || !diagnostic_errors.is_empty() {
+    let unchecked_over_cap = touched_files.len().saturating_sub(DIAGNOSTIC_FILE_CAP);
+    let diagnostics_section = if !diagnostic_rows.is_empty()
+        || !diagnostic_errors.is_empty()
+        || !diagnostic_skipped.is_empty()
+    {
         sections.insert(
             "verifier_diagnostics".to_owned(),
             json!({
                 "files": diagnostic_rows,
                 "errors": diagnostic_errors,
+                "skipped": diagnostic_skipped,
+                "unchecked_over_cap": unchecked_over_cap,
                 "blocking_count": blocking_diagnostic_count,
                 "informational_count": informational_diagnostic_count,
             }),
@@ -220,36 +334,26 @@ pub(crate) fn build_verifier_contract(
     } else {
         None
     };
-    let diagnostics_status = if blocking_diagnostic_count > 0 {
+    let first_error = diagnostic_errors
+        .first()
+        .and_then(|row| row["error"].as_str());
+    let (diagnostics_status, diagnostics_summary) = diagnostics_verdict(DiagnosticsTally {
+        touched: touched_files.len(),
+        checked: diagnostic_rows.len(),
+        errored: diagnostic_errors.len(),
+        skipped: diagnostic_skipped.len(),
+        unchecked_over_cap,
+        blocking: blocking_diagnostic_count,
+        informational: informational_diagnostic_count,
+        first_error,
+    });
+    if diagnostics_status == VERIFIER_BLOCKED {
         crate::util::push_unique_string(
             &mut contract.blockers,
             "Resolve reported diagnostics before mutating the touched files",
         );
-        VERIFIER_BLOCKED
-    } else if !touched_files.is_empty() && diagnostics_section.is_none() {
-        VERIFIER_CAUTION
-    } else {
-        VERIFIER_READY
-    };
+    }
     contract.readiness.diagnostics_ready = diagnostics_status.to_owned();
-    let diagnostics_summary = if blocking_diagnostic_count > 0 {
-        format!(
-            "{blocking_diagnostic_count} blocking diagnostic(s) reported across touched files (plus {informational_diagnostic_count} informational hint(s)).",
-        )
-    } else if informational_diagnostic_count > 0 {
-        format!(
-            "No blocking diagnostics; {informational_diagnostic_count} informational hint(s) (cfg-gated inactive-code, deprecation notes, etc.) surfaced for context only.",
-        )
-    } else if !touched_files.is_empty() && diagnostics_section.is_none() {
-        "Diagnostics unavailable for touched files; treat edits as provisional.".to_owned()
-    } else if touched_files.is_empty() {
-        "No touched files were available for diagnostics checks.".to_owned()
-    } else {
-        format!(
-            "No diagnostics reported for {} touched file(s).",
-            touched_files.len()
-        )
-    };
     let _ = diagnostic_count; // currently retained only for the rows summary
     push_verifier_check(
         &mut contract.verifier_checks,
@@ -698,5 +802,70 @@ mod tests {
             "message": "unknown problem",
         });
         assert!(super::is_blocking_diagnostic(&diag));
+    }
+
+    fn tally(
+        touched: usize,
+        checked: usize,
+        errored: usize,
+        skipped: usize,
+    ) -> super::DiagnosticsTally<'static> {
+        super::DiagnosticsTally {
+            touched,
+            checked,
+            errored,
+            skipped,
+            unchecked_over_cap: touched.saturating_sub(super::DIAGNOSTIC_FILE_CAP),
+            blocking: 0,
+            informational: 0,
+            first_error: (errored > 0).then_some("LSP request failed (-32603)"),
+        }
+    }
+
+    #[test]
+    fn diagnostics_that_could_not_run_are_not_reported_clean() {
+        // drawboard 2026-10-10: 4 touched .js/.mjs files, every LSP start
+        // failed, and the verdict read "No diagnostics reported ... ready".
+        let (status, summary) = super::diagnostics_verdict(tally(4, 0, 3, 0));
+        assert_eq!(status, super::VERIFIER_CAUTION);
+        assert!(summary.contains("could not run for 3"), "{summary}");
+        assert!(summary.contains("-32603"), "{summary}");
+        assert!(summary.contains("1 not checked (cap 3)"), "{summary}");
+        assert!(!summary.contains("No diagnostics reported"), "{summary}");
+    }
+
+    #[test]
+    fn partial_diagnostic_failure_stays_caution() {
+        let (status, summary) = super::diagnostics_verdict(tally(3, 2, 1, 0));
+        assert_eq!(status, super::VERIFIER_CAUTION);
+        assert!(summary.contains("2 checked"), "{summary}");
+        assert!(summary.contains("1 file(s) could not be checked"), "{summary}");
+    }
+
+    #[test]
+    fn clean_summary_counts_only_checked_files() {
+        let (status, summary) = super::diagnostics_verdict(tally(5, 2, 0, 1));
+        assert_eq!(status, super::VERIFIER_READY);
+        assert!(
+            summary.starts_with("No diagnostics reported for 2 checked file(s)."),
+            "{summary}"
+        );
+        assert!(summary.contains("1 without a language server"), "{summary}");
+        assert!(summary.contains("2 not checked (cap 3)"), "{summary}");
+    }
+
+    #[test]
+    fn files_without_a_language_server_are_not_applicable() {
+        let (status, summary) = super::diagnostics_verdict(tally(2, 0, 0, 2));
+        assert_eq!(status, super::VERIFIER_READY);
+        assert!(summary.starts_with("Diagnostics not applicable"), "{summary}");
+    }
+
+    #[test]
+    fn blocking_diagnostics_still_block() {
+        let mut blocked = tally(2, 2, 0, 0);
+        blocked.blocking = 1;
+        let (status, _) = super::diagnostics_verdict(blocked);
+        assert_eq!(status, super::VERIFIER_BLOCKED);
     }
 }

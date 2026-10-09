@@ -163,6 +163,19 @@ fn import_line_is_guarded_by_import_error(
     has_try && has_import_error_handler
 }
 
+fn unsupported_diagnostics_reason(file_path: &str) -> String {
+    match std::path::Path::new(file_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+    {
+        Some(ext) => format!(
+            "no language server is registered for `.{ext}` files; this file was not checked"
+        ),
+        None => "no language server is registered for this file type; this file was not checked"
+            .to_owned(),
+    }
+}
+
 pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     const FILE_DIAGNOSTICS_KNOWN_ARGS: &[&str] = &[
         "path",
@@ -203,6 +216,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         let mut payload = json!({
             "diagnostics": diags_json,
             "count": count,
+            "checked": true,
             "backend": "scip",
         });
         insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
@@ -210,10 +224,28 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
     }
 
     // Fall back to LSP diagnostics.
-    let command = optional_string(arguments, "command")
+    let Some(command) = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path))
-        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
+    else {
+        // A file type with no language server (CSS, JSON, Markdown, images)
+        // has nothing to check. That is not a failure, but it is not a clean
+        // result either: `count` is omitted so "0 diagnostics" is never read
+        // into it, and `checked: false` says no checker ran.
+        let reason = unsupported_diagnostics_reason(&file_path);
+        let mut payload = json!({
+            "diagnostics": [],
+            "checked": false,
+            "backend": "none",
+            "degraded_reason": reason,
+            "fallback_hint": ["Run the project's own linter or build for this file type."],
+        });
+        insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+        return Ok((
+            payload,
+            crate::tool_runtime::degraded_meta(BackendKind::Lsp, 0.0, &reason),
+        ));
+    };
     let args = parse_lsp_args(arguments, &command);
 
     let command_ref = command.clone();
@@ -233,6 +265,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
             let mut payload = json!({
                 "diagnostics": diagnostics,
                 "count": diagnostics.len(),
+                "checked": true,
                 "backend": "lsp",
             });
             if !suppressed.is_empty() {
@@ -298,6 +331,23 @@ pub fn get_diagnostics_for_symbol(state: &AppState, arguments: &Value) -> ToolRe
     });
 
     match get_file_diagnostics(state, arguments) {
+        Ok((file_payload, meta)) if file_payload["checked"] == json!(false) => {
+            let reason = file_payload["degraded_reason"]
+                .as_str()
+                .unwrap_or("this file type has no language server")
+                .to_owned();
+            let mut payload = json!({
+                "success": true,
+                "symbol": symbol_summary,
+                "diagnostics": [],
+                "checked": false,
+                "backend": "none",
+                "degraded_reason": reason,
+                "fallback_hint": file_payload["fallback_hint"],
+            });
+            insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+            Ok((payload, meta))
+        }
         Ok((file_payload, _meta)) => {
             let all = file_payload["diagnostics"]
                 .as_array()
