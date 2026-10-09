@@ -86,7 +86,35 @@ bash scripts/redeploy-daemons.sh --build --probe  # also runs cargo build --rele
 bash scripts/daemon-stale-check.sh                # read-only: compare daemon binary git sha to source HEAD (exit 1 if stale)
 ```
 
-What the script does: `cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http`, `xattr -dr com.apple.provenance ${target}` (otherwise macOS gatekeeper SIGKILLs the daemon with `OS_REASON_CODESIGNING`), `codesign --force --sign -` (ad-hoc resign so launchd accepts the new mach-o), disable/bootout `gui/$UID/dev.codelens.mcp-readonly`, then `launchctl bootout/bootstrap` plus `kickstart -k gui/$UID/dev.codelens.mcp-mutation`, wait for LISTEN on `:7838`, and (with `--probe`) issue one `tools/list` request.
+What the script does: `cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http`, `xattr -dr com.apple.provenance ${target}` (otherwise macOS gatekeeper SIGKILLs the daemon with `OS_REASON_CODESIGNING`), `codesign` (ad hoc by default, or with `CODELENS_CODESIGN_IDENTITY`, see below; the copy is signed as `<target>.staging` and swapped in only after signing succeeds), disable/bootout `gui/$UID/dev.codelens.mcp-readonly`, then `launchctl bootout/bootstrap` plus `kickstart -k gui/$UID/dev.codelens.mcp-mutation`, wait for LISTEN on `:7838`, and (with `--probe`) issue one `tools/list` request.
+
+### Stable signing identity (keeps macOS folder consent across redeploys)
+
+An ad-hoc signature is keyed to the binary's content hash, so macOS treats
+every rebuild as a new app. The first time the redeployed daemon opens a file
+in `~/Downloads`, `~/Documents` or `~/Desktop`, macOS shows "‘codelens-mcp-http’
+would like to access files in your Downloads folder", and that `open()` blocks
+until someone answers. Binds for projects there return `binding_status:
+"building"` until then (`CODELENS_BIND_BUDGET_SECS`); measured 2026-10-10:
+234.8 s, then over ten minutes, of an index open waiting on the dialog.
+
+Sign with a certificate instead, so one consent survives rebuilds:
+
+1. Keychain Access → Certificate Assistant → Create a Certificate…: name
+   `CodeLens Local`, Identity Type *Self-Signed Root*, Certificate Type
+   *Code Signing*. (Any code-signing identity works; list them with
+   `security find-identity -v -p codesigning`.)
+2. Export it for the deploy shell, e.g. in `~/.zshrc`:
+   `export CODELENS_CODESIGN_IDENTITY="CodeLens Local"`.
+3. Redeploy (`bash scripts/redeploy-daemons.sh --build --probe`, and
+   `scripts/redeploy-dev-daemon.sh`). The first signing may ask for keychain
+   access to the key (choose *Always Allow*), and the next protected-folder
+   access asks for consent one last time.
+
+The binary is signed with identifier `dev.codelens.mcp-http`
+(`CODELENS_CODESIGN_IDENTIFIER` overrides it). A named identity that is
+missing or fails to sign aborts the redeploy before the binary is replaced;
+it never falls back to ad hoc, which would bring the dialog back silently.
 
 ### Deprecation removal-gate telemetry (ADR-0018 D3)
 
