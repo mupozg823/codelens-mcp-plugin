@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashSet;
 
 use super::super::EmbeddingEngine;
-use super::super::prompt::{extract_leading_doc, is_test_only_symbol, split_identifier};
+use super::super::prompt::{extract_symbol_doc, is_test_only_symbol, split_identifier};
 use crate::db::IndexDb;
 use crate::project::ProjectRoot;
 
@@ -23,7 +23,7 @@ impl EmbeddingEngine {
                     continue;
                 }
                 let doc = source.as_deref().and_then(|src| {
-                    extract_leading_doc(src, sym.start_byte as usize, sym.end_byte as usize)
+                    extract_symbol_doc(src, sym.start_byte as usize, sym.end_byte as usize)
                 });
                 let doc = match doc {
                     Some(d) if !d.is_empty() => d,

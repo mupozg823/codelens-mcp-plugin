@@ -53,10 +53,11 @@ pub(super) use prompt::{
     auto_hint_mode_enabled, auto_hint_should_enable, build_embedding_text,
     contains_format_specifier, extract_api_calls, extract_api_calls_inner, extract_body_hint,
     extract_comment_body, extract_leading_doc, extract_nl_tokens, extract_nl_tokens_inner,
-    hint_char_budget, hint_line_budget, is_nl_shaped, is_static_method_ident, is_test_only_symbol,
-    language_supports_nl_stack, language_supports_sparse_weighting, looks_like_error_or_log_prefix,
-    looks_like_meta_annotation, nl_tokens_enabled, should_reject_literal_strict,
-    strict_comments_enabled, strict_literal_filter_enabled,
+    extract_preceding_doc, extract_symbol_doc, hint_char_budget, hint_line_budget, is_nl_shaped,
+    is_static_method_ident, is_test_only_symbol, language_supports_nl_stack,
+    language_supports_sparse_weighting, looks_like_error_or_log_prefix, looks_like_meta_annotation,
+    nl_tokens_enabled, should_reject_literal_strict, strict_comments_enabled,
+    strict_literal_filter_enabled,
 };
 #[cfg(test)]
 pub(super) use runtime::requested_embedding_model_override;
