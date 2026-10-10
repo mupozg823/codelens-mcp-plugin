@@ -184,3 +184,47 @@ async fn sessionless_requests_leave_no_session_behind() {
 
     assert_eq!(fixture.state.active_session_count(), 0);
 }
+
+#[tokio::test]
+async fn a_header_that_names_no_project_falls_back_instead_of_failing_every_call() {
+    // `x-codelens-project: ${PWD}` sends whatever directory the host was
+    // launched in. From $HOME (refused as a root) every tool call failed
+    // with "refusing to infer the home directory"; a path that does not
+    // resolve takes the same rejection path.
+    let fixture = SessionlessFixture::new();
+    let missing = fixture.daemon_project.join("no-such-dir");
+    let missing = missing.to_str().unwrap();
+
+    let config = fixture
+        .call(
+            "get_current_config",
+            json!({}),
+            &[("x-codelens-project", missing)],
+            None,
+        )
+        .await;
+
+    let data = config.get("data").unwrap_or(&config);
+    assert_eq!(
+        data["project_root"],
+        fixture.daemon_project.to_str().unwrap(),
+        "{config:#}"
+    );
+}
+
+#[tokio::test]
+async fn an_explicit_prepare_of_a_missing_project_still_fails() {
+    let fixture = SessionlessFixture::new();
+    let missing = fixture.daemon_project.join("no-such-dir");
+
+    let prepared = fixture
+        .call(
+            "prepare_harness_session",
+            json!({"project": missing.to_str().unwrap(), "detail": "compact"}),
+            &[],
+            None,
+        )
+        .await;
+
+    assert_ne!(prepared["success"], true, "{prepared:#}");
+}

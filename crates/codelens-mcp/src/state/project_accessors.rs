@@ -131,6 +131,16 @@ impl AppState {
         Ok(Some(context))
     }
 
+    /// Whether `path` passes the root checks a binding applies (marker
+    /// detection, the home and markerless policies, the home guard) without
+    /// building anything.
+    #[cfg(feature = "http")]
+    pub(crate) fn project_scope_resolves(&self, path: &str) -> bool {
+        codelens_engine::ProjectRoot::new(path).is_ok_and(|project| {
+            super::project_runtime::home_binding_guard(project.as_path()).is_ok()
+        })
+    }
+
     /// Bind the CURRENT REQUEST (thread) to `path`, returning an RAII guard
     /// that restores the previous binding on drop. Never touches the global
     /// `project_override`, so concurrent sessions on different projects

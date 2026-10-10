@@ -172,11 +172,45 @@ requests for one session cannot execute against each other's workspace.
 `prepare_harness_session` reports the resolved path as
 `project.effective_project`, its owner as `project.binding_source`, and the
 binding lifetime in `project.persistence_semantics`. Explicit tool and initialize
-bindings persist across calls for the live HTTP session, but must be established
-again after session resurrection or daemon restart. A repeated
-`x-codelens-project` header re-establishes a header-owned binding during
+bindings persist across calls for the live HTTP session and are restored from the
+session journal after an idle expiry or a daemon restart (see
+[runtime-knobs.md](runtime-knobs.md#session-journal-codelens_session_journal-default-on)).
+A repeated `x-codelens-project` header re-establishes a header-owned binding during
 resurrection; the response carries `x-codelens-session-resurrected: 1` when that
-fallback occurs.
+fallback occurs. A header path that does not resolve to a project root (the home
+directory, a missing path, or an unmarked folder when
+`CODELENS_ALLOW_MARKERLESS_ROOT=0`) is treated as no binding and the request uses
+the daemon's project; an explicit `project=` with such a path still fails.
+
+### Binding Claude Code sessions to their launch directory
+
+Claude Code expands `${VAR}` in MCP `headers`, so one user-scope entry can send
+each session's launch directory:
+
+```json
+"codelens": {
+  "type": "http",
+  "url": "http://127.0.0.1:7838/mcp",
+  "headers": {
+    "x-codelens-client": "claude-code",
+    "x-codelens-project": "${PWD}"
+  }
+}
+```
+
+Measured 2026-10-10 with Claude Code 2.1.296 against a header-capturing stub: a
+session started in `~/panda-alert-skin` sent
+`x-codelens-project: /Users/bagjaeseog/panda-alert-skin`, first on
+`server/discover` (with `MCP-Protocol-Version: 2026-07-28`) and then, after the
+stub's 400, on `initialize`. A subdirectory resolves to the enclosing project root.
+
+Before adopting it:
+
+- Deploy a daemon that degrades unresolvable header paths (above). An older daemon
+  fails every call of a session launched in `$HOME`.
+- Set `CODELENS_ALLOW_MARKERLESS_ROOT=0` in the daemon's environment. Markerless
+  directories are accepted by default, so a session launched in, say, `~/Downloads`
+  would otherwise index that whole folder.
 
 Manual fallback (if the script is unavailable):
 
