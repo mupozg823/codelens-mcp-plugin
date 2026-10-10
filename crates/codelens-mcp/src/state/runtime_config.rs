@@ -1,4 +1,7 @@
-use crate::analysis_queue::{HTTP_ANALYSIS_WORKER_COUNT, STDIO_ANALYSIS_WORKER_COUNT};
+use crate::analysis_queue::{
+    HTTP_ANALYSIS_COST_BUDGET, HTTP_ANALYSIS_WORKER_COUNT, STDIO_ANALYSIS_COST_BUDGET,
+    STDIO_ANALYSIS_WORKER_COUNT,
+};
 use crate::client_profile::{ClientProfile, EffortLevel};
 use crate::runtime_types::{RuntimeDaemonMode, RuntimeTransportMode};
 use crate::state::AppState;
@@ -115,8 +118,8 @@ impl AppState {
 
     pub(crate) fn analysis_cost_budget(&self) -> usize {
         match self.transport_mode() {
-            RuntimeTransportMode::Http | RuntimeTransportMode::Https => 3,
-            RuntimeTransportMode::Stdio => 2,
+            RuntimeTransportMode::Http | RuntimeTransportMode::Https => HTTP_ANALYSIS_COST_BUDGET,
+            RuntimeTransportMode::Stdio => STDIO_ANALYSIS_COST_BUDGET,
         }
     }
 
