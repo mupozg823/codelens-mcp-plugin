@@ -5,7 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+pub(crate) mod compact;
 mod ops;
+
+pub use compact::CompactReport;
 
 #[cfg(test)]
 mod tests;
@@ -192,9 +195,12 @@ impl IndexDb {
             // its placement after `busy_timeout` is harmless. `mmap_size`/
             // `cache_size`/`wal_autocheckpoint` are tuned for the 1+ GB
             // symbol index on 16 KB Apple Silicon pages (cold-start page-
-            // fault burst was the main pain point).
+            // fault burst was the main pain point). `auto_vacuum` must come
+            // before `journal_mode = WAL`: switching to WAL writes the header,
+            // after which the auto-vacuum mode can no longer change, so the old
+            // order left every index without it (see `compact`).
             conn.execute_batch(
-                "PRAGMA busy_timeout = 30000; PRAGMA page_size = 16384; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000; PRAGMA auto_vacuum = INCREMENTAL;",
+                "PRAGMA busy_timeout = 30000; PRAGMA page_size = 16384; PRAGMA auto_vacuum = INCREMENTAL; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000;",
             )?;
             let pragmas = started.elapsed();
             let mut db = Self {
@@ -221,6 +227,17 @@ impl IndexDb {
             }
             Ok(db)
         })
+    }
+
+    /// Give back free pages left by deleted rows once they are at least a
+    /// quarter of the file and 16 MiB. Call outside a transaction, from the
+    /// process holding the project's writer lease.
+    pub fn compact_if_mostly_free(&self) -> Result<Option<CompactReport>> {
+        compact::compact_if_mostly_free(
+            &self.conn,
+            compact::MIN_FREE_RATIO,
+            compact::MIN_FREE_BYTES,
+        )
     }
 
     /// Open existing database in read-only mode (no migration, no WAL creation).

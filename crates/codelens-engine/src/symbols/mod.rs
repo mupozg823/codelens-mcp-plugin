@@ -133,6 +133,16 @@ impl SymbolIndex {
             .unwrap_or(false)
     }
 
+    /// Give back the free pages deleted rows left in a persistent index (see
+    /// `IndexDb::compact_if_mostly_free`). Call from the writer-lease holder,
+    /// not during a refresh.
+    pub fn compact_if_mostly_free(&self) -> Result<Option<crate::db::CompactReport>> {
+        match &self.storage {
+            IndexStorage::Persistent(_) => self.writer().compact_if_mostly_free(),
+            _ => Ok(None),
+        }
+    }
+
     /// Monotonic process-local generation for successful index mutations.
     /// Ticket allocation, read fast paths, failed writes, and no-op writes do not advance it.
     pub fn committed_generation(&self) -> u64 {
