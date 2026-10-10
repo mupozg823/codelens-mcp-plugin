@@ -101,7 +101,11 @@ fn origin_is_permitted(headers: &HeaderMap) -> bool {
 
 /// Spec §"Protocol Version Header": clients MUST send `MCP-Protocol-Version`
 /// on every request after initialize. When absent we fall back to `2025-03-26`
-/// for legacy clients; when present but unsupported we reply 400.
+/// for legacy clients; when present but unsupported we reply 400. That 400
+/// keeps a plain-text body: it is how a 2026-07-28 client (Claude Code sends
+/// `server/discover` first) learns to fall back to `initialize`, and a
+/// JSON-RPC error body would stop the fallback. See
+/// `docs/design/mcp-2026-07-28-adoption.md`.
 fn protocol_version_header_ok(headers: &HeaderMap) -> bool {
     match headers
         .get("mcp-protocol-version")

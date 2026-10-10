@@ -1236,6 +1236,31 @@ fn tools_list_carries_cacheable_result_hints() {
     assert_eq!(value["result"]["cacheScope"], json!("private"));
 }
 
+/// On stdio a dual-era client probes with `server/discover` and falls back to
+/// `initialize` on "any other error", but must not fall back on a recognized
+/// 2026-07-28 error such as `-32022` (spec §stdio, Backward Compatibility).
+/// Until this server speaks 2026-07-28, discover stays an unknown method.
+#[test]
+fn server_discover_stays_an_unknown_method_until_2026_07_28_lands() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(0)),
+            method: "server/discover".to_owned(),
+            params: Some(json!({"_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }})),
+        },
+    )
+    .expect("server/discover is a request and gets a response");
+    let value = serde_json::to_value(&response).expect("serialize");
+    assert_eq!(value["error"]["code"], json!(-32601));
+}
+
 #[test]
 fn deferred_tools_list_omits_output_schema_by_default() {
     let project = project_root();
