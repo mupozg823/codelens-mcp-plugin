@@ -17,7 +17,7 @@ approval, and mutation; CodeLens owns the evidence those decisions rest on.
 - The native `LSP` tool (off by default, one locally installed server per
   language) covers single-file definition and diagnostics; CodeLens covers
   cross-file references, impact, architecture, and hosts without a server.
-- Bind with real host facts: `prepare_harness_session(project=<root>,
+- When you do bind, pass real host facts: `prepare_harness_session(project=<root>,
   host_context="claude-code", host_capabilities={{native_tool_search: true,
   native_edit: true, native_worktrees: true, approval_or_elicitation: true}})`.
 

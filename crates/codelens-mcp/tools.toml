@@ -1328,7 +1328,7 @@ category = "session"
 namespace = "session"
 default_visible_rank = 10
 preset_tags = ["minimal", "planner-readonly", "builder-minimal", "reviewer-graph"]
-description = "[CodeLens:Session] Official bootstrap/status entrypoint for harnesses — pass project=<absolute repo path> on first use to bind the daemon to that project's symbol index, graph/LSP runtime, analysis cache, and SCIP precise index; then summarize surface, capabilities, visible tools, and optionally auto-recover a stale index in one call."
+description = "[CodeLens:Session] Bootstrap/status entrypoint for harnesses — binds the session to project=<absolute repo path> (its symbol index, graph/LSP runtime, analysis cache, and SCIP precise index) and summarizes surface, capabilities, visible tools, optionally auto-recovering a stale index, in one call. Not needed when the host already bound the session through `?project=` or `x-codelens-project`; call it when a response carries a `project_binding` hint or to switch projects."
 annotations = "mutating"
 output_schema = "prepare_harness_session_output_schema"
 

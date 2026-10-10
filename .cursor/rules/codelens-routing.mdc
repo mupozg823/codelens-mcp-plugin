@@ -12,8 +12,10 @@ approval, and mutation; CodeLens owns the evidence those decisions rest on.
 
 - Use native reads and text search for exact lookups and local edits. Use
   CodeLens when references, call paths, or multi-file impact replace wider scans.
-- Bind once with `prepare_harness_session(project=<absolute-root>, detail=compact)`;
-  check the effective project, then reuse the session until binding changes.
+- A host that sends its launch directory (`?project=` on the endpoint URL or
+  `x-codelens-project`) has already bound the session. Call
+  `prepare_harness_session(project=<absolute-root>, detail=compact)` only when a
+  response carries a `project_binding` hint or to switch projects.
 - Call only tools available to this host. Use native tool search when supported
   to discover a needed tool; do not assume server visibility bypasses a host allowlist.
 - Keep evidence bounded to relevant files, symbols, and source locations. Reuse
