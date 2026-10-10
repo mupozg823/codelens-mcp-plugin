@@ -239,6 +239,17 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
     }
 
     // Fall back to LSP diagnostics.
+    // A missing file is a bad request whichever checker would have run, so it
+    // fails here rather than depending on whether a language server is
+    // installed (an absent server would otherwise degrade it to "unchecked").
+    if let Ok(resolved) = state.project().resolve(&file_path)
+        && !resolved.exists()
+    {
+        return Err(CodeLensError::NotFound(format!(
+            "file not found: {file_path}"
+        )));
+    }
+
     // A server the caller named explicitly is a request: its failure (including
     // an unregistered binary) is reported as an error, never degraded.
     let explicit_command = optional_string(arguments, "command").is_some();
