@@ -1203,11 +1203,17 @@ async fn prepare_harness_session_expands_tools_list_surface() {
             .any(|name| name == "get_symbols_overview"),
         "post-bootstrap listing must expose overview tooling: {expanded_names:?}"
     );
+    // Both listings are capped at the CORE-20, so a count comparison only held
+    // while the bootstrap happened to have fewer entries (without `semantic`,
+    // `semantic_search` is missing and it lists 19). What #357 needs is that
+    // tools hidden at bootstrap become visible.
+    let newly_visible: Vec<&String> = expanded_names
+        .iter()
+        .filter(|name| !bootstrap_names.contains(name))
+        .collect();
     assert!(
-        expanded_names.len() > bootstrap_names.len(),
-        "surface must expand past the bootstrap subset ({} -> {})",
-        bootstrap_names.len(),
-        expanded_names.len()
+        !newly_visible.is_empty(),
+        "prepare_harness_session must expose tools the bootstrap hid: bootstrap={bootstrap_names:?} expanded={expanded_names:?}"
     );
 }
 
