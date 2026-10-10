@@ -176,6 +176,21 @@ fn unsupported_diagnostics_reason(file_path: &str) -> String {
     }
 }
 
+/// Whether an LSP failure means the default checker could not run: its binary
+/// is missing, it failed to initialize (e.g. no TypeScript installation in the
+/// workspace), it never published diagnostics, or it timed out. Anything else,
+/// such as a missing file or a path outside the project, is a bad request and
+/// stays an error.
+fn lsp_unavailable(error: &CodeLensError) -> bool {
+    match error {
+        CodeLensError::LspNotAttached(_) | CodeLensError::Timeout { .. } => true,
+        CodeLensError::LspError(message) => {
+            message.contains("initialize failed") || message.contains("published no diagnostics")
+        }
+        _ => false,
+    }
+}
+
 pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     const FILE_DIAGNOSTICS_KNOWN_ARGS: &[&str] = &[
         "path",
@@ -224,6 +239,20 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
     }
 
     // Fall back to LSP diagnostics.
+    // A missing file is a bad request whichever checker would have run, so it
+    // fails here rather than depending on whether a language server is
+    // installed (an absent server would otherwise degrade it to "unchecked").
+    if let Ok(resolved) = state.project().resolve(&file_path)
+        && !resolved.exists()
+    {
+        return Err(CodeLensError::NotFound(format!(
+            "file not found: {file_path}"
+        )));
+    }
+
+    // A server the caller named explicitly is a request: its failure (including
+    // an unregistered binary) is reported as an error, never degraded.
+    let explicit_command = optional_string(arguments, "command").is_some();
     let Some(command) = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_file(state, &file_path))
@@ -250,7 +279,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
 
     let command_ref = command.clone();
     let request_file_path = file_path.clone();
-    state
+    let result = state
         .lsp_pool()
         .get_diagnostics(&LspDiagnosticRequest {
             command,
@@ -258,27 +287,50 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
             file_path,
             max_results,
         })
-        .map_err(|e| enhance_lsp_error(e, &command_ref))
-        .map(|value| {
-            let (diagnostics, suppressed) =
-                postprocess_lsp_diagnostics(&state.project(), &request_file_path, value);
+        .map_err(|e| enhance_lsp_error(e, &command_ref));
+    let value = match result {
+        Ok(value) => value,
+        // Same read-surface contract as navigation and symbol diagnostics: a
+        // checker that cannot run is reported, not raised. Over 14 days this
+        // was the largest group of failed CodeLens calls (TypeScript servers
+        // that could not find a TypeScript installation, mostly).
+        Err(error) if !explicit_command && lsp_unavailable(&error) => {
+            let reason = format!("LSP unavailable for diagnostics: {error}");
             let mut payload = json!({
-                "diagnostics": diagnostics,
-                "count": diagnostics.len(),
-                "checked": true,
+                "diagnostics": [],
+                "checked": false,
                 "backend": "lsp",
+                "degraded_reason": reason,
+                "fallback_hint": [
+                    "Run the project's own type checker or build for this file (for example `tsc --noEmit`, `cargo check`)."
+                ],
             });
-            if !suppressed.is_empty() {
-                payload["suppressed_diagnostics"] = json!(suppressed);
-                payload["suppressed_diagnostics_count"] = json!(
-                    payload["suppressed_diagnostics"]
-                        .as_array()
-                        .map_or(0, Vec::len)
-                );
-            }
             insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
-            (payload, success_meta(BackendKind::Lsp, 0.9))
-        })
+            return Ok((
+                payload,
+                crate::tool_runtime::degraded_meta(BackendKind::Lsp, 0.0, &reason),
+            ));
+        }
+        Err(error) => return Err(error),
+    };
+    let (diagnostics, suppressed) =
+        postprocess_lsp_diagnostics(&state.project(), &request_file_path, value);
+    let mut payload = json!({
+        "diagnostics": diagnostics,
+        "count": diagnostics.len(),
+        "checked": true,
+        "backend": "lsp",
+    });
+    if !suppressed.is_empty() {
+        payload["suppressed_diagnostics"] = json!(suppressed);
+        payload["suppressed_diagnostics_count"] = json!(
+            payload["suppressed_diagnostics"]
+                .as_array()
+                .map_or(0, Vec::len)
+        );
+    }
+    insert_response_annotations(&mut payload, &unknown_args, &deprecation_warnings);
+    Ok((payload, success_meta(BackendKind::Lsp, 0.9)))
 }
 
 /// D1 (#346 Phase 4): `get_file_diagnostics` narrowed to one symbol's
@@ -399,6 +451,40 @@ pub fn get_diagnostics_for_symbol(state: &AppState, arguments: &Value) -> ToolRe
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_checker_that_cannot_start_degrades_instead_of_failing() {
+        // Messages as they reached agents in the field.
+        for message in [
+            "LSP request failed (-32603): Request initialize failed with message: Could not find a valid TypeScript installation. Please ensure that the \"typescript\" dependency is installed",
+            "LSP server published no diagnostics for src/app.ts within 10s (it does not support pull diagnostics)",
+        ] {
+            assert!(
+                lsp_unavailable(&CodeLensError::LspError(message.to_owned())),
+                "{message}"
+            );
+        }
+        assert!(lsp_unavailable(&CodeLensError::LspNotAttached(
+            "LSP server 'typescript-language-server' not found".to_owned()
+        )));
+        assert!(lsp_unavailable(&CodeLensError::Timeout {
+            operation: "LSP pyright-langserver".to_owned(),
+            elapsed_ms: 30_000,
+        }));
+    }
+
+    #[test]
+    fn a_bad_request_still_fails() {
+        assert!(!lsp_unavailable(&CodeLensError::LspError(
+            "path escapes project root: /tmp/x.ts (root: /repo)".to_owned()
+        )));
+        assert!(!lsp_unavailable(&CodeLensError::LspError(
+            "LSP request failed: No such file: does/not/exist.py".to_owned()
+        )));
+        assert!(!lsp_unavailable(&CodeLensError::Validation(
+            "Missing required parameter: path".to_owned()
+        )));
+    }
 
     #[test]
     fn disabled_pyright_rules_on_line_parses_multiple_rules() {

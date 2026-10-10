@@ -149,6 +149,25 @@ fn returns_lsp_diagnostics_via_tool_call() {
 }
 
 #[test]
+fn get_file_diagnostics_fails_on_a_missing_file_without_a_language_server() {
+    // CSS has no language server, so before the existence check a missing file
+    // came back as a successful "unchecked" result; with an installed server
+    // it failed. The answer must not depend on what happens to be installed.
+    let project = project_root();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_file_diagnostics",
+        json!({ "path": "does/not/exist.css" }),
+    );
+    assert_eq!(payload["success"], json!(false), "{payload}");
+    assert!(
+        payload.to_string().contains("file not found"),
+        "a missing file must say so: {payload}"
+    );
+}
+
+#[test]
 fn get_file_diagnostics_rejects_unregistered_python_caller_without_spawning() {
     let project = project_root();
     fs::write(project.as_path().join("caller_guard.py"), "x = 1\n").unwrap();
