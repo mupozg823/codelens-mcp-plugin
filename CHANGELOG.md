@@ -91,6 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP 2026-07-28 adoption is mapped and its fallback pinned** — `docs/design/mcp-2026-07-28-adoption.md` records what Claude Code 2.1.296 does against a 2026-07-28 server (measured through a logging proxy): it drops every tool silently when results lack `resultType`, and a `prepare_harness_session` binding does not reach the next call because the version has no sessions. It lists the session state that becomes per-request, ranks the binding options, and gives the enabling checklist. Two tests now pin today's behaviour: the HTTP 400 for `MCP-Protocol-Version: 2026-07-28` keeps a plain-text body, and stdio `server/discover` stays `-32601`. A spec-shaped error in either place would stop dual-era clients from falling back to `initialize`.
+
 - **Calibrated suggestion gate (`judgement`)** — `suggested_next_tools` is judged against a ledger folded hourly, off the request path, from the usage log (28 days; followed = called within the next three calls). Emit only when labeled ≥ 50, follow rate ≥ 0.10 and lift over base rate ≥ 2.0. `CODELENS_SUGGESTION_GATE=off|shadow|enforce`, default `shadow` (responses unchanged, rows record `suggestion_gate_*`); `--calibration-report <log>` prints the same numbers offline. No pair passes today, hence shadow.
 - **`CODELENS_REQUIRE_EXPLICIT_BINDING=1`** — refuses reads on HTTP sessions without an explicit project binding with `project_binding_required`, as mutations already were. Off by default.
 
