@@ -68,8 +68,10 @@ approval, and mutation; CodeLens owns the evidence those decisions rest on.
 
 - Use native reads and text search for exact lookups and local edits. Use
   CodeLens when references, call paths, or multi-file impact replace wider scans.
-- Bind once with `prepare_harness_session(project=<absolute-root>, detail=compact)`;
-  check the effective project, then reuse the session until binding changes.
+- A host that sends its launch directory (`?project=` on the endpoint URL or
+  `x-codelens-project`) has already bound the session. Call
+  `prepare_harness_session(project=<absolute-root>, detail=compact)` only when a
+  response carries a `project_binding` hint or to switch projects.
 - Call only tools available to this host. Use native tool search when supported
   to discover a needed tool; do not assume server visibility bypasses a host allowlist.
 - Keep evidence bounded to relevant files, symbols, and source locations. Reuse
@@ -103,7 +105,7 @@ approval, and mutation; CodeLens owns the evidence those decisions rest on.
 - The native `LSP` tool (off by default, one locally installed server per
   language) covers single-file definition and diagnostics; CodeLens covers
   cross-file references, impact, architecture, and hosts without a server.
-- Bind with real host facts: `prepare_harness_session(project=<root>,
+- When you do bind, pass real host facts: `prepare_harness_session(project=<root>,
   host_context="claude-code", host_capabilities={native_tool_search: true,
   native_edit: true, native_worktrees: true, approval_or_elicitation: true})`.
 
