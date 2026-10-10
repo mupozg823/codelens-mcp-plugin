@@ -192,6 +192,7 @@ impl SessionSeed {
                 .and_then(|value| value.to_str().ok())
                 .and_then(parse_bool_header),
             client_name: header("x-codelens-client"),
+            client_version: header("x-codelens-client-version"),
             host_context: header("x-codelens-host-context"),
             project_path: project_header_value(headers),
             available_mcp_servers: csv_header_values(headers, "x-codelens-available-mcp-servers"),

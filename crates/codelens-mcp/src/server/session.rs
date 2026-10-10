@@ -123,6 +123,7 @@ pub struct SessionSeed {
     pub requested_profile: Option<String>,
     pub deferred_tool_loading: Option<bool>,
     pub client_name: Option<String>,
+    pub client_version: Option<String>,
     pub host_context: Option<String>,
     /// #351: workspace binding from `x-codelens-project`. Not
     /// privilege-bearing (it only scopes reads/indexing to the caller's
@@ -355,6 +356,9 @@ impl SessionState {
             if seed.client_name.is_some() {
                 metadata.client_name = seed.client_name.clone();
             }
+            if seed.client_version.is_some() {
+                metadata.client_version = seed.client_version.clone();
+            }
             if seed.host_context.is_some() {
                 metadata.host_context = seed.host_context.clone();
             }
@@ -530,6 +534,9 @@ pub struct SessionStore {
     /// Durable soft state, restored when a session is resurrected after an
     /// idle expiry or a daemon restart. `None` keeps sessions memory-only.
     journal: Option<super::session_journal::SessionJournal>,
+    /// Ids of sessions that exist for one sessionless HTTP request only; they
+    /// are never journaled and are removed when the request ends.
+    request_scoped: Mutex<std::collections::HashSet<String>>,
 }
 
 /// Active session bindings guarded against concurrent project-path mutation.
@@ -595,6 +602,7 @@ impl SessionStore {
             tombstone: Tombstone::new(Duration::from_secs(300), 256),
             policy: SessionPolicy::Lenient,
             journal: None,
+            request_scoped: Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -608,8 +616,50 @@ impl SessionStore {
     }
 
     fn journal_record(&self, id: &str, metadata: &SessionClientMetadata) {
+        if self.is_request_scoped(id) {
+            return;
+        }
         if let Some(journal) = self.journal.as_ref() {
             journal.record(id, metadata);
+        }
+    }
+
+    fn is_request_scoped(&self, id: &str) -> bool {
+        self.request_scoped
+            .lock()
+            .map(|ids| ids.contains(id))
+            .unwrap_or(false)
+    }
+
+    /// A session for one HTTP request that carried no `Mcp-Session-Id`,
+    /// seeded from that request's headers and `_meta`. Without it such
+    /// requests shared the "local" scope, so one caller's
+    /// `prepare_harness_session(project=..)` rebound every other sessionless
+    /// caller and request headers were ignored. Never journaled; the caller
+    /// removes it with [`Self::remove_request_scoped`] when the request ends.
+    /// `None` when the store is full of live sessions (never evicts one).
+    pub(crate) fn create_request_scoped(&self, seed: &SessionSeed) -> Option<Arc<SessionState>> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let session = Arc::new(SessionState::new(id.clone()));
+        session.apply_seed(seed);
+        let mut sessions = self.sessions.write().unwrap_or_else(|p| p.into_inner());
+        self.reap_expired(&mut sessions);
+        if sessions.len() >= Self::MAX_SESSIONS {
+            return None;
+        }
+        if let Ok(mut ids) = self.request_scoped.lock() {
+            ids.insert(id.clone());
+        }
+        sessions.insert(id, Arc::clone(&session));
+        Some(session)
+    }
+
+    pub(crate) fn remove_request_scoped(&self, id: &str) {
+        if let Ok(mut sessions) = self.sessions.write() {
+            sessions.remove(id);
+        }
+        if let Ok(mut ids) = self.request_scoped.lock() {
+            ids.remove(id);
         }
     }
 

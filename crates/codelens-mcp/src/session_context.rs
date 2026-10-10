@@ -66,6 +66,9 @@ pub(crate) struct SessionRequestContext {
     pub requested_profile: Option<String>,
     pub client_name: Option<String>,
     pub client_version: Option<String>,
+    /// The HTTP request carried no `Mcp-Session-Id`, so its session lives
+    /// for this request only (see `transport_http::RequestScopedSession`).
+    pub request_scoped: bool,
     /// L1 (ADR-0009 §1): principal id derived from the request channel
     /// (HTTP JWT `sub` claim or `X-Codelens-Principal` header). When
     /// present, the role gate uses this in preference to
@@ -99,6 +102,7 @@ impl SessionRequestContext {
             requested_profile: str_field(value, "_session_requested_profile"),
             client_name: str_field(value, "_session_client_name"),
             client_version: str_field(value, "_session_client_version"),
+            request_scoped: str_field(value, "_session_scope").as_deref() == Some("request"),
             principal_id: transport_authenticated
                 .then(|| str_field(value, "_session_principal_id"))
                 .flatten(),
@@ -107,6 +111,17 @@ impl SessionRequestContext {
 
     pub fn is_local(&self) -> bool {
         self.session_id == "local"
+    }
+
+    /// Session key for telemetry and per-session metrics. Request-scoped
+    /// sessions get a fresh id per request; keying metrics on it would grow
+    /// the per-session buckets without bound, so they share one key.
+    pub fn telemetry_session_id(&self) -> &str {
+        if self.request_scoped {
+            "request"
+        } else {
+            &self.session_id
+        }
     }
 
     pub fn is_transport_authenticated(&self) -> bool {

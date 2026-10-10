@@ -66,6 +66,19 @@ project, which is usually not the caller's repository.
   (`prepare_harness_session`, `get_current_config`, ...) stay callable so the
   caller can bind and retry.
 
+### Requests without `Mcp-Session-Id`
+
+An HTTP request that carries no `Mcp-Session-Id` (other than `initialize`)
+gets a session of its own that lasts for that request only. It is seeded
+from the request's headers (`x-codelens-project`, `x-codelens-client`,
+`x-codelens-client-version`, profile and host headers) and, when no header
+names the client, from `_meta["io.modelcontextprotocol/clientInfo"]`. It is
+never journaled and never returned as a session id. A
+`prepare_harness_session(project=...)` made this way binds that request only
+and says so with `binding_scope: "request"`. Keep the binding by sending
+`x-codelens-project` on every request or by initializing a session.
+Telemetry records these requests under the session id `request`.
+
 ### Session journal (`CODELENS_SESSION_JOURNAL`, default on)
 
 HTTP sessions keep their soft state in

@@ -477,6 +477,70 @@ pub(crate) async fn run_http(state: Arc<AppState>, config: HttpServerConfig) -> 
     Ok(())
 }
 
+/// Removes a request-scoped session when the request ends, on every path.
+struct RequestScopedSession {
+    state: Arc<AppState>,
+    id: String,
+}
+
+impl Drop for RequestScopedSession {
+    fn drop(&mut self) {
+        if let Some(store) = &self.state.session_store {
+            store.remove_request_scoped(&self.id);
+        }
+    }
+}
+
+/// Fill the seed's client identity from the request's `_meta` clientInfo
+/// (protocol 2026-07-28 sends it on every request) when no header named it.
+fn seed_client_from_request_meta(
+    seed: &mut crate::server::session::SessionSeed,
+    request: &JsonRpcRequest,
+) {
+    let Some(client_info) = request
+        .params
+        .as_ref()
+        .and_then(|params| params.get("_meta"))
+        .and_then(|meta| meta.get("io.modelcontextprotocol/clientInfo"))
+    else {
+        return;
+    };
+    let field = |key: &str| {
+        client_info
+            .get(key)
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    };
+    if seed.client_name.is_none() {
+        seed.client_name = field("name");
+    }
+    if seed.client_version.is_none() {
+        seed.client_version = field("version");
+    }
+}
+
+/// Tell the tool its session lasts only for this request, so a binding it
+/// makes can say so instead of looking persistent.
+fn mark_request_scoped(request: &mut JsonRpcRequest) {
+    if request.method != "tools/call" {
+        return;
+    }
+    if let Some(arguments) = request
+        .params
+        .as_mut()
+        .and_then(|params| params.as_object_mut())
+        .and_then(|params| params.get_mut("arguments"))
+        .and_then(|arguments| arguments.as_object_mut())
+    {
+        arguments.insert(
+            "_session_scope".to_owned(),
+            serde_json::Value::String("request".to_owned()),
+        );
+    }
+}
+
 // ── POST /mcp ─────────────────────────────────────────────────────────
 
 async fn mcp_post_handler(
@@ -570,6 +634,46 @@ async fn mcp_post_handler(
         }
     }
 
+    // A request without Mcp-Session-Id used to run as the shared "local"
+    // scope: one caller's `prepare_harness_session(project=..)` rebound every
+    // other sessionless caller, and `x-codelens-project`/`x-codelens-client`
+    // were ignored. Protocol 2026-07-28 drops sessions altogether, so each such
+    // request gets its own session, seeded from its headers and `_meta`, that
+    // lives exactly as long as the request.
+    let request_scoped = if !is_initialize
+        && session_id.is_none()
+        && matches!(
+            request.method.as_str(),
+            "tools/call" | "tools/list" | "resources/read"
+        )
+        && let Some(store) = &state.session_store
+    {
+        let mut seed = crate::server::session::SessionSeed::from_headers(&headers);
+        seed_client_from_request_meta(&mut seed, &request);
+        let Some(session) = store.create_request_scoped(&seed) else {
+            let resp = JsonRpcResponse::error(
+                request.id.clone(),
+                -32000,
+                "Too many active sessions to serve a sessionless request; retry shortly",
+            );
+            return into_mcp_response(resp, accept, None, state.daemon_mode().as_str());
+        };
+        // Like a resurrected session (#252): without a profile header the
+        // request gets the daemon's startup surface, not the Balanced default
+        // of a new SessionState.
+        if seed.requested_profile.is_none() {
+            session.set_surface(*state.surface());
+            session.set_token_budget(state.token_budget());
+        }
+        Some(RequestScopedSession {
+            state: Arc::clone(&state),
+            id: session.id.clone(),
+        })
+    } else {
+        None
+    };
+    let session_id = session_id.or_else(|| request_scoped.as_ref().map(|scoped| scoped.id.clone()));
+
     // Inject session metadata into request params based on method. A captured
     // project remains pinned against runtime-cache eviction through dispatch.
     let mut request_project_pin = None;
@@ -614,6 +718,9 @@ async fn mcp_post_handler(
             return unknown_session_response();
         }
     }
+    if request_scoped.is_some() {
+        mark_request_scoped(&mut request);
+    }
 
     // Populate the final metadata container only after any session injection
     // has run. Provenance itself is carried by the execution scope below, never
@@ -628,7 +735,9 @@ async fn mcp_post_handler(
         // Keep the captured project pinned inside the blocking task itself.
         // If the HTTP handler future is cancelled, Tokio detaches this task;
         // ownership here still protects the project until dispatch completes.
+        // The request-scoped session is removed only after dispatch, likewise.
         let _request_project_pin = request_project_pin;
+        let _request_scoped = request_scoped;
         crate::session_context::with_http_transport_context(|| {
             handle_request(&state_clone, request)
         })

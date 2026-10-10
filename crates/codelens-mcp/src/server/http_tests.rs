@@ -131,4 +131,5 @@ mod project_binding_precedence_tests;
 mod protocol_tests;
 mod protocol_version_tests;
 mod session_store_tests;
+mod sessionless_tests;
 mod tools_list_tests;
