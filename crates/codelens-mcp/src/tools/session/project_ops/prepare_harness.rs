@@ -294,7 +294,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         overlay_preferred_entrypoints: &overlay_plan.preferred_entrypoints,
         host_available_mcp_tools: host_environment.available_mcp_tools_snapshot(),
     });
-    let result = response::prepare_harness_response(response::PrepareHarnessResponseInput {
+    let mut result = response::prepare_harness_response(response::PrepareHarnessResponseInput {
         detail,
         state,
         request: &request,
@@ -312,8 +312,29 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         host_environment: &host_environment,
         routing: &routing,
     })?;
+    mark_request_scoped_binding(arguments, &mut result);
 
     Ok((result, success_meta(BackendKind::Session, 1.0)))
+}
+
+/// A request without an MCP session binds only itself. Say so, or the caller
+/// believes the project stays bound and silently reads the daemon's default
+/// project on its next call.
+fn mark_request_scoped_binding(arguments: &serde_json::Value, payload: &mut serde_json::Value) {
+    if !crate::session_context::SessionRequestContext::from_json(arguments).request_scoped {
+        return;
+    }
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("binding_scope".to_owned(), json!("request"));
+        map.insert(
+            "binding_hint".to_owned(),
+            json!(
+                "This request carried no MCP session, so its project binding ends with it. \
+                 Send `x-codelens-project` on every request, or initialize an MCP session \
+                 to keep the binding."
+            ),
+        );
+    }
 }
 
 /// `prepare_harness_session` result while the project's runtime is still
@@ -338,16 +359,18 @@ fn binding_in_progress(
         let _ = (state, arguments, bind_session);
         false
     };
+    let mut payload = serde_json::json!({
+        "activated": false,
+        "binding_status": "building",
+        "project": {"requested_project": project},
+        "session_bound": session_bound,
+        "retry_after_ms": 5000,
+        "reason": message,
+        "next_step": "Call prepare_harness_session again with the same project in a few seconds. Until the build finishes, project tools return the retryable index_not_ready error; native Read/Grep work meanwhile.",
+    });
+    mark_request_scoped_binding(arguments, &mut payload);
     (
-        serde_json::json!({
-            "activated": false,
-            "binding_status": "building",
-            "project": {"requested_project": project},
-            "session_bound": session_bound,
-            "retry_after_ms": 5000,
-            "reason": message,
-            "next_step": "Call prepare_harness_session again with the same project in a few seconds. Until the build finishes, project tools return the retryable index_not_ready error; native Read/Grep work meanwhile.",
-        }),
+        payload,
         crate::tool_runtime::success_meta(crate::protocol::BackendKind::Config, 1.0),
     )
 }

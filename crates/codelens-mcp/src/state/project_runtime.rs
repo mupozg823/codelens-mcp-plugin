@@ -261,6 +261,7 @@ pub(super) fn home_binding_guard(candidate: &Path) -> Result<(), CodeLensError> 
 /// default project — a session explicitly bound to it must not observe
 /// another session's `project_override`. `Context` pins a specific
 /// project runtime resolved from the context cache.
+#[derive(Clone)]
 pub(crate) enum RequestProjectBinding {
     Default,
     Context(Arc<ProjectContext>),
@@ -295,6 +296,18 @@ impl Drop for RequestProjectGuard {
 
 pub(super) fn bind_request_project(binding: RequestProjectBinding) -> RequestProjectGuard {
     let previous = REQUEST_PROJECT_BINDING.with(|cell| cell.borrow_mut().replace(binding));
+    RequestProjectGuard { previous }
+}
+
+/// A guard that changes nothing now and restores the current binding on drop.
+/// A session with no project yet gets this one from `ensure_session_project`,
+/// so a mid-request `rebind_request_project` (its own `activate_project`)
+/// cannot outlive the request on this pooled thread: before, the next request
+/// on the thread inherited that project (2026-10-10, sessionless and unbound
+/// sessions alike).
+#[cfg(feature = "http")]
+pub(super) fn preserve_request_project() -> RequestProjectGuard {
+    let previous = REQUEST_PROJECT_BINDING.with(|cell| cell.borrow().clone());
     RequestProjectGuard { previous }
 }
 
