@@ -148,17 +148,33 @@ pub(super) fn ensure_session_project(
     session: &SessionRequestContext,
 ) -> Result<Option<crate::state::project_runtime::RequestProjectGuard>, CodeLensError> {
     let mut bound_project_opt = session.project_path.clone();
+    let mut binding_source = session.project_binding_source.clone();
     if bound_project_opt.is_none()
         && !session.is_local()
         && let Some(session_state) = http_session_state(state, session)
     {
-        bound_project_opt = session_state.client_metadata().project_path;
+        let metadata = session_state.client_metadata();
+        bound_project_opt = metadata.project_path;
+        binding_source = Some(metadata.project_binding_source.as_str().to_owned());
     }
     let Some(bound_project) = bound_project_opt.as_deref() else {
         // Still scope the request: a binding this request makes for itself
         // must end with it.
         return Ok(Some(super::project_runtime::preserve_request_project()));
     };
+    // A header names the caller's working directory (`${PWD}` from a host
+    // launched there), which may be $HOME or a folder that is no project.
+    // That means "no project here", not an error on every call. An explicit
+    // binding (initialize, prepare/activate) still fails loudly.
+    if binding_source.as_deref() == Some("request_header")
+        && !state.project_scope_resolves(bound_project)
+    {
+        tracing::debug!(
+            project = bound_project,
+            "header project does not resolve to a project root; using the daemon's project"
+        );
+        return Ok(Some(super::project_runtime::preserve_request_project()));
+    }
     // #357: bind the request thread to the session's project instead of
     // switching the daemon-global override under a global mutex. Concurrent
     // sessions bound to different projects no longer serialize on one lock,
