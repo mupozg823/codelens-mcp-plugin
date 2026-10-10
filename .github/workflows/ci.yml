@@ -125,6 +125,13 @@ jobs:
       - name: cargo clippy (semantic-off)
         run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 
+      # The launchd daemons are built with `http,semantic` (plus `coreml` on
+      # macOS). Each feature is linted and tested alone above, but the
+      # combination was never run, and a test that only fails with both on
+      # sat red on main unnoticed (2026-10-11).
+      - name: cargo clippy (http,semantic — daemon feature set)
+        run: cargo clippy --workspace --all-targets --features http,semantic -- -D warnings
+
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
@@ -139,6 +146,9 @@ jobs:
 
       - name: cargo test (semantic-off)
         run: cargo nextest run --workspace --no-default-features
+
+      - name: cargo test (http,semantic — daemon feature set)
+        run: cargo nextest run --workspace --features http,semantic
 
       # v1.12.0: explicit call-graph accuracy gate. The
       # `call_graph_accuracy_meets_threshold` integration test is
