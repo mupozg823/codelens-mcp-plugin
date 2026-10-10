@@ -259,6 +259,7 @@ pub(crate) fn semantic_search_output_schema() -> serde_json::Value {
                     "requested_query": {"type": "string"},
                     "semantic_query": {"type": "string"},
                     "path_hint": {"type": ["string", "null"]},
+                    "semantic_lane": {"type": "string", "enum": ["ok", "failed"]},
                     "lexical_lane": {"type": "string", "enum": ["ok", "failed"]}
                 }
             },

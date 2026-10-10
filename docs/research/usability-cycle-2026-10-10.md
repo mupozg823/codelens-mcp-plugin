@@ -112,6 +112,8 @@ Durable fixes, both the user's call: sign the daemon with a stable identity (a s
 
 Next: check whether CoreML and ONNX embeddings rank the same on a fixed query set, and replace the single-query upstream expectation with a small query set per project.
 
+**Correction (later the same day).** The backend explanation above is wrong. At the pinned revision, the release binary on CoreML, the same binary forced to CPU (`CODELENS_EMBED_PROVIDER=cpu`) and CI on Linux return the same eight results with the same scores to four decimals (`from_borrowed` 0.2063 first). The embedding lane contributed nothing. The smoke passes `path_hint: "src"`, and the scoped vector query filtered `file_path` by a range. sqlite-vec 0.1.9 fails that query with "Could not filter metadata fields" when the partition holds a path of exactly 12 bytes; serde-json has `src/error.rs`. `unwrap_or_default` turned the error into an empty lane. Without `path_hint` the same index ranked `serialize_*` methods first. After the fix the scoped lane is `ok`, but `serialize_bool` ranks 28th. The expectation pins one of about fifteen near-identical `serialize_*` siblings, and `to_string` ("Serialize the given data structure as a String of JSON") is not in the top 40, because its leading `///` doc never reaches the embedding text: 4.3% of serde-json's Rust symbols and 2.8% of this repository's carry `doc=present`. That is the next fix.
+
 
 ## 9. Session state across a restart, and the signing identity (a55ad0b, 2026-10-10)
 

@@ -19,6 +19,8 @@ use super::{embedding_to_bytes, ffi};
 
 pub(super) const EMBEDDING_STORE_SCHEMA_VERSION: i64 = 2;
 const MAX_SCORED_CHUNK_LOOKUP_BATCH: usize = 128;
+/// sqlite-vec rejects a KNN query with `k` above this.
+const MAX_KNN_K: usize = 4096;
 
 pub(super) struct SqliteVecStore {
     db: Mutex<Connection>,
@@ -387,98 +389,88 @@ impl SqliteVecStore {
             return Ok(Vec::new());
         }
 
+        // The KNN query filters on the partition key only. A range filter on
+        // the `file_path` metadata column (`>= 'src/' AND < 'src0'`) makes
+        // sqlite-vec 0.1.9 fail the whole query with "Could not filter
+        // metadata fields" as soon as the partition holds a path of exactly
+        // 12 bytes (`src/error.rs`, `src/index.ts`), and that error left every
+        // scoped semantic search with no embedding hits (2026-10-10, serde-json).
+        // Paths below the top-level component are filtered here instead; the
+        // KNN order is kept, so the first `top_k` in-scope rows are the answer.
         let partition_scope = file_scope_for_path(&scope);
+        let scope_prefix = format!("{scope}/");
+        let in_scope = |path: &str| path == scope || path.starts_with(&scope_prefix);
         let query_bytes = embedding_to_bytes(query_vec);
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
-        let mut scoped_results = Vec::new();
 
-        scoped_results.extend(Self::query_scoped_exact(
-            &db,
-            &query_bytes,
-            top_k,
-            &partition_scope,
-            &scope,
-        )?);
+        // A top-level scope is the whole partition.
+        let mut k = if scope == partition_scope {
+            top_k
+        } else {
+            top_k.saturating_mul(8)
+        };
+        loop {
+            let k_capped = k.min(MAX_KNN_K);
+            let candidates =
+                Self::query_partition_knn(&db, &query_bytes, k_capped, &partition_scope)?;
+            let partition_exhausted = candidates.len() < k_capped;
+            let mut scoped: Vec<ScoredChunk> = candidates
+                .into_iter()
+                .filter(|chunk| in_scope(&chunk.file_path))
+                .collect();
+            if scoped.len() >= top_k || partition_exhausted {
+                scoped.truncate(top_k);
+                return Ok(scoped);
+            }
+            if k_capped == MAX_KNN_K {
+                break;
+            }
+            k = k_capped.saturating_mul(4);
+        }
 
-        let scope_prefix = format!("{scope}/");
-        let scope_upper_bound = prefix_upper_bound(&scope_prefix);
-        scoped_results.extend(Self::query_scoped_prefix(
-            &db,
-            &query_bytes,
-            top_k,
-            &partition_scope,
-            &scope_prefix,
-            &scope_upper_bound,
-        )?);
-
-        let mut seen = HashSet::new();
-        scoped_results.retain(|chunk| {
-            seen.insert((
-                chunk.file_path.clone(),
-                chunk.symbol_name.clone(),
-                chunk.line,
-                chunk.signature.clone(),
-                chunk.name_path.clone(),
-            ))
-        });
-        scoped_results.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        scoped_results.truncate(top_k);
-        Ok(scoped_results)
-    }
-
-    fn query_scoped_exact(
-        db: &Connection,
-        query_bytes: &[u8],
-        top_k: usize,
-        partition_scope: &str,
-        file_path: &str,
-    ) -> Result<Vec<ScoredChunk>> {
+        // A partition past sqlite-vec's KNN limit with the scope a small
+        // corner of it: rank the partition directly. The OR keeps SQLite from
+        // handing the range to vec0, which is what fails.
         let mut stmt = db.prepare(
-            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, v.distance
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path,
+                    vec_distance_l2(v.embedding, ?1) AS distance
              FROM vec_symbols v
              JOIN symbols s ON s.id = v.rowid
-             WHERE v.embedding MATCH ?1 AND k = ?2
-               AND v.file_scope = ?3
-               AND v.file_path = ?4
-             ORDER BY v.distance",
-        )?;
-        Self::collect_scored_chunks(
-            &mut stmt,
-            rusqlite::params![query_bytes, top_k as i64, partition_scope, file_path],
-        )
-    }
-
-    fn query_scoped_prefix(
-        db: &Connection,
-        query_bytes: &[u8],
-        top_k: usize,
-        partition_scope: &str,
-        scope_prefix: &str,
-        scope_upper_bound: &str,
-    ) -> Result<Vec<ScoredChunk>> {
-        let mut stmt = db.prepare(
-            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, v.distance
-             FROM vec_symbols v
-             JOIN symbols s ON s.id = v.rowid
-             WHERE v.embedding MATCH ?1 AND k = ?2
-               AND v.file_scope = ?3
-               AND v.file_path >= ?4
-               AND v.file_path < ?5
-             ORDER BY v.distance",
+             WHERE v.file_scope = ?2
+               AND (v.file_path = ?3 OR (v.file_path >= ?4 AND v.file_path < ?5))
+             ORDER BY distance
+             LIMIT ?6",
         )?;
         Self::collect_scored_chunks(
             &mut stmt,
             rusqlite::params![
                 query_bytes,
-                top_k as i64,
                 partition_scope,
+                scope,
                 scope_prefix,
-                scope_upper_bound
+                prefix_upper_bound(&scope_prefix),
+                top_k as i64
             ],
+        )
+    }
+
+    fn query_partition_knn(
+        db: &Connection,
+        query_bytes: &[u8],
+        k: usize,
+        partition_scope: &str,
+    ) -> Result<Vec<ScoredChunk>> {
+        let mut stmt = db.prepare(
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, v.distance
+             FROM vec_symbols v
+             JOIN symbols s ON s.id = v.rowid
+             WHERE v.embedding MATCH ?1 AND k = ?2
+               AND v.file_scope = ?3
+             ORDER BY v.distance",
+        )?;
+        Self::collect_scored_chunks(
+            &mut stmt,
+            rusqlite::params![query_bytes, k as i64, partition_scope],
         )
     }
 

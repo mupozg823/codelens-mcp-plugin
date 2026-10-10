@@ -157,6 +157,55 @@ fn semantic_search_respects_path_hint_scope() -> std::io::Result<()> {
 }
 
 #[test]
+fn a_scoped_search_keeps_the_embedding_lane_beside_a_twelve_byte_path() -> std::io::Result<()> {
+    // `src/error.py` is 12 bytes. sqlite-vec failed the scoped KNN query on
+    // it, and both scoped searches quietly fell back to lexical ranking;
+    // the path-only check above stays green either way.
+    if !embedding_model_available_for_test() {
+        return Ok(());
+    }
+
+    let project = project_root();
+    std::fs::create_dir_all(project.as_path().join("src"))?;
+    std::fs::create_dir_all(project.as_path().join("tests"))?;
+    std::fs::write(
+        project.as_path().join("src/error.py"),
+        "def raise_parse_error(message):\n    raise ValueError(message)\n",
+    )?;
+    std::fs::write(
+        project.as_path().join("src/encode.py"),
+        "def encode_value_as_json(value):\n    return str(value)\n",
+    )?;
+    std::fs::write(
+        project.as_path().join("tests/encode.py"),
+        "def test_encode():\n    assert True\n",
+    )?;
+
+    let state = make_state(&project);
+    let _ = call_tool(&state, "refresh_symbol_index", json!({}));
+    let _ = call_tool(&state, "index_embeddings", json!({"background": false}));
+
+    let search = call_tool(
+        &state,
+        "semantic_search",
+        json!({"query": "encode a value as json text", "path_hint": "src", "max_results": 5}),
+    );
+    let data = tool_data(&search);
+    assert_eq!(data["retrieval"]["semantic_lane"], "ok", "{search:#?}");
+    assert!(data.get("degraded_reason").is_none(), "{search:#?}");
+
+    let ranked = call_tool(
+        &state,
+        "get_ranked_context",
+        json!({"query": "encode a value as json text", "path": "src"}),
+    );
+    let data = tool_data(&ranked);
+    assert_eq!(data["retrieval"]["semantic_lane"], "ok", "{ranked:#?}");
+    assert!(data.get("degraded_reason").is_none(), "{ranked:#?}");
+    Ok(())
+}
+
+#[test]
 fn embedding_coverage_report_infers_sha_for_clean_legacy_index() {
     if !embedding_model_available_for_test() {
         return;

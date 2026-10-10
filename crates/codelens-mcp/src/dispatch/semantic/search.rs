@@ -46,10 +46,10 @@ pub(in crate::dispatch) fn semantic_search_handler(
     } else {
         max_results.saturating_mul(4).clamp(max_results, 80)
     };
-    // The lexical lane used to fail silently (`unwrap_or_default`), which
-    // made a failed lane look like "no lexical matches". On serde-json the
-    // runs without lexical candidates ranked unrelated symbols first, while a
-    // run with them did not; say so when it happens.
+    // Both lanes used to fail silently (`unwrap_or_default`), so a failed
+    // lane looked like "no matches". A failing scoped embedding query left
+    // serde-json's `path_hint: "src"` searches ranked by lexical scores alone;
+    // say which lane failed when it happens.
     let (mut lexical_candidates, lexical_lane_error) =
         match codelens_engine::search::search_symbols_hybrid(
             &project,
@@ -74,13 +74,15 @@ pub(in crate::dispatch) fn semantic_search_handler(
         .iter()
         .map(|result| format!("{}:{}", result.file, result.name))
         .collect();
-    let mut results = crate::tools::semantic_retriever::semantic_results_for_query(
+    let semantic_lane = crate::tools::semantic_retriever::semantic_lane_for_query(
         state,
         query,
         candidate_limit,
         false,
         normalized_path_hint.as_deref(),
     );
+    let semantic_lane_error = semantic_lane.error;
+    let mut results = semantic_lane.results;
 
     for result in &mut results {
         let key = format!("{}:{}", result.file_path, result.symbol_name);
@@ -135,16 +137,28 @@ pub(in crate::dispatch) fn semantic_search_handler(
     });
     annotate_provenance(&mut payload, &result_scores);
     add_unknown_args_hint(&mut payload, &unknown_args, SEMANTIC_SEARCH_KNOWN_ARGS);
+    let lane_state = |error: &Option<String>| if error.is_some() { "failed" } else { "ok" };
+    payload["retrieval"]["semantic_lane"] = json!(lane_state(&semantic_lane_error));
+    payload["retrieval"]["lexical_lane"] = json!(lane_state(&lexical_lane_error));
+    let mut failures = Vec::new();
+    if let Some(error) = semantic_lane_error {
+        failures.push(format!(
+            "embedding lane failed; results are lexical-only: {error}"
+        ));
+    }
     if let Some(error) = lexical_lane_error {
-        let reason = format!("lexical lane failed; results are embedding-only: {error}");
-        payload["retrieval"]["lexical_lane"] = json!("failed");
+        failures.push(format!(
+            "lexical lane failed; results are embedding-only: {error}"
+        ));
+    }
+    if !failures.is_empty() {
+        let reason = failures.join("; ");
         payload["degraded_reason"] = json!(reason);
         return Ok((
             payload,
             crate::tool_runtime::degraded_meta(BackendKind::Semantic, 0.6, &reason),
         ));
     }
-    payload["retrieval"]["lexical_lane"] = json!("ok");
     Ok((payload, tools::success_meta(BackendKind::Semantic, 0.85)))
 }
 
