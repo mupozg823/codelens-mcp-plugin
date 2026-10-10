@@ -52,6 +52,7 @@ pub mod rename;
 pub mod scope_analysis;
 pub mod search;
 pub mod symbols;
+pub mod test_paths;
 pub mod type_hierarchy;
 pub mod unicode;
 pub mod vfs;
@@ -104,6 +105,7 @@ pub use project::{
 pub use rename::{
     RenameEdit, RenameResult, RenameScope, apply_edits, find_all_word_matches, rename_symbol,
 };
+pub use test_paths::is_probable_test_path;
 pub mod change_signature;
 pub mod embedding_types;
 pub mod inline;
