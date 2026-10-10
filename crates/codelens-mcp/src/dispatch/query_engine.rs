@@ -73,6 +73,28 @@ impl SymbolGenerationFence {
     }
 }
 
+/// Run a symbol-backed read under a generation fence. A read that raced an
+/// index commit is idempotent, so it runs once more against the new generation
+/// before the caller is asked to retry; a second race still surfaces.
+fn run_fenced_read(
+    mut capture: impl FnMut() -> Option<SymbolGenerationFence>,
+    mut run: impl FnMut() -> ToolResult,
+) -> ToolResult {
+    let Some(fence) = capture() else {
+        return run();
+    };
+    let first = run();
+    let ran_ok = first.is_ok();
+    let result = fence.finish(first);
+    if !(ran_ok && matches!(result, Err(CodeLensError::IndexGenerationChanged { .. }))) {
+        return result;
+    }
+    match capture() {
+        Some(fence) => fence.finish(run()),
+        None => run(),
+    }
+}
+
 impl<'a> QueryEngine<'a> {
     pub fn new(state: &'a AppState) -> Self {
         Self { state }
@@ -171,19 +193,26 @@ impl<'a> QueryEngine<'a> {
 
         // Capture after verb resolution and access validation so facades
         // inherit the target's contract and rejected calls never pin an index.
-        let generation_fence = SymbolGenerationFence::capture_if_required(self.state, target);
+        let capture_fence = || SymbolGenerationFence::capture_if_required(self.state, target);
 
-        let mut submission = if is_refactor_gated_mutation_tool(target) {
+        if is_refactor_gated_mutation_tool(target) {
+            let generation_fence = capture_fence();
             self.state
                 .metrics()
                 .record_mutation_preflight_checked_for_session(Some(session.session_id.as_str()));
             match evaluate_mutation_gate(self.state, target, session, surface, target_arguments) {
-                Ok(allowance) => QuerySubmission {
-                    result: tool(self.state, target_arguments),
-                    gate_allowance: allowance,
-                    gate_failure: None,
-                    operation: operation.dispatched(),
-                },
+                Ok(allowance) => {
+                    let result = tool(self.state, target_arguments);
+                    QuerySubmission {
+                        result: match generation_fence {
+                            Some(fence) => fence.finish(result),
+                            None => result,
+                        },
+                        gate_allowance: allowance,
+                        gate_failure: None,
+                        operation: operation.dispatched(),
+                    }
+                }
                 Err(failure) => {
                     if matches!(
                         failure.kind,
@@ -223,17 +252,12 @@ impl<'a> QueryEngine<'a> {
             }
         } else {
             QuerySubmission {
-                result: tool(self.state, target_arguments),
+                result: run_fenced_read(capture_fence, || tool(self.state, target_arguments)),
                 gate_allowance: None,
                 gate_failure: None,
                 operation: operation.dispatched(),
             }
-        };
-        submission.result = match generation_fence {
-            Some(fence) => fence.finish(submission.result),
-            None => submission.result,
-        };
-        submission
+        }
     }
 }
 
@@ -336,5 +360,94 @@ mod generation_consistency_tests {
         assert!(
             matches!(original, Err(CodeLensError::Validation(message)) if message == "original")
         );
+    }
+
+    /// A project whose index advances one generation per `commit()` call.
+    fn racing_index() -> (tempfile::TempDir, Arc<SymbolIndex>, impl FnMut()) {
+        let root = tempfile::tempdir().expect("temp project");
+        let src = root.path().join("src");
+        fs::create_dir_all(&src).expect("create src");
+        let file = src.join("lib.rs");
+        fs::write(&file, "pub fn start() {}\n").expect("write source");
+        let project = ProjectRoot::new(root.path()).expect("project root");
+        let index = Arc::new(SymbolIndex::new(project).expect("symbol index"));
+        let committing = Arc::clone(&index);
+        let mut edits = 0;
+        let commit = move || {
+            edits += 1;
+            fs::write(&file, format!("pub fn edit_{edits}() {{}}\n")).expect("edit source");
+            committing
+                .index_files(std::slice::from_ref(&file))
+                .expect("commit a newer generation");
+        };
+        (root, index, commit)
+    }
+
+    fn fence_for(index: &Arc<SymbolIndex>, root: &tempfile::TempDir) -> SymbolGenerationFence {
+        SymbolGenerationFence::new(Arc::clone(index), root.path().display().to_string())
+    }
+
+    #[test]
+    fn a_read_that_raced_one_commit_is_rerun_against_the_new_generation() {
+        let (root, index, mut commit) = racing_index();
+        let mut runs = 0;
+        let result = run_fenced_read(
+            || Some(fence_for(&index, &root)),
+            || {
+                runs += 1;
+                if runs == 1 {
+                    commit();
+                }
+                Ok((
+                    json!({"attempt": runs}),
+                    success_meta(BackendKind::Sqlite, 1.0),
+                ))
+            },
+        );
+        let (payload, _) = result.expect("the rerun answers on the new generation");
+        assert_eq!(payload["attempt"], json!(2));
+        assert_eq!(runs, 2);
+    }
+
+    #[test]
+    fn a_read_that_keeps_racing_surfaces_after_one_rerun() {
+        let (root, index, mut commit) = racing_index();
+        let mut runs = 0;
+        let result = run_fenced_read(
+            || Some(fence_for(&index, &root)),
+            || {
+                runs += 1;
+                commit();
+                Ok((json!({}), success_meta(BackendKind::Sqlite, 1.0)))
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(CodeLensError::IndexGenerationChanged { .. })
+        ));
+        assert_eq!(runs, 2, "the rerun is bounded to one");
+    }
+
+    #[test]
+    fn a_generation_error_from_the_tool_itself_is_not_rerun() {
+        // A read pinned to an old `snapshot` token fails the same way every time.
+        let (root, index, _commit) = racing_index();
+        let mut runs = 0;
+        let result = run_fenced_read(
+            || Some(fence_for(&index, &root)),
+            || {
+                runs += 1;
+                Err(CodeLensError::IndexGenerationChanged {
+                    project: "pinned".to_owned(),
+                    before: 1,
+                    after: 2,
+                })
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(CodeLensError::IndexGenerationChanged { .. })
+        ));
+        assert_eq!(runs, 1);
     }
 }
