@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reference previews show production call sites before tests** — `find_referencing_symbols` (`search` mode `refs`) on its text path sampled the first 8 references in path order, so test files could fill the whole preview. Replaying a real search from a TypeScript Electron repo, all 8 previewed references to `executeUp` were tests and its 3 production callers sat at positions 9 to 13, invisible without `full_results`. Production references now come first, each group in its original order, and the response reports `production_count` and `test_count`. The test-path check moved from the embedding module into an always-built `codelens_engine::test_paths` so both share one definition.
+
 - **A pull request title can no longer run commands in the changelog check** — `changelog-check.yml` spliced the PR title into its shell script with an Actions expression, which is substituted before bash parses the script, so backticks or `$(...)` in a title ran as commands. A title containing `` `file` `` made the step run `file` and fail (#441). The title now arrives through `env`.
 
 - **Read tools take a `file` argument as the path** — agents often call the `diagnose` and `overview` facades as `{"mode": "file", "file": ...}`, and those calls failed with "Missing required parameter: path" (10 of the 26 such failures in 14 days of local sessions). Read-only tools and the `overview`/`diagnose`/`search`/`graph` facades now take `file` as `path` when no path is given. Mutation tools still reject it.

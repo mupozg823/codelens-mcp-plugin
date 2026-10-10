@@ -16,21 +16,45 @@ use codelens_engine::{
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
+struct CompactedReferences {
+    references: Vec<serde_json::Value>,
+    total_count: usize,
+    sampled: bool,
+    production_count: usize,
+    test_count: usize,
+}
+
+/// Whether a reference sits in test code. Paths are repo-relative, so a
+/// leading `/` lets a top-level `tests/` or `__tests__/` match too.
+fn is_test_reference(file_path: &str) -> bool {
+    codelens_engine::is_probable_test_path(&format!("/{}", file_path.trim_start_matches('/')))
+}
+
+/// Production references come first, each group in its original order, so a
+/// sampled preview shows real call sites before tests: in a TypeScript repo
+/// the first 8 references of `executeUp` were all tests, and its 3 production
+/// callers sat at positions 9 to 13, outside the default preview.
 fn compact_text_references(
     references: Vec<codelens_engine::TextReference>,
     include_context: bool,
     full_results: bool,
     sample_limit: usize,
-) -> (Vec<serde_json::Value>, usize, bool) {
+) -> CompactedReferences {
     let total_count = references.len();
+    let (production, tests): (Vec<_>, Vec<_>) = references
+        .into_iter()
+        .partition(|reference| !is_test_reference(&reference.file_path));
+    let production_count = production.len();
+    let test_count = tests.len();
     let effective_limit = if full_results {
-        references.len()
+        total_count
     } else {
-        sample_limit.min(references.len())
+        sample_limit.min(total_count)
     };
     let sampled = !full_results && total_count > effective_limit;
-    let compact = references
+    let compact = production
         .into_iter()
+        .chain(tests)
         .take(effective_limit)
         .map(|reference| {
             let mut value = json!({
@@ -48,7 +72,13 @@ fn compact_text_references(
             value
         })
         .collect::<Vec<_>>();
-    (compact, total_count, sampled)
+    CompactedReferences {
+        references: compact,
+        total_count,
+        sampled,
+        production_count,
+        test_count,
+    }
 }
 
 fn is_js_ts_path(path: &str) -> bool {
@@ -765,7 +795,13 @@ fn find_referencing_symbols_in(
                     {
                         let scip_count = count;
                         let text_count = text_refs.len();
-                        let (references, total_count, sampled) = compact_text_references(
+                        let CompactedReferences {
+                            references,
+                            total_count,
+                            sampled,
+                            production_count,
+                            test_count,
+                        } = compact_text_references(
                             text_refs,
                             include_context,
                             full_results,
@@ -789,6 +825,8 @@ fn find_referencing_symbols_in(
                             "count": total_count,
                             "returned_count": references.len(),
                             "sampled": sampled,
+                        "production_count": production_count,
+                        "test_count": test_count,
                             "include_context": include_context,
                             "backend": "tree_sitter",
                             "evidence": evidence,
@@ -937,8 +975,13 @@ fn find_referencing_symbols_in(
             max_results,
         )
         .map(|value| {
-            let (references, total_count, sampled) =
-                compact_text_references(value, include_context, full_results, sample_limit);
+            let CompactedReferences {
+                references,
+                total_count,
+                sampled,
+                production_count,
+                test_count,
+            } = compact_text_references(value, include_context, full_results, sample_limit);
             let meta = success_meta(BackendKind::TreeSitter, 0.85);
             let evidence = crate::tool_evidence::tool_evidence(
                 "references",
@@ -957,6 +1000,8 @@ fn find_referencing_symbols_in(
                 "count": total_count,
                 "returned_count": references.len(),
                 "sampled": sampled,
+            "production_count": production_count,
+            "test_count": test_count,
                 "include_context": include_context,
                 "evidence": evidence,
             });
@@ -1046,7 +1091,13 @@ fn find_referencing_symbols_in(
                     && lsp_underreports_vs_text(precise_count, text_refs.len())
                 {
                     let text_count = text_refs.len();
-                    let (references, total_count, sampled) = compact_text_references(
+                    let CompactedReferences {
+                        references,
+                        total_count,
+                        sampled,
+                        production_count,
+                        test_count,
+                    } = compact_text_references(
                         text_refs,
                         include_context,
                         full_results,
@@ -1070,6 +1121,8 @@ fn find_referencing_symbols_in(
                         "count": total_count,
                         "returned_count": references.len(),
                         "sampled": sampled,
+                    "production_count": production_count,
+                    "test_count": test_count,
                         "include_context": include_context,
                         "backend": "tree_sitter",
                         "evidence": evidence,
@@ -1157,8 +1210,13 @@ fn find_referencing_symbols_in(
     Ok(
         find_referencing_symbols_via_text(&state.project(), &word, Some(&file_path), max_results)
             .map(|value| {
-            let (references, total_count, sampled) =
-                compact_text_references(value, include_context, full_results, sample_limit);
+            let CompactedReferences {
+                references,
+                total_count,
+                sampled,
+                production_count,
+                test_count,
+            } = compact_text_references(value, include_context, full_results, sample_limit);
             let mut meta = success_meta(BackendKind::TreeSitter, 0.85);
             meta.degraded_reason = Some("LSP failed, used tree-sitter".to_owned());
             let evidence = crate::tool_evidence::tool_evidence(
@@ -1178,6 +1236,8 @@ fn find_referencing_symbols_in(
                 "count": total_count,
                 "returned_count": references.len(),
                 "sampled": sampled,
+            "production_count": production_count,
+            "test_count": test_count,
                 "include_context": include_context,
                 "evidence": evidence,
             });
@@ -1410,5 +1470,93 @@ mod regression_fix_tests {
             None,
             "SCIP over-count never triggers a text fallback"
         );
+    }
+}
+
+#[cfg(test)]
+mod preview_order_tests {
+    use super::{CompactedReferences, compact_text_references, is_test_reference};
+    use codelens_engine::TextReference;
+
+    fn reference(file_path: &str, line: usize) -> TextReference {
+        TextReference {
+            file_path: file_path.to_owned(),
+            line,
+            column: 1,
+            line_content: String::new(),
+            enclosing_symbol: None,
+            is_declaration: false,
+        }
+    }
+
+    /// The order the tree-sitter path returned for `executeUp` in a real
+    /// TypeScript repo: eight test references, then the three production
+    /// call sites an agent was actually looking for.
+    fn execute_up_case() -> Vec<TextReference> {
+        let mut refs: Vec<TextReference> = (0..8)
+            .map(|i| {
+                reference(
+                    "src/main/http/__tests__/registerQuickActionRoutes.test.ts",
+                    10 + i,
+                )
+            })
+            .collect();
+        refs.push(reference("src/main/http/remoteHoldWatchdog.ts", 68));
+        refs.push(reference("src/main/ipc/quickActionHandlers.ts", 184));
+        refs.push(reference("src/services/QuickActionService.ts", 1039));
+        refs
+    }
+
+    #[test]
+    fn the_default_preview_shows_production_call_sites_before_tests() {
+        let CompactedReferences {
+            references,
+            total_count,
+            sampled,
+            production_count,
+            test_count,
+        } = compact_text_references(execute_up_case(), false, false, 8);
+        let shown: Vec<&str> = references
+            .iter()
+            .map(|r| r["file_path"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            &shown[..3],
+            [
+                "src/main/http/remoteHoldWatchdog.ts",
+                "src/main/ipc/quickActionHandlers.ts",
+                "src/services/QuickActionService.ts"
+            ],
+            "{shown:?}"
+        );
+        assert_eq!((total_count, production_count, test_count), (11, 3, 8));
+        assert!(sampled);
+        assert_eq!(references.len(), 8);
+    }
+
+    #[test]
+    fn full_results_keeps_every_reference() {
+        let compacted = compact_text_references(execute_up_case(), false, true, 8);
+        assert_eq!(compacted.references.len(), 11);
+        assert!(!compacted.sampled);
+    }
+
+    #[test]
+    fn test_paths_are_recognized_with_or_without_a_leading_directory() {
+        for path in [
+            "src/main/__tests__/a.ts",
+            "__tests__/a.ts",
+            "tests/integration.rs",
+            "src/foo.test.ts",
+            "pkg/foo_test.go",
+        ] {
+            assert!(is_test_reference(path), "{path}");
+        }
+        for path in [
+            "src/main/ipc/quickActionHandlers.ts",
+            "src/testing_utils.rs",
+        ] {
+            assert!(!is_test_reference(path), "{path}");
+        }
     }
 }
