@@ -191,3 +191,63 @@ async fn post_from_localhost_origin_is_allowed() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 }
+
+async fn initialize_instructions(project_header: Option<&str>) -> String {
+    let app = build_router(test_state());
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json");
+    if let Some(project) = project_header {
+        request = request.header("x-codelens-project", project);
+    }
+    let resp = app
+        .oneshot(
+            request
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = body_string(resp).await;
+    let json_text = body
+        .lines()
+        .find_map(|line| line.strip_prefix("data:"))
+        .unwrap_or(&body);
+    let value: serde_json::Value = serde_json::from_str(json_text.trim()).unwrap();
+    value["result"]["instructions"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// A session the host already bound must not be told to bind again: an
+/// evaluation run saw 28 redundant `prepare_harness_session` calls that came
+/// from the unconditional "FIRST CALL" instruction.
+#[tokio::test]
+async fn a_bound_initialize_is_told_it_is_bound_not_to_call_prepare_first() {
+    let project = temp_project_dir("bound-instructions");
+    std::fs::write(project.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+    let instructions = initialize_instructions(Some(&project.display().to_string())).await;
+    assert!(
+        instructions.contains("already bound to"),
+        "bound session: {instructions}"
+    );
+    assert!(
+        !instructions.contains("FIRST CALL"),
+        "bound session: {instructions}"
+    );
+}
+
+#[tokio::test]
+async fn an_unbound_initialize_still_asks_for_prepare_first() {
+    for header in [None, Some("/definitely/not/a/project/path")] {
+        let instructions = initialize_instructions(header).await;
+        assert!(
+            instructions.starts_with("FIRST CALL of every session: prepare_harness_session"),
+            "{header:?}: {instructions}"
+        );
+    }
+}

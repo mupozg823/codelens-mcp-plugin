@@ -481,6 +481,26 @@ pub(crate) async fn run_http(state: Arc<AppState>, config: HttpServerConfig) -> 
     Ok(())
 }
 
+/// The project root an `initialize` arrives already bound to: an explicit
+/// `project` param, else the header or `?project=` query, when it names a real
+/// project. `None` for `$HOME`, unmarked folders and unknown paths, which fall
+/// back to the daemon's project and still need a `prepare_harness_session`.
+fn initialize_bound_root(
+    state: &AppState,
+    headers: &HeaderMap,
+    initialize_project: Option<&str>,
+) -> Option<String> {
+    let path = initialize_project
+        .map(ToOwned::to_owned)
+        .or_else(|| super::transport_http_support::project_header_value(headers))?;
+    if !state.project_scope_resolves(&path) {
+        return None;
+    }
+    codelens_engine::ProjectRoot::new(&path)
+        .ok()
+        .map(|root| root.as_path().display().to_string())
+}
+
 /// Removes a request-scoped session when the request ends, on every path.
 struct RequestScopedSession {
     state: Arc<AppState>,
@@ -585,6 +605,16 @@ async fn mcp_post_handler(
     };
 
     let is_initialize = request.method == "initialize";
+    let initialize_project = is_initialize
+        .then(|| {
+            request
+                .params
+                .as_ref()
+                .and_then(|params| params.get("project"))
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned)
+        })
+        .flatten();
     let initialize_metadata = if is_initialize {
         extract_initialize_metadata(&request, &headers)
     } else {
@@ -756,6 +786,15 @@ async fn mcp_post_handler(
             format!("Internal error: {e}"),
         ))
     });
+
+    let mut response = response;
+    if is_initialize
+        && let Some(root) = initialize_bound_root(&state, &headers, initialize_project.as_deref())
+        && let Some(result) = response.as_mut().and_then(|resp| resp.result.as_mut())
+    {
+        result["instructions"] =
+            serde_json::Value::String(super::router::bound_session_instructions(&root));
+    }
 
     // Create session on initialize
     let initialize_session = if is_initialize {
