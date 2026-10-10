@@ -107,6 +107,24 @@ fn non_latin_semantic_allowed() -> bool {
         .unwrap_or(false)
 }
 
+/// Embedding hits for a query. `error` is set when the embedding lane failed,
+/// so a caller can say its results are lexical-only instead of presenting a
+/// dead lane as "nothing matched" (a failing scoped query went unnoticed that
+/// way until 2026-10-10).
+pub(crate) struct SemanticLane {
+    pub(crate) results: Vec<SemanticMatch>,
+    pub(crate) error: Option<String>,
+}
+
+impl SemanticLane {
+    fn empty() -> Self {
+        Self {
+            results: Vec::new(),
+            error: None,
+        }
+    }
+}
+
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_results_for_query(
     state: &AppState,
@@ -115,8 +133,19 @@ pub(crate) fn semantic_results_for_query(
     disable_semantic: bool,
     path_scope: Option<&str>,
 ) -> Vec<SemanticMatch> {
+    semantic_lane_for_query(state, query, limit, disable_semantic, path_scope).results
+}
+
+#[cfg(feature = "semantic")]
+pub(crate) fn semantic_lane_for_query(
+    state: &AppState,
+    query: &str,
+    limit: usize,
+    disable_semantic: bool,
+    path_scope: Option<&str>,
+) -> SemanticLane {
     if disable_semantic {
-        return Vec::new();
+        return SemanticLane::empty();
     }
 
     let query_analysis = analyze_retrieval_query(query);
@@ -124,11 +153,11 @@ pub(crate) fn semantic_results_for_query(
 
     // Skip embedding lookup for short single-word identifiers where FTS is more accurate
     if query_analysis.prefer_lexical_only && query_analysis.original_query.len() <= 40 {
-        return Vec::new();
+        return SemanticLane::empty();
     }
 
     if query_analysis.semantic_query.is_empty() {
-        return Vec::new();
+        return SemanticLane::empty();
     }
 
     // The bundled model is MiniLM-L12-CodeSearchNet — English code search. A query
@@ -147,7 +176,7 @@ pub(crate) fn semantic_results_for_query(
             "skipping semantic retrieval: query is predominantly non-Latin and the \
              bundled model is English-only; sparse retrieval handles it"
         );
-        return Vec::new();
+        return SemanticLane::empty();
     }
 
     let guard = state.embedding_engine();
@@ -161,16 +190,22 @@ pub(crate) fn semantic_results_for_query(
         };
         let search_query =
             semantic_query_for_embedding_search(&query_analysis, Some(state.project().as_path()));
-        let mut results: Vec<SemanticMatch> = engine
-            .search_scored_in_scope(
-                &search_query,
-                candidate_limit,
-                normalized_path_scope.as_deref(),
-            )
-            .unwrap_or_default()
-            .into_iter()
-            .map(Into::into)
-            .collect();
+        let scored = match engine.search_scored_in_scope(
+            &search_query,
+            candidate_limit,
+            normalized_path_scope.as_deref(),
+        ) {
+            Ok(scored) => scored,
+            Err(error) => {
+                let message = format!("{error:#}");
+                tracing::warn!(error = %message, "semantic retrieval failed");
+                return SemanticLane {
+                    results: Vec::new(),
+                    error: Some(message),
+                };
+            }
+        };
+        let mut results: Vec<SemanticMatch> = scored.into_iter().map(Into::into).collect();
         results.retain(|result| {
             file_matches_scope(&result.file_path, normalized_path_scope.as_deref())
         });
@@ -178,13 +213,16 @@ pub(crate) fn semantic_results_for_query(
             result.score *=
                 markup_config_penalty_multiplier(&query_analysis.original_query, &result.file_path);
         }
-        return super::query_analysis::rerank_semantic_matches(
-            &query_analysis.semantic_query,
-            results,
-            limit,
-        );
+        return SemanticLane {
+            results: super::query_analysis::rerank_semantic_matches(
+                &query_analysis.semantic_query,
+                results,
+                limit,
+            ),
+            error: None,
+        };
     }
-    Vec::new()
+    SemanticLane::empty()
 }
 
 #[cfg(not(feature = "semantic"))]
@@ -196,6 +234,17 @@ pub(crate) fn semantic_results_for_query(
     _path_scope: Option<&str>,
 ) -> Vec<SemanticMatch> {
     Vec::new()
+}
+
+#[cfg(not(feature = "semantic"))]
+pub(crate) fn semantic_lane_for_query(
+    _state: &AppState,
+    _query: &str,
+    _limit: usize,
+    _disable_semantic: bool,
+    _path_scope: Option<&str>,
+) -> SemanticLane {
+    SemanticLane::empty()
 }
 
 #[cfg(all(test, feature = "semantic"))]

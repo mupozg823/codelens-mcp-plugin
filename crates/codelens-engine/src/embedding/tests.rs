@@ -1772,6 +1772,90 @@ fn store_scoped_search_filters_with_vec_metadata() {
     assert_eq!(scoped[0].symbol_name, "scoped");
 }
 
+fn chunk_at(file_path: &str, symbol_name: &str, embedding: [f32; 2]) -> EmbeddingChunk {
+    EmbeddingChunk {
+        file_path: file_path.to_owned(),
+        symbol_name: symbol_name.to_owned(),
+        kind: "function".to_owned(),
+        line: 1,
+        signature: format!("fn {symbol_name}()"),
+        name_path: symbol_name.to_owned(),
+        text: symbol_name.to_owned(),
+        embedding: embedding.to_vec(),
+        doc_embedding: None,
+    }
+}
+
+fn ranked(chunks: &[ScoredChunk]) -> Vec<(String, String, f64)> {
+    chunks
+        .iter()
+        .map(|c| (c.file_path.clone(), c.symbol_name.clone(), c.score))
+        .collect()
+}
+
+#[test]
+fn store_scoped_search_handles_a_twelve_byte_path_like_unscoped_search() {
+    // sqlite-vec 0.1.9 fails a KNN range filter on a 12-byte text metadata
+    // value ("Could not filter metadata fields"); `src/error.rs` is 12 bytes.
+    // serde-json has one, so every scoped semantic search there came back
+    // with no embedding hits.
+    let dir = tempfile::tempdir().unwrap();
+    let store = super::vec_store::SqliteVecStore::new(
+        dir.path().join("embeddings.db").as_path(),
+        2,
+        "test",
+    )
+    .unwrap();
+    store
+        .insert(&[
+            chunk_at("src/error.rs", "error", [1.0, 0.1]),
+            chunk_at("src/value/ser.rs", "serialize_bool", [1.0, 0.0]),
+            chunk_at("src/value/de.rs", "deserialize", [1.0, 0.3]),
+            chunk_at("src/lib.rs", "lib", [0.2, 1.0]),
+            chunk_at("tests/value.rs", "test_value", [1.0, 0.05]),
+        ])
+        .unwrap();
+    let query = [1.0, 0.0];
+    let everything = store.search(&query, 10).unwrap();
+
+    for scope in ["src", "src/value", "src/error.rs"] {
+        let scoped = store
+            .search_scoped(&query, 10, Some(scope))
+            .unwrap_or_else(|error| panic!("scope {scope}: {error:#}"));
+        let expected: Vec<ScoredChunk> = everything
+            .iter()
+            .filter(|c| c.file_path == scope || c.file_path.starts_with(&format!("{scope}/")))
+            .cloned()
+            .collect();
+        assert!(!expected.is_empty(), "scope {scope} has rows");
+        assert_eq!(ranked(&scoped), ranked(&expected), "scope {scope}");
+    }
+}
+
+#[test]
+fn store_scoped_search_finds_a_far_corner_of_a_partition_past_the_knn_limit() {
+    // 4,100 rows share the `big` partition and sit closer to the query than
+    // the one row under `big/n`, so no KNN up to sqlite-vec's 4,096 limit
+    // reaches it; the scoped search still has to find it.
+    let dir = tempfile::tempdir().unwrap();
+    let store = super::vec_store::SqliteVecStore::new(
+        dir.path().join("embeddings.db").as_path(),
+        2,
+        "test",
+    )
+    .unwrap();
+    let mut chunks: Vec<EmbeddingChunk> = (0..4100)
+        .map(|i| chunk_at(&format!("big/hay/{i}.rs"), &format!("hay{i}"), [1.0, 0.01]))
+        .collect();
+    chunks.push(chunk_at("big/n/eed.rs", "needle", [0.0, 1.0]));
+    store.insert(&chunks).unwrap();
+
+    let scoped = store.search_scoped(&[1.0, 0.0], 3, Some("big/n")).unwrap();
+
+    assert_eq!(ranked(&scoped).len(), 1);
+    assert_eq!(scoped[0].symbol_name, "needle");
+}
+
 #[test]
 fn store_model_name_change_recreates_and_drops_rows() {
     // Locks the re-embedding trigger contract: `model-manifest.json`'s

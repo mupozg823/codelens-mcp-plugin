@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Scoped semantic search had no embedding hits** — `semantic_search` with `path_hint` and `get_ranked_context` with `path` filtered the vector query by a `file_path` range, and sqlite-vec 0.1.9 fails that query ("Could not filter metadata fields") whenever the scope's top-level partition holds a path of exactly 12 bytes (`src/error.rs`, `src/index.ts`). The error was swallowed, so those searches were ranked by lexical scores alone with no warning; on serde-json the top results for "serialize typed value into json string" were `from_borrowed` and `from_iter`, identically on CoreML, CPU and CI. The vector query now filters on the partition only, deeper paths are filtered after the KNN (growing `k`, then an exact partition scan past sqlite-vec's 4,096 limit), and both tools report `retrieval.semantic_lane` (`ok`/`failed`) with a `degraded_reason` when the embedding lane fails.
+
 - **A locked signing keychain no longer hangs a redeploy** — with `CODELENS_CODESIGN_IDENTITY` in a locked keychain, `codesign` waited on a GUI password prompt with no timeout, so a redeploy from a non-interactive shell never finished (seen 2026-10-10 after a reboot relocked a dedicated keychain). The signing step now gives up after `CODELENS_CODESIGN_TIMEOUT_SECS` (default 60) and names the keychain to unlock; the running daemon's binary is left untouched.
 
 - **`cleanup_duplicate_logic` drops pairs naming files that no longer exist** (revived #307) — stale embedding entries proposed 14 of 25 pairs against a deleted file; the count is reported as `quality_filters.suppressed_phantom_path_pairs`.

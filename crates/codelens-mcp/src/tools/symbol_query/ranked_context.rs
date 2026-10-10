@@ -46,7 +46,7 @@ use crate::tool_runtime::{
     required_string, success_meta,
 };
 use crate::tools::query_analysis::analyze_retrieval_query;
-use crate::tools::semantic_retriever::semantic_results_for_query;
+use crate::tools::semantic_retriever::semantic_lane_for_query;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -166,13 +166,15 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             && query_analysis.original_query.contains(char::is_whitespace));
     // Build semantic scores for hybrid ranking if embeddings are available.
     // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.
-    let semantic_results = semantic_results_for_query(
+    let semantic_lane = semantic_lane_for_query(
         state,
         query,
         50,
         effective_disable_semantic,
         normalized_path_scope.as_deref(),
     );
+    let semantic_lane_error = semantic_lane.error;
+    let semantic_results = semantic_lane.results;
     let sparse_result = if use_sparse_in_core {
         Some(sparse_symbol_hits_for_query_with_diagnostics(
             state,
@@ -496,13 +498,26 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
             "source": "user_context_query_embedding",
         },
         "sparse_index": sparse_diagnostics,
+        "semantic_lane": if effective_disable_semantic {
+            "disabled"
+        } else if semantic_lane_error.is_some() {
+            "failed"
+        } else {
+            "ok"
+        },
     });
     let backend = if result.symbols.iter().any(|s| s.relevance_score > 0) {
         BackendKind::TreeSitter
     } else {
         BackendKind::Semantic
     };
-    let meta = success_meta(backend, 0.91);
+    let degraded_reason = semantic_lane_error
+        .as_ref()
+        .map(|error| format!("embedding lane failed; ranking is lexical-only: {error}"));
+    let meta = match &degraded_reason {
+        Some(reason) => crate::tool_runtime::degraded_meta(backend, 0.7, reason),
+        None => success_meta(backend, 0.91),
+    };
     let evidence = tool_evidence::tool_evidence(
         "retrieval",
         &meta,
@@ -549,6 +564,9 @@ pub(crate) fn run_ranked_context(state: &AppState, arguments: &Value) -> ToolRes
 
     if let Some(map) = payload.as_object_mut() {
         map.insert("retrieval".to_owned(), retrieval);
+        if let Some(reason) = &degraded_reason {
+            map.insert("degraded_reason".to_owned(), json!(reason));
+        }
         map.insert("coverage".to_owned(), coverage);
         if let Some(annotation) = confidence_annotation {
             map.insert("confidence".to_owned(), annotation);
