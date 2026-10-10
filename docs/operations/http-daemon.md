@@ -208,9 +208,12 @@ Before adopting it:
 
 - Deploy a daemon that degrades unresolvable header paths (above). An older daemon
   fails every call of a session launched in `$HOME`.
-- Set `CODELENS_ALLOW_MARKERLESS_ROOT=0` in the daemon's environment. Markerless
-  directories are accepted by default, so a session launched in, say, `~/Downloads`
-  would otherwise index that whole folder.
+- Keep `CODELENS_ALLOW_MARKERLESS_ROOT=0` in the daemon's environment. The
+  installer writes it by default (`--markerless-root deny`); markerless directories
+  are otherwise accepted, so a session launched in, say, `~/Downloads` would index
+  that whole folder. An existing plist needs the key added (or a reinstall) and a
+  `launchctl bootout`/`bootstrap`, since `kickstart` does not reread the
+  environment.
 
 Manual fallback (if the script is unavailable):
 
