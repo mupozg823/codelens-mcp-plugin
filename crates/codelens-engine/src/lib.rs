@@ -27,6 +27,7 @@
 //! See ADR-0009 (`docs/adr/ADR-0009-mutation-trust-substrate.md`)
 //! for the full contract this crate participates in.
 
+pub mod atomic_write;
 pub mod auto_import;
 pub mod call_graph;
 pub mod circular;
@@ -56,6 +57,7 @@ pub mod unicode;
 pub mod vfs;
 pub mod watcher;
 
+pub use atomic_write::write_atomic;
 pub use auto_import::{
     ImportSuggestion, MissingImportAnalysis, add_import, analyze_missing_imports,
 };

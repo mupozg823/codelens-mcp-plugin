@@ -196,7 +196,7 @@ pub fn inline_function(
         if content.ends_with('\n') {
             result_text.push('\n');
         }
-        fs::write(&resolved, &result_text)?;
+        crate::atomic_write::write_atomic(&resolved, &result_text)?;
     }
 
     Ok(result)

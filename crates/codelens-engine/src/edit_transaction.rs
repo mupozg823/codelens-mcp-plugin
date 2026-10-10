@@ -262,7 +262,7 @@ impl WorkspaceEditTransaction {
                         continue;
                     }
                 };
-                match fs::write(&resolved, backup_bytes) {
+                match crate::atomic_write::write_atomic(&resolved, backup_bytes) {
                     Ok(()) => rollback_report.push(RollbackEntry {
                         file_path: file_path.clone(),
                         restored: true,
@@ -459,7 +459,7 @@ pub fn apply_full_write_with_evidence(
     }
 
     // Phase 3: write — on failure, restore backup + record rollback
-    if let Err(write_err) = fs::write(&resolved, new_content) {
+    if let Err(write_err) = crate::atomic_write::write_atomic(&resolved, new_content) {
         let mut rollback_report: Vec<RollbackEntry> = Vec::new();
         #[cfg(test)]
         FULL_WRITE_INJECT_BEFORE_ROLLBACK.with(|cell| {
@@ -468,7 +468,7 @@ pub fn apply_full_write_with_evidence(
             }
         });
         if let Some(bytes) = backup_bytes.as_ref() {
-            match fs::write(&resolved, bytes) {
+            match crate::atomic_write::write_atomic(&resolved, bytes) {
                 Ok(()) => rollback_report.push(RollbackEntry {
                     file_path: relative_path.to_owned(),
                     restored: true,
@@ -645,7 +645,7 @@ pub fn apply_full_writes_with_evidence(
             write_failure = Some((i, e));
             break;
         }
-        match fs::write(resolved, content) {
+        match crate::atomic_write::write_atomic(resolved, content) {
             Ok(()) => {
                 written_so_far = i + 1;
             }
@@ -665,7 +665,7 @@ pub fn apply_full_writes_with_evidence(
         for i in (0..written_so_far).rev() {
             let (resolved, relative_path, backup) = &backups[i];
             match backup.as_ref() {
-                Some(bytes) => match fs::write(resolved, bytes) {
+                Some(bytes) => match crate::atomic_write::write_atomic(resolved, bytes) {
                     Ok(()) => rollback_report.push(RollbackEntry {
                         file_path: (*relative_path).to_owned(),
                         restored: true,
