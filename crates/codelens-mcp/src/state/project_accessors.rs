@@ -687,7 +687,21 @@ mod bind_budget_tests {
                 "{gave_up:?}"
             );
         }
-        std::thread::sleep(std::time::Duration::from_millis(600));
+        // Wait for the abandoned build itself, not a fixed 600 ms: under a
+        // loaded test runner (CI, parallel tests) the build outlived the
+        // sleep, nothing was finished to install, and the test flaked.
+        let ticket = state
+            .project_context_cache
+            .lock()
+            .unwrap()
+            .in_flight
+            .get(&abandoned_scope)
+            .cloned()
+            .expect("the abandoned build is still in flight");
+        assert!(
+            ticket.wait_until(std::time::Instant::now() + std::time::Duration::from_secs(30)),
+            "the abandoned build never finished"
+        );
 
         let other = temp_project("other");
         let _binding = state
