@@ -37,6 +37,30 @@ fn embedding_is_idle(
     }
 }
 
+/// Clear `slot` when the engine in it has gone idle, returning `true` when it
+/// dropped one. Never waits for the lock: a held guard means a request is using
+/// the engine (an index build holds it for minutes), so it is not idle, and the
+/// caller is the HTTP daemon's async cleanup loop, where a blocking wait parks a
+/// runtime worker.
+#[cfg(feature = "semantic")]
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
+fn drop_if_idle<T>(
+    slot: &std::sync::RwLock<Option<T>>,
+    idle_for: Option<std::time::Duration>,
+    ttl: Option<std::time::Duration>,
+) -> bool {
+    let mut guard = match slot.try_write() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return false,
+    };
+    if !embedding_is_idle(idle_for, ttl, guard.is_some()) {
+        return false;
+    }
+    *guard = None;
+    true
+}
+
 /// `None` disables the idle sweep (`CODELENS_EMBED_IDLE_TTL_SECS=0`).
 #[cfg(feature = "semantic")]
 #[cfg_attr(not(feature = "http"), allow(dead_code))]
@@ -136,15 +160,13 @@ impl AppState {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .map(|last_used| last_used.elapsed());
-        let engine_resident = self
-            .embedding
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .is_some();
-        if !embedding_is_idle(idle_for, configured_embedding_idle_ttl(), engine_resident) {
+        if !drop_if_idle(&self.embedding, idle_for, configured_embedding_idle_ttl()) {
             return false;
         }
-        self.reset_embedding();
+        *self
+            .embedding_root
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
         *self
             .embedding_last_used
             .lock()
@@ -211,7 +233,8 @@ impl AppState {
 
 #[cfg(all(test, feature = "semantic"))]
 mod tests {
-    use super::embedding_is_idle;
+    use super::{drop_if_idle, embedding_is_idle};
+    use std::sync::{Arc, RwLock, mpsc};
     use std::time::Duration;
 
     const TTL: Option<Duration> = Some(Duration::from_secs(900));
@@ -252,5 +275,38 @@ mod tests {
             TTL,
             false
         ));
+    }
+
+    #[test]
+    fn idle_sweep_never_waits_for_an_engine_in_use() {
+        // The sweep runs on the HTTP daemon's async cleanup loop. An index build
+        // holds the engine for minutes without refreshing its last-use time, so
+        // the engine looks idle; waiting for the write lock then parked an async
+        // worker and the whole daemon stopped answering until the build ended.
+        let slot = Arc::new(RwLock::new(Some(1u8)));
+        let in_use = slot.read().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let sweep_slot = Arc::clone(&slot);
+        std::thread::spawn(move || {
+            let _ = tx.send(drop_if_idle(
+                &sweep_slot,
+                Some(Duration::from_secs(1000)),
+                TTL,
+            ));
+        });
+        let dropped = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the idle sweep blocked behind an engine in use");
+        assert!(!dropped);
+        drop(in_use);
+        assert!(slot.read().unwrap().is_some());
+    }
+
+    #[test]
+    fn idle_sweep_drops_an_idle_engine_nobody_holds() {
+        let slot = RwLock::new(Some(1u8));
+        assert!(drop_if_idle(&slot, Some(Duration::from_secs(1000)), TTL));
+        assert!(slot.read().unwrap().is_none());
+        assert!(!drop_if_idle(&slot, Some(Duration::from_secs(1000)), TTL));
     }
 }
