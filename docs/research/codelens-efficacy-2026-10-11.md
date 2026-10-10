@@ -93,6 +93,40 @@ Errors were 191 of 1,672 calls (11.4%):
 - Other models. The same paper finds Haiku *saved* 26% of tokens with an LSP.
 - Other repositories. This run used one repository, CodeLens's own, which favours its index.
 
+## 2b. Controlled A/B: every use of a function (structural)
+
+This leg covers the structural work that §2 left out. Gold comes from the compiler, not from CodeLens.
+
+**Gold construction**
+- The target function's definition is marked `#[deprecated]` in a copy of the same snapshot.
+- `cargo check --workspace --all-targets --all-features` then reports every use site, including uses in dependent crates, as a "use of deprecated" warning. A rename would stop at the first crate that fails.
+
+**Functions** (10)
+- Five where grep is ambiguous because the name appears far more often than it is used: `release_files` (2 uses, 30 textual hits), `read_resource` (2/23), `replace_lines` (3/22), `hover` (2/13), `find_scoped_references` (4/26).
+- Five with many uses: `get_importers` (8), `find_circular_dependencies` (14), `parse_symbols` (11), `project_scope_for_session` (10 uses across 5 files), `rerank_semantic_matches` (20).
+
+**Runs**
+- The same three arms as §2, under Sonnet and Haiku, 2 reps each: 120 runs on daemon 90deaf9.
+- The run was interrupted once by a memory-pressure stop and resumed on the same binary.
+
+| Model · arm | Line F1 | Cost / run | Turns | Tokens | CodeLens calls / run |
+|---|---:|---:|---:|---:|---:|
+| Sonnet native | 0.997 | $0.134 | 2.7 | 93k | 0 |
+| Sonnet codelens (free) | 0.997 | +1% | 2.6 | +14% | 0 |
+| Sonnet codelens_only | 0.993 | +43% | 10.4 | +163% | 3.9 |
+| Haiku native | 0.997 | $0.0088 | 4.0 | 142k | 0 |
+| Haiku codelens (free) | 0.997 | +6% | 4.4 | +11% | 0 |
+| Haiku codelens_only | 0.997 | +35% | 11.2 | +83% | 3.6 |
+
+**Reading**
+- **Accuracy is at the ceiling for every arm and both models, including the ambiguous names.** Grep plus Read already finds every use in this repository, so CodeLens has nothing to add. The only miss shared by every arm and model is one extra site for `find_circular_dependencies` (15 vs 14). That is most likely a use the oracle's feature set did not compile, not a model error.
+- **With free choice, CodeLens was again never called.** Tokens were again +11–14%.
+- **Forcing CodeLens costs more and gains nothing.**
+- **`prepare_harness_session` was 40 of the 151 CodeLens calls**, even though 90deaf9 already sends bound-session instructions (#438). The rest of the nudge came from the tool description and the generated routing block (#444).
+- **Limits.**
+  - E11 found an LSP precision gain only where grep's F1 was 0.71. A task that is hard for grep, such as trait dispatch, macro-generated calls or a large polyglot repository, would be needed to show one here.
+  - Noise floor: native reps differed by 0 in F1 and by about $0.01 in cost (Sonnet).
+
 ## 3. The fixed cost of being connected
 
 A Claude Code session sees 10 always-loaded CodeLens tools (ADR-0016 CORE_10). Their definitions are 13,701 characters, about 3,400 tokens. The `instructions` add about 255 tokens. Those are paid on every turn of every Claude session that has CodeLens connected, which since #432 is every session.
@@ -140,9 +174,9 @@ Codex configuration (`~/.codex/config.toml`, approved by the user; backups in `~
 | Rank | Recommendation | Basis | Status |
 |---:|---|---|---|
 | 1 | Keep CodeLens for structural work (references, impact, review, diagnostics) and leave localization to grep, as the routing rule already says | A/B 0/32 free use and +91% cost when forced; E10, E3 | rule unchanged; documented |
-| 2 | Measure what was not measured: an A/B on reference completeness and impact with compiler-derived gold, including Haiku | E11 (precision gain), E10 (Haiku saves tokens); Codex's actual use | next evaluation |
-| 3 | Let `search` reach body text: index body tokens in the BM25 lane, or fall back to a content search when the symbol lanes are weak | Q15: symbol search loops 22–31 times; grep finds the file in 3–5 turns | open |
-| 4 | Infer or ask for a missing `path` instead of erroring (`search`, `diagnose`) | 26 field errors | open |
-| 5 | Run the deployed feature set (`http,semantic`) in CI | `prepare_harness_session_expands_tools_list_surface` fails under it on main and CI never runs it | open |
+| 2 | Measure what was not measured: an A/B on reference completeness and impact with compiler-derived gold, including Haiku | E11 (precision gain), E10 (Haiku saves tokens); Codex's actual use | reference completeness done (§2b): no gain at the grep ceiling, +35–43% cost when forced. Next: tasks that are hard for grep |
+| 3 | Let `search` reach body text: index body tokens in the BM25 lane, or fall back to a content search when the symbol lanes are weak | Q15: symbol search loops 22–31 times; grep finds the file in 3–5 turns | deferred: `search_for_pattern` was deliberately deprecated (1.13.27, hosts own text search), and Q15 only failed with grep denied |
+| 4 | Infer or ask for a missing `path` instead of erroring (`search`, `diagnose`) | 26 field errors | `file` taken as `path` (#441, 10 of 26); the other 16 came from unbound Codex sessions, now bound automatically |
+| 5 | Run the deployed feature set (`http,semantic`) in CI | `prepare_harness_session_expands_tools_list_surface` fails under it on main and CI never runs it | done (#440) |
 | 6 | Trim always-loaded tools only after adding ToolSearch to the subagent definitions | §3: about 3,400 tokens per turn per session; subagents lose access without it | needs a change to the global agent definitions |
 | 7 | Fix `~/깡깡벨퀴즈쇼/.codex/config.toml`: its stdio `codelens` entry collides with the global URL entry, so Codex cannot load its configuration in that folder | `codex exec`: "url is not supported for stdio" | user's project file; not changed |
