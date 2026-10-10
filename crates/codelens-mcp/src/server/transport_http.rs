@@ -545,9 +545,11 @@ fn mark_request_scoped(request: &mut JsonRpcRequest) {
 
 async fn mcp_post_handler(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    uri: axum::http::Uri,
+    mut headers: HeaderMap,
     body: String,
 ) -> Response {
+    super::transport_http_support::adopt_project_query(&mut headers, &uri);
     if !origin_is_permitted(&headers) {
         return (StatusCode::FORBIDDEN, "Origin not permitted").into_response();
     }

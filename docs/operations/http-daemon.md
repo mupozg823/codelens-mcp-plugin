@@ -184,25 +184,28 @@ the daemon's project; an explicit `project=` with such a path still fails.
 
 ### Binding Claude Code sessions to their launch directory
 
-Claude Code expands `${VAR}` in MCP `headers`, so one user-scope entry can send
-each session's launch directory:
+Claude Code expands `${VAR}` in MCP `url` and `headers`, so one user-scope entry
+can send each session's launch directory. Put it in the URL, not a header:
 
 ```json
 "codelens": {
   "type": "http",
-  "url": "http://127.0.0.1:7838/mcp",
-  "headers": {
-    "x-codelens-client": "claude-code",
-    "x-codelens-project": "${PWD}"
-  }
+  "url": "http://127.0.0.1:7838/mcp?project=${PWD}",
+  "headers": { "x-codelens-client": "claude-code" }
 }
 ```
 
-Measured 2026-10-10 with Claude Code 2.1.296 against a header-capturing stub: a
-session started in `~/panda-alert-skin` sent
-`x-codelens-project: /Users/bagjaeseog/panda-alert-skin`, first on
+The daemon reads `?project=` exactly like `x-codelens-project` (the header
+wins when both are present). A header cannot carry a non-ASCII path: from a
+directory named in Korean, Claude Code 2.1.296 with
+`x-codelens-project: ${PWD}` sent no request at all, so the server silently
+disappeared from that session. In the URL the same value is percent-encoded
+(`/mcp?project=/Users/.../%EA%B9%A1...`) and arrives intact. Measured
+2026-10-10 against a header-capturing stub: the value came first on
 `server/discover` (with `MCP-Protocol-Version: 2026-07-28`) and then, after the
-stub's 400, on `initialize`. A subdirectory resolves to the enclosing project root.
+stub's 400, on `initialize`. A subdirectory resolves to the enclosing project
+root. Only `%XX` is decoded, so `+` stays `+`; a path containing `&` or `#`
+is cut short and falls back to the daemon's project.
 
 Before adopting it:
 

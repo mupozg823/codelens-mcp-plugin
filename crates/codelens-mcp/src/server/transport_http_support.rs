@@ -207,14 +207,56 @@ impl SessionSeed {
     }
 }
 
-/// Trimmed, non-empty `x-codelens-project` header value.
+/// Trimmed, non-empty `x-codelens-project` header value. Read as UTF-8, not
+/// ASCII, so a path adopted from the `project` query (below) may hold
+/// non-ASCII characters.
 pub(crate) fn project_header_value(headers: &HeaderMap) -> Option<String> {
     headers
         .get("x-codelens-project")
-        .and_then(|value| value.to_str().ok())
+        .and_then(|value| std::str::from_utf8(value.as_bytes()).ok())
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+/// Use `?project=` on the endpoint URL when no `x-codelens-project` header
+/// came. A host cannot put `${PWD}` in a header when the path is not ASCII
+/// (Claude Code then sends no request at all, measured 2026-10-10 from
+/// `~/깡깡벨퀴즈쇼`), but it percent-encodes the same value in the URL. Only
+/// `%XX` is decoded; `+` stays `+` in a path.
+pub(crate) fn adopt_project_query(headers: &mut HeaderMap, uri: &axum::http::Uri) {
+    if headers.contains_key("x-codelens-project") {
+        return;
+    }
+    let Some(raw) = uri.query().and_then(|query| {
+        query
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("project="))
+    }) else {
+        return;
+    };
+    if let Some(decoded) = percent_decode(raw)
+        && let Ok(value) = HeaderValue::from_bytes(decoded.as_bytes())
+    {
+        headers.insert("x-codelens-project", value);
+    }
+}
+
+fn percent_decode(raw: &str) -> Option<String> {
+    let bytes = raw.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(index + 1..index + 3)?).ok()?;
+            decoded.push(u8::from_str_radix(hex, 16).ok()?);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
 }
 
 pub(crate) fn create_initialize_session(

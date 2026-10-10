@@ -228,3 +228,91 @@ async fn an_explicit_prepare_of_a_missing_project_still_fails() {
 
     assert_ne!(prepared["success"], true, "{prepared:#}");
 }
+
+fn percent_encode_path(path: &std::path::Path) -> String {
+    path.to_str()
+        .unwrap()
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'-' | b'_' | b'.' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+impl SessionlessFixture {
+    async fn project_root_at(&self, uri: &str, headers: &[(&str, &str)]) -> String {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json");
+        for (key, value) in headers {
+            builder = builder.header(*key, *value);
+        }
+        let response = self
+            .app
+            .clone()
+            .oneshot(
+                builder
+                    .body(axum::body::Body::from(
+                        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                               "params": {"name": "get_current_config", "arguments": {}}})
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let config = first_tool_payload(&body_string(response).await);
+        let data = config.get("data").unwrap_or(&config);
+        data["project_root"].as_str().unwrap_or_default().to_owned()
+    }
+}
+
+#[tokio::test]
+async fn a_project_query_parameter_binds_a_non_ascii_path() {
+    // A header cannot carry `${PWD}` for a directory named in Korean: Claude
+    // Code sends no request at all. The URL query percent-encodes it.
+    let fixture = SessionlessFixture::new();
+    let korean = std::fs::canonicalize(temp_project_dir("한글-프로젝트")).unwrap();
+    std::fs::write(korean.join("main.py"), "def main():\n    return 1\n").unwrap();
+
+    let uri = format!("/mcp?project={}", percent_encode_path(&korean));
+    assert_eq!(
+        fixture.project_root_at(&uri, &[]).await,
+        korean.to_str().unwrap()
+    );
+}
+
+#[tokio::test]
+async fn a_project_header_wins_over_the_query_parameter() {
+    let fixture = SessionlessFixture::new();
+    let other = fixture.other_project.to_str().unwrap();
+    let uri = format!(
+        "/mcp?project={}",
+        percent_encode_path(&fixture.daemon_project)
+    );
+
+    assert_eq!(
+        fixture
+            .project_root_at(&uri, &[("x-codelens-project", other)])
+            .await,
+        other
+    );
+}
+
+#[tokio::test]
+async fn a_plus_in_the_project_query_stays_a_plus() {
+    let fixture = SessionlessFixture::new();
+    let plus = std::fs::canonicalize(temp_project_dir("c++-tools")).unwrap();
+    std::fs::write(plus.join("lib.py"), "def f():\n    return 1\n").unwrap();
+    let uri = format!("/mcp?project={}", plus.to_str().unwrap());
+
+    assert_eq!(
+        fixture.project_root_at(&uri, &[]).await,
+        plus.to_str().unwrap()
+    );
+}
