@@ -37,6 +37,12 @@ Options:
                               project's dominant indexed languages, or a
                               comma-separated server list)
   --rerank VALUE              CODELENS_RERANK for both daemons (default: 0)
+  --markerless-root MODE      deny|allow: CODELENS_ALLOW_MARKERLESS_ROOT for the
+                              daemon (default: deny). A shared daemon whose hosts
+                              send `x-codelens-project: ${PWD}` must not index a
+                              launch folder that has no root marker (.git,
+                              Cargo.toml, package.json, ...); allow restores
+                              binding unmarked directories
   --telemetry VALUE           CODELENS_TELEMETRY_ENABLED for the daemon
                               (default: 1; appends per-call JSONL to
                               <repo>/.codelens/telemetry/tool_usage.jsonl —
@@ -97,6 +103,7 @@ EFFORT_LEVEL="high"
 RESPONSE_CONTRACT="full"
 LSP_PREWARM="off"
 RERANK_VALUE="0"
+MARKERLESS_ROOT="deny"
 TELEMETRY_ENABLED="1"
 EMBED_RESOURCE_PROFILE="low_power"
 MODEL_DIR=""
@@ -290,6 +297,10 @@ while [[ $# -gt 0 ]]; do
 		RERANK_VALUE="${2:-}"
 		shift 2
 		;;
+	--markerless-root)
+		MARKERLESS_ROOT="${2:-}"
+		shift 2
+		;;
 	--telemetry)
 		TELEMETRY_ENABLED="${2:-}"
 		shift 2
@@ -385,6 +396,14 @@ if ! is_int_in_range "$MUTATION_PORT" 1 65535; then
 	echo "--mutation-port must be an integer in [1, 65535]" >&2
 	exit 2
 fi
+case "$MARKERLESS_ROOT" in
+deny) markerless_root_value="0" ;;
+allow) markerless_root_value="1" ;;
+*)
+	echo "--markerless-root must be deny or allow (got '$MARKERLESS_ROOT')" >&2
+	exit 2
+	;;
+esac
 
 if [[ -z "$BIN_PATH" ]]; then
 	BIN_PATH="$REPO_ROOT/.codelens/bin/codelens-mcp-http"
@@ -557,6 +576,8 @@ create_plist() {
 		printf '    <string>%s</string>\n' "$LSP_PREWARM"
 		printf '%s\n' '    <key>CODELENS_RERANK</key>'
 		printf '    <string>%s</string>\n' "$RERANK_VALUE"
+		printf '%s\n' '    <key>CODELENS_ALLOW_MARKERLESS_ROOT</key>'
+		printf '    <string>%s</string>\n' "$markerless_root_value"
 		printf '%s\n' '    <key>CODELENS_TELEMETRY_ENABLED</key>'
 		printf '    <string>%s</string>\n' "$TELEMETRY_ENABLED"
 		printf '%s\n' '    <key>CODELENS_EMBED_RESOURCE_PROFILE</key>'
