@@ -182,6 +182,25 @@ fn apply_path_alias_normalisation(tool_name: &str, arguments: &mut serde_json::V
             | "find_implementations"
             | "get_diagnostics_for_symbol"
     );
+    // `file` was never a parameter, but agents pass it for the file a read
+    // targets, most often as `{"mode": "file", "file": ...}` on the `diagnose`
+    // and `overview` facades: 10 of 26 "missing path" failures over 14 days
+    // of local sessions. Read-only tools take it as `path`; mutation tools do
+    // not, so a misnamed argument there still fails loudly.
+    let supports_file_alias = supports_relative_path_alias
+        || matches!(tool_name, "overview" | "diagnose" | "search" | "graph");
+    if supports_file_alias
+        && !has_file_path
+        && !has_path
+        && !has_relative_path
+        && let Some(value) = obj.get("file").filter(|value| value.is_string()).cloned()
+    {
+        obj.remove("file");
+        obj.insert("path".to_owned(), value.clone());
+        obj.insert("file_path".to_owned(), value);
+        obj.insert("_path_alias_source".to_owned(), json!("file"));
+        return;
+    }
     match (has_file_path, has_path) {
         (true, false) => {
             if let Some(value) = obj.get("file_path").cloned() {
@@ -209,6 +228,37 @@ fn apply_path_alias_normalisation(tool_name: &str, arguments: &mut serde_json::V
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn file_is_taken_as_path_on_read_tools_and_facades() {
+        for tool in [
+            "diagnose",
+            "overview",
+            "get_file_diagnostics",
+            "get_symbols_overview",
+        ] {
+            let mut v = json!({ "mode": "file", "file": "src/a.rs" });
+            apply_path_alias_normalisation(tool, &mut v);
+            assert_eq!(v["path"], "src/a.rs", "{tool}");
+            assert_eq!(v["file_path"], "src/a.rs", "{tool}");
+            assert!(
+                v.get("file").is_none(),
+                "{tool}: `file` must not linger as an unknown arg"
+            );
+        }
+    }
+
+    #[test]
+    fn file_is_left_alone_on_mutation_tools_and_when_path_is_given() {
+        let mut mutation = json!({ "file": "src/a.rs" });
+        apply_path_alias_normalisation("replace_symbol_body", &mut mutation);
+        assert!(mutation.get("path").is_none());
+        assert_eq!(mutation["file"], "src/a.rs");
+
+        let mut both = json!({ "file": "src/a.rs", "path": "src/b.rs" });
+        apply_path_alias_normalisation("diagnose", &mut both);
+        assert_eq!(both["path"], "src/b.rs");
+    }
 
     fn run_alias(value: serde_json::Value) -> serde_json::Value {
         let mut v = value;
