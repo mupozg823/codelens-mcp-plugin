@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A pull request title can no longer run commands in the changelog check** — `changelog-check.yml` spliced the PR title into its shell script with an Actions expression, which is substituted before bash parses the script, so backticks or `$(...)` in a title ran as commands. A title containing `` `file` `` made the step run `file` and fail (#441). The title now arrives through `env`.
+
 - **Read tools take a `file` argument as the path** — agents often call the `diagnose` and `overview` facades as `{"mode": "file", "file": ...}`, and those calls failed with "Missing required parameter: path" (10 of the 26 such failures in 14 days of local sessions). Read-only tools and the `overview`/`diagnose`/`search`/`graph` facades now take `file` as `path` when no path is given. Mutation tools still reject it.
 
 - **CI now lints and tests the daemon's feature set** — the launchd daemons are built with `http,semantic`. CI tested each feature alone but never the combination, so `prepare_harness_session_expands_tools_list_surface` failed on main under `http,semantic` without anyone seeing it. That test compared listing sizes, and both listings are capped at the CORE-20, so the comparison only held while the bootstrap lacked `semantic_search`. It now asserts what #357 needs: tools hidden at bootstrap become visible. `ci.yml` gains `cargo clippy` and `cargo nextest` steps for `http,semantic`.
