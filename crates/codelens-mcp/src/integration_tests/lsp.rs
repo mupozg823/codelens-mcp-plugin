@@ -168,6 +168,21 @@ fn get_file_diagnostics_fails_on_a_missing_file_without_a_language_server() {
 }
 
 #[test]
+fn diagnose_takes_a_file_argument_as_the_path() {
+    // `{"mode": "file", "file": ...}` used to fail with "Missing required
+    // parameter: path" before the facade reached the target tool.
+    let project = project_root();
+    fs::write(project.as_path().join("styles.css"), "a { color: red; }\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "diagnose",
+        json!({ "mode": "file", "file": "styles.css" }),
+    );
+    assert_eq!(payload["success"], json!(true), "{payload}");
+}
+
+#[test]
 fn get_file_diagnostics_rejects_unregistered_python_caller_without_spawning() {
     let project = project_root();
     fs::write(project.as_path().join("caller_guard.py"), "x = 1\n").unwrap();
