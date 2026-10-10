@@ -140,7 +140,7 @@ pub fn write_memory(memories_dir: &Path, name: &str, content: &str) -> Result<()
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, content)?;
+    crate::atomic_write::write_atomic(&path, content)?;
     Ok(())
 }
 
@@ -178,7 +178,7 @@ pub fn write_memory_tiered(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, content)?;
+    crate::atomic_write::write_atomic(&path, content)?;
     Ok(loc.tier)
 }
 
@@ -250,7 +250,7 @@ fn write_policy(memories_dir: &Path, content: &str) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::create_dir_all(memories_dir)?;
-    std::fs::write(memories_dir.join(POLICY_FILE_BASENAME), content)?;
+    crate::atomic_write::write_atomic(memories_dir.join(POLICY_FILE_BASENAME), content)?;
     Ok(())
 }
 

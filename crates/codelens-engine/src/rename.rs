@@ -452,7 +452,7 @@ pub fn apply_edits(project: &ProjectRoot, edits: &[RenameEdit]) -> Result<()> {
         for (start, end, _, edit) in positioned {
             content.replace_range(start..end, &edit.new_text);
         }
-        fs::write(&resolved, &content)?;
+        crate::atomic_write::write_atomic(&resolved, &content)?;
     }
 
     Ok(())

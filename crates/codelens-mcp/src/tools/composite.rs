@@ -128,7 +128,7 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
         if source.ends_with('\n') && !result.ends_with('\n') {
             result.push('\n');
         }
-        std::fs::write(&resolved, &result)?;
+        codelens_engine::write_atomic(&resolved, &result)?;
     }
 
     const DEGRADED_REASON: &str = "tree-sitter heuristic — no semantic analysis";
