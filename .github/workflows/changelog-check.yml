@@ -13,13 +13,17 @@ jobs:
           fetch-depth: 0
 
       - name: Check CHANGELOG has Unreleased section
+        # The title arrives through the environment, never spliced into the
+        # script: an Actions expression is substituted before bash parses it,
+        # so backticks or `$(...)` in a PR title used to run as commands (a
+        # title containing `file` made this step run `file` and fail).
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           # If CHANGELOG.md exists and has content since the last tag,
           # verify that either:
           # 1. CHANGELOG.md has an [Unreleased] section, OR
           # 2. This is a release PR (title matches vX.Y.Z pattern)
-
-          PR_TITLE="${{ github.event.pull_request.title }}"
 
           # Release PRs are exempt
           if echo "$PR_TITLE" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
