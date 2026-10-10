@@ -379,6 +379,23 @@ pub(super) fn build_project_runtime_context(
     {
         let _ = symbol_index.refresh_all();
     }
+    // Rows a refresh deleted (files the walk now skips) stay as free pages
+    // until given back; this process holds the writer lease.
+    match symbol_index.compact_if_mostly_free() {
+        Ok(Some(report)) => tracing::info!(
+            project = %project.as_path().display(),
+            bytes_before = report.bytes_before,
+            bytes_after = report.bytes_after,
+            converted = report.converted,
+            "gave back free symbol index pages"
+        ),
+        Ok(None) => {}
+        Err(error) => tracing::warn!(
+            project = %project.as_path().display(),
+            %error,
+            "symbol index compaction failed"
+        ),
+    }
     let index_ms = started.elapsed().as_millis() - lease_ms - seed_ms;
     let graph_cache = Arc::new(GraphCache::new(30));
     let memories_dir = project.as_path().join(".codelens").join("memories");

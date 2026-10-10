@@ -817,3 +817,93 @@ fn open_connections_are_counted_per_path_while_alive() {
     assert_eq!(open_connections_for(&path), 0);
     let _ = fs::remove_dir_all(&dir);
 }
+
+fn pragma_i64(conn: &Connection, name: &str) -> i64 {
+    conn.pragma_query_value(None, name, |row| row.get(0))
+        .unwrap()
+}
+
+#[test]
+fn a_new_index_file_gets_incremental_auto_vacuum() {
+    // `auto_vacuum` after `journal_mode = WAL` was silently ignored, so every
+    // index was created with it off.
+    let dir = tempfile::tempdir().unwrap();
+    let db = IndexDb::open(&dir.path().join("symbols.db")).unwrap();
+    assert_eq!(pragma_i64(&db.conn, "auto_vacuum"), 2);
+}
+
+/// A file laid out like every index created before the pragma order fix:
+/// WAL with auto-vacuum off, mostly empty after a large delete.
+fn mostly_empty_legacy_db(path: &Path) -> Connection {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "PRAGMA page_size = 4096; PRAGMA journal_mode = WAL; CREATE TABLE rows (id INTEGER PRIMARY KEY, body BLOB);",
+    )
+    .unwrap();
+    fill_and_delete_most(&conn);
+    conn
+}
+
+fn fill_and_delete_most(conn: &Connection) {
+    let body = vec![7_u8; 1024];
+    let tx = conn.unchecked_transaction().unwrap();
+    for _ in 0..2_000 {
+        tx.execute("INSERT INTO rows (body) VALUES (?1)", [&body])
+            .unwrap();
+    }
+    tx.commit().unwrap();
+    conn.execute("DELETE FROM rows WHERE id % 20 != 0", [])
+        .unwrap();
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .unwrap();
+}
+
+#[test]
+fn compaction_gives_back_the_space_deleted_rows_left() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("symbols.db");
+    let conn = mostly_empty_legacy_db(&path);
+    assert_eq!(pragma_i64(&conn, "auto_vacuum"), 0);
+    let file_before = fs::metadata(&path).unwrap().len();
+
+    let report = compact::compact_if_mostly_free(&conn, 0.25, 64 * 1024)
+        .unwrap()
+        .expect("a mostly empty file is compacted");
+
+    assert!(report.converted, "{report:?}");
+    assert!(report.bytes_after * 4 < report.bytes_before, "{report:?}");
+    assert_eq!(pragma_i64(&conn, "freelist_count"), 0);
+    assert_eq!(pragma_i64(&conn, "auto_vacuum"), 2);
+    let file_after = fs::metadata(&path).unwrap().len();
+    assert!(
+        file_after * 4 < file_before,
+        "{file_before} -> {file_after}"
+    );
+    assert_eq!(
+        conn.query_row("SELECT COUNT(*) FROM rows", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        100
+    );
+
+    // Converted once; later deletes are given back in place.
+    fill_and_delete_most(&conn);
+    let report = compact::compact_if_mostly_free(&conn, 0.25, 64 * 1024)
+        .unwrap()
+        .expect("compacted again");
+    assert!(!report.converted, "{report:?}");
+    assert_eq!(pragma_i64(&conn, "freelist_count"), 0);
+}
+
+#[test]
+fn compaction_leaves_a_mostly_full_file_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let conn = Connection::open(dir.path().join("symbols.db")).unwrap();
+    conn.execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE rows (body BLOB);")
+        .unwrap();
+    conn.execute("INSERT INTO rows (body) VALUES (zeroblob(65536))", [])
+        .unwrap();
+    assert_eq!(
+        compact::compact_if_mostly_free(&conn, 0.25, 1).unwrap(),
+        None
+    );
+}

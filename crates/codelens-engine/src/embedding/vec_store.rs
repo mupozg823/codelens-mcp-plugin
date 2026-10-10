@@ -40,9 +40,10 @@ impl SqliteVecStore {
             // contention; see crate::db::IndexDb::open and #332. `page_size`
             // is a no-op on existing files. mmap/cache budgets are
             // proportionally smaller than the symbol index because the
-            // embedding store is ~100 MB, not 1 GB.
+            // embedding store is ~100 MB, not 1 GB. `auto_vacuum` precedes
+            // `journal_mode = WAL`, as in `IndexDb::open`.
             conn.execute_batch(
-                "PRAGMA busy_timeout = 5000; PRAGMA page_size = 16384; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -16000; PRAGMA mmap_size = 67108864; PRAGMA wal_autocheckpoint = 4000; PRAGMA auto_vacuum = INCREMENTAL;",
+                "PRAGMA busy_timeout = 5000; PRAGMA page_size = 16384; PRAGMA auto_vacuum = INCREMENTAL; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -16000; PRAGMA mmap_size = 67108864; PRAGMA wal_autocheckpoint = 4000;",
             )?;
 
             // Check if DB exists with a different model/schema — if so, drop
@@ -137,6 +138,28 @@ impl SqliteVecStore {
                 );",
                 dimension = dimension
             ))?;
+
+            // Deleted rows (a model change drops all of them) stay as free
+            // pages until given back; see `crate::db::compact`.
+            match crate::db::compact::compact_if_mostly_free(
+                &conn,
+                crate::db::compact::MIN_FREE_RATIO,
+                crate::db::compact::MIN_FREE_BYTES,
+            ) {
+                Ok(Some(report)) => tracing::info!(
+                    path = %db_path.display(),
+                    bytes_before = report.bytes_before,
+                    bytes_after = report.bytes_after,
+                    converted = report.converted,
+                    "gave back free embedding index pages"
+                ),
+                Ok(None) => {}
+                Err(error) => tracing::warn!(
+                    path = %db_path.display(),
+                    %error,
+                    "embedding index compaction failed"
+                ),
+            }
 
             Ok(Self {
                 db: Mutex::new(conn),

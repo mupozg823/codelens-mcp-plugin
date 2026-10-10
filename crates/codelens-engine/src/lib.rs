@@ -63,7 +63,8 @@ pub use call_graph::{CallEdge, CalleeEntry, CallerEntry, extract_calls, get_call
 pub use circular::{CircularDependency, find_circular_dependencies};
 pub use coupling::{CouplingEntry, get_change_coupling};
 pub use db::{
-    DirStats, IndexDb, NewCall, NewImport, NewSymbol, SymbolWithFile, content_hash, index_db_path,
+    CompactReport, DirStats, IndexDb, NewCall, NewImport, NewSymbol, SymbolWithFile, content_hash,
+    index_db_path,
 };
 pub use dead_code::{DeadCodeEntryV2, find_dead_code, find_dead_code_v2};
 pub use edit_transaction::{
