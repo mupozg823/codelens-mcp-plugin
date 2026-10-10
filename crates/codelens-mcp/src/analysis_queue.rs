@@ -9,6 +9,8 @@ use crate::error::CodeLensError;
 pub(crate) const MAX_PENDING_ANALYSIS_REQUESTS: usize = 32;
 pub(crate) const STDIO_ANALYSIS_WORKER_COUNT: usize = 1;
 pub(crate) const HTTP_ANALYSIS_WORKER_COUNT: usize = 2;
+pub(crate) const STDIO_ANALYSIS_COST_BUDGET: usize = 2;
+pub(crate) const HTTP_ANALYSIS_COST_BUDGET: usize = 3;
 
 pub(crate) fn analysis_job_cost_units(kind: &str) -> usize {
     match kind {
@@ -24,6 +26,20 @@ pub(crate) fn analysis_job_cost_units(kind: &str) -> usize {
         "index_embeddings" => 4,
         _ => 2,
     }
+}
+
+/// Whether a worker may start a job of `cost_units` now. A job priced above the
+/// whole budget runs alone once the pool is idle; otherwise it would wait for
+/// capacity that never exists.
+fn admits(
+    active_jobs: usize,
+    allowed_parallelism: usize,
+    active_cost_units: usize,
+    cost_units: usize,
+    cost_budget: usize,
+) -> bool {
+    active_jobs < allowed_parallelism
+        && (active_cost_units + cost_units <= cost_budget || active_jobs == 0)
 }
 
 pub(crate) struct AnalysisJobRequest {
@@ -82,8 +98,13 @@ impl JobService {
                                     .analysis_parallelism_for_profile(
                                         request.profile_hint.as_deref(),
                                     );
-                                guard.active_jobs < allowed_parallelism
-                                    && guard.active_cost_units + request.cost_units <= cost_budget
+                                admits(
+                                    guard.active_jobs,
+                                    allowed_parallelism,
+                                    guard.active_cost_units,
+                                    request.cost_units,
+                                    cost_budget,
+                                )
                             });
                             if let Some(index) = next_index {
                                 let request = guard.pending.remove(index);
@@ -183,7 +204,66 @@ impl JobService {
 
 #[cfg(test)]
 mod tests {
-    use super::analysis_job_cost_units;
+    use super::{
+        HTTP_ANALYSIS_COST_BUDGET, HTTP_ANALYSIS_WORKER_COUNT, STDIO_ANALYSIS_COST_BUDGET,
+        STDIO_ANALYSIS_WORKER_COUNT, admits, analysis_job_cost_units,
+    };
+
+    #[test]
+    fn every_job_kind_can_start_on_an_idle_queue() {
+        // A job priced above the budget used to wait for capacity that can never
+        // exist: `index_embeddings` (4) sat `queued` forever on the HTTP daemon
+        // (budget 3), and so did the async `explore_codebase` and
+        // `review_architecture`; on stdio (budget 2) `dead_code_report` too.
+        for kind in [
+            "impact_report",
+            "orchestrate_change",
+            "refactor_safety_report",
+            "dead_code_report",
+            "explore_codebase",
+            "review_architecture",
+            "index_embeddings",
+            "any_other_report",
+        ] {
+            for (workers, budget) in [
+                (HTTP_ANALYSIS_WORKER_COUNT, HTTP_ANALYSIS_COST_BUDGET),
+                (STDIO_ANALYSIS_WORKER_COUNT, STDIO_ANALYSIS_COST_BUDGET),
+            ] {
+                assert!(
+                    admits(0, workers, 0, analysis_job_cost_units(kind), budget),
+                    "{kind} (cost {}) can never start under budget {budget}",
+                    analysis_job_cost_units(kind)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_oversized_job_waits_until_it_can_run_alone() {
+        let cost = analysis_job_cost_units("index_embeddings");
+        assert!(cost > HTTP_ANALYSIS_COST_BUDGET);
+        assert!(!admits(
+            1,
+            HTTP_ANALYSIS_WORKER_COUNT,
+            1,
+            cost,
+            HTTP_ANALYSIS_COST_BUDGET
+        ));
+    }
+
+    #[test]
+    fn jobs_within_the_budget_still_share_the_pool() {
+        let budget = HTTP_ANALYSIS_COST_BUDGET;
+        assert!(admits(1, HTTP_ANALYSIS_WORKER_COUNT, 1, 2, budget));
+        assert!(!admits(1, HTTP_ANALYSIS_WORKER_COUNT, 2, 2, budget));
+        assert!(!admits(
+            HTTP_ANALYSIS_WORKER_COUNT,
+            HTTP_ANALYSIS_WORKER_COUNT,
+            0,
+            1,
+            budget
+        ));
+    }
 
     #[test]
     fn whole_repo_sweeps_reserve_more_capacity_than_targeted_reports() {
