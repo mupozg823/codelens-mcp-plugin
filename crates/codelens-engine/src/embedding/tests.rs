@@ -284,6 +284,103 @@ fn extract_rust_doc_comment() {
     assert!(doc.contains("Handles all MCP methods"));
 }
 
+fn preceding_doc(source: &str, item: &str) -> Option<String> {
+    extract_preceding_doc(source, source.find(item).expect("item in source"))
+}
+
+#[test]
+fn preceding_rust_doc_skips_attributes_and_stops_at_the_first_heading() {
+    // serde-json's `to_string`, as written upstream.
+    let source = "/// Serialize the given data structure as a String of JSON.\n///\n/// # Errors\n///\n/// Serialization can fail if `T`'s implementation of `Serialize` decides to\n/// fail.\n#[inline]\npub fn to_string<T>(value: &T) -> Result<String>\n";
+    assert_eq!(
+        preceding_doc(source, "pub fn to_string").as_deref(),
+        Some("Serialize the given data structure as a String of JSON.")
+    );
+    // The symbol may start mid-line, after the visibility keyword.
+    assert_eq!(
+        preceding_doc(source, "fn to_string").as_deref(),
+        Some("Serialize the given data structure as a String of JSON.")
+    );
+}
+
+#[test]
+fn preceding_rust_doc_skips_a_multi_line_attribute() {
+    let source = "    /// Converts a value into JSON text.\n    /// Keeps key order.\n    #[cfg_attr(\n        docsrs,\n        doc(cfg(feature = \"std\"))\n    )]\n    #[must_use]\n    pub fn to_text(&self) -> String {\n";
+    assert_eq!(
+        preceding_doc(source, "pub fn to_text").as_deref(),
+        Some("Converts a value into JSON text.\nKeeps key order.")
+    );
+}
+
+#[test]
+fn preceding_javadoc_and_ts_doc_skip_annotations_and_tags() {
+    let java = "  /**\n   * Returns the owner with the given id.\n   *\n   * @param id the owner id\n   */\n  @Override\n  @Transactional(readOnly = true)\n  public Owner findById(int id) {\n";
+    assert_eq!(
+        preceding_doc(java, "public Owner").as_deref(),
+        Some("Returns the owner with the given id.")
+    );
+    let ts = "/** Renders the login form. */\n@Component({\n  selector: 'app-login',\n})\nexport class LoginForm {}\n";
+    assert_eq!(
+        preceding_doc(ts, "export class").as_deref(),
+        Some("Renders the login form.")
+    );
+}
+
+#[test]
+fn preceding_go_comment_is_the_doc() {
+    let source = "// ServeHTTP dispatches the request to the handler\n// whose pattern most closely matches the request URL.\nfunc (mux *ServeMux) ServeHTTP(w ResponseWriter, r *Request) {\n";
+    assert_eq!(
+        preceding_doc(source, "func").as_deref(),
+        Some(
+            "ServeHTTP dispatches the request to the handler\nwhose pattern most closely matches the request URL."
+        )
+    );
+}
+
+#[test]
+fn preceding_doc_ignores_detached_module_and_plain_block_comments() {
+    let detached = "// Section: helpers\n\nfn helper() {}\n";
+    assert_eq!(preceding_doc(detached, "fn helper"), None);
+    let module_doc = "//! The crate's JSON value type.\nuse std::fmt;\nfn first() {}\n";
+    assert_eq!(preceding_doc(module_doc, "fn first"), None);
+    let only_module_doc = "//! The crate's JSON value type.\nfn first() {}\n";
+    assert_eq!(preceding_doc(only_module_doc, "fn first"), None);
+    let plain_block = "/* Copyright 2026 */\nfn licensed() {}\n";
+    assert_eq!(preceding_doc(plain_block, "fn licensed"), None);
+    assert_eq!(preceding_doc("fn top() {}\n", "fn top"), None);
+}
+
+#[test]
+fn embedding_text_carries_the_doc_written_above_a_rust_function() {
+    let source = "/// Serialize the given data structure as a String of JSON.\n#[inline]\npub fn to_string<T>(value: &T) -> Result<String> {\n    let vec = tri!(to_vec(value));\n}\n";
+    let start = source.find("pub fn").unwrap();
+    let sym = crate::db::SymbolWithFile {
+        name: "to_string".into(),
+        kind: "function".into(),
+        file_path: "src/ser.rs".into(),
+        line: 3,
+        signature: "pub fn to_string<T>(value: &T) -> Result<String>".into(),
+        name_path: "to_string".into(),
+        start_byte: start as i64,
+        end_byte: source.len() as i64,
+    };
+    let text = build_embedding_text(&sym, Some(source));
+    assert!(
+        text.contains("Serialize the given data structure as a String of JSON"),
+        "{text}"
+    );
+    assert!(text.contains("doc=present"), "{text}");
+}
+
+#[test]
+fn python_docstring_inside_the_body_is_still_the_doc() {
+    let source = "@app.route('/')\ndef greet(name):\n    \"\"\"Say hello to a person.\"\"\"\n    print(f'hi {name}')\n";
+    let start = source.find("def greet").unwrap();
+    assert_eq!(extract_preceding_doc(source, start), None);
+    let doc = extract_symbol_doc(source, start, source.len()).unwrap();
+    assert!(doc.contains("Say hello to a person"), "{doc}");
+}
+
 #[test]
 fn extract_leading_doc_returns_none_for_no_doc() {
     let source = "def f():\n    return 1\n";

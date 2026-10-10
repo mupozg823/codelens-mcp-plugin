@@ -16,7 +16,9 @@ pub use auto_hint::{
     auto_hint_mode_enabled, auto_hint_should_enable, language_supports_nl_stack,
     language_supports_sparse_weighting, nl_tokens_enabled,
 };
-pub use docs::extract_leading_doc;
+pub use docs::extract_symbol_doc;
+#[cfg(test)]
+pub use docs::{extract_leading_doc, extract_preceding_doc};
 #[cfg(test)]
 pub use hint::hint_char_budget;
 pub use hint::{extract_body_hint, hint_line_budget, join_hint_lines};
@@ -129,7 +131,7 @@ pub fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str
 
     let docstring = source
         .filter(|_| !docstrings_disabled)
-        .and_then(|src| extract_leading_doc(src, sym.start_byte as usize, sym.end_byte as usize))
+        .and_then(|src| extract_symbol_doc(src, sym.start_byte as usize, sym.end_byte as usize))
         .unwrap_or_default();
     let body_hint = if docstrings_disabled || !docstring.is_empty() {
         String::new()
