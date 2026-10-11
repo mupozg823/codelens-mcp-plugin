@@ -127,6 +127,49 @@ This leg covers the structural work that §2 left out. Gold comes from the compi
   - E11 found an LSP precision gain only where grep's F1 was 0.71. A task that is hard for grep, such as trait dispatch, macro-generated calls or a large polyglot repository, would be needed to show one here.
   - Noise floor: native reps differed by 0 in F1 and by about $0.01 in cost (Sonnet).
 
+## 2c. Real cases: production callers in a large TypeScript repo
+
+The A/Bs above used synthetic tasks on CodeLens's own repository. This leg starts from what actually happened in the field instead.
+
+**Real struggle episodes**
+- Over the same 14 days there were 73 episodes where an agent put the same code symbol into three or more searches. The tuanbo TypeScript Electron app had the most.
+- Reading them shows that the repetition was mostly about reading the context around usage sites, not about failing to find them.
+- In 2,691 runs of consecutive searches, CodeLens was used 0 times.
+
+**Single-call replay** (tuanbo-controller, scored on production call sites only)
+- One CodeLens call returned exactly the production callers:
+  - `cancelPendingReturnsForLifecycle` 2/2
+  - `findMatchingQueues` 4/4, plus a real call in `scripts/`
+  - `flushPendingSave` 5/5
+- `rg -w` returned 16–156 lines for the same symbols, mostly test mocks, imports and strings.
+- `executeUp` came back 0/3, because the sampled preview listed 8 tests first. Fixed in #446: the preview now shows production first (`PPPPPTTT`).
+
+**Agent A/B** (80 runs)
+- Same repository, copied with the real `node_modules` linked so the TypeScript language server works.
+- 10 functions from those episodes, scored on hand-checked production call sites.
+- Four arms: native, native plus the built-in `LSP` tool, CodeLens free choice, CodeLens only.
+- Sonnet and Haiku, one rep per cell, daemon 302c0dc. Embeddings were deferred under memory pressure, so the semantic lane was off.
+
+| Model · arm | Production-call recall | Precision | Cost / run | Turns | Tokens | Failures |
+|---|---:|---:|---:|---:|---:|---:|
+| Sonnet native | 0.982 | 0.986 | $0.107 | 2.6 | 84k | 0 |
+| Sonnet + LSP | 0.982 | 0.986 | −9% | 2.4 | 80k | 0 |
+| Sonnet + CodeLens (free) | 0.962 | 0.986 | +16% | 2.5 | 96k | 0 |
+| Sonnet CodeLens only | 0.962 | 0.986 | +73% | 11.9 | 235k | 0 |
+| Haiku native | 0.982 | 0.986 | $0.0074 | 3.7 | 121k | 0 |
+| Haiku + LSP | 0.982 | 0.986 | −18% | 2.7 | 95k | 0 |
+| Haiku + CodeLens (free) | 0.982 | 0.986 | +7% | 3.4 | 120k | 0 |
+| Haiku CodeLens only | 0.982 | 1.000 | +91% | 16.9 | 385k | 0 |
+
+**Reading**
+- **The single-call precision advantage did not become an outcome advantage.** Agents with grep filtered tests and mocks out themselves and reached 0.98 recall, at lower cost than any CodeLens arm.
+- **Neither optional tool was used.** CodeLens free choice made 0 calls; the LSP arm made 0 `LSP` calls.
+- **Forcing CodeLens bought no recall** and cost +73–91% with 3.4–4.6× the turns.
+- **Shared misses.** The misses common to every arm (`isFeatureEnabled` 0.90, `triggerClip` 0.92) are most likely gold-set artifacts.
+- **Noise.** With one rep per cell, cost differences of ±10–20% are within noise.
+
+On this evidence, CodeLens was removed from the Claude Code harness, and that decision was taken in a separate session. The daemons, the Codex configuration and this repository were left as they are.
+
 ## 3. The fixed cost of being connected
 
 A Claude Code session sees 10 always-loaded CodeLens tools (ADR-0016 CORE_10). Their definitions are 13,701 characters, about 3,400 tokens. The `instructions` add about 255 tokens. Those are paid on every turn of every Claude session that has CodeLens connected, which since #432 is every session.
