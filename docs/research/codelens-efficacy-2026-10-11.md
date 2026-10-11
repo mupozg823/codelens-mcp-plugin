@@ -170,6 +170,35 @@ The A/Bs above used synthetic tasks on CodeLens's own repository. This leg start
 
 On this evidence, CodeLens was removed from the Claude Code harness, and that decision was taken in a separate session. The daemons, the Codex configuration and this repository were left as they are.
 
+## 2d. Real cases with Codex
+
+Codex made 72% of the field's CodeLens calls, so the §2c tasks were rerun with `codex exec`.
+
+**Setup** (30 runs)
+- Same copy, same 10 functions and gold as §2c. Codex 0.162.1, `gpt-6.1-sol` at effort xhigh (the user's configuration), read-only sandbox, one rep per cell.
+- Every MCP server other than CodeLens was disabled in all arms, mirroring `--strict-mcp-config` in §2c. CodeLens arms used the dev daemon at 302c0dc, which already had the copy indexed.
+- Three arms:
+  - off: CodeLens disabled.
+  - on: enabled, free choice, the real Codex setup.
+  - forced: enabled, and the prompt asks for `search`/`graph` and then reading.
+
+| Arm | Line F1 | Input tokens | vs off (median) | Wall | Runs that used CodeLens |
+|---|---:|---:|---:|---:|---:|
+| off | 0.983 | 156k | ×1.00 | 37.9 s | 0/10 |
+| on | 0.983 | 166k | ×0.94 | 44.4 s | 2/10 |
+| forced | 0.983 | 272k | ×1.56 | 81.0 s | 10/10 |
+
+**Reading**
+- **Quality was identical.** All three arms scored the same on every one of the 10 tasks, including the same misses (`isFeatureEnabled`, `scrollToSection`, `triggerClip`).
+- **Forcing CodeLens cost more tokens on every task.** Input tokens were ×1.31 to ×3.52 per task, and median wall time was ×1.9.
+- **Free choice is noise.** It used CodeLens in 2 of 10 runs, and its token difference from off is within one-rep noise.
+- **The tools worked.** There was one failed tool call in 30 CodeLens calls.
+
+On this evidence, CodeLens was disabled in the Codex configuration as well, which completes the user's instruction to drop it if it is no better than the stock tools:
+- `~/.codex/config.toml` sets `enabled = false` in `[mcp_servers.codelens]` and keeps the block, so deleting that line restores it.
+- The CodeLens routing line in `~/.codex/AGENTS.md` now points to `rg -w` and reading.
+- Backups are the `*.bak-20261011-codelens-off` files next to each. The daemons keep running at about 3 MB resident each.
+
 ## 3. The fixed cost of being connected
 
 A Claude Code session sees 10 always-loaded CodeLens tools (ADR-0016 CORE_10). Their definitions are 13,701 characters, about 3,400 tokens. The `instructions` add about 255 tokens. Those are paid on every turn of every Claude session that has CodeLens connected, which since #432 is every session.
