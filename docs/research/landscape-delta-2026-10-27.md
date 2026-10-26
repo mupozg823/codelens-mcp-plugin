@@ -139,8 +139,8 @@ Serena의 35.4%(사용자 1명, 192세션)와 codegraph의 소규모 A/B 외에�
 
 | 순위 | 항목 | 근거 | 비용 | 위험 | 첫 단계 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 외부 대조 하네스: semble `benchmarks/`에 CodeLens 기준선 | 이번 사이클에서 자기 세트 착시 세 번. 외부 라벨이 rg-family 12질의뿐 | S~M | 낮음(라벨이 LLM 생성인 점은 표기) | `baselines/codelens.py`로 Rust 3리포 약 60질의 |
-| 2 | 모델 bakeoff: NightOwl-35M(같은 384차원), 다음 GTE-ModernBERT-base(768차원) | 4절. 풀링 배선은 #452로 끝남 | S~M / M~L | 중간(재임베딩, 번들 크기) | 모델 디렉터리만 바꿔 112질의·역할·외부 게이트 |
+| 1 | 외부 대조 하네스: semble `benchmarks/`에 CodeLens 기준선 (10절: Rust 3리포 착수) | 이번 사이클에서 자기 세트 착시 세 번. 외부 라벨이 rg-family 12질의뿐 | S~M | 낮음(라벨이 LLM 생성인 점은 표기) | `baselines/codelens.py`로 Rust 3리포 약 60질의 |
+| 2 | 모델 bakeoff: ~~NightOwl-35M~~(10절, 기각), GTE-ModernBERT-base(768차원) | 4절. 풀링 배선은 #452로 끝남 | S~M / M~L | 중간(재임베딩, 번들 크기) | 모델 디렉터리만 바꿔 112질의·역할·외부 게이트 |
 | 3 | MCP 2026-07-28 1단계(discover, `resultType`, `-32022`, 헤더 검증) | 5절, rmcp 참조 구현 | M | 낮음~중간(가산적, 레거시 유지) | 설계 문서 Option 1 체크리스트 |
 | 4 | 채택 측정 하네스(다음 행동 분류) 뒤 Explore 대체 정의 A/B | 6절 | S~M | 낮음 | 기존 transcript로 기준선 |
 | 5 | semble 재정렬 신호 하나씩(경로 패널티, 파일 포화, 후보 밖 정의 가점) | 3절, 신호별 분해 수치 없음 | S씩 | 중간(과거 튜닝 기각 이력) | 신호별 게이트, 잡음 안이면 버림 |
@@ -156,6 +156,23 @@ Serena의 35.4%(사용자 1명, 192세션)와 codegraph의 소규모 A/B 외에�
 - LateOn 멀티벡터(sqlite-vec 구조와 맞지 않음)
 - 0.8B 이상 재정렬기
 - Serena 코드(GPL-3.0, 아이디어만)
+
+## 10. 후속 측정 (같은 날, #453 머지 뒤)
+
+**외부 대조 — semble 공개 주석, Rust 3리포** [측정]. `benchmarks/external-semble-annotations.py`가 semble의 `annotations/*.json`과 `repos.json`을 데이터로만 읽는다(semble 코드는 실행하지 않음). 고정 SHA로 리포를 받고, `benchmark_root`를 루트로 삼아 CodeLens 심볼 결과를 파일 목록으로 바꾼 뒤 semble 파일 경로 기준선과 같은 식으로 NDCG@10을 낸다.
+
+| 리포(20질의) | CodeLens `get_ranked_context` | CodeLens `semantic_search` | semble hybrid(공개) | CodeRankEmbed(공개) | ripgrep(공개) |
+| --- | --- | --- | --- | --- | --- |
+| tokio | 0.632 → **0.644**(매크로 추출 후) | 0.575 → 0.587 | 0.94 | 0.70~0.86 | 0.27 |
+| serde | 0.519 | 0.526 | 0.71~0.83 | 0.46~0.62 | 0.13 |
+| axum | 0.469 → **0.496** | 0.382 → 0.413 | 0.78~0.82 | 0.72~0.78 | 0.08 |
+
+자기 세트의 0.77이 외부 라벨에서는 0.5~0.64다. 한계도 함께 적는다. 라벨은 파일 단위이고 LLM이 만들었으며, CodeLens는 심볼 단위로 돌려준다. 그 차이를 감안해도 격차는 크다. 범주별로는 식별자형이 0.625로 가장 높고 설계 질문(0.503)과 의미 질문(0.528)이 낮다. 실패 분석에서 나온 결함이 두 가지다.
+
+- **항목 위치 매크로 본문 미색인**(이 PR에서 수정): tokio는 `cfg_rt! { … }`, `pin_project! { … }` 안에 항목을 둔다(`src` 375개 파일 중 105개). tree-sitter는 그 본문을 token tree로 남기므로 `LocalSet` 정의가 색인에 없었다. 본문을 included ranges로 다시 파싱하자 tokio 심볼이 5,048→5,789개가 됐다. 매크로 안의 호출·`use` 재수출은 아직이다.
+- **재수출만 있는 심볼**: axum의 `FromRequest`·`IntoResponse`는 `axum/src`에 정의 없이 `pub use axum_core::…`로만 있다. 정의만 색인하는 CodeLens는 0건을 돌려준다. 재수출을 심볼로 둘지는 열린 질문이다.
+
+**NightOwl-CodeEmbedding-35M bakeoff — 기각** [측정]. 모델 디렉터리만 바꿨다(CLS는 `1_Pooling`으로 자동). `get_ranked_context`가 거의 모든 세트에서 내려갔다. 역할 0.773→0.643, jest 0.304→0.212, gson 0.458→0.400, rg-family 0.917→0.833, self 0.771→0.763이고 gin만 보합이었다. `semantic_search`는 self(+0.014)와 gin(+0.11)에서만 올랐다. 카드가 스스로 밝힌 대로 대부분 in-domain인 MTEB 점수는 CodeLens 세트로 옮겨오지 않았다. 7절 2번은 GTE-ModernBERT-base(768차원)만 남는다.
 
 ## 8. 출처 (2026-10-27 열람)
 

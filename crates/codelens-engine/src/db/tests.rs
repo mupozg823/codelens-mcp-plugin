@@ -484,8 +484,8 @@ fn analyzer_version_two_wipes_pre_owner_qualified_rust_symbols() {
         )
         .unwrap();
     assert_eq!(
-        stored, 2,
-        "owner-qualified analyzer version must be recorded"
+        stored, ANALYZER_VERSION,
+        "the current analyzer version must be recorded"
     );
 }
 
