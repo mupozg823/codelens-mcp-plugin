@@ -2643,3 +2643,72 @@ fn explicit_embedding_knobs_override_low_power_profile() {
     assert_eq!(batch, 64);
     assert_eq!(provider, "cpu");
 }
+
+#[test]
+fn pooling_follows_the_model_dirs_sentence_transformers_config() {
+    use fastembed::Pooling;
+    // The bundled export ships no 1_Pooling/ directory; its source model,
+    // isuruwijesiri/all-MiniLM-L12-v2-code-search-512, mean-pools.
+    let bare = tempfile::tempdir().unwrap();
+    assert_eq!(
+        super::model_assets::pooling_for_model_dir(bare.path()),
+        Pooling::Mean
+    );
+
+    let write = |dir: &std::path::Path, config: &str| {
+        std::fs::create_dir_all(dir.join("1_Pooling")).unwrap();
+        std::fs::write(dir.join("1_Pooling").join("config.json"), config).unwrap();
+    };
+    let cls = tempfile::tempdir().unwrap();
+    write(
+        cls.path(),
+        r#"{"word_embedding_dimension":768,"pooling_mode_cls_token":true,"pooling_mode_mean_tokens":false}"#,
+    );
+    assert_eq!(
+        super::model_assets::pooling_for_model_dir(cls.path()),
+        Pooling::Cls
+    );
+
+    let mean = tempfile::tempdir().unwrap();
+    write(
+        mean.path(),
+        r#"{"word_embedding_dimension":384,"pooling_mode_cls_token":false,"pooling_mode_mean_tokens":true}"#,
+    );
+    assert_eq!(
+        super::model_assets::pooling_for_model_dir(mean.path()),
+        Pooling::Mean
+    );
+}
+
+#[test]
+fn store_from_an_older_schema_version_is_re_embedded() {
+    // Version 2 stores hold CLS-pooled vectors from before the bundled model
+    // was pooled the way it was trained (mean); reopening must drop them.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("embeddings.db");
+    let chunks = vec![EmbeddingChunk {
+        file_path: "main.py".to_owned(),
+        symbol_name: "hello".to_owned(),
+        kind: "function".to_owned(),
+        line: 1,
+        signature: "def hello():".to_owned(),
+        name_path: "hello".to_owned(),
+        text: "hello".to_owned(),
+        embedding: vec![1.0, 0.0],
+        doc_embedding: None,
+    }];
+    let store = super::vec_store::SqliteVecStore::new(db_path.as_path(), 2, "model-A").unwrap();
+    store.insert(&chunks).unwrap();
+    drop(store);
+    const { assert!(super::vec_store::EMBEDDING_STORE_SCHEMA_VERSION >= 3) };
+    rusqlite::Connection::open(&db_path)
+        .unwrap()
+        .execute(
+            "UPDATE meta SET value = '2' WHERE key = 'schema_version'",
+            [],
+        )
+        .unwrap();
+
+    let reopened = super::vec_store::SqliteVecStore::new(db_path.as_path(), 2, "model-A").unwrap();
+    assert_eq!(reopened.count().unwrap(), 0);
+}

@@ -7,7 +7,8 @@ use tracing::debug;
 
 use super::EmbeddingRuntimeInfo;
 use super::model_assets::{
-    CODESEARCH_MODEL_NAME, configured_model_name_for_dir, model_asset_path, resolve_model_dir,
+    CODESEARCH_MODEL_NAME, configured_model_name_for_dir, model_asset_path, pooling_for_model_dir,
+    resolve_model_dir,
 };
 #[cfg(feature = "model-bakeoff")]
 use super::model_bakeoff::load_fastembed_builtin;
@@ -176,7 +177,8 @@ pub fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, Embeddin
             special_tokens_map_file: special_tokens_bytes,
             tokenizer_config_file: tokenizer_config_bytes,
         },
-    );
+    )
+    .with_pooling(pooling_for_model_dir(&model_dir));
 
     let runtime_preference = configured_embedding_runtime_preference();
 
