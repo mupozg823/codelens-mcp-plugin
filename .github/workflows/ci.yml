@@ -185,6 +185,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: benchmark harness tests
+        # benchmarks/harness/tests ran in no workflow, so the smoke and
+        # quality gates' own checks were unguarded. macOS because the
+        # launchd installer tests target it; stdlib only (no pip install).
+        run: python3 -m unittest discover -s benchmarks/harness/tests -p 'test_*.py'
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 

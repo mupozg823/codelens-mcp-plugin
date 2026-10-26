@@ -70,9 +70,9 @@ pub(in crate::dispatch) fn semantic_search_handler(
             normalized_path_hint.as_deref(),
         )
     });
-    let structural_names: std::collections::HashSet<String> = lexical_candidates
+    let lexical_keys: std::collections::HashSet<String> = lexical_candidates
         .iter()
-        .map(|result| format!("{}:{}", result.file, result.name))
+        .map(|result| format!("{}:{}:{}", result.file, result.name, result.line))
         .collect();
     let semantic_lane = crate::tools::semantic_retriever::semantic_lane_for_query(
         state,
@@ -84,20 +84,24 @@ pub(in crate::dispatch) fn semantic_search_handler(
     let semantic_lane_error = semantic_lane.error;
     let mut results = semantic_lane.results;
 
+    // Which lane produced each result, keyed like `seen` below, so the
+    // provenance survives the rerank instead of calling every hit semantic.
+    let mut sources: std::collections::HashMap<String, &'static str> =
+        std::collections::HashMap::new();
     for result in &mut results {
-        let key = format!("{}:{}", result.file_path, result.symbol_name);
-        if structural_names.contains(&key) {
+        let source = embedding_hit_source(&lexical_keys, result);
+        if source == "semantic_lexical" {
             result.score += 0.06;
         }
+        sources.insert(result_key(result), source);
     }
 
-    let mut seen: std::collections::HashSet<String> = results
-        .iter()
-        .map(|r| format!("{}:{}:{}", r.file_path, r.symbol_name, r.line))
-        .collect();
+    let top_semantic = results.iter().map(|r| r.score).fold(0.0_f64, f64::max);
+    let mut seen: std::collections::HashSet<String> = results.iter().map(result_key).collect();
     for hr in lexical_candidates {
         let key = format!("{}:{}:{}", hr.file, hr.name, hr.line);
-        if seen.insert(key) {
+        if seen.insert(key.clone()) {
+            sources.insert(key, "lexical");
             results.push(codelens_engine::SemanticMatch {
                 file_path: hr.file,
                 symbol_name: hr.name,
@@ -105,7 +109,7 @@ pub(in crate::dispatch) fn semantic_search_handler(
                 line: hr.line,
                 signature: hr.signature,
                 name_path: hr.name_path,
-                score: (hr.score / 100.0) * 0.35,
+                score: lexical_only_score(hr.score, top_semantic),
             });
         }
     }
@@ -118,10 +122,14 @@ pub(in crate::dispatch) fn semantic_search_handler(
         .map(|result| {
             let (prior_delta, adjusted_score) =
                 crate::tools::query_analysis::semantic_adjusted_score_parts(query, result);
-            (
-                (prior_delta * 1000.0).round() / 1000.0,
-                (adjusted_score * 1000.0).round() / 1000.0,
-            )
+            ResultProvenance {
+                source: sources
+                    .get(&result_key(result))
+                    .copied()
+                    .unwrap_or("semantic"),
+                prior_delta: (prior_delta * 1000.0).round() / 1000.0,
+                adjusted_score: (adjusted_score * 1000.0).round() / 1000.0,
+            }
         })
         .collect::<Vec<_>>();
     let mut payload = json!({
@@ -162,7 +170,57 @@ pub(in crate::dispatch) fn semantic_search_handler(
     Ok((payload, tools::success_meta(BackendKind::Semantic, 0.85)))
 }
 
-fn annotate_provenance(payload: &mut serde_json::Value, scores: &[(f64, f64)]) {
+/// A perfect lexical-only hit is worth this share of the query's best
+/// embedding hit. Cosine scores run near 0.05 on one repo and 0.5 on
+/// another, so the old fixed 0.35 scale let one-term matches bury every
+/// semantic hit wherever the model scores low. Self-retrieval (112 queries):
+/// MRR 0.688 -> 0.707, recall unchanged; 0.5 measured 0.697.
+const LEXICAL_ONLY_SHARE: f64 = 0.8;
+/// Scale used when the embedding lane has no positive score to anchor to.
+const LEXICAL_ONLY_FALLBACK_SCALE: f64 = 0.35;
+
+/// `lexical_score` is the 0-100 hybrid search score.
+fn lexical_only_score(lexical_score: f64, top_semantic: f64) -> f64 {
+    let scale = if top_semantic > 0.0 {
+        LEXICAL_ONLY_SHARE * top_semantic
+    } else {
+        LEXICAL_ONLY_FALLBACK_SCALE
+    };
+    (lexical_score / 100.0) * scale
+}
+
+/// `semantic_lexical` only when the lexical lane returned this very symbol.
+/// Same-named methods in one file (one per `impl`) are different symbols,
+/// so the match is on file, name and line; it drives both the label and
+/// the corroboration boost.
+fn embedding_hit_source(
+    lexical_keys: &std::collections::HashSet<String>,
+    result: &codelens_engine::SemanticMatch,
+) -> &'static str {
+    if lexical_keys.contains(&result_key(result)) {
+        "semantic_lexical"
+    } else {
+        "semantic"
+    }
+}
+
+fn result_key(result: &codelens_engine::SemanticMatch) -> String {
+    format!(
+        "{}:{}:{}",
+        result.file_path, result.symbol_name, result.line
+    )
+}
+
+/// `source`: `semantic` (embedding lane only), `lexical` (lexical lane only)
+/// or `semantic_lexical` (both lanes returned the symbol).
+#[derive(Clone, Copy)]
+struct ResultProvenance {
+    source: &'static str,
+    prior_delta: f64,
+    adjusted_score: f64,
+}
+
+fn annotate_provenance(payload: &mut serde_json::Value, scores: &[ResultProvenance]) {
     let Some(entries) = payload
         .get_mut("results")
         .and_then(serde_json::Value::as_array_mut)
@@ -171,14 +229,18 @@ fn annotate_provenance(payload: &mut serde_json::Value, scores: &[(f64, f64)]) {
     };
     for (idx, entry) in entries.iter_mut().enumerate() {
         if let Some(map) = entry.as_object_mut() {
-            let (prior_delta, adjusted_score) = scores.get(idx).copied().unwrap_or((0.0, 0.0));
+            let provenance = scores.get(idx).copied().unwrap_or(ResultProvenance {
+                source: "semantic",
+                prior_delta: 0.0,
+                adjusted_score: 0.0,
+            });
             map.insert(
                 "provenance".to_owned(),
                 json!({
-                    "source": "semantic",
+                    "source": provenance.source,
                     "retrieval_rank": idx + 1,
-                    "prior_delta": prior_delta,
-                    "adjusted_score": adjusted_score,
+                    "prior_delta": provenance.prior_delta,
+                    "adjusted_score": provenance.adjusted_score,
                 }),
             );
         }
@@ -203,5 +265,58 @@ fn add_unknown_args_hint(
                 known_args.join(", ")
             )),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{embedding_hit_source, lexical_only_score};
+
+    #[test]
+    fn same_named_methods_are_not_corroborated_by_each_other() {
+        let method = |line| codelens_engine::SemanticMatch {
+            file_path: "src/value/ser.rs".to_owned(),
+            symbol_name: "serialize_newtype_struct".to_owned(),
+            kind: "method".to_owned(),
+            line,
+            signature: String::new(),
+            name_path: String::new(),
+            score: 0.3,
+        };
+        // The lexical lane returned only the `impl` at line 481.
+        let lexical_keys = std::collections::HashSet::from([
+            "src/value/ser.rs:serialize_newtype_struct:481".to_owned(),
+        ]);
+        assert_eq!(
+            embedding_hit_source(&lexical_keys, &method(481)),
+            "semantic_lexical"
+        );
+        assert_eq!(
+            embedding_hit_source(&lexical_keys, &method(823)),
+            "semantic"
+        );
+    }
+
+    #[test]
+    fn lexical_only_hits_scale_with_the_best_semantic_hit() {
+        // The same best FTS hit (80) stays below the top embedding hit
+        // whether the model scores this repo near 0.07 or near 0.5.
+        for top_semantic in [0.07, 0.5] {
+            let score = lexical_only_score(80.0, top_semantic);
+            assert!(score < top_semantic, "{score} vs {top_semantic}");
+            assert!((score - 0.64 * top_semantic).abs() < 1e-12);
+        }
+        assert!(lexical_only_score(80.0, 0.3) > lexical_only_score(40.0, 0.3));
+    }
+
+    #[test]
+    fn lexical_only_hits_keep_their_order_without_a_semantic_anchor() {
+        // A failed or empty embedding lane must not flatten lexical hits to 0.
+        for top_semantic in [0.0, -0.03] {
+            assert!((lexical_only_score(100.0, top_semantic) - 0.35).abs() < 1e-12);
+            assert!(
+                lexical_only_score(80.0, top_semantic) > lexical_only_score(40.0, top_semantic)
+            );
+        }
     }
 }

@@ -25,8 +25,10 @@ pub(super) fn search_symbols_fts(
             .map(|rows| rows.into_iter().map(|(r, p)| (r, p, 0.0)).collect());
     }
 
+    let Some(fts_query) = fts5_escape(query) else {
+        return Ok(Vec::new());
+    };
     rebuild_fts_if_stale(db)?;
-    let fts_query = fts5_escape(query);
     let mut stmt = db.conn.prepare_cached(
         "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
                 s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,
@@ -52,20 +54,30 @@ pub(super) fn search_symbols_fts(
 }
 
 /// Build FTS5 query: split into tokens, add prefix matching (*), join with OR.
-fn fts5_escape(query: &str) -> String {
-    let tokens: Vec<String> = query
-        .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+///
+/// Splits on every non-alphanumeric character, the same rule the `unicode61`
+/// index tokenizer applies, so `next.js` or `std::fs` reach the indexed
+/// tokens instead of failing FTS5 parsing. Each token is quoted so words such
+/// as `OR` or `NOT` stay terms rather than operators. Stopwords are dropped
+/// unless nothing else is left. `None` when the query has no token to match.
+fn fts5_escape(query: &str) -> Option<String> {
+    let tokens: Vec<&str> = query
+        .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
-        .map(|token| {
-            let escaped = token.replace('"', "\"\"");
-            format!("{escaped}*")
-        })
         .collect();
-    if tokens.is_empty() {
-        let escaped = query.replace('"', "\"\"");
-        return format!("{escaped}*");
-    }
-    tokens.join(" OR ")
+    let terms: Vec<&str> = tokens
+        .iter()
+        .copied()
+        .filter(|token| !crate::symbols::scoring::is_query_stopword(token))
+        .collect();
+    let terms = if terms.is_empty() { tokens } else { terms };
+    (!terms.is_empty()).then(|| {
+        terms
+            .iter()
+            .map(|term| format!("\"{term}\"*"))
+            .collect::<Vec<_>>()
+            .join(" OR ")
+    })
 }
 
 fn rebuild_fts_if_stale(db: &IndexDb) -> Result<()> {

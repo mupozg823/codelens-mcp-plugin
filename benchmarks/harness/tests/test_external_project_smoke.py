@@ -83,6 +83,36 @@ class ExternalProjectSmokeTests(unittest.TestCase):
 
         self.assertIn("parse_line", error)
 
+    def test_degraded_search_error_reports_a_failed_lane(self):
+        # next-learn passed its top-3 check for months while every run said
+        # `lexical_lane: failed` (an FTS5 syntax error on "next.js").
+        search_step = {
+            "stdout": {
+                "data": {
+                    "results": [{"file_path": "login-form.tsx", "symbol_name": "LoginForm"}],
+                    "retrieval": {"semantic_lane": "ok", "lexical_lane": "failed"},
+                    "degraded_reason": "lexical lane failed; results are embedding-only: fts5: syntax error",
+                }
+            }
+        }
+
+        error = EXTERNAL_SMOKE.degraded_search_error(search_step)
+
+        self.assertIn("lexical_lane", error)
+        self.assertIn("fts5: syntax error", error)
+
+    def test_degraded_search_error_accepts_healthy_lanes(self):
+        search_step = {
+            "stdout": {
+                "data": {
+                    "results": [],
+                    "retrieval": {"semantic_lane": "ok", "lexical_lane": "ok"},
+                }
+            }
+        }
+
+        self.assertIsNone(EXTERNAL_SMOKE.degraded_search_error(search_step))
+
     def test_check_mode_requires_expected_search_labels(self):
         missing = EXTERNAL_SMOKE.projects_missing_expected_search(
             [

@@ -242,7 +242,7 @@ pub(crate) fn semantic_search_output_schema() -> serde_json::Value {
                         "provenance": {
                             "type": "object",
                             "properties": {
-                                "source": {"type": "string", "enum": ["semantic"]},
+                                "source": {"type": "string", "enum": ["semantic", "lexical", "semantic_lexical"]},
                                 "retrieval_rank": {"type": "integer"},
                                 "prior_delta": {"type": "number"},
                                 "adjusted_score": {"type": "number"}

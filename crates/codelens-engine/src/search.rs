@@ -85,11 +85,23 @@ pub fn search_symbols_hybrid_with_semantic(
 
     // ── 2. FTS5 full-text search (score 40-80 from rank) ────────────────────
     // Falls back to LIKE search on pre-v4 databases automatically.
-    for (row, file, rank) in db.search_symbols_fts(query, max_results)? {
+    let fts_hits = db.search_symbols_fts(query, max_results)?;
+    // FTS5 rank (bm25) is negative and lower is better. Scale each hit
+    // against the best one: the best scores 80, a hit with no weight 40.
+    // `80 + rank` used to invert this, ranking one-term matches first.
+    // LIKE fallback rows carry rank 0 and keep 80.
+    let best_rank = fts_hits
+        .iter()
+        .map(|(_, _, rank)| *rank)
+        .fold(0.0_f64, f64::min);
+    for (row, file, rank) in fts_hits {
         let key = (row.name.clone(), file.clone(), row.line);
         if seen.insert(key) {
-            // FTS5 rank is negative (lower = better), normalize to 40-80 range
-            let fts_score = (80.0 + rank.clamp(-40.0, 0.0)).max(40.0);
+            let fts_score = if best_rank < 0.0 {
+                40.0 + 40.0 * (rank / best_rank).clamp(0.0, 1.0)
+            } else {
+                80.0
+            };
             results.push(SearchResult {
                 name: row.name,
                 kind: row.kind,
@@ -538,5 +550,53 @@ mod tests {
         let pr = std::collections::HashMap::new();
         apply_pagerank_boost(&mut results, &pr, 5.0);
         assert_eq!(results[0].score, 50.0);
+    }
+
+    #[test]
+    fn fts_score_follows_bm25_relevance() {
+        let temp = tempfile::tempdir().expect("create temp dir for fts score test");
+        let root = temp.path();
+        std::fs::write(root.join("hello.txt"), "hello").unwrap();
+        let db = IndexDb::open(&index_db_path(root)).unwrap();
+        let fid = db.upsert_file("io.rs", 100, "h1", 10, Some("rs")).unwrap();
+        let symbol = |name: &'static str, line: i64, signature: &'static str| NewSymbol {
+            name,
+            kind: "function",
+            line,
+            column_num: 0,
+            start_byte: line * 100,
+            end_byte: line * 100 + 50,
+            signature,
+            name_path: name,
+            parent_id: None,
+        };
+        db.insert_symbols(
+            fid,
+            &[
+                symbol("parse_config_file", 1, "fn parse_config_file(path: &Path)"),
+                symbol("file_size", 2, "fn file_size(meta: &Metadata) -> u64"),
+                symbol("open_socket", 3, "fn open_socket(port: u16)"),
+            ],
+        )
+        .unwrap();
+        let project = ProjectRoot::new(root.to_str().unwrap()).unwrap();
+
+        // bm25 `rank` is negative and smaller is better; the symbol matching
+        // all three terms has to outscore the one matching only `file`.
+        let results = search_symbols_hybrid(&project, "parse config file", 10, 0.99).unwrap();
+        let fts_score = |name: &str| {
+            results
+                .iter()
+                .find(|r| r.name == name && r.match_type == "fts")
+                .unwrap_or_else(|| panic!("{name} missing from fts hits: {results:?}"))
+                .score
+        };
+        assert!(
+            fts_score("parse_config_file") > fts_score("file_size"),
+            "{results:?}"
+        );
+        assert_eq!(fts_score("parse_config_file"), 80.0);
+        assert!(results.iter().all(|r| (40.0..=100.0).contains(&r.score)));
+        assert!(results.iter().all(|r| r.name != "open_socket"));
     }
 }

@@ -1409,7 +1409,7 @@
           "concurrency_safe": true
         },
         "has_output_schema": true,
-        "estimated_tokens": 380
+        "estimated_tokens": 387
       },
       {
         "name": "embedding_coverage_report",
