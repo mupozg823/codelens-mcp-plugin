@@ -190,6 +190,22 @@ def expected_search_error(
     )
 
 
+def degraded_search_error(search_step: dict[str, Any]) -> str | None:
+    """A failed retrieval lane fails the step even when the expected hit
+    still ranks: the other lane can carry the top 3 alone."""
+    stdout = search_step.get("stdout")
+    data = stdout.get("data") if isinstance(stdout, dict) else None
+    if not isinstance(data, dict):
+        return None
+    retrieval = data.get("retrieval")
+    lanes = retrieval if isinstance(retrieval, dict) else {}
+    failed = [lane for lane in ("semantic_lane", "lexical_lane") if lanes.get(lane) == "failed"]
+    reason = data.get("degraded_reason")
+    if not failed and not reason:
+        return None
+    return f"semantic_search degraded ({', '.join(failed) or 'unknown lane'}): {reason}"
+
+
 def default_env() -> dict[str, str]:
     env = os.environ.copy()
     env.setdefault("CODELENS_LOG", "warn")
@@ -259,6 +275,9 @@ def smoke_project(
             quality_error = expected_search_error(search_step, item["expected_search"])
             if quality_error is not None:
                 search_step = {**search_step, "ok": False, "quality_error": quality_error}
+        degraded_error = degraded_search_error(search_step)
+        if degraded_error is not None:
+            search_step = {**search_step, "ok": False, "degraded_error": degraded_error}
         rename_step = run_tool(
             binary,
             project,
