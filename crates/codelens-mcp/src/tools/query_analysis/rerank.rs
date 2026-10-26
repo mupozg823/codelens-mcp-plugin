@@ -2,7 +2,7 @@
 use codelens_engine::SemanticMatch;
 
 #[cfg(feature = "semantic")]
-use super::intent::{has_builder_cue, has_entrypoint_cue, has_helper_cue};
+use super::intent::has_entrypoint_cue;
 
 #[cfg(feature = "semantic")]
 fn prefers_semantic_entrypoint_prior(query_lower: &str) -> bool {
@@ -24,32 +24,12 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     if !is_natural_language_semantic_query(query_lower) {
         return 0.0;
     }
-    let exact_find_all_word_matches = query_lower.contains("find all word matches");
-    let exact_find_word_matches_in_files = query_lower.contains("find word matches in files");
-    let exact_build_embedding_text = has_builder_cue(query_lower)
-        && query_lower.contains("embedding")
-        && query_lower.contains("text");
-    let wants_embedding_index = query_lower.contains("embedding")
-        && (query_lower.contains("vector") || query_lower.contains("index"))
-        && (query_lower.contains("symbol") || query_lower.contains("project"));
-    let wants_symbol_classification = contains_any(query_lower, &["categorize", "classify"])
-        && contains_any(query_lower, &["symbol", "function", "purpose", "kind"]);
-    let wants_timestamp_ms = query_lower.contains("timestamp")
-        && (query_lower.contains("millisecond") || query_lower.contains("current"));
-    let wants_project_rename = query_lower.contains("rename")
-        && contains_any(query_lower, &["variable", "function", "project"]);
-
+    // Repository-neutral rules only. Rules naming this repository's own
+    // paths and symbols (dispatch.rs, mutation_gate, index_from_project,
+    // now_ms, ...) were removed on 2026-10-27: they raised self-retrieval
+    // semantic_search MRR by 0.012 and changed nothing on get_ranked_context,
+    // an external TypeScript repo or the upstream smoke matrix.
     let mut prior: f64 = 0.0;
-    if result.file_path.starts_with("crates/") {
-        prior += 0.02;
-    }
-    if result.file_path.starts_with("benchmarks/")
-        || result.file_path.starts_with("models/")
-        || result.file_path.starts_with("docs/")
-        || result.file_path.starts_with("scripts/finetune/")
-    {
-        prior -= 0.08;
-    }
     if result.file_path.contains("/tests") || result.file_path.ends_with("_tests.rs") {
         prior -= 0.05;
     }
@@ -86,132 +66,6 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         }
     }
 
-    if contains_any(query_lower, &["dispatch", "route", "handler"])
-        && result.file_path.contains("dispatch.rs")
-    {
-        prior += 0.14;
-    }
-    if query_lower.contains("extract")
-        && (result.symbol_name.contains("extract") || result.file_path.contains("tools/composite"))
-    {
-        prior += 0.12;
-    }
-    if (query_lower.contains("truncate") || query_lower.contains("response"))
-        && result.file_path.contains("dispatch_response")
-    {
-        prior += 0.12;
-    }
-    if (query_lower.contains("mutation")
-        || query_lower.contains("preflight")
-        || query_lower.contains("gate"))
-        && result.file_path.contains("mutation_gate")
-    {
-        prior += 0.22;
-    }
-    if query_lower.contains("http") && result.file_path.contains("transport_http") {
-        prior += 0.14;
-    }
-    if query_lower.contains("stdin") && result.file_path.contains("transport_stdio") {
-        prior += 0.26;
-    }
-    if query_lower.contains("watch") && result.file_path.contains("watcher") {
-        prior += 0.14;
-    }
-    if (query_lower.contains("parse") || query_lower.contains("ast"))
-        && (result.symbol_name.contains("parse") || result.file_path.contains("parser"))
-    {
-        prior += 0.14;
-    }
-    if (query_lower.contains("embed")
-        || query_lower.contains("vector")
-        || query_lower.contains("index"))
-        && result.file_path.contains("embedding")
-    {
-        prior += 0.10;
-    }
-    if wants_embedding_index
-        && result.symbol_name == "index_from_project"
-        && result.file_path.contains("embedding/engine_impl/index.rs")
-    {
-        prior += 0.19;
-    }
-    if wants_symbol_classification
-        && result.symbol_name == "classify_symbol"
-        && result
-            .file_path
-            .contains("embedding/engine_impl/analysis.rs")
-    {
-        prior += 0.19;
-    }
-    if wants_timestamp_ms && result.symbol_name == "now_ms" && result.file_path.ends_with("util.rs")
-    {
-        prior += 0.19;
-    }
-    if query_lower.contains("move")
-        && prefers_entrypoint
-        && result.file_path.contains("move_symbol")
-        && result.symbol_name == "move_symbol"
-    {
-        prior += 0.14;
-    }
-    if wants_project_rename
-        && result.file_path.contains("/rename.rs")
-        && result.symbol_name == "rename_symbol"
-    {
-        prior += 0.19;
-    }
-    if query_lower.contains("inline")
-        && prefers_entrypoint
-        && result.file_path.contains("/inline.rs")
-        && result.symbol_name == "inline_function"
-    {
-        prior += 0.16;
-    }
-    if (exact_find_all_word_matches || exact_find_word_matches_in_files)
-        && result.file_path.contains("/rename.rs")
-    {
-        match result.symbol_name.as_str() {
-            "find_all_word_matches" if exact_find_all_word_matches => prior += 0.19,
-            "find_word_matches_in_files" if exact_find_word_matches_in_files => prior += 0.19,
-            "find_all_word_matches" | "find_word_matches_in_files" => prior -= 0.10,
-            _ => {}
-        }
-    }
-    if query_lower.contains("find")
-        && has_helper_cue(query_lower)
-        && !exact_find_all_word_matches
-        && !exact_find_word_matches_in_files
-        && result.symbol_name == "find_symbol"
-        && result.file_path.contains("symbols/mod.rs")
-    {
-        prior += 0.16;
-    }
-    if (exact_find_all_word_matches || exact_find_word_matches_in_files)
-        && result.symbol_name == "find_symbol"
-        && result.file_path.contains("symbols/mod.rs")
-    {
-        prior -= 0.10;
-    }
-    if exact_build_embedding_text && result.file_path.contains("embedding/mod.rs") {
-        if result.symbol_name == "build_embedding_text" {
-            prior += 0.19;
-        } else if result.symbol_name.starts_with("build_")
-            || result.symbol_name.starts_with("get_")
-            || result.symbol_name.starts_with("embed_")
-            || result.symbol_name.starts_with("embeddings_")
-            || result.symbol_name.starts_with("embedding_")
-            || result.symbol_name == "EmbeddingEngine"
-            || result.symbol_name.contains("embedding")
-        {
-            prior -= 0.10;
-        }
-    }
-    if query_lower.contains("insert batch")
-        && result.symbol_name == "insert_batch"
-        && result.file_path.contains("embedding/vec_store.rs")
-    {
-        prior += 0.16;
-    }
     if (query_lower.contains("duplicate") || query_lower.contains("similar"))
         && (result.symbol_name.contains("duplicate") || result.symbol_name.contains("similar"))
     {

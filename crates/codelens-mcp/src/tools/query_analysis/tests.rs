@@ -397,120 +397,32 @@ fn inline_target_outranks_inline_regression_symbol() {
 
 #[cfg(feature = "semantic")]
 #[test]
-fn find_symbol_target_outranks_generic_finders() {
-    let reranked = rerank_semantic_matches(
-        "which helper implements find",
-        vec![
-            SemanticMatch {
-                symbol_name: "find_files".to_owned(),
-                kind: "function".to_owned(),
-                file_path: "crates/codelens-engine/src/file_ops/reader.rs".to_owned(),
-                line: 1,
-                signature: "pub fn find_files".to_owned(),
-                name_path: "find_files".to_owned(),
-                score: 0.193,
-            },
-            SemanticMatch {
-                symbol_name: "find_symbol".to_owned(),
-                kind: "function".to_owned(),
-                file_path: "crates/codelens-engine/src/symbols/mod.rs".to_owned(),
-                line: 20,
-                signature: "pub fn find_symbol".to_owned(),
-                name_path: "find_symbol".to_owned(),
-                score: 0.148,
-            },
-        ],
-        2,
-    );
-    assert_eq!(reranked[0].symbol_name, "find_symbol");
-}
-
-#[cfg(feature = "semantic")]
-#[test]
-fn exact_word_match_prior_beats_generic_find() {
-    let reranked = rerank_semantic_matches(
-        "which helper implements find all word matches",
-        vec![
-            SemanticMatch {
-                symbol_name: "find_symbol".to_owned(),
-                kind: "function".to_owned(),
-                file_path: "crates/codelens-engine/src/symbols/mod.rs".to_owned(),
-                line: 20,
-                signature: "pub fn find_symbol".to_owned(),
-                name_path: "find_symbol".to_owned(),
-                score: 0.299,
-            },
-            SemanticMatch {
-                symbol_name: "find_all_word_matches".to_owned(),
-                kind: "function".to_owned(),
-                file_path: "crates/codelens-engine/src/rename.rs".to_owned(),
-                line: 182,
-                signature: "pub fn find_all_word_matches".to_owned(),
-                name_path: "find_all_word_matches".to_owned(),
-                score: 0.230,
-            },
-        ],
-        2,
-    );
-    assert_eq!(reranked[0].symbol_name, "find_all_word_matches");
-}
-
-#[cfg(feature = "semantic")]
-#[test]
-fn build_embedding_text_prior_beats_generic_embedding_helpers() {
-    let reranked = rerank_semantic_matches(
-        "which builder creates build embedding text",
-        vec![
-            SemanticMatch {
-                symbol_name: "embed_texts_cached".to_owned(),
-                kind: "function".to_owned(),
-                file_path: "crates/codelens-engine/src/embedding/mod.rs".to_owned(),
-                line: 731,
-                signature: "fn embed_texts_cached(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {".to_owned(),
-                name_path: "embed_texts_cached".to_owned(),
-                score: 0.311,
-            },
-            SemanticMatch {
-                symbol_name: "build_embedding_text".to_owned(),
-                kind: "function".to_owned(),
-                file_path: "crates/codelens-engine/src/embedding/mod.rs".to_owned(),
-                line: 1609,
-                signature: "fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {".to_owned(),
-                name_path: "build_embedding_text".to_owned(),
-                score: 0.252,
-            },
-        ],
-        2,
-    );
-    assert_eq!(reranked[0].symbol_name, "build_embedding_text");
-}
-
-#[cfg(feature = "semantic")]
-#[test]
 fn rerank_uses_adjusted_scores() {
+    // The variable leads on raw score; the kind prior (function +0.04,
+    // variable -0.04) has to reorder them.
     let reranked = rerank_semantic_matches(
         "route an incoming tool request to the right handler",
         vec![
             SemanticMatch {
-                symbol_name: "helper".to_owned(),
-                kind: "function".to_owned(),
-                file_path: "docs/helper.rs".to_owned(),
+                symbol_name: "DEFAULT_ROUTE".to_owned(),
+                kind: "variable".to_owned(),
+                file_path: "src/router.rs".to_owned(),
                 line: 1,
-                signature: "fn helper".to_owned(),
-                name_path: "helper".to_owned(),
-                score: 0.30,
+                signature: "const DEFAULT_ROUTE".to_owned(),
+                name_path: "DEFAULT_ROUTE".to_owned(),
+                score: 0.28,
             },
             SemanticMatch {
-                symbol_name: "dispatch_tool".to_owned(),
+                symbol_name: "route_request".to_owned(),
                 kind: "function".to_owned(),
-                file_path: "crates/codelens-mcp/src/dispatch.rs".to_owned(),
+                file_path: "src/router.rs".to_owned(),
                 line: 10,
-                signature: "fn dispatch_tool".to_owned(),
-                name_path: "dispatch_tool".to_owned(),
-                score: 0.24,
+                signature: "fn route_request".to_owned(),
+                name_path: "route_request".to_owned(),
+                score: 0.25,
             },
         ],
         2,
     );
-    assert_eq!(reranked[0].symbol_name, "dispatch_tool");
+    assert_eq!(reranked[0].symbol_name, "route_request");
 }

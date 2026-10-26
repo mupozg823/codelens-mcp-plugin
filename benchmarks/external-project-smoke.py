@@ -206,6 +206,48 @@ def degraded_search_error(search_step: dict[str, Any]) -> str | None:
     return f"semantic_search degraded ({', '.join(failed) or 'unknown lane'}): {reason}"
 
 
+def judge_search_step(
+    search_step: dict[str, Any],
+    expected: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Apply the expected-hit and degraded-lane checks to a search step.
+
+    `expected.known_gap.reason` marks a documented miss: it is reported as
+    `known_gap_miss` without failing, and once the hit ranks again the step
+    fails until the marker is removed. It never covers a degraded lane.
+    """
+    if isinstance(expected, dict):
+        quality_error = expected_search_error(search_step, expected)
+        known_gap = expected.get("known_gap")
+        if known_gap is not None:
+            reason = known_gap.get("reason") if isinstance(known_gap, dict) else None
+            if not isinstance(reason, str) or not reason.strip():
+                search_step = {
+                    **search_step,
+                    "ok": False,
+                    "quality_error": "known_gap must state a reason",
+                }
+            elif quality_error is None:
+                search_step = {
+                    **search_step,
+                    "ok": False,
+                    "quality_error": "known_gap no longer reproduces: the expected hit ranks; "
+                    "remove known_gap from the matrix",
+                }
+            else:
+                search_step = {
+                    **search_step,
+                    "known_gap": reason,
+                    "known_gap_miss": quality_error,
+                }
+        elif quality_error is not None:
+            search_step = {**search_step, "ok": False, "quality_error": quality_error}
+    degraded_error = degraded_search_error(search_step)
+    if degraded_error is not None:
+        search_step = {**search_step, "ok": False, "degraded_error": degraded_error}
+    return search_step
+
+
 def default_env() -> dict[str, str]:
     env = os.environ.copy()
     env.setdefault("CODELENS_LOG", "warn")
@@ -271,13 +313,7 @@ def smoke_project(
             timeout,
             env,
         )
-        if isinstance(item.get("expected_search"), dict):
-            quality_error = expected_search_error(search_step, item["expected_search"])
-            if quality_error is not None:
-                search_step = {**search_step, "ok": False, "quality_error": quality_error}
-        degraded_error = degraded_search_error(search_step)
-        if degraded_error is not None:
-            search_step = {**search_step, "ok": False, "degraded_error": degraded_error}
+        search_step = judge_search_step(search_step, item.get("expected_search"))
         rename_step = run_tool(
             binary,
             project,
@@ -324,6 +360,12 @@ def main() -> None:
         "matrix": str(matrix_path),
         "binary": str(binary),
         "ok": all(item["ok"] for item in results),
+        "known_gaps": [
+            {"name": item["name"], "reason": step["known_gap"], "miss": step["known_gap_miss"]}
+            for item in results
+            for step in item.get("steps", [])
+            if "known_gap_miss" in step
+        ],
         "projects": results,
     }
     text = json.dumps(report, indent=2)

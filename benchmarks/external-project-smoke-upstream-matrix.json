@@ -45,9 +45,12 @@
       "query": "serialize typed value into json string",
       "path_hint": "src",
       "expected_search": {
-        "file_path": "src/value/ser.rs",
-        "symbol_name": "serialize_bool",
-        "max_rank": 3
+        "file_path": "src/ser.rs",
+        "symbol_name": "to_string",
+        "max_rank": 3,
+        "known_gap": {
+          "reason": "The embedding model misses this natural-language query: to_string (doc: 'Serialize the given data structure as a String of JSON') ranks outside the top 20 although its docstring is embedded, and every top hit is a serialize_* method of the value serializer. The previous label, serialize_bool in src/value/ser.rs, was set without a rationale when the query changed on 2026-07-06 and misses the top 3 as well."
+        }
       },
       "mutation": {
         "file_path": "src/de.rs",
