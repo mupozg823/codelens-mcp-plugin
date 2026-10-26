@@ -70,9 +70,9 @@ pub(in crate::dispatch) fn semantic_search_handler(
             normalized_path_hint.as_deref(),
         )
     });
-    let structural_names: std::collections::HashSet<String> = lexical_candidates
+    let lexical_keys: std::collections::HashSet<String> = lexical_candidates
         .iter()
-        .map(|result| format!("{}:{}", result.file, result.name))
+        .map(|result| format!("{}:{}:{}", result.file, result.name, result.line))
         .collect();
     let semantic_lane = crate::tools::semantic_retriever::semantic_lane_for_query(
         state,
@@ -89,13 +89,10 @@ pub(in crate::dispatch) fn semantic_search_handler(
     let mut sources: std::collections::HashMap<String, &'static str> =
         std::collections::HashMap::new();
     for result in &mut results {
-        let key = format!("{}:{}", result.file_path, result.symbol_name);
-        let source = if structural_names.contains(&key) {
+        let source = embedding_hit_source(&lexical_keys, result);
+        if source == "semantic_lexical" {
             result.score += 0.06;
-            "semantic_lexical"
-        } else {
-            "semantic"
-        };
+        }
         sources.insert(result_key(result), source);
     }
 
@@ -192,6 +189,21 @@ fn lexical_only_score(lexical_score: f64, top_semantic: f64) -> f64 {
     (lexical_score / 100.0) * scale
 }
 
+/// `semantic_lexical` only when the lexical lane returned this very symbol.
+/// Same-named methods in one file (one per `impl`) are different symbols,
+/// so the match is on file, name and line; it drives both the label and
+/// the corroboration boost.
+fn embedding_hit_source(
+    lexical_keys: &std::collections::HashSet<String>,
+    result: &codelens_engine::SemanticMatch,
+) -> &'static str {
+    if lexical_keys.contains(&result_key(result)) {
+        "semantic_lexical"
+    } else {
+        "semantic"
+    }
+}
+
 fn result_key(result: &codelens_engine::SemanticMatch) -> String {
     format!(
         "{}:{}:{}",
@@ -258,7 +270,32 @@ fn add_unknown_args_hint(
 
 #[cfg(test)]
 mod tests {
-    use super::lexical_only_score;
+    use super::{embedding_hit_source, lexical_only_score};
+
+    #[test]
+    fn same_named_methods_are_not_corroborated_by_each_other() {
+        let method = |line| codelens_engine::SemanticMatch {
+            file_path: "src/value/ser.rs".to_owned(),
+            symbol_name: "serialize_newtype_struct".to_owned(),
+            kind: "method".to_owned(),
+            line,
+            signature: String::new(),
+            name_path: String::new(),
+            score: 0.3,
+        };
+        // The lexical lane returned only the `impl` at line 481.
+        let lexical_keys = std::collections::HashSet::from([
+            "src/value/ser.rs:serialize_newtype_struct:481".to_owned(),
+        ]);
+        assert_eq!(
+            embedding_hit_source(&lexical_keys, &method(481)),
+            "semantic_lexical"
+        );
+        assert_eq!(
+            embedding_hit_source(&lexical_keys, &method(823)),
+            "semantic"
+        );
+    }
 
     #[test]
     fn lexical_only_hits_scale_with_the_best_semantic_hit() {
