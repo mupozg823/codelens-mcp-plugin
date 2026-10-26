@@ -1,6 +1,6 @@
 # Analysis-lite implementation ledger
 
-## Accepted review fixes — caller identity and policy eligibility (in progress)
+## Accepted review fixes — caller identity and policy eligibility (complete; scoped review approved)
 
 The parent accepted independent findings R1 and R2 at
 `48e31f0dcfa8f552f75387ab6256ec5f781413ca` and assigned this worker the Rust caller
@@ -37,11 +37,16 @@ ignored, 9 integration tests and 1 doctest passed. Clippy with -D warnings passe
 both no-default+http and default+http,semantic; canonical codegen drift,
 formatting, Python compilation and benchmark invocation lint passed. Broad
 Python lint retains the same seven baseline diagnostics and introduces none.
-A new optimized build is required after the fix commit; the final clean-source
-release/socket/hash receipt is recorded separately in ignored evidence so the
-source used for the binary stays clean. Model/pilot runs remain zero.
+The subsequent optimized build succeeded from clean source commit
+`23021fff0019b75532ac772ee9e1bf8ad8ea2edd`, no-default+http, jobs=1. Its executable
+SHA-256 is `56ca90aedba109188d35931f80c9a82692f1c5cff61f24b2384044ad96205d2b`.
+`core/release-binary.json` records build/socket exits 0 and owned-process cleanup.
+`.omo/evidence/review-fix-review.md` records CLEAR/APPROVE, R1/R2 resolved and no
+new critical regression in that scoped fix. The earlier 95809 uncertainty remains
+historical evidence; it is not the successful build receipt. Model/pilot runs
+remain zero; performance and activation remain unmeasured.
 
-## Dispatch 3 — typed engine and strict candidate profile (in progress)
+## Dispatch 3 — typed engine and strict candidate profile (implemented and reviewed)
 
 Owner: one SOL implementation worker, isolated worktree
 `/Users/bagjaeseog/.codex/worktrees/codelens-analysis-lite-20261026` on
@@ -120,11 +125,11 @@ is not claimed. Claude model-level response consumption and Desktop discovery
 remain unmeasured for the later pilot. All owned probe processes stopped.
 
 Raw host assertions are `socket/host-assertions.json` beneath the evidence
-directory. At this documentation checkpoint, the remaining mechanical step is
-the optimized build from a clean implementation commit and a release HTTP
-receipt. Its final source HEAD/features/hash and completion state are recorded
-in the ignored evidence index so recording them does not dirty the source
-commit used by the binary. No model request has been made. No benchmark/task/
+directory. The optimized build and release HTTP receipt subsequently completed
+at clean source `23021fff`, with the exact build/hash and scoped review receipts
+above. Earlier native-host checks still describe the debug binary and must not
+be represented as model-level optimized-binary consumption. No model request has
+been made. No benchmark/task/
 gold file, global setting or launchd entry was edited, and no shared process
 was killed. Model-pilot and adoption work remain with the parent/later runner.
 
@@ -221,3 +226,58 @@ global-write isolation, independent grader implementation, source copies and E2
 npm dependency/test setup. Engine/profile/HTTP/host work and actual pilot remain
 pending. No model run, original repository edit, credential access, source
 checkout, HTTP process or global policy/configuration write occurred.
+
+## Dispatch 4A — CLI event accounting adapter
+
+Implemented `analysis_lite_events.collect_cli_events(host, stdout, stderr=...,
+returncode=..., fresh_session=...)` as a pure parser. It preserves raw stdout,
+stderr, decoded events, malformed lines, terminal usage, tool/retry and model
+receipts. It executes no commands, reads no files/authentication/configuration,
+and cannot override model/effort. Tests are explicitly synthetic protocol fixtures;
+they are not actual provider measurements.
+
+[Claude's current usage contract](https://code.claude.com/docs/en/agent-sdk/cost-tracking)
+distinguishes cumulative whole-tree modelUsage from main-loop usage and assistant
+output placeholders. The adapter selects the latest modelUsage map, sums models
+once, maps separate cache components, and retains the original map. Complete
+current-run counts require fresh-session setup, successful termination, no reset,
+no malformed gaps and nondecreasing cumulative counters. Missing/failed/partial
+evidence stays unknown while observed scoped counters remain recoverable.
+[Claude's CLI stream contract](https://code.claude.com/docs/en/headless) provides
+parent_tool_use_id and visible retry events; retry count is not assumed exhaustive.
+
+[Codex's exec contract](https://learn.chatgpt.com/docs/non-interactive-mode)
+establishes JSONL events. The generated installed 0.164.0 app-server schema has
+separate total/last counters and cacheWriteInputTokens; it is not an exec event
+schema. Upstream renamed the processor to event_processor_with_jsonl_output.rs.
+Its immutable official Git blob
+`73e0c9d911c82aae67c44e6b1a4ce54c7092b6be` maps total counters into turn.completed
+and filters some collaboration events. The 0.164.0 public tag was unavailable,
+so this upstream source is not proof of the installed binary's descendant scope.
+The adapter preserves observed root counters/cache writes, rejects duplicate or
+conflicting terminals, and leaves multi-turn/descendant completeness unconfirmed.
+It does not add cumulative snapshots. Future version-matched coverage receipts
+can support promotion by replaying saved raw logs without new model requests.
+
+Only an observed main assistant model becomes an effective-model receipt;
+configured aliases stay separate, and unobserved effort remains unknown.
+Paired visible tool IDs and visible retry events are reported with their scope.
+No expected setting or server estimate supplies a provider counter.
+
+4A1 stopped at the builder's edit boundary after final source inspection found
+one valid Codex error envelope misclassified as malformed: its message is a
+string, unlike assistant/user message objects. The parent assigned a bounded
+4A2 repair to this same worker. Its new regression first failed for the observed
+misclassification; the minimal fix restricts message-object validation to the
+assistant/user event kinds. This retains valid error receipts while preserving
+the existing semantic-malformation checks. Final helper verification covers 20
+synthetic cases; exact exit codes and RED/GREEN logs are retained beside 4A1.
+
+Evidence is ignored under `.codex/analysis-lite-evidence/dispatch4a/`: official
+semantics metadata and the pinned upstream source, RED/GREEN logs, exact commands,
+exits and diff. New regressions cover duplicates, cache writes/reads, multiple
+turns, reset, cumulative regression, children, failures, malformed data, missing
+usage, tool pairs, retries, final text and unknown settings. Frozen task files
+remain unchanged. Snapshot/grader/driver and all 48 model runs remain separate;
+model turns are still zero. Future raw pilot logs belong in ignored evidence and
+a separate durable non-cloud path, not in the PR with private source/auth/settings.
