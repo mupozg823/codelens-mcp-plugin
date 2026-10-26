@@ -238,15 +238,7 @@ fn diagnose_issues_returns_structured_content() {
         "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
     );
 
-    let bin_dir = std::env::temp_dir().join(format!(
-        "codelens-test-bin-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    fs::create_dir_all(&bin_dir).unwrap();
+    let bin_dir = crate::test_helpers::fixtures::fixture_dir("bin");
     #[cfg(windows)]
     let mock_script = bin_dir.join("pyright-langserver.py");
     #[cfg(not(windows))]
