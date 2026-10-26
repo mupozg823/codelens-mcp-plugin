@@ -137,6 +137,7 @@ impl AppState {
             | Some(ToolProfile::ReviewerGraph)
             | Some(ToolProfile::CiAudit) => transport_limit.min(HTTP_ANALYSIS_WORKER_COUNT),
             Some(ToolProfile::BuilderMinimal)
+            | Some(ToolProfile::AnalysisLite)
             | Some(ToolProfile::EvaluatorCompact)
             | Some(ToolProfile::RefactorFull)
             | Some(ToolProfile::WorkflowFirst)

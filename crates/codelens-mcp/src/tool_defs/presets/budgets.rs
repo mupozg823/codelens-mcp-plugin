@@ -11,6 +11,7 @@ pub(crate) fn default_budget_for_preset(preset: ToolPreset) -> usize {
 pub(crate) fn default_budget_for_profile(profile: ToolProfile) -> usize {
     // Deprecated profiles resolve to their canonical core equivalent.
     match profile.canonical() {
+        ToolProfile::AnalysisLite => 8000,
         ToolProfile::PlannerReadonly => 2400,
         ToolProfile::BuilderMinimal => 2400,
         ToolProfile::ReviewerGraph => 2800,

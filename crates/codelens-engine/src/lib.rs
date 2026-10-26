@@ -106,6 +106,7 @@ pub use rename::{
     RenameEdit, RenameResult, RenameScope, apply_edits, find_all_word_matches, rename_symbol,
 };
 pub use test_paths::is_probable_test_path;
+pub mod analysis_lite;
 pub mod change_signature;
 pub mod embedding_types;
 pub mod inline;

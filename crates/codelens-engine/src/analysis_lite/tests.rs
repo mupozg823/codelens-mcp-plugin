@@ -1,0 +1,518 @@
+use super::*;
+use crate::oxc_analysis::ByteSpan;
+use std::fs;
+
+#[test]
+fn analysis_lite_exact_indexed_ids_require_matching_source_not_just_stable_generation() {
+    let (_dir, project, index) = fixture(&[("a.ts", "export function sink() {}\nsink();\n")]);
+    index
+        .index_files(&[project.as_path().join("a.ts")])
+        .unwrap();
+    let mut selected = selector("a.ts", "sink");
+    selected.name = None;
+    selected.symbol_id = Some("a.ts#function:sink".to_owned());
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selected,
+        None,
+        limits(),
+    );
+    assert_eq!(response.results.references.len(), 1, "{response:?}");
+    let generation = index.committed_generation();
+    fs::write(
+        project.as_path().join("a.ts"),
+        "// 한국어 😀\nexport function sink() {}\nsink();\n",
+    )
+    .unwrap();
+    let stale = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selected,
+        None,
+        limits(),
+    );
+    assert_eq!(stale.status, EvidenceStatus::Error);
+    assert_eq!(stale.errors[0].code, "indexed_target_stale");
+    assert_eq!(index.committed_generation(), generation);
+    let mut exact = selector("a.ts", "sink");
+    exact.name_span = Some(ByteSpan { start: 34, end: 38 });
+    let current = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &exact,
+        None,
+        limits(),
+    );
+    assert_eq!(current.results.references.len(), 1);
+    exact.name_span = Some(ByteSpan { start: 26, end: 30 });
+    let utf16 = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &exact,
+        None,
+        limits(),
+    );
+    assert_eq!(utf16.status, EvidenceStatus::Error);
+    assert_eq!(utf16.errors[0].code, "target_not_found");
+}
+
+fn fixture(files: &[(&str, &str)]) -> (tempfile::TempDir, ProjectRoot, SymbolIndex) {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("package.json"), "{}").unwrap();
+    for (file, source) in files {
+        let path = dir.path().join(file);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, source).unwrap();
+    }
+    let project = ProjectRoot::new_exact(dir.path()).unwrap();
+    let index = SymbolIndex::new_memory(project.clone());
+    (dir, project, index)
+}
+
+fn selector(file: &str, name: &str) -> DeclarationSelector {
+    DeclarationSelector {
+        file: file.to_owned(),
+        name: Some(name.to_owned()),
+        symbol_id: None,
+        name_span: None,
+    }
+}
+
+fn limits() -> EvidenceLimits {
+    EvidenceLimits {
+        max_results: 100,
+        max_depth: 3,
+        max_nodes: 40,
+        max_edges: 100,
+        max_files: 2000,
+    }
+}
+
+#[test]
+fn analysis_lite_merges_local_and_external_evidence_without_crossing_shadowed_declarations() {
+    let (_dir, project, index) = fixture(&[
+        (
+            "a.ts",
+            "export function same() {}\nsame();\nfunction wrap() { function same() {} same(); }\n",
+        ),
+        (
+            "b.ts",
+            "import { same as chosen } from './a';\nexport function caller() { chosen(); chosen(); }\nfunction shadow() { function chosen() {} chosen(); }\n",
+        ),
+        (
+            "unrelated.ts",
+            "export function same() {}\nexport function other() { same(); }\n",
+        ),
+    ]);
+    let ambiguous = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("a.ts", "same"),
+        None,
+        limits(),
+    );
+    assert_eq!(ambiguous.status, EvidenceStatus::Partial);
+    assert_eq!(ambiguous.results.selection_candidates.len(), 2);
+    assert_eq!(ambiguous.errors[0].code, "ambiguous_target");
+    assert!(ambiguous.target.is_none());
+
+    let mut selected = selector("a.ts", "same");
+    selected.name_span = Some(ByteSpan { start: 16, end: 20 });
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selected,
+        None,
+        limits(),
+    );
+    assert_eq!(response.status, EvidenceStatus::Partial, "{response:?}");
+    assert!(response.errors.is_empty(), "{:?}", response.errors);
+    assert_eq!(
+        response.results.references.len(),
+        3,
+        "{:?}",
+        response.results.references
+    );
+    assert_eq!(
+        response
+            .results
+            .references
+            .iter()
+            .filter(|row| row.location.file == "b.ts")
+            .count(),
+        2
+    );
+    let local = response
+        .results
+        .references
+        .iter()
+        .find(|row| row.location.file == "a.ts")
+        .unwrap();
+    assert_eq!(
+        local.provenance.len(),
+        2,
+        "same location merges OXC and graph provenance"
+    );
+    let external = response
+        .results
+        .references
+        .iter()
+        .filter(|row| row.location.file == "b.ts")
+        .collect::<Vec<_>>();
+    assert_eq!(external[0].location.line, external[1].location.line);
+    assert_ne!(
+        external[0].location.span, external[1].location.span,
+        "two same-line callsites survive"
+    );
+    assert!(
+        response
+            .results
+            .references
+            .iter()
+            .all(|row| row.target.name_span == Some(ByteSpan { start: 16, end: 20 }))
+    );
+
+    selected.symbol_id = response
+        .target
+        .as_ref()
+        .map(|target| target.symbol_id.clone());
+    selected.name_span = None;
+    assert_eq!(
+        query(
+            &project,
+            &index,
+            AnalysisQuery::References,
+            &selected,
+            None,
+            limits()
+        )
+        .results
+        .references
+        .len(),
+        3
+    );
+}
+
+#[test]
+fn analysis_lite_resolves_named_alias_reexports_using_source_tokens_even_with_misleading_comments()
+{
+    let (_dir, project, index) = fixture(&[
+        (
+            "a.ts",
+            "export function sink() {}\nexport function wrong() {}\n",
+        ),
+        (
+            "barrel.ts",
+            "export { sink as forwarded } from './a';\n// export { wrong as forwarded } from './a';\n",
+        ),
+        (
+            "caller.ts",
+            "import { forwarded as chosen } from './barrel';\n// import { wrong as chosen } from './a';\nexport function useIt() { chosen(); }\n",
+        ),
+    ]);
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("a.ts", "sink"),
+        None,
+        limits(),
+    );
+    assert!(response.errors.is_empty(), "{:?}", response.errors);
+    assert_eq!(response.results.references.len(), 1, "{response:?}");
+    let row = &response.results.references[0];
+    assert_eq!(row.location.file, "caller.ts");
+    assert_eq!(row.location.line, 3);
+    assert_eq!(row.target.name, "sink");
+    assert_eq!(
+        row.provenance[0].resolution,
+        "verified_esm_import_export_identity"
+    );
+    assert_eq!(row.provenance[0].relation_kind, "callgraph_edge");
+    assert_eq!(row.provenance[0].detail, "detail_unknown");
+}
+
+#[test]
+fn analysis_lite_noncall_external_use_and_zero_rows_remain_partial_with_unknown_total() {
+    let (_dir, project, index) = fixture(&[
+        ("a.ts", "export function sink() {}\n"),
+        ("b.ts", "import { sink } from './a';\nconst held = sink;\n"),
+    ]);
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("a.ts", "sink"),
+        None,
+        limits(),
+    );
+    assert_eq!(response.status, EvidenceStatus::Partial);
+    assert!(response.results.references.is_empty());
+    assert_eq!(response.results.total, None);
+    assert!(
+        response
+            .scope
+            .limitations
+            .contains(&"cross_file_non_call_import_and_type_references_incomplete")
+    );
+    assert!(
+        response
+            .scope
+            .limitations
+            .contains(&"zero_results_do_not_prove_unused")
+    );
+}
+
+#[test]
+fn analysis_lite_reverse_impact_preserves_callsites_and_reports_each_bound() {
+    let (_dir, project, index) = fixture(&[(
+        "a.ts",
+        "export function sink() {}\nexport function middle() { sink(); }\nexport function outer() { middle(); middle(); }\n",
+    )]);
+    let selected = selector("a.ts", "sink");
+    let all = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selected,
+        None,
+        limits(),
+    );
+    assert_eq!(all.results.nodes.len(), 3, "{all:?}");
+    assert_eq!(all.results.edges.len(), 3);
+    assert!(
+        all.results
+            .edges
+            .iter()
+            .all(|edge| edge.relation_kind == "callgraph_edge" && edge.detail == "detail_unknown")
+    );
+    let mut bound = limits();
+    bound.max_depth = 1;
+    let depth = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selected,
+        None,
+        bound,
+    );
+    assert!(depth.truncation.depth);
+    assert_eq!(depth.results.edges.len(), 1);
+    let mut bound = limits();
+    bound.max_nodes = 1;
+    let nodes = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selected,
+        None,
+        bound,
+    );
+    assert!(nodes.truncation.nodes);
+    assert_eq!(nodes.results.nodes.len(), 1);
+    assert!(nodes.results.edges.is_empty());
+    let mut bound = limits();
+    bound.max_edges = 2;
+    let edges = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selected,
+        None,
+        bound,
+    );
+    assert!(edges.truncation.edges);
+    assert_eq!(edges.results.edges.len(), 2);
+    let mut bound = limits();
+    bound.max_results = 1;
+    let refs = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("a.ts", "middle"),
+        None,
+        bound,
+    );
+    assert!(refs.truncation.results);
+    assert_eq!(refs.results.references.len(), 1);
+}
+
+#[test]
+fn analysis_lite_errors_are_not_successful_empty_impact() {
+    let (_dir, project, index) = fixture(&[
+        ("a.ts", "export function target() {}\n"),
+        ("bad.ts", "function broken( {"),
+        ("foreign.py", "def target(): pass\n"),
+    ]);
+    for (selected, scope, want) in [
+        (selector("missing.ts", "target"), None, "source_read_failed"),
+        (selector("bad.ts", "broken"), None, "parse_failed"),
+        (selector("a.ts", "missing"), None, "target_not_found"),
+        (
+            selector("a.ts", "target"),
+            Some("missing-scope"),
+            "scope_not_found",
+        ),
+    ] {
+        let response = query(
+            &project,
+            &index,
+            AnalysisQuery::Impact,
+            &selected,
+            scope,
+            limits(),
+        );
+        assert_eq!(response.status, EvidenceStatus::Error, "{response:?}");
+        assert_eq!(response.errors[0].code, want);
+        assert_eq!(response.results.total, None);
+        assert!(response.results.edges.is_empty());
+    }
+    let unsupported = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("foreign.py", "target"),
+        None,
+        limits(),
+    );
+    assert_eq!(unsupported.status, EvidenceStatus::Unsupported);
+    let partial = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("a.ts", "target"),
+        None,
+        limits(),
+    );
+    assert_eq!(partial.status, EvidenceStatus::Partial);
+    assert_eq!(
+        partial.errors[0].code, "parse_failed",
+        "other-file backend errors stay visible"
+    );
+}
+
+#[test]
+fn analysis_lite_callback_edges_never_become_proven_direct_calls() {
+    let (_dir, project, index) = fixture(&[(
+        "a.ts",
+        "export function target() {}\nexport function callbackUser() { register(target); }\n",
+    )]);
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("a.ts", "target"),
+        None,
+        limits(),
+    );
+    assert_eq!(response.results.edges.len(), 1);
+    assert_eq!(response.results.edges[0].detail, "detail_unknown");
+    assert_eq!(
+        response.unresolved.observed_count, 1,
+        "unresolved register remains visible"
+    );
+    assert_eq!(response.unresolved.examples[0].name, "register");
+}
+
+#[test]
+fn analysis_lite_disk_hashes_detect_change_without_a_generation_commit() {
+    let (_dir, project, _index) = fixture(&[("a.ts", "export function target() {}\n")]);
+    let source = fs::read_to_string(project.as_path().join("a.ts")).unwrap();
+    let analysis = analyze_declarations(&source, "a.ts").unwrap();
+    let graph =
+        graph::DeclarationGraph::build(&project, None, "a.ts", &source, analysis, 10).unwrap();
+    fs::write(
+        project.as_path().join("a.ts"),
+        "export function changed() {}\n",
+    )
+    .unwrap();
+    assert_eq!(
+        graph.verify_sources(&project).unwrap_err().code,
+        "source_changed"
+    );
+}
+
+#[test]
+fn analysis_lite_source_file_cap_is_explicit_and_keeps_the_exact_target() {
+    let (_dir, project, index) = fixture(&[
+        ("a.ts", "export function ignored() {}\n"),
+        ("z.ts", "export function target() {}\n"),
+    ]);
+    let mut bound = limits();
+    bound.max_files = 1;
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("z.ts", "target"),
+        None,
+        bound,
+    );
+    assert_eq!(response.status, EvidenceStatus::Partial);
+    assert!(response.truncation.files);
+    assert_eq!(response.snapshot.files_read, 1);
+    assert_eq!(response.target.unwrap().file, "z.ts");
+}
+
+#[test]
+fn analysis_lite_class_and_interface_members_are_explicitly_unsupported_without_name_guessing() {
+    let (_dir, project, index) = fixture(&[(
+        "members.ts",
+        "class A { same() { this.same(); this.other.same(); } other!: B; }\nclass B { same() {} }\ninterface I { same(): void; }\nexport function same() {}\nexport function unknown(x: I) { x.same(); }\n",
+    )]);
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("members.ts", "same"),
+        None,
+        limits(),
+    );
+    assert!(
+        response.results.references.is_empty(),
+        "name-only selection must not prefer the lexical function over same-name methods"
+    );
+    assert!(response.target.is_none());
+    assert_eq!(response.errors[0].code, "ambiguous_target");
+    assert!(response.results.selection_candidates.len() >= 3);
+    let mut method = selector("members.ts", "same");
+    method.name_span = Some(ByteSpan { start: 10, end: 14 });
+    let unsupported = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &method,
+        None,
+        limits(),
+    );
+    assert_eq!(unsupported.status, EvidenceStatus::Unsupported);
+    assert_eq!(unsupported.errors[0].code, "unsupported_member_declaration");
+    assert!(unsupported.results.edges.is_empty());
+
+    let function_start = "class A { same() { this.same(); this.other.same(); } other!: B; }\nclass B { same() {} }\ninterface I { same(): void; }\nexport function ".len();
+    let mut lexical = selector("members.ts", "same");
+    lexical.name_span = Some(ByteSpan {
+        start: function_start,
+        end: function_start + 4,
+    });
+    let safe = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &lexical,
+        None,
+        limits(),
+    );
+    assert!(
+        safe.results.edges.is_empty(),
+        "this.same, this.other.same and interface calls are never attributed to a same-name free function"
+    );
+    assert!(safe.unresolved.observed_count >= 3);
+}

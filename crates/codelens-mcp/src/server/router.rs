@@ -20,6 +20,14 @@ pub(crate) fn unbound_session_instructions() -> String {
     format!("{UNBOUND_BINDING_GUIDANCE} {WORKFLOW_GUIDANCE}")
 }
 
+pub(crate) fn analysis_lite_instructions(project: Option<&str>) -> String {
+    let mut instructions = "analysis-lite exposes only search(mode=refs) and graph(mode=impact) for exact JS/TS declarations. HTTP sessions require an explicit canonical project via initialize project, x-codelens-project header or URL project; unbound reads fail. Evidence is partial for cross-file non-call/type references and member dispatch; zero rows never means unused. Use native read/search when unsupported. Set target={file,name,start_byte?,end_byte?} with UTF-8 name-token spans, or target={file,symbol_id}.".to_owned();
+    if let Some(project) = project {
+        instructions.push_str(&format!(" Bound project: `{project}`."));
+    }
+    instructions
+}
+
 /// Instructions for a session the host bound at `initialize` (header, URL
 /// query or `project` param): it must not be told to bind again.
 #[cfg(feature = "http")]
@@ -99,7 +107,9 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                         "name": "codelens-mcp",
                         "version": env!("CARGO_PKG_VERSION")
                     },
-                    "instructions": unbound_session_instructions(),
+                    "instructions": if state.surface().is_analysis_lite() {
+                        analysis_lite_instructions(None)
+                    } else { unbound_session_instructions() },
                 }),
             ))
         }

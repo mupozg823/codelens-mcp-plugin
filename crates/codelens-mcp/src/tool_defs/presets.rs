@@ -37,6 +37,7 @@ impl ToolPreset {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolProfile {
+    AnalysisLite,
     PlannerReadonly,
     BuilderMinimal,
     ReviewerGraph,
@@ -50,11 +51,13 @@ pub(crate) const ALL_PROFILES: &[ToolProfile] = &[
     ToolProfile::PlannerReadonly,
     ToolProfile::BuilderMinimal,
     ToolProfile::ReviewerGraph,
+    ToolProfile::AnalysisLite,
 ];
 
 impl ToolProfile {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
+            "analysis-lite" => Some(Self::AnalysisLite),
             "readonly" | "planner-readonly" | "planner" => Some(Self::PlannerReadonly),
             "builder" | "builder-minimal" => Some(Self::BuilderMinimal),
             "review" | "reviewer-graph" | "reviewer" => Some(Self::ReviewerGraph),
@@ -68,6 +71,7 @@ impl ToolProfile {
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::AnalysisLite => "analysis-lite",
             Self::PlannerReadonly | Self::EvaluatorCompact | Self::WorkflowFirst => "readonly",
             Self::BuilderMinimal | Self::RefactorFull => "builder",
             Self::ReviewerGraph | Self::CiAudit => "review",
@@ -138,6 +142,9 @@ pub(crate) enum ToolSurface {
 }
 
 impl ToolSurface {
+    pub fn is_analysis_lite(self) -> bool {
+        self == Self::Profile(ToolProfile::AnalysisLite)
+    }
     pub fn as_label(&self) -> &'static str {
         match self {
             Self::Preset(ToolPreset::Minimal) => "preset:minimal",
@@ -309,6 +316,9 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = super::generated::REVIEWER_GRAP
 /// their canonical core equivalent, so the alias behaves identically.
 pub(crate) fn is_tool_in_profile(name: &str, profile: ToolProfile) -> bool {
     match profile.canonical() {
+        ToolProfile::AnalysisLite => super::analysis_lite::tools()
+            .iter()
+            .any(|tool| tool.name == name),
         ToolProfile::PlannerReadonly => PLANNER_READONLY_TOOLS.contains(&name),
         ToolProfile::BuilderMinimal => BUILDER_MINIMAL_TOOLS.contains(&name),
         ToolProfile::ReviewerGraph => REVIEWER_GRAPH_TOOLS.contains(&name),

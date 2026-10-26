@@ -112,6 +112,8 @@ pub(in crate::tool_defs) fn tool_symbol_generation_consistent(name: &str) -> boo
             | "find_redundant_definitions"
             | "find_over_visible_apis"
             | "classify_symbol"
+            | "analysis_lite_refs"
+            | "analysis_lite_impact"
     )
 }
 
@@ -202,6 +204,8 @@ pub(in crate::tool_defs) fn tool_namespace(name: &str) -> Option<&'static str> {
     match name {
         "activate_project" => Some("session"),
         "add_queryable_project" => Some("session"),
+        "analysis_lite_impact" => Some("graph"),
+        "analysis_lite_refs" => Some("symbols"),
         "analyze" => Some("reports"),
         "analyze_change_request" => Some("session"),
         "archive_memory" => Some("session"),
@@ -308,6 +312,8 @@ pub(in crate::tool_defs) fn tool_annotation_key(name: &str) -> Option<&'static s
     match name {
         "activate_project" => Some("ro_p"),
         "add_queryable_project" => Some("mutating"),
+        "analysis_lite_impact" => Some("ro_a"),
+        "analysis_lite_refs" => Some("ro_a"),
         "analyze" => Some("ro_w"),
         "analyze_change_request" => Some("ro_w"),
         "archive_memory" => Some("mut_p"),
@@ -416,6 +422,8 @@ pub(in crate::tool_defs) fn tool_execution_policy_values(
     match name {
         "activate_project" => Some(("read", "low", "low", true)),
         "add_queryable_project" => Some(("mutate", "high", "medium", false)),
+        "analysis_lite_impact" => Some(("analyze", "low", "medium", true)),
+        "analysis_lite_refs" => Some(("analyze", "low", "medium", true)),
         "analyze" => Some(("analyze", "low", "medium", true)),
         "analyze_change_request" => Some(("analyze", "low", "medium", true)),
         "archive_memory" => Some(("mutate", "high", "medium", false)),
@@ -695,3 +703,21 @@ pub(in crate::tool_defs) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "prepare_harness_session",
     "get_capabilities",
 ];
+
+pub(in crate::tool_defs) fn analysis_lite_target(name: &str) -> Option<&'static str> {
+    match name {
+        "graph" => Some("analysis_lite_impact"),
+        "search" => Some("analysis_lite_refs"),
+        _ => None,
+    }
+}
+
+pub(in crate::tool_defs) fn analysis_lite_public_name(name: &str) -> Option<&'static str> {
+    match name {
+        "analysis_lite_impact" => Some("graph"),
+        "analysis_lite_refs" => Some("search"),
+        _ => None,
+    }
+}
+
+pub(in crate::tool_defs) const ANALYSIS_LITE_MAX_RESPONSE_BYTES: usize = 18000;

@@ -1,4 +1,5 @@
 pub mod admin;
+pub(crate) mod analysis_lite;
 pub mod composite;
 pub mod filesystem;
 pub mod graph;

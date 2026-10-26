@@ -98,7 +98,7 @@ pub(crate) fn render_help() -> String {
         "  --args <json>                JSON arguments for --cmd".to_owned(),
         "  --batch <json>              Run multiple MCP tools and exit".to_owned(),
         "  --preset minimal|balanced|full".to_owned(),
-        "  --profile readonly|review|builder".to_owned(),
+        "  --profile readonly|review|builder|analysis-lite".to_owned(),
         "      compatibility aliases: planner-readonly, reviewer-graph, builder-minimal, refactor-full, ci-audit, evaluator-compact, workflow-first"
             .to_owned(),
         "  --daemon-mode standard|read-only|mutation-enabled".to_owned(),

@@ -4,6 +4,25 @@ mod failures;
 mod guidance;
 mod metrics;
 mod parity;
+
+#[test]
+fn analysis_lite_profile_is_a_strict_two_tool_surface() {
+    let profile = crate::tool_defs::ToolProfile::from_str("analysis-lite")
+        .expect("analysis-lite must be an explicit profile");
+    let tools = crate::tool_defs::visible_tools(crate::tool_defs::ToolSurface::Profile(profile));
+    assert_eq!(
+        tools.iter().map(|tool| tool.name).collect::<Vec<_>>(),
+        ["search", "graph"]
+    );
+    assert_eq!(
+        tools[0].input_schema["properties"]["mode"]["enum"],
+        json!(["refs"])
+    );
+    assert_eq!(
+        tools[1].input_schema["properties"]["mode"]["enum"],
+        json!(["impact"])
+    );
+}
 // ── Verb facade tests (search / graph / review) ──────────────────────
 //
 // Phase-1 consolidation: read-only tool families are reachable behind

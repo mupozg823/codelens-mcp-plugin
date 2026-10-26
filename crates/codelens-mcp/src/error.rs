@@ -5,6 +5,20 @@ use serde_json::{Value, json};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CodeLensError {
+    #[error("analysis_lite: {0}")]
+    AnalysisEvidence(Box<codelens_engine::analysis_lite::AnalysisEvidence>),
+    #[cfg(feature = "http")]
+    #[error(
+        "project_binding_required: analysis-lite tool `{tool}` requires an explicit canonical project on this HTTP session; reinitialize with project=<absolute root>, x-codelens-project header or endpoint URL project. Unbound reads are rejected."
+    )]
+    AnalysisLiteBindingRequired { tool: String },
+    #[error(
+        "analysis-lite response_size_limit: {observed_bytes} evidence bytes exceed {limit_bytes}; narrow path, max_results or graph caps and retry. No sampled evidence was returned."
+    )]
+    AnalysisLiteResponseTooLarge {
+        observed_bytes: usize,
+        limit_bytes: usize,
+    },
     // ── Protocol errors (JSON-RPC level) ──────────────────────────────
     /// Missing or invalid tool parameter (JSON-RPC -32602).
     #[error("Missing required parameter: {0}")]
@@ -161,6 +175,10 @@ impl CodeLensError {
     /// Map to a JSON-RPC error code. Used by dispatch_tool for protocol-level errors.
     pub fn jsonrpc_code(&self) -> i64 {
         match self {
+            Self::AnalysisEvidence(_) => -32012,
+            #[cfg(feature = "http")]
+            Self::AnalysisLiteBindingRequired { .. } => -32003,
+            Self::AnalysisLiteResponseTooLarge { .. } => -32007,
             // Protocol errors
             Self::MissingParam(_) => -32602,
             Self::ToolNotFound(_) => -32601,
@@ -195,6 +213,10 @@ impl CodeLensError {
     /// recorded: it can carry symbol names, queries and paths.
     pub fn kind(&self) -> &'static str {
         match self {
+            Self::AnalysisEvidence(_) => "analysis_evidence_error",
+            #[cfg(feature = "http")]
+            Self::AnalysisLiteBindingRequired { .. } => "project_binding_required",
+            Self::AnalysisLiteResponseTooLarge { .. } => "response_size_limit",
             Self::MissingParam(_) => "missing_param",
             Self::ToolNotFound(_) => "tool_not_found",
             Self::NotFound(_) => "not_found",

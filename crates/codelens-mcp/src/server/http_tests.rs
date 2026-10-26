@@ -117,6 +117,7 @@ fn first_tool_payload(body: &str) -> serde_json::Value {
 // ── Bearer/JWKS auth ─────────────────────────────────────────────────
 
 mod analysis_job_tests;
+mod analysis_lite_tests;
 mod auth_tests;
 mod codex_host_snapshot_tests;
 mod default_visibility_tests;

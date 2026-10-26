@@ -1,10 +1,11 @@
 use crate::tool_defs::{ToolProfile, ToolSurface, preferred_tier_labels};
 use serde_json::{Value, json};
 
-const PROFILE_GUIDE_PROFILES: [ToolProfile; 3] = [
+const PROFILE_GUIDE_PROFILES: [ToolProfile; 4] = [
     ToolProfile::PlannerReadonly,
     ToolProfile::BuilderMinimal,
     ToolProfile::ReviewerGraph,
+    ToolProfile::AnalysisLite,
 ];
 
 pub(crate) fn profile_guide(profile: ToolProfile) -> Value {
@@ -12,6 +13,13 @@ pub(crate) fn profile_guide(profile: ToolProfile) -> Value {
     let display_profile = profile;
     let guide_profile = profile.canonical();
     match guide_profile {
+        ToolProfile::AnalysisLite => json!({
+            "profile":"analysis-lite", "canonical":"analysis-lite", "deprecated":false,
+            "intent":"Candidate-only JS/TS declaration references and bounded reverse callgraph evidence. Explicit canonical project binding is required per HTTP session.",
+            "preferred_tools":["search", "graph"], "preferred_namespaces":["symbols", "graph"],
+            "modes":{"search":["refs"],"graph":["impact"]},
+            "avoid":["other modes, direct aliases and mutations are rejected", "zero rows do not prove unused", "generation stability does not prove disk freshness"]
+        }),
         ToolProfile::PlannerReadonly => json!({
             "profile": display_profile.as_str(),
             "canonical": guide_profile.as_str(),

@@ -2004,3 +2004,54 @@ prewarm_limit = { type = "integer", description = "Maximum prewarm query count (
 # weren't surfaced anywhere. Removing the schemas closes the "schema
 # visible, handler 404" tools/list contract violation. Restore by
 # adding a dispatch arm + wrapper if/when a use case appears.
+
+# Candidate-only descriptors. These are deliberately outside [[tool]]: old
+# profiles retain their registry and schemas. Codegen emits both descriptors
+# and their private target metadata from this one contract. QueryEngine alone
+# may select the targets, after validating the actual descriptor schema.
+[[analysis_lite_tool]]
+name = "search"
+target = "analysis_lite_refs"
+mode = "refs"
+category = "analysis_lite"
+namespace = "symbols"
+annotations = "ro_a"
+description = "JS/TS exact-declaration references: local semantic reads/writes plus identity-resolved callgraph evidence. Select target.file and target.name, add UTF-8 name-token start_byte/end_byte inside target when ambiguous, or use target.symbol_id. Cross-file non-call/type/import references are incomplete; zero rows never means unused."
+output_schema = "crate::tools::analysis_lite::output_schema"
+[analysis_lite_tool.input_schema]
+type = "object"
+required = ["mode", "target"]
+additionalProperties = false
+[analysis_lite_tool.input_schema.properties]
+mode = { type = "string", enum = ["refs"] }
+target = { type = "object", required = ["file"], additionalProperties = false, anyOf = [{ required = ["name"] }, { required = ["symbol_id"] }], properties = { file = { type = "string", minLength = 1 }, name = { type = "string", minLength = 1 }, symbol_id = { type = "string", minLength = 1 }, start_byte = { type = "integer", minimum = 0, description = "UTF-8 name-token byte start, paired with end_byte; never UTF-16" }, end_byte = { type = "integer", minimum = 1 } } }
+path = { type = "string", minLength = 1, description = "Optional caller file/directory scope; local declaration references are always included" }
+generation = { type = "integer", minimum = 0, description = "Optional committed symbol generation from a previous candidate response" }
+max_results = { type = "integer", minimum = 1, maximum = 200, default = 100 }
+max_files = { type = "integer", minimum = 1, maximum = 10000, default = 2000 }
+
+[[analysis_lite_tool]]
+name = "graph"
+target = "analysis_lite_impact"
+mode = "impact"
+category = "analysis_lite"
+namespace = "graph"
+annotations = "ro_a"
+description = "JS/TS bounded reverse callgraph from one exact declaration. Preserves each callsite and proven identities; relation is callgraph_edge/detail_unknown, including callbacks. Reports unresolved evidence, scope, caps and source freshness. Does not prove whole-program impact or absence of use."
+output_schema = "crate::tools::analysis_lite::output_schema"
+[analysis_lite_tool.input_schema]
+type = "object"
+required = ["mode", "target"]
+additionalProperties = false
+[analysis_lite_tool.input_schema.properties]
+mode = { type = "string", enum = ["impact"] }
+target = { type = "object", required = ["file"], additionalProperties = false, anyOf = [{ required = ["name"] }, { required = ["symbol_id"] }], properties = { file = { type = "string", minLength = 1 }, name = { type = "string", minLength = 1 }, symbol_id = { type = "string", minLength = 1 }, start_byte = { type = "integer", minimum = 0, description = "UTF-8 name-token byte start, paired with end_byte; never UTF-16" }, end_byte = { type = "integer", minimum = 1 } } }
+path = { type = "string", minLength = 1, description = "Optional caller file/directory scope" }
+generation = { type = "integer", minimum = 0 }
+max_depth = { type = "integer", minimum = 1, maximum = 8, default = 3 }
+max_nodes = { type = "integer", minimum = 1, maximum = 100, default = 40 }
+max_edges = { type = "integer", minimum = 1, maximum = 200, default = 100 }
+max_files = { type = "integer", minimum = 1, maximum = 10000, default = 2000 }
+
+[analysis_lite_contract]
+max_response_bytes = 18000

@@ -1,5 +1,6 @@
 //! MCP tool definitions and preset filtering.
 
+pub(crate) mod analysis_lite;
 mod build;
 mod generated;
 mod output_schemas;
@@ -63,6 +64,7 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => {
             vec!["reports", "symbols", "graph", "session"]
         }
+        ToolSurface::Profile(ToolProfile::AnalysisLite) => vec!["symbols", "graph"],
         ToolSurface::Profile(ToolProfile::BuilderMinimal) => {
             // "graph" added for the graph verb (Phase-2 bootstrap slice).
             vec!["reports", "symbols", "graph", "filesystem", "session"]
@@ -108,6 +110,7 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
 // trace_request_path) stay callable but yield their bootstrap slots.
 pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static [&'static str]> {
     match surface {
+        ToolSurface::Profile(ToolProfile::AnalysisLite) => Some(&["search", "graph"]),
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => Some(&[
             "overview",
             "search",
@@ -167,6 +170,7 @@ pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static
 
 pub(crate) fn preferred_tiers(surface: ToolSurface) -> Vec<ToolTier> {
     match surface {
+        ToolSurface::Profile(ToolProfile::AnalysisLite) => vec![ToolTier::Analysis],
         ToolSurface::Profile(ToolProfile::PlannerReadonly)
         | ToolSurface::Profile(ToolProfile::ReviewerGraph)
         | ToolSurface::Profile(ToolProfile::RefactorFull)
@@ -244,6 +248,7 @@ pub(crate) fn is_read_only_surface(surface: ToolSurface) -> bool {
     matches!(
         surface,
         ToolSurface::Profile(ToolProfile::PlannerReadonly)
+            | ToolSurface::Profile(ToolProfile::AnalysisLite)
             | ToolSurface::Profile(ToolProfile::ReviewerGraph)
             | ToolSurface::Profile(ToolProfile::CiAudit)
             | ToolSurface::Profile(ToolProfile::EvaluatorCompact)

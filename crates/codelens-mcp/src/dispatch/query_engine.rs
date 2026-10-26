@@ -134,6 +134,38 @@ impl<'a> QueryEngine<'a> {
                     };
                 }
             };
+        // Candidate routing is intentionally after legacy facade resolution,
+        // before target validation/access and the symbol generation fence.
+        // It cannot inherit ADR-0016's registered hidden-alias escape.
+        let (target, target_arguments, operation) = if surface.is_analysis_lite() {
+            match crate::tool_defs::analysis_lite::resolve(name, arguments) {
+                Ok(target) => (
+                    target,
+                    Cow::Borrowed(arguments),
+                    ResolvedOperation::resolved(
+                        target,
+                        arguments.get("mode").and_then(Value::as_str),
+                    ),
+                ),
+                Err(error) => {
+                    return QuerySubmission {
+                        result: Err(error),
+                        gate_allowance: None,
+                        gate_failure: None,
+                        operation,
+                    };
+                }
+            }
+        } else if crate::tool_defs::analysis_lite::public_name(name).is_some() {
+            return QuerySubmission {
+                result: Err(CodeLensError::ToolNotFound(name.to_owned())),
+                gate_allowance: None,
+                gate_failure: None,
+                operation,
+            };
+        } else {
+            (target, target_arguments, operation)
+        };
         let target_arguments = target_arguments.as_ref();
 
         if let Err(error) = validate_required_params(target, target_arguments) {
@@ -173,7 +205,9 @@ impl<'a> QueryEngine<'a> {
             };
         }
 
-        let tool = match DISPATCH_TABLE.get(target) {
+        let tool = match crate::tools::analysis_lite::handler(target)
+            .or_else(|| DISPATCH_TABLE.get(target).cloned())
+        {
             Some(t) => t,
             None => {
                 // Tombstoned names (#346) get a replacement hint instead of a

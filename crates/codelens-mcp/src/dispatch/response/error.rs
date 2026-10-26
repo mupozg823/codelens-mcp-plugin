@@ -76,6 +76,12 @@ pub(crate) fn build_error_response<'a>(
     let retryable = error.is_retryable();
 
     let mut resp = ToolCallResponse::error(error.to_string());
+    if active_surface == "analysis-lite" {
+        resp.data = Some(match &error {
+            CodeLensError::AnalysisEvidence(evidence) => json!(evidence),
+            _ => crate::tools::analysis_lite::rejected_payload(state, arguments, &error),
+        });
+    }
     resp.recovery_hint = recovery_hint;
     resp.retryable = retryable.then_some(true);
     if let Some(failure) = gate_failure {
@@ -99,6 +105,7 @@ pub(crate) fn build_error_response<'a>(
     {
         let session = crate::session_context::SessionRequestContext::from_json(arguments);
         if state.should_route_to_session(&session)
+            && active_surface != "analysis-lite"
             && crate::tool_defs::tool_namespace(name) != "session"
             && !session.project_binding_is_explicit()
             && let Some(message) = resp.error.as_mut()
@@ -150,12 +157,19 @@ pub(crate) fn build_error_response<'a>(
             error_kind: Some(error_kind),
         },
     });
-    let text = text_payload_for_response(&resp, None, false);
+    let text = if active_surface == "analysis-lite" {
+        serde_json::to_string(&resp).expect("candidate error envelope is serializable")
+    } else {
+        text_payload_for_response(&resp, None, false)
+    };
     let mut body = json!({
         "content": [{ "type": "text", "text": text }],
         "isError": true,
         "_meta": {}
     });
+    if active_surface == "analysis-lite" {
+        body["structuredContent"] = json!(resp.data);
+    }
     if let Some(policy) = crate::tool_defs::tool_execution_policy_payload(name) {
         body["_meta"]["codelens/executionPolicy"] = policy;
     }

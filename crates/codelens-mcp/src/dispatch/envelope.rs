@@ -43,8 +43,10 @@ impl ToolCallEnvelope {
         // `relative_path` is only aliased for read-only soft-alias tools.
         // Mutation primitives keep it as a deliberate "rooted at project,
         // no escape" marker distinct from arbitrary paths.
-        apply_path_alias_normalisation(name.as_str(), &mut arguments);
         let session = crate::session_context::SessionRequestContext::from_json(&arguments);
+        if !state.execution_surface(&session).is_analysis_lite() {
+            apply_path_alias_normalisation(name.as_str(), &mut arguments);
+        }
         let default_budget = state.execution_token_budget(&session);
         // P2-A: honour explicit max_tokens parameter before profile defaults.
         // Agents pass max_tokens per-request; ignoring it caused hard 4000-cap

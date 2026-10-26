@@ -136,6 +136,22 @@ fn rust_function_declaration_path(
 
 /// Extract call edges from already-loaded source content (avoids re-reading disk).
 pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
+    extract_located_calls_from_source(path, source)
+        .into_iter()
+        .map(|located| located.edge)
+        .collect()
+}
+
+/// Source token retained for declaration-identity queries. The legacy payload
+/// intentionally stays line-based, including its historical deduplication.
+pub(crate) struct LocatedCallEdge {
+    pub edge: CallEdge,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub column: usize,
+}
+
+pub(crate) fn extract_located_calls_from_source(path: &Path, source: &str) -> Vec<LocatedCallEdge> {
     let Some(config) = call_language_for_path(path) else {
         return Vec::new();
     };
@@ -260,18 +276,23 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 |(_, _, name, declaration_path)| (name.clone(), declaration_path.clone()),
             );
 
-            edges.push(CallEdge {
-                caller_file: file_path.clone(),
-                caller_name,
-                caller_declaration_path,
-                callee_name,
-                callee_qualifier: callee_qualifier.clone(),
-                line,
-                resolved_file: None,
-                confidence: 0.0,
-                resolution_strategy: None,
-                canonical_callee_name: None,
-                target_declaration_path: None,
+            edges.push(LocatedCallEdge {
+                edge: CallEdge {
+                    caller_file: file_path.clone(),
+                    caller_name,
+                    caller_declaration_path,
+                    callee_name,
+                    callee_qualifier: callee_qualifier.clone(),
+                    line,
+                    resolved_file: None,
+                    confidence: 0.0,
+                    resolution_strategy: None,
+                    canonical_callee_name: None,
+                    target_declaration_path: None,
+                },
+                start_byte: start,
+                end_byte: end,
+                column: cap.node.start_position().column + 1,
             });
         }
     }

@@ -1,5 +1,92 @@
 # Analysis-lite implementation ledger
 
+## Dispatch 3 — typed engine and strict candidate profile (in progress)
+
+Owner: one SOL implementation worker, isolated worktree
+`/Users/bagjaeseog/.codex/worktrees/codelens-analysis-lite-20261026` on
+`codex/analysis-lite`, starting at `30644142007a5c01885c98ea44d0a0de3c58bbf6`.
+Parent accepted the dispatch-2 six-task freeze bundle
+`b6c5d2c3023bed67fac86847cda60b92fb9d1fc0d0b1f4bc82ec9d3be9d47923`.
+No model runs are authorized in this dispatch. Benchmark/task/gold files stay
+outside this ownership. The current OMO launcher has a missing runtime target;
+no active attempt directory could be read, so evidence is recorded under
+`.omo/evidence/analysis-lite-core.md` with raw artifacts in repository-ignored
+`.codex/analysis-lite-evidence/core/` and the exact launcher error retained.
+
+Implementation seam: candidate-only exact OXC declaration identity and located
+call-graph evidence; a surface-aware dispatch branch immediately after legacy
+verb resolution, before target validation and the existing generation fence.
+Existing profiles and legacy resolver behavior remain separate. A canonical
+`tools.toml` candidate contract must drive the two schemas, validation and
+fingerprint. Target selection and evidence errors must never become zero usage
+or zero impact. Validation starts with the exact-declaration and two-descriptor
+RED scenarios, then engine and actual HTTP scenarios under one cargo build job.
+
+Implemented in this dispatch: exact OXC UTF-8 declaration/reference spans;
+source-located graph evidence with exact lexical/import-export identities;
+unconditional local/external merge and provenance deduplication; bounded
+reverse traversal preserving multiple same-line callsites; typed status,
+snapshot/source basis, errors, unknown totals and explicit unsupported member
+targets. Class/interface/property dispatch is deliberately unsupported, with
+structural source-token selection and no same-name free-function attribution.
+
+The two generated descriptors use nested target selectors to avoid Claude API
+root-level schema unions. `tools.toml` drives schemas, private target metadata,
+runtime validation, defaults and the 18000-byte wire guard. Candidate dispatch
+does not inherit registered hidden-alias callability. Existing session/role/
+access and symbol-generation fencing remain. Candidate HTTP reads require a
+valid explicit project binding; bad headers cannot fall back to the daemon
+project. Initialize guidance is short and candidate-specific. Both response
+channels preserve full typed evidence; oversized evidence is an explicit error
+instead of the legacy lossy sampler's three-row preview.
+
+Observed RED artifacts include the original 4-vs-2 declaration merge, missing
+profile, lexical-function selection despite same-name class members, and three
+HTTP failures: broad initialize instructions, invalid-header fallback, and
+9 references silently summarized to 3. Their corrections have targeted GREEN
+receipts in `candidate-2.log` and `candidate-3.log`. Later coverage added indexed
+symbol IDs and independently exposed the legacy lookup's LIMIT 0 semantics;
+the candidate now requests two rows to detect identity ambiguity. Final nested
+selector coverage includes valid-schema direct-private-target rejection, not
+just a missing-field failure. The full HTTP/no-default workspace suite passed
+with build jobs=1 and test threads=2: engine unit 461 passed/3 ignored, MCP unit
+1280 passed/4 ignored, engine integration 9 passed and doctest 1 passed. A
+post-lint candidate rerun passed all 13 engine and 8 MCP/HTTP scenarios. Clippy
+passed both no-default+http and default+http,semantic with -D warnings. Codegen
+drift enforcement, its 16 regression checks, six manifest contracts, docs
+surface, formatting and whitespace checks passed. The canonical surface
+manifest was regenerated; old profile counts and old tool registries stayed
+unchanged, with the two-tool candidate added as a fourth optional profile.
+
+The optional project skill is `.agents/skills/analysis-lite/SKILL.md`; operation
+and temporary host-adapter contracts are in `analysis-lite.md`. Installed CLI
+help/version receipts show Codex 0.164.0 and Claude Code 2.1.310. Actual socket
+receipts prove two explicitly bound sessions sharing one project, a separate
+real Git worktree binding, exact two-mode schema/fingerprint, bounded impact,
+direct mode/alias/mutation denial and typed binding/generation failures.
+
+Native host checks used the debug test binary, not a performance binary:
+Codex app-server initialized an ephemeral thread, listed the two tools and
+received three typed references through direct mcpServer/tool/call, without a
+turn/start request. It inherited the ordinary host's other configured MCP
+status entries; no other tool was called. Claude's variadic --mcp-config
+consumed positional mcp/get arguments in the first health-command attempt
+(failure retained). A control-only initialize/mcp_status session then connected
+and discovered exactly two tools. Its own debug log confirms protocolEra=legacy
+and negotiatedProtocolVersion=2025-11-25. The server also correctly falls back
+from a requested unsupported 2026-07-28 version; full support for that version
+is not claimed. Claude model-level response consumption and Desktop discovery
+remain unmeasured for the later pilot. All owned probe processes stopped.
+
+Raw host assertions are `socket/host-assertions.json` beneath the evidence
+directory. At this documentation checkpoint, the remaining mechanical step is
+the optimized build from a clean implementation commit and a release HTTP
+receipt. Its final source HEAD/features/hash and completion state are recorded
+in the ignored evidence index so recording them does not dirty the source
+commit used by the binary. No model request has been made. No benchmark/task/
+gold file, global setting or launchd entry was edited, and no shared process
+was killed. Model-pilot and adoption work remain with the parent/later runner.
+
 ## Dispatch 1 — harness accounting
 
 Scope: codex-task-runner.py, session-eval.py, one optional metrics helper, direct

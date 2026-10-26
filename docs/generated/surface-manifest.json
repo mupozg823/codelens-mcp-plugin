@@ -1606,6 +1606,23 @@
           "get_file_diagnostics"
         ],
         "deprecated": false
+      },
+      {
+        "name": "analysis-lite",
+        "tool_count": 2,
+        "preferred_namespaces": [
+          "symbols",
+          "graph"
+        ],
+        "preferred_tiers": [
+          "analysis"
+        ],
+        "preferred_phases": [],
+        "tools": [
+          "search",
+          "graph"
+        ],
+        "deprecated": false
       }
     ],
     "presets": [
