@@ -96,6 +96,26 @@ fn read_model_manifest(model_dir: &std::path::Path) -> Option<EmbeddingModelMani
     serde_json::from_str::<EmbeddingModelManifest>(&content).ok()
 }
 
+/// Pooling the model was trained with, read from its sentence-transformers
+/// `1_Pooling/config.json`: CLS when that file says so, mean otherwise.
+/// The bundled export ships no such file and its source model
+/// (isuruwijesiri/all-MiniLM-L12-v2-code-search-512, a fine-tune of
+/// sentence-transformers/all-MiniLM-L12-v2) mean-pools. Left unset,
+/// fastembed pools a user-defined model by CLS, which is how the bundled
+/// model ran until embedding store schema version 3.
+pub(super) fn pooling_for_model_dir(model_dir: &std::path::Path) -> fastembed::Pooling {
+    let cls = std::fs::read_to_string(model_dir.join("1_Pooling").join("config.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|config| config.get("pooling_mode_cls_token")?.as_bool())
+        .unwrap_or(false);
+    if cls {
+        fastembed::Pooling::Cls
+    } else {
+        fastembed::Pooling::Mean
+    }
+}
+
 pub(super) fn configured_model_name_for_dir(model_dir: &std::path::Path) -> String {
     read_model_manifest(model_dir)
         .and_then(|manifest| manifest.model_name)
