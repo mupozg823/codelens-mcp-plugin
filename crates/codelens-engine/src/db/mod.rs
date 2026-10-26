@@ -13,7 +13,7 @@ pub use compact::CompactReport;
 #[cfg(test)]
 mod tests;
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 /// Version of the analysis LOGIC (import resolver + import/symbol extractors)
 /// whose output is persisted in `imports`/`symbols`/`calls`. Distinct from
@@ -369,6 +369,30 @@ impl IndexDb {
             // children. Re-indexing ~1.2k changed files of a 74k-symbol index
             // spent 70 s of CPU there (delete of 27k symbols: 53.9 s -> 0.13 s).
             "CREATE INDEX IF NOT EXISTS idx_symbols_parent ON symbols(parent_id);",
+        ),
+        (
+            8,
+            // Keep `symbols_fts` in step with `symbols` row by row. It was
+            // rebuilt lazily when the symbol count changed, so a re-index that
+            // kept the count (a rename, an edited signature) left full-text
+            // search on rowids that no longer existed: the new names were
+            // unfindable. Cascaded deletes from `files` fire these triggers too.
+            "INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild');
+             CREATE TRIGGER IF NOT EXISTS symbols_fts_insert AFTER INSERT ON symbols BEGIN
+                INSERT INTO symbols_fts(rowid, name, name_path, signature)
+                VALUES (new.id, new.name, new.name_path, new.signature);
+             END;
+             CREATE TRIGGER IF NOT EXISTS symbols_fts_delete AFTER DELETE ON symbols BEGIN
+                INSERT INTO symbols_fts(symbols_fts, rowid, name, name_path, signature)
+                VALUES ('delete', old.id, old.name, old.name_path, old.signature);
+             END;
+             CREATE TRIGGER IF NOT EXISTS symbols_fts_update AFTER UPDATE ON symbols BEGIN
+                INSERT INTO symbols_fts(symbols_fts, rowid, name, name_path, signature)
+                VALUES ('delete', old.id, old.name, old.name_path, old.signature);
+                INSERT INTO symbols_fts(rowid, name, name_path, signature)
+                VALUES (new.id, new.name, new.name_path, new.signature);
+             END;
+             DELETE FROM meta WHERE key IN ('fts_symbol_count', 'fts_rebuild_ts');",
         ),
     ];
 

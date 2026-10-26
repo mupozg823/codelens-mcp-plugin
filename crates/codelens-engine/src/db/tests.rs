@@ -795,6 +795,71 @@ fn symbol_parent_lookup_uses_an_index() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// Schema 7 kept `symbols_fts` fresh by a lazy rebuild keyed on the symbol
+/// count. Opening such an index must re-sync the rows it already holds and
+/// leave triggers that keep later writes in step.
+#[test]
+fn fts_rows_written_before_schema_8_are_searchable_after_upgrade() {
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-db-fts-triggers-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).expect("dir");
+    let path = dir.join("symbols.db");
+    let symbol = |name: &'static str| NewSymbol {
+        name,
+        kind: "function",
+        line: 1,
+        column_num: 1,
+        start_byte: 0,
+        end_byte: 20,
+        signature: name,
+        name_path: name,
+        parent_id: None,
+    };
+    {
+        let db = IndexDb::open(&path).expect("open");
+        db.conn
+            .execute_batch(
+                "DROP TRIGGER symbols_fts_insert;
+                 DROP TRIGGER symbols_fts_delete;
+                 DROP TRIGGER symbols_fts_update;
+                 UPDATE meta SET value = '7' WHERE key = 'schema_version';",
+            )
+            .expect("downgrade to v7");
+        let file_id = db.upsert_file("old.rs", 1, "h", 1, Some("rs")).unwrap();
+        db.insert_symbols(file_id, &[symbol("alphawolf")]).unwrap();
+    }
+
+    let reopened = IndexDb::open(&path).expect("reopen");
+    let names = |query: &str| -> Vec<String> {
+        reopened
+            .search_symbols_fts(query, 10)
+            .unwrap()
+            .into_iter()
+            .map(|(row, _, _)| row.name)
+            .collect()
+    };
+    assert_eq!(names("alphawolf"), ["alphawolf"]);
+    let file_id = reopened
+        .upsert_file("new.rs", 1, "h", 1, Some("rs"))
+        .unwrap();
+    reopened
+        .insert_symbols(file_id, &[symbol("omegahawk")])
+        .unwrap();
+    assert_eq!(names("omegahawk"), ["omegahawk"]);
+    reopened
+        .upsert_file("old.rs", 2, "h2", 1, Some("rs"))
+        .unwrap();
+    assert!(names("alphawolf").is_empty());
+    drop(reopened);
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn open_connections_are_counted_per_path_while_alive() {
     let dir = std::env::temp_dir().join(format!(
