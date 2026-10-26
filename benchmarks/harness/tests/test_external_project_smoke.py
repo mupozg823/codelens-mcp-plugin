@@ -113,6 +113,65 @@ class ExternalProjectSmokeTests(unittest.TestCase):
 
         self.assertIsNone(EXTERNAL_SMOKE.degraded_search_error(search_step))
 
+    def _search_step(self, symbols):
+        return {
+            "ok": True,
+            "stdout": {
+                "data": {
+                    "results": [{"file_path": "src/ser.rs", "symbol_name": name} for name in symbols],
+                    "retrieval": {"semantic_lane": "ok", "lexical_lane": "ok"},
+                }
+            },
+        }
+
+    def test_known_gap_miss_is_reported_without_failing(self):
+        expected = {
+            "file_path": "src/ser.rs",
+            "symbol_name": "to_string",
+            "max_rank": 3,
+            "known_gap": {"reason": "embedding model misses this NL query"},
+        }
+
+        step = EXTERNAL_SMOKE.judge_search_step(self._search_step(["to_writer"]), expected)
+
+        self.assertTrue(step["ok"])
+        self.assertIn("to_string", step["known_gap_miss"])
+        self.assertEqual(step["known_gap"], "embedding model misses this NL query")
+
+    def test_known_gap_that_now_passes_fails_until_removed(self):
+        expected = {
+            "file_path": "src/ser.rs",
+            "symbol_name": "to_string",
+            "max_rank": 3,
+            "known_gap": {"reason": "embedding model misses this NL query"},
+        }
+
+        step = EXTERNAL_SMOKE.judge_search_step(self._search_step(["to_string"]), expected)
+
+        self.assertFalse(step["ok"])
+        self.assertIn("remove known_gap", step["quality_error"])
+
+    def test_known_gap_needs_a_reason(self):
+        expected = {"symbol_name": "to_string", "known_gap": {}}
+
+        step = EXTERNAL_SMOKE.judge_search_step(self._search_step(["to_writer"]), expected)
+
+        self.assertFalse(step["ok"])
+        self.assertIn("reason", step["quality_error"])
+
+    def test_known_gap_does_not_cover_a_degraded_lane(self):
+        expected = {
+            "symbol_name": "to_string",
+            "known_gap": {"reason": "embedding model misses this NL query"},
+        }
+        search_step = self._search_step(["to_writer"])
+        search_step["stdout"]["data"]["retrieval"]["lexical_lane"] = "failed"
+
+        step = EXTERNAL_SMOKE.judge_search_step(search_step, expected)
+
+        self.assertFalse(step["ok"])
+        self.assertIn("lexical_lane", step["degraded_error"])
+
     def test_check_mode_requires_expected_search_labels(self):
         missing = EXTERNAL_SMOKE.projects_missing_expected_search(
             [
