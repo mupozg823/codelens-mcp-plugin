@@ -51,7 +51,9 @@ def measurement_view(entry):
         success = None
     return {"kind": kind, "actual_total_tokens": actual,
             "historical_estimated_total_tokens": historical,
-            "quality_score": quality, "success": success}
+            "quality_score": quality, "success": success,
+            "acceptance_passed": entry.get("acceptance_passed") if type(entry.get("acceptance_passed")) is bool else None,
+            "verify_passed": entry.get("verify_passed") if type(entry.get("verify_passed")) is bool else None}
 
 
 def load_json(path: Path):

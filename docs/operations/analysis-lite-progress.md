@@ -1,5 +1,46 @@
 # Analysis-lite implementation ledger
 
+## Accepted review fixes — caller identity and policy eligibility (in progress)
+
+The parent accepted independent findings R1 and R2 at
+`48e31f0dcfa8f552f75387ab6256ec5f781413ca` and assigned this worker the Rust caller
+fix plus `harness-eval.py`, `harness_eval_common.py` and the aggregation tests.
+Frozen tasks, gold and benchmark manifests remain unchanged. Evidence for this
+pass is `.codex/analysis-lite-evidence/core/review-fix/`.
+
+R1 RED reproduced false reverse propagation through an enclosing same-name
+function for seven unsupported class/object member forms, including computed
+and string names and property arrows. The located extractor now preserves the
+actual AST caller boundary and exact declaration/name-token spans. Candidate
+source identity requires an exact OXC match; unsupported members retain the
+callsite with unavailable source and stop traversal. Nested same-name functions,
+function expressions, variable arrows and anonymous callback containment in a
+named lexical outer remain covered. Candidate GREEN: 15 engine and 8 MCP/HTTP
+tests passed.
+
+R2 RED reproduced activation recommendations through the actual CLI report
+path despite zero qualifying sessions, plus promotion of a failed candidate.
+Summaries retain every raw row and measured/unknown/failed acceptance and verify
+counts. Unknown observations make the comparison inconclusive; observed failures
+remain measured. Candidates with failed acceptance or verification cannot be
+promoted, while a measured failed baseline remains a valid comparator. Shared
+and agent summaries use the same eligibility check. All 61 related Python checks
+passed (the previous 55 plus six scenario regressions). No new pilot adoption
+threshold or global policy write was introduced.
+
+The previous release session 95809 disappeared: both parent and owner receive
+Unknown process id, no cargo/rustc process remains, and no saved exit code exists.
+Its last log line is tempfile compilation. Completion is unconfirmed, no process
+was killed, and the old log/source receipt remain intact. The full no-default
+HTTP workspace suite passed: engine 463 passed/3 ignored, MCP 1280 passed/4
+ignored, 9 integration tests and 1 doctest passed. Clippy with -D warnings passed
+both no-default+http and default+http,semantic; canonical codegen drift,
+formatting, Python compilation and benchmark invocation lint passed. Broad
+Python lint retains the same seven baseline diagnostics and introduces none.
+A new optimized build is required after the fix commit; the final clean-source
+release/socket/hash receipt is recorded separately in ignored evidence so the
+source used for the binary stays clean. Model/pilot runs remain zero.
+
 ## Dispatch 3 — typed engine and strict candidate profile (in progress)
 
 Owner: one SOL implementation worker, isolated worktree

@@ -313,12 +313,12 @@ def mode_stats(entries):
     ]
     verify_scores = [
         entry.get("verify_passed")
-        for entry in entries
+        for entry in measurements
         if entry.get("verify_passed") is not None
     ]
     acceptance_scores = [
         entry.get("acceptance_passed")
-        for entry in entries
+        for entry in measurements
         if entry.get("acceptance_passed") is not None
     ]
     measured_success = [
@@ -345,6 +345,12 @@ def mode_stats(entries):
         "success_unknown_count": count - len(measured_success),
         "quality_measured_count": len(quality_scores),
         "quality_unknown_count": count - len(quality_scores),
+        "verify_measured_count": len(verify_scores),
+        "verify_unknown_count": count - len(verify_scores),
+        "verify_failed_count": sum(value is False for value in verify_scores),
+        "acceptance_measured_count": len(acceptance_scores),
+        "acceptance_unknown_count": count - len(acceptance_scores),
+        "acceptance_failed_count": sum(value is False for value in acceptance_scores),
         "token_measured_count": len(actual_tokens),
         "token_unknown_count": count - len(actual_tokens),
         "legacy_provider_measured_count": sum(row["kind"] == "legacy_provider" and row["actual_total_tokens"] is not None for row in measurements),
@@ -392,20 +398,31 @@ def mode_stats(entries):
     }
 
 
-def choose_policy(task_kind: str, stats_by_mode):
-    # Unknown observations and historical/synthetic estimates cannot establish
-    # adoption. Keep the existing native fallback string for policy consumers.
-    if ("baseline" not in stats_by_mode or len(stats_by_mode) < 2 or any(
+def incomplete_comparison(stats_by_mode):
+    return "baseline" not in stats_by_mode or len(stats_by_mode) < 2 or any(
         stats.get("avg_total_tokens") is None or stats.get("token_unknown_count", 0)
         or stats.get("success_unknown_count", 0) or stats.get("quality_unknown_count", 0)
+        or stats.get("acceptance_unknown_count", 0) or stats.get("verify_unknown_count", 0)
         for stats in stats_by_mode.values()
-    )):
+    )
+
+
+def choose_policy(task_kind: str, stats_by_mode):
+    # Retain every raw observation. Unknown evidence cannot establish a
+    # comparison; measured baseline failures remain valid comparators.
+    if incomplete_comparison(stats_by_mode):
         return "prefer_native_baseline"
     viable = {
         mode: stats
         for mode, stats in stats_by_mode.items()
         if stats.get("success_rate") is not None
-        and stats.get("success_rate", 0.0) > 0.0
+        and (mode == "baseline" or (
+            stats.get("success_rate", 0.0) > 0.0
+            and stats.get("acceptance_pass_rate") == 1.0
+            and stats.get("verify_pass_rate") == 1.0
+            and not stats.get("acceptance_failed_count", 0)
+            and not stats.get("verify_failed_count", 0)
+        ))
     }
     if task_kind == "simple local lookup/edit":
         baseline = viable.get("baseline", {})
@@ -421,7 +438,7 @@ def choose_policy(task_kind: str, stats_by_mode):
         mode: stats
         for mode, stats in viable.items()
         if stats.get("avg_quality_score") is not None
-        and stats["avg_quality_score"] >= min_quality_threshold
+        and (mode == "baseline" or stats["avg_quality_score"] >= min_quality_threshold)
     }
     if len(quality_candidates) >= 2:
         best_mode = sorted(
@@ -475,15 +492,16 @@ def build_task_summaries(entries):
             for mode in ("baseline", "naive-on", "routed-on")
             if mode in stats
             and stats[mode].get("measured_count", 0) > 0
-            and stats[mode].get("success_rate", 0.0) == 0.0
+            and (stats[mode].get("success_rate", 0.0) == 0.0
+                 or stats[mode]["acceptance_failed_count"]
+                 or stats[mode]["verify_failed_count"])
         ]
         has_real_quality = any(
             entry.get("source_kind") == "real-session"
             and common.measurement_view(entry)["quality_score"] is not None
             for entry in group_entries
         )
-        incomplete = any(item["token_unknown_count"] or item["success_unknown_count"]
-                         or item["quality_unknown_count"] for item in stats.values())
+        incomplete = incomplete_comparison(stats)
         if incomplete:
             confidence = "low"
         elif has_real_quality and not unsupported_modes and not failing_modes:
@@ -653,8 +671,8 @@ def render_report(report):
             f"{entry['mode']} | "
             f"{entry.get('source_kind', 'unknown')} | "
             f"{success_label} | "
-            f"{entry.get('acceptance_passed')} | "
-            f"{entry.get('verify_passed')} | "
+            f"{measurement['acceptance_passed'] if measurement['acceptance_passed'] is not None else 'unknown'} | "
+            f"{measurement['verify_passed'] if measurement['verify_passed'] is not None else 'unknown'} | "
             f"{measurement['quality_score'] if measurement['quality_score'] is not None else 'unknown'} | "
             f"{total_tokens(entry) if total_tokens(entry) is not None else 'unknown'} | "
             f"{entry.get('bootstrap_tokens') if entry.get('bootstrap_tokens') is not None else 'unknown'} | "

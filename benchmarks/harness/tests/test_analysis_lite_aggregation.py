@@ -2,7 +2,10 @@
 
 import copy
 import importlib.util
+import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -106,6 +109,94 @@ class AnalysisLiteAggregationTests(unittest.TestCase):
     def test_accounting_sessions_need_measured_acceptance_to_qualify(self):
         self.assertFalse(EVAL.common.qualifying_real_entry(real_entry(acceptance_passed=None)))
         self.assertFalse(EVAL.common.qualifying_real_entry(real_entry(verify_passed=None)))
+
+    def test_summary_policy_cannot_promote_unknown_or_failed_acceptance_and_verification(self):
+        for field in ["acceptance_passed", "verify_passed"]:
+            for outcome in [None, False]:
+                with self.subTest(field=field, outcome=outcome):
+                    rows = [real_entry(mode=mode, quality_score=quality, **{field: outcome})
+                            for mode, quality in [("baseline", 0.8), ("naive-on", 0.8),
+                                                  ("routed-on", 1.0)]]
+                    self.assertEqual(EVAL.build_policy_entries(rows), [])
+                    summaries = [EVAL.build_task_summaries(rows)[0],
+                                 EVAL.build_agent_task_summaries(rows)["codex"][0]]
+                    for summary in summaries:
+                        self.assertEqual(summary["recommended_policy"], "prefer_native_baseline")
+                        self.assertEqual(summary["decision_status"],
+                                         "inconclusive" if outcome is None else "measured")
+                        self.assertEqual(summary["confidence"], "low")
+                        for stats in summary["mode_stats"].values():
+                            self.assertEqual(stats["count"], 1)
+                            self.assertEqual(stats["token_measured_count"], 1)
+                            prefix = "acceptance" if field == "acceptance_passed" else "verify"
+                            self.assertEqual(stats[f"{prefix}_unknown_count"], int(outcome is None))
+                            self.assertEqual(stats[f"{prefix}_failed_count"], int(outcome is False))
+
+    def test_verification_denominators_retain_unknown_and_failed_rows(self):
+        rows = [real_entry(), real_entry(acceptance_passed=None, verify_passed=None),
+                real_entry(acceptance_passed=False, verify_passed=False)]
+        stats = EVAL.mode_stats(rows)
+        self.assertEqual(stats["count"], 3)
+        for prefix in ["acceptance", "verify"]:
+            self.assertEqual(stats[f"{prefix}_measured_count"], 2)
+            self.assertEqual(stats[f"{prefix}_unknown_count"], 1)
+            self.assertEqual(stats[f"{prefix}_failed_count"], 1)
+            self.assertEqual(stats[f"{prefix}_pass_rate"], 0.5)
+
+    def test_measured_passing_verification_allows_an_eligible_comparison(self):
+        rows = [real_entry(mode=mode, quality_score=quality)
+                for mode, quality in [("baseline", 0.8), ("naive-on", 0.8), ("routed-on", 1.0)]]
+        summary = EVAL.build_task_summaries(rows)[0]
+        self.assertEqual(summary["recommended_policy"], "prefer_routed_codelens")
+        self.assertEqual(summary["decision_status"], "measured")
+        self.assertEqual(len(EVAL.build_policy_entries(rows)), 3)
+
+    def test_observed_baseline_failure_is_a_measured_comparator_not_unknown(self):
+        rows = [real_entry(success=False, acceptance_passed=False, verify_passed=False,
+                           quality_score=0.0),
+                real_entry(mode="naive-on", quality_score=0.8),
+                real_entry(mode="routed-on", quality_score=1.0)]
+        summary = EVAL.build_task_summaries(rows)[0]
+        self.assertEqual(summary["recommended_policy"], "prefer_routed_codelens")
+        self.assertEqual(summary["decision_status"], "measured")
+        baseline = summary["mode_stats"]["baseline"]
+        self.assertEqual(baseline["count"], 1)
+        self.assertEqual(baseline["acceptance_failed_count"], 1)
+        self.assertEqual(baseline["verify_failed_count"], 1)
+        self.assertEqual(baseline["verify_unknown_count"], 0)
+
+    def test_failed_candidate_cannot_beat_a_passing_candidate_via_quality(self):
+        rows = [real_entry(quality_score=0.8),
+                real_entry(mode="naive-on", quality_score=0.9),
+                real_entry(mode="routed-on", quality_score=1.0, verify_passed=False)]
+        summary = EVAL.build_task_summaries(rows)[0]
+        self.assertEqual(summary["recommended_policy"], "prefer_naive_codelens")
+        self.assertEqual(summary["decision_status"], "measured")
+        self.assertEqual(summary["mode_stats"]["routed-on"]["count"], 1)
+
+    def test_cli_report_keeps_unverified_sessions_without_recommending_activation(self):
+        rows = [real_entry(mode=mode, quality_score=quality,
+                           acceptance_passed=None, verify_passed=None)
+                for mode, quality in [("baseline", 0.8), ("naive-on", 0.8), ("routed-on", 1.0)]]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config, entries, output, markdown = [root / name for name in
+                                                 ["config.json", "entries.json", "report.json", "report.md"]]
+            config.write_text(json.dumps({"representative_repos": [{"id": "project", "path": "/tmp/project"}],
+                                          "baseline_reference": {}}))
+            entries.write_text(json.dumps(rows))
+            subprocess.run([sys.executable, str(HARNESS / "harness-eval.py"),
+                            "--config", str(config), "--binary", sys.executable,
+                            "--skip-synthetic", "--no-default-session-glob",
+                            "--session-entry-glob", str(entries), "--output-json", str(output),
+                            "--output-md", str(markdown)], check=True, capture_output=True, text=True)
+            report = json.loads(output.read_text())
+        self.assertEqual(len(report["entries"]), 3)
+        self.assertEqual(report["policy_real_session_count"], 0)
+        self.assertEqual(report["excluded_policy_real_session_count"], 3)
+        for summary in [report["task_summaries"][0], report["agent_task_summaries"]["codex"][0]]:
+            self.assertEqual(summary["recommended_policy"], "prefer_native_baseline")
+            self.assertEqual(summary["decision_status"], "inconclusive")
 
     def test_distinct_pilot_run_ids_are_not_deduplicated_as_reruns(self):
         rows = [real_entry(run_id="task1-codex-A-1"),

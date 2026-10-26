@@ -422,6 +422,106 @@ fn analysis_lite_callback_edges_never_become_proven_direct_calls() {
 }
 
 #[test]
+fn analysis_lite_unsupported_member_callers_never_borrow_an_enclosing_function_identity() {
+    let mut failures = Vec::new();
+    for member in [
+        "class Holder { same() { sink(); } }",
+        "class Holder { ['same']() { sink(); } }",
+        "class Holder { 'same'() { sink(); } }",
+        "class Holder { same = () => { sink(); }; }",
+        "const holder = { same() { sink(); } };",
+        "const holder = { same: function () { sink(); } };",
+        "const holder = { same: () => { sink(); } };",
+    ] {
+        let source = format!(
+            "export function sink() {{}}\nexport function same() {{ {member} }}\nexport function upstream() {{ same(); }}\n"
+        );
+        let (_dir, project, index) = fixture(&[("a.ts", &source)]);
+        let response = query(
+            &project,
+            &index,
+            AnalysisQuery::Impact,
+            &selector("a.ts", "sink"),
+            None,
+            limits(),
+        );
+        if response.results.edges.len() != 1
+            || response.results.edges[0].source.is_some()
+            || response.results.nodes.len() != 1
+            || response.unresolved.observed_count == 0
+        {
+            failures.push((member, response));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "wrong member caller identities: {failures:#?}"
+    );
+}
+
+#[test]
+fn analysis_lite_caller_identity_preserves_exact_functions_and_lexical_callback_containment() {
+    let source = "export function sink() {}\n\
+        export function same() {}\n\
+        function outer() { function same() { sink(); } same(); }\n\
+        const expression = function named() { sink(); };\n\
+        const arrow = () => { sink(); };\n\
+        function callbackOuter() { register(() => sink()); }\n\
+        function upstream() { outer(); expression(); arrow(); callbackOuter(); }\n";
+    let (_dir, project, index) = fixture(&[("a.ts", source)]);
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("a.ts", "sink"),
+        None,
+        limits(),
+    );
+    let analysis = analyze_declarations(source, "a.ts").unwrap();
+    let direct = response
+        .results
+        .edges
+        .iter()
+        .filter(|edge| edge.target.name == "sink")
+        .map(|edge| edge.source.as_ref().expect("supported exact caller"))
+        .collect::<Vec<_>>();
+    assert_eq!(direct.len(), 4, "{response:?}");
+    for caller in &direct {
+        let matching = analysis
+            .named(&caller.name)
+            .into_iter()
+            .find(|declaration| {
+                Some(declaration.name_span) == caller.name_span
+                    && Some(declaration.declaration_span) == caller.declaration_span
+            });
+        assert!(matching.is_some(), "{caller:?}");
+    }
+    let inner_same = analysis.named("same")[1];
+    assert!(
+        direct.iter().any(|caller| {
+            caller.name == "same" && caller.name_span == Some(inner_same.name_span)
+        })
+    );
+    for name in ["expression", "arrow", "callbackOuter"] {
+        assert!(direct.iter().any(|caller| caller.name == name), "{name}");
+    }
+    assert!(
+        response
+            .results
+            .nodes
+            .iter()
+            .any(|node| node.name == "upstream")
+    );
+    assert!(
+        !response
+            .results
+            .nodes
+            .iter()
+            .any(|node| { node.name_span == Some(analysis.named("same")[0].name_span) })
+    );
+}
+
+#[test]
 fn analysis_lite_disk_hashes_detect_change_without_a_generation_commit() {
     let (_dir, project, _index) = fixture(&[("a.ts", "export function target() {}\n")]);
     let source = fs::read_to_string(project.as_path().join("a.ts")).unwrap();

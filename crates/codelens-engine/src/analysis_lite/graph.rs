@@ -1,5 +1,5 @@
 use super::{error, identity, types::*};
-use crate::call_graph::extract::extract_located_calls_from_source;
+use crate::call_graph::extract::{LocatedCaller, extract_located_calls_from_source};
 use crate::call_graph::types::CallTargetIdentity;
 use crate::oxc_analysis::{
     ByteSpan, DeclarationAnalysis, ModuleImport, analyze_declarations, is_js_ts,
@@ -151,28 +151,49 @@ impl DeclarationGraph {
                         continue;
                     }
                 };
-                let caller = if edge.caller_name == "<module>" {
-                    Some(DeclarationIdentity {
-                        symbol_id: format!("{file}#module"),
-                        file: file.clone(),
-                        name: "<module>".to_owned(),
-                        name_span: None,
-                        declaration_span: None,
-                        kind: "module",
-                    })
-                } else {
-                    source
-                        .analysis
-                        .named(&edge.caller_name)
-                        .into_iter()
-                        .filter(|declaration| declaration.declaration_span.contains(span))
-                        .min_by_key(|declaration| {
-                            declaration.declaration_span.end - declaration.declaration_span.start
-                        })
-                        .map(|declaration| identity(file, declaration))
+                let (caller, caller_boundary) = match located.caller {
+                    LocatedCaller::Module => (
+                        Some(DeclarationIdentity {
+                            symbol_id: format!("{file}#module"),
+                            file: file.clone(),
+                            name: "<module>".to_owned(),
+                            name_span: None,
+                            declaration_span: None,
+                            kind: "module",
+                        }),
+                        "module",
+                    ),
+                    LocatedCaller::Declaration {
+                        kind,
+                        start_byte,
+                        end_byte,
+                        name_start_byte,
+                        name_end_byte,
+                    } => (
+                        source
+                            .analysis
+                            .declarations
+                            .iter()
+                            .find(|declaration| {
+                                matches!(kind, "function_declaration" | "variable_declarator")
+                                    && declaration.declaration_span
+                                        == ByteSpan {
+                                            start: start_byte,
+                                            end: end_byte,
+                                        }
+                                    && declaration.name_span
+                                        == ByteSpan {
+                                            start: name_start_byte,
+                                            end: name_end_byte,
+                                        }
+                            })
+                            .map(|declaration| identity(file, declaration)),
+                        kind,
+                    ),
+                    LocatedCaller::Unsupported { kind } => (None, kind),
                 };
                 if caller.is_none() {
-                    unresolved.push(UnresolvedEvidence { location: Some(location.clone()), name: edge.caller_name, reason: "caller declaration identity is unavailable; reverse traversal stops here".to_owned(), backend: "oxc_semantic" });
+                    unresolved.push(UnresolvedEvidence { location: Some(location.clone()), name: edge.caller_name, reason: format!("caller boundary {caller_boundary} has no exact supported lexical declaration; reverse traversal stops here"), backend: "tree_sitter_callgraph+oxc_semantic" });
                 }
                 let key = (file.clone(), span, target.symbol_id.clone());
                 if !seen.insert(key) {
