@@ -744,6 +744,28 @@ fn nfd_hangul_call_edges_round_trip_via_nfc() {
     assert_eq!(callees[0].0, nfc_callee);
 }
 
+/// Create an index file the way an older build left it: the migrations up to
+/// `version`, recorded as that schema, with the current analyzer version so
+/// opening it does not wipe the rows a test adds.
+fn create_index_at_schema(path: &Path, version: i64) -> Connection {
+    let conn = Connection::open(path).expect("open raw");
+    conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+        .expect("meta");
+    for &(ver, sql) in IndexDb::MIGRATIONS
+        .iter()
+        .filter(|(ver, _)| *ver <= version)
+    {
+        conn.execute_batch(sql)
+            .unwrap_or_else(|error| panic!("migration {ver}: {error}"));
+    }
+    conn.execute_batch(&format!(
+        "INSERT INTO meta (key, value) VALUES ('schema_version', '{version}');
+         INSERT INTO meta (key, value) VALUES ('analyzer_version', '{ANALYZER_VERSION}');"
+    ))
+    .expect("versions");
+    conn
+}
+
 /// `symbols.parent_id` is a self-referencing foreign key with foreign_keys
 /// ON: without an index, every deleted symbol scans the whole table for
 /// children, which made re-indexing a changed worktree take minutes.
@@ -777,15 +799,7 @@ fn symbol_parent_lookup_uses_an_index() {
     ));
     fs::create_dir_all(&dir).expect("dir");
     let path = dir.join("symbols.db");
-    {
-        let db = IndexDb::open(&path).expect("open");
-        db.conn
-            .execute_batch(
-                "DROP INDEX idx_symbols_parent;
-                 UPDATE meta SET value = '6' WHERE key = 'schema_version';",
-            )
-            .expect("downgrade to v6");
-    }
+    drop(create_index_at_schema(&path, 6));
     let reopened = IndexDb::open(&path).expect("reopen");
     assert!(
         plan(&reopened).contains("idx_symbols_parent"),
@@ -796,8 +810,9 @@ fn symbol_parent_lookup_uses_an_index() {
 }
 
 /// Schema 7 kept `symbols_fts` fresh by a lazy rebuild keyed on the symbol
-/// count. Opening such an index must re-sync the rows it already holds and
-/// leave triggers that keep later writes in step.
+/// count and had no `words` column. Opening such an index must re-sync the
+/// rows it already holds, fill their camelCase words, and leave triggers
+/// that keep later writes and cascaded deletes in step.
 #[test]
 fn fts_rows_written_before_schema_8_are_searchable_after_upgrade() {
     let dir = std::env::temp_dir().join(format!(
@@ -810,29 +825,15 @@ fn fts_rows_written_before_schema_8_are_searchable_after_upgrade() {
     ));
     fs::create_dir_all(&dir).expect("dir");
     let path = dir.join("symbols.db");
-    let symbol = |name: &'static str| NewSymbol {
-        name,
-        kind: "function",
-        line: 1,
-        column_num: 1,
-        start_byte: 0,
-        end_byte: 20,
-        signature: name,
-        name_path: name,
-        parent_id: None,
-    };
     {
-        let db = IndexDb::open(&path).expect("open");
-        db.conn
-            .execute_batch(
-                "DROP TRIGGER symbols_fts_insert;
-                 DROP TRIGGER symbols_fts_delete;
-                 DROP TRIGGER symbols_fts_update;
-                 UPDATE meta SET value = '7' WHERE key = 'schema_version';",
-            )
-            .expect("downgrade to v7");
-        let file_id = db.upsert_file("old.rs", 1, "h", 1, Some("rs")).unwrap();
-        db.insert_symbols(file_id, &[symbol("alphawolf")]).unwrap();
+        let conn = create_index_at_schema(&path, 7);
+        conn.execute_batch(
+            "INSERT INTO files (id, relative_path, mtime_ms, content_hash, size_bytes, language, indexed_at)
+             VALUES (1, 'old.ts', 1, 'h', 1, 'ts', 1);
+             INSERT INTO symbols (file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path)
+             VALUES (1, 'AlphaWolf', 'function', 1, 1, 0, 20, 'AlphaWolf', 'AlphaWolf');",
+        )
+        .expect("schema 7 rows");
     }
 
     let reopened = IndexDb::open(&path).expect("reopen");
@@ -844,20 +845,44 @@ fn fts_rows_written_before_schema_8_are_searchable_after_upgrade() {
             .map(|(row, _, _)| row.name)
             .collect()
     };
-    assert_eq!(names("alphawolf"), ["alphawolf"]);
+    assert_eq!(names("AlphaWolf"), ["AlphaWolf"]);
+    assert_eq!(names("wolf"), ["AlphaWolf"]);
     let file_id = reopened
-        .upsert_file("new.rs", 1, "h", 1, Some("rs"))
+        .upsert_file("new.ts", 1, "h", 1, Some("ts"))
         .unwrap();
     reopened
-        .insert_symbols(file_id, &[symbol("omegahawk")])
+        .insert_symbols(
+            file_id,
+            &[NewSymbol {
+                name: "OmegaHawk",
+                kind: "function",
+                line: 1,
+                column_num: 1,
+                start_byte: 0,
+                end_byte: 20,
+                signature: "OmegaHawk",
+                name_path: "OmegaHawk",
+                parent_id: None,
+            }],
+        )
         .unwrap();
-    assert_eq!(names("omegahawk"), ["omegahawk"]);
+    assert_eq!(names("hawk"), ["OmegaHawk"]);
+    // Re-upserting a file deletes its symbols; the delete trigger follows.
     reopened
-        .upsert_file("old.rs", 2, "h2", 1, Some("rs"))
+        .upsert_file("old.ts", 2, "h2", 1, Some("ts"))
         .unwrap();
-    assert!(names("alphawolf").is_empty());
+    assert!(names("wolf").is_empty());
     drop(reopened);
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn camel_case_words_hold_only_what_the_fts_tokenizer_cannot_split() {
+    assert_eq!(camel_case_words("LoginForm"), "login form");
+    assert_eq!(camel_case_words("parseHTTPResponse"), "parse http response");
+    assert_eq!(camel_case_words("getUser_byId"), "get user by id");
+    assert_eq!(camel_case_words("parse_config_file"), "");
+    assert_eq!(camel_case_words("Gson"), "");
 }
 
 #[test]
