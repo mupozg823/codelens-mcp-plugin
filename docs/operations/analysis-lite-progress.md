@@ -281,3 +281,86 @@ usage, tool pairs, retries, final text and unknown settings. Frozen task files
 remain unchanged. Snapshot/grader/driver and all 48 model runs remain separate;
 model turns are still zero. Future raw pilot logs belong in ignored evidence and
 a separate durable non-cloud path, not in the PR with private source/auth/settings.
+
+## Dispatch 4B — source snapshots, independent grader and protocol freeze
+
+Created source-only Git-object templates under
+`/Users/bagjaeseog/codelens-analysis-lite-eval/2026-10-26/snapshots/` without
+overwriting existing folders. `analysis_lite_snapshots.prepare_snapshot` retains
+JS/TS and configuration/test source plus applicable AGENTS/CLAUDE instructions;
+it excludes every symlink/gitlink, history, hidden state, auth/env files, docs,
+old work records and non-source assets. Returned control-only inventories record
+each selected/excluded path, immutable Git blob hash, size and reason, plus source
+SHA-256. All 25 frozen source/config hashes are mandatory. Template sizes:
+Tuanbo 30,635,850 bytes/2,894 files; Winnation current 20,129,560/2,941; replay
+12,834,060/2,231. The excluded documentation/assets limit the evaluation context;
+the protocol records that limitation rather than claiming complete-repository QA.
+
+Frozen replay package/lock were copied to task-owned setup. One `npm ci` with
+ignore-scripts/no-audit/no-fund, task cache and empty task npmrc files succeeded
+in 6.6365 seconds; original node_modules/configuration were not used. Setup,
+source inventories and raw logs remain in the durable control directory and
+ignored `.codex/analysis-lite-evidence/dispatch4b/`.
+
+`grade_answer` compares exact claimed declaration, call/noncall and bounded impact
+sets while preserving raw/unstructured/null answers for manual review. Mechanical
+pass never supplies task quality; independent SOL semantic/rubric review is still
+required. `run_oracle` executes literal and 100,001 decimal cases on actual source.
+Post-agent `grade_edit` checks the allowed two-file diff and frozen package/lock,
+replays the actual new test on a grader-only base copy, runs final GREEN and the
+independent oracle, and preserves receipts. Dependencies are physical/APFS-cloned
+copies within each execution folder; external links are rejected and copied
+setup caches excluded. The dependency source/delivery method/time are explicit;
+model-run delivery remains the later driver's responsibility.
+
+Eight new helper tests pass with real task-local TypeScript/Vitest. A separate
+grader-only smoke used the historical repaired formatter plus a synthetic test:
+base RED exit 1, final GREEN exit 0, six literals and 100,001 oracle cases passed.
+Its full grading wall was 45.2744 seconds, including dependency copy/check work;
+it is not a model result. No new test/gold was written into a model template.
+
+`benchmarks/analysis-lite/protocol-v1.json` freezes common source-only instructions,
+non-leaking response shape, seeded twelve-block/four-run schedule, explicit
+canonical bindings, timeouts, unknown cold/warm state, raw wall/setup scopes,
+startup half-allocation to B's two hosts and independent per-host adoption gates.
+A has no candidate process; each B block shares one foreground process whose
+default project is empty control, then stops its own PID before A. The protocol
+and source-filter hashes must be accepted before model execution. All frozen
+task/gold/selection hashes remain unchanged; actual model runs remain zero.
+
+Remaining seam: 4C owns foreground lifecycle, run dependency copies, host adapters,
+48 CLI executions, receipt collection, independent semantic review and reporting.
+This dispatch starts no server/model and does not implement that driver. No
+original source, credential, global host setting or production service changed.
+
+### Parent-approved 4B2 repair before any model run
+
+Protocol revision 2 preserves normal task-native subagents under existing user/
+host routing rules; it prohibits extra evaluation conversations, probes and paid
+fallbacks rather than changing the native workflow. Child activity/access and
+whole-tree usage scope must be retained. Forty-eight scheduled CLI trials are
+distinct from permitted task-internal delegation.
+
+The source filter now also preserves safe tracked `.gitignore`, `.ignore` and
+`.codelensignore` plus `.mts`/`.cts`. New templates and inventories are under
+`snapshots-v2/` and `control/filter-v2/`; first-generation receipts/templates are
+retained and retired without overwrite. V2 sizes: Tuanbo 30,639,434 bytes/2,903
+files; Winnation current 20,130,690/2,943; replay 12,835,092/2,233. All 25 required
+source hashes remain unchanged. The future candidate's default project is the
+dedicated source-free `control/filter-v2/server-empty`, never the control parent
+that holds grader-only source and receipts.
+
+Both npm tests and Node oracle now use `run_owned`: each starts a new process
+group; timeout sends TERM/KILL only to that group and reaps its leader. Receipts
+retain PID/PGID, cleanup signals, timeout state, text stdout/stderr and base64 of
+their original bytes, making partial/error output JSON-serializable and recoverable.
+The new synthetic child-timeout regression confirms child termination while an
+unrelated sentinel remains alive. The real Node-oracle timeout receipt records
+owned PID/PGID 67659, exit -15, timed_out=true, leader_reaped=true and result=null.
+It is a grader fixture, not a model execution.
+
+Targeted 4B2 verification reruns only the changed filter, own-child timeout, Node
+oracle and post-run E2 paths; unchanged read-grader cases are not repeated. New
+freeze/check receipts use `freeze-v2.json`/`checks-v2.json` alongside preserved V1
+evidence. Model runs and server starts remain zero; frozen task/selection inputs
+are unchanged. Foreground lifecycle and actual evaluation remain with 4C.
