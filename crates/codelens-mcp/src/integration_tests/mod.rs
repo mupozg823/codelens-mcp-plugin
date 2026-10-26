@@ -8,9 +8,6 @@ use crate::tool_defs::tools;
 use codelens_engine::ProjectRoot;
 use serde_json::json;
 use std::fs;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static TEST_PROJECT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 // Only callers are themselves `#[cfg(feature = "semantic")]`, so gate the
 // helper rather than carrying a dead-by-design `return false;` arm.
@@ -190,17 +187,7 @@ pub(super) fn default_session_id(state: &crate::AppState) -> String {
 }
 
 pub(super) fn project_root() -> ProjectRoot {
-    let seq = TEST_PROJECT_SEQ.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "codelens-test-{}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos(),
-        seq
-    ));
-    fs::create_dir_all(&dir).unwrap();
+    let dir = crate::test_helpers::fixtures::fixture_dir("project");
     fs::create_dir_all(dir.join(".codelens")).unwrap();
     fs::write(
         dir.join(".codelens").join("principals.toml"),
