@@ -23,7 +23,8 @@ const SCHEMA_VERSION: i64 = 8;
 /// the compiled one wipes the analysis tables so `refresh_all` re-derives them
 /// with current logic. Without it, `commit_analyzed`'s (mtime, hash) freshness
 /// skip keeps stale edges forever, so logic fixes never reach existing indexes.
-const ANALYZER_VERSION: i64 = 2;
+/// 3: Rust items inside item-level macro bodies (`cfg_rt! { … }`) are extracted.
+const ANALYZER_VERSION: i64 = 3;
 
 /// Lowercased camelCase words of a symbol name, space-joined, for the
 /// `symbols_fts.words` column. Only what the FTS tokenizer cannot produce
