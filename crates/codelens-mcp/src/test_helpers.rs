@@ -10,20 +10,34 @@ pub(crate) mod fixtures {
     static FIXTURE_SEQ: AtomicU64 = AtomicU64::new(0);
     static PROCESS_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
-    /// Fixture dirs live under `<tmp>/codelens-test-fixtures/<pid>/` instead
-    /// of loose `<tmp>/codelens-test-*` entries. Nothing owned the loose dirs,
-    /// so every run left them behind (thousands per hour of local test runs).
-    /// The first fixture of a process removes the roots of processes that no
-    /// longer exist; live parallel test processes keep theirs.
+    /// Fixture dirs live under `<tmp>/codelens-test-fixtures-<uid>/<pid>/`
+    /// instead of loose `<tmp>/codelens-test-*` entries. Nothing owned the
+    /// loose dirs, so every run left them behind (thousands per hour of local
+    /// test runs). The first fixture of a process removes the roots of
+    /// processes that no longer exist; live parallel test processes keep theirs.
     fn process_root() -> &'static Path {
         PROCESS_ROOT.get_or_init(|| {
-            let base = std::env::temp_dir().join("codelens-test-fixtures");
+            let base = fixture_base();
             std::fs::create_dir_all(&base).unwrap();
             remove_dead_process_roots(&base);
             let root = base.join(std::process::id().to_string());
             std::fs::create_dir_all(&root).unwrap();
             root
         })
+    }
+
+    /// Per user: on Linux `temp_dir()` is the shared `/tmp`, where another
+    /// user's 0755 base would block creating our `<pid>` root.
+    #[cfg(unix)]
+    fn fixture_base() -> PathBuf {
+        // SAFETY: getuid has no preconditions and cannot fail.
+        let uid = unsafe { libc::getuid() };
+        std::env::temp_dir().join(format!("codelens-test-fixtures-{uid}"))
+    }
+
+    #[cfg(not(unix))]
+    fn fixture_base() -> PathBuf {
+        std::env::temp_dir().join("codelens-test-fixtures")
     }
 
     #[cfg(unix)]
