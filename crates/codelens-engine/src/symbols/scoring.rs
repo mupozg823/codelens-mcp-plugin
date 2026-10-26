@@ -302,6 +302,14 @@ const SPARSE_STOPWORDS: &[&str] = &[
     "who", "why", "but", "its", "can", "use", "using", "used", "gets", "set", "sets", "new", "let",
 ];
 
+/// True when `token` (any case) is one of `SPARSE_STOPWORDS`, so every
+/// lexical lane drops the same function words.
+pub fn is_query_stopword(token: &str) -> bool {
+    SPARSE_STOPWORDS
+        .iter()
+        .any(|stopword| stopword.eq_ignore_ascii_case(token))
+}
+
 /// Return true when `token` is found in `corpus` as a whole word — that is,
 /// the characters surrounding each occurrence are NOT alphanumeric or `_`.
 ///

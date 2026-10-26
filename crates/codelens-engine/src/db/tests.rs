@@ -907,3 +907,104 @@ fn compaction_leaves_a_mostly_full_file_alone() {
         None
     );
 }
+
+#[test]
+fn fts_search_accepts_punctuation_and_operator_words_in_the_query() {
+    let db = IndexDb::open_memory().unwrap();
+    let file_id = db.upsert_file("app.ts", 100, "h", 10, Some("ts")).unwrap();
+    db.insert_symbols(
+        file_id,
+        &[
+            NewSymbol {
+                name: "LandingPage",
+                kind: "function",
+                line: 1,
+                column_num: 1,
+                start_byte: 0,
+                end_byte: 40,
+                signature: "export default function LandingPage()",
+                name_path: "LandingPage",
+                parent_id: None,
+            },
+            NewSymbol {
+                name: "read_config",
+                kind: "function",
+                line: 5,
+                column_num: 1,
+                start_byte: 41,
+                end_byte: 90,
+                signature: "fn read_config(path: &Path) -> Config",
+                name_path: "read_config",
+                parent_id: None,
+            },
+        ],
+    )
+    .unwrap();
+
+    // The index tokenizer splits on every non-alphanumeric character, so a
+    // dotted, pathed or operator-laden query must reach the same tokens
+    // instead of failing FTS5 parsing and emptying the lexical lane.
+    for (query, expected) in [
+        ("next.js landing page", "LandingPage"),
+        ("std::fs read config", "read_config"),
+        ("app/page.tsx landing", "LandingPage"),
+        ("read(config)", "read_config"),
+        ("config OR NOT", "read_config"),
+        ("\"landing\"", "LandingPage"),
+    ] {
+        let hits = db
+            .search_symbols_fts(query, 10)
+            .unwrap_or_else(|error| panic!("{query:?} failed: {error:#}"));
+        assert!(
+            hits.iter().any(|(row, _, _)| row.name == expected),
+            "{query:?} did not find {expected}: {:?}",
+            hits.iter().map(|(row, _, _)| &row.name).collect::<Vec<_>>()
+        );
+    }
+
+    for query in ["::", "", "  ", "()"] {
+        let hits = db
+            .search_symbols_fts(query, 10)
+            .unwrap_or_else(|error| panic!("{query:?} failed: {error:#}"));
+        assert!(hits.is_empty(), "{query:?} matched {}", hits.len());
+    }
+}
+
+#[test]
+fn fts_search_ignores_stopwords_unless_the_query_has_nothing_else() {
+    let db = IndexDb::open_memory().unwrap();
+    let file_id = db.upsert_file("ser.rs", 100, "h", 10, Some("rs")).unwrap();
+    let symbol = |name: &'static str, line: i64| NewSymbol {
+        name,
+        kind: "function",
+        line,
+        column_num: 1,
+        start_byte: line * 100,
+        end_byte: line * 100 + 50,
+        signature: "fn f()",
+        name_path: name,
+        parent_id: None,
+    };
+    db.insert_symbols(
+        file_id,
+        &[
+            symbol("IntoIter", 1),
+            symbol("serialize_value", 2),
+            symbol("set_timeout", 3),
+        ],
+    )
+    .unwrap();
+    let names = |query: &str| -> Vec<String> {
+        db.search_symbols_fts(query, 10)
+            .unwrap()
+            .into_iter()
+            .map(|(row, _, _)| row.name)
+            .collect()
+    };
+
+    // `into` is a function word here; matching on it alone floods the lane
+    // with `IntoIter`-style names ahead of the real terms.
+    assert_eq!(names("serialize into json"), ["serialize_value"]);
+    // A query made only of stopwords still searches for them.
+    assert_eq!(names("set"), ["set_timeout"]);
+}
