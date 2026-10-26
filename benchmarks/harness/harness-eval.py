@@ -295,16 +295,20 @@ def load_synthetic_entries_from_report(path: Path, representative_repos):
 
 
 def total_tokens(entry):
-    token_in = entry.get("token_in")
-    token_out = entry.get("token_out")
-    return (token_in or 0) + (token_out or 0)
+    return common.measurement_view(entry)["actual_total_tokens"]
 
 
 def mode_stats(entries):
     count = len(entries)
+    measurements = [common.measurement_view(entry) for entry in entries]
+    actual_tokens = [row["actual_total_tokens"] for row in measurements if row["actual_total_tokens"] is not None]
+    historical_tokens = [row["historical_estimated_total_tokens"] for row in measurements
+                         if row["historical_estimated_total_tokens"] is not None]
+    bootstrap_tokens = [entry["bootstrap_tokens"] for entry in entries
+                        if type(entry.get("bootstrap_tokens")) is int and entry["bootstrap_tokens"] >= 0]
     quality_scores = [
         float(entry["quality_score"])
-        for entry in entries
+        for entry in measurements
         if entry.get("quality_score") is not None
     ]
     verify_scores = [
@@ -318,7 +322,7 @@ def mode_stats(entries):
         if entry.get("acceptance_passed") is not None
     ]
     measured_success = [
-        entry.get("success") for entry in entries if entry.get("success") is not None
+        entry.get("success") for entry in measurements if entry.get("success") is not None
     ]
     recommendation_outcomes = [
         entry.get("recommendation_outcome")
@@ -338,14 +342,22 @@ def mode_stats(entries):
     return {
         "count": count,
         "measured_count": len(measured_success),
-        "avg_total_tokens": (
-            sum(total_tokens(entry) for entry in entries) / count if count else 0.0
-        ),
-        "avg_bootstrap_tokens": (
-            sum(int(entry.get("bootstrap_tokens") or 0) for entry in entries) / count
-            if count
-            else 0.0
-        ),
+        "success_unknown_count": count - len(measured_success),
+        "quality_measured_count": len(quality_scores),
+        "quality_unknown_count": count - len(quality_scores),
+        "token_measured_count": len(actual_tokens),
+        "token_unknown_count": count - len(actual_tokens),
+        "legacy_provider_measured_count": sum(row["kind"] == "legacy_provider" and row["actual_total_tokens"] is not None for row in measurements),
+        "historical_estimates": {
+            "count": sum(row["kind"] == "historical_estimates" for row in measurements),
+            "measured_count": len(historical_tokens),
+            "avg_total_tokens": sum(historical_tokens) / len(historical_tokens) if historical_tokens else None,
+        },
+        "synthetic_estimate_count": sum(row["kind"] == "synthetic_estimates" for row in measurements),
+        "avg_total_tokens": sum(actual_tokens) / len(actual_tokens) if actual_tokens else None,
+        "avg_bootstrap_tokens": sum(bootstrap_tokens) / len(bootstrap_tokens) if bootstrap_tokens else None,
+        "bootstrap_measurement_kind": "server-estimate",
+        "bootstrap_measured_count": len(bootstrap_tokens),
         "avg_quality_score": (
             sum(quality_scores) / len(quality_scores) if quality_scores else None
         ),
@@ -381,6 +393,14 @@ def mode_stats(entries):
 
 
 def choose_policy(task_kind: str, stats_by_mode):
+    # Unknown observations and historical/synthetic estimates cannot establish
+    # adoption. Keep the existing native fallback string for policy consumers.
+    if ("baseline" not in stats_by_mode or len(stats_by_mode) < 2 or any(
+        stats.get("avg_total_tokens") is None or stats.get("token_unknown_count", 0)
+        or stats.get("success_unknown_count", 0) or stats.get("quality_unknown_count", 0)
+        for stats in stats_by_mode.values()
+    )):
+        return "prefer_native_baseline"
     viable = {
         mode: stats
         for mode, stats in stats_by_mode.items()
@@ -390,7 +410,7 @@ def choose_policy(task_kind: str, stats_by_mode):
     if task_kind == "simple local lookup/edit":
         baseline = viable.get("baseline", {})
         naive = viable.get("naive-on", {})
-        if naive.get("avg_total_tokens", 0) <= baseline.get("avg_total_tokens", 0):
+        if naive and baseline and naive["avg_total_tokens"] <= baseline["avg_total_tokens"]:
             return "native_or_naive_both_ok_but_default_native"
         return "avoid_codelens_for_simple_local_lookup"
 
@@ -422,13 +442,9 @@ def choose_policy(task_kind: str, stats_by_mode):
     baseline = viable.get("baseline", {})
     naive = viable.get("naive-on", {})
     routed = viable.get("routed-on", {})
-    if routed and routed.get("avg_total_tokens", 0) <= baseline.get(
-        "avg_total_tokens", 0
-    ):
+    if baseline and routed and routed["avg_total_tokens"] <= baseline["avg_total_tokens"]:
         return "prefer_routed_codelens"
-    if naive and naive.get("avg_total_tokens", 0) <= baseline.get(
-        "avg_total_tokens", 0
-    ):
+    if baseline and naive and naive["avg_total_tokens"] <= baseline["avg_total_tokens"]:
         if routed and routed.get("avg_total_tokens", 0) > baseline.get(
             "avg_total_tokens", 0
         ):
@@ -463,10 +479,14 @@ def build_task_summaries(entries):
         ]
         has_real_quality = any(
             entry.get("source_kind") == "real-session"
-            and entry.get("quality_score") is not None
+            and common.measurement_view(entry)["quality_score"] is not None
             for entry in group_entries
         )
-        if has_real_quality and not unsupported_modes and not failing_modes:
+        incomplete = any(item["token_unknown_count"] or item["success_unknown_count"]
+                         or item["quality_unknown_count"] for item in stats.values())
+        if incomplete:
+            confidence = "low"
+        elif has_real_quality and not unsupported_modes and not failing_modes:
             confidence = "high"
         elif not unsupported_modes and not failing_modes:
             confidence = "medium"
@@ -486,6 +506,7 @@ def build_task_summaries(entries):
                 "unsupported_modes": unsupported_modes,
                 "failing_modes": failing_modes,
                 "confidence": confidence,
+                "decision_status": "inconclusive" if incomplete or unsupported_modes else "measured",
             }
         )
     return summaries
@@ -561,12 +582,14 @@ def render_report(report):
             "prefer_codelens_after_bootstrap",
             "prefer_naive_codelens",
         }
+        and item.get("decision_status") != "inconclusive"
     ]
     hurt = [
         item
         for item in task_summaries
         if item["recommended_policy"]
         in {"prefer_native_baseline", "avoid_codelens_for_simple_local_lookup"}
+        and item.get("decision_status") != "inconclusive"
     ]
     needs_more_data = [
         item for item in task_summaries if item.get("confidence") == "low"
@@ -591,6 +614,8 @@ def render_report(report):
     )
     a(f"| Representative repos | {len(report['representative_repos'])} |")
     a(f"| Task summaries | {len(task_summaries)} |")
+    measured_tokens = sum(total_tokens(entry) is not None for entry in entries)
+    a(f"| Actual provider token measurements | {measured_tokens}/{len(entries)} |")
     a(f"| Baseline workflow savings | {baseline.get('workflow_total_savings_pct')}% |")
     a(
         f"| Baseline low-level chain | {baseline.get('low_level_chain_before')} -> {baseline.get('low_level_chain_after')} |"
@@ -619,8 +644,9 @@ def render_report(report):
             item.get("source_kind", ""),
         ),
     ):
-        success = entry.get("success")
-        success_label = "unsupported" if success is None else str(success)
+        measurement = common.measurement_view(entry)
+        success = measurement["success"]
+        success_label = "unknown" if success is None else str(success)
         a(
             f"| {entry.get('repo_label', entry['repo'])} | "
             f"{entry['task_kind']} | "
@@ -629,9 +655,9 @@ def render_report(report):
             f"{success_label} | "
             f"{entry.get('acceptance_passed')} | "
             f"{entry.get('verify_passed')} | "
-            f"{entry.get('quality_score') if entry.get('quality_score') is not None else '-'} | "
-            f"{total_tokens(entry)} | "
-            f"{entry.get('bootstrap_tokens') or 0} | "
+            f"{measurement['quality_score'] if measurement['quality_score'] is not None else 'unknown'} | "
+            f"{total_tokens(entry) if total_tokens(entry) is not None else 'unknown'} | "
+            f"{entry.get('bootstrap_tokens') if entry.get('bootstrap_tokens') is not None else 'unknown'} | "
             f"{entry.get('tool_calls') or 0} | "
             f"{entry.get('low_level_chain_count') or 0} | "
             f"{entry.get('elapsed_ms') if entry.get('elapsed_ms') is not None else '-'} | "
@@ -650,13 +676,13 @@ def render_report(report):
             if routed.get("recommendation_alignment_rate") is not None:
                 recommendation_suffix = (
                     f", rec-align={routed.get('recommendation_alignment_rate', 0.0):.2f}, "
-                    f"contract-align={routed.get('contract_action_alignment_rate', 0.0):.2f}"
+                    f"contract-align={routed.get('contract_action_alignment_rate')}"
                 )
             a(
                 f"- {item['repo_label']} / {item['task_kind']}: `{item['recommended_policy']}` "
-                f"(baseline={baseline_stats.get('avg_total_tokens', 0):.0f}, "
-                f"naive={naive.get('avg_total_tokens', 0):.0f}, "
-                f"routed={routed.get('avg_total_tokens', 0):.0f}, "
+                f"(baseline={baseline_stats.get('avg_total_tokens')}, "
+                f"naive={naive.get('avg_total_tokens')}, "
+                f"routed={routed.get('avg_total_tokens')}, "
                 f"confidence={item.get('confidence', 'unknown')}{recommendation_suffix})"
             )
     else:
@@ -674,13 +700,13 @@ def render_report(report):
             if routed.get("recommendation_alignment_rate") is not None:
                 recommendation_suffix = (
                     f", rec-align={routed.get('recommendation_alignment_rate', 0.0):.2f}, "
-                    f"contract-align={routed.get('contract_action_alignment_rate', 0.0):.2f}"
+                    f"contract-align={routed.get('contract_action_alignment_rate')}"
                 )
             a(
                 f"- {item['repo_label']} / {item['task_kind']}: `{item['recommended_policy']}` "
-                f"(baseline={baseline_stats.get('avg_total_tokens', 0):.0f}, "
-                f"naive={naive.get('avg_total_tokens', 0):.0f}, "
-                f"routed={routed.get('avg_total_tokens', 0):.0f}, "
+                f"(baseline={baseline_stats.get('avg_total_tokens')}, "
+                f"naive={naive.get('avg_total_tokens')}, "
+                f"routed={routed.get('avg_total_tokens')}, "
                 f"confidence={item.get('confidence', 'unknown')}{recommendation_suffix})"
             )
     else:
@@ -795,8 +821,9 @@ def main():
         duplicate_real_sessions = []
 
     policy_entries = build_policy_entries(entries)
-    task_summaries = build_task_summaries(policy_entries)
-    agent_task_summaries = build_agent_task_summaries(policy_entries)
+    # Keep failed/unknown rows in statistical denominators and raw evidence.
+    task_summaries = build_task_summaries(entries)
+    agent_task_summaries = build_agent_task_summaries(entries)
     apply_summary_policies(entries, task_summaries)
     report = {
         "schema_version": "codelens-harness-eval-v1",

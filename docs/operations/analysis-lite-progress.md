@@ -54,3 +54,42 @@ actual token measurements. The legacy auto-report consumer and policy refresh
 flow must not be used for pilot decisions until unknown propagation and global
 write isolation are repaired. No global policy/configuration or auth file changed;
 no model call, Rust build or HTTP process was run. All later stages remain pending.
+
+## Dispatch 2 — aggregation and task freeze
+
+Scope: harness-eval.py and harness_eval_common.py, direct aggregation tests,
+six-task data, selection metadata and this ledger. Existing harness-eval.py was
+854 lines; it was read completely, in consecutive sections, before editing.
+
+Implemented actual-only provider totals with measured/unknown denominators;
+missing/partial/error usage and historical/synthetic estimates cannot become
+zero-cost observations. Explicit legacy provider measurements require both
+`token_source=provider` and `provider_usage_source`; ambiguous historical values
+remain recoverable in raw entries and separately classified historical estimates.
+Legacy telemetry quality is unknown unless an explicit quality source exists.
+Modern unknown acceptance/verification cannot qualify for policy input, and
+distinct run_id values preserve repetitions instead of deduplicating them away.
+Failed/unknown rows remain in report summaries. Candidate-only or incomplete
+comparisons are inconclusive; native fallback is not an adoption finding.
+
+RED→GREEN: 13 aggregation contracts plus all 13 dispatch-1 tests pass. Relevant
+existing policy checks, Python compilation, repository benchmark lint, diff/scope
+checks and broad-ruff baseline comparison are recorded in
+`.codex/analysis-lite-evidence/dispatch2/checks.json` and sibling logs. No broad
+inherited lint cleanup was added.
+
+Selected/frozen six tasks: three everyday (two reads, one real historical repair)
+and three hard (same-name/local+external, alias/re-export, bounded impact).
+`benchmarks/analysis-lite/tasks-v1.json` includes exact Git trees, independent gold,
+acceptance rules and source hashes. The companion research document freezes
+name-token/UTF-8 span semantics and labels E3/H2/H3 honestly as source-derived,
+with field failures unconfirmed. This metadata is covered by the freeze bundle.
+25 Git source/config object hashes and identifier byte slices are checked; H1's
+TypeScript UTF-16→UTF-8 offset conversion is explicitly asserted. Parent acceptance
+of final `freeze.json` is required before the first of the maximum 48 model runs.
+
+Remaining: pilot event collection/aggregation, effective host setting receipts,
+global-write isolation, independent grader implementation, source copies and E2
+npm dependency/test setup. Engine/profile/HTTP/host work and actual pilot remain
+pending. No model run, original repository edit, credential access, source
+checkout, HTTP process or global policy/configuration write occurred.
