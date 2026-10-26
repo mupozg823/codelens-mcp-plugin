@@ -47,6 +47,7 @@ pub(crate) fn parse_symbols(
         source.as_bytes(),
         file_path,
         include_body,
+        None,
         &mut symbols,
     );
     if config.extension == "rs" {
@@ -58,6 +59,7 @@ pub(crate) fn parse_symbols(
             source,
             file_path,
             include_body,
+            None,
             &mut symbols,
             0,
         )?;
@@ -67,6 +69,9 @@ pub(crate) fn parse_symbols(
 }
 
 /// Run the language query over `root` and append one symbol per match.
+/// `inherited_owner` is the Rust impl type around a re-parsed macro body,
+/// which the body's own tree no longer contains.
+#[allow(clippy::too_many_arguments)]
 fn collect_symbols(
     config: &LanguageConfig,
     query: &Query,
@@ -74,6 +79,7 @@ fn collect_symbols(
     source_bytes: &[u8],
     file_path: &str,
     include_body: bool,
+    inherited_owner: Option<&str>,
     symbols: &mut Vec<ParsedSymbol>,
 ) {
     let mut cursor = QueryCursor::new();
@@ -111,7 +117,10 @@ fn collect_symbols(
         }
 
         let rust_impl_owner = (config.extension == "rs")
-            .then(|| rust_impl_owner(def_node, source_bytes))
+            .then(|| {
+                rust_impl_owner(def_node, source_bytes)
+                    .or_else(|| inherited_owner.map(str::to_owned))
+            })
             .flatten();
         let body = include_body.then(|| node_text(def_node, source_bytes).to_owned());
         symbols.push(ParsedSymbol {
@@ -157,13 +166,14 @@ fn collect_rust_macro_item_symbols(
     source: &str,
     file_path: &str,
     include_body: bool,
+    owner: Option<&str>,
     symbols: &mut Vec<ParsedSymbol>,
     depth: usize,
 ) -> Result<()> {
     if depth >= RUST_MACRO_ITEM_DEPTH {
         return Ok(());
     }
-    for body in rust_item_macro_bodies(root) {
+    for (body, body_owner) in rust_item_macro_bodies(root, source.as_bytes(), owner) {
         let start = body.start_position();
         let end = body.end_position();
         let range = Range {
@@ -188,6 +198,7 @@ fn collect_rust_macro_item_symbols(
             source.as_bytes(),
             file_path,
             include_body,
+            body_owner.as_deref(),
             symbols,
         );
         collect_rust_macro_item_symbols(
@@ -198,6 +209,7 @@ fn collect_rust_macro_item_symbols(
             source,
             file_path,
             include_body,
+            body_owner.as_deref(),
             symbols,
             depth + 1,
         )?;
@@ -209,8 +221,14 @@ fn collect_rust_macro_item_symbols(
 }
 
 /// Token trees of macros invoked in item position under `root`, without
-/// descending into function bodies.
-fn rust_item_macro_bodies(root: Node<'_>) -> Vec<Node<'_>> {
+/// descending into function bodies, each with the impl type it sits in
+/// (from this tree, else the one `owner` carried in from an outer body):
+/// `impl Alpha { cfg_rt! { fn new() … } }` must still index `Alpha/new`.
+fn rust_item_macro_bodies<'tree>(
+    root: Node<'tree>,
+    source_bytes: &[u8],
+    owner: Option<&str>,
+) -> Vec<(Node<'tree>, Option<String>)> {
     let mut bodies = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
@@ -222,7 +240,9 @@ fn rust_item_macro_bodies(root: Node<'_>) -> Vec<Node<'_>> {
                         .children(&mut child.walk())
                         .find(|part| part.kind() == "token_tree")
                     {
-                        bodies.push(body);
+                        let body_owner = rust_impl_owner(child, source_bytes)
+                            .or_else(|| owner.map(str::to_owned));
+                        bodies.push((body, body_owner));
                     }
                 }
                 "declaration_list" | "impl_item" | "trait_item" | "mod_item" | "ERROR" => {
@@ -502,6 +522,36 @@ fn outside() {}
         assert_eq!(find("LocalSet/new").map(|s| s.2), Some(8), "{symbols:?}");
         assert_eq!(find("RunUntil").map(|s| s.2), Some(15), "{symbols:?}");
         assert_eq!(find("outside").map(|s| s.2), Some(22), "{symbols:?}");
+    }
+
+    #[test]
+    fn methods_in_a_macro_inside_an_impl_keep_their_owner() {
+        // Given: homonymous methods declared through an item macro inside
+        // two impl blocks, so the impl is outside the re-parsed body.
+        let source = "\
+struct Alpha;
+impl Alpha {
+    passthrough! { fn new() -> Self { Self } }
+}
+struct Beta;
+impl Beta {
+    passthrough! { fn new() -> Self { Self } }
+}
+";
+        let methods: Vec<(String, String)> = parsed(source)
+            .into_iter()
+            .filter(|(name_path, _, _)| name_path.ends_with("new"))
+            .map(|(name_path, kind, _)| (name_path, kind))
+            .collect();
+
+        // Then: each keeps its owner-qualified path and method kind.
+        assert_eq!(
+            methods,
+            [
+                ("Alpha/new".to_owned(), "Method".to_owned()),
+                ("Beta/new".to_owned(), "Method".to_owned()),
+            ]
+        );
     }
 
     #[test]
