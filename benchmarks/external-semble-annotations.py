@@ -54,8 +54,30 @@ def files_from(method, payload):
     return out
 
 
+def cache_dirs(repo, work):
+    """Checkout and root directories keyed by name, pinned revision and
+    benchmark_root, so a changed pin never scores against an old copy."""
+    pinned = f"{repo['name']}@{repo['revision'][:12]}"
+    root_slug = (repo.get("benchmark_root") or ".").replace("/", "_")
+    return work / "checkouts" / pinned, work / "roots" / f"{pinned}-{root_slug}"
+
+
+def failed_calls(batch, payloads, returncode):
+    """Calls that did not succeed. A failed call has no ranking to score:
+    counting it as an empty result would turn an infrastructure failure
+    into a retrieval miss."""
+    failed = [
+        f"#{i} {call['name']}: {payload.get('error') or 'success=false'}"
+        for i, (call, payload) in enumerate(zip(batch, payloads))
+        if payload.get("success") is not True
+    ]
+    if returncode != 0 and not failed:
+        failed.append(f"batch exited {returncode}")
+    return failed
+
+
 def checkout(repo, work):
-    dest = work / "checkouts" / repo["name"]
+    dest, root = cache_dirs(repo, work)
     if not dest.exists():
         dest.mkdir(parents=True)
         run = lambda *a: subprocess.run(a, cwd=dest, check=True, capture_output=True)
@@ -63,7 +85,6 @@ def checkout(repo, work):
         run("git", "remote", "add", "origin", repo["url"])
         run("git", "fetch", "-q", "--depth", "1", "origin", repo["revision"])
         run("git", "checkout", "-q", "FETCH_HEAD")
-    root = work / "roots" / repo["name"]
     if not root.exists():
         src = dest / repo["benchmark_root"] if repo.get("benchmark_root") else dest
         shutil.copytree(src, root, ignore=shutil.ignore_patterns(".git"))
@@ -106,6 +127,9 @@ def main():
         payloads = json.loads(proc.stdout)
         if not isinstance(payloads, list) or len(payloads) != len(batch):
             sys.exit(f"{name}: bad batch output ({proc.returncode}): {proc.stderr[-2000:]}")
+        failed = failed_calls(batch, payloads, proc.returncode)
+        if failed:
+            sys.exit(f"{name}: {len(failed)} failed call(s), not scoring: " + "; ".join(failed[:5]))
         index_ok = payloads[0].get("success")
         per_method = {}
         rows = []
