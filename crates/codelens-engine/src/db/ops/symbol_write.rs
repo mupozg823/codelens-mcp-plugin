@@ -11,8 +11,8 @@ pub(crate) fn insert_symbols(
 ) -> Result<Vec<i64>> {
     let mut ids = Vec::with_capacity(symbols.len());
     let mut stmt = conn.prepare_cached(
-        "INSERT INTO symbols (file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO symbols (file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id, words)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )?;
     for sym in symbols {
         // #349: the `name`/`name_path` columns hold NFC.
@@ -29,6 +29,7 @@ pub(crate) fn insert_symbols(
             sym.signature,
             name_path.as_ref(),
             sym.parent_id,
+            super::super::camel_case_words(&name),
         ])?;
         ids.push(conn.last_insert_rowid());
     }

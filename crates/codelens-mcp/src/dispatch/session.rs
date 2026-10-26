@@ -186,16 +186,10 @@ pub(super) fn apply_post_mutation(
         .and_then(|v| v.as_str())
     {
         invalidated_paths.push(fp.to_owned());
+        // `symbols_fts` follows `symbols` through triggers, so this reindex
+        // also refreshes full-text search.
         if let Err(e) = state.symbol_index().refresh_file(fp) {
             tracing::debug!(file = fp, error = %e, "incremental symbol reindex failed");
-        }
-        // P2-E: BM25/FTS uses `content=symbols` external-content
-        //        storage; mutating `symbols` does not auto-update the
-        //        FTS shadow table, so the next BM25 search would see
-        //        stale results until the lazy rebuild trigger fires.
-        //        Invalidate the meta marker so the next search rebuilds.
-        if let Err(e) = state.symbol_index().db().invalidate_fts() {
-            tracing::debug!(file = fp, error = %e, "BM25/FTS invalidation failed");
         }
         // Refresh embedding index if it is active or an on-disk index already exists.
         #[cfg(feature = "semantic")]

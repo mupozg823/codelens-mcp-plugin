@@ -228,7 +228,7 @@ fresh data.
 | ----------------------- | ---------------------------------------------- | --------------------------------------- |
 | `GraphCache` (PageRank) | `state.graph_cache().invalidate()`             | every mutation                          |
 | Symbol DB               | `state.symbol_index().refresh_file(path)`      | per-path tree-sitter reindex            |
-| BM25 / FTS5             | `state.symbol_index().db().invalidate_fts()`   | meta marker reset → lazy rebuild        |
+| BM25 / FTS5             | `symbols_fts` triggers on `symbols` (schema 8) | row-level, inside the reindex           |
 | Embedding index         | `EmbeddingEngine::index_changed_files(...)`    | only when active or on-disk index lives |
 | LSP session             | next `prepare_document` auto-emits `didChange` | lazy — handled inside `LspSession`      |
 | Recent preflights       | `state.clear_recent_preflights()`              | every mutation                          |

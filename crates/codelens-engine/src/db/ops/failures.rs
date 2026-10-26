@@ -37,13 +37,6 @@ impl IndexDb {
         Ok(())
     }
 
-    /// Invalidate FTS index cache so next search triggers a lazy rebuild.
-    pub fn invalidate_fts(&self) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM meta WHERE key = 'fts_symbol_count'", [])?;
-        Ok(())
-    }
-
     /// Get the number of files with indexing failures.
     pub fn index_failure_count(&self) -> Result<usize> {
         let count: i64 = self
