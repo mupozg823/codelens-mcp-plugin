@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -14,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 
 import harness_runner_common as common
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 BOOTSTRAP_SCRIPT = SCRIPT_DIR / "task-bootstrap.py"
@@ -36,15 +34,20 @@ def load_session_eval_module():
     return common.load_module(SESSION_EVAL_SCRIPT, "session_eval_module")
 
 
-def build_minimal_codex_home_config(*, repo_paths: list[Path], mcp_url: str) -> str:
-    lines = [
-        'model = "gpt-5.4"',
-        'model_reasoning_effort = "none"',
+def build_minimal_codex_home_config(
+    *, repo_paths: list[Path], mcp_url: str, model=None, reasoning_effort=None
+) -> str:
+    lines = []
+    if model is not None:
+        lines.append(f"model = {json.dumps(model)}")
+    if reasoning_effort is not None:
+        lines.append(f"model_reasoning_effort = {json.dumps(reasoning_effort)}")
+    lines.extend([
         "",
         "[mcp_servers.codelens]",
-        f'url = "{mcp_url}"',
+        f"url = {json.dumps(mcp_url)}",
         "",
-    ]
+    ])
     seen_paths: set[str] = set()
     for repo_path in repo_paths:
         canonical = str(Path(repo_path).expanduser().resolve())
@@ -66,7 +69,13 @@ def prepare_isolated_codex_home(
     source_home: Path,
     repo_paths: list[Path],
     mcp_url: str,
+    allow_auth_copy: bool = False,
+    model=None,
+    reasoning_effort=None,
 ):
+    # Retained only for explicit legacy callers. Normal runs use host auth.
+    if not allow_auth_copy:
+        return None, None, "legacy auth copying disabled"
     auth_path = source_home / "auth.json"
     if not auth_path.exists():
         return None, None, "auth.json missing"
@@ -75,7 +84,8 @@ def prepare_isolated_codex_home(
     home_path = Path(tempdir.name)
     shutil.copy2(auth_path, home_path / "auth.json")
     (home_path / "config.toml").write_text(
-        build_minimal_codex_home_config(repo_paths=repo_paths, mcp_url=mcp_url)
+        build_minimal_codex_home_config(repo_paths=repo_paths, mcp_url=mcp_url,
+                                       model=model, reasoning_effort=reasoning_effort)
     )
     return tempdir, home_path, None
 
@@ -94,6 +104,7 @@ def main():
     parser.add_argument("--bootstrap-json", default="")
     parser.add_argument("--bootstrap-md", default="")
     parser.add_argument("--model", default="")
+    parser.add_argument("--reasoning-effort", default="")
     parser.add_argument("--profile", default="")
     parser.add_argument("--sandbox", default="")
     parser.add_argument("--agent", default="codex")
@@ -289,6 +300,8 @@ def main():
         codex_cmd[2:2] = ["--profile", args.profile]
     if args.model:
         codex_cmd[2:2] = ["--model", args.model]
+    if args.reasoning_effort:
+        codex_cmd[2:2] = ["-c", f"model_reasoning_effort={json.dumps(args.reasoning_effort)}"]
     if args.sandbox:
         codex_cmd[2:2] = ["--sandbox", args.sandbox]
     elif brief.get("evaluation_mode") == "read-only-eval":
@@ -308,6 +321,21 @@ def main():
     result["codex_command"] = codex_cmd
     result["codex_ephemeral"] = not args.no_ephemeral
     result["codex_json_mode"] = codex_json_mode
+    # These are overrides, not claims about provider-effective settings. The
+    # normal CLI retains configuration/profile precedence; absent values remain
+    # unknown until host evidence confirms them.
+    result["host_settings"] = {
+        "model": {"value": args.model or None,
+                  "source": "cli-override" if args.model else "host-inherited"},
+        "reasoning_effort": {"value": args.reasoning_effort or None,
+                             "source": "cli-override" if args.reasoning_effort else "host-inherited"},
+        "profile": args.profile or None,
+        "effective_settings_status": "unconfirmed",
+    }
+    common.checkpoint_run_stage(
+        manifest_path, event_log_path, "host_settings", status="completed",
+        details=result["host_settings"],
+    )
 
     before_metrics = None
     before_metrics_file = run_dir / "metrics-before.json"
@@ -333,23 +361,7 @@ def main():
 
     codex_env = None
     codex_home_tempdir = None
-    if args.no_isolated_codex_home:
-        result["codex_home_mode"] = "default"
-    elif args.profile:
-        result["codex_home_mode"] = "default-profile-preserved"
-    else:
-        codex_home_tempdir, isolated_home, isolated_error = prepare_isolated_codex_home(
-            source_home=DEFAULT_CODEX_HOME,
-            repo_paths=[repo_path, execution_repo_path],
-            mcp_url=args.mcp_url,
-        )
-        if isolated_home is not None:
-            codex_env = dict(os.environ)
-            codex_env["CODEX_HOME"] = str(isolated_home)
-            result["codex_home_mode"] = "isolated-minimal"
-        else:
-            result["codex_home_mode"] = "default"
-            result["codex_home_error"] = isolated_error
+    result["codex_home_mode"] = "current-host"
 
     try:
         proc = subprocess.run(
