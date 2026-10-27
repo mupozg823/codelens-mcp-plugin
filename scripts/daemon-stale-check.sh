@@ -25,8 +25,18 @@ set -euo pipefail
 #   3 — daemon binary version string unparseable
 #   4 — daemon binary runs a commit NOT reachable from HEAD
 #       (divergent/unmerged/ahead; a redeploy would REGRESS it)
+#
+# With no path argument and no `dev.codelens.mcp-*` LaunchAgent installed
+# there is no daemon to fall behind: exit 0. Telling a machine whose daemons
+# were removed on purpose to run `redeploy-daemons.sh` would reinstall them.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ $# -eq 0 ]] && ! compgen -G "${HOME}/Library/LaunchAgents/dev.codelens.mcp-*.plist" >/dev/null; then
+	echo "[daemon-stale-check] no CodeLens LaunchAgent installed — no daemon to compare"
+	exit 0
+fi
+
 TARGET="${1:-${REPO_ROOT}/.codelens/bin/codelens-mcp-http}"
 
 if [[ ! -x "${TARGET}" ]]; then
