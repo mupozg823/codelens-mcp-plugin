@@ -1,17 +1,75 @@
 use super::{error, identity, types::*};
-use crate::call_graph::extract::{LocatedCaller, extract_located_calls_from_source};
+use crate::call_graph::extract::{
+    LocatedCallEdge, LocatedCaller, extract_located_calls_from_source,
+};
 use crate::call_graph::types::CallTargetIdentity;
 use crate::oxc_analysis::{
     ByteSpan, DeclarationAnalysis, ExactDeclaration, ModuleImport, analyze_declarations, is_js_ts,
 };
 use crate::project::{ProjectRoot, collect_files};
-use std::collections::{BTreeMap, HashSet};
-use std::path::Path;
+use rayon::prelude::*;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
+
+/// Parse products of one file, reused while its content hash is unchanged. A
+/// stdio session re-queries the same project, and every query otherwise
+/// re-parses every JS/TS file in it. Keyed by absolute path, so projects never
+/// share entries; a different hash is a miss, so no entry can be stale.
+struct CachedFile<T> {
+    hash: String,
+    value: Arc<T>,
+}
+
+/// Entry cap per cache; reaching it clears the cache (bounded memory, no LRU
+/// bookkeeping on the hot path).
+const PARSE_CACHE_MAX_FILES: usize = 20_000;
+
+static ANALYSIS_CACHE: LazyLock<Mutex<HashMap<PathBuf, CachedFile<DeclarationAnalysis>>>> =
+    LazyLock::new(Default::default);
+static CALLS_CACHE: LazyLock<Mutex<HashMap<PathBuf, CachedFile<Vec<LocatedCallEdge>>>>> =
+    LazyLock::new(Default::default);
+
+fn cached<T>(
+    cache: &Mutex<HashMap<PathBuf, CachedFile<T>>>,
+    path: &Path,
+    hash: &str,
+    compute: impl FnOnce() -> Result<T, String>,
+) -> Result<Arc<T>, String> {
+    if let Some(hit) = cache
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(path)
+        .filter(|entry| entry.hash == hash)
+    {
+        return Ok(Arc::clone(&hit.value));
+    }
+    // Computed outside the lock: parses of different files run in parallel.
+    let value = Arc::new(compute()?);
+    let mut cache = cache.lock().unwrap_or_else(|p| p.into_inner());
+    if cache.len() >= PARSE_CACHE_MAX_FILES {
+        cache.clear();
+    }
+    cache.insert(
+        path.to_path_buf(),
+        CachedFile {
+            hash: hash.to_owned(),
+            value: Arc::clone(&value),
+        },
+    );
+    Ok(value)
+}
+
+/// One call-site observation of a file, kept in source order.
+enum CallEvidence {
+    Edge((String, ByteSpan, String), Box<EdgeEvidence>),
+    Unresolved(UnresolvedEvidence),
+}
 
 pub(super) struct SourceFile {
     source: String,
     hash: String,
-    analysis: DeclarationAnalysis,
+    analysis: Arc<DeclarationAnalysis>,
     in_scope: bool,
 }
 
@@ -21,6 +79,10 @@ pub(super) struct DeclarationGraph {
     pub unresolved: Vec<UnresolvedEvidence>,
     pub errors: Vec<EvidenceError>,
     pub files_truncated: bool,
+    /// `(importing file, module specifier)` → resolved file, for one build.
+    /// Resolution probes the filesystem; a file repeats the same import at
+    /// every call site.
+    module_memo: Mutex<HashMap<(String, String), Option<String>>>,
 }
 
 impl DeclarationGraph {
@@ -58,6 +120,7 @@ impl DeclarationGraph {
             unresolved: vec![],
             errors: vec![],
             files_truncated,
+            module_memo: Mutex::default(),
         };
         let target_path = project
             .resolve(target_file)
@@ -76,18 +139,35 @@ impl DeclarationGraph {
             SourceFile {
                 source: target_source.to_owned(),
                 hash: crate::db::content_hash(target_source.as_bytes()),
-                analysis: target_analysis,
+                analysis: Arc::new(target_analysis),
                 in_scope: in_scope(&target_path),
             },
         );
-        for path in files {
-            let file = project.to_relative(&path);
+        // Files are independent: read and analyze them in parallel, then fold
+        // in path order so the first read failure and the error list match a
+        // sequential scan.
+        let loaded = files
+            .par_iter()
+            .map(|path| {
+                let file = project.to_relative(path);
+                let source = std::fs::read_to_string(path);
+                let analysis = source.as_ref().ok().map(|source| {
+                    let hash = crate::db::content_hash(source.as_bytes());
+                    let analysis = cached(&ANALYSIS_CACHE, path, &hash, || {
+                        analyze_declarations(source, &file).map_err(|e| e.to_string())
+                    });
+                    (hash, analysis)
+                });
+                (file, path, source, analysis)
+            })
+            .collect::<Vec<_>>();
+        for (file, path, source, analysis) in loaded {
             if file == target_file {
                 continue;
             }
-            let source = std::fs::read_to_string(&path)
-                .map_err(|e| error("source_read_failed", "disk", Some(&file), e))?;
-            let analysis = match analyze_declarations(&source, &file) {
+            let source = source.map_err(|e| error("source_read_failed", "disk", Some(&file), e))?;
+            let (hash, analysis) = analysis.expect("analysis runs for every read source");
+            let analysis = match analysis {
                 Ok(analysis) => analysis,
                 Err(failure) => {
                     graph
@@ -99,110 +179,147 @@ impl DeclarationGraph {
             graph.sources.insert(
                 file,
                 SourceFile {
-                    hash: crate::db::content_hash(source.as_bytes()),
+                    hash,
                     source,
                     analysis,
-                    in_scope: in_scope(&path),
+                    in_scope: in_scope(path),
                 },
             );
         }
+        let per_file = graph
+            .sources
+            .par_iter()
+            .filter(|(_, source)| source.in_scope)
+            .map(|(file, source)| graph.file_call_evidence(project, file, source))
+            .collect::<Vec<_>>();
         let mut edges = Vec::new();
         let mut unresolved = Vec::new();
         let mut seen = HashSet::new();
-        for (file, source) in &graph.sources {
-            if !source.in_scope {
-                continue;
-            }
-            for located in extract_located_calls_from_source(Path::new(file), &source.source) {
-                let edge = located.edge;
-                let span = ByteSpan {
-                    start: located.start_byte,
-                    end: located.end_byte,
-                };
-                let location = EvidenceLocation {
-                    file: file.clone(),
-                    span,
-                    line: edge.line,
-                    column: located.column,
-                    offset_encoding: "utf8_bytes",
-                };
-                // A member-property token is not an OXC lexical binding. Never
-                // attribute it by a same-name or path-proximity guess.
-                let resolved = source.analysis.binding_at(span).ok_or_else(|| "extracted token has no exact lexical declaration (member/dynamic evidence unsupported)".to_owned())
-                    .and_then(|declaration| {
-                        if declaration.is_import {
-                            let import = source.analysis.imports.iter().find(|import| import.local_span == declaration.name_span)
-                                .ok_or_else(|| "import declaration has no verified ESM module entry".to_owned())?;
-                            graph.resolve_import(project, file, import, &mut HashSet::new())
-                                .map(|identity| (identity, "verified_esm_import_export_identity"))
-                        } else {
-                            Ok((identity(file, declaration), "exact_lexical_declaration"))
-                        }
-                    });
-                let (target, resolution) = match resolved {
-                    Ok(target) => target,
-                    // An unresolvable builtin-noise token (`console.log`,
-                    // `items.push`) stays discarded, as on the legacy API.
-                    Err(_) if located.noise_name => continue,
-                    Err(reason) => {
-                        unresolved.push(UnresolvedEvidence {
-                            location: Some(location),
-                            name: edge.callee_name,
-                            reason,
-                            backend: "tree_sitter_callgraph+oxc_semantic",
-                        });
-                        continue;
+        for item in per_file.into_iter().flatten() {
+            match item {
+                CallEvidence::Unresolved(entry) => unresolved.push(entry),
+                CallEvidence::Edge(key, edge) => {
+                    if seen.insert(key) {
+                        edges.push(*edge);
                     }
-                };
-                let (caller, caller_boundary) = match located.caller {
-                    LocatedCaller::Module => (
-                        Some(DeclarationIdentity {
-                            symbol_id: format!("{file}#module"),
-                            file: file.clone(),
-                            name: "<module>".to_owned(),
-                            name_span: None,
-                            declaration_span: None,
-                            kind: "module",
-                        }),
-                        "module",
-                    ),
-                    LocatedCaller::Declaration {
-                        kind,
-                        start_byte,
-                        end_byte,
-                        name_start_byte,
-                        name_end_byte,
-                    } => (
-                        source
-                            .analysis
-                            .declarations
-                            .iter()
-                            .find(|declaration| {
-                                matches!(kind, "function_declaration" | "variable_declarator")
-                                    && declaration.declaration_span
-                                        == ByteSpan {
-                                            start: start_byte,
-                                            end: end_byte,
-                                        }
-                                    && declaration.name_span
-                                        == ByteSpan {
-                                            start: name_start_byte,
-                                            end: name_end_byte,
-                                        }
-                            })
-                            .map(|declaration| identity(file, declaration)),
-                        kind,
-                    ),
-                    LocatedCaller::Unsupported { kind } => (None, kind),
-                };
-                if caller.is_none() {
-                    unresolved.push(UnresolvedEvidence { location: Some(location.clone()), name: edge.caller_name, reason: format!("caller boundary {caller_boundary} has no exact supported lexical declaration; reverse traversal stops here"), backend: "tree_sitter_callgraph+oxc_semantic" });
                 }
-                let key = (file.clone(), span, target.symbol_id.clone());
-                if !seen.insert(key) {
+            }
+        }
+        graph.edges = edges;
+        graph.unresolved = unresolved;
+        Ok(graph)
+    }
+
+    /// Call-site evidence of one in-scope file, in source order. Dedup across
+    /// files happens in the caller so the merged order matches a serial scan.
+    fn file_call_evidence(
+        &self,
+        project: &ProjectRoot,
+        file: &String,
+        source: &SourceFile,
+    ) -> Vec<CallEvidence> {
+        let mut out = Vec::new();
+        let calls = cached(
+            &CALLS_CACHE,
+            &project.as_path().join(file),
+            &source.hash,
+            || {
+                Ok(extract_located_calls_from_source(
+                    Path::new(file),
+                    &source.source,
+                ))
+            },
+        )
+        .unwrap_or_default();
+        for located in calls.iter() {
+            let edge = &located.edge;
+            let span = ByteSpan {
+                start: located.start_byte,
+                end: located.end_byte,
+            };
+            let location = EvidenceLocation {
+                file: file.clone(),
+                span,
+                line: edge.line,
+                column: located.column,
+                offset_encoding: "utf8_bytes",
+            };
+            // A member-property token is not an OXC lexical binding. Never
+            // attribute it by a same-name or path-proximity guess.
+            let resolved = source.analysis.binding_at(span).ok_or_else(|| "extracted token has no exact lexical declaration (member/dynamic evidence unsupported)".to_owned())
+                .and_then(|declaration| {
+                    if declaration.is_import {
+                        let import = source.analysis.imports.iter().find(|import| import.local_span == declaration.name_span)
+                            .ok_or_else(|| "import declaration has no verified ESM module entry".to_owned())?;
+                        self.resolve_import(project, file, import, &mut HashSet::new())
+                            .map(|identity| (identity, "verified_esm_import_export_identity"))
+                    } else {
+                        Ok((identity(file, declaration), "exact_lexical_declaration"))
+                    }
+                });
+            let (target, resolution) = match resolved {
+                Ok(target) => target,
+                // An unresolvable builtin-noise token (`console.log`,
+                // `items.push`) stays discarded, as on the legacy API.
+                Err(_) if located.noise_name => continue,
+                Err(reason) => {
+                    out.push(CallEvidence::Unresolved(UnresolvedEvidence {
+                        location: Some(location),
+                        name: edge.callee_name.clone(),
+                        reason,
+                        backend: "tree_sitter_callgraph+oxc_semantic",
+                    }));
                     continue;
                 }
-                edges.push(EdgeEvidence {
+            };
+            let (caller, caller_boundary) = match located.caller {
+                LocatedCaller::Module => (
+                    Some(DeclarationIdentity {
+                        symbol_id: format!("{file}#module"),
+                        file: file.clone(),
+                        name: "<module>".to_owned(),
+                        name_span: None,
+                        declaration_span: None,
+                        kind: "module",
+                    }),
+                    "module",
+                ),
+                LocatedCaller::Declaration {
+                    kind,
+                    start_byte,
+                    end_byte,
+                    name_start_byte,
+                    name_end_byte,
+                } => (
+                    source
+                        .analysis
+                        .declarations
+                        .iter()
+                        .find(|declaration| {
+                            matches!(kind, "function_declaration" | "variable_declarator")
+                                && declaration.declaration_span
+                                    == ByteSpan {
+                                        start: start_byte,
+                                        end: end_byte,
+                                    }
+                                && declaration.name_span
+                                    == ByteSpan {
+                                        start: name_start_byte,
+                                        end: name_end_byte,
+                                    }
+                        })
+                        .map(|declaration| identity(file, declaration)),
+                    kind,
+                ),
+                LocatedCaller::Unsupported { kind } => (None, kind),
+            };
+            if caller.is_none() {
+                out.push(CallEvidence::Unresolved(UnresolvedEvidence { location: Some(location.clone()), name: edge.caller_name.clone(), reason: format!("caller boundary {caller_boundary} has no exact supported lexical declaration; reverse traversal stops here"), backend: "tree_sitter_callgraph+oxc_semantic" }));
+            }
+            let key = (file.clone(), span, target.symbol_id.clone());
+            out.push(CallEvidence::Edge(
+                key,
+                Box::new(EdgeEvidence {
                     source: caller,
                     target,
                     location,
@@ -215,12 +332,32 @@ impl DeclarationGraph {
                         source_hash: source.hash.clone(),
                         resolution,
                     }],
-                });
-            }
+                }),
+            ));
         }
-        graph.edges = edges;
-        graph.unresolved = unresolved;
-        Ok(graph)
+        out
+    }
+
+    fn resolve_module(&self, project: &ProjectRoot, file: &str, module: &str) -> Option<String> {
+        let key = (file.to_owned(), module.to_owned());
+        if let Some(hit) = self
+            .module_memo
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&key)
+        {
+            return hit.clone();
+        }
+        let resolved = crate::import_graph::resolve_module_for_file(
+            project,
+            &project.as_path().join(file),
+            module,
+        );
+        self.module_memo
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(key, resolved.clone());
+        resolved
     }
 
     fn resolve_import(
@@ -235,11 +372,7 @@ impl DeclarationGraph {
                 "type-only/namespace import edge is outside candidate resolution".to_owned(),
             );
         }
-        let expected_file = crate::import_graph::resolve_module_for_file(
-            project,
-            &project.as_path().join(file),
-            &import.module,
-        );
+        let expected_file = self.resolve_module(project, file, &import.module);
         if expected_file.is_none() {
             return Err(format!(
                 "module `{}` has no verified project-local import target",
@@ -311,11 +444,7 @@ impl DeclarationGraph {
             .module
             .as_deref()
             .ok_or_else(|| "export has no local or module identity".to_owned())?;
-        let resolved = crate::import_graph::resolve_module_for_file(
-            project,
-            &project.as_path().join(file),
-            module,
-        );
+        let resolved = self.resolve_module(project, file, module);
         if resolved.is_none() {
             return Err("reexport module identity unavailable".to_owned());
         }

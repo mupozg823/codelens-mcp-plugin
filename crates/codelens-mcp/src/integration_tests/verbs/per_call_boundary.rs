@@ -202,9 +202,10 @@ fn per_call_reader_generation_pin_refusal_names_the_reader_runtime() {
     assert!(message.contains("reader"), "{message}");
 }
 
-// (b) An over-limit response is refused after the binding too.
+// (b) An over-limit response is clipped to the wire bound after the binding
+// too: whole rows are dropped, counted, and the reader runtime is named.
 #[test]
-fn per_call_reader_response_size_refusal_names_the_reader_runtime() {
+fn per_call_reader_over_limit_response_is_clipped_and_names_the_reader_runtime() {
     let repo = analysis_lite_ts_project();
     let calls = "sink();\n".repeat(60);
     fs::write(
@@ -217,8 +218,14 @@ fn per_call_reader_response_size_refusal_names_the_reader_runtime() {
     call_tool(&writer, "refresh_symbol_index", json!({}));
     let state = analysis_lite_per_call_reader_state();
     let response = analysis_lite_refs_call(&state, &repo.join("a.ts").display().to_string());
-    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    assert_ne!(response["result"]["isError"], json!(true), "{response}");
     let data = analysis_lite_data(&response);
-    assert_rejected_payload_names_the_reader(&data, "response_size_limit");
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    let kept = data["results"]["references"].as_array().unwrap().len();
+    let omitted = data["truncation"]["wire_bound"]["references_omitted"]
+        .as_u64()
+        .unwrap() as usize;
+    assert!(kept > 0 && omitted > 0, "{data}");
+    assert_eq!(data["truncation"]["results"], json!(true), "{data}");
     drop(writer);
 }

@@ -181,7 +181,7 @@ The optional path narrows caller graph evidence. Local references to the
 selected declaration are always included. Current caps/defaults are generated
 from crates/codelens-mcp/tools.toml: references 1–200/default 100, depth
 1–8/default 3, nodes 1–100/default 40, edges 1–200/default 100, source files
-1–10000/default 2000. The source cap includes the target and is explicit when
+1–10000/default 10000. The source cap includes the target and is explicit when
 truncated. Imports outside a narrow caller path may still need source reads.
 
 Evidence includes schema_version, capability, canonical project/target,
@@ -237,9 +237,19 @@ language/source evidence remains explicit. Zero rows never prove unused.
 Both MCP text and structuredContent preserve the same typed evidence. The
 legacy lossy summary/compact sampler does not process candidate locations,
 identities or provenance. Compact evidence above 18000 UTF-8 JSON bytes is
-rejected with response_size_limit; narrow path/max_results or graph caps and
-retry. No sampled zero is returned. This byte guard is a wire bound, not an
-actual provider token measurement.
+clipped by whole trailing rows: unresolved examples first, then references, or
+impact edges with the nodes only they reached. No row is rewritten. The drop is
+explicit: `truncation.results` (refs) or `truncation.edges`/`truncation.nodes`
+(impact) is true, and `truncation.wire_bound` carries `limit_bytes`,
+`unclipped_bytes`, `<rows>_omitted`, `nodes_omitted` and
+`unresolved_examples_omitted`. When not even one row fits, the call is still
+rejected with response_size_limit, so no sampled zero is returned. This byte
+guard is a wire bound, not an actual provider token measurement.
+
+Each query parses the project's JS/TS files in parallel. Within one server
+process, a file's OXC declarations and call sites are reused while its content
+hash is unchanged (per absolute path, cleared at 20000 files); an edited file
+is a cache miss, and every query still hashes every source it reads.
 
 ## Verification receipts
 

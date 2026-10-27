@@ -181,11 +181,9 @@ fn run_bound(
         }
         Err(error) => json!({"status":"error", "error":error.to_string()}),
     };
-    let observed_bytes = serde_json::to_vec(&payload)
-        .map_err(|error| CodeLensError::Internal(error.into()))?
-        .len();
+    let observed_bytes = wire_bytes(&payload)?;
     let limit_bytes = crate::tool_defs::analysis_lite::max_response_bytes();
-    if observed_bytes > limit_bytes {
+    if observed_bytes > limit_bytes && !clip_to_wire_bound(&mut payload, query, limit_bytes)? {
         return Err(CodeLensError::AnalysisLiteResponseTooLarge {
             observed_bytes,
             limit_bytes,
@@ -197,6 +195,141 @@ fn run_bound(
     meta.freshness = Freshness::Indexed;
     meta.degraded_reason = Some("analysis-lite coverage and freshness are defined by the typed evidence; no completeness confidence is assigned".to_owned());
     Ok((payload, meta))
+}
+
+fn wire_bytes(payload: &Value) -> Result<usize, CodeLensError> {
+    serde_json::to_vec(payload)
+        .map(|bytes| bytes.len())
+        .map_err(|error| CodeLensError::Internal(error.into()))
+}
+
+/// Fit evidence over the wire bound by dropping whole trailing rows, never by
+/// rewriting one, and record exactly what was dropped under
+/// `truncation.wire_bound`. Unresolved examples go first, then the query's own
+/// rows: references, or impact edges together with the nodes only they
+/// reached. Returns false when not even one row fits; the caller then keeps the
+/// explicit rejection, so a clipped answer is never a sampled zero.
+fn clip_to_wire_bound(
+    payload: &mut Value,
+    query: AnalysisQuery,
+    limit: usize,
+) -> Result<bool, CodeLensError> {
+    let unclipped_bytes = wire_bytes(payload)?;
+    let take = |value: &mut Value, pointer: &str| {
+        value
+            .pointer_mut(pointer)
+            .map(Value::take)
+            .and_then(|rows| match rows {
+                Value::Array(rows) => Some(rows),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    let examples = take(payload, "/unresolved/examples");
+    let (rows_pointer, rows) = match query {
+        AnalysisQuery::References => ("/results/references", take(payload, "/results/references")),
+        AnalysisQuery::Impact => ("/results/edges", take(payload, "/results/edges")),
+    };
+    let nodes = take(payload, "/results/nodes");
+    let root = payload["target"]["symbol_id"].clone();
+    // `place` writes the first `examples_kept` examples and `rows_kept` rows
+    // (plus, for impact, the nodes those rows reach) and the drop record.
+    let place = |payload: &mut Value, examples_kept: usize, rows_kept: usize| {
+        let kept_rows = rows[..rows_kept].to_vec();
+        let mut nodes_omitted = 0;
+        if query == AnalysisQuery::Impact {
+            let reached = kept_rows
+                .iter()
+                .flat_map(|edge| [&edge["source"]["symbol_id"], &edge["target"]["symbol_id"]])
+                .chain([&root])
+                .collect::<Vec<_>>();
+            let kept_nodes = nodes
+                .iter()
+                .filter(|node| reached.contains(&&node["symbol_id"]))
+                .cloned()
+                .collect::<Vec<_>>();
+            nodes_omitted = nodes.len() - kept_nodes.len();
+            payload["results"]["nodes"] = Value::Array(kept_nodes);
+        } else {
+            payload["results"]["nodes"] = Value::Array(nodes.clone());
+        }
+        payload["unresolved"]["examples"] = Value::Array(examples[..examples_kept].to_vec());
+        if let Some(slot) = payload.pointer_mut(rows_pointer) {
+            *slot = Value::Array(kept_rows);
+        }
+        let rows_omitted = rows.len() - rows_kept;
+        let examples_omitted = examples.len() - examples_kept;
+        if examples_omitted > 0 {
+            payload["unresolved"]["examples_truncated"] = json!(true);
+        }
+        match query {
+            AnalysisQuery::References => {
+                if rows_omitted > 0 {
+                    payload["truncation"]["results"] = json!(true);
+                }
+            }
+            AnalysisQuery::Impact => {
+                if rows_omitted > 0 {
+                    payload["truncation"]["edges"] = json!(true);
+                }
+                if nodes_omitted > 0 {
+                    payload["truncation"]["nodes"] = json!(true);
+                }
+            }
+        }
+        let row_key = rows_pointer.rsplit('/').next().unwrap_or("rows");
+        payload["truncation"]["wire_bound"] = json!({
+            "limit_bytes": limit,
+            "unclipped_bytes": unclipped_bytes,
+            format!("{row_key}_omitted"): rows_omitted,
+            "nodes_omitted": nodes_omitted,
+            "unresolved_examples_omitted": examples_omitted,
+            "next": "narrow path or lower max_results / graph caps for the omitted rows",
+        });
+    };
+    // Largest prefix that fits; the predicate is monotone in the kept count.
+    let largest_fitting = |payload: &mut Value,
+                           lo: usize,
+                           hi: usize,
+                           fits: &dyn Fn(&mut Value, usize) -> Result<bool, CodeLensError>|
+     -> Result<Option<usize>, CodeLensError> {
+        if !fits(payload, lo)? {
+            return Ok(None);
+        }
+        let (mut lo, mut hi) = (lo, hi);
+        while lo < hi {
+            let mid = lo + (hi - lo).div_ceil(2);
+            if fits(payload, mid)? {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        Ok(Some(lo))
+    };
+    let fits_examples = |payload: &mut Value, kept: usize| {
+        place(payload, kept, rows.len());
+        Ok(wire_bytes(payload)? <= limit)
+    };
+    let examples_kept = largest_fitting(payload, 0, examples.len(), &fits_examples)?;
+    if examples_kept.is_none() && rows.is_empty() {
+        return Ok(false);
+    }
+    let (examples_kept, rows_kept) = match examples_kept {
+        Some(kept) => (kept, rows.len()),
+        None => {
+            let fits_rows = |payload: &mut Value, kept: usize| {
+                place(payload, 0, kept);
+                Ok(wire_bytes(payload)? <= limit)
+            };
+            match largest_fitting(payload, 1, rows.len(), &fits_rows)? {
+                Some(kept) => (0, kept),
+                None => return Ok(false),
+            }
+        }
+    };
+    place(payload, examples_kept, rows_kept);
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -477,8 +610,57 @@ pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensE
 
 #[cfg(test)]
 mod tests {
-    use super::cloud_synced_ancestor;
+    use super::{AnalysisQuery, clip_to_wire_bound, cloud_synced_ancestor, wire_bytes};
+    use serde_json::{Value, json};
     use std::path::Path;
+
+    fn impact_payload(edges: usize) -> Value {
+        let node = |id: usize| json!({"symbol_id": format!("n{id}"), "pad": "x".repeat(200)});
+        json!({
+            "target": {"symbol_id": "n0"},
+            "results": {
+                "references": [],
+                "nodes": (0..=edges).map(node).collect::<Vec<_>>(),
+                "edges": (1..=edges).map(|i| json!({
+                    "source": {"symbol_id": format!("n{i}")},
+                    "target": {"symbol_id": "n0"},
+                    "pad": "y".repeat(300),
+                })).collect::<Vec<_>>(),
+            },
+            "truncation": {"edges": false, "nodes": false},
+            "unresolved": {"examples": [{"pad": "z".repeat(400)}], "examples_truncated": false},
+        })
+    }
+
+    #[test]
+    fn clipping_drops_whole_trailing_edges_and_the_nodes_only_they_reached() {
+        let mut payload = impact_payload(20);
+        let limit = 6000;
+        assert!(wire_bytes(&payload).unwrap() > limit);
+        assert!(clip_to_wire_bound(&mut payload, AnalysisQuery::Impact, limit).unwrap());
+        assert!(wire_bytes(&payload).unwrap() <= limit, "{payload}");
+        let edges = payload["results"]["edges"].as_array().unwrap();
+        let nodes = payload["results"]["nodes"].as_array().unwrap();
+        assert!(!edges.is_empty());
+        // Kept edges are the leading prefix, and every node is the root or an
+        // endpoint of a kept edge.
+        assert_eq!(edges[0]["source"]["symbol_id"], "n1");
+        assert_eq!(nodes.len(), edges.len() + 1);
+        let wire = &payload["truncation"]["wire_bound"];
+        assert_eq!(wire["edges_omitted"], json!(20 - edges.len()));
+        assert_eq!(wire["nodes_omitted"], json!(20 - edges.len()));
+        assert_eq!(wire["unresolved_examples_omitted"], 1);
+        assert_eq!(payload["truncation"]["edges"], true);
+        assert_eq!(payload["unresolved"]["examples_truncated"], true);
+    }
+
+    #[test]
+    fn clipping_refuses_when_not_one_row_fits_so_no_sampled_zero_is_returned() {
+        let mut payload = impact_payload(3);
+        assert!(!clip_to_wire_bound(&mut payload, AnalysisQuery::Impact, 200).unwrap());
+        let mut empty = impact_payload(0);
+        assert!(!clip_to_wire_bound(&mut empty, AnalysisQuery::Impact, 200).unwrap());
+    }
 
     // A dir whose provider tag cannot be read (EACCES, EPERM, EIO, ...) may
     // still be synced. Only a definite "no such attribute" (ENOATTR) or "this

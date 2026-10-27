@@ -2028,7 +2028,7 @@ target = { type = "object", required = ["file"], additionalProperties = false, a
 path = { type = "string", minLength = 1, description = "Optional caller file/directory scope; local declaration references are always included" }
 generation = { type = "integer", minimum = 0, description = "Optional committed symbol generation from a previous candidate response" }
 max_results = { type = "integer", minimum = 1, maximum = 200, default = 100 }
-max_files = { type = "integer", minimum = 1, maximum = 10000, default = 2000 }
+max_files = { type = "integer", minimum = 1, maximum = 10000, default = 10000 }
 
 [[analysis_lite_tool]]
 name = "graph"
@@ -2051,7 +2051,7 @@ generation = { type = "integer", minimum = 0 }
 max_depth = { type = "integer", minimum = 1, maximum = 8, default = 3 }
 max_nodes = { type = "integer", minimum = 1, maximum = 100, default = 40 }
 max_edges = { type = "integer", minimum = 1, maximum = 200, default = 100 }
-max_files = { type = "integer", minimum = 1, maximum = 10000, default = 2000 }
+max_files = { type = "integer", minimum = 1, maximum = 10000, default = 10000 }
 
 [analysis_lite_contract]
 max_response_bytes = 18000
