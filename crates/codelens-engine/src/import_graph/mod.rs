@@ -894,6 +894,91 @@ import (
         }
     }
 
+    // Regression (shadow-partner held-out evaluation 2026-10-27): consecutive
+    // `import` lines collapsed into one regex match, and `from api import ai`
+    // never reached `api/ai.py`.
+    #[test]
+    fn extracts_every_python_import_statement() {
+        let content = "\"\"\"from the docs import this\"\"\"\nimport os\nimport mac_control as mc\nimport a.b as ab, c  # two\nfrom importlib import util\nfrom api import ai, kakao as k\nfrom . import ledger as ledger_io\nfrom .. import shared\nfrom .pkg import (\n    one,\n    two as dos,  # trailing\n)\nfrom m import \\\n    cont\nfrom star import *\n\ndef lazy():\n    import payroll_report as pr\n";
+        let imports = super::parsers::extract_python_imports(content);
+        for expected in [
+            "os",
+            "mac_control",
+            "a.b",
+            "c",
+            "importlib",
+            "importlib.util",
+            "api",
+            "api.ai",
+            "api.kakao",
+            ".",
+            ".ledger",
+            "..",
+            "..shared",
+            ".pkg",
+            ".pkg.one",
+            ".pkg.two",
+            "m",
+            "m.cont",
+            "star",
+            "payroll_report",
+        ] {
+            assert!(
+                imports.iter().any(|import| import == expected),
+                "{expected:?} missing from {imports:?}"
+            );
+        }
+        assert!(
+            !imports
+                .iter()
+                .any(|import| import.contains(' ') || import == "star.*"),
+            "{imports:?}"
+        );
+    }
+
+    #[test]
+    fn resolves_python_submodules_and_script_dir_imports() {
+        let dir = temp_project_dir("python-submodules");
+        for file in [
+            "scripts/dashboard_server.py",
+            "scripts/api/__init__.py",
+            "scripts/api/ai.py",
+            "scripts/api/workflows.py",
+            "scripts/repo/__init__.py",
+            "scripts/repo/metrics.py",
+            "pkg/__init__.py",
+            "pkg/cli.py",
+            "pkg/ledger.py",
+        ] {
+            let path = dir.join(file);
+            fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            fs::write(path, "\n").expect("write fixture");
+        }
+        let project = ProjectRoot::new(&dir).expect("project");
+        let resolve = |from: &str, module: &str| {
+            super::resolvers::resolve_module_for_file(&project, &dir.join(from), module)
+        };
+        assert_eq!(
+            resolve("scripts/dashboard_server.py", "api.ai").as_deref(),
+            Some("scripts/api/ai.py")
+        );
+        // `get_router` is a name in `api/__init__.py`, not a module.
+        assert_eq!(
+            resolve("scripts/dashboard_server.py", "api.get_router"),
+            None
+        );
+        assert_eq!(
+            resolve("scripts/api/workflows.py", "repo.metrics").as_deref(),
+            Some("scripts/repo/metrics.py")
+        );
+        assert_eq!(
+            resolve("pkg/cli.py", ".ledger").as_deref(),
+            Some("pkg/ledger.py")
+        );
+        // The search never leaves the project.
+        assert_eq!(resolve("scripts/api/workflows.py", "os.path"), None);
+    }
+
     // Regression (tuanbo held-out evaluation 2026-10-27): `./ledger.types.js`
     // resolved to `ledger.ts` — the extension swap replaced `.types` — which
     // made a false cycle and left `ledger.types.ts` without importers.

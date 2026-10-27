@@ -3,12 +3,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::LazyLock;
 
-// ── Python ────────────────────────────────────────────────────────────────────
-pub(super) static PY_IMPORT_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^\s*import\s+([A-Za-z0-9_.,\s]+)").unwrap());
-pub(super) static PY_FROM_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^\s*from\s+([A-Za-z0-9_\.]+)\s+import\s+").unwrap());
-
 // ── JavaScript / TypeScript ───────────────────────────────────────────────────
 // `JS_IMPORT_FROM_RE` / `JS_REEXPORT_FROM_RE` are the single source of truth
 // for the `import … from "mod"` / `export … from "mod"` forms. They are shared
@@ -139,26 +133,97 @@ pub fn extract_imports_from_source(path: &Path, content: &str) -> Vec<String> {
 
 // ── Language-specific extractors ─────────────────────────────────────────────
 
+/// Python imports, one logical statement at a time (a parenthesised
+/// `from m import (…)` list or a `\` continuation is joined first). The former
+/// regexes let `\s` run across newlines, so `import os\nimport sys` was one
+/// match and every module after the first line was lost.
+///
+/// `from m import a, b` yields `m` and the candidates `m.a`, `m.b`, because
+/// `a` may be a submodule (`from api import auth`, `from . import ledger`);
+/// the resolver keeps a candidate only when that file exists.
 pub(super) fn extract_python_imports(content: &str) -> Vec<String> {
     let mut imports = Vec::new();
-    for capture in PY_IMPORT_RE.captures_iter(content) {
-        let Some(modules) = capture.get(1) else {
+    let mut lines = content.lines();
+    while let Some(line) = lines.next() {
+        let mut statement = strip_python_comment(line).trim().to_owned();
+        if python_keyword_rest(&statement, "import").is_none()
+            && python_keyword_rest(&statement, "from").is_none()
+        {
             continue;
-        };
-        for module in modules.as_str().split(',') {
-            let module = module.split_whitespace().next().unwrap_or_default();
-            if !module.is_empty() {
-                imports.push(module.to_owned());
+        }
+        loop {
+            let continued = statement.ends_with('\\');
+            if !continued && statement.matches('(').count() <= statement.matches(')').count() {
+                break;
+            }
+            if continued {
+                statement.pop();
+            }
+            let Some(next) = lines.next() else {
+                break;
+            };
+            statement.push(' ');
+            statement.push_str(strip_python_comment(next).trim());
+        }
+        if let Some(rest) = python_keyword_rest(&statement, "import") {
+            for item in rest.split(',') {
+                if let Some(module) = item.split_whitespace().next()
+                    && is_python_module_path(module)
+                {
+                    imports.push(module.to_owned());
+                }
+            }
+        } else if let Some(rest) = python_keyword_rest(&statement, "from")
+            && let Some((module, names)) = split_from_import(rest)
+        {
+            let module = module.trim();
+            if !is_python_module_path(module) {
+                continue;
+            }
+            imports.push(module.to_owned());
+            let separator = if module.ends_with('.') { "" } else { "." };
+            let names = names.trim().trim_start_matches('(').trim_end_matches(')');
+            for item in names.split(',') {
+                if let Some(name) = item.split_whitespace().next()
+                    && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+                    && !name.is_empty()
+                {
+                    imports.push(format!("{module}{separator}{name}"));
+                }
             }
         }
     }
-    for capture in PY_FROM_RE.captures_iter(content) {
-        let Some(module) = capture.get(1) else {
-            continue;
-        };
-        imports.push(module.as_str().trim().to_owned());
-    }
     imports
+}
+
+/// The text after `keyword` when `statement` starts with it as a whole word.
+fn python_keyword_rest<'a>(statement: &'a str, keyword: &str) -> Option<&'a str> {
+    let rest = statement.strip_prefix(keyword)?;
+    rest.starts_with(char::is_whitespace).then_some(rest)
+}
+
+/// `(module, names)` of a `from module import names` remainder. The keyword
+/// must stand alone: `from importlib import x` is not split inside `importlib`.
+fn split_from_import(rest: &str) -> Option<(&str, &str)> {
+    rest.match_indices(" import").find_map(|(at, keyword)| {
+        let names = &rest[at + keyword.len()..];
+        names
+            .starts_with(|c: char| c.is_whitespace() || c == '(')
+            .then(|| (&rest[..at], names))
+    })
+}
+
+fn strip_python_comment(line: &str) -> &str {
+    line.split_once('#').map_or(line, |(code, _)| code)
+}
+
+/// `pkg.mod`, `.mod`, `..` — rejects prose such as a docstring's
+/// «from the docs import this».
+fn is_python_module_path(module: &str) -> bool {
+    !module.is_empty()
+        && module
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
 }
 
 pub(super) fn extract_js_imports(content: &str) -> Vec<String> {

@@ -126,6 +126,36 @@ fn resolve_python_module(
         }
     }
 
+    // 4. Relative to a directory between the file and the root: a script run
+    // from `scripts/` puts `scripts/` on `sys.path`, so `scripts/api/x.py`
+    // imports `scripts/repo/metrics.py` as `repo.metrics`. Last, so it only
+    // answers what the roots above could not.
+    // The root is canonical; the source path may arrive through a symlink.
+    let relative_dir = source_dir
+        .strip_prefix(root)
+        .map(Path::to_path_buf)
+        .ok()
+        .or_else(|| {
+            let canonical = source_dir.canonicalize().ok()?;
+            canonical.strip_prefix(root).map(Path::to_path_buf).ok()
+        });
+    for base in relative_dir
+        .iter()
+        .flat_map(|dir| dir.ancestors().skip(1))
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map(|dir| root.join(dir))
+    {
+        let candidates = [
+            base.join(format!("{module_path}.py")),
+            base.join(&module_path).join("__init__.py"),
+        ];
+        for candidate in candidates {
+            if candidate.is_file() {
+                return Some(project.to_relative(candidate));
+            }
+        }
+    }
+
     None
 }
 

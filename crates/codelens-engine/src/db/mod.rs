@@ -26,6 +26,8 @@ const SCHEMA_VERSION: i64 = 8;
 /// 3: Rust items inside item-level macro bodies (`cfg_rt! { … }`) are extracted.
 /// 4: `mod x;` in a non-`mod.rs`, non-crate-root file `foo.rs` resolves to `foo/x.rs`.
 /// 5: JS/TS `./x.types.js` resolves to `x.types.ts` (not `x.ts`); `.d.ts` is a candidate.
+///    Python: every `import` line is read (consecutive ones were lost),
+///    `from pkg import mod` reaches `pkg/mod.py`, script-dir absolute imports.
 const ANALYZER_VERSION: i64 = 5;
 
 /// Lowercased camelCase words of a symbol name, space-joined, for the
