@@ -140,7 +140,9 @@ fn is_framework_convention_file(path: &Path, name: &str) -> bool {
     if !is_js_family(path) {
         return false;
     }
-    let stem = name.split('.').next().unwrap_or(name);
+    // Only the final extension comes off: `page.utils.ts` is a helper next to
+    // a route, not the route.
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(name);
     let parent = path.parent().unwrap_or(Path::new(""));
     let under_app_dir = parent.components().any(|c| c.as_os_str() == "app");
     let at_root = parent.as_os_str().is_empty() || parent == Path::new("src");
@@ -189,9 +191,13 @@ fn defined_only_in_cfg_test(source: &str, regions: &[std::ops::Range<usize>], na
     definitions.peek().is_some() && definitions.all(|at| regions.iter().any(|r| r.contains(&at)))
 }
 
-/// A script run directly: a shebang line, or a Python `__main__` guard.
+/// A script run directly: a shebang line, or a Python `__main__` guard. A
+/// Rust inner attribute (`#![allow(dead_code)]`) also starts with `#!`;
+/// like rustc, a `[` after the `#!` makes it an attribute, not a shebang.
 fn is_executable_script(content: &str) -> bool {
-    content.starts_with("#!")
+    content
+        .strip_prefix("#!")
+        .is_some_and(|rest| !rest.trim_start().starts_with('['))
         || content.lines().any(|line| {
             let line = line.trim_start();
             line.starts_with("if __name__") && line.contains("__main__")
@@ -704,6 +710,8 @@ mod tests {
             "lib/middleware.ts",
             "app/unused.py",
             "app/(site)/page-header.tsx",
+            "app/orders/page.utils.ts",
+            "app/layout.helpers.ts",
             "lib/testing.ts",
             "lib/contest.py",
         ] {
@@ -716,6 +724,15 @@ mod tests {
         assert!(is_executable_script("#!/usr/bin/env node\nmain();\n"));
         assert!(is_executable_script(
             "def main():\n    pass\n\nif __name__ == \"__main__\":\n    main()\n"
+        ));
+        assert!(is_executable_script(
+            "#!/usr/bin/env -S cargo +nightly -Zscript\nfn main() {}\n"
+        ));
+        assert!(!is_executable_script(
+            "#![allow(dead_code)]\npub struct Orphan;\n"
+        ));
+        assert!(!is_executable_script(
+            "#! [allow(unused)]\npub struct Orphan;\n"
         ));
         assert!(!is_executable_script("export const x = 1;\n"));
         assert!(!is_executable_script("# if __name__ in docs\nx = 1\n"));
