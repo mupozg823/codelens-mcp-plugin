@@ -2,7 +2,8 @@ use super::*;
 use serde_json::Value;
 
 #[tokio::test]
-async fn analysis_lite_http_oversized_evidence_is_an_explicit_error_with_no_sampled_zero() {
+async fn analysis_lite_http_oversized_evidence_is_clipped_with_explicit_omission_never_a_sampled_zero()
+ {
     let state = candidate_state();
     let source = format!("export function sink() {{}}\n{}", "sink();\n".repeat(100));
     std::fs::write(state.project().as_path().join("a.ts"), source).unwrap();
@@ -16,10 +17,28 @@ async fn analysis_lite_http_oversized_evidence_is_an_explicit_error_with_no_samp
         json!({"mode":"refs","file":"a.ts","name":"sink","max_results":100}),
     )
     .await;
-    assert_eq!(body["result"]["isError"], true, "{body}");
-    assert_eq!(data(&body)["errors"][0]["code"], "response_size_limit");
-    assert!(data(&body)["target"].is_null());
-    assert!(data(&body)["results"]["total"].is_null());
+    // 101 references (declaration + 100 calls) cannot fit 18000 bytes: whole
+    // rows are dropped, never to zero, and the drop is counted.
+    assert_ne!(body["result"]["isError"], true, "{body}");
+    let kept = data(&body)["results"]["references"]
+        .as_array()
+        .unwrap()
+        .len();
+    let wire = &data(&body)["truncation"]["wire_bound"];
+    assert!(kept > 0, "{body}");
+    assert_eq!(
+        kept + wire["references_omitted"].as_u64().unwrap() as usize,
+        100,
+        "max_results 100 rows before clipping: {body}"
+    );
+    assert_eq!(wire["limit_bytes"], 18000);
+    assert!(wire["unclipped_bytes"].as_u64().unwrap() > 18000, "{body}");
+    assert_eq!(data(&body)["truncation"]["results"], true);
+    // Clipping rewrites only the dropped arrays; the other result arrays keep
+    // their schema shape.
+    assert!(data(&body)["results"]["nodes"].is_array(), "{body}");
+    assert!(data(&body)["results"]["edges"].is_array(), "{body}");
+    assert!(serde_json::to_vec(&data(&body)).unwrap().len() <= 18000);
     let narrowed = candidate_call(
         &app,
         &sid,

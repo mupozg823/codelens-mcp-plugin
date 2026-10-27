@@ -831,3 +831,59 @@ fn analysis_lite_unresolved_import_binding_stays_the_target_with_unresolved_call
         impact.unresolved.examples
     );
 }
+
+#[test]
+fn analysis_lite_reused_parses_follow_edits_between_queries_in_one_process() {
+    let (_dir, project, index) = fixture(&[
+        ("a.ts", "export function sink() {}\n"),
+        ("b.ts", "import { sink } from './a';\nsink();\n"),
+        ("c.ts", "export const unrelated = 1;\n"),
+    ]);
+    let refs = |label: &str| {
+        let response = query(
+            &project,
+            &index,
+            AnalysisQuery::References,
+            &selector("a.ts", "sink"),
+            None,
+            limits(),
+        );
+        assert_ne!(
+            response.status,
+            EvidenceStatus::Error,
+            "{label}: {response:?}"
+        );
+        let mut files = response
+            .results
+            .references
+            .iter()
+            .map(|r| (r.location.file.clone(), r.location.line))
+            .collect::<Vec<_>>();
+        files.sort();
+        files
+    };
+    let first = refs("first");
+    assert!(first.contains(&("b.ts".to_owned(), 2)), "{first:?}");
+    // Same content again: served from the parse caches, identical evidence.
+    assert_eq!(refs("repeat"), first);
+    // An edited caller and a file that newly calls the target must both show
+    // up: a changed content hash is a cache miss, never a stale hit.
+    fs::write(
+        project.as_path().join("b.ts"),
+        "import { sink } from './a';\n\nsink();\nsink();\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("c.ts"),
+        "import { sink } from './a';\nexport const unrelated = sink();\n",
+    )
+    .unwrap();
+    let edited = refs("edited");
+    for expected in [("b.ts", 3), ("b.ts", 4), ("c.ts", 2)] {
+        assert!(
+            edited.contains(&(expected.0.to_owned(), expected.1)),
+            "missing {expected:?} in {edited:?}"
+        );
+    }
+    assert!(!edited.contains(&("b.ts".to_owned(), 2)), "{edited:?}");
+}
