@@ -17,12 +17,63 @@ session, wrapped in a lazy stdio proxy so idle sessions start nothing. This is
 the registration shape; the foreground HTTP runtime below stays the pilot and
 multi-host shape. Registering is a per-user decision taken from pilot evidence.
 
-- Binding. A stdio server binds once at launch: CLI path, then
-  CLAUDE_PROJECT_DIR, then MCP_PROJECT_DIR, then the working directory.
-  Claude Code 2.1.311 starts the MCP child with CLAUDE_PROJECT_DIR and the
-  working directory both set to the session directory (measured 2026-10-27),
-  so each session binds its own checkout and a worktree session binds the
-  worktree. No header, URL project or initialize project is involved.
+- Startup never binds. Every analysis-lite stdio server starts on an empty
+  per-process placeholder, ~/.codelens/analysis-lite-unbound/<pid>, wherever
+  it was launched. It builds, leases and watches no project at launch, and the
+  placeholder itself gets no file watcher and no LSP pre-warm. The launch
+  directory only yields an optional launch root L: CLI path, then
+  CLAUDE_PROJECT_DIR, then MCP_PROJECT_DIR, then the working directory, kept
+  when its repository passes the root checks below. Claude Code 2.1.311 starts
+  the MCP child with CLAUDE_PROJECT_DIR and the working directory both set to
+  the session directory (measured 2026-10-27), so a repository session gets
+  its checkout as L and a worktree session its worktree. No header, URL
+  project or initialize project is involved.
+- One binding rule, per call. Each call binds only that request. An absolute
+  target.file binds to the file's own repository root, in any checkout,
+  whether or not it lies under L. A relative target.file resolves under L;
+  without L it returns project_binding_required. The root must carry a real
+  project marker (a .codelens directory alone does not count), must not be
+  $HOME or /, and must not sit inside a macOS File Provider (cloud-synced)
+  folder; otherwise the call returns project_binding_required before
+  anything is written. The File Provider check reads the provider tag on each
+  directory from the root up to, not including, $HOME: ENOATTR (no tag) and
+  ENOTSUP (a filesystem without extended attributes, such as an exFAT working
+  tree) mean not synced; any other error means the tag could not be checked,
+  and the root is refused. A session launched in $HOME, /, or a folder without a
+  marker therefore has no L.
+- Session keys. The stdio transport drops client-supplied _session_* keys
+  from tools/call arguments and from tools/list and resources/read params,
+  for every profile, as HTTP does. On stdio an analysis-lite call binds from
+  target.file alone; a forged _session_project_path binds nothing and creates
+  nothing.
+- Snapshot fence. The end-of-request generation fence runs inside the handler,
+  under the call's binding, so it watches the bound repository's index rather
+  than the placeholder's. A commit during the call returns the retryable
+  index_generation_changed, as does a stale generation pin. Both rejections
+  carry freshness.runtime_role writer.
+- Parallel sessions on one repository. The first server to bind a repository
+  takes its writer lease. A later analysis-lite server's call finds it busy and
+  binds the repository as an explicit reader: no lease, watcher, refresh or
+  writes, and the index opened read-only. Every response, including
+  status=error evidence and post-binding rejections, carries
+  freshness.runtime_role and, for a reader, writer_holder with alive (whether
+  the holder pid still exists). A reader reports snapshot.generation as null
+  and refuses generation pins, because the writer's mutation counter is in
+  the writer's process. If the writer has not created its index yet, the call
+  returns a retryable index_not_ready; that failed build is never cached, so
+  the next call retries the bind. Other profiles keep rejecting a second
+  writer with project_writer_busy.
+- Idle release. A per-call runtime unused for CODELENS_ANALYSIS_LITE_IDLE_SECS
+  (default 600) is released by a background sweep, and with it its writer
+  lease, so a one-shot codelens-mcp <repo> --cmd ... or another CodeLens
+  process can take the repository again instead of getting
+  project_writer_busy. A runtime a call still holds is never released; idle
+  time counts from the end of its last call. The next call rebuilds it: a
+  writer when the lease is free, else a reader.
+- Placeholder cleanup. At startup, placeholder directories of dead processes
+  are removed together with their writer-lease locks, and a lock whose
+  placeholder directory is already gone is removed when its metadata names a
+  placeholder project and a holder pid that no longer exists.
 - Context cost. On this surface neither tool carries anthropic/alwaysLoad,
   even though search and graph share names with the CORE-10 facades. Both are
   deferred behind host tool search via anthropic/searchHint; the 5882-byte
@@ -31,31 +82,14 @@ multi-host shape. Registering is a per-user decision taken from pilot evidence.
   process starts on the first tools/call. Measured: an idle session started 0
   backends, a session that called graph started 1, in its own directory. The
   initialize instructions name no path, so one recording is correct for every
-  project that runs the same command line.
-- Binding. Every analysis-lite stdio server starts on an empty per-process
-  placeholder under ~/.codelens/analysis-lite-unbound/ and indexes nothing at
-  launch, wherever it was launched. Each call binds only that request. An
-  absolute target.file binds to the file's repository root, in any checkout,
-  whether or not it lies under the launch directory. A relative target.file
-  resolves under the launch directory's repository. Either root must carry a
-  real project marker (a .codelens directory alone does not count), must not
-  be $HOME or /, and must not sit inside a macOS File Provider (cloud-synced)
-  folder (a folder whose provider tag cannot be read counts as synced); otherwise the call returns project_binding_required before anything
-  is written. A session launched in $HOME, /, or a folder without a marker
-  therefore has no launch project, and its relative target.files return the
-  same error.
-- Parallel sessions on one repository. The first server takes the project
-  writer lease. A later analysis-lite server's call finds it busy and binds the
-  repository as an explicit reader: no lease, watcher, refresh or writes, and the index opened
-  read-only. Every response, including status=error evidence, carries
-  freshness.runtime_role and, for a reader, writer_holder with alive (whether
-  the holder pid still exists). If the writer has not created its index yet,
-  that call returns a retryable index_not_ready and the next call retries the
-  bind. A reader reports snapshot.generation as null and refuses
-  generation pins, because the writer's mutation counter is in the writer's
-  process. A reader is not promoted when the writer exits; its index stops
-  following edits until its session restarts. Other profiles keep rejecting a
-  second writer with project_writer_busy.
+  project that runs the same command line. Three concurrent servers on one
+  repository all answered: one writer, two readers.
+
+Limits. A context does not change role during its lifetime: a reader is not
+promoted when the writer exits, and its index stops following edits. Idle
+release ends that lifetime, so the first call after a release rebuilds the
+context and becomes the writer if the lease is free by then. Codex desktop-app
+threads have not been measured.
 
 Install the binary from a merged commit to a versioned path and register that
 path. Do not register a checkout's target/ directory: any build in that
@@ -72,7 +106,7 @@ The `--key-path` argument makes a rebuilt binary invalidate the recorded
 handshake. The binary needs no `http` feature for stdio. `codex exec` 0.164
 starts a stdio MCP child in the thread's working directory without
 CLAUDE_PROJECT_DIR (measured 2026-10-27), so the working-directory fallback
-binds it the same way. Codex desktop-app threads have not been measured.
+yields its launch root the same way.
 
 ## One foreground runtime
 

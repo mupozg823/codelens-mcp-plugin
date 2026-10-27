@@ -118,6 +118,20 @@ for 234.8 s (`connect_ms`), and after the next redeploy the build thread sat in
 `open()` with the dialog on screen. A request that builds inline holds the
 client past its timeout (Claude Code gives up at 60 s).
 
+### Analysis-lite idle release (`CODELENS_ANALYSIS_LITE_IDLE_SECS`, default 600)
+
+An analysis-lite stdio server builds a project runtime per bound repository,
+and a writer runtime holds that repository's writer lease. A background sweep
+releases runtimes no call has used for this many seconds, and with them their
+leases, so `codelens-mcp <repo> --cmd …` and other CodeLens processes are not
+refused with `project_writer_busy` for as long as the session stays open. A
+runtime a call still holds is never released, and idle time counts from the
+end of its last call. The next call rebuilds the runtime (a writer when the
+lease is free, else a reader). Invalid or `0` values fall back to the default.
+Only analysis-lite stdio runs the sweep; other surfaces keep their runtimes
+until LRU eviction or exit. See
+[`analysis-lite.md`](analysis-lite.md#everyday-registration-stdio-on-demand).
+
 ## Analysis Artifact Cache (LRU + TTL)
 
 `artifact_store` keeps recent analysis results (the `analysis_id` values returned by `review_architecture`, `module_boundary_report`, `dead_code_report`, etc.) so chained calls like `get_analysis_section` can resolve them. Two caps with runtime overrides:
