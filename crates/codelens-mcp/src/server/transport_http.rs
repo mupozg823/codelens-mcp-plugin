@@ -310,8 +310,8 @@ fn http_session_metadata_mut(
 }
 
 /// Remove caller-controlled `_session_*` metadata before the HTTP transport
-/// adds its authoritative session block. Stdio retains its legacy single-client
-/// argument contract; shared HTTP never trusts identity embedded in JSON.
+/// adds its authoritative session block. Shared HTTP never trusts identity
+/// embedded in JSON; stdio strips the same keys (`transport_stdio`).
 fn sanitize_http_session_metadata(request: &mut JsonRpcRequest) {
     let metadata = match request.method.as_str() {
         "tools/call" => request

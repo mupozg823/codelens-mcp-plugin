@@ -4,6 +4,7 @@ mod failures;
 mod guidance;
 mod metrics;
 mod parity;
+mod per_call_boundary;
 
 #[test]
 fn analysis_lite_profile_is_a_strict_two_tool_surface() {
