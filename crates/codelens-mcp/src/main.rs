@@ -380,7 +380,9 @@ fn main() -> Result<()> {
     // `activate_project` calls the same helper for MCP-driven switches.
     crate::tools::session::auto_set_embed_hint_lang(project.as_path());
 
-    let app_state = AppState::try_new(project, preset)?;
+    // Analysis-lite stdio is a read-only surface: a second session on a repo
+    // whose writer lease another process holds starts as an explicit reader.
+    let app_state = AppState::try_new_with_reader_fallback(project, preset, analysis_lite_stdio)?;
     app_state.configure_transport_mode(&transport);
     app_state.configure_daemon_mode(daemon_mode);
     app_state.configure_compat_mode(compat_mode);

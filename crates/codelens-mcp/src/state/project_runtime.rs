@@ -23,7 +23,44 @@ pub(super) struct ProjectContext {
     pub(super) watcher_error: Option<String>,
     /// Declared last so writer-bearing runtime fields are dropped before the
     /// cross-process authority is released.
-    runtime_lease: super::project_runtime_lease::ProjectRuntimeLease,
+    runtime_authority: ProjectRuntimeAuthority,
+}
+
+/// What this process may do to a project's runtime state.
+pub(super) enum ProjectRuntimeAuthority {
+    /// Holds the cross-process writer lease: indexes, watches, writes.
+    Writer(super::project_runtime_lease::ProjectRuntimeLease),
+    /// Another process holds the lease. Only an analysis-lite stdio server
+    /// (a read-only surface) builds this: a read-only index connection, no
+    /// watcher, no refresh, no writes. Reported in every analysis-lite
+    /// payload, so it is never a silent downgrade.
+    Reader { lock_path: String },
+}
+
+impl ProjectRuntimeAuthority {
+    fn health_payload(&self) -> serde_json::Value {
+        match self {
+            Self::Writer(lease) => {
+                let mut payload = lease.health_payload();
+                payload["runtime_role"] = serde_json::json!("writer");
+                payload
+            }
+            Self::Reader { lock_path } => serde_json::json!({
+                "runtime_role": "reader",
+                "lease_health": "held_by_other_process",
+                "lock_path": lock_path,
+                "writer_holder": current_holder_json(lock_path),
+            }),
+        }
+    }
+}
+
+/// The lease holder's metadata, re-read now (the holder may have changed
+/// since this reader was built) and reported structured when it parses.
+fn current_holder_json(lock_path: &str) -> serde_json::Value {
+    super::project_runtime_lease::current_holder_metadata(Path::new(lock_path))
+        .map(|raw| serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!(raw)))
+        .unwrap_or(serde_json::Value::Null)
 }
 
 impl ProjectContext {
@@ -35,7 +72,25 @@ impl ProjectContext {
     }
 
     pub(super) fn runtime_health_payload(&self) -> serde_json::Value {
-        self.runtime_lease.health_payload()
+        self.runtime_authority.health_payload()
+    }
+
+    pub(super) fn is_reader(&self) -> bool {
+        matches!(
+            self.runtime_authority,
+            ProjectRuntimeAuthority::Reader { .. }
+        )
+    }
+
+    /// `runtime_role` plus, for a reader, the lease holder's metadata.
+    pub(super) fn runtime_role_evidence(&self) -> serde_json::Value {
+        match &self.runtime_authority {
+            ProjectRuntimeAuthority::Writer(_) => serde_json::json!({"runtime_role": "writer"}),
+            ProjectRuntimeAuthority::Reader { lock_path } => serde_json::json!({
+                "runtime_role": "reader",
+                "writer_holder": current_holder_json(lock_path),
+            }),
+        }
     }
 }
 
@@ -340,13 +395,25 @@ pub(super) fn active_project_context(state: &AppState) -> Option<Arc<ProjectCont
 /// Builds slower than this are logged at warn with a per-phase breakdown.
 const SLOW_PROJECT_BUILD_MS: u128 = 10_000;
 
+/// `allow_reader` is set only by an analysis-lite stdio server: when another
+/// process holds the writer lease it builds a reader runtime instead of
+/// failing. Every other caller keeps the outright `ProjectWriterBusy`.
 pub(super) fn build_project_runtime_context(
     project: ProjectRoot,
     start_watcher: bool,
+    allow_reader: bool,
 ) -> anyhow::Result<ProjectContext> {
     let started = std::time::Instant::now();
-    let runtime_lease = super::project_runtime_lease::ProjectRuntimeLease::try_acquire(&project)
-        .map_err(anyhow::Error::new)?;
+    let runtime_lease =
+        match super::project_runtime_lease::ProjectRuntimeLease::try_acquire(&project) {
+            Ok(lease) => lease,
+            Err(CodeLensError::ProjectWriterBusy {
+                lock_path, holder, ..
+            }) if allow_reader => {
+                return build_reader_project_runtime_context(project, lock_path, holder);
+            }
+            Err(error) => return Err(anyhow::Error::new(error)),
+        };
     tracing::info!(
         project = %runtime_lease.project().display(),
         lock_path = %runtime_lease.lock_path().display(),
@@ -474,7 +541,58 @@ pub(super) fn build_project_runtime_context(
         audit_dir,
         watcher,
         watcher_error,
-        runtime_lease,
+        runtime_authority: ProjectRuntimeAuthority::Writer(runtime_lease),
+    })
+}
+
+/// How long a reader waits for a just-started writer to create the index
+/// database before answering a retryable `IndexNotReady`.
+const READER_INDEX_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Reader runtime: no lease, no sibling seed, no refresh, no compaction, no
+/// watcher, no LSP pre-warm and no directory creation — nothing is written.
+fn build_reader_project_runtime_context(
+    project: ProjectRoot,
+    lock_path: String,
+    holder: Option<String>,
+) -> anyhow::Result<ProjectContext> {
+    let deadline = std::time::Instant::now() + READER_INDEX_WAIT;
+    let symbol_index = loop {
+        match SymbolIndex::open_reader(project.clone()) {
+            Ok(index) => break Arc::new(index),
+            Err(error)
+                if error
+                    .downcast_ref::<codelens_engine::IndexNotBuilt>()
+                    .is_some() =>
+            {
+                if std::time::Instant::now() >= deadline {
+                    return Err(anyhow::Error::new(CodeLensError::IndexNotReady(format!(
+                        "{error}; another process holds the writer lease ({lock_path}) and this read-only server waits for its index, retry in a few seconds"
+                    ))));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    tracing::warn!(
+        project = %project.as_path().display(),
+        %lock_path,
+        holder = holder.as_deref().unwrap_or("unknown"),
+        "project writer lease is held by another process; serving analysis-lite as a read-only reader"
+    );
+    let codelens_dir = project.as_path().join(".codelens");
+    Ok(ProjectContext {
+        symbol_index,
+        graph_cache: Arc::new(GraphCache::new(30)),
+        lsp_pool: Arc::new(LspSessionPool::new(project.clone())),
+        memories_dir: codelens_dir.join("memories"),
+        analysis_dir: codelens_dir.join("analysis-cache"),
+        audit_dir: codelens_dir.join("audit"),
+        watcher: None,
+        watcher_error: None,
+        project,
+        runtime_authority: ProjectRuntimeAuthority::Reader { lock_path },
     })
 }
 

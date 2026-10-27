@@ -37,6 +37,25 @@ use crate::project::{collect_files, is_excluded_within};
 // Types (SymbolKind, SymbolInfo, ParsedSymbol, IndexStats, RankedContextEntry,
 // RankedContextResult, ReadDb) are in types.rs, re-exported above.
 
+/// [`SymbolIndex::open_reader`] found no index database: the writer has not
+/// built it yet. Callers surface this as retryable, never as zero rows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexNotBuilt {
+    pub db_path: PathBuf,
+}
+
+impl std::fmt::Display for IndexNotBuilt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "symbol index not built yet at {}; the project's writer has not created it",
+            self.db_path.display()
+        )
+    }
+}
+
+impl std::error::Error for IndexNotBuilt {}
+
 /// SQLite-backed symbol index for a project.
 ///
 /// Architecture: writer `Mutex<IndexDb>` for mutations + per-query read-only
@@ -66,6 +85,26 @@ impl SymbolIndex {
             let _ = idx.migrate_from_json();
         }
         Ok(idx)
+    }
+
+    /// Open the project's persistent index *without write authority*, for a
+    /// process that does not hold the project's writer lease. The writer slot
+    /// holds a read-only connection, so any write path fails with
+    /// `SQLITE_READONLY` by construction; no file, WAL or migration is
+    /// created. A missing database is [`IndexNotBuilt`], never an empty index.
+    pub fn open_reader(project: ProjectRoot) -> Result<Self> {
+        let db_path = index_db_path(project.as_path());
+        let Some(db) = IndexDb::open_readonly(&db_path)? else {
+            return Err(IndexNotBuilt { db_path }.into());
+        };
+        Ok(Self {
+            project,
+            storage: IndexStorage::Persistent(db_path),
+            // Generations are tracked by the writer's process; a reader
+            // observes rows, not the writer's in-memory mutation counter.
+            mutations: std::sync::Arc::new(writer::MutationTracker::default()),
+            writer: std::sync::Mutex::new(db),
+        })
     }
 
     /// Acquire the writer connection (poison-safe).

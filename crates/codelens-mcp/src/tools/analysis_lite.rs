@@ -125,6 +125,13 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
     payload["freshness"]["watcher_running"] =
         json!(state.watcher_stats().map(|stats| stats.running));
     payload["freshness"]["watcher_start_error"] = json!(state.watcher_error());
+    // Writer or reader (another process holds the lease): explicit, never a
+    // silent downgrade.
+    if let Value::Object(role) = state.project_runtime_role_evidence() {
+        for (key, value) in role {
+            payload["freshness"][key] = value;
+        }
+    }
     // This read preserves DB errors as errors, rather than the legacy health
     // helper's unwrap_or_default() zero-failure interpretation.
     payload["freshness"]["index_failure_summary"] = match index.db().index_failure_summary(900) {

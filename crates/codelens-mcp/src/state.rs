@@ -170,6 +170,10 @@ pub(crate) struct AppState {
     /// empty CodeLens-owned placeholder instead of refusing to start; each
     /// call then binds to the repository of its absolute `target.file`.
     analysis_lite_launch_unbound: std::sync::atomic::AtomicBool,
+    /// Analysis-lite stdio only: a project whose writer lease another process
+    /// holds is served by an explicit read-only reader runtime instead of
+    /// `ProjectWriterBusy`. Every other surface keeps the outright rejection.
+    analysis_lite_reader_fallback: std::sync::atomic::AtomicBool,
     /// ADR-0009 §2: durable audit sinks keyed by audit_dir. L6 — when a
     /// daemon serves multiple projects (e.g. via `activate_project` or
     /// `add_secondary_project`), each project has its own
@@ -236,8 +240,9 @@ impl AppState {
     fn build_project_runtime_context(
         project: ProjectRoot,
         start_watcher: bool,
+        allow_reader: bool,
     ) -> anyhow::Result<ProjectContext> {
-        project_runtime::build_project_runtime_context(project, start_watcher)
+        project_runtime::build_project_runtime_context(project, start_watcher, allow_reader)
     }
 
     fn activate_project_context(&self, context: Option<Arc<ProjectContext>>) {
@@ -644,7 +649,7 @@ mod tests {
         // still held by the removed cache entry.
         let scope_e = project_e.as_path().to_string_lossy().into_owned();
         let context_e = Arc::new(
-            AppState::build_project_runtime_context(project_e, false)
+            AppState::build_project_runtime_context(project_e, false, false)
                 .expect("project E runtime should initialize"),
         );
         let evicted = {

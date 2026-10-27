@@ -82,6 +82,16 @@ impl AppState {
             .store(unbound, std::sync::atomic::Ordering::Relaxed);
     }
 
+    pub(crate) fn configure_analysis_lite_reader_fallback(&self, allow: bool) {
+        self.analysis_lite_reader_fallback
+            .store(allow, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn analysis_lite_reader_fallback(&self) -> bool {
+        self.analysis_lite_reader_fallback
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub(crate) fn analysis_lite_launch_unbound(&self) -> bool {
         self.analysis_lite_launch_unbound
             .load(std::sync::atomic::Ordering::Relaxed)

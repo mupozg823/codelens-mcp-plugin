@@ -384,6 +384,103 @@ fn analysis_lite_launch_unbound_refuses_a_repo_inside_a_file_provider_folder() {
         "no index state may be created in a cloud-synced folder"
     );
 }
+
+/// A second same-repo session while the first holds the writer lease.
+fn analysis_lite_writer_with_index() -> (crate::AppState, ProjectRoot) {
+    let project = ProjectRoot::new(analysis_lite_ts_project()).unwrap();
+    let writer = make_state(&project);
+    call_tool(&writer, "refresh_symbol_index", json!({}));
+    assert!(writer.symbol_index().file_count().unwrap() >= 2);
+    (writer, project)
+}
+
+#[test]
+fn analysis_lite_second_session_is_an_explicit_reader_of_the_writers_index() {
+    let (writer, project) = analysis_lite_writer_with_index();
+    let reader = crate::AppState::try_new_minimal_with_reader_fallback(
+        project.clone(),
+        crate::tool_defs::ToolPreset::Full,
+    )
+    .expect("analysis-lite second session starts as a reader");
+    reader.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    assert_eq!(
+        reader.symbol_index().file_count().unwrap(),
+        writer.symbol_index().file_count().unwrap(),
+        "the reader sees the writer's index rows"
+    );
+    let response = analysis_lite_refs_call(&reader, "a.ts");
+    assert_ne!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(
+        analysis_lite_reference_files(&data),
+        ["a.ts", "b.ts", "b.ts"]
+    );
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    assert_eq!(
+        data["freshness"]["writer_holder"]["pid"],
+        json!(std::process::id()),
+        "{data}"
+    );
+    assert_eq!(
+        reader.project_runtime_health_payload()["runtime_role"],
+        json!("reader")
+    );
+    writer.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    let writer_data = analysis_lite_data(&analysis_lite_refs_call(&writer, "a.ts"));
+    assert_eq!(writer_data["freshness"]["runtime_role"], json!("writer"));
+    assert_eq!(
+        writer.project_runtime_health_payload()["runtime_role"],
+        json!("writer")
+    );
+}
+
+#[test]
+fn analysis_lite_reader_without_an_index_is_retryable_index_not_ready() {
+    let project = ProjectRoot::new(analysis_lite_ts_project()).unwrap();
+    let _writer = make_state(&project);
+    let index_dir = project.as_path().join(".codelens").join("index");
+    for name in ["symbols.db", "symbols.db-wal", "symbols.db-shm"] {
+        let _ = fs::remove_file(index_dir.join(name));
+    }
+    let error = match crate::AppState::try_new_minimal_with_reader_fallback(
+        project,
+        crate::tool_defs::ToolPreset::Full,
+    ) {
+        Ok(_) => panic!("a reader without an index must not start as empty"),
+        Err(error) => error,
+    };
+    let typed = error
+        .downcast::<crate::error::CodeLensError>()
+        .expect("typed error");
+    assert!(
+        matches!(typed, crate::error::CodeLensError::IndexNotReady(_)),
+        "{typed}"
+    );
+    assert!(typed.is_retryable());
+}
+
+// The repo invariant: outside analysis-lite stdio a second writer is rejected
+// outright, never downgraded to a reader.
+#[test]
+fn non_analysis_lite_second_session_still_gets_project_writer_busy() {
+    let (_writer, project) = analysis_lite_writer_with_index();
+    let error = match crate::AppState::try_new_minimal(project, crate::tool_defs::ToolPreset::Full)
+    {
+        Ok(_) => panic!("a second writer must be rejected"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(
+            error.downcast_ref::<crate::error::CodeLensError>(),
+            Some(crate::error::CodeLensError::ProjectWriterBusy { .. })
+        ),
+        "{error:#}"
+    );
+}
 // ── Verb facade tests (search / graph / review) ──────────────────────
 //
 // Phase-1 consolidation: read-only tool families are reachable behind

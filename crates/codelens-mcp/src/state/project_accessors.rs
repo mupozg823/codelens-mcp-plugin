@@ -8,6 +8,13 @@ use crate::sparse_symbol_cache::SparseSymbolCache;
 use crate::state::AppState;
 
 impl AppState {
+    /// `{runtime_role, writer_holder?}` of the request's bound runtime.
+    pub(crate) fn project_runtime_role_evidence(&self) -> serde_json::Value {
+        self.active_project_context()
+            .unwrap_or_else(|| Arc::clone(&self.default_context))
+            .runtime_role_evidence()
+    }
+
     pub(crate) fn project_runtime_health_payload(&self) -> serde_json::Value {
         self.active_project_context()
             .unwrap_or_else(|| Arc::clone(&self.default_context))
@@ -231,7 +238,11 @@ impl AppState {
                         .insert(scope.to_owned(), Arc::clone(&ticket));
                     #[cfg(test)]
                     cache.record_build_attempt(scope);
-                    spawn_project_build(project, Arc::clone(&ticket))?;
+                    spawn_project_build(
+                        project,
+                        Arc::clone(&ticket),
+                        self.analysis_lite_reader_fallback(),
+                    )?;
                     ticket
                 }
             }
@@ -495,6 +506,7 @@ thread_local! {
 fn spawn_project_build(
     project: codelens_engine::ProjectRoot,
     ticket: Arc<super::project_runtime::InFlightBuild>,
+    allow_reader: bool,
 ) -> anyhow::Result<()> {
     #[cfg(test)]
     let delay_ms = TEST_BIND_OVERRIDE
@@ -507,7 +519,7 @@ fn spawn_project_build(
             if delay_ms > 0 {
                 std::thread::sleep(std::time::Duration::from_millis(delay_ms));
             }
-            let outcome = AppState::build_project_runtime_context(project, true);
+            let outcome = AppState::build_project_runtime_context(project, true, allow_reader);
             ticket.complete(outcome);
         })
         .map(drop)

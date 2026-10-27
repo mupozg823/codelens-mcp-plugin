@@ -199,6 +199,14 @@ fn read_generation(file: &mut File) -> Option<u64> {
     read_metadata(file).map(|metadata| metadata.generation)
 }
 
+/// Current holder metadata of the lease at `lock_path`, read without locking.
+/// A reader re-reads it per report: the value captured when `try_acquire`
+/// found the lease busy can predate the new holder's metadata write.
+pub(super) fn current_holder_metadata(lock_path: &std::path::Path) -> Option<String> {
+    let mut file = File::open(lock_path).ok()?;
+    read_holder_metadata(&mut file)
+}
+
 fn read_holder_metadata(file: &mut File) -> Option<String> {
     read_metadata(file).and_then(|metadata| serde_json::to_string(&metadata).ok())
 }
