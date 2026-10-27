@@ -94,9 +94,9 @@ fn run_bound(
     let generation = index.committed_generation();
     if let Some(expected) = args.get("generation").and_then(Value::as_u64) {
         if reader {
-            return Err(CodeLensError::Validation(
-                "analysis-lite generation pins need the writer runtime; this server is a reader of another session's writer lease. Retry without generation and compare the evidence instead.".to_owned(),
-            ));
+            return Err(CodeLensError::AnalysisLiteReaderGenerationPin {
+                runtime_role: Box::new(state.project_runtime_role_evidence()),
+            });
         }
         if expected != generation {
             return Err(CodeLensError::IndexGenerationChanged {
@@ -189,6 +189,7 @@ fn run_bound(
         return Err(CodeLensError::AnalysisLiteResponseTooLarge {
             observed_bytes,
             limit_bytes,
+            runtime_role: Box::new(runtime_role),
         });
     }
     let mut meta = success_meta(BackendKind::Hybrid, 0.0);
@@ -453,13 +454,20 @@ pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensE
     } else {
         None
     };
-    json!({
+    let mut payload = json!({
         "schema_version":"analysis-lite/v1", "capability":null, "project":project,
         "target":null,"snapshot":null,"scope":null,"status":"error",
         "results":{"references":[],"nodes":[],"edges":[],"selection_candidates":[],"total":null},
         "limits":null,"truncation":null,"unresolved":null,"freshness":null,
         "errors":[{"code":error.kind(),"backend":"runtime","message":error.to_string(),"retryable":error.is_retryable()}]
-    })
+    });
+    // A rejection raised after binding (a reader's generation pin, the size
+    // limit) names the runtime that refused it; the binding is gone by now,
+    // so the role travels in the error.
+    if let Some(runtime_role) = error.analysis_lite_runtime_role() {
+        apply_runtime_role(&mut payload, runtime_role);
+    }
+    payload
 }
 
 #[cfg(test)]

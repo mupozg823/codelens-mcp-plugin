@@ -136,3 +136,57 @@ fn per_call_generation_fence_watches_the_bound_repository() {
     let calm = analysis_lite_refs_call(&state, &file);
     assert_ne!(calm["result"]["isError"], json!(true), "{calm}");
 }
+
+/// The runtime identity a reader's rejected call must still report.
+fn assert_rejected_payload_names_the_reader(data: &serde_json::Value, code: &str) {
+    assert_eq!(data["status"], json!("error"), "{data}");
+    assert_eq!(data["errors"][0]["code"], json!(code), "{data}");
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    assert_eq!(
+        data["freshness"]["writer_holder"]["pid"],
+        json!(std::process::id()),
+        "{data}"
+    );
+    // A rejected call has no executed snapshot, so no generation either.
+    assert!(data["snapshot"].is_null(), "{data}");
+}
+
+// (a) A reader's generation-pin refusal happens after the binding: its
+// envelope names the reader runtime like every other bound response.
+#[test]
+fn per_call_reader_generation_pin_refusal_names_the_reader_runtime() {
+    let (_writer, project) = analysis_lite_writer_with_index();
+    let state = analysis_lite_per_call_reader_state();
+    let response = analysis_lite_rpc(
+        &state,
+        "tools/call",
+        json!({"name":"search","arguments":{"mode":"refs","generation":0,"target":{
+            "file":project.as_path().join("a.ts").display().to_string(),"name":"sink"}}}),
+    );
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_rejected_payload_names_the_reader(&data, "validation");
+    let message = data["errors"][0]["message"].as_str().unwrap();
+    assert!(message.contains("reader"), "{message}");
+}
+
+// (b) An over-limit response is refused after the binding too.
+#[test]
+fn per_call_reader_response_size_refusal_names_the_reader_runtime() {
+    let repo = analysis_lite_ts_project();
+    let calls = "sink();\n".repeat(60);
+    fs::write(
+        repo.join("a.ts"),
+        format!("export function sink() {{}}\n{calls}"),
+    )
+    .unwrap();
+    let project = ProjectRoot::new(&repo).unwrap();
+    let writer = make_state(&project);
+    call_tool(&writer, "refresh_symbol_index", json!({}));
+    let state = analysis_lite_per_call_reader_state();
+    let response = analysis_lite_refs_call(&state, &repo.join("a.ts").display().to_string());
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_rejected_payload_names_the_reader(&data, "response_size_limit");
+    drop(writer);
+}

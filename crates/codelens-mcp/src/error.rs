@@ -31,7 +31,16 @@ pub enum CodeLensError {
     AnalysisLiteResponseTooLarge {
         observed_bytes: usize,
         limit_bytes: usize,
+        /// `{runtime_role, writer_holder?}` captured under the request binding.
+        runtime_role: Box<Value>,
     },
+    /// A reader of another session's writer lease cannot honor a generation
+    /// pin: its committed generation is a constant. Reported as a validation
+    /// error, carrying the reader's `{runtime_role, writer_holder}`.
+    #[error(
+        "Validation error: analysis-lite generation pins need the writer runtime; this server is a reader of another session's writer lease. Retry without generation and compare the evidence instead."
+    )]
+    AnalysisLiteReaderGenerationPin { runtime_role: Box<Value> },
     // ── Protocol errors (JSON-RPC level) ──────────────────────────────
     /// Missing or invalid tool parameter (JSON-RPC -32602).
     #[error("Missing required parameter: {0}")]
@@ -193,6 +202,7 @@ impl CodeLensError {
             Self::AnalysisLiteBindingRequired { .. } => -32003,
             Self::AnalysisLiteLaunchUnbound { .. } => -32003,
             Self::AnalysisLiteResponseTooLarge { .. } => -32007,
+            Self::AnalysisLiteReaderGenerationPin { .. } => -32003,
             // Protocol errors
             Self::MissingParam(_) => -32602,
             Self::ToolNotFound(_) => -32601,
@@ -232,6 +242,7 @@ impl CodeLensError {
             Self::AnalysisLiteBindingRequired { .. } => "project_binding_required",
             Self::AnalysisLiteLaunchUnbound { .. } => "project_binding_required",
             Self::AnalysisLiteResponseTooLarge { .. } => "response_size_limit",
+            Self::AnalysisLiteReaderGenerationPin { .. } => "validation",
             Self::MissingParam(_) => "missing_param",
             Self::ToolNotFound(_) => "tool_not_found",
             Self::NotFound(_) => "not_found",
@@ -254,6 +265,16 @@ impl CodeLensError {
             Self::PermissionDenied { .. } => "permission_denied",
             Self::Io(_) => "io",
             Self::Internal(_) => "internal",
+        }
+    }
+
+    /// The `{runtime_role, writer_holder?}` an analysis-lite rejection raised
+    /// under its request binding carries into the error envelope.
+    pub(crate) fn analysis_lite_runtime_role(&self) -> Option<&Value> {
+        match self {
+            Self::AnalysisLiteResponseTooLarge { runtime_role, .. }
+            | Self::AnalysisLiteReaderGenerationPin { runtime_role } => Some(runtime_role),
+            _ => None,
         }
     }
 
