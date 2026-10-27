@@ -384,8 +384,10 @@ const REACT_LIFECYCLE_METHODS: &[&str] = &[
 /// are not skipped: a name mentioned only there is still a reason to look
 /// before deleting, and the report favours precision over recall.
 fn count_identifiers(source: &str, counts: &mut HashMap<String, usize>) {
-    let is_start = |c: char| c.is_ascii_alphabetic() || c == '_' || c == '$';
-    let is_part = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    // Unicode letters and digits: Rust, Python and JS all allow non-ASCII
+    // identifiers, and an ASCII-only scan counted `вычислить` zero times.
+    let is_start = |c: char| c.is_alphabetic() || c == '_' || c == '$';
+    let is_part = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
     let mut start = None;
     for (i, c) in source.char_indices() {
         match start {
@@ -965,6 +967,14 @@ mod tests {
         assert_eq!(counts.get("$el"), Some(&1));
         assert_eq!(counts.get("x1"), Some(&1));
         assert_eq!(counts.get("read"), None);
+
+        let mut counts = HashMap::new();
+        count_identifiers(
+            "def вычислить():\n    return 1\n\nx = вычислить() + 한글함수(1)\n",
+            &mut counts,
+        );
+        assert_eq!(counts.get("вычислить"), Some(&2));
+        assert_eq!(counts.get("한글함수"), Some(&1));
     }
 
     #[test]

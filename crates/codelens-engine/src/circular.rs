@@ -90,11 +90,13 @@ pub fn find_circular_dependencies(
 fn rust_module_dir(file: &str) -> Option<&str> {
     let stem = file.strip_suffix(".rs")?;
     let (dir, name) = stem.rsplit_once('/').unwrap_or(("", stem));
-    Some(if matches!(name, "mod" | "lib" | "main") {
-        dir
-    } else {
-        stem
-    })
+    Some(
+        if name == "mod" || crate::import_graph::is_rust_crate_root(std::path::Path::new(file)) {
+            dir
+        } else {
+            stem
+        },
+    )
 }
 
 /// A Rust submodule using its own ancestor (`crate::telemetry::Event` from
@@ -403,12 +405,59 @@ pub struct Writer;
         );
     }
 
+    // Codex review on #455: a nested module merely named `main` is not a crate
+    // root, so it is not the ancestor of its siblings.
+    #[test]
+    fn rust_sibling_cycle_through_a_module_named_main_is_detected() {
+        let (_td, dir) = temp_project_dir("rust-main-module");
+        let src = dir.join("src");
+        fs::create_dir_all(src.join("feature")).expect("mkdir feature");
+        fs::write(src.join("lib.rs"), "mod feature;\n").expect("lib");
+        fs::write(src.join("feature.rs"), "mod main;\nmod side;\n").expect("feature.rs");
+        fs::write(
+            src.join("feature/main.rs"),
+            "use super::side::S;\npub struct M;\n",
+        )
+        .expect("main.rs");
+        fs::write(
+            src.join("feature/side.rs"),
+            "use super::main::M;\npub struct S;\n",
+        )
+        .expect("side.rs");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cycles = find_circular_dependencies(&project, 50, &GraphCache::new(0)).expect("cycles");
+        assert!(
+            cycles.iter().any(|c| c.length == 2
+                && c.cycle.iter().any(|f| f.ends_with("feature/main.rs"))
+                && c.cycle.iter().any(|f| f.ends_with("feature/side.rs"))),
+            "main.rs <-> side.rs is a sibling cycle: {cycles:?}"
+        );
+    }
+
     #[test]
     fn rust_module_dir_follows_the_module_tree() {
         assert_eq!(rust_module_dir("src/db/ops.rs"), Some("src/db/ops"));
         assert_eq!(rust_module_dir("src/db/mod.rs"), Some("src/db"));
         assert_eq!(rust_module_dir("crates/a/src/lib.rs"), Some("crates/a/src"));
         assert_eq!(rust_module_dir("lib.rs"), Some(""));
+        assert_eq!(
+            rust_module_dir("src/bin/tool/main.rs"),
+            Some("src/bin/tool")
+        );
+        // A nested module named `main`/`lib` is not a crate root.
+        assert_eq!(
+            rust_module_dir("src/feature/main.rs"),
+            Some("src/feature/main")
+        );
+        assert_eq!(
+            rust_module_dir("src/feature/lib.rs"),
+            Some("src/feature/lib")
+        );
+        assert!(!is_rust_submodule_to_ancestor(
+            "src/feature/side.rs",
+            "src/feature/main.rs"
+        ));
         assert_eq!(rust_module_dir("src/a.ts"), None);
         assert!(is_rust_submodule_to_ancestor(
             "src/db/ops/calls.rs",

@@ -24,7 +24,7 @@ const SCHEMA_VERSION: i64 = 8;
 /// with current logic. Without it, `commit_analyzed`'s (mtime, hash) freshness
 /// skip keeps stale edges forever, so logic fixes never reach existing indexes.
 /// 3: Rust items inside item-level macro bodies (`cfg_rt! { … }`) are extracted.
-/// 4: `mod x;` in a non-`mod.rs` file `foo.rs` resolves to `foo/x.rs`.
+/// 4: `mod x;` in a non-`mod.rs`, non-crate-root file `foo.rs` resolves to `foo/x.rs`.
 const ANALYZER_VERSION: i64 = 4;
 
 /// Lowercased camelCase words of a symbol name, space-joined, for the

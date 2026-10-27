@@ -478,11 +478,11 @@ fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) 
     None
 }
 
-/// `src/db/ops.rs` → `src/db/ops/`. `mod.rs`, `lib.rs` and `main.rs` own their
-/// parent directory, so they have no separate module directory.
+/// `src/db/ops.rs` → `src/db/ops/`. `mod.rs` and crate roots own their parent
+/// directory, so they have no separate module directory.
 fn rust_own_module_dir(source_file: &Path) -> Option<PathBuf> {
     let stem = source_file.file_stem()?.to_str()?;
-    if matches!(stem, "mod" | "lib" | "main") {
+    if stem == "mod" || super::is_rust_crate_root(source_file) {
         return None;
     }
     let dir = source_file.parent()?.join(stem);

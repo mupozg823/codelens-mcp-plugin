@@ -17,6 +17,25 @@ pub use parsers::extract_imports_for_file;
 pub use parsers::extract_imports_from_source;
 pub use resolvers::resolve_module_for_file;
 
+/// `src/lib.rs`, `src/main.rs`, `src/bin/main.rs` and `src/bin/<name>/main.rs`
+/// are crate roots: they own their directory, so their `mod x;` names a
+/// sibling file. A nested module that is merely named `lib` or `main`
+/// (`src/feature/main.rs` from `mod main;`) owns `main/` like any other module.
+pub(crate) fn is_rust_crate_root(file: &Path) -> bool {
+    let is_root_name = matches!(
+        file.file_name().and_then(|n| n.to_str()),
+        Some("lib.rs" | "main.rs")
+    );
+    fn dir_name(dir: Option<&Path>) -> Option<&str> {
+        dir.and_then(Path::file_name).and_then(|n| n.to_str())
+    }
+    let parent = file.parent();
+    is_root_name
+        && (parent.is_none_or(|p| p.as_os_str().is_empty())
+            || matches!(dir_name(parent), Some("src" | "bin"))
+            || dir_name(parent.and_then(Path::parent)) == Some("bin"))
+}
+
 /// Use lang_registry as the single source of truth for supported extensions.
 pub fn is_import_supported(ext: &str) -> bool {
     crate::lang_registry::supports_imports(ext)
@@ -848,6 +867,31 @@ import (
         );
         // `mod.rs`/`lib.rs` own their parent directory.
         assert_eq!(resolve("lib.rs", "db").as_deref(), Some("src/db.rs"));
+
+        // A nested module named `main` owns `main/`, not its parent.
+        fs::create_dir_all(src.join("db/ops/main")).expect("mkdir main/");
+        fs::write(src.join("db/ops/main.rs"), "mod x;\n").expect("write main.rs");
+        fs::write(src.join("db/ops/main/x.rs"), "pub struct X;\n").expect("write x.rs");
+        assert_eq!(
+            resolve("db/ops/main.rs", "x").as_deref(),
+            Some("src/db/ops/main/x.rs")
+        );
+        for (root, expected) in [
+            ("src/lib.rs", true),
+            ("src/main.rs", true),
+            ("src/bin/main.rs", true),
+            ("src/bin/tool/main.rs", true),
+            ("lib.rs", true),
+            ("src/feature/main.rs", false),
+            ("src/feature/lib.rs", false),
+            ("src/db.rs", false),
+        ] {
+            assert_eq!(
+                super::is_rust_crate_root(std::path::Path::new(root)),
+                expected,
+                "{root}"
+            );
+        }
     }
 
     fn temp_project_dir(name: &str) -> std::path::PathBuf {
