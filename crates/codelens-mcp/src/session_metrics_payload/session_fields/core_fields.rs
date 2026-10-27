@@ -95,9 +95,4 @@ pub(super) fn put_core_fields(
         "analysis_cache_hit_warm_count",
         json!(session.context.analysis_cache_hit_warm_count),
     );
-    put(
-        session_json,
-        "analysis_cache_hit_cold_count",
-        json!(session.context.analysis_cache_hit_cold_count),
-    );
 }

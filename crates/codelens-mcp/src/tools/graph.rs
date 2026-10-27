@@ -385,13 +385,16 @@ pub(crate) fn find_dead_code_v2_tool(
     arguments: &serde_json::Value,
 ) -> ToolResult {
     let max_results = optional_usize(arguments, "max_results", 50);
+    let scope = arguments.get("scope").and_then(|v| v.as_str());
     Ok(
-        find_dead_code_v2(&state.project(), max_results, &state.graph_cache()).map(|value| {
-            (
-                json!({ "dead_code": value, "count": value.len() }),
-                success_meta(BackendKind::Hybrid, 0.82),
-            )
-        })?,
+        find_dead_code_v2(&state.project(), scope, max_results, &state.graph_cache()).map(
+            |value| {
+                (
+                    json!({ "dead_code": value, "count": value.len() }),
+                    success_meta(BackendKind::Hybrid, 0.82),
+                )
+            },
+        )?,
     )
 }
 

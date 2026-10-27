@@ -219,7 +219,6 @@ pub struct ContextMetrics {
     pub analysis_cache_hit_count: u64,
     pub analysis_cache_hit_exact_count: u64,
     pub analysis_cache_hit_warm_count: u64,
-    pub analysis_cache_hit_cold_count: u64,
 }
 
 #[derive(Debug, Default, Serialize, Clone)]

@@ -17,6 +17,25 @@ pub use parsers::extract_imports_for_file;
 pub use parsers::extract_imports_from_source;
 pub use resolvers::resolve_module_for_file;
 
+/// `src/lib.rs`, `src/main.rs`, `src/bin/main.rs` and `src/bin/<name>/main.rs`
+/// are crate roots: they own their directory, so their `mod x;` names a
+/// sibling file. A nested module that is merely named `lib` or `main`
+/// (`src/feature/main.rs` from `mod main;`) owns `main/` like any other module.
+pub(crate) fn is_rust_crate_root(file: &Path) -> bool {
+    let is_root_name = matches!(
+        file.file_name().and_then(|n| n.to_str()),
+        Some("lib.rs" | "main.rs")
+    );
+    fn dir_name(dir: Option<&Path>) -> Option<&str> {
+        dir.and_then(Path::file_name).and_then(|n| n.to_str())
+    }
+    let parent = file.parent();
+    is_root_name
+        && (parent.is_none_or(|p| p.as_os_str().is_empty())
+            || matches!(dir_name(parent), Some("src" | "bin"))
+            || dir_name(parent.and_then(Path::parent)) == Some("bin"))
+}
+
 /// Use lang_registry as the single source of truth for supported extensions.
 pub fn is_import_supported(ext: &str) -> bool {
     crate::lang_registry::supports_imports(ext)
@@ -806,6 +825,73 @@ import (
             Some("crates/codelens-core/src/project.rs".to_owned()),
             "cross-crate import should resolve to crates/codelens-core/src/project.rs"
         );
+    }
+
+    // Regression (CodeLens self-analysis 2026-10-27): `mod calls;` in `db/ops.rs`
+    // was looked up as `db/calls.rs`, so every child of a Rust 2018 module
+    // (`foo.rs` + `foo/`) had no importer and showed up as dead code.
+    #[test]
+    fn resolves_rust_2018_child_modules_of_a_non_mod_rs_file() {
+        let dir = temp_project_dir("rust-2018-mods");
+        let src = dir.join("src");
+        fs::create_dir_all(src.join("db/ops")).expect("mkdir src/db/ops");
+        fs::write(src.join("lib.rs"), "pub mod db;\n").expect("write lib.rs");
+        fs::write(src.join("db.rs"), "mod ops;\n").expect("write db.rs");
+        fs::write(
+            src.join("db/ops.rs"),
+            "mod calls;\nuse self::calls::Call;\nuse super::Shared;\n",
+        )
+        .expect("write ops.rs");
+        fs::write(src.join("db/ops/calls.rs"), "pub struct Call;\n").expect("write calls.rs");
+        // Decoy: a same-named top-level module must not win.
+        fs::write(src.join("calls.rs"), "pub struct Other;\n").expect("write decoy");
+        fs::write(src.join("db/Shared.rs"), "pub struct Shared;\n").expect("write shared");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let resolve = |from: &str, module: &str| {
+            super::resolvers::resolve_module_for_file(&project, &src.join(from), module)
+        };
+        assert_eq!(resolve("db.rs", "ops").as_deref(), Some("src/db/ops.rs"));
+        assert_eq!(
+            resolve("db/ops.rs", "calls").as_deref(),
+            Some("src/db/ops/calls.rs")
+        );
+        assert_eq!(
+            resolve("db/ops.rs", "self::calls::Call").as_deref(),
+            Some("src/db/ops/calls.rs")
+        );
+        // `super::` stays relative to the file's own directory.
+        assert_eq!(
+            resolve("db/ops.rs", "super::Shared").as_deref(),
+            Some("src/db/Shared.rs")
+        );
+        // `mod.rs`/`lib.rs` own their parent directory.
+        assert_eq!(resolve("lib.rs", "db").as_deref(), Some("src/db.rs"));
+
+        // A nested module named `main` owns `main/`, not its parent.
+        fs::create_dir_all(src.join("db/ops/main")).expect("mkdir main/");
+        fs::write(src.join("db/ops/main.rs"), "mod x;\n").expect("write main.rs");
+        fs::write(src.join("db/ops/main/x.rs"), "pub struct X;\n").expect("write x.rs");
+        assert_eq!(
+            resolve("db/ops/main.rs", "x").as_deref(),
+            Some("src/db/ops/main/x.rs")
+        );
+        for (root, expected) in [
+            ("src/lib.rs", true),
+            ("src/main.rs", true),
+            ("src/bin/main.rs", true),
+            ("src/bin/tool/main.rs", true),
+            ("lib.rs", true),
+            ("src/feature/main.rs", false),
+            ("src/feature/lib.rs", false),
+            ("src/db.rs", false),
+        ] {
+            assert_eq!(
+                super::is_rust_crate_root(std::path::Path::new(root)),
+                expected,
+                "{root}"
+            );
+        }
     }
 
     fn temp_project_dir(name: &str) -> std::path::PathBuf {
