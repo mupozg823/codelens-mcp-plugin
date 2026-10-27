@@ -312,7 +312,7 @@ impl<'a> ProductionEdgeFilter<'a> {
                 }
             } else if is_js_family(rel) {
                 self.scan_timed(rel, |project, abs, content| {
-                    super::parsers::js_imports_by_timing(content)
+                    super::parsers::js_imports_by_timing(abs, content)
                         .into_iter()
                         .filter_map(|(module, timing)| {
                             super::resolvers::resolve_module(project, abs, &module)

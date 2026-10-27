@@ -599,6 +599,38 @@ pub struct Writer;
         );
         assert_eq!(cycles.len(), 1, "{cycles:?}");
         assert!(cycles[0].deferred, "{cycles:?}");
+
+        // A one-line function body, and a lazy route component.
+        let cycles = py_cycles(
+            "py-deferred-one-line",
+            "from b import helper\n",
+            "def helper(): from a import a_fn; return a_fn\n",
+        );
+        assert!(cycles.iter().all(|c| c.deferred), "{cycles:?}");
+        let cycles = ts_cycles(
+            "ts-dynamic-arrow",
+            "import { b } from './b';\nexport const a = () => b;\n",
+            "export const routes = [{ load: () => import('./a') }];\nexport const b = 1;\n",
+        );
+        assert!(cycles.iter().all(|c| c.deferred), "{cycles:?}");
+    }
+
+    // Codex review (#457): a module-level `await import()` runs while the
+    // module loads — `a.mjs` ↔ `b.mjs` exits Node with code 13.
+    #[test]
+    fn module_level_dynamic_import_keeps_the_cycle_load_time() {
+        for back_edge in [
+            "await import('./a');\nexport const b = 1;\n",
+            "if (globalThis.ready) {\n  await import('./a');\n}\nexport const b = 1;\n",
+        ] {
+            let cycles = ts_cycles(
+                "ts-dynamic-module-level",
+                "import './b';\nexport const a = 1;\n",
+                back_edge,
+            );
+            assert_eq!(cycles.len(), 1, "{back_edge:?}: {cycles:?}");
+            assert!(!cycles[0].deferred, "{back_edge:?}: {cycles:?}");
+        }
     }
 
     #[test]
@@ -610,11 +642,22 @@ pub struct Writer;
             "class Box:\n    from a import a_fn\n",
             // A deferred import next to an eager one of the same module.
             "from a import a_fn\n\ndef later():\n    from a import other\n",
+            // Simple statements joined by `;`, and a one-line block body.
+            "x = 1; from a import a_fn\n",
+            "try: from a import a_fn\nexcept ImportError: a_fn = None\n",
         ] {
             let cycles = py_cycles("py-load-time", "from b import helper\n", back_edge);
             assert_eq!(cycles.len(), 1, "{back_edge:?}: {cycles:?}");
             assert!(!cycles[0].deferred, "{back_edge:?}: {cycles:?}");
         }
+        // Codex review (#457): `import b; VALUE = 1` lost the `a → b` edge.
+        let cycles = py_cycles(
+            "py-load-time-semicolon",
+            "import b; VALUE = 1\n",
+            "from a import VALUE\n",
+        );
+        assert_eq!(cycles.len(), 1, "{cycles:?}");
+        assert!(!cycles[0].deferred, "{cycles:?}");
     }
 
     // shadow-partner 2026-10-27: `kakao_connector/__init__.py` imports its
@@ -665,6 +708,12 @@ pub struct Writer;
 
     #[test]
     fn type_checking_back_edge_is_not_a_cycle() {
+        let cycles = py_cycles(
+            "py-type-checking-one-line",
+            "from b import helper\n",
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING: from a import A\n",
+        );
+        assert!(cycles.is_empty(), "{cycles:?}");
         for header in ["if TYPE_CHECKING:", "if typing.TYPE_CHECKING:"] {
             let cycles = py_cycles(
                 "py-type-checking",

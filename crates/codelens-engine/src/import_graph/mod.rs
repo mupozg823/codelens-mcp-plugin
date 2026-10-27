@@ -899,7 +899,7 @@ import (
     // never reached `api/ai.py`.
     #[test]
     fn extracts_every_python_import_statement() {
-        let content = "\"\"\"from the docs import this\"\"\"\nimport os\nimport mac_control as mc\nimport a.b as ab, c  # two\nfrom importlib import util\nfrom api import ai, kakao as k\nfrom . import ledger as ledger_io\nfrom .. import shared\nfrom .pkg import (\n    one,\n    two as dos,  # trailing\n)\nfrom m import \\\n    cont\nfrom star import *\n\ndef lazy():\n    import payroll_report as pr\n";
+        let content = "\"\"\"from the docs import this\"\"\"\nimport os\nimport mac_control as mc\nimport a.b as ab, c  # two\nfrom importlib import util\nfrom api import ai, kakao as k\nfrom . import ledger as ledger_io\nfrom .. import shared\nfrom .pkg import (\n    one,\n    two as dos,  # trailing\n)\nfrom m import \\\n    cont\nfrom star import *\nimport semi; import semi2\nif TYPE_CHECKING: from typed import T\n\ndef lazy():\n    import payroll_report as pr\n";
         let imports = super::parsers::extract_python_imports(content);
         for expected in [
             "os",
@@ -921,6 +921,10 @@ import (
             "m",
             "m.cont",
             "star",
+            "semi",
+            "semi2",
+            "typed",
+            "typed.T",
             "payroll_report",
         ] {
             assert!(

@@ -219,8 +219,14 @@ pub(crate) fn python_import_statements(content: &str) -> Vec<PythonImport> {
                 blocks.pop();
             }
         }
+        // A one-line block (`if TYPE_CHECKING: import b`) has its body after
+        // the header's colon; that body is read below, inside the block.
+        let mut inline_block = None;
         if !in_docstring && BLOCK_KEYWORDS.contains(&keyword) {
-            let header = statement.trim_end_matches(':');
+            let (header, body) = match python_top_level(&statement, b':').first() {
+                Some(&colon) => (&statement[..colon], statement[colon + 1..].trim()),
+                None => (statement.as_str(), ""),
+            };
             let timing = if keyword == "def"
                 || python_keyword_rest(header, "async")
                     .is_some_and(|rest| python_keyword_rest(rest.trim_start(), "def").is_some())
@@ -233,31 +239,34 @@ pub(crate) fn python_import_statements(content: &str) -> Vec<PythonImport> {
             } else {
                 None
             };
-            blocks.push((indent, timing));
+            if body.is_empty() {
+                blocks.push((indent, timing));
+                open_brackets = brackets.max(0);
+                continue;
+            }
+            statement = body.to_owned();
+            inline_block = timing;
+        }
+        if !python_top_level_statements(&statement).any(|simple| {
+            python_keyword_rest(simple, "import").is_some()
+                || python_keyword_rest(simple, "from").is_some()
+        }) {
             open_brackets = brackets.max(0);
             continue;
         }
-        if python_keyword_rest(&statement, "import").is_none()
-            && python_keyword_rest(&statement, "from").is_none()
-        {
-            open_brackets = brackets.max(0);
-            continue;
-        }
-        let timing = if blocks
-            .iter()
-            .any(|&(_, timing)| timing == Some(ImportTiming::Erased))
-        {
+        let enclosing = || {
+            blocks
+                .iter()
+                .map(|&(_, timing)| timing)
+                .chain([inline_block])
+        };
+        let timing = if enclosing().any(|timing| timing == Some(ImportTiming::Erased)) {
             ImportTiming::Erased
-        } else if blocks
-            .iter()
-            .any(|&(_, timing)| timing == Some(ImportTiming::Deferred))
-        {
+        } else if enclosing().any(|timing| timing == Some(ImportTiming::Deferred)) {
             ImportTiming::Deferred
         } else {
             ImportTiming::Eager
         };
-        let mut imports = Vec::new();
-        let mut from_names = false;
         loop {
             let continued = statement.ends_with('\\');
             if !continued && statement.matches('(').count() <= statement.matches(')').count() {
@@ -272,41 +281,94 @@ pub(crate) fn python_import_statements(content: &str) -> Vec<PythonImport> {
             statement.push(' ');
             statement.push_str(strip_python_comment(next).trim());
         }
-        if let Some(rest) = python_keyword_rest(&statement, "import") {
-            for item in rest.split(',') {
-                if let Some(module) = item.split_whitespace().next()
-                    && is_python_module_path(module)
-                {
-                    imports.push(module.to_owned());
-                }
-            }
-        } else if let Some(rest) = python_keyword_rest(&statement, "from")
-            && let Some((module, names)) = split_from_import(rest)
-        {
-            let module = module.trim();
-            if !is_python_module_path(module) {
-                continue;
-            }
-            imports.push(module.to_owned());
-            from_names = true;
-            let separator = if module.ends_with('.') { "" } else { "." };
-            let names = names.trim().trim_start_matches('(').trim_end_matches(')');
-            for item in names.split(',') {
-                if let Some(name) = item.split_whitespace().next()
-                    && name.chars().all(|c| c.is_alphanumeric() || c == '_')
-                    && !name.is_empty()
-                {
-                    imports.push(format!("{module}{separator}{name}"));
-                }
-            }
-        }
-        statements.push(PythonImport {
-            modules: imports,
-            from_names,
-            timing,
-        });
+        statements.extend(
+            python_top_level_statements(&statement).filter_map(|simple| {
+                let (modules, from_names) = python_import_modules(simple)?;
+                Some(PythonImport {
+                    modules,
+                    from_names,
+                    timing,
+                })
+            }),
+        );
     }
     statements
+}
+
+/// `(modules, from_names)` of one simple statement when it is an import; see
+/// [`PythonImport`].
+fn python_import_modules(statement: &str) -> Option<(Vec<String>, bool)> {
+    if let Some(rest) = python_keyword_rest(statement, "import") {
+        let modules = rest
+            .split(',')
+            .filter_map(|item| item.split_whitespace().next())
+            .filter(|module| is_python_module_path(module))
+            .map(str::to_owned)
+            .collect();
+        return Some((modules, false));
+    }
+    let (module, names) = split_from_import(python_keyword_rest(statement, "from")?)?;
+    let module = module.trim();
+    if !is_python_module_path(module) {
+        return None;
+    }
+    let mut modules = vec![module.to_owned()];
+    let separator = if module.ends_with('.') { "" } else { "." };
+    let names = names.trim().trim_start_matches('(').trim_end_matches(')');
+    for item in names.split(',') {
+        if let Some(name) = item.split_whitespace().next()
+            && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && !name.is_empty()
+        {
+            modules.push(format!("{module}{separator}{name}"));
+        }
+    }
+    Some((modules, true))
+}
+
+/// The simple statements of one logical line: `import b; VALUE = 1` is two.
+fn python_top_level_statements(line: &str) -> impl Iterator<Item = &str> {
+    let mut start = 0;
+    python_top_level(line, b';')
+        .into_iter()
+        .chain([line.len()])
+        .map(move |end| {
+            let simple = line[start..end].trim();
+            start = end + 1;
+            simple
+        })
+}
+
+/// Byte offsets of `target` in `line` outside string literals and brackets —
+/// the `;` between simple statements, the `:` ending a block header (never
+/// the `:=` of an assignment expression). Compares bytes, like
+/// [`python_bracket_delta`].
+fn python_top_level(line: &str, target: u8) -> Vec<usize> {
+    let bytes = line.as_bytes();
+    let mut found = Vec::new();
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            quote @ (b'"' | b'\'') => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != quote {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            byte if byte == target
+                && depth == 0
+                && !(target == b':' && bytes.get(i + 1) == Some(&b'=')) =>
+            {
+                found.push(i);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    found
 }
 
 /// Bracket balance of one Python line outside string literals and comments;
@@ -448,9 +510,10 @@ pub(crate) fn is_type_only_js_clause(clause: &str) -> bool {
 }
 
 /// [`extract_js_imports`] with each specifier's [`ImportTiming`]: `import type`
-/// is erased, dynamic `import()` deferred, everything else eager. A module
-/// named under several timings binds at the earliest; callers combine them.
-pub(crate) fn js_imports_by_timing(content: &str) -> Vec<(String, ImportTiming)> {
+/// is erased, a dynamic `import()` inside a function deferred, everything else
+/// eager. A module named under several timings binds at the earliest; callers
+/// combine them.
+pub(crate) fn js_imports_by_timing(path: &Path, content: &str) -> Vec<(String, ImportTiming)> {
     let mut imports = Vec::new();
     for regex in [&*JS_IMPORT_FROM_RE, &*JS_REEXPORT_FROM_RE] {
         for capture in regex.captures_iter(content) {
@@ -468,18 +531,68 @@ pub(crate) fn js_imports_by_timing(content: &str) -> Vec<(String, ImportTiming)>
             imports.push((module.as_str().trim().to_owned(), timing));
         }
     }
-    for (regex, timing) in [
-        (&*JS_IMPORT_SIDE_EFFECT_RE, ImportTiming::Eager),
-        (&*JS_REQUIRE_RE, ImportTiming::Eager),
-        (&*JS_DYNAMIC_IMPORT_RE, ImportTiming::Deferred),
-    ] {
+    for regex in [&*JS_IMPORT_SIDE_EFFECT_RE, &*JS_REQUIRE_RE] {
         for capture in regex.captures_iter(content) {
             if let Some(module) = capture.name("module") {
-                imports.push((module.as_str().trim().to_owned(), timing));
+                imports.push((module.as_str().trim().to_owned(), ImportTiming::Eager));
             }
         }
     }
+    // A module-level `await import()` blocks the module's own evaluation, so
+    // only a call proven to sit inside a function is deferred.
+    let mut functions = None;
+    for capture in JS_DYNAMIC_IMPORT_RE.captures_iter(content) {
+        let (Some(call), Some(module)) = (capture.get(0), capture.name("module")) else {
+            continue;
+        };
+        let functions = functions.get_or_insert_with(|| js_function_ranges(path, content));
+        let timing = if functions
+            .iter()
+            .any(|function| function.contains(&call.start()))
+        {
+            ImportTiming::Deferred
+        } else {
+            ImportTiming::Eager
+        };
+        imports.push((module.as_str().trim().to_owned(), timing));
+    }
     imports
+}
+
+/// Byte ranges of the functions in a JS/TS file — declarations, expressions,
+/// arrows, methods — whose code runs when called, not when the module
+/// loads. Empty when the file does not parse.
+fn js_function_ranges(path: &Path, content: &str) -> Vec<std::ops::Range<usize>> {
+    let Some(config) = crate::lang_config::language_for_path(path) else {
+        return Vec::new();
+    };
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&config.language).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(content, None) else {
+        return Vec::new();
+    };
+    let mut ranges = Vec::new();
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        if matches!(
+            node.kind(),
+            "function_declaration"
+                | "function_expression"
+                | "function"
+                | "generator_function_declaration"
+                | "generator_function"
+                | "arrow_function"
+                | "method_definition"
+        ) {
+            ranges.push(node.byte_range());
+            continue;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    ranges
 }
 
 pub(super) fn extract_go_imports(content: &str) -> Vec<String> {
