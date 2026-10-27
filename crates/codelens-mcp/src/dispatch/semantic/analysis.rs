@@ -19,9 +19,7 @@ pub(in crate::dispatch) fn find_similar_code_handler(
         .unwrap_or(0.3);
 
     let guard = state.embedding_engine();
-    let engine = guard
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
+    let engine = super::indexed_embedding_engine(&guard)?;
 
     let fetch_limit = max_results.saturating_mul(2).clamp(max_results, 40);
     let raw_results = engine.find_similar_code(file_path, symbol_name, fetch_limit)?;
@@ -63,9 +61,7 @@ pub(in crate::dispatch) fn find_code_duplicates_handler(
         .unwrap_or(false);
 
     let guard = state.embedding_engine();
-    let engine = guard
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
+    let engine = super::indexed_embedding_engine(&guard)?;
 
     // Over-fetch before suppression so the max_pairs budget still fills with
     // real code duplicates that would otherwise sit below the cutoff once the
@@ -106,9 +102,7 @@ pub(in crate::dispatch) fn classify_symbol_handler(
     let cat_strs: Vec<&str> = categories.iter().filter_map(|v| v.as_str()).collect();
 
     let guard = state.embedding_engine();
-    let engine = guard
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
+    let engine = super::indexed_embedding_engine(&guard)?;
 
     let scores = engine.classify_symbol(file_path, symbol_name, &cat_strs)?;
     Ok((
@@ -127,9 +121,7 @@ pub(in crate::dispatch) fn find_misplaced_code_handler(
         .unwrap_or(10) as usize;
 
     let guard = state.embedding_engine();
-    let engine = guard
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
+    let engine = super::indexed_embedding_engine(&guard)?;
 
     let outliers = engine.find_misplaced_code(max_results)?;
     Ok((

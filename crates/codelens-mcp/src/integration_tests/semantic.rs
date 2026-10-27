@@ -104,6 +104,43 @@ fn refresh_symbol_index_reconciles_embedding_freshness() {
 }
 
 #[test]
+fn semantic_lookups_on_an_unindexed_project_fail_instead_of_reporting_nothing() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
+
+    // Symbols exist, the embedding index does not: «no duplicates» here would be a
+    // claim about code nobody looked at (K-0061 — winnation dupes answered count 0).
+    let project = project_root();
+    std::fs::write(
+        project.as_path().join("main.py"),
+        "def hello():\n    return 1\n\ndef hello_again():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "refresh_symbol_index", json!({}));
+
+    for (tool, arguments) in [
+        ("find_code_duplicates", json!({})),
+        (
+            "find_similar_code",
+            json!({"file_path": "main.py", "symbol_name": "hello"}),
+        ),
+        ("find_misplaced_code", json!({})),
+        ("semantic_search", json!({"query": "hello"})),
+    ] {
+        let response = call_tool(&state, tool, arguments);
+        assert_eq!(response["success"], false, "{tool}: {response:#}");
+        assert!(
+            response["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("Embedding index is empty")),
+            "{tool} must say the index is empty: {response:#}"
+        );
+    }
+}
+
+#[test]
 fn index_embeddings_defaults_to_durable_background_job() {
     let project = project_root();
     let state = make_state(&project);

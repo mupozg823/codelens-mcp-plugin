@@ -1,6 +1,5 @@
 use crate::{
     AppState,
-    error::CodeLensError,
     protocol::BackendKind,
     tools::{self, ToolResult},
 };
@@ -29,16 +28,7 @@ pub(in crate::dispatch) fn semantic_search_handler(
         path_hint,
     );
     let guard = state.embedding_engine();
-    let engine = guard.as_ref().ok_or_else(|| {
-        anyhow::anyhow!("Embedding engine not available. Build with --features semantic")
-    })?;
-
-    if !engine.is_indexed() {
-        return Err(CodeLensError::FeatureUnavailable(
-            "Embedding index is empty. Call index_embeddings first to build the semantic index."
-                .into(),
-        ));
-    }
+    super::indexed_embedding_engine(&guard)?;
 
     let query_analysis = crate::tools::query_analysis::analyze_retrieval_query(query);
     let candidate_limit = if normalized_path_hint.is_some() {

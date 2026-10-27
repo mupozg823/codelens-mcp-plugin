@@ -227,6 +227,7 @@ pub(super) fn summarize_text_object(source: &Map<String, Value>, depth: usize) -
     };
     let mut summarized = Map::new();
     let mut array_shrunk = false;
+    let mut omitted_markers: Vec<(String, usize)> = Vec::new();
     // #211: previously the loop broke on the first cap hit and only
     // marked `truncated: true`, leaving callers with no way to know
     // which keys had been dropped. Collect every dropped key so the
@@ -265,8 +266,20 @@ pub(super) fn summarize_text_object(source: &Map<String, Value>, depth: usize) -
             && items.len() > TEXT_CHANNEL_MAX_ARRAY_ITEMS
         {
             array_shrunk = true;
+            // Same marker the structured summarizer leaves: the text channel used
+            // to say only `truncated: true`, so `count: 80` beside three
+            // `duplicates` read as a contradiction with no size to recover (K-0062).
+            omitted_markers.push((
+                format!("{key}_omitted_count"),
+                items.len() - TEXT_CHANNEL_MAX_ARRAY_ITEMS,
+            ));
         }
         summarized.insert(key.clone(), summarize_text_value(value, depth + 1));
+    }
+    for (marker_key, omitted) in omitted_markers {
+        if !summarized.contains_key(&marker_key) {
+            summarized.insert(marker_key, json!(omitted));
+        }
     }
     if !omitted_keys.is_empty() {
         summarized.insert("truncated".to_owned(), Value::Bool(true));
@@ -543,6 +556,35 @@ mod full_results_preservation_tests {
         assert_eq!(obj.get("count").and_then(Value::as_i64), Some(17));
         assert_eq!(obj.get("returned_count").and_then(Value::as_i64), Some(17));
         assert_eq!(obj.get("sampled").and_then(Value::as_bool), Some(false));
+    }
+
+    #[test]
+    fn a_clipped_text_channel_array_says_how_many_items_it_dropped() {
+        // K-0062: `find_code_duplicates` on winnation answered `count: 80` with three
+        // `duplicates` and only `truncated: true` — no size to recover. The text
+        // channel now carries the same `<key>_omitted_count` as structured content.
+        let pairs: Vec<Value> = (0..80)
+            .map(|n| json!({"symbol_a": format!("a{n}"), "symbol_b": format!("b{n}"), "similarity": 0.9}))
+            .collect();
+        let summarized = summarize_text_data_for_response(
+            &json!({"threshold": 0.85, "duplicates": pairs, "count": 80}),
+        );
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("duplicates")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(TEXT_CHANNEL_MAX_ARRAY_ITEMS)
+        );
+        assert_eq!(
+            obj.get("duplicates_omitted_count").and_then(Value::as_u64),
+            Some(80 - TEXT_CHANNEL_MAX_ARRAY_ITEMS as u64)
+        );
+        assert_eq!(obj.get("truncated").and_then(Value::as_bool), Some(true));
+
+        // A full_results array is kept whole, so it reports nothing omitted.
+        let full = summarize_text_data_for_response(&references_payload(17, true));
+        assert!(full.get("references_omitted_count").is_none(), "{full:?}");
     }
 
     #[test]

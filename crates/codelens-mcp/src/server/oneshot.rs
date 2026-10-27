@@ -31,6 +31,7 @@ pub(crate) fn run_oneshot(
         }
         None => json!({}),
     };
+    let arguments = oneshot_arguments(tool_name, arguments);
     let params = json!({ "name": tool_name, "arguments": arguments });
     let response = dispatch_tool(state, Some(json!(1)), params);
 
@@ -50,7 +51,7 @@ pub(crate) fn run_oneshot_batch(state: &AppState, batch_json: &str) -> Result<()
     for (index, call) in calls.iter().enumerate() {
         let params = json!({
             "name": &call.name,
-            "arguments": &call.arguments,
+            "arguments": oneshot_arguments(&call.name, call.arguments.clone()),
         });
         let response = dispatch_tool(state, Some(json!(index + 1)), params);
         if let Some(value) = render_success_value(&response) {
@@ -75,6 +76,20 @@ pub(crate) fn run_oneshot_batch(state: &AppState, batch_json: &str) -> Result<()
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// A one-shot process prints its answer and exits, so a job queued for a
+/// background worker never runs: `--cmd index_embeddings` answered «queued» and
+/// left the index empty (K-0060). Tools whose `background` defaults to true run
+/// in the foreground here unless the caller asked for a background job.
+fn oneshot_arguments(tool_name: &str, mut arguments: Value) -> Value {
+    const FOREGROUND_BY_DEFAULT: &[&str] = &["index_embeddings"];
+    if FOREGROUND_BY_DEFAULT.contains(&tool_name)
+        && let Some(object) = arguments.as_object_mut()
+    {
+        object.entry("background").or_insert(Value::Bool(false));
+    }
+    arguments
 }
 
 fn parse_batch_calls(batch_json: &str) -> Result<Vec<BatchToolCall>> {
@@ -181,6 +196,22 @@ fn render_error_value(index: usize, call: &BatchToolCall, response: &JsonRpcResp
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn one_shot_index_embeddings_runs_in_the_foreground_unless_asked_otherwise() {
+        assert_eq!(
+            oneshot_arguments("index_embeddings", json!({})),
+            json!({"background": false})
+        );
+        assert_eq!(
+            oneshot_arguments("index_embeddings", json!({"background": true})),
+            json!({"background": true})
+        );
+        assert_eq!(
+            oneshot_arguments("dead_code_report", json!({"max_results": 5})),
+            json!({"max_results": 5})
+        );
+    }
+
     use super::*;
 
     #[test]
