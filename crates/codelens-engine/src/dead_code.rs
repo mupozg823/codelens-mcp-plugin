@@ -421,6 +421,51 @@ fn count_identifiers(source: &str, counts: &mut HashMap<String, usize>) {
     }
 }
 
+/// `source` without its whole-line comments, so a name mentioned only in prose
+/// (`// see fooBar`, a JSDoc ` * @see` line, `# TODO: drop x`) is not a use —
+/// held-out evaluation 2026-10-27: a comment in another file kept a dead
+/// method alive. Only lines that *start* as a comment go: telling a trailing
+/// `//` from one inside a string needs a lexer, and keeping the line
+/// over-counts, the safe direction. `#` is a comment in Python and Ruby only
+/// (C's `#include`, Rust's `#[attr]` are code).
+fn without_comment_lines(source: &str, path: &Path) -> String {
+    let hash_comments = matches!(path.extension().and_then(|e| e.to_str()), Some("py" | "rb"));
+    let mut code = String::with_capacity(source.len());
+    let mut in_block = false;
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let block_rest = if in_block {
+            Some(trimmed)
+        } else if !hash_comments && trimmed.starts_with("/*") {
+            Some(&trimmed[2..])
+        } else {
+            None
+        };
+        if let Some(rest) = block_rest {
+            match rest.find("*/") {
+                // Code after the closing `*/` keeps the line.
+                Some(end) => {
+                    in_block = false;
+                    if !rest[end + 2..].trim().is_empty() {
+                        code.push_str(line);
+                    }
+                }
+                None => in_block = true,
+            }
+            continue;
+        }
+        let comment = if hash_comments {
+            trimmed.starts_with('#')
+        } else {
+            trimmed.starts_with("//")
+        };
+        if !comment {
+            code.push_str(line);
+        }
+    }
+    code
+}
+
 /// The token [`count_identifiers`] records for a defined function name, or
 /// `None` when it records none. A Rust raw identifier `r#match` is the item
 /// `match` (references may spell it either way, and the scan splits `r#` off);
@@ -618,7 +663,10 @@ pub fn find_dead_code_v2(
     let mut identifier_counts: HashMap<String, usize> = HashMap::new();
     for path in &candidate_files {
         if let Ok(source) = std::fs::read_to_string(path) {
-            count_identifiers(&source, &mut identifier_counts);
+            count_identifiers(
+                &without_comment_lines(&source, path),
+                &mut identifier_counts,
+            );
         }
     }
 
@@ -1094,6 +1142,27 @@ mod tests {
         assert_eq!(reference_key("Foo.bar"), None);
         assert_eq!(reference_key("<anonymous>"), None);
         assert_eq!(reference_key(""), None);
+    }
+
+    #[test]
+    fn whole_line_comments_are_not_uses() {
+        let ts = "// see staleHelper\n/**\n * @see staleHelper\n */\n/* note */ live(a);\nconst url = \"http://x\"; // staleHelper stays: trailing\n  *ptrLike = live2;\n";
+        let code = without_comment_lines(ts, Path::new("a.ts"));
+        let mut counts = HashMap::new();
+        count_identifiers(&code, &mut counts);
+        assert_eq!(counts.get("staleHelper"), Some(&1), "{code:?}");
+        assert_eq!(counts.get("live"), Some(&1), "{code:?}");
+        assert_eq!(counts.get("ptrLike"), Some(&1), "{code:?}");
+
+        let py = "# drop old_job later\nx = \"# old_job\"\n    # old_job indented\nrun()\n";
+        let code = without_comment_lines(py, Path::new("a.py"));
+        let mut counts = HashMap::new();
+        count_identifiers(&code, &mut counts);
+        assert_eq!(counts.get("old_job"), Some(&1), "{code:?}");
+
+        // `#` starts code in C and Rust.
+        let rs = "#[inline]\nfn kept() {}\n#include \"kept.h\"\n";
+        assert_eq!(without_comment_lines(rs, Path::new("a.rs")), rs);
     }
 
     #[test]
