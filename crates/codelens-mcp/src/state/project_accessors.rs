@@ -437,16 +437,18 @@ impl AppState {
             .session_store
             .as_ref()
             .map(|store| store.active_project_paths_guard());
-        let mut protected = vec![self.default_project_scope(), self.current_project_scope()];
+        let protected = [self.default_project_scope(), self.current_project_scope()];
         #[cfg(feature = "http")]
-        if let Some(paths) = active_session_paths.as_ref() {
-            protected.extend(
-                paths
+        let protected = protected
+            .into_iter()
+            .chain(
+                active_session_paths
                     .iter()
+                    .flat_map(|paths| paths.iter())
                     .filter_map(|path| codelens_engine::ProjectRoot::new(path).ok())
                     .map(|project| project.as_path().to_string_lossy().into_owned()),
-            );
-        }
+            )
+            .collect::<Vec<_>>();
         let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
         let mut cache = self
             .project_context_cache
