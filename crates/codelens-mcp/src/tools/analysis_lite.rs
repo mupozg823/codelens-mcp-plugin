@@ -200,10 +200,13 @@ fn run_bound(
 }
 
 #[cfg(test)]
+pub(crate) type AfterQueryHook = Box<dyn Fn(&AppState)>;
+
+#[cfg(test)]
 thread_local! {
     /// Runs on the calling thread right after the engine query, under the
     /// request binding: lets a test commit to the bound index mid-request.
-    pub(crate) static AFTER_QUERY: std::cell::RefCell<Option<Box<dyn Fn(&AppState)>>> =
+    pub(crate) static AFTER_QUERY: std::cell::RefCell<Option<AfterQueryHook>> =
         const { std::cell::RefCell::new(None) };
 }
 
