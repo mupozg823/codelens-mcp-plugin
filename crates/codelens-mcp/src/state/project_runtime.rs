@@ -56,11 +56,40 @@ impl ProjectRuntimeAuthority {
 }
 
 /// The lease holder's metadata, re-read now (the holder may have changed
-/// since this reader was built) and reported structured when it parses.
+/// since this reader was built) and reported structured when it parses, with
+/// `alive`: whether the holder pid still exists. A dead holder's metadata
+/// stays in the lock file until the next writer acquires it.
 fn current_holder_json(lock_path: &str) -> serde_json::Value {
-    super::project_runtime_lease::current_holder_metadata(Path::new(lock_path))
+    let mut holder = super::project_runtime_lease::current_holder_metadata(Path::new(lock_path))
         .map(|raw| serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!(raw)))
-        .unwrap_or(serde_json::Value::Null)
+        .unwrap_or(serde_json::Value::Null);
+    if let Some(pid) = holder["pid"].as_u64() {
+        holder["alive"] = serde_json::json!(pid_is_alive(pid));
+    }
+    holder
+}
+
+/// `kill(pid, 0)`: the pid exists unless the call fails with `ESRCH` (an
+/// `EPERM` pid exists but belongs to another user). `None` (reported `null`)
+/// where liveness is not checked.
+#[cfg(unix)]
+fn pid_is_alive(pid: u64) -> Option<bool> {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return Some(false);
+    };
+    if pid <= 0 {
+        return Some(false);
+    }
+    // SAFETY: signal 0 only checks that the pid exists; nothing is sent.
+    Some(
+        unsafe { libc::kill(pid, 0) == 0 }
+            || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH),
+    )
+}
+
+#[cfg(not(unix))]
+fn pid_is_alive(_pid: u64) -> Option<bool> {
+    None
 }
 
 impl ProjectContext {
@@ -1000,5 +1029,39 @@ mod home_guard_tests {
                 None => std::env::remove_var("SYMBIOTE_ALLOW_HOME_PROJECT"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod writer_holder_tests {
+    use super::current_holder_json;
+
+    fn lock_with_pid(label: &str, pid: u32) -> String {
+        let lock = crate::test_helpers::fixtures::fixture_dir(label).join("project.lock");
+        std::fs::write(
+            &lock,
+            serde_json::json!({
+                "generation": 3, "pid": pid, "project": "/x", "version": "0",
+                "git_sha": "0", "acquired_at_ms": 1,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        lock.to_string_lossy().into_owned()
+    }
+
+    // A reader keeps reporting the holder it found; once that process is gone
+    // the metadata is stale and the report must say so.
+    #[test]
+    fn writer_holder_reports_whether_the_holder_pid_is_alive() {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let dead = child.id();
+        child.wait().unwrap();
+        let stale = current_holder_json(&lock_with_pid("holder-dead", dead));
+        assert_eq!(stale["pid"], serde_json::json!(dead), "{stale}");
+        assert_eq!(stale["alive"], serde_json::json!(false), "{stale}");
+
+        let live = current_holder_json(&lock_with_pid("holder-live", std::process::id()));
+        assert_eq!(live["alive"], serde_json::json!(true), "{live}");
     }
 }

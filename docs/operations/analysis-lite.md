@@ -40,15 +40,18 @@ multi-host shape. Registering is a per-user decision taken from pilot evidence.
   resolves under the launch directory's repository. Either root must carry a
   real project marker (a .codelens directory alone does not count), must not
   be $HOME or /, and must not sit inside a macOS File Provider (cloud-synced)
-  folder; otherwise the call returns project_binding_required before anything
+  folder (a folder whose provider tag cannot be read counts as synced); otherwise the call returns project_binding_required before anything
   is written. A session launched in $HOME, /, or a folder without a marker
   therefore has no launch project, and its relative target.files return the
   same error.
 - Parallel sessions on one repository. The first server takes the project
   writer lease. A later analysis-lite server's call finds it busy and binds the
   repository as an explicit reader: no lease, watcher, refresh or writes, and the index opened
-  read-only. Every response carries freshness.runtime_role and, for a reader,
-  writer_holder. A reader reports snapshot.generation as null and refuses
+  read-only. Every response, including status=error evidence, carries
+  freshness.runtime_role and, for a reader, writer_holder with alive (whether
+  the holder pid still exists). If the writer has not created its index yet,
+  that call returns a retryable index_not_ready and the next call retries the
+  bind. A reader reports snapshot.generation as null and refuses
   generation pins, because the writer's mutation counter is in the writer's
   process. A reader is not promoted when the writer exits; its index stops
   following edits until its session restarts. Other profiles keep rejecting a

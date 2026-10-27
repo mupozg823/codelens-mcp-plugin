@@ -78,7 +78,14 @@ pub(crate) fn build_error_response<'a>(
     let mut resp = ToolCallResponse::error(error.to_string());
     if active_surface == "analysis-lite" {
         resp.data = Some(match &error {
-            CodeLensError::AnalysisEvidence(evidence) => json!(evidence),
+            CodeLensError::AnalysisEvidence {
+                evidence,
+                runtime_role,
+            } => {
+                let mut payload = json!(evidence);
+                crate::tools::analysis_lite::apply_runtime_role(&mut payload, runtime_role);
+                payload
+            }
             _ => crate::tools::analysis_lite::rejected_payload(state, arguments, &error),
         });
     }

@@ -127,8 +127,14 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
         args.get("path").and_then(Value::as_str),
         limits,
     );
+    // Read while the request binding is held; the error envelope is built
+    // after it is released.
+    let runtime_role = state.project_runtime_role_evidence();
     if evidence.status == EvidenceStatus::Error {
-        return Err(CodeLensError::AnalysisEvidence(Box::new(evidence)));
+        return Err(CodeLensError::AnalysisEvidence {
+            evidence: Box::new(evidence),
+            runtime_role: Box::new(runtime_role),
+        });
     }
     let partial = evidence.status != EvidenceStatus::Ok;
     let mut payload =
@@ -136,16 +142,7 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
     payload["freshness"]["watcher_running"] =
         json!(state.watcher_stats().map(|stats| stats.running));
     payload["freshness"]["watcher_start_error"] = json!(state.watcher_error());
-    // Writer or reader (another process holds the lease): explicit, never a
-    // silent downgrade.
-    if let Value::Object(role) = state.project_runtime_role_evidence() {
-        for (key, value) in role {
-            payload["freshness"][key] = value;
-        }
-    }
-    if reader && payload["snapshot"].is_object() {
-        payload["snapshot"]["generation"] = Value::Null;
-    }
+    apply_runtime_role(&mut payload, &runtime_role);
     // This read preserves DB errors as errors, rather than the legacy health
     // helper's unwrap_or_default() zero-failure interpretation.
     payload["freshness"]["index_failure_summary"] = match index.db().index_failure_summary(900) {
@@ -169,6 +166,22 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
     meta.freshness = Freshness::Indexed;
     meta.degraded_reason = Some("analysis-lite coverage and freshness are defined by the typed evidence; no completeness confidence is assigned".to_owned());
     Ok((payload, meta))
+}
+
+/// Stamp serialized evidence (success or `status=error`) with the runtime that
+/// answered: `freshness.runtime_role` and, for a reader of another process's
+/// writer lease, `freshness.writer_holder` — explicit, never a silent
+/// downgrade. A reader cannot see the writer's mutation counter, so its
+/// `snapshot.generation` is reported unknown.
+pub(crate) fn apply_runtime_role(payload: &mut Value, runtime_role: &Value) {
+    if let Value::Object(role) = runtime_role {
+        for (key, value) in role {
+            payload["freshness"][key] = value.clone();
+        }
+    }
+    if runtime_role["runtime_role"] == "reader" && payload["snapshot"].is_object() {
+        payload["snapshot"]["generation"] = Value::Null;
+    }
 }
 
 /// Resolve `target.file` under this server's binding, returning the
@@ -288,8 +301,9 @@ fn cloud_synced_ancestor(
 #[cfg(target_os = "macos")]
 fn has_file_provider_domain(dir: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
+    // A path with an interior NUL cannot be checked: fail closed.
     let Ok(path) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
-        return false;
+        return true;
     };
     // SAFETY: both pointers are valid NUL-terminated strings for the call; a
     // null value buffer with size 0 only queries the attribute's length.
@@ -303,7 +317,18 @@ fn has_file_provider_domain(dir: &Path) -> bool {
             0,
         )
     };
-    size >= 0
+    let errno = (size < 0)
+        .then(|| std::io::Error::last_os_error().raw_os_error())
+        .flatten();
+    xattr_lookup_is_synced(size, errno)
+}
+
+/// Decision on one `getxattr` result. Fails closed: only a definite
+/// `ENOATTR` (the attribute is absent) clears a dir; any other error (EACCES,
+/// EIO, ENOTSUP, ...) leaves it possibly synced, so it is treated as synced.
+#[cfg(target_os = "macos")]
+fn xattr_lookup_is_synced(size: isize, errno: Option<i32>) -> bool {
+    size >= 0 || errno != Some(libc::ENOATTR)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -403,6 +428,32 @@ pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensE
 mod tests {
     use super::cloud_synced_ancestor;
     use std::path::Path;
+
+    // A dir whose provider tag cannot be read (EACCES, EIO, ENOTSUP, ...) may
+    // still be synced; only a definite "no such attribute" clears it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn file_provider_lookup_fails_closed_on_every_error_but_a_missing_attribute() {
+        use super::xattr_lookup_is_synced;
+        assert!(xattr_lookup_is_synced(4, None));
+        assert!(xattr_lookup_is_synced(0, None));
+        assert!(!xattr_lookup_is_synced(-1, Some(libc::ENOATTR)));
+        for errno in [
+            libc::EACCES,
+            libc::ENOENT,
+            libc::ENOTSUP,
+            libc::EIO,
+            libc::ELOOP,
+            libc::EPERM,
+        ] {
+            assert!(xattr_lookup_is_synced(-1, Some(errno)), "errno {errno}");
+        }
+        assert!(xattr_lookup_is_synced(-1, None), "unknown errno");
+        // An ordinary local dir still reads as not synced.
+        assert!(!super::has_file_provider_domain(
+            &std::env::temp_dir().canonicalize().unwrap()
+        ));
+    }
 
     #[test]
     fn cloud_synced_walk_stops_below_home_and_reports_the_tagged_dir() {

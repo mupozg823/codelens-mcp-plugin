@@ -403,9 +403,146 @@ fn analysis_lite_writer_with_index() -> (crate::AppState, ProjectRoot) {
     (writer, project)
 }
 
+/// What a reader must leave alone: every path under the repo's `.codelens`
+/// (no new files or dirs) and the index database's size and mtime.
+#[derive(Debug, PartialEq)]
+struct CodelensFootprint {
+    entries: std::collections::BTreeSet<std::path::PathBuf>,
+    db: (u64, std::time::SystemTime),
+}
+
+fn codelens_footprint(repo: &std::path::Path) -> CodelensFootprint {
+    let root = repo.join(".codelens");
+    let mut entries = std::collections::BTreeSet::new();
+    let mut pending = vec![root.clone()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path.clone());
+            }
+            entries.insert(path.strip_prefix(&root).unwrap().to_path_buf());
+        }
+    }
+    let db = fs::metadata(root.join("index").join("symbols.db")).unwrap();
+    CodelensFootprint {
+        entries,
+        db: (db.len(), db.modified().unwrap()),
+    }
+}
+
+fn remove_index_db(project: &ProjectRoot) {
+    let index_dir = project.as_path().join(".codelens").join("index");
+    for name in ["symbols.db", "symbols.db-wal", "symbols.db-shm"] {
+        let _ = fs::remove_file(index_dir.join(name));
+    }
+}
+
+/// A per-call (launch-unbound) stdio server that serves a reader when another
+/// session holds a repository's writer lease.
+fn analysis_lite_per_call_reader_state() -> crate::AppState {
+    let state = analysis_lite_launch_unbound_state();
+    state.configure_analysis_lite_reader_fallback(true);
+    state
+}
+
+// The writer has the lease but has not created its index yet: that call is a
+// retryable IndexNotReady, and the failed build is not remembered, so the
+// call after the writer creates the db binds as a reader.
+#[test]
+fn analysis_lite_per_call_reader_without_a_db_is_retryable_then_binds_once_the_db_exists() {
+    let repo = analysis_lite_ts_project();
+    let project = ProjectRoot::new(&repo).unwrap();
+    let _writer = make_state(&project);
+    remove_index_db(&project);
+    let state = analysis_lite_per_call_reader_state();
+    let file = repo.join("a.ts").display().to_string();
+
+    let first = analysis_lite_refs_call(&state, &file);
+    assert_eq!(first["result"]["isError"], json!(true), "{first}");
+    let data = analysis_lite_data(&first);
+    assert_eq!(
+        data["errors"][0]["code"],
+        json!("index_not_ready"),
+        "{data}"
+    );
+    assert_eq!(data["errors"][0]["retryable"], json!(true), "{data}");
+    assert!(
+        !repo
+            .join(".codelens")
+            .join("index")
+            .join("symbols.db")
+            .exists(),
+        "the reader must not create the db"
+    );
+    // The server is still usable: another repository binds and answers.
+    let other = analysis_lite_ts_project();
+    let other_response = analysis_lite_refs_call(&state, &other.join("a.ts").display().to_string());
+    assert_ne!(
+        other_response["result"]["isError"],
+        json!(true),
+        "{other_response}"
+    );
+
+    // The writer process creates its db (and keeps it open, as a live writer
+    // does).
+    let writer_index = codelens_engine::SymbolIndex::new(project.clone()).unwrap();
+    writer_index.refresh_all().unwrap();
+    let before = codelens_footprint(&repo);
+
+    let second = analysis_lite_refs_call(&state, &file);
+    assert_ne!(second["result"]["isError"], json!(true), "{second}");
+    let data = analysis_lite_data(&second);
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    assert_eq!(
+        analysis_lite_reference_files(&data),
+        ["a.ts", "b.ts", "b.ts"]
+    );
+    let _again = analysis_lite_refs_call(&state, &file);
+    assert_eq!(codelens_footprint(&repo), before, "a reader writes nothing");
+    drop(writer_index);
+}
+
+// A failing reader call reports the same runtime identity as a successful
+// one: who answered (reader, and whose lease) and no snapshot generation.
+#[test]
+fn analysis_lite_per_call_reader_error_payload_names_the_reader_runtime() {
+    let (_writer, project) = analysis_lite_writer_with_index();
+    let repo = project.as_path().to_path_buf();
+    let before = codelens_footprint(&repo);
+    let state = analysis_lite_per_call_reader_state();
+    // `sink` is bytes 16..20 of a.ts; 0..6 (`export`) is not its name token,
+    // so the engine answers status=error with typed evidence.
+    let response = analysis_lite_rpc(
+        &state,
+        "tools/call",
+        json!({"name":"search","arguments":{"mode":"refs","target":{
+            "file":repo.join("a.ts").display().to_string(),"name":"sink",
+            "start_byte":0,"end_byte":6}}}),
+    );
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(data["status"], json!("error"), "{data}");
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    assert_eq!(
+        data["freshness"]["writer_holder"]["pid"],
+        json!(std::process::id()),
+        "{data}"
+    );
+    assert_eq!(
+        data["freshness"]["writer_holder"]["alive"],
+        json!(true),
+        "{data}"
+    );
+    assert!(data["snapshot"].is_object(), "{data}");
+    assert_eq!(data["snapshot"]["generation"], json!(null), "{data}");
+    assert_eq!(codelens_footprint(&repo), before, "a reader writes nothing");
+}
+
 #[test]
 fn analysis_lite_second_session_is_an_explicit_reader_of_the_writers_index() {
     let (writer, project) = analysis_lite_writer_with_index();
+    let before = codelens_footprint(project.as_path());
     let reader = crate::AppState::try_new_minimal_with_reader_fallback(
         project.clone(),
         crate::tool_defs::ToolPreset::Full,
@@ -435,6 +572,11 @@ fn analysis_lite_second_session_is_an_explicit_reader_of_the_writers_index() {
     assert_eq!(
         reader.project_runtime_health_payload()["runtime_role"],
         json!("reader")
+    );
+    assert_eq!(
+        codelens_footprint(project.as_path()),
+        before,
+        "a reader writes nothing"
     );
     writer.set_surface(crate::tool_defs::ToolSurface::Profile(
         crate::tool_defs::ToolProfile::AnalysisLite,

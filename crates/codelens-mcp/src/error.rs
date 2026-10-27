@@ -5,8 +5,14 @@ use serde_json::{Value, json};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CodeLensError {
-    #[error("analysis_lite: {0}")]
-    AnalysisEvidence(Box<codelens_engine::analysis_lite::AnalysisEvidence>),
+    /// Engine evidence with `status=error`, plus the `{runtime_role,
+    /// writer_holder?}` of the runtime that answered: the request binding is
+    /// gone by the time the error envelope is built.
+    #[error("analysis_lite: {evidence}")]
+    AnalysisEvidence {
+        evidence: Box<codelens_engine::analysis_lite::AnalysisEvidence>,
+        runtime_role: Box<Value>,
+    },
     #[cfg(feature = "http")]
     #[error(
         "project_binding_required: analysis-lite tool `{tool}` requires an explicit canonical project on this HTTP session; reinitialize with project=<absolute root>, x-codelens-project header or endpoint URL project. Unbound reads are rejected."
@@ -182,7 +188,7 @@ impl CodeLensError {
     /// Map to a JSON-RPC error code. Used by dispatch_tool for protocol-level errors.
     pub fn jsonrpc_code(&self) -> i64 {
         match self {
-            Self::AnalysisEvidence(_) => -32012,
+            Self::AnalysisEvidence { .. } => -32012,
             #[cfg(feature = "http")]
             Self::AnalysisLiteBindingRequired { .. } => -32003,
             Self::AnalysisLiteLaunchUnbound { .. } => -32003,
@@ -221,7 +227,7 @@ impl CodeLensError {
     /// recorded: it can carry symbol names, queries and paths.
     pub fn kind(&self) -> &'static str {
         match self {
-            Self::AnalysisEvidence(_) => "analysis_evidence_error",
+            Self::AnalysisEvidence { .. } => "analysis_evidence_error",
             #[cfg(feature = "http")]
             Self::AnalysisLiteBindingRequired { .. } => "project_binding_required",
             Self::AnalysisLiteLaunchUnbound { .. } => "project_binding_required",
