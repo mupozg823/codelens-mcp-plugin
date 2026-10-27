@@ -616,3 +616,114 @@ fn analysis_lite_class_and_interface_members_are_explicitly_unsupported_without_
     );
     assert!(safe.unresolved.observed_count >= 3);
 }
+
+// The legacy name-only noise list (`format`, `read`, `log`, …) guesses at
+// builtins. Exact identity resolves a project declaration of that name; only
+// an unresolvable noise token is discarded, and silently, as before.
+#[test]
+fn analysis_lite_project_declarations_with_noise_names_keep_their_callers() {
+    let (_dir, project, index) = fixture(&[
+        (
+            "fmt.ts",
+            "export function format() {}\nexport function local() { format(); }\n",
+        ),
+        (
+            "b.ts",
+            "import { format } from './fmt';\nexport function caller(items: number[]) { format(); console.log(items); items.push(1); }\n",
+        ),
+    ]);
+    let impact = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("fmt.ts", "format"),
+        None,
+        limits(),
+    );
+    let callers = impact
+        .results
+        .edges
+        .iter()
+        .filter_map(|edge| edge.source.as_ref().map(|source| source.name.as_str()))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        callers,
+        ["caller", "local"].into_iter().collect(),
+        "{impact:?}"
+    );
+    let refs = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("fmt.ts", "format"),
+        None,
+        limits(),
+    );
+    assert_eq!(
+        refs.results
+            .references
+            .iter()
+            .filter(|row| row.location.file == "b.ts")
+            .count(),
+        1,
+        "{refs:?}"
+    );
+    assert!(
+        impact
+            .unresolved
+            .examples
+            .iter()
+            .all(|row| row.name != "log" && row.name != "push"),
+        "unresolvable noise tokens stay discarded: {:?}",
+        impact.unresolved.examples
+    );
+}
+
+// OXC accepts `.mts`/`.cts` (`is_js_ts`); call extraction must cover them too
+// instead of returning a silently empty graph.
+#[test]
+fn analysis_lite_mts_and_cts_files_have_call_edges() {
+    for (file, importer) in [("a.mts", "b.mts"), ("a.cts", "b.cts")] {
+        let (_dir, project, index) = fixture(&[
+            (
+                file,
+                "export function target() {}\nexport function caller() { target(); }\n",
+            ),
+            (
+                importer,
+                "import { target } from './a';\nexport function other() { target(); }\n",
+            ),
+        ]);
+        let impact = query(
+            &project,
+            &index,
+            AnalysisQuery::Impact,
+            &selector(file, "target"),
+            None,
+            limits(),
+        );
+        assert!(impact.errors.is_empty(), "{file}: {:?}", impact.errors);
+        assert_eq!(impact.results.edges.len(), 1, "{file}: {impact:?}");
+        assert_eq!(
+            impact.results.edges[0]
+                .source
+                .as_ref()
+                .map(|source| source.name.as_str()),
+            Some("caller"),
+            "{file}"
+        );
+        // The module resolver does not cover these extensions: the import is
+        // reported unresolved, never dropped.
+        assert!(
+            impact.unresolved.examples.iter().any(|row| {
+                row.name == "target"
+                    && row.location.as_ref().is_some_and(|at| at.file == importer)
+                    && row
+                        .reason
+                        .contains("no verified project-local import target")
+            }),
+            "{importer}: {:?}",
+            impact.unresolved.examples
+        );
+    }
+}

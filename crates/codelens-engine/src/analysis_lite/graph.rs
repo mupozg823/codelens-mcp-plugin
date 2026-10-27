@@ -141,6 +141,9 @@ impl DeclarationGraph {
                     });
                 let (target, resolution) = match resolved {
                     Ok(target) => target,
+                    // An unresolvable builtin-noise token (`console.log`,
+                    // `items.push`) stays discarded, as on the legacy API.
+                    Err(_) if located.noise_name => continue,
                     Err(reason) => {
                         unresolved.push(UnresolvedEvidence {
                             location: Some(location),

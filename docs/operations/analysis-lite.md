@@ -209,6 +209,13 @@ resolver. Duplicate source locations merge backend provenance. Different
 callsites on one line remain distinct. Same-name nested declarations and
 shadowed import aliases remain separate.
 
+A project declaration named like a builtin (`format`, `read`, `get`) resolves
+by exact identity like any other name. Only a token on the legacy builtin-noise
+list that resolves to no declaration (`console.log`, `items.push`) is dropped,
+without an unresolved row. `.mts` and `.cts` calls parse as TypeScript; an import
+written in one of them is outside the module resolver and appears as
+unresolved evidence.
+
 The extractor also captures callback arguments. All such edges are honestly
 callgraph_edge/detail_unknown; direct-call detail is not inferred. Reverse
 impact is bounded traversal over this extracted graph, with depth/node/edge

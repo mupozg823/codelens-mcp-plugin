@@ -138,6 +138,7 @@ fn rust_function_declaration_path(
 pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     extract_located_calls_from_source(path, source)
         .into_iter()
+        .filter(|located| !located.noise_name)
         .map(|located| located.edge)
         .collect()
 }
@@ -150,6 +151,9 @@ pub(crate) struct LocatedCallEdge {
     pub end_byte: usize,
     pub column: usize,
     pub caller: LocatedCaller,
+    /// The callee name is on the name-only builtin noise list. The legacy API
+    /// drops these; exact-identity callers resolve first and decide.
+    pub noise_name: bool,
 }
 
 pub(crate) enum LocatedCaller {
@@ -317,11 +321,10 @@ pub(crate) fn extract_located_calls_from_source(path: &Path, source: &str) -> Ve
                 continue;
             };
             let callee_name = callee_name.trim().to_owned();
-            if callee_name.is_empty()
-                || is_noise_callee_for_lang(&callee_name, Some(config.language_key))
-            {
+            if callee_name.is_empty() {
                 continue;
             }
+            let noise_name = is_noise_callee_for_lang(&callee_name, Some(config.language_key));
             if config.language_key == "rs"
                 && is_argument_identifier_capture(cap.node)
                 && shadowed_by_rust_closure_binding(
@@ -370,6 +373,7 @@ pub(crate) fn extract_located_calls_from_source(path: &Path, source: &str) -> Ve
                         kind: "non_js_ts_caller",
                     }
                 },
+                noise_name,
             });
         }
     }
