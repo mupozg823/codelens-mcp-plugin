@@ -1,5 +1,7 @@
-//! Production-edge awareness for the import graph: Rust `#[cfg(test)]` gates
-//! and TypeScript `import type` clauses.
+//! Production-edge awareness for the import graph: Rust `#[cfg(test)]` gates,
+//! TypeScript `import type` clauses and Python `if TYPE_CHECKING:` imports, plus
+//! which edges are deferred (a Python import inside a function, a JS dynamic
+//! `import()`).
 //!
 //! `FileNode.imports` intentionally carries BOTH production and test imports,
 //! and type-only ones -- dead-code analysis, blast radius and PageRank all need
@@ -208,10 +210,26 @@ enum EdgeProof {
     Unfiltered,
     /// Rust: only these targets survive `#[cfg(test)]` removal.
     ProductionOnly(HashSet<String>),
-    /// JS/TS: these targets are reached ONLY through erased `import type`
-    /// clauses. Listing the erased side (not the runtime side) keeps a target
-    /// the resolver cannot match a production edge.
+    /// JS/TS and Python: these targets are reached ONLY through erased imports
+    /// (`import type`, `if TYPE_CHECKING:`). Listing the erased side (not the
+    /// runtime side) keeps a target the resolver cannot match a production edge.
     ErasedOnly(HashSet<String>),
+}
+
+/// What one scan proved about a file's outgoing edges.
+struct FileProof {
+    edges: EdgeProof,
+    /// Targets reached ONLY through deferred imports.
+    deferred: HashSet<String>,
+}
+
+impl FileProof {
+    fn unfiltered() -> Self {
+        Self {
+            edges: EdgeProof::Unfiltered,
+            deferred: HashSet::new(),
+        }
+    }
 }
 
 fn is_js_family(rel: &str) -> bool {
@@ -228,7 +246,7 @@ fn is_js_family(rel: &str) -> bool {
 /// remove false positives.
 pub(crate) struct ProductionEdgeFilter<'a> {
     project: &'a ProjectRoot,
-    cache: HashMap<String, EdgeProof>,
+    cache: HashMap<String, FileProof>,
     budget: usize,
 }
 
@@ -241,14 +259,19 @@ impl<'a> ProductionEdgeFilter<'a> {
         }
     }
 
-    fn proof(&mut self, rel: &str) -> &EdgeProof {
+    fn proof(&mut self, rel: &str) -> &FileProof {
         if !self.cache.contains_key(rel) {
             let computed = if rel.ends_with(".rs") {
-                self.scan_rust(rel)
+                FileProof {
+                    edges: self.scan_rust(rel),
+                    deferred: HashSet::new(),
+                }
             } else if is_js_family(rel) {
-                self.scan_js(rel)
+                self.scan_timed(rel, super::parsers::js_imports_by_timing)
+            } else if rel.ends_with(".py") {
+                self.scan_timed(rel, super::parsers::python_imports_by_timing)
             } else {
-                EdgeProof::Unfiltered
+                FileProof::unfiltered()
             };
             self.cache.insert(rel.to_owned(), computed);
         }
@@ -280,35 +303,67 @@ impl<'a> ProductionEdgeFilter<'a> {
         )
     }
 
-    fn scan_js(&mut self, rel: &str) -> EdgeProof {
+    /// JS/TS or Python: a target binds at the earliest timing any of its
+    /// imports has, so it is erased only when no eager or deferred import
+    /// reaches it, and deferred only when no eager one does.
+    fn scan_timed(
+        &mut self,
+        rel: &str,
+        imports_by_timing: fn(&str) -> Vec<(String, super::parsers::ImportTiming)>,
+    ) -> FileProof {
+        use super::parsers::ImportTiming;
         let Some((abs, content)) = self.read_within_budget(rel) else {
-            return EdgeProof::Unfiltered;
+            return FileProof::unfiltered();
         };
-        let (runtime, type_only) = super::parsers::split_js_imports_by_erasure(&content);
-        if type_only.is_empty() {
-            return EdgeProof::Unfiltered;
-        }
-        let resolve =
-            |module: &String| super::resolvers::resolve_module(self.project, &abs, module);
-        let runtime: HashSet<String> = runtime.iter().filter_map(resolve).collect();
-        let erased: HashSet<String> = type_only
+        let imports = imports_by_timing(&content);
+        if imports
             .iter()
-            .filter_map(resolve)
-            .filter(|target| !runtime.contains(target))
-            .collect();
-        if erased.is_empty() {
-            EdgeProof::Unfiltered
-        } else {
-            EdgeProof::ErasedOnly(erased)
+            .all(|(_, timing)| *timing == ImportTiming::Eager)
+        {
+            return FileProof::unfiltered();
+        }
+        let mut earliest: HashMap<String, ImportTiming> = HashMap::new();
+        for (module, timing) in &imports {
+            let Some(target) = super::resolvers::resolve_module(self.project, &abs, module) else {
+                continue;
+            };
+            let entry = earliest.entry(target).or_insert(*timing);
+            *entry = match (*entry, *timing) {
+                (ImportTiming::Eager, _) | (_, ImportTiming::Eager) => ImportTiming::Eager,
+                (ImportTiming::Deferred, _) | (_, ImportTiming::Deferred) => ImportTiming::Deferred,
+                _ => ImportTiming::Erased,
+            };
+        }
+        let only = |wanted: ImportTiming| -> HashSet<String> {
+            earliest
+                .iter()
+                .filter(|(_, timing)| **timing == wanted)
+                .map(|(target, _)| target.clone())
+                .collect()
+        };
+        let erased = only(ImportTiming::Erased);
+        FileProof {
+            edges: if erased.is_empty() {
+                EdgeProof::Unfiltered
+            } else {
+                EdgeProof::ErasedOnly(erased)
+            },
+            deferred: only(ImportTiming::Deferred),
         }
     }
 
     pub(crate) fn is_production_edge(&mut self, from: &str, to: &str) -> bool {
-        match self.proof(from) {
+        match &self.proof(from).edges {
             EdgeProof::Unfiltered => true,
             EdgeProof::ProductionOnly(targets) => targets.contains(to),
             EdgeProof::ErasedOnly(targets) => !targets.contains(to),
         }
+    }
+
+    /// True when `from` reaches `to` only through deferred imports, so the
+    /// edge cannot take part in a module-load-time cycle.
+    pub(crate) fn is_deferred_edge(&mut self, from: &str, to: &str) -> bool {
+        self.proof(from).deferred.contains(to)
     }
 
     /// True when every importer of `file` reaches it through a `#[cfg(test)]`

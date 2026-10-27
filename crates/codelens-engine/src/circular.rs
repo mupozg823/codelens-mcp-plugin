@@ -11,6 +11,10 @@ use std::collections::{HashMap, HashSet};
 pub struct CircularDependency {
     pub cycle: Vec<String>,
     pub length: usize,
+    /// Every loop through these files passes a deferred import (a Python
+    /// import inside a function, a JS dynamic `import()`): real coupling, but
+    /// no module-load-time cycle. Listed after the load-time ones.
+    pub deferred: bool,
 }
 
 /// Find all circular dependency cycles in the project's import graph.
@@ -47,9 +51,9 @@ pub fn find_circular_dependencies(
         .collect();
 
     // Pass 2: re-run SCC per candidate with `#[cfg(test)]`-gated Rust edges and
-    // erased TypeScript `import type` edges removed. Costs zero I/O when there
-    // are no candidates.
-    let refined: Vec<Vec<String>> = if raw.is_empty() {
+    // erased `import type` / `if TYPE_CHECKING:` edges removed. Costs zero I/O
+    // when there are no candidates.
+    let refined: Vec<(Vec<String>, bool)> = if raw.is_empty() {
         Vec::new()
     } else {
         // Sorted before refinement: `raw`'s order follows HashMap iteration, and
@@ -68,15 +72,25 @@ pub fn find_circular_dependencies(
 
     let mut cycles: Vec<CircularDependency> = refined
         .into_iter()
-        .map(|mut cycle| {
+        .map(|(mut cycle, deferred)| {
             cycle.sort();
             let length = cycle.len();
-            CircularDependency { cycle, length }
+            CircularDependency {
+                cycle,
+                length,
+                deferred,
+            }
         })
         .collect();
 
-    // Sort by cycle length descending, then alphabetically
-    cycles.sort_by(|a, b| b.length.cmp(&a.length).then(a.cycle.cmp(&b.cycle)));
+    // Load-time cycles first, so a capped list keeps them; then by length
+    // descending, then alphabetically.
+    cycles.sort_by(|a, b| {
+        a.deferred
+            .cmp(&b.deferred)
+            .then(b.length.cmp(&a.length))
+            .then(a.cycle.cmp(&b.cycle))
+    });
 
     if max_results > 0 && cycles.len() > max_results {
         cycles.truncate(max_results);
@@ -117,7 +131,8 @@ fn is_rust_submodule_to_ancestor(from: &str, to: &str) -> bool {
 
 /// Re-run SCC detection over one candidate component with `#[cfg(test)]`-gated
 /// Rust edges, Rust edges from a submodule up to its own ancestor module, and
-/// type-only TypeScript edges removed.
+/// erased (type-only) edges removed. Each sub-cycle comes with whether it is
+/// deferred: no loop survives once deferred edges are dropped as well.
 ///
 /// This only ever REMOVES edges that were already in `graph` — it never adds an
 /// edge recomputed from disk, so a stale index cannot fabricate a new cycle
@@ -126,10 +141,10 @@ fn production_subcycles(
     graph: &HashMap<String, FileNode>,
     scc: &[String],
     filter: &mut ProductionEdgeFilter<'_>,
-) -> Vec<Vec<String>> {
+) -> Vec<(Vec<String>, bool)> {
     let members: HashSet<&str> = scc.iter().map(String::as_str).collect();
 
-    let mut sub: DiGraph<String, ()> = DiGraph::new();
+    let mut sub: DiGraph<String, bool> = DiGraph::new();
     let mut idx: HashMap<&str, petgraph::graph::NodeIndex> = HashMap::new();
     for file in scc {
         idx.insert(file.as_str(), sub.add_node(file.clone()));
@@ -154,14 +169,30 @@ fn production_subcycles(
             if is_rust_submodule_to_ancestor(from, to) || !filter.is_production_edge(from, to) {
                 continue;
             }
-            sub.add_edge(idx[from.as_str()], idx[to.as_str()], ());
+            let deferred = filter.is_deferred_edge(from, to);
+            sub.add_edge(idx[from.as_str()], idx[to.as_str()], deferred);
         }
     }
+
+    // A component is load-time when its eager edges alone still loop.
+    let mut eager = sub.clone();
+    eager.retain_edges(|graph, edge| !graph[edge]);
+    let load_time: HashSet<petgraph::graph::NodeIndex> = tarjan_scc(&eager)
+        .into_iter()
+        .filter(|component| component.len() > 1)
+        .flatten()
+        .collect();
 
     tarjan_scc(&sub)
         .into_iter()
         .filter(|component| component.len() > 1)
-        .map(|component| component.iter().map(|&i| sub[i].clone()).collect())
+        .map(|component| {
+            let deferred = !component.iter().any(|i| load_time.contains(i));
+            (
+                component.iter().map(|&i| sub[i].clone()).collect(),
+                deferred,
+            )
+        })
         .collect()
 }
 
@@ -530,6 +561,103 @@ pub struct Writer;
                 "runtime back edge `{back_edge}` must keep the cycle: {cycles:?}"
             );
         }
+    }
+
+    fn py_cycles(name: &str, a_src: &str, b_src: &str) -> Vec<CircularDependency> {
+        let (_td, dir) = temp_project_dir(name);
+        fs::write(dir.join("a.py"), a_src).expect("write a.py");
+        fs::write(dir.join("b.py"), b_src).expect("write b.py");
+        let project = ProjectRoot::new(&dir).expect("project");
+        find_circular_dependencies(&project, 50, &GraphCache::new(0)).expect("cycles")
+    }
+
+    // Held-out evaluation 2026-10-27: all 7 shadow-partner cycles closed through
+    // an import inside a function, and tuanbo's services cycle through a
+    // dynamic `import()` — coupling, but no load-time cycle.
+    #[test]
+    fn deferred_back_edges_mark_the_cycle_deferred() {
+        let cycles = py_cycles(
+            "py-deferred",
+            "from b import helper\n\ndef a_fn():\n    return helper()\n",
+            "def helper():\n    from a import a_fn\n    return a_fn\n",
+        );
+        assert_eq!(cycles.len(), 1, "{cycles:?}");
+        assert!(cycles[0].deferred, "{cycles:?}");
+
+        // A wrapped signature keeps the body inside the function.
+        let cycles = py_cycles(
+            "py-deferred-wrapped",
+            "from b import helper\n",
+            "def helper(\n    x,\n    y,\n):\n    from a import thing\n    return thing\n",
+        );
+        assert!(cycles.iter().all(|c| c.deferred), "{cycles:?}");
+
+        let cycles = ts_cycles(
+            "ts-dynamic",
+            "import { b } from './b';\nexport const a = () => b;\n",
+            "export async function b() {\n  const { a } = await import('./a');\n  return a;\n}\n",
+        );
+        assert_eq!(cycles.len(), 1, "{cycles:?}");
+        assert!(cycles[0].deferred, "{cycles:?}");
+    }
+
+    #[test]
+    fn load_time_back_edges_keep_the_cycle_load_time() {
+        for back_edge in [
+            // Module level, inside `try`, inside `class`: all run on import.
+            "from a import a_fn\n",
+            "try:\n    from a import a_fn\nexcept ImportError:\n    a_fn = None\n",
+            "class Box:\n    from a import a_fn\n",
+            // A deferred import next to an eager one of the same module.
+            "from a import a_fn\n\ndef later():\n    from a import other\n",
+        ] {
+            let cycles = py_cycles("py-load-time", "from b import helper\n", back_edge);
+            assert_eq!(cycles.len(), 1, "{back_edge:?}: {cycles:?}");
+            assert!(!cycles[0].deferred, "{back_edge:?}: {cycles:?}");
+        }
+    }
+
+    #[test]
+    fn type_checking_back_edge_is_not_a_cycle() {
+        for header in ["if TYPE_CHECKING:", "if typing.TYPE_CHECKING:"] {
+            let cycles = py_cycles(
+                "py-type-checking",
+                "from b import helper\n",
+                &format!(
+                    "from typing import TYPE_CHECKING\n{header}\n    from a import A\n\ndef helper(x: \"A\"):\n    return x\n"
+                ),
+            );
+            assert!(cycles.is_empty(), "{header}: {cycles:?}");
+        }
+        // The `else:` branch runs.
+        let cycles = py_cycles(
+            "py-type-checking-else",
+            "from b import helper\n",
+            "if TYPE_CHECKING:\n    pass\nelse:\n    from a import A\n",
+        );
+        assert_eq!(cycles.len(), 1, "{cycles:?}");
+    }
+
+    // Load-time cycles sort first so a capped list keeps them.
+    #[test]
+    fn load_time_cycles_sort_before_deferred_ones() {
+        let (_td, dir) = temp_project_dir("py-order");
+        for (file, src) in [
+            ("a.py", "from b import x\n"),
+            ("b.py", "def f():\n    from a import y\n"),
+            ("c.py", "from d import x\n"),
+            ("d.py", "from c import y\n"),
+            ("e.py", "from f import x\n"),
+            ("f.py", "from g import x\n"),
+            ("g.py", "def f():\n    from e import y\n"),
+        ] {
+            fs::write(dir.join(file), src).expect("write");
+        }
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cycles = find_circular_dependencies(&project, 1, &GraphCache::new(0)).expect("cycles");
+        assert_eq!(cycles.len(), 1);
+        assert_eq!(cycles[0].cycle, vec!["c.py".to_owned(), "d.py".to_owned()]);
+        assert!(!cycles[0].deferred);
     }
 
     fn temp_project_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {

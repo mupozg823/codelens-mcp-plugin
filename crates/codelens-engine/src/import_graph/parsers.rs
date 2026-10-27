@@ -142,15 +142,106 @@ pub fn extract_imports_from_source(path: &Path, content: &str) -> Vec<String> {
 /// `a` may be a submodule (`from api import auth`, `from . import ledger`);
 /// the resolver keeps a candidate only when that file exists.
 pub(super) fn extract_python_imports(content: &str) -> Vec<String> {
-    let mut imports = Vec::new();
+    python_import_statements(content)
+        .into_iter()
+        .flat_map(|(modules, _)| modules)
+        .collect()
+}
+
+/// When an import binds at runtime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ImportTiming {
+    /// When the module loads.
+    Eager,
+    /// When the enclosing code runs: a Python import inside a function body, a
+    /// JS dynamic `import()`. Such an edge cannot fail a module load.
+    Deferred,
+    /// Never: `import type`, Python `if TYPE_CHECKING:`.
+    Erased,
+}
+
+/// [`extract_python_imports`] grouped by [`ImportTiming`]. Block nesting is
+/// read from indentation: an import under `def` is deferred, under
+/// `if TYPE_CHECKING:` erased, anywhere else (module level, `class`, `try`,
+/// plain `if`) eager. A misread can only move an import towards eager.
+pub(crate) fn python_imports_by_timing(content: &str) -> Vec<(String, ImportTiming)> {
+    python_import_statements(content)
+        .into_iter()
+        .flat_map(|(modules, timing)| modules.into_iter().map(move |m| (m, timing)))
+        .collect()
+}
+
+/// Every import statement's modules with its timing. Block headers are
+/// tracked as an indentation stack.
+fn python_import_statements(content: &str) -> Vec<(Vec<String>, ImportTiming)> {
+    const BLOCK_KEYWORDS: &[&str] = &[
+        "async", "class", "def", "elif", "else", "except", "finally", "for", "if", "try", "while",
+        "with",
+    ];
+    let mut statements = Vec::new();
+    let mut blocks: Vec<(usize, Option<ImportTiming>)> = Vec::new();
+    // Open brackets of a statement spanning lines (a wrapped `def f(\n a,\n):`
+    // signature, a long call): its continuation lines leave `blocks` alone.
+    let mut open_brackets = 0i32;
     let mut lines = content.lines();
     while let Some(line) = lines.next() {
         let mut statement = strip_python_comment(line).trim().to_owned();
+        if statement.is_empty() {
+            continue;
+        }
+        let brackets = statement.matches(['(', '[', '{']).count() as i32
+            - statement.matches([')', ']', '}']).count() as i32;
+        if open_brackets > 0 {
+            open_brackets = (open_brackets + brackets).max(0);
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        while blocks.last().is_some_and(|&(open, _)| open >= indent) {
+            blocks.pop();
+        }
+        let keyword = statement
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .next()
+            .unwrap_or_default();
+        if BLOCK_KEYWORDS.contains(&keyword) {
+            let header = statement.trim_end_matches(':');
+            let timing = if keyword == "def"
+                || python_keyword_rest(header, "async")
+                    .is_some_and(|rest| python_keyword_rest(rest.trim_start(), "def").is_some())
+            {
+                Some(ImportTiming::Deferred)
+            } else if python_keyword_rest(header, "if").is_some_and(|condition| {
+                let condition = condition.trim();
+                condition == "TYPE_CHECKING" || condition.ends_with(".TYPE_CHECKING")
+            }) {
+                Some(ImportTiming::Erased)
+            } else {
+                None
+            };
+            blocks.push((indent, timing));
+            open_brackets = brackets.max(0);
+            continue;
+        }
         if python_keyword_rest(&statement, "import").is_none()
             && python_keyword_rest(&statement, "from").is_none()
         {
+            open_brackets = brackets.max(0);
             continue;
         }
+        let timing = if blocks
+            .iter()
+            .any(|&(_, timing)| timing == Some(ImportTiming::Erased))
+        {
+            ImportTiming::Erased
+        } else if blocks
+            .iter()
+            .any(|&(_, timing)| timing == Some(ImportTiming::Deferred))
+        {
+            ImportTiming::Deferred
+        } else {
+            ImportTiming::Eager
+        };
+        let mut imports = Vec::new();
         loop {
             let continued = statement.ends_with('\\');
             if !continued && statement.matches('(').count() <= statement.matches(')').count() {
@@ -192,8 +283,9 @@ pub(super) fn extract_python_imports(content: &str) -> Vec<String> {
                 }
             }
         }
+        statements.push((imports, timing));
     }
-    imports
+    statements
 }
 
 /// The text after `keyword` when `statement` starts with it as a whole word.
@@ -268,40 +360,39 @@ pub(crate) fn is_type_only_js_clause(clause: &str) -> bool {
     JS_TYPE_ONLY_CLAUSE_RE.is_match(clause.trim())
 }
 
-/// [`extract_js_imports`] split by whether the import survives compilation:
-/// `(runtime, type_only)`. A module named in both lists is still a runtime
-/// dependency; callers decide how to combine them.
-pub(crate) fn split_js_imports_by_erasure(content: &str) -> (Vec<String>, Vec<String>) {
-    let mut runtime = Vec::new();
-    let mut type_only = Vec::new();
+/// [`extract_js_imports`] with each specifier's [`ImportTiming`]: `import type`
+/// is erased, dynamic `import()` deferred, everything else eager. A module
+/// named under several timings binds at the earliest; callers combine them.
+pub(crate) fn js_imports_by_timing(content: &str) -> Vec<(String, ImportTiming)> {
+    let mut imports = Vec::new();
     for regex in [&*JS_IMPORT_FROM_RE, &*JS_REEXPORT_FROM_RE] {
         for capture in regex.captures_iter(content) {
             let Some(module) = capture.name("module") else {
                 continue;
             };
-            let module = module.as_str().trim().to_owned();
-            if capture
+            let timing = if capture
                 .name("clause")
                 .is_some_and(|clause| is_type_only_js_clause(clause.as_str()))
             {
-                type_only.push(module);
+                ImportTiming::Erased
             } else {
-                runtime.push(module);
-            }
+                ImportTiming::Eager
+            };
+            imports.push((module.as_str().trim().to_owned(), timing));
         }
     }
-    for regex in [
-        &*JS_IMPORT_SIDE_EFFECT_RE,
-        &*JS_REQUIRE_RE,
-        &*JS_DYNAMIC_IMPORT_RE,
+    for (regex, timing) in [
+        (&*JS_IMPORT_SIDE_EFFECT_RE, ImportTiming::Eager),
+        (&*JS_REQUIRE_RE, ImportTiming::Eager),
+        (&*JS_DYNAMIC_IMPORT_RE, ImportTiming::Deferred),
     ] {
         for capture in regex.captures_iter(content) {
             if let Some(module) = capture.name("module") {
-                runtime.push(module.as_str().trim().to_owned());
+                imports.push((module.as_str().trim().to_owned(), timing));
             }
         }
     }
-    (runtime, type_only)
+    imports
 }
 
 pub(super) fn extract_go_imports(content: &str) -> Vec<String> {
