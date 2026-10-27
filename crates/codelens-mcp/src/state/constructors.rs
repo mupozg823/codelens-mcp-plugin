@@ -97,6 +97,18 @@ impl AppState {
         Self::try_new_startup(placeholder, preset, false)
     }
 
+    /// One-shot CLI (`--cmd`, `--batch`): one call, then exit. No file watcher,
+    /// and so no LSP pre-warm. A watcher started for a single call has seen no
+    /// change, yet it made the freshness hint answer `watcher_running`; and
+    /// every call spawned the language servers only to shut them down
+    /// (codelens-mcp-plugin `dead_code_report` 0.44 → 0.30 s).
+    pub(crate) fn try_new_oneshot(
+        project: ProjectRoot,
+        preset: ToolPreset,
+    ) -> anyhow::Result<Self> {
+        Self::try_new_startup(project, preset, false)
+    }
+
     fn try_new_startup(
         project: ProjectRoot,
         preset: ToolPreset,

@@ -33,6 +33,31 @@ impl IndexDb {
         insert_calls(&self.conn, file_id, calls)
     }
 
+    /// Every indexed file with its content hash and the distinct names that
+    /// own its call edges — the functions dead-code pass 2 judges. The index
+    /// stored them with the same extractor, so a file whose hash still
+    /// matches needs no re-parse.
+    pub fn caller_names_by_file(
+        &self,
+    ) -> Result<std::collections::HashMap<String, (String, Vec<String>)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.relative_path, f.content_hash, c.caller_name FROM files f
+             LEFT JOIN (SELECT DISTINCT caller_file_id, caller_name FROM calls) c
+               ON c.caller_file_id = f.id",
+        )?;
+        let mut rows = stmt.query([])?;
+        let mut by_file: std::collections::HashMap<String, (String, Vec<String>)> =
+            std::collections::HashMap::new();
+        while let Some(row) = rows.next()? {
+            let path: String = row.get(0)?;
+            let hash: String = row.get(1)?;
+            let caller: Option<String> = row.get(2)?;
+            let entry = by_file.entry(path).or_insert_with(|| (hash, Vec::new()));
+            entry.1.extend(caller);
+        }
+        Ok(by_file)
+    }
+
     /// Find all callers of a function name (from DB cache).
     pub fn get_callers_cached(
         &self,

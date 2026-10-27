@@ -36,7 +36,7 @@ fn entries(dir: &Path) -> Vec<String> {
 }
 
 fn analysis_lite_start(source: StartupProjectSource, home: &Path) -> crate::AppState {
-    startup_app_state(&source, true, ToolPreset::Full, Some(home))
+    startup_app_state(&source, true, false, ToolPreset::Full, Some(home))
         .unwrap_or_else(|error| panic!("analysis-lite stdio must start: {error:#}"))
 }
 
@@ -161,7 +161,7 @@ fn analysis_lite_stdio_without_home_refuses_to_start() {
     let repo = fixture("startup-repo-no-home");
     write_ts_repo(&repo);
     let source = StartupProjectSource::ClaudeEnv(repo.display().to_string());
-    let error = match startup_app_state(&source, true, ToolPreset::Full, None) {
+    let error = match startup_app_state(&source, true, false, ToolPreset::Full, None) {
         Ok(_) => panic!("no placeholder location without HOME"),
         Err(error) => error,
     };
@@ -178,7 +178,7 @@ fn second_writer_is_rejected_at_startup_but_analysis_lite_stdio_starts_without_w
     let source = StartupProjectSource::ClaudeEnv(repo.display().to_string());
 
     // Every non-analysis-lite surface keeps the outright rejection.
-    let error = match startup_app_state(&source, false, ToolPreset::Full, Some(&home)) {
+    let error = match startup_app_state(&source, false, false, ToolPreset::Full, Some(&home)) {
         Ok(_) => panic!("a second writer must be rejected"),
         Err(error) => error,
     };
@@ -214,7 +214,7 @@ fn non_stdio_or_one_shot_analysis_lite_keeps_the_launch_bound_startup() {
     let repo = fixture("startup-oneshot-repo");
     write_ts_repo(&repo);
     let source = StartupProjectSource::ClaudeEnv(repo.display().to_string());
-    let state = startup_app_state(&source, false, ToolPreset::Full, Some(&home)).unwrap();
+    let state = startup_app_state(&source, false, false, ToolPreset::Full, Some(&home)).unwrap();
     assert!(state.analysis_lite_per_call_binding().is_none());
     assert_eq!(launch_root(&state), None);
     assert_eq!(state.project().as_path(), repo.as_path());

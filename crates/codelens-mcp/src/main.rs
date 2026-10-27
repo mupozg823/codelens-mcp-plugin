@@ -352,6 +352,7 @@ fn main() -> Result<()> {
     let app_state = startup_app_state(
         &project_source,
         analysis_lite_stdio,
+        cmd_tool.is_some() || batch_calls.is_some(),
         preset,
         home.as_deref(),
     )?;
@@ -440,6 +441,7 @@ fn main() -> Result<()> {
 fn startup_app_state(
     project_source: &cli::StartupProjectSource,
     analysis_lite_stdio: bool,
+    oneshot: bool,
     preset: ToolPreset,
     home: Option<&std::path::Path>,
 ) -> Result<AppState> {
@@ -480,7 +482,11 @@ fn startup_app_state(
         );
     }
     crate::tools::session::auto_set_embed_hint_lang(project.as_path());
-    AppState::try_new(project, preset)
+    if oneshot {
+        AppState::try_new_oneshot(project, preset)
+    } else {
+        AppState::try_new(project, preset)
+    }
 }
 
 #[cfg(test)]

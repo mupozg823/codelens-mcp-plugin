@@ -356,4 +356,20 @@ mod tests {
         assert_eq!(unwatched["refresh_recommended"], true);
         assert_eq!(unwatched["basis"], "newest_indexed_age");
     }
+
+    // 2026-10-27: every one-shot call started a watcher, so its hint answered
+    // `watcher_running` for a watcher that had seen nothing.
+    #[test]
+    fn one_shot_state_has_no_watcher_and_reports_the_index_age() {
+        let project = crate::test_helpers::fixtures::temp_project_root("oneshot-no-watcher");
+        let state = crate::AppState::try_new_oneshot(project, crate::tool_defs::ToolPreset::Full)
+            .expect("one-shot state");
+        assert!(state.watcher_stats().is_none());
+        state
+            .symbol_index()
+            .get_symbols_overview("lib.rs", 1)
+            .expect("index lib.rs");
+        let hint = index_freshness_hint(&state).expect("freshness hint");
+        assert_eq!(hint["basis"], "newest_indexed_age");
+    }
 }
