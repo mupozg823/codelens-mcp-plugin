@@ -65,6 +65,9 @@ impl AppState {
             http_auth: std::sync::Mutex::new(Arc::clone(&*self.http_auth.lock().unwrap())),
             compat_mode: Mutex::new(self.compat_mode()),
             daemon_started_at: self.daemon_started_at.clone(),
+            analysis_lite_launch_unbound: std::sync::atomic::AtomicBool::new(
+                self.analysis_lite_launch_unbound(),
+            ),
             audit_sinks: Mutex::new(HashMap::new()),
             principals_by_audit_dir: Mutex::new(HashMap::new()),
         }
@@ -168,6 +171,7 @@ impl AppState {
             )),
             compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
             daemon_started_at: now_rfc3339_utc(),
+            analysis_lite_launch_unbound: std::sync::atomic::AtomicBool::new(false),
             audit_sinks: Mutex::new(HashMap::new()),
             principals_by_audit_dir: Mutex::new(HashMap::new()),
         }

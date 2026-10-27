@@ -95,6 +95,12 @@ fn analysis_lite_stdio_initialize_is_launch_bound_and_project_independent() {
         instructions.contains("search(mode=refs)") && instructions.contains("graph(mode=impact)")
     );
     assert!(instructions.contains("Bound at launch"), "{instructions}");
+    // One text covers both stdio modes: a server launched from `$HOME`
+    // replays the same recorded handshake as one launched inside a repo.
+    assert!(
+        instructions.contains("absolute target.file binds that call to the file's repository root"),
+        "{instructions}"
+    );
     // stdio has no header or initialize param to set; telling the host to
     // send one would make it retry binding instead of calling the tool.
     assert!(
@@ -112,6 +118,212 @@ fn analysis_lite_stdio_initialize_is_launch_bound_and_project_independent() {
     let project = first.project().as_path().display().to_string();
     assert!(!instructions.contains(&project), "{instructions}");
     assert_eq!(instructions, analysis_lite_stdio_instructions_for(&second));
+}
+
+/// `package.json` + a.ts (`sink` declared and called once) + b.ts (two
+/// aliased calls): three reference rows across two files.
+fn analysis_lite_ts_project() -> std::path::PathBuf {
+    let dir = crate::test_helpers::fixtures::fixture_dir("analysis-lite-ts");
+    fs::write(dir.join("package.json"), "{}").unwrap();
+    fs::write(dir.join("a.ts"), "export function sink() {}\nsink();\n").unwrap();
+    fs::write(
+        dir.join("b.ts"),
+        "import { sink as useSink } from './a';\nexport function caller() { useSink(); useSink(); }\n",
+    )
+    .unwrap();
+    dir.canonicalize().unwrap()
+}
+
+/// A stdio server launched from `$HOME`: its default context is an empty
+/// placeholder, never a project.
+fn analysis_lite_launch_unbound_state() -> crate::AppState {
+    let state = analysis_lite_stdio_state();
+    state.configure_analysis_lite_launch_unbound(true);
+    state
+}
+
+fn analysis_lite_refs_call(state: &crate::AppState, file: &str) -> serde_json::Value {
+    analysis_lite_rpc(
+        state,
+        "tools/call",
+        json!({"name":"search","arguments":{"mode":"refs","target":{"file":file,"name":"sink"}}}),
+    )
+}
+
+fn analysis_lite_data(response: &serde_json::Value) -> serde_json::Value {
+    if let Some(structured) = response["result"].get("structuredContent") {
+        return structured.clone();
+    }
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_else(|| panic!("tool text: {response}"));
+    parse_tool_payload(text)["data"].clone()
+}
+
+fn analysis_lite_reference_files(data: &serde_json::Value) -> Vec<String> {
+    let mut files = data["results"]["references"]
+        .as_array()
+        .unwrap_or_else(|| panic!("references array: {data}"))
+        .iter()
+        .map(|row| {
+            row["file"]
+                .as_str()
+                .or_else(|| row["location"]["file"].as_str())
+                .unwrap_or_else(|| panic!("row file: {row}"))
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+#[test]
+fn analysis_lite_launch_unbound_absolute_file_binds_that_call_to_its_repository() {
+    let state = analysis_lite_launch_unbound_state();
+    let placeholder = state.project().as_path().to_path_buf();
+    let repo = analysis_lite_ts_project();
+    let file = repo.join("a.ts").display().to_string();
+    let response = analysis_lite_refs_call(&state, &file);
+    assert_ne!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(data["project"], json!(repo.display().to_string()), "{data}");
+    assert_eq!(
+        analysis_lite_reference_files(&data),
+        ["a.ts", "b.ts", "b.ts"],
+        "{data}"
+    );
+    // The binding was request-scoped: the server's default context is still
+    // the placeholder after the call.
+    assert_eq!(state.project().as_path(), placeholder.as_path());
+}
+
+#[test]
+fn analysis_lite_launch_unbound_relative_file_is_a_typed_binding_error() {
+    let state = analysis_lite_launch_unbound_state();
+    let response = analysis_lite_refs_call(&state, "a.ts");
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(data["status"], json!("error"), "{data}");
+    assert_eq!(
+        data["errors"][0]["code"],
+        json!("project_binding_required"),
+        "{data}"
+    );
+    let message = data["errors"][0]["message"].as_str().unwrap();
+    assert!(
+        message.contains("absolute target.file inside a repository"),
+        "{message}"
+    );
+    assert!(data["results"]["total"].is_null(), "{data}");
+    assert!(data["project"].is_null(), "{data}");
+}
+
+#[test]
+fn analysis_lite_launch_unbound_never_binds_home() {
+    let _env = crate::env_compat::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let previous_home = std::env::var_os("HOME");
+    let previous_allow = std::env::var_os("CODELENS_ALLOW_HOME_PROJECT");
+    let home = crate::test_helpers::fixtures::fixture_dir("analysis-lite-home")
+        .canonicalize()
+        .unwrap();
+    fs::write(home.join("package.json"), "{}").unwrap();
+    fs::write(home.join("a.ts"), "export function sink() {}\nsink();\n").unwrap();
+    // SAFETY: serialized by TEST_ENV_LOCK; restored below.
+    unsafe {
+        std::env::set_var("HOME", &home);
+        std::env::remove_var("CODELENS_ALLOW_HOME_PROJECT");
+    }
+    let state = analysis_lite_launch_unbound_state();
+    let response = analysis_lite_refs_call(&state, &home.join("a.ts").display().to_string());
+    // SAFETY: serialized by TEST_ENV_LOCK.
+    unsafe {
+        match previous_home {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+        if let Some(value) = previous_allow {
+            std::env::set_var("CODELENS_ALLOW_HOME_PROJECT", value);
+        }
+    }
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert!(data["results"]["total"].is_null(), "{data}");
+    assert_ne!(data["project"], json!(home.display().to_string()), "{data}");
+    assert!(
+        !home.join(".codelens").join("index").exists(),
+        "home must never be indexed"
+    );
+}
+
+#[test]
+fn analysis_lite_launch_unbound_concurrent_calls_bind_their_own_projects() {
+    let state = std::sync::Arc::new(analysis_lite_launch_unbound_state());
+    let repos = [analysis_lite_ts_project(), analysis_lite_ts_project()];
+    let handles = repos
+        .iter()
+        .cloned()
+        .map(|repo| {
+            let state = std::sync::Arc::clone(&state);
+            std::thread::spawn(move || {
+                (0..3)
+                    .map(|_| {
+                        let file = repo.join("a.ts").display().to_string();
+                        analysis_lite_data(&analysis_lite_refs_call(&state, &file))["project"]
+                            .clone()
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect::<Vec<_>>();
+    for (repo, handle) in repos.iter().zip(handles) {
+        for project in handle.join().unwrap() {
+            assert_eq!(project, json!(repo.display().to_string()));
+        }
+    }
+}
+
+#[test]
+fn analysis_lite_launch_bound_absolute_file_inside_root_matches_relative() {
+    let repo = analysis_lite_ts_project();
+    let state = make_state(&ProjectRoot::new(&repo).unwrap());
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    let relative = analysis_lite_data(&analysis_lite_refs_call(&state, "a.ts"));
+    let absolute_response =
+        analysis_lite_refs_call(&state, &repo.join("a.ts").display().to_string());
+    assert_ne!(
+        absolute_response["result"]["isError"],
+        json!(true),
+        "{absolute_response}"
+    );
+    let absolute = analysis_lite_data(&absolute_response);
+    assert_eq!(
+        analysis_lite_reference_files(&relative),
+        ["a.ts", "b.ts", "b.ts"]
+    );
+    assert_eq!(absolute["results"], relative["results"]);
+    assert_eq!(absolute["target"], relative["target"]);
+    assert_eq!(absolute["project"], json!(repo.display().to_string()));
+}
+
+#[test]
+fn analysis_lite_launch_bound_absolute_file_outside_root_names_the_bound_root() {
+    let repo = analysis_lite_ts_project();
+    let other = analysis_lite_ts_project();
+    let state = make_state(&ProjectRoot::new(&repo).unwrap());
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    let response = analysis_lite_refs_call(&state, &other.join("a.ts").display().to_string());
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(data["errors"][0]["code"], json!("validation"), "{data}");
+    let message = data["errors"][0]["message"].as_str().unwrap();
+    assert!(message.contains(&repo.display().to_string()), "{message}");
+    assert!(data["results"]["total"].is_null(), "{data}");
 }
 // ── Verb facade tests (search / graph / review) ──────────────────────
 //

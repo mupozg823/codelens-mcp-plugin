@@ -6,11 +6,13 @@ use crate::protocol::{BackendKind, Freshness};
 use crate::tool_defs::analysis_lite::limit;
 use crate::tool_defs::tool::ToolHandler;
 use crate::tool_runtime::{ToolResult, success_meta};
+use codelens_engine::ProjectRoot;
 use codelens_engine::analysis_lite::{
     AnalysisQuery, DeclarationSelector, EvidenceLimits, EvidenceStatus,
 };
 use codelens_engine::oxc_analysis::ByteSpan;
 use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub(crate) fn handler(target: &str) -> Option<ToolHandler> {
@@ -27,6 +29,14 @@ pub(crate) fn handler(target: &str) -> Option<ToolHandler> {
 
 fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> ToolResult {
     let selector_args = &args["target"];
+    // Held for the whole call: every read below (index, generation fence,
+    // project, watcher, failure summary) must see the same bound project.
+    let (_binding, file) = bind_target_file(
+        state,
+        selector_args["file"]
+            .as_str()
+            .expect("schema-validated file"),
+    )?;
     let index = state.symbol_index();
     let generation = index.committed_generation();
     if let Some(expected) = args.get("generation").and_then(Value::as_u64)
@@ -62,10 +72,7 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
         }
     };
     let selector = DeclarationSelector {
-        file: selector_args["file"]
-            .as_str()
-            .expect("schema-validated file")
-            .to_owned(),
+        file,
         name: selector_args
             .get("name")
             .and_then(Value::as_str)
@@ -143,6 +150,83 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
     Ok((payload, meta))
 }
 
+/// Resolve `target.file` under this server's binding, returning the
+/// root-relative path the engine selects on.
+///
+/// - Launch-unbound (stdio started from `$HOME` or `/`): an absolute file binds
+///   this request only, through the per-thread [`RequestProjectGuard`], to the
+///   repository root derived from the file's directory. Root derivation and the
+///   home guard refuse `$HOME`; a relative file has no project to resolve in.
+/// - Launch-bound stdio: an absolute file must lie inside the bound root; there
+///   is no cross-project switch.
+/// - HTTP keeps its explicit session binding and passes the file through.
+///
+/// [`RequestProjectGuard`]: crate::state::RequestProjectGuard
+fn bind_target_file(
+    state: &AppState,
+    raw: &str,
+) -> Result<(Option<crate::state::RequestProjectGuard>, String), CodeLensError> {
+    let path = Path::new(raw);
+    if state.analysis_lite_launch_unbound() {
+        let unbound = |reason: String| CodeLensError::AnalysisLiteLaunchUnbound {
+            file: raw.to_owned(),
+            reason,
+        };
+        if !path.is_absolute() {
+            return Err(unbound(
+                "a relative path has no launch project to resolve against".to_owned(),
+            ));
+        }
+        let file = canonical_file(path);
+        let directory = file
+            .parent()
+            .ok_or_else(|| unbound("the path has no parent directory".to_owned()))?;
+        let root = ProjectRoot::new(directory).map_err(|error| unbound(format!("{error:#}")))?;
+        let guard = state
+            .bind_request_project_scope(&root.as_path().to_string_lossy())
+            .map_err(|error| match error.downcast::<CodeLensError>() {
+                Ok(typed) => typed,
+                Err(error) => unbound(format!("{error:#}")),
+            })?;
+        let relative = root_relative(&state.project(), &file)
+            .ok_or_else(|| unbound("the file is not inside its derived root".to_owned()))?;
+        return Ok((Some(guard), relative));
+    }
+    if path.is_absolute()
+        && state.transport_mode() == crate::runtime_types::RuntimeTransportMode::Stdio
+    {
+        let project = state.project();
+        let relative = root_relative(&project, &canonical_file(path)).ok_or_else(|| {
+            CodeLensError::Validation(format!(
+                "analysis-lite target.file `{raw}` is outside the launch-bound project `{}`; this server does not switch projects. Pass a path inside that root, or use a server launched in the other repository.",
+                project.as_path().display()
+            ))
+        })?;
+        return Ok((None, relative));
+    }
+    Ok((None, raw.to_owned()))
+}
+
+/// Canonicalize the file, or its parent when the file itself is missing, so
+/// `/var` and `/private/var` style aliases compare equal to a canonical root.
+fn canonical_file(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| {
+        match (
+            path.parent().and_then(|parent| parent.canonicalize().ok()),
+            path.file_name(),
+        ) {
+            (Some(parent), Some(name)) => parent.join(name),
+            _ => path.to_path_buf(),
+        }
+    })
+}
+
+fn root_relative(project: &ProjectRoot, file: &Path) -> Option<String> {
+    let resolved = project.resolve(file).ok()?;
+    let relative = resolved.strip_prefix(project.as_path()).ok()?;
+    (!relative.as_os_str().is_empty()).then(|| relative.to_string_lossy().replace('\\', "/"))
+}
+
 /// Structured outputs are intentionally the same evidence shape on both
 /// facades. Evidence contents come from the typed engine, never serializer
 /// reconstruction of a missing identity, location, backend or count.
@@ -178,13 +262,17 @@ pub(crate) fn output_schema() -> Value {
 /// Keep those fields null, and retain the original typed runtime error.
 pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensError) -> Value {
     let session = crate::session_context::SessionRequestContext::from_json(args);
-    let project = if session.is_local() {
+    let project = if state.analysis_lite_launch_unbound() {
+        // The default context is a placeholder, not a project; a rejected
+        // call has no bound repository to report.
+        None
+    } else if session.is_local() {
         Some(state.current_project_scope())
     } else if session.project_binding_is_explicit() {
         session
             .project_path
             .as_deref()
-            .and_then(|path| codelens_engine::ProjectRoot::new(path).ok())
+            .and_then(|path| ProjectRoot::new(path).ok())
             .map(|project| project.as_path().display().to_string())
     } else {
         None

@@ -25,6 +25,15 @@ impl StartupProjectSource {
         !matches!(self, Self::Cwd(_))
     }
 
+    pub(crate) fn path(&self) -> &std::path::Path {
+        match self {
+            Self::Cli(path) | Self::ClaudeEnv(path) | Self::McpEnv(path) => {
+                std::path::Path::new(path)
+            }
+            Self::Cwd(path) => path,
+        }
+    }
+
     pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Cli(_) => "CLI path",
@@ -204,6 +213,80 @@ pub(crate) fn resolve_startup_project(source: &StartupProjectSource) -> Result<P
             .with_context(|| format!("failed to resolve project root from {}", path.display())),
     }
 }
+
+/// Whether an analysis-lite stdio server should start *launch-unbound*.
+///
+/// Claude Code launches a registered stdio server with
+/// `CLAUDE_PROJECT_DIR` = the session directory, which for most home-cwd
+/// sessions is `$HOME`. Every other surface refuses that root (or `/`), and so
+/// does this one for indexing purposes; instead of exiting, analysis-lite stdio
+/// starts on an empty placeholder and binds each call to the repository of its
+/// absolute `target.file`. Other profiles, HTTP and one-shot runs keep the
+/// refusal. `home == None` (no `$HOME`) keeps the refusal too: there is no
+/// CodeLens-owned directory to put the placeholder in.
+pub(crate) fn startup_is_analysis_lite_launch_unbound(
+    source: &StartupProjectSource,
+    analysis_lite_stdio: bool,
+    home: Option<&std::path::Path>,
+) -> bool {
+    if !analysis_lite_stdio {
+        return false;
+    }
+    let Some(home) = home.map(|home| home.canonicalize().unwrap_or_else(|_| home.to_path_buf()))
+    else {
+        return false;
+    };
+    let Ok(launch) = source.path().canonicalize() else {
+        return false;
+    };
+    launch == std::path::Path::new("/") || launch == home
+}
+
+/// Create this process's empty placeholder project for a launch-unbound
+/// analysis-lite server: `~/.codelens/analysis-lite-unbound/<pid>/`, beside the
+/// HTTP daemon's `~/.codelens/daemon-default`. One directory per process,
+/// because the project writer lease is exclusive and several home-cwd sessions
+/// run at once; directories of processes that no longer exist are removed.
+pub(crate) fn prepare_launch_unbound_placeholder(home: &std::path::Path) -> Result<ProjectRoot> {
+    let base = home.join(".codelens").join("analysis-lite-unbound");
+    std::fs::create_dir_all(&base)
+        .with_context(|| format!("failed to create {}", base.display()))?;
+    remove_dead_process_dirs(&base);
+    let dir = base.join(std::process::id().to_string());
+    // A reused pid must not inherit a previous run's index.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".codelens"))
+        .with_context(|| format!("failed to create {}", dir.display()))?;
+    ProjectRoot::new_exact(&dir)
+}
+
+#[cfg(unix)]
+fn remove_dead_process_dirs(base: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(base) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<libc::pid_t>().ok())
+        else {
+            continue;
+        };
+        if pid <= 0 || pid as u32 == std::process::id() {
+            continue;
+        }
+        // SAFETY: signal 0 only checks that the pid exists; nothing is sent.
+        let exists = unsafe { libc::kill(pid, 0) } == 0
+            || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
+        if !exists {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn remove_dead_process_dirs(_base: &std::path::Path) {}
 
 /// Extract the value of `--flag <value>` or `--flag=<value>` from an argv
 /// slice. `--` terminates flag scanning. Returns `None` if the flag is

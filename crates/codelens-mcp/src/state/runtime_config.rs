@@ -75,6 +75,18 @@ impl AppState {
         Arc::clone(&*self.http_auth.lock().unwrap())
     }
 
+    /// Mark this analysis-lite stdio server as launched outside any project
+    /// (its default context is an empty placeholder, never `$HOME`).
+    pub(crate) fn configure_analysis_lite_launch_unbound(&self, unbound: bool) {
+        self.analysis_lite_launch_unbound
+            .store(unbound, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn analysis_lite_launch_unbound(&self) -> bool {
+        self.analysis_lite_launch_unbound
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub(crate) fn compat_mode(&self) -> crate::server::compat::ServerCompatMode {
         *self
             .compat_mode

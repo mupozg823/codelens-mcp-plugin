@@ -2024,7 +2024,7 @@ required = ["mode", "target"]
 additionalProperties = false
 [analysis_lite_tool.input_schema.properties]
 mode = { type = "string", enum = ["refs"] }
-target = { type = "object", required = ["file"], additionalProperties = false, anyOf = [{ required = ["name"] }, { required = ["symbol_id"] }], properties = { file = { type = "string", minLength = 1 }, name = { type = "string", minLength = 1 }, symbol_id = { type = "string", minLength = 1 }, start_byte = { type = "integer", minimum = 0, description = "UTF-8 name-token byte start, paired with end_byte; never UTF-16" }, end_byte = { type = "integer", minimum = 1 } } }
+target = { type = "object", required = ["file"], additionalProperties = false, anyOf = [{ required = ["name"] }, { required = ["symbol_id"] }], properties = { file = { type = "string", minLength = 1, description = "Declaration file: relative to the launch project, or absolute inside it. On a server launched outside any project, an absolute path binds the call to that file's repository root" }, name = { type = "string", minLength = 1 }, symbol_id = { type = "string", minLength = 1 }, start_byte = { type = "integer", minimum = 0, description = "UTF-8 name-token byte start, paired with end_byte; never UTF-16" }, end_byte = { type = "integer", minimum = 1 } } }
 path = { type = "string", minLength = 1, description = "Optional caller file/directory scope; local declaration references are always included" }
 generation = { type = "integer", minimum = 0, description = "Optional committed symbol generation from a previous candidate response" }
 max_results = { type = "integer", minimum = 1, maximum = 200, default = 100 }
@@ -2045,7 +2045,7 @@ required = ["mode", "target"]
 additionalProperties = false
 [analysis_lite_tool.input_schema.properties]
 mode = { type = "string", enum = ["impact"] }
-target = { type = "object", required = ["file"], additionalProperties = false, anyOf = [{ required = ["name"] }, { required = ["symbol_id"] }], properties = { file = { type = "string", minLength = 1 }, name = { type = "string", minLength = 1 }, symbol_id = { type = "string", minLength = 1 }, start_byte = { type = "integer", minimum = 0, description = "UTF-8 name-token byte start, paired with end_byte; never UTF-16" }, end_byte = { type = "integer", minimum = 1 } } }
+target = { type = "object", required = ["file"], additionalProperties = false, anyOf = [{ required = ["name"] }, { required = ["symbol_id"] }], properties = { file = { type = "string", minLength = 1, description = "Declaration file: relative to the launch project, or absolute inside it. On a server launched outside any project, an absolute path binds the call to that file's repository root" }, name = { type = "string", minLength = 1 }, symbol_id = { type = "string", minLength = 1 }, start_byte = { type = "integer", minimum = 0, description = "UTF-8 name-token byte start, paired with end_byte; never UTF-16" }, end_byte = { type = "integer", minimum = 1 } } }
 path = { type = "string", minLength = 1, description = "Optional caller file/directory scope" }
 generation = { type = "integer", minimum = 0 }
 max_depth = { type = "integer", minimum = 1, maximum = 8, default = 3 }

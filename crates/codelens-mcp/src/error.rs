@@ -12,6 +12,13 @@ pub enum CodeLensError {
         "project_binding_required: analysis-lite tool `{tool}` requires an explicit canonical project on this HTTP session; reinitialize with project=<absolute root>, x-codelens-project header or endpoint URL project. Unbound reads are rejected."
     )]
     AnalysisLiteBindingRequired { tool: String },
+    /// An analysis-lite stdio server launched outside any project (`$HOME`
+    /// or `/`) has no project of its own; each call binds to the repository
+    /// of its absolute `target.file`, and a call that cannot name one fails.
+    #[error(
+        "project_binding_required: this analysis-lite server was launched outside a project, so target.file `{file}` selects no repository ({reason}). Pass an absolute target.file inside a repository; the call binds to that file's repository root."
+    )]
+    AnalysisLiteLaunchUnbound { file: String, reason: String },
     #[error(
         "analysis-lite response_size_limit: {observed_bytes} evidence bytes exceed {limit_bytes}; narrow path, max_results or graph caps and retry. No sampled evidence was returned."
     )]
@@ -178,6 +185,7 @@ impl CodeLensError {
             Self::AnalysisEvidence(_) => -32012,
             #[cfg(feature = "http")]
             Self::AnalysisLiteBindingRequired { .. } => -32003,
+            Self::AnalysisLiteLaunchUnbound { .. } => -32003,
             Self::AnalysisLiteResponseTooLarge { .. } => -32007,
             // Protocol errors
             Self::MissingParam(_) => -32602,
@@ -216,6 +224,7 @@ impl CodeLensError {
             Self::AnalysisEvidence(_) => "analysis_evidence_error",
             #[cfg(feature = "http")]
             Self::AnalysisLiteBindingRequired { .. } => "project_binding_required",
+            Self::AnalysisLiteLaunchUnbound { .. } => "project_binding_required",
             Self::AnalysisLiteResponseTooLarge { .. } => "response_size_limit",
             Self::MissingParam(_) => "missing_param",
             Self::ToolNotFound(_) => "tool_not_found",

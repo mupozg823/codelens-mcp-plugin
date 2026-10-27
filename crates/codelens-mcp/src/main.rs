@@ -340,12 +340,34 @@ fn main() -> Result<()> {
     let transport = cli_option_value(&args, "--transport").unwrap_or_else(|| "stdio".to_owned());
     let compat_mode = configured_compat_mode(&args);
 
-    let project = resolve_startup_project(&project_source)?;
-    if !project_source.is_explicit() && project.as_path() == std::path::Path::new("/") {
-        anyhow::bail!(
-            "Refusing to start CodeLens on `/` without an explicit project root. Pass a path or set MCP_PROJECT_DIR/CLAUDE_PROJECT_DIR."
+    let analysis_lite_stdio = profile == Some(ToolProfile::AnalysisLite)
+        && transport == "stdio"
+        && cmd_tool.is_none()
+        && batch_calls.is_none();
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let launch_unbound = cli::startup_is_analysis_lite_launch_unbound(
+        &project_source,
+        analysis_lite_stdio,
+        home.as_deref(),
+    );
+    let project = if let Some(home) = home.as_deref().filter(|_| launch_unbound) {
+        let placeholder = cli::prepare_launch_unbound_placeholder(home)?;
+        tracing::warn!(
+            launch_dir = %project_source.path().display(),
+            project_source = project_source.label(),
+            placeholder = %placeholder.as_path().display(),
+            "analysis-lite stdio launched outside a project; each call binds to its absolute target.file's repository"
         );
-    }
+        placeholder
+    } else {
+        let project = resolve_startup_project(&project_source)?;
+        if !project_source.is_explicit() && project.as_path() == std::path::Path::new("/") {
+            anyhow::bail!(
+                "Refusing to start CodeLens on `/` without an explicit project root. Pass a path or set MCP_PROJECT_DIR/CLAUDE_PROJECT_DIR."
+            );
+        }
+        project
+    };
 
     // Surface the semantic-feature flag once per boot. Stays on stderr so
     // stdio JSON-RPC stdout is not polluted. ADR-0012.
@@ -362,6 +384,7 @@ fn main() -> Result<()> {
     app_state.configure_transport_mode(&transport);
     app_state.configure_daemon_mode(daemon_mode);
     app_state.configure_compat_mode(compat_mode);
+    app_state.configure_analysis_lite_launch_unbound(launch_unbound);
     #[cfg(feature = "http")]
     app_state.configure_http_auth(http_runtime.auth.clone());
     let surface_budget = if let Some(profile) = profile {

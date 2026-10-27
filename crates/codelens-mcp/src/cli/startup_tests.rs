@@ -658,3 +658,60 @@ fn http_startup_banner_includes_runtime_identity_fields() {
     assert!(banner.contains("build_time="));
     assert!(banner.contains("git_dirty="));
 }
+
+#[test]
+fn analysis_lite_stdio_launched_from_home_or_root_starts_unbound_others_keep_refusal() {
+    use super::startup_is_analysis_lite_launch_unbound as unbound;
+    let home = temp_dir("unbound-home");
+    let repo = home.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let home_str = home.display().to_string();
+    let sources = [
+        StartupProjectSource::ClaudeEnv(home_str.clone()),
+        StartupProjectSource::Cli(home_str.clone()),
+        StartupProjectSource::McpEnv(home_str),
+        StartupProjectSource::Cwd(home.clone()),
+        StartupProjectSource::ClaudeEnv("/".to_owned()),
+        StartupProjectSource::Cwd("/".into()),
+    ];
+    for source in &sources {
+        assert!(unbound(source, true, Some(&home)), "{source:?}");
+        // Every other profile/transport (analysis_lite_stdio = false) keeps
+        // today's startup path, which refuses $HOME and cwd `/`.
+        assert!(!unbound(source, false, Some(&home)), "{source:?}");
+    }
+    // A repository inside home still binds at launch.
+    let inside = StartupProjectSource::ClaudeEnv(repo.display().to_string());
+    assert!(!unbound(&inside, true, Some(&home)));
+    // Without a home there is no CodeLens-owned placeholder location.
+    assert!(!unbound(&sources[0], true, None));
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[cfg(unix)]
+#[test]
+fn launch_unbound_placeholder_is_an_empty_per_process_codelens_dir() {
+    let home = temp_dir("unbound-placeholder");
+    let base = home.join(".codelens").join("analysis-lite-unbound");
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let dead_pid = child.id();
+    child.wait().unwrap();
+    std::fs::create_dir_all(base.join(dead_pid.to_string()).join(".codelens")).unwrap();
+    let placeholder = super::prepare_launch_unbound_placeholder(&home).unwrap();
+    assert_eq!(
+        placeholder.as_path(),
+        base.canonicalize()
+            .unwrap()
+            .join(std::process::id().to_string())
+    );
+    assert!(
+        !base.join(dead_pid.to_string()).exists(),
+        "dirs of dead processes are reaped"
+    );
+    let entries = std::fs::read_dir(placeholder.as_path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(entries, [".codelens"]);
+    let _ = std::fs::remove_dir_all(&home);
+}

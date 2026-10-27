@@ -166,6 +166,10 @@ pub(crate) struct AppState {
     /// downstream tooling can detect "daemon is running an image
     /// older than the disk binary" — the Phase 4a failure mode.
     daemon_started_at: String,
+    /// An analysis-lite stdio server launched from `$HOME` or `/` starts on an
+    /// empty CodeLens-owned placeholder instead of refusing to start; each
+    /// call then binds to the repository of its absolute `target.file`.
+    analysis_lite_launch_unbound: std::sync::atomic::AtomicBool,
     /// ADR-0009 §2: durable audit sinks keyed by audit_dir. L6 — when a
     /// daemon serves multiple projects (e.g. via `activate_project` or
     /// `add_secondary_project`), each project has its own
