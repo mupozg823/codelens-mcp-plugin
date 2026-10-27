@@ -23,6 +23,96 @@ fn analysis_lite_profile_is_a_strict_two_tool_surface() {
         json!(["impact"])
     );
 }
+
+fn analysis_lite_rpc(
+    state: &crate::AppState,
+    method: &str,
+    params: serde_json::Value,
+) -> serde_json::Value {
+    let response = handle_request(
+        state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: method.to_owned(),
+            params: Some(params),
+        },
+    )
+    .expect("analysis-lite request must answer");
+    serde_json::to_value(&response).expect("serialize")
+}
+
+fn analysis_lite_stdio_state() -> crate::AppState {
+    let state = make_state(&project_root());
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    state
+}
+
+// Registered as an always-available server, analysis-lite must cost a host
+// nothing per turn: `search`/`graph` share names with the CORE-10 facades, and
+// the name-keyed always-load set preloaded both before this was surface-aware.
+#[test]
+fn analysis_lite_tools_list_is_deferred_and_searchable() {
+    let state = analysis_lite_stdio_state();
+    let value = analysis_lite_rpc(&state, "tools/list", json!({}));
+    let tools = value["result"]["tools"].as_array().expect("tools array");
+    assert_eq!(tools.len(), 2, "{tools:?}");
+    for tool in tools {
+        assert_ne!(
+            tool["_meta"]["anthropic/alwaysLoad"],
+            json!(true),
+            "{} must stay deferred on analysis-lite",
+            tool["name"]
+        );
+        let hint = tool["_meta"]["anthropic/searchHint"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{} needs a searchHint", tool["name"]));
+        assert!(hint.contains("JS/TS"), "{hint}");
+    }
+}
+
+fn analysis_lite_stdio_instructions_for(state: &crate::AppState) -> String {
+    let value = analysis_lite_rpc(
+        state,
+        "initialize",
+        json!({"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "claude-code", "version": "test"}}),
+    );
+    value["result"]["instructions"]
+        .as_str()
+        .expect("instructions string")
+        .to_owned()
+}
+
+#[test]
+fn analysis_lite_stdio_initialize_is_launch_bound_and_project_independent() {
+    let first = analysis_lite_stdio_state();
+    let second = analysis_lite_stdio_state();
+    assert_ne!(first.project().as_path(), second.project().as_path());
+    let instructions = analysis_lite_stdio_instructions_for(&first);
+    assert!(
+        instructions.contains("search(mode=refs)") && instructions.contains("graph(mode=impact)")
+    );
+    assert!(instructions.contains("Bound at launch"), "{instructions}");
+    // stdio has no header or initialize param to set; telling the host to
+    // send one would make it retry binding instead of calling the tool.
+    assert!(
+        !instructions.contains("x-codelens-project"),
+        "{instructions}"
+    );
+    assert!(
+        !instructions.contains("prepare_harness_session"),
+        "{instructions}"
+    );
+    assert!(instructions.contains("zero rows never means unused"));
+    assert!(instructions.len() < 900);
+    // A lazy stdio proxy keys its recorded handshake on the command line, not
+    // the cwd, so one recording answers every project.
+    let project = first.project().as_path().display().to_string();
+    assert!(!instructions.contains(&project), "{instructions}");
+    assert_eq!(instructions, analysis_lite_stdio_instructions_for(&second));
+}
 // ── Verb facade tests (search / graph / review) ──────────────────────
 //
 // Phase-1 consolidation: read-only tool families are reachable behind

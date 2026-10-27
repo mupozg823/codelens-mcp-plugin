@@ -94,10 +94,21 @@ pub(crate) fn build_tools_list_response(
             if let Some(policy) = tool_execution_policy_payload(tool.name) {
                 meta["codelens/executionPolicy"] = policy;
             }
-            if let Some(search_hint) = crate::tool_defs::tool_anthropic_search_hint(tool.name) {
+            // analysis-lite is meant to stay registered without a per-turn
+            // context cost: its two tools share names with the CORE-10 verb
+            // facades, so the name-keyed always-load set would preload them.
+            // On that surface they stay deferred and are found by searchHint.
+            let search_hint = if surface.is_analysis_lite() {
+                crate::tool_defs::analysis_lite::search_hint(tool.name)
+            } else {
+                crate::tool_defs::tool_anthropic_search_hint(tool.name)
+            };
+            if let Some(search_hint) = search_hint {
                 meta["anthropic/searchHint"] = json!(search_hint);
             }
-            if crate::tool_defs::tool_anthropic_always_load(tool.name) {
+            if !surface.is_analysis_lite()
+                && crate::tool_defs::tool_anthropic_always_load(tool.name)
+            {
                 meta["anthropic/alwaysLoad"] = Value::Bool(true);
             }
             crate::tool_defs::apply_tool_deprecation_meta(&mut meta, tool.name);

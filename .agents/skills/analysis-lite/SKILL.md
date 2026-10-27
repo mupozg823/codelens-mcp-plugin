@@ -7,9 +7,13 @@ Use native file reads and text search for exact lookups and local edits. Use
 this optional MCP surface when declaration references or a bounded impact query
 would replace a wider scan. Tool availability does not require using it.
 
-The session must be bound to the canonical workspace through the HTTP
-initialize project, endpoint URL project or x-codelens-project header. Verify
-the response project before using evidence. This profile exposes only:
+A stdio server is already bound to the directory the host launched it in
+(CLAUDE_PROJECT_DIR, else its working directory); target.file is relative to
+that root and a worktree gets its own server. An HTTP session must be bound to
+the canonical workspace through the initialize project, endpoint URL project or
+x-codelens-project header. Either way, verify the response project before
+using evidence. Both tools are deferred: find them through host tool search.
+This profile exposes only:
 
 ```json
 {"name":"search","arguments":{"mode":"refs","target":{"file":"src/service.ts","name":"handle"},"max_results":20}}

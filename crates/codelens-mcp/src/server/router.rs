@@ -20,12 +20,30 @@ pub(crate) fn unbound_session_instructions() -> String {
     format!("{UNBOUND_BINDING_GUIDANCE} {WORKFLOW_GUIDANCE}")
 }
 
+const ANALYSIS_LITE_SCOPE: &str = "analysis-lite exposes only search(mode=refs) and graph(mode=impact) for exact JS/TS declarations.";
+
+const ANALYSIS_LITE_EVIDENCE: &str = "Evidence is partial for cross-file non-call/type references and member dispatch; zero rows never means unused. Use native read/search when unsupported. Set target={file,name,start_byte?,end_byte?} with UTF-8 name-token spans, or target={file,symbol_id}.";
+
+#[cfg(feature = "http")]
 pub(crate) fn analysis_lite_instructions(project: Option<&str>) -> String {
-    let mut instructions = "analysis-lite exposes only search(mode=refs) and graph(mode=impact) for exact JS/TS declarations. HTTP sessions require an explicit canonical project via initialize project, x-codelens-project header or URL project; unbound reads fail. Evidence is partial for cross-file non-call/type references and member dispatch; zero rows never means unused. Use native read/search when unsupported. Set target={file,name,start_byte?,end_byte?} with UTF-8 name-token spans, or target={file,symbol_id}.".to_owned();
+    let mut instructions = format!(
+        "{ANALYSIS_LITE_SCOPE} HTTP sessions require an explicit canonical project via initialize project, x-codelens-project header or URL project; unbound reads fail. {ANALYSIS_LITE_EVIDENCE}"
+    );
     if let Some(project) = project {
         instructions.push_str(&format!(" Bound project: `{project}`."));
     }
     instructions
+}
+
+/// A stdio server is bound once, at launch (CLI path, `CLAUDE_PROJECT_DIR`,
+/// `MCP_PROJECT_DIR`, then cwd), so the HTTP binding sentence would send the
+/// host looking for a header or param it cannot set. The text names no path:
+/// a lazy stdio proxy replays one recorded `initialize` to every project that
+/// launches the same command line.
+pub(crate) fn analysis_lite_stdio_instructions() -> String {
+    format!(
+        "{ANALYSIS_LITE_SCOPE} Bound at launch to the host's project directory; target.file is relative to it. Another checkout or worktree needs its own server. {ANALYSIS_LITE_EVIDENCE}"
+    )
 }
 
 /// Instructions for a session the host bound at `initialize` (header, URL
@@ -107,8 +125,10 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                         "name": "codelens-mcp",
                         "version": env!("CARGO_PKG_VERSION")
                     },
+                    // HTTP replaces this per request with the root the host
+                    // bound; on stdio it is final.
                     "instructions": if state.surface().is_analysis_lite() {
-                        analysis_lite_instructions(None)
+                        analysis_lite_stdio_instructions()
                     } else { unbound_session_instructions() },
                 }),
             ))

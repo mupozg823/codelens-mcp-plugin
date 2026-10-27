@@ -26,6 +26,16 @@ pub(crate) fn max_response_bytes() -> usize {
     super::generated::ANALYSIS_LITE_MAX_RESPONSE_BYTES
 }
 
+/// Host tool-search hint for the two deferred descriptors. analysis-lite never
+/// sets `anthropic/alwaysLoad`, so this text is how a host finds the tool.
+pub(crate) fn search_hint(name: &str) -> Option<&'static str> {
+    match name {
+        "search" => Some("exact JS/TS references to one declaration (who uses this symbol)"),
+        "graph" => Some("JS/TS change impact: bounded reverse callgraph of callers"),
+        _ => None,
+    }
+}
+
 pub(crate) fn public_name(target: &str) -> Option<&'static str> {
     super::generated::analysis_lite_public_name(target)
 }

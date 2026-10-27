@@ -10,6 +10,43 @@ The candidate has no adoption or performance finding yet. Protocol tests and
 model-free host probes are separate from the later approved model pilot. The
 global CodeLens-off configuration and retired launchd setup stay unchanged.
 
+## Everyday registration (stdio, on demand)
+
+For day-to-day use the profile runs as a stdio server that the host starts per
+session, wrapped in a lazy stdio proxy so idle sessions start nothing. This is
+the registration shape; the foreground HTTP runtime below stays the pilot and
+multi-host shape. Registering is a per-user decision taken from pilot evidence.
+
+- Binding. A stdio server binds once at launch: CLI path, then
+  CLAUDE_PROJECT_DIR, then MCP_PROJECT_DIR, then the working directory.
+  Claude Code 2.1.311 starts the MCP child with CLAUDE_PROJECT_DIR and the
+  working directory both set to the session directory (measured 2026-10-27),
+  so each session binds its own checkout and a worktree session binds the
+  worktree. No header, URL project or initialize project is involved.
+- Context cost. On this surface neither tool carries anthropic/alwaysLoad,
+  even though search and graph share names with the CORE-10 facades. Both are
+  deferred behind host tool search via anthropic/searchHint; the 5882-byte
+  two-tool listing is not loaded until a search selects it.
+- Lazy start. The proxy records the handshake once and replays it; the server
+  process starts on the first tools/call. Measured: an idle session started 0
+  backends, a session that called graph started 1, in its own directory. The
+  initialize instructions name no path, so one recording is correct for every
+  project that runs the same command line.
+- Home directory. The server refuses to bind $HOME (exit 1 with the reason on
+  stderr). Open the session inside the repository.
+
+Claude Code (user scope; substitute the installed binary path):
+
+```sh
+claude mcp add-json codelens-lite -s user '{"type":"stdio","command":"'"$HOME"'/.local/bin/lazy-mcp","args":["--name","codelens-lite","--key-path","/path/to/codelens-mcp","--","/path/to/codelens-mcp","--profile","analysis-lite","--daemon-mode","read-only"]}'
+claude mcp remove codelens-lite -s user   # way back
+```
+
+The `--key-path` argument makes a rebuilt binary invalidate the recorded
+handshake. The binary needs no `http` feature for stdio. Codex launch-directory
+binding for stdio servers has not been measured; until it is, Codex uses the
+foreground HTTP adapter below.
+
 ## One foreground runtime
 
 Build an optimized task-owned binary, then run a single foreground HTTP process:
