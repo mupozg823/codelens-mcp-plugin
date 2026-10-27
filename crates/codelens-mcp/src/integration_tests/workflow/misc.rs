@@ -1091,6 +1091,27 @@ fn review_architecture_rejects_a_missing_scope_instead_of_claiming_complete() {
     );
 }
 
+// Held-out evaluation 2026-10-27: `path: "no/such/dir"` returned success with
+// zero candidates and `risk_level: low`.
+#[test]
+fn dead_code_report_rejects_a_missing_scope_instead_of_reporting_it_clean() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("present")).unwrap();
+    fs::write(project.as_path().join("present/orphan.py"), "Y = 2\n").unwrap();
+    let state = make_state(&project);
+
+    for arguments in [
+        json!({"path": "no/such/dir"}),
+        json!({"scope": "no/such/dir"}),
+    ] {
+        let payload = call_tool(&state, "dead_code_report", arguments);
+        assert_eq!(payload["success"], json!(false), "{payload}");
+        assert!(payload.to_string().contains("does not exist"), "{payload}");
+    }
+    let payload = call_tool(&state, "dead_code_report", json!({"path": "present"}));
+    assert_eq!(payload["success"], json!(true), "{payload}");
+}
+
 #[test]
 fn review_architecture_rejects_an_unsupported_file_scope() {
     let project = project_root();

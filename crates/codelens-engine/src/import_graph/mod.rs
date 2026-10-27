@@ -894,6 +894,243 @@ import (
         }
     }
 
+    // Regression (shadow-partner held-out evaluation 2026-10-27): consecutive
+    // `import` lines collapsed into one regex match, and `from api import ai`
+    // never reached `api/ai.py`.
+    #[test]
+    fn extracts_every_python_import_statement() {
+        let content = "\"\"\"from the docs import this\"\"\"\nimport os\nimport mac_control as mc\nimport a.b as ab, c  # two\nfrom importlib import util\nfrom api import ai, kakao as k\nfrom . import ledger as ledger_io\nfrom .. import shared\nfrom .pkg import (\n    one,\n    two as dos,  # trailing\n)\nfrom m import \\\n    cont\nfrom star import *\nimport semi; import semi2\nimport first; LABEL = \"(\"\nimport after_paren\nHASH = \"#\"; import after_hash  # (\nif TYPE_CHECKING: from typed import T\nfrom tabbed\timport T2\n\ndef lazy():\n    import payroll_report as pr\n";
+        let imports = super::parsers::extract_python_imports(content);
+        for expected in [
+            "os",
+            "mac_control",
+            "a.b",
+            "c",
+            "importlib",
+            "importlib.util",
+            "api",
+            "api.ai",
+            "api.kakao",
+            ".",
+            ".ledger",
+            "..",
+            "..shared",
+            ".pkg",
+            ".pkg.one",
+            ".pkg.two",
+            "m",
+            "m.cont",
+            "star",
+            "semi",
+            "semi2",
+            "first",
+            "after_paren",
+            "after_hash",
+            "typed",
+            "typed.T",
+            "tabbed",
+            "tabbed.T2",
+            "payroll_report",
+        ] {
+            assert!(
+                imports.iter().any(|import| import == expected),
+                "{expected:?} missing from {imports:?}"
+            );
+        }
+        assert!(
+            !imports
+                .iter()
+                .any(|import| import.contains(' ') || import == "star.*"),
+            "{imports:?}"
+        );
+    }
+
+    // Regression (greybox held-out evaluation 2026-10-27): an unbalanced «(» in a
+    // docstring was counted, so every later line read as a continuation and
+    // `from greybox.wiki.failure import …` inside a method vanished.
+    #[test]
+    fn brackets_in_strings_do_not_hide_later_imports() {
+        use super::parsers::ImportTiming;
+        let content = "class Service:\n    def note(self):\n        \"\"\"설명 (see §3\n        더 [x\n        \"\"\"\n        s = \"(\" + '[' + \"\\\"(\"\n        from pkg.failure import record\n        return [\n            1,\n        ]\n\nimport tail\n";
+        let timed: Vec<(String, ImportTiming)> = super::parsers::python_import_statements(content)
+            .into_iter()
+            .flat_map(|statement| {
+                let timing = statement.timing;
+                statement.modules.into_iter().map(move |m| (m, timing))
+            })
+            .collect();
+        assert!(
+            timed.contains(&("pkg.failure".to_owned(), ImportTiming::Deferred)),
+            "{timed:?}"
+        );
+        assert!(
+            timed.contains(&("tail".to_owned(), ImportTiming::Eager)),
+            "{timed:?}"
+        );
+    }
+
+    #[test]
+    fn resolves_python_submodules_and_script_dir_imports() {
+        let dir = temp_project_dir("python-submodules");
+        for file in [
+            "scripts/dashboard_server.py",
+            "scripts/api/__init__.py",
+            "scripts/api/ai.py",
+            "scripts/api/workflows.py",
+            "scripts/repo/__init__.py",
+            "scripts/repo/metrics.py",
+            "pkg/__init__.py",
+            "pkg/cli.py",
+            "pkg/ledger.py",
+        ] {
+            let path = dir.join(file);
+            fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            fs::write(path, "\n").expect("write fixture");
+        }
+        let project = ProjectRoot::new(&dir).expect("project");
+        let resolve = |from: &str, module: &str| {
+            super::resolvers::resolve_module_for_file(&project, &dir.join(from), module)
+        };
+        assert_eq!(
+            resolve("scripts/dashboard_server.py", "api.ai").as_deref(),
+            Some("scripts/api/ai.py")
+        );
+        // `get_router` is a name in `api/__init__.py`, not a module.
+        assert_eq!(
+            resolve("scripts/dashboard_server.py", "api.get_router"),
+            None
+        );
+        assert_eq!(
+            resolve("scripts/api/workflows.py", "repo.metrics").as_deref(),
+            Some("scripts/repo/metrics.py")
+        );
+        assert_eq!(
+            resolve("pkg/cli.py", ".ledger").as_deref(),
+            Some("pkg/ledger.py")
+        );
+        // The search never leaves the project.
+        assert_eq!(resolve("scripts/api/workflows.py", "os.path"), None);
+    }
+
+    // Regression (tuanbo held-out evaluation 2026-10-27): each package keeps its
+    // own tsconfig `paths` and there is no root config, so `@services/*` and
+    // `@shared/*` resolved nowhere. Configs are JSONC and may `extends` a base.
+    #[test]
+    fn resolves_aliases_from_the_nearest_tsconfig() {
+        let dir = temp_project_dir("ts-nearest-config");
+        let write = |rel: &str, text: &str| {
+            let path = dir.join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            fs::write(path, text).expect("write");
+        };
+        write(
+            "controller/tsconfig.json",
+            "{\n  // tsc --init style comment\n  \"compilerOptions\": {\n    /* block */ \"baseUrl\": \".\",\n    \"paths\": {\n      \"@services/*\": [\"src/services/*\"],\n      \"@shared/*\": [\"../shared/*\"],\n    },\n  },\n  \"include\": [\"src/**/*.ts\", \"http://not-a-comment\"],\n}\n",
+        );
+        write(
+            "lite/tsconfig.json",
+            "{ \"extends\": \"./tsconfig.base\" }\n",
+        );
+        write(
+            "lite/tsconfig.base.json",
+            "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } } }\n",
+        );
+        write("controller/src/services/session.ts", "export {};\n");
+        write("shared/tierUtils.ts", "export {};\n");
+        write("lite/src/store.ts", "export {};\n");
+        write("controller/src/main/app.ts", "export {};\n");
+        write("lite/src/ui/view.ts", "export {};\n");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let resolve = |from: &str, module: &str| {
+            super::resolvers::resolve_module_for_file(&project, &dir.join(from), module)
+        };
+        let from = "controller/src/main/app.ts";
+        assert_eq!(
+            resolve(from, "@services/session").as_deref(),
+            Some("controller/src/services/session.ts")
+        );
+        assert_eq!(
+            resolve(from, "@shared/tierUtils.js").as_deref(),
+            Some("shared/tierUtils.ts")
+        );
+        assert_eq!(
+            resolve("lite/src/ui/view.ts", "@/store").as_deref(),
+            Some("lite/src/store.ts")
+        );
+        // Another package's aliases do not apply.
+        assert_eq!(resolve("lite/src/ui/view.ts", "@services/session"), None);
+
+        // Codex review (#457): a package config that redeclares `paths` keeps
+        // the `baseUrl` it inherits, as tsc merges compiler options.
+        write(
+            "tsconfig.base.json",
+            "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"src/*\"] } } }\n",
+        );
+        write(
+            "web/tsconfig.json",
+            "{ \"extends\": \"../tsconfig.base.json\", \"compilerOptions\": { \"paths\": { \"@/*\": [\"src/*\"], \"#/*\": [\"web/lib/*\"] } } }\n",
+        );
+        write("src/thing.ts", "export {};\n");
+        write("web/src/thing.ts", "export {};\n");
+        write("web/lib/util.ts", "export {};\n");
+        write("web/app/page.ts", "export {};\n");
+        assert_eq!(
+            resolve("web/app/page.ts", "@/thing").as_deref(),
+            Some("src/thing.ts")
+        );
+        assert_eq!(
+            resolve("web/app/page.ts", "#/util").as_deref(),
+            Some("web/lib/util.ts")
+        );
+    }
+
+    // Regression (tuanbo held-out evaluation 2026-10-27): `./ledger.types.js`
+    // resolved to `ledger.ts` — the extension swap replaced `.types` — which
+    // made a false cycle and left `ledger.types.ts` without importers.
+    #[test]
+    fn resolves_js_specifiers_whose_file_name_contains_a_dot() {
+        let dir = temp_project_dir("js-dotted-names");
+        fs::create_dir_all(dir.join("src/types")).expect("mkdir src/types");
+        for file in [
+            "src/ledger.ts",
+            "src/ledger.types.ts",
+            "src/ledger.helpers.ts",
+            "src/page.config.ts",
+            "src/types/index.d.ts",
+            "src/real.ts",
+            "src/real.d.ts",
+        ] {
+            fs::write(dir.join(file), "export {};\n").expect("write fixture");
+        }
+        let project = ProjectRoot::new(&dir).expect("project");
+        let from = dir.join("src/outbox.ts");
+        let resolve =
+            |module: &str| super::resolvers::resolve_module_for_file(&project, &from, module);
+        assert_eq!(
+            resolve("./ledger.types.js").as_deref(),
+            Some("src/ledger.types.ts")
+        );
+        assert_eq!(
+            resolve("./ledger.helpers").as_deref(),
+            Some("src/ledger.helpers.ts")
+        );
+        assert_eq!(
+            resolve("./page.config").as_deref(),
+            Some("src/page.config.ts")
+        );
+        assert_eq!(resolve("./ledger.js").as_deref(), Some("src/ledger.ts"));
+        assert_eq!(resolve("./ledger").as_deref(), Some("src/ledger.ts"));
+        // A declaration file answers only when no source file does.
+        assert_eq!(
+            resolve("./types/index.js").as_deref(),
+            Some("src/types/index.d.ts")
+        );
+        assert_eq!(resolve("./types").as_deref(), Some("src/types/index.d.ts"));
+        assert_eq!(resolve("./real").as_deref(), Some("src/real.ts"));
+        assert_eq!(resolve("./missing.types.js"), None);
+    }
+
     fn temp_project_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "codelens-core-import-graph-{name}-{}",

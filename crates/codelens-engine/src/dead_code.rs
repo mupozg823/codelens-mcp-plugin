@@ -156,9 +156,17 @@ fn is_tool_config_file(path: &Path, name: &str) -> bool {
     is_js_family(path) && (name.contains(".config.") || name.starts_with('.'))
 }
 
+/// TypeScript declaration files: tsc loads them through tsconfig `include`
+/// (ambient `declare module`/`declare global`); nothing imports most of them.
+pub(crate) fn is_declaration_file(name: &str) -> bool {
+    [".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+}
+
 /// Files something other than an import loads: entry/init files, tests the
-/// runner collects, framework route files and tool configs. "Nothing imports
-/// it" is their expected shape, not evidence of death.
+/// runner collects, framework route files, tool configs and TS declaration
+/// files. "Nothing imports it" is their expected shape, not evidence of death.
 pub(super) fn is_entry_point_file(file: &str) -> bool {
     let path = Path::new(file);
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or(file);
@@ -175,6 +183,7 @@ pub(super) fn is_entry_point_file(file: &str) -> bool {
     ) || is_test_file(path, name)
         || is_framework_convention_file(path, name)
         || is_tool_config_file(path, name)
+        || is_declaration_file(name)
 }
 
 /// True when every `fn name` definition in a Rust file sits inside a
@@ -206,12 +215,18 @@ fn is_executable_script(content: &str) -> bool {
 
 /// Files that launch other files by path: `node scripts/x.mjs` in
 /// `package.json`, `run:` steps and path globs in CI workflows, `setupFiles`
-/// in `vitest.config.ts`, `CMD` in a Dockerfile.
+/// in `vitest.config.ts`, `CMD` in a Dockerfile, `<script src>` in an HTML
+/// page (Vite's `index.html` entry included), and the scripts a browser
+/// extension or Stream Deck `manifest.json` declares.
 fn is_launch_manifest(name: &str) -> bool {
     matches!(
         name,
-        "package.json" | "Makefile" | "justfile" | "Procfile" | "Dockerfile"
+        "package.json" | "Makefile" | "justfile" | "Procfile" | "Dockerfile" | "manifest.json"
     ) || is_tool_config_file(Path::new(name), name)
+        || matches!(
+            Path::new(name).extension().and_then(|e| e.to_str()),
+            Some("html" | "htm")
+        )
 }
 
 /// Path tokens named by the launch manifests of one directory, relative to
@@ -232,7 +247,8 @@ impl LaunchRefs {
                 )
         };
         for token in text.split(is_separator) {
-            let token = token.trim_start_matches("./");
+            // `/src/main.tsx` in a Vite `index.html` is relative to that page.
+            let token = token.trim_start_matches("./").trim_start_matches('/');
             if token.is_empty() || !token.contains(['/', '.']) {
                 continue;
             }
@@ -405,6 +421,51 @@ fn count_identifiers(source: &str, counts: &mut HashMap<String, usize>) {
     }
 }
 
+/// `source` without its whole-line comments, so a name mentioned only in prose
+/// (`// see fooBar`, a JSDoc ` * @see` line, `# TODO: drop x`) is not a use —
+/// held-out evaluation 2026-10-27: a comment in another file kept a dead
+/// method alive. Only lines that *start* as a comment go: telling a trailing
+/// `//` from one inside a string needs a lexer, and keeping the line
+/// over-counts, the safe direction. `#` is a comment in Python and Ruby only
+/// (C's `#include`, Rust's `#[attr]` are code).
+fn without_comment_lines(source: &str, path: &Path) -> String {
+    let hash_comments = matches!(path.extension().and_then(|e| e.to_str()), Some("py" | "rb"));
+    let mut code = String::with_capacity(source.len());
+    let mut in_block = false;
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let block_rest = if in_block {
+            Some(trimmed)
+        } else if !hash_comments && trimmed.starts_with("/*") {
+            Some(&trimmed[2..])
+        } else {
+            None
+        };
+        if let Some(rest) = block_rest {
+            match rest.find("*/") {
+                // Code after the closing `*/` keeps the line.
+                Some(end) => {
+                    in_block = false;
+                    if !rest[end + 2..].trim().is_empty() {
+                        code.push_str(line);
+                    }
+                }
+                None => in_block = true,
+            }
+            continue;
+        }
+        let comment = if hash_comments {
+            trimmed.starts_with('#')
+        } else {
+            trimmed.starts_with("//")
+        };
+        if !comment {
+            code.push_str(line);
+        }
+    }
+    code
+}
+
 /// The token [`count_identifiers`] records for a defined function name, or
 /// `None` when it records none. A Rust raw identifier `r#match` is the item
 /// `match` (references may spell it either way, and the scan splits `r#` off);
@@ -441,6 +502,24 @@ pub(super) fn has_rust_test_attribute(lines: &[&str], symbol_line: usize) -> boo
     false
 }
 
+/// 1-indexed line of the first `def name(` / `async def name(` at any depth.
+fn python_def_line(lines: &[&str], name: &str) -> Option<usize> {
+    lines
+        .iter()
+        .position(|line| {
+            let line = line.trim_start();
+            let line = line
+                .strip_prefix("async")
+                .filter(|rest| rest.starts_with(char::is_whitespace))
+                .map_or(line, str::trim_start);
+            line.strip_prefix("def")
+                .filter(|rest| rest.starts_with(char::is_whitespace))
+                .and_then(|rest| rest.trim_start().strip_prefix(name))
+                .is_some_and(|rest| rest.trim_start().starts_with(['(', '[']))
+        })
+        .map(|index| index + 1)
+}
+
 /// Check whether any line preceding a symbol definition starts with `@`
 /// (decorator pattern). Scans upward through stacked decorators.
 /// `lines` is the 0-indexed source lines; `symbol_line` is 1-indexed.
@@ -463,29 +542,43 @@ pub(super) fn has_decorator(lines: &[&str], symbol_line: usize) -> bool {
     }
 }
 
-/// #F18: non-source config/data files (`.toml`/`.yml`/`.yaml`/`.json`) are
-/// indexed as import-graph nodes but are never "imported" the way source
-/// modules are, so a DB-backed graph (`build_import_graph` over every
-/// indexed path) always reports them as orphans. They are configuration,
-/// not dead code. The extension set mirrors the structured/config filetypes
-/// the duplicate detector already treats specially
-/// (`embedding::duplicates::structured_filetype_floor`).
-pub(super) fn is_non_source_config_file(file: &str) -> bool {
+/// True when every cross-file use of `file` goes through a file-level import
+/// the resolver follows, so «no importer» can mean «unused». Elsewhere a file
+/// is reached without one: same package/module/namespace visibility (Go, Java,
+/// Kotlin, Scala, Swift, C#), autoloaders (Rails/Zeitwerk, Composer PSR-4),
+/// the build system (C/C++ sources — headers are `#include`d) or markup that
+/// links it (HTML, CSS). On held-out projects those were 13 of 42 false
+/// pass-1 files (HTML, CSS, Swift). Config/data files (#F18: `.toml`, `.yml`,
+/// `.json`) are indexed graph nodes that nothing imports, and stay out too.
+fn importers_prove_use(file: &str) -> bool {
     matches!(
         Path::new(file)
             .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_ascii_lowercase())
             .as_deref(),
-        Some("toml" | "yml" | "yaml" | "json")
+        Some(
+            "py" | "js"
+                | "jsx"
+                | "ts"
+                | "tsx"
+                | "mjs"
+                | "cjs"
+                | "rs"
+                | "dart"
+                | "h"
+                | "hh"
+                | "hpp"
+                | "hxx"
+        )
     )
 }
 
 /// Pass-1 verdict for a file: it is a dead-code candidate when nothing
-/// imports it and it is neither a recognised entry point nor a non-source
-/// config/data file (see [`is_non_source_config_file`]).
+/// imports it, its language makes that meaningful ([`importers_prove_use`]),
+/// and it is not a recognised entry point.
 fn is_pass1_dead_file(file: &str, has_no_importers: bool) -> bool {
-    has_no_importers && !is_entry_point_file(file) && !is_non_source_config_file(file)
+    has_no_importers && importers_prove_use(file) && !is_entry_point_file(file)
 }
 
 pub fn find_dead_code(
@@ -588,7 +681,10 @@ pub fn find_dead_code_v2(
     let mut identifier_counts: HashMap<String, usize> = HashMap::new();
     for path in &candidate_files {
         if let Ok(source) = std::fs::read_to_string(path) {
-            count_identifiers(&source, &mut identifier_counts);
+            count_identifiers(
+                &without_comment_lines(&source, path),
+                &mut identifier_counts,
+            );
         }
     }
 
@@ -621,6 +717,13 @@ pub fn find_dead_code_v2(
             if func_name == "<module>" {
                 continue;
             }
+            // Methods come from the call graph without a line; the decorator
+            // check below needs one (`@app.get` on a method, `@property`).
+            let func_line = if func_line == 0 && relative.ends_with(".py") {
+                python_def_line(&lines, &func_name).unwrap_or(0)
+            } else {
+                func_line
+            };
             if is_entry_point_symbol(&func_name) {
                 continue;
             }
@@ -738,6 +841,42 @@ mod tests {
         assert!(!is_pass1_dead_file("src/used.rs", false));
     }
 
+    // Held-out evaluation 2026-10-27: 13 of 42 false pass-1 files were HTML,
+    // CSS and Swift, which no resolver gives an importer.
+    #[test]
+    fn pass1_only_judges_languages_whose_uses_need_an_import() {
+        for reached_without_import in [
+            "ios/App/AppRouter.swift",
+            "scripts/templates/dashboard.html",
+            "web/index.htm",
+            "src/design/tokens.css",
+            "pkg/server/handler.go",
+            "src/main/java/com/acme/Service.java",
+            "app/models/user.rb",
+            "src/Controller/Home.php",
+            "Services/Billing.cs",
+            "src/codec.c",
+            "src/codec.cpp",
+        ] {
+            assert!(
+                !is_pass1_dead_file(reached_without_import, true),
+                "{reached_without_import:?}"
+            );
+        }
+        for judged in [
+            "src/orphan.ts",
+            "src/orphan.tsx",
+            "lib/orphan.mjs",
+            "app/orphan.py",
+            "src/orphan.rs",
+            "lib/orphan.dart",
+            "include/orphan.h",
+            "include/orphan.hpp",
+        ] {
+            assert!(is_pass1_dead_file(judged, true), "{judged:?}");
+        }
+    }
+
     #[test]
     fn scope_is_a_path_segment_prefix() {
         for whole in [None, Some("."), Some("./"), Some(""), Some("  ")] {
@@ -779,6 +918,10 @@ mod tests {
             "vitest.config.ts",
             "next.config.mjs",
             ".eslintrc.cjs",
+            // Held-out evaluation 2026-10-27: ambient declarations tsc loads.
+            "viewer/src/vite-env.d.ts",
+            "src/types/electron.d.ts",
+            "src/types/osc.d.mts",
         ] {
             assert!(
                 is_entry_point_file(file),
@@ -787,6 +930,8 @@ mod tests {
         }
         for file in [
             "lib/donation/queue.ts",
+            "src/types/d.ts",
+            "src/types/shapes.ts",
             "lib/page.tsx",
             "lib/middleware.ts",
             "app/unused.py",
@@ -843,6 +988,20 @@ mod tests {
             "workers/dispatcher/package.json",
             r#"{"scripts": {"start": "node src/main.ts"}}"#,
         );
+        // Held-out evaluation 2026-10-27: pages and extension manifests load
+        // scripts no module imports.
+        write(
+            "viewer/index.html",
+            "<body><script type=\"module\" src=\"/src/main.tsx\"></script></body>\n",
+        );
+        write(
+            "plugin/ui/timeline.html",
+            "<script src=\"inspector.js\"></script>\n",
+        );
+        write(
+            "extension/manifest.json",
+            r#"{"background": {"service_worker": "background.js"}, "content_scripts": [{"js": ["content/admin.js"]}]}"#,
+        );
 
         let mut index = LaunchIndex::new(&dir);
         for launched in [
@@ -850,6 +1009,10 @@ mod tests {
             "scripts/test-playback-handoff-db.mjs",
             "vitest.setup.network.ts",
             "workers/dispatcher/src/main.ts",
+            "viewer/src/main.tsx",
+            "plugin/ui/inspector.js",
+            "extension/background.js",
+            "extension/content/admin.js",
         ] {
             assert!(index.launches(launched), "{launched:?} should be launched");
         }
@@ -934,6 +1097,33 @@ mod tests {
         assert!(!symbols.contains(&"hash"), "{found:?}");
     }
 
+    // shadow-partner 2026-10-27: `@router.post` on `async def` handlers, and
+    // decorated methods, got no line and skipped the decorator check.
+    #[test]
+    fn decorated_async_functions_and_methods_are_not_dead() {
+        let (_td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-dead-decorated-");
+        std::fs::create_dir_all(dir.join("api")).expect("mkdir api");
+        std::fs::write(
+            dir.join("api/ai.py"),
+            "from fastapi import APIRouter\nrouter = APIRouter()\n\n\n@router.post(\"/api/ai/accept\")\nasync def api_accept(item_id: int):\n    return item_id\n\n\nclass Panel:\n    @property\n    def title(self):\n        return self._title()\n\n    def _title(self):\n        return \"t\"\n\n\nasync def orphan_job():\n    return 1\n",
+        )
+        .expect("write ai.py");
+        std::fs::write(dir.join("server.py"), "from api import ai\n").expect("write server");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let found =
+            find_dead_code_v2(&project, Some("api"), 0, &GraphCache::new(0)).expect("dead code");
+        let symbols: Vec<&str> = found.iter().filter_map(|e| e.symbol.as_deref()).collect();
+        assert!(symbols.contains(&"orphan_job"), "{found:?}");
+        assert!(!symbols.contains(&"api_accept"), "{found:?}");
+        assert!(!symbols.contains(&"title"), "{found:?}");
+        assert_eq!(
+            python_def_line(&["x = 1", "    async def go[T](a):"], "go"),
+            Some(2)
+        );
+        assert_eq!(python_def_line(&["def gone():"], "go"), None);
+    }
+
     // winnation 2026-10-27: 125 of 138 pass-2 candidates were used, just not
     // called by name — JSX components, callbacks, function pointers.
     #[test]
@@ -1004,6 +1194,27 @@ mod tests {
         assert_eq!(reference_key("Foo.bar"), None);
         assert_eq!(reference_key("<anonymous>"), None);
         assert_eq!(reference_key(""), None);
+    }
+
+    #[test]
+    fn whole_line_comments_are_not_uses() {
+        let ts = "// see staleHelper\n/**\n * @see staleHelper\n */\n/* note */ live(a);\nconst url = \"http://x\"; // staleHelper stays: trailing\n  *ptrLike = live2;\n";
+        let code = without_comment_lines(ts, Path::new("a.ts"));
+        let mut counts = HashMap::new();
+        count_identifiers(&code, &mut counts);
+        assert_eq!(counts.get("staleHelper"), Some(&1), "{code:?}");
+        assert_eq!(counts.get("live"), Some(&1), "{code:?}");
+        assert_eq!(counts.get("ptrLike"), Some(&1), "{code:?}");
+
+        let py = "# drop old_job later\nx = \"# old_job\"\n    # old_job indented\nrun()\n";
+        let code = without_comment_lines(py, Path::new("a.py"));
+        let mut counts = HashMap::new();
+        count_identifiers(&code, &mut counts);
+        assert_eq!(counts.get("old_job"), Some(&1), "{code:?}");
+
+        // `#` starts code in C and Rust.
+        let rs = "#[inline]\nfn kept() {}\n#include \"kept.h\"\n";
+        assert_eq!(without_comment_lines(rs, Path::new("a.rs")), rs);
     }
 
     #[test]

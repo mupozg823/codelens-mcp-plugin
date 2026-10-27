@@ -9,6 +9,7 @@ mod verifier_reports;
 pub use context_reports::analyze_change_request;
 pub(crate) use context_reports::symbol_impact_summary;
 pub use eval_reports::eval_session_audit;
+pub(crate) use impact_reports::validate_architecture_scope;
 pub use impact_reports::{
     dead_code_report, diff_aware_references, impact_report, mermaid_module_graph,
     module_boundary_report, refactor_safety_report, semantic_code_review,

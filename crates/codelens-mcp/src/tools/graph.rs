@@ -386,6 +386,11 @@ pub(crate) fn find_dead_code_v2_tool(
 ) -> ToolResult {
     let max_results = optional_usize(arguments, "max_results", 50);
     let scope = arguments.get("scope").and_then(|v| v.as_str());
+    // A missing scope came back as «0 candidates, risk low»: a typo read as a
+    // clean bill of health. Both the report and its async job pass here.
+    if let Some(scope) = scope.filter(|scope| !matches!(scope.trim(), "" | "." | "./")) {
+        crate::tools::reports::validate_architecture_scope(&state.project(), scope)?;
+    }
     Ok(
         find_dead_code_v2(&state.project(), scope, max_results, &state.graph_cache()).map(
             |value| {

@@ -426,10 +426,12 @@ mod tests {
             CircularDependency {
                 cycle: vec!["src/pkg/a.rs".to_owned(), "src/pkg/b.rs".to_owned()],
                 length: 2,
+                deferred: false,
             },
             CircularDependency {
                 cycle: vec!["src/pkg/c.rs".to_owned(), "src/pkg/d.rs".to_owned()],
                 length: 2,
+                deferred: false,
             },
             CircularDependency {
                 cycle: vec![
@@ -437,6 +439,7 @@ mod tests {
                     "src/other.rs".to_owned(),
                 ],
                 length: 2,
+                deferred: false,
             },
         ];
         let (cycle_hits, cycle_limit_hit) = cycle_hits_for_path(&cycles, "src/pkg", 1);
