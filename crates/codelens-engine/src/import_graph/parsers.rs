@@ -268,8 +268,10 @@ pub(crate) fn python_import_statements(content: &str) -> Vec<PythonImport> {
             ImportTiming::Eager
         };
         loop {
+            // Brackets inside string literals do not open a continuation:
+            // `import os; LABEL = "("` ends on its line.
             let continued = statement.ends_with('\\');
-            if !continued && statement.matches('(').count() <= statement.matches(')').count() {
+            if !continued && python_bracket_delta(&statement, &mut None) <= 0 {
                 break;
             }
             if continued {
@@ -454,8 +456,25 @@ fn split_from_import(rest: &str) -> Option<(&str, &str)> {
     })
 }
 
+/// `line` up to its comment: the first `#` outside a string literal, so
+/// `LABEL = "#"; import b` keeps its import.
 fn strip_python_comment(line: &str) -> &str {
-    line.split_once('#').map_or(line, |(code, _)| code)
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'#' => return &line[..i],
+            quote @ (b'"' | b'\'') => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != quote {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    line
 }
 
 /// `pkg.mod`, `.mod`, `..` — rejects prose such as a docstring's
