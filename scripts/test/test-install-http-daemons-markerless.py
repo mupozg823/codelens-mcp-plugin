@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import plistlib
 import stat
 import subprocess
@@ -15,6 +16,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SCRIPT = REPO_ROOT / "scripts" / "install-http-daemons-launchd.sh"
+
+# The installer reads CODELENS_* settings (a signing identity, a model dir,
+# the markerless-root policy); a developer's shell must not change the
+# defaults these tests check, so every child process starts without them.
+for _key in [key for key in os.environ if key.startswith("CODELENS_")]:
+    del os.environ[_key]
 
 
 def print_plist(*extra: str) -> subprocess.CompletedProcess[str]:

@@ -300,10 +300,11 @@ fn tokenize_fields(doc: &SymbolDocument) -> FieldTokens {
 /// lowercasing — lowercasing first would erase the camelCase boundaries,
 /// which left PascalCase and camelCase names as single opaque tokens.
 ///
-/// This lane only. The SQLite `symbols_fts` table still tokenizes with
-/// `unicode61 … separators _` (snake_case split, camelCase whole), and
-/// `codelens_engine::symbols::sparse_query_tokens` splits on
-/// non-alphanumerics for the ranked-context coverage bonus.
+/// This lane only. The SQLite `symbols_fts` table tokenizes with
+/// `unicode61 … separators _` (snake_case split, camelCase whole) and adds
+/// the camelCase words of each name in its `words` column, without keeping
+/// signature or path parts; `codelens_engine::symbols::sparse_query_tokens`
+/// splits on non-alphanumerics for the ranked-context coverage bonus.
 fn tokenize(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();

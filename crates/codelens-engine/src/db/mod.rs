@@ -13,7 +13,7 @@ pub use compact::CompactReport;
 #[cfg(test)]
 mod tests;
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 
 /// Version of the analysis LOGIC (import resolver + import/symbol extractors)
 /// whose output is persisted in `imports`/`symbols`/`calls`. Distinct from
@@ -23,7 +23,46 @@ const SCHEMA_VERSION: i64 = 7;
 /// the compiled one wipes the analysis tables so `refresh_all` re-derives them
 /// with current logic. Without it, `commit_analyzed`'s (mtime, hash) freshness
 /// skip keeps stale edges forever, so logic fixes never reach existing indexes.
-const ANALYZER_VERSION: i64 = 2;
+/// 3: Rust items inside item-level macro bodies (`cfg_rt! { … }`) are extracted.
+const ANALYZER_VERSION: i64 = 3;
+
+/// Lowercased camelCase words of a symbol name, space-joined, for the
+/// `symbols_fts.words` column. Only what the FTS tokenizer cannot produce
+/// itself: it already splits snake_case at `_` but keeps `LoginForm` or
+/// `parseHTTPResponse` whole, so `login form` / `parse http response` are
+/// stored here and a single-word name stores nothing.
+pub(crate) fn camel_case_words(name: &str) -> String {
+    let mut words: Vec<String> = Vec::new();
+    for segment in name.split(|c: char| !c.is_alphanumeric()) {
+        let parts = crate::unicode::identifier_words(segment);
+        if parts.len() > 1 {
+            words.extend(
+                parts
+                    .iter()
+                    .filter(|part| part.len() >= 2)
+                    .map(|part| part.to_lowercase()),
+            );
+        }
+    }
+    words.join(" ")
+}
+
+/// Fill `symbols.words` for rows written before schema 8; the update
+/// trigger carries each change into `symbols_fts`.
+fn backfill_symbol_words(conn: &Connection) -> Result<()> {
+    let rows: Vec<(i64, String)> = conn
+        .prepare("SELECT id, name FROM symbols")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut update = conn.prepare("UPDATE symbols SET words = ?2 WHERE id = ?1")?;
+    for (id, name) in rows {
+        let words = camel_case_words(&name);
+        if !words.is_empty() {
+            update.execute(rusqlite::params![id, words])?;
+        }
+    }
+    Ok(())
+}
 
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {
@@ -370,6 +409,42 @@ impl IndexDb {
             // spent 70 s of CPU there (delete of 27k symbols: 53.9 s -> 0.13 s).
             "CREATE INDEX IF NOT EXISTS idx_symbols_parent ON symbols(parent_id);",
         ),
+        (
+            8,
+            // Keep `symbols_fts` in step with `symbols` row by row. It was
+            // rebuilt lazily when the symbol count changed, so a re-index that
+            // kept the count (a rename, an edited signature) left full-text
+            // search on rowids that no longer existed: the new names were
+            // unfindable. Cascaded deletes from `files` fire these triggers too.
+            //
+            // `words` carries the camelCase words of the name, which the
+            // tokenizer cannot split (`LoginForm` stays one token, so `form`
+            // never reached it). Existing rows are filled by
+            // `backfill_symbol_words` after this batch.
+            "ALTER TABLE symbols ADD COLUMN words TEXT NOT NULL DEFAULT '';
+             DROP TABLE IF EXISTS symbols_fts;
+             CREATE VIRTUAL TABLE symbols_fts USING fts5(
+                name, name_path, signature, words,
+                content=symbols, content_rowid=id,
+                tokenize='unicode61 remove_diacritics 2 separators _'
+             );
+             INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild');
+             CREATE TRIGGER IF NOT EXISTS symbols_fts_insert AFTER INSERT ON symbols BEGIN
+                INSERT INTO symbols_fts(rowid, name, name_path, signature, words)
+                VALUES (new.id, new.name, new.name_path, new.signature, new.words);
+             END;
+             CREATE TRIGGER IF NOT EXISTS symbols_fts_delete AFTER DELETE ON symbols BEGIN
+                INSERT INTO symbols_fts(symbols_fts, rowid, name, name_path, signature, words)
+                VALUES ('delete', old.id, old.name, old.name_path, old.signature, old.words);
+             END;
+             CREATE TRIGGER IF NOT EXISTS symbols_fts_update AFTER UPDATE ON symbols BEGIN
+                INSERT INTO symbols_fts(symbols_fts, rowid, name, name_path, signature, words)
+                VALUES ('delete', old.id, old.name, old.name_path, old.signature, old.words);
+                INSERT INTO symbols_fts(rowid, name, name_path, signature, words)
+                VALUES (new.id, new.name, new.name_path, new.signature, new.words);
+             END;
+             DELETE FROM meta WHERE key IN ('fts_symbol_count', 'fts_rebuild_ts');",
+        ),
     ];
 
     fn migrate(&mut self) -> Result<()> {
@@ -398,6 +473,9 @@ impl IndexDb {
         for &(ver, sql) in Self::MIGRATIONS {
             if current < ver {
                 tx.execute_batch(sql)?;
+                if ver == 8 {
+                    backfill_symbol_words(&tx)?;
+                }
                 tx.execute(
                     "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?1)",
                     rusqlite::params![ver.to_string()],

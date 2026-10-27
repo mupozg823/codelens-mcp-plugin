@@ -484,8 +484,8 @@ fn analyzer_version_two_wipes_pre_owner_qualified_rust_symbols() {
         )
         .unwrap();
     assert_eq!(
-        stored, 2,
-        "owner-qualified analyzer version must be recorded"
+        stored, ANALYZER_VERSION,
+        "the current analyzer version must be recorded"
     );
 }
 
@@ -744,6 +744,28 @@ fn nfd_hangul_call_edges_round_trip_via_nfc() {
     assert_eq!(callees[0].0, nfc_callee);
 }
 
+/// Create an index file the way an older build left it: the migrations up to
+/// `version`, recorded as that schema, with the current analyzer version so
+/// opening it does not wipe the rows a test adds.
+fn create_index_at_schema(path: &Path, version: i64) -> Connection {
+    let conn = Connection::open(path).expect("open raw");
+    conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+        .expect("meta");
+    for &(ver, sql) in IndexDb::MIGRATIONS
+        .iter()
+        .filter(|(ver, _)| *ver <= version)
+    {
+        conn.execute_batch(sql)
+            .unwrap_or_else(|error| panic!("migration {ver}: {error}"));
+    }
+    conn.execute_batch(&format!(
+        "INSERT INTO meta (key, value) VALUES ('schema_version', '{version}');
+         INSERT INTO meta (key, value) VALUES ('analyzer_version', '{ANALYZER_VERSION}');"
+    ))
+    .expect("versions");
+    conn
+}
+
 /// `symbols.parent_id` is a self-referencing foreign key with foreign_keys
 /// ON: without an index, every deleted symbol scans the whole table for
 /// children, which made re-indexing a changed worktree take minutes.
@@ -777,15 +799,7 @@ fn symbol_parent_lookup_uses_an_index() {
     ));
     fs::create_dir_all(&dir).expect("dir");
     let path = dir.join("symbols.db");
-    {
-        let db = IndexDb::open(&path).expect("open");
-        db.conn
-            .execute_batch(
-                "DROP INDEX idx_symbols_parent;
-                 UPDATE meta SET value = '6' WHERE key = 'schema_version';",
-            )
-            .expect("downgrade to v6");
-    }
+    drop(create_index_at_schema(&path, 6));
     let reopened = IndexDb::open(&path).expect("reopen");
     assert!(
         plan(&reopened).contains("idx_symbols_parent"),
@@ -793,6 +807,82 @@ fn symbol_parent_lookup_uses_an_index() {
         plan(&reopened)
     );
     let _ = fs::remove_dir_all(&dir);
+}
+
+/// Schema 7 kept `symbols_fts` fresh by a lazy rebuild keyed on the symbol
+/// count and had no `words` column. Opening such an index must re-sync the
+/// rows it already holds, fill their camelCase words, and leave triggers
+/// that keep later writes and cascaded deletes in step.
+#[test]
+fn fts_rows_written_before_schema_8_are_searchable_after_upgrade() {
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-db-fts-triggers-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).expect("dir");
+    let path = dir.join("symbols.db");
+    {
+        let conn = create_index_at_schema(&path, 7);
+        conn.execute_batch(
+            "INSERT INTO files (id, relative_path, mtime_ms, content_hash, size_bytes, language, indexed_at)
+             VALUES (1, 'old.ts', 1, 'h', 1, 'ts', 1);
+             INSERT INTO symbols (file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path)
+             VALUES (1, 'AlphaWolf', 'function', 1, 1, 0, 20, 'AlphaWolf', 'AlphaWolf');",
+        )
+        .expect("schema 7 rows");
+    }
+
+    let reopened = IndexDb::open(&path).expect("reopen");
+    let names = |query: &str| -> Vec<String> {
+        reopened
+            .search_symbols_fts(query, 10)
+            .unwrap()
+            .into_iter()
+            .map(|(row, _, _)| row.name)
+            .collect()
+    };
+    assert_eq!(names("AlphaWolf"), ["AlphaWolf"]);
+    assert_eq!(names("wolf"), ["AlphaWolf"]);
+    let file_id = reopened
+        .upsert_file("new.ts", 1, "h", 1, Some("ts"))
+        .unwrap();
+    reopened
+        .insert_symbols(
+            file_id,
+            &[NewSymbol {
+                name: "OmegaHawk",
+                kind: "function",
+                line: 1,
+                column_num: 1,
+                start_byte: 0,
+                end_byte: 20,
+                signature: "OmegaHawk",
+                name_path: "OmegaHawk",
+                parent_id: None,
+            }],
+        )
+        .unwrap();
+    assert_eq!(names("hawk"), ["OmegaHawk"]);
+    // Re-upserting a file deletes its symbols; the delete trigger follows.
+    reopened
+        .upsert_file("old.ts", 2, "h2", 1, Some("ts"))
+        .unwrap();
+    assert!(names("wolf").is_empty());
+    drop(reopened);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn camel_case_words_hold_only_what_the_fts_tokenizer_cannot_split() {
+    assert_eq!(camel_case_words("LoginForm"), "login form");
+    assert_eq!(camel_case_words("parseHTTPResponse"), "parse http response");
+    assert_eq!(camel_case_words("getUser_byId"), "get user by id");
+    assert_eq!(camel_case_words("parse_config_file"), "");
+    assert_eq!(camel_case_words("Gson"), "");
 }
 
 #[test]
@@ -906,4 +996,105 @@ fn compaction_leaves_a_mostly_full_file_alone() {
         compact::compact_if_mostly_free(&conn, 0.25, 1).unwrap(),
         None
     );
+}
+
+#[test]
+fn fts_search_accepts_punctuation_and_operator_words_in_the_query() {
+    let db = IndexDb::open_memory().unwrap();
+    let file_id = db.upsert_file("app.ts", 100, "h", 10, Some("ts")).unwrap();
+    db.insert_symbols(
+        file_id,
+        &[
+            NewSymbol {
+                name: "LandingPage",
+                kind: "function",
+                line: 1,
+                column_num: 1,
+                start_byte: 0,
+                end_byte: 40,
+                signature: "export default function LandingPage()",
+                name_path: "LandingPage",
+                parent_id: None,
+            },
+            NewSymbol {
+                name: "read_config",
+                kind: "function",
+                line: 5,
+                column_num: 1,
+                start_byte: 41,
+                end_byte: 90,
+                signature: "fn read_config(path: &Path) -> Config",
+                name_path: "read_config",
+                parent_id: None,
+            },
+        ],
+    )
+    .unwrap();
+
+    // The index tokenizer splits on every non-alphanumeric character, so a
+    // dotted, pathed or operator-laden query must reach the same tokens
+    // instead of failing FTS5 parsing and emptying the lexical lane.
+    for (query, expected) in [
+        ("next.js landing page", "LandingPage"),
+        ("std::fs read config", "read_config"),
+        ("app/page.tsx landing", "LandingPage"),
+        ("read(config)", "read_config"),
+        ("config OR NOT", "read_config"),
+        ("\"landing\"", "LandingPage"),
+    ] {
+        let hits = db
+            .search_symbols_fts(query, 10)
+            .unwrap_or_else(|error| panic!("{query:?} failed: {error:#}"));
+        assert!(
+            hits.iter().any(|(row, _, _)| row.name == expected),
+            "{query:?} did not find {expected}: {:?}",
+            hits.iter().map(|(row, _, _)| &row.name).collect::<Vec<_>>()
+        );
+    }
+
+    for query in ["::", "", "  ", "()"] {
+        let hits = db
+            .search_symbols_fts(query, 10)
+            .unwrap_or_else(|error| panic!("{query:?} failed: {error:#}"));
+        assert!(hits.is_empty(), "{query:?} matched {}", hits.len());
+    }
+}
+
+#[test]
+fn fts_search_ignores_stopwords_unless_the_query_has_nothing_else() {
+    let db = IndexDb::open_memory().unwrap();
+    let file_id = db.upsert_file("ser.rs", 100, "h", 10, Some("rs")).unwrap();
+    let symbol = |name: &'static str, line: i64| NewSymbol {
+        name,
+        kind: "function",
+        line,
+        column_num: 1,
+        start_byte: line * 100,
+        end_byte: line * 100 + 50,
+        signature: "fn f()",
+        name_path: name,
+        parent_id: None,
+    };
+    db.insert_symbols(
+        file_id,
+        &[
+            symbol("IntoIter", 1),
+            symbol("serialize_value", 2),
+            symbol("set_timeout", 3),
+        ],
+    )
+    .unwrap();
+    let names = |query: &str| -> Vec<String> {
+        db.search_symbols_fts(query, 10)
+            .unwrap()
+            .into_iter()
+            .map(|(row, _, _)| row.name)
+            .collect()
+    };
+
+    // `into` is a function word here; matching on it alone floods the lane
+    // with `IntoIter`-style names ahead of the real terms.
+    assert_eq!(names("serialize into json"), ["serialize_value"]);
+    // A query made only of stopwords still searches for them.
+    assert_eq!(names("set"), ["set_timeout"]);
 }

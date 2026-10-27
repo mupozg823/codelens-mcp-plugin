@@ -1729,6 +1729,35 @@ mod tests {
     }
 
     #[test]
+    fn fts_search_sees_a_symbol_renamed_by_a_refresh() {
+        // Given: a searched index whose only symbol is then renamed, so the
+        // symbol count does not change.
+        let (root, project) = race_project();
+        let path = root.join("src/changed.rs");
+        fs::write(&path, "pub fn alphawolf() {}\n").expect("write source");
+        let index = SymbolIndex::new_memory(project);
+        index.refresh_all().expect("initial refresh");
+        let fts_names = |query: &str| -> Vec<String> {
+            index
+                .db()
+                .search_symbols_fts(query, 10)
+                .expect("fts search")
+                .into_iter()
+                .map(|(row, _, _)| row.name)
+                .collect()
+        };
+        assert_eq!(fts_names("alphawolf"), ["alphawolf"]);
+        fs::write(&path, "pub fn omegahawk() {}\n").expect("edit source");
+
+        // When: the edit is re-indexed outside the file watcher.
+        index.refresh_all().expect("refresh after edit");
+
+        // Then: full-text search finds the new name and not the old one.
+        assert_eq!(fts_names("omegahawk"), ["omegahawk"]);
+        assert!(fts_names("alphawolf").is_empty());
+    }
+
+    #[test]
     fn refresh_all_drops_rows_the_discovery_walk_now_skips() {
         // Given: an index walked before .gitignore was honored, holding a
         // gitignored snapshot that is still on disk (so it looks fresh).

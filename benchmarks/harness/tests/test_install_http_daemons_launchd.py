@@ -65,7 +65,12 @@ class InstallHttpDaemonsLaunchdTests(unittest.TestCase):
                     str(model_dir),
                 ],
                 cwd=REPO_ROOT,
-                env={**os.environ, "HOME": str(root)},
+                # A developer's CODELENS_* settings (a signing identity, a
+                # model dir) would replace the defaults this test checks.
+                env={
+                    **{k: v for k, v in os.environ.items() if not k.startswith("CODELENS_")},
+                    "HOME": str(root),
+                },
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

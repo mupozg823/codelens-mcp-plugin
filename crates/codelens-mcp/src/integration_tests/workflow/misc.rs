@@ -353,14 +353,18 @@ fn symbol_mutation_reindexes_existing_embedding_index_when_engine_is_not_loaded(
         search["data"]["results"]
             .as_array()
             .map(|results| {
-                results
+                results.iter().all(|result| {
+                    ["semantic", "lexical", "semantic_lexical"]
+                        .map(|source| json!(source))
+                        .contains(&result["provenance"]["source"])
+                }) && results
                     .iter()
-                    .all(|result| result["provenance"]["source"] == json!("semantic"))
-                    && results
-                        .iter()
-                        .all(|result| result["provenance"]["adjusted_score"].is_number())
+                    .all(|result| result["provenance"]["adjusted_score"].is_number())
+                    // Both lanes find it: the embedding lane by meaning, the
+                    // lexical lane by its snake_case tokens.
                     && results.iter().any(|result| {
                         result.get("symbol_name") == Some(&json!("ember_archive_delta"))
+                            && result["provenance"]["source"] == json!("semantic_lexical")
                     })
             })
             .unwrap_or(false)

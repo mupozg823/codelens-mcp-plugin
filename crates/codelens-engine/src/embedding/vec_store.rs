@@ -17,7 +17,9 @@ use std::sync::Mutex;
 
 use super::{embedding_to_bytes, ffi};
 
-pub(super) const EMBEDDING_STORE_SCHEMA_VERSION: i64 = 2;
+/// 3: the bundled model is mean-pooled as it was trained; version 2 stores
+/// hold CLS-pooled vectors and are re-embedded on open.
+pub(super) const EMBEDDING_STORE_SCHEMA_VERSION: i64 = 3;
 const MAX_SCORED_CHUNK_LOOKUP_BATCH: usize = 128;
 /// sqlite-vec rejects a KNN query with `k` above this.
 const MAX_KNN_K: usize = 4096;
