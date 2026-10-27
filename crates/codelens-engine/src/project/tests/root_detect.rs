@@ -165,3 +165,34 @@ fn still_detects_project_root_before_home_directory() {
             .as_path()
     );
 }
+
+#[test]
+fn new_requiring_marker_refuses_a_markerless_folder_that_new_would_promote() {
+    let (_td, dir) = tempfile_dir();
+    let downloads = dir.join("Downloads");
+    fs::create_dir_all(&downloads).expect("mkdir downloads");
+
+    let err = ProjectRoot::new_requiring_marker(&downloads)
+        .expect_err("a markerless folder must not become a project");
+    assert!(err.to_string().contains("no project root marker"), "{err}");
+    assert!(
+        !downloads.join(".codelens").exists(),
+        "refusal must not write a marker"
+    );
+    // The default constructor keeps promoting markerless roots.
+    assert!(ProjectRoot::new(&downloads).is_ok());
+}
+
+#[test]
+fn new_requiring_marker_detects_the_marked_root_above_a_file_directory() {
+    let (_td, dir) = tempfile_dir();
+    let repo = dir.join("repo");
+    fs::create_dir_all(repo.join("src")).expect("mkdir src");
+    fs::write(repo.join("package.json"), "{}").expect("write manifest");
+
+    let project = ProjectRoot::new_requiring_marker(repo.join("src")).expect("marked root");
+    assert_eq!(
+        project.as_path(),
+        repo.canonicalize().expect("canonical repo")
+    );
+}

@@ -181,7 +181,21 @@ fn bind_target_file(
         let directory = file
             .parent()
             .ok_or_else(|| unbound("the path has no parent directory".to_owned()))?;
-        let root = ProjectRoot::new(directory).map_err(|error| unbound(format!("{error:#}")))?;
+        // A file location is not a project: require a real root marker, so
+        // `~/Downloads/x.ts` never promotes (and writes `.codelens` into)
+        // `~/Downloads`.
+        let root = ProjectRoot::new_requiring_marker(directory)
+            .map_err(|error| unbound(format!("{error:#}")))?;
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        if let Some(synced) =
+            cloud_synced_ancestor(root.as_path(), home.as_deref(), has_file_provider_domain)
+        {
+            return Err(unbound(format!(
+                "its root `{}` is inside the cloud-synced folder `{}`; CodeLens does not create index state there",
+                root.as_path().display(),
+                synced.display()
+            )));
+        }
         let guard = state
             .bind_request_project_scope(&root.as_path().to_string_lossy())
             .map_err(|error| match error.downcast::<CodeLensError>() {
@@ -205,6 +219,50 @@ fn bind_target_file(
         return Ok((None, relative));
     }
     Ok((None, raw.to_owned()))
+}
+
+/// The first directory from `root` up to (not including) `home` that belongs to
+/// a cloud-sync provider. Binding a root there would write a multi-MB SQLite
+/// index + WAL that the provider then uploads.
+fn cloud_synced_ancestor(
+    root: &Path,
+    home: Option<&Path>,
+    is_synced: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    let home = home.map(|home| home.canonicalize().unwrap_or_else(|_| home.to_path_buf()));
+    root.ancestors()
+        .take_while(|dir| Some(*dir) != home.as_deref())
+        .find(|dir| is_synced(dir))
+        .map(Path::to_path_buf)
+}
+
+/// macOS File Provider domains (iCloud Desktop & Documents, `~/Library/
+/// CloudStorage/*`, `~/Library/Mobile Documents`) tag their folders with this
+/// extended attribute.
+#[cfg(target_os = "macos")]
+fn has_file_provider_domain(dir: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(path) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: both pointers are valid NUL-terminated strings for the call; a
+    // null value buffer with size 0 only queries the attribute's length.
+    let size = unsafe {
+        libc::getxattr(
+            path.as_ptr(),
+            c"com.apple.file-provider-domain-id".as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+        )
+    };
+    size >= 0
+}
+
+#[cfg(not(target_os = "macos"))]
+fn has_file_provider_domain(_dir: &Path) -> bool {
+    false
 }
 
 /// Canonicalize the file, or its parent when the file itself is missing, so
@@ -284,4 +342,28 @@ pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensE
         "limits":null,"truncation":null,"unresolved":null,"freshness":null,
         "errors":[{"code":error.kind(),"backend":"runtime","message":error.to_string(),"retryable":error.is_retryable()}]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cloud_synced_ancestor;
+    use std::path::Path;
+
+    #[test]
+    fn cloud_synced_walk_stops_below_home_and_reports_the_tagged_dir() {
+        let home = Path::new("/home-x");
+        let root = Path::new("/home-x/Documents/work/repo");
+        let tagged = |dir: &Path| dir == Path::new("/home-x/Documents");
+        assert_eq!(
+            cloud_synced_ancestor(root, Some(home), tagged).as_deref(),
+            Some(Path::new("/home-x/Documents"))
+        );
+        // `$HOME` itself is never consulted, even if it carried the tag.
+        let home_tagged = |dir: &Path| dir == Path::new("/home-x");
+        assert_eq!(cloud_synced_ancestor(root, Some(home), home_tagged), None);
+        assert_eq!(
+            cloud_synced_ancestor(Path::new("/home-x/dev/repo"), Some(home), tagged),
+            None
+        );
+    }
 }

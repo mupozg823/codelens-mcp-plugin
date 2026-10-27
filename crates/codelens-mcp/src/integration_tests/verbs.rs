@@ -325,6 +325,65 @@ fn analysis_lite_launch_bound_absolute_file_outside_root_names_the_bound_root() 
     assert!(message.contains(&repo.display().to_string()), "{message}");
     assert!(data["results"]["total"].is_null(), "{data}");
 }
+
+fn assert_unbound_binding_refused(response: &serde_json::Value, reason: &str) {
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(response);
+    assert_eq!(
+        data["errors"][0]["code"],
+        json!("project_binding_required"),
+        "{data}"
+    );
+    let message = data["errors"][0]["message"].as_str().unwrap();
+    assert!(message.contains(reason), "{message}");
+    assert!(data["results"]["total"].is_null(), "{data}");
+}
+
+// `~/Downloads/x.ts`: binding the folder would write `.codelens` into it,
+// which is itself a root marker, so the folder would stay a project forever.
+#[test]
+fn analysis_lite_launch_unbound_refuses_a_markerless_folder() {
+    let state = analysis_lite_launch_unbound_state();
+    let downloads = crate::test_helpers::fixtures::fixture_dir("analysis-lite-downloads")
+        .canonicalize()
+        .unwrap();
+    fs::write(
+        downloads.join("x.ts"),
+        "export function sink() {}\nsink();\n",
+    )
+    .unwrap();
+    let response = analysis_lite_refs_call(&state, &downloads.join("x.ts").display().to_string());
+    assert_unbound_binding_refused(&response, "no project root marker");
+    assert!(
+        !downloads.join(".codelens").exists(),
+        "a refused folder must not be promoted"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn analysis_lite_launch_unbound_refuses_a_repo_inside_a_file_provider_folder() {
+    let state = analysis_lite_launch_unbound_state();
+    let cloud = crate::test_helpers::fixtures::fixture_dir("analysis-lite-cloud")
+        .canonicalize()
+        .unwrap();
+    let status = std::process::Command::new("xattr")
+        .args(["-w", "com.apple.file-provider-domain-id", "test"])
+        .arg(&cloud)
+        .status()
+        .expect("run xattr");
+    assert!(status.success(), "xattr -w must succeed on a user temp dir");
+    let repo = cloud.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(repo.join("package.json"), "{}").unwrap();
+    fs::write(repo.join("a.ts"), "export function sink() {}\nsink();\n").unwrap();
+    let response = analysis_lite_refs_call(&state, &repo.join("a.ts").display().to_string());
+    assert_unbound_binding_refused(&response, "cloud-synced folder");
+    assert!(
+        !repo.join(".codelens").exists(),
+        "no index state may be created in a cloud-synced folder"
+    );
+}
 // ── Verb facade tests (search / graph / review) ──────────────────────
 //
 // Phase-1 consolidation: read-only tool families are reachable behind
