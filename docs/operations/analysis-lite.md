@@ -32,18 +32,21 @@ multi-host shape. Registering is a per-user decision taken from pilot evidence.
   backends, a session that called graph started 1, in its own directory. The
   initialize instructions name no path, so one recording is correct for every
   project that runs the same command line.
-- Home directory. A session launched in $HOME (or /) does not index it. The
-  server starts launch-unbound on an empty per-process placeholder under
-  ~/.codelens/analysis-lite-unbound/, and each call with an absolute
-  target.file binds only that request to the file's repository root. The root
-  must carry a project marker and must not sit inside a macOS File Provider
-  (cloud-synced) folder; otherwise the call returns project_binding_required
-  before anything is written. A relative target.file in this mode returns the
-  same error. A session launched inside a repository stays bound to it and
-  rejects absolute paths outside it.
+- Binding. Every analysis-lite stdio server starts on an empty per-process
+  placeholder under ~/.codelens/analysis-lite-unbound/ and indexes nothing at
+  launch, wherever it was launched. Each call binds only that request. An
+  absolute target.file binds to the file's repository root, in any checkout,
+  whether or not it lies under the launch directory. A relative target.file
+  resolves under the launch directory's repository. Either root must carry a
+  real project marker (a .codelens directory alone does not count), must not
+  be $HOME or /, and must not sit inside a macOS File Provider (cloud-synced)
+  folder; otherwise the call returns project_binding_required before anything
+  is written. A session launched in $HOME, /, or a folder without a marker
+  therefore has no launch project, and its relative target.files return the
+  same error.
 - Parallel sessions on one repository. The first server takes the project
-  writer lease. A later analysis-lite server finds it busy and starts as an
-  explicit reader: no lease, watcher, refresh or writes, and the index opened
+  writer lease. A later analysis-lite server's call finds it busy and binds the
+  repository as an explicit reader: no lease, watcher, refresh or writes, and the index opened
   read-only. Every response carries freshness.runtime_role and, for a reader,
   writer_holder. A reader reports snapshot.generation as null and refuses
   generation pins, because the writer's mutation counter is in the writer's

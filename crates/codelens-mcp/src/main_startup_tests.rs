@@ -42,7 +42,7 @@ fn analysis_lite_start(source: StartupProjectSource, home: &Path) -> crate::AppS
 
 /// Always the per-process placeholder under `home`, never the launch dir.
 fn assert_on_placeholder(state: &crate::AppState, home: &Path) {
-    assert!(state.analysis_lite_launch_unbound());
+    assert!(state.analysis_lite_per_call_binding().is_some());
     assert_eq!(
         state.project().as_path(),
         home.join(".codelens")
@@ -53,7 +53,8 @@ fn assert_on_placeholder(state: &crate::AppState, home: &Path) {
 
 fn launch_root(state: &crate::AppState) -> Option<PathBuf> {
     state
-        .analysis_lite_launch_root()
+        .analysis_lite_per_call_binding()
+        .and_then(|binding| binding.launch_root)
         .map(|root| root.as_path().to_path_buf())
 }
 
@@ -186,7 +187,7 @@ fn non_stdio_or_one_shot_analysis_lite_keeps_the_launch_bound_startup() {
     write_ts_repo(&repo);
     let source = StartupProjectSource::ClaudeEnv(repo.display().to_string());
     let state = startup_app_state(&source, false, ToolPreset::Full, Some(&home)).unwrap();
-    assert!(!state.analysis_lite_launch_unbound());
+    assert!(state.analysis_lite_per_call_binding().is_none());
     assert_eq!(launch_root(&state), None);
     assert_eq!(state.project().as_path(), repo.as_path());
     assert!(!home.join(".codelens").exists());
@@ -213,11 +214,11 @@ fn refs_call(state: &crate::AppState, file: &str) -> serde_json::Value {
     json!({"is_error": response["result"]["isError"], "data": crate::tests::parse_tool_payload(text)["data"]})
 }
 
-/// Part A bridge: with a launch root, calls keep today's launch-bound
-/// semantics (relative under the root, absolute outside it refused) while the
-/// default context stays the placeholder.
+/// One rule for a repo-launched server: relative files resolve under the
+/// launch root, absolute files bind their own marked repository — inside the
+/// launch root or not — and the default context stays the placeholder.
 #[test]
-fn analysis_lite_stdio_launch_root_keeps_launch_bound_call_semantics() {
+fn analysis_lite_stdio_relative_files_use_the_launch_root_absolute_files_their_own_repo() {
     let home = fixture("startup-home-bridge");
     let repo = fixture("startup-bridge-repo");
     let other = fixture("startup-bridge-other");
@@ -241,14 +242,27 @@ fn analysis_lite_stdio_launch_root_keeps_launch_bound_call_semantics() {
         assert_eq!(rows.len(), 3, "{data}");
     }
 
+    // A second marked repository: the call binds it, not the launch root.
     let result = refs_call(&state, &other.join("a.ts").display().to_string());
-    assert_eq!(result["is_error"], json!(true), "{result}");
+    assert_ne!(result["is_error"], json!(true), "{result}");
     let data = &result["data"];
-    assert_eq!(data["errors"][0]["code"], json!("validation"), "{data}");
-    assert_eq!(data["project"], json!(repo.display().to_string()), "{data}");
-    let message = data["errors"][0]["message"].as_str().unwrap();
-    assert!(message.contains(&repo.display().to_string()), "{message}");
-    assert!(!other.join(".codelens").exists());
+    assert_eq!(
+        data["project"],
+        json!(other.display().to_string()),
+        "{data}"
+    );
+    assert_eq!(
+        data["results"]["references"].as_array().unwrap().len(),
+        3,
+        "{data}"
+    );
+    // ...and the next relative call is back on the launch root.
+    let result = refs_call(&state, "a.ts");
+    assert_eq!(
+        result["data"]["project"],
+        json!(repo.display().to_string()),
+        "{result}"
+    );
 
     assert_eq!(state.project().as_path(), placeholder.as_path());
 }

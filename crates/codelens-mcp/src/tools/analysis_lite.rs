@@ -29,6 +29,31 @@ pub(crate) fn handler(target: &str) -> Option<ToolHandler> {
 
 fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> ToolResult {
     let selector_args = &args["target"];
+    // Cheap argument validation first: a malformed span never binds (or
+    // builds) a project.
+    let name_span = match (
+        selector_args.get("start_byte"),
+        selector_args.get("end_byte"),
+    ) {
+        (None, None) => None,
+        (Some(start), Some(end)) => {
+            let span = ByteSpan {
+                start: start.as_u64().expect("schema-validated start") as usize,
+                end: end.as_u64().expect("schema-validated end") as usize,
+            };
+            if span.start >= span.end {
+                return Err(CodeLensError::Validation(
+                    "analysis-lite name-token span must have start_byte < end_byte".to_owned(),
+                ));
+            }
+            Some(span)
+        }
+        _ => {
+            return Err(CodeLensError::Validation(
+                "analysis-lite start_byte and end_byte must be supplied together".to_owned(),
+            ));
+        }
+    };
     // Held for the whole call: every read below (index, generation fence,
     // project, watcher, failure summary) must see the same bound project.
     let (_binding, file) = bind_target_file(
@@ -57,29 +82,6 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
             });
         }
     }
-    let name_span = match (
-        selector_args.get("start_byte"),
-        selector_args.get("end_byte"),
-    ) {
-        (None, None) => None,
-        (Some(start), Some(end)) => {
-            let span = ByteSpan {
-                start: start.as_u64().expect("schema-validated start") as usize,
-                end: end.as_u64().expect("schema-validated end") as usize,
-            };
-            if span.start >= span.end {
-                return Err(CodeLensError::Validation(
-                    "analysis-lite name-token span must have start_byte < end_byte".to_owned(),
-                ));
-            }
-            Some(span)
-        }
-        _ => {
-            return Err(CodeLensError::Validation(
-                "analysis-lite start_byte and end_byte must be supplied together".to_owned(),
-            ));
-        }
-    };
     let selector = DeclarationSelector {
         file,
         name: selector_args
@@ -172,15 +174,15 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
 /// Resolve `target.file` under this server's binding, returning the
 /// root-relative path the engine selects on.
 ///
-/// - Analysis-lite stdio with a launch root (always on the placeholder): the
-///   call binds, through the per-thread [`RequestProjectGuard`], to the launch
-///   root and then follows the launch-bound rules below.
-/// - Analysis-lite stdio without a launch root: an absolute file binds this
-///   request only to the repository root derived from the file's directory.
-///   Root derivation and the home guard refuse `$HOME`; a relative file has no
-///   project to resolve in.
-/// - Launch-bound stdio: an absolute file must lie inside the bound root; there
-///   is no cross-project switch.
+/// - Analysis-lite stdio (per-call binding; the default context is a
+///   placeholder) has one rule. An absolute file binds this request only,
+///   through the per-thread [`RequestProjectGuard`], to the repository root
+///   derived from the file's directory — whether or not it lies under the
+///   launch root. The root needs a real marker, is never `$HOME` and never sits
+///   in a cloud-synced folder. A relative file resolves under the launch root;
+///   without one it has no project to resolve in.
+/// - Launch-bound stdio (`--cmd`/`--batch`): an absolute file must lie inside
+///   the bound root; there is no cross-project switch.
 /// - HTTP keeps its explicit session binding and passes the file through.
 ///
 /// [`RequestProjectGuard`]: crate::state::RequestProjectGuard
@@ -189,55 +191,23 @@ fn bind_target_file(
     raw: &str,
 ) -> Result<(Option<crate::state::RequestProjectGuard>, String), CodeLensError> {
     let path = Path::new(raw);
-    // Part A bridge: a launch root keeps today's launch-bound semantics, bound
-    // per call instead of at startup (the default context is the placeholder).
-    let launch_guard = match state.analysis_lite_launch_root() {
-        Some(root) if state.analysis_lite_launch_unbound() => Some(
-            state
-                .bind_request_project_scope(&root.as_path().to_string_lossy())
-                .map_err(|error| match error.downcast::<CodeLensError>() {
-                    Ok(typed) => typed,
-                    Err(error) => CodeLensError::AnalysisLiteLaunchUnbound {
-                        file: raw.to_owned(),
-                        reason: format!("{error:#}"),
-                    },
-                })?,
-        ),
-        _ => None,
-    };
-    if state.analysis_lite_launch_unbound() && launch_guard.is_none() {
+    if let Some(per_call) = state.analysis_lite_per_call_binding() {
         let unbound = |reason: String| CodeLensError::AnalysisLiteLaunchUnbound {
             file: raw.to_owned(),
             reason,
         };
         if !path.is_absolute() {
-            return Err(unbound(
-                "a relative path has no launch project to resolve against".to_owned(),
-            ));
+            let Some(root) = per_call.launch_root else {
+                return Err(unbound(
+                    "a relative path has no launch project to resolve against".to_owned(),
+                ));
+            };
+            let guard = bind_call_project(state, &root, unbound)?;
+            return Ok((Some(guard), raw.to_owned()));
         }
         let file = canonical_file(path);
-        let directory = file
-            .parent()
-            .ok_or_else(|| unbound("the path has no parent directory".to_owned()))?;
-        // A file location is not a project: require a real root marker, so
-        // `~/Downloads/x.ts` never promotes (and writes `.codelens` into)
-        // `~/Downloads`.
-        let root = ProjectRoot::new_requiring_marker(directory)
-            .map_err(|error| unbound(format!("{error:#}")))?;
-        let home = std::env::var_os("HOME").map(PathBuf::from);
-        if let Some(synced) = cloud_synced_root(root.as_path(), home.as_deref()) {
-            return Err(unbound(format!(
-                "its root `{}` is inside the cloud-synced folder `{}`; CodeLens does not create index state there",
-                root.as_path().display(),
-                synced.display()
-            )));
-        }
-        let guard = state
-            .bind_request_project_scope(&root.as_path().to_string_lossy())
-            .map_err(|error| match error.downcast::<CodeLensError>() {
-                Ok(typed) => typed,
-                Err(error) => unbound(format!("{error:#}")),
-            })?;
+        let root = derive_call_root(&file).map_err(unbound)?;
+        let guard = bind_call_project(state, &root, unbound)?;
         let relative = root_relative(&state.project(), &file)
             .ok_or_else(|| unbound("the file is not inside its derived root".to_owned()))?;
         return Ok((Some(guard), relative));
@@ -252,9 +222,44 @@ fn bind_target_file(
                 project.as_path().display()
             ))
         })?;
-        return Ok((launch_guard, relative));
+        return Ok((None, relative));
     }
-    Ok((launch_guard, raw.to_owned()))
+    Ok((None, raw.to_owned()))
+}
+
+/// The repository an absolute file's call binds to: a real root marker above
+/// the file (`~/Downloads/x.ts` never promotes, and writes `.codelens` into,
+/// `~/Downloads`), outside every cloud-synced folder.
+fn derive_call_root(file: &Path) -> Result<ProjectRoot, String> {
+    let directory = file
+        .parent()
+        .ok_or_else(|| "the path has no parent directory".to_owned())?;
+    let root =
+        ProjectRoot::new_requiring_marker(directory).map_err(|error| format!("{error:#}"))?;
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    if let Some(synced) = cloud_synced_root(root.as_path(), home.as_deref()) {
+        return Err(format!(
+            "its root `{}` is inside the cloud-synced folder `{}`; CodeLens does not create index state there",
+            root.as_path().display(),
+            synced.display()
+        ));
+    }
+    Ok(root)
+}
+
+/// Bind this request to `root` (the home guard and the per-call build run
+/// here); untyped failures become a binding error for `target.file`.
+fn bind_call_project(
+    state: &AppState,
+    root: &ProjectRoot,
+    unbound: impl Fn(String) -> CodeLensError,
+) -> Result<crate::state::RequestProjectGuard, CodeLensError> {
+    state
+        .bind_request_project_scope(&root.as_path().to_string_lossy())
+        .map_err(|error| match error.downcast::<CodeLensError>() {
+            Ok(typed) => typed,
+            Err(error) => unbound(format!("{error:#}")),
+        })
 }
 
 /// [`cloud_synced_ancestor`] with the platform's File Provider check.
@@ -361,12 +366,19 @@ pub(crate) fn output_schema() -> Value {
 /// Keep those fields null, and retain the original typed runtime error.
 pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensError) -> Value {
     let session = crate::session_context::SessionRequestContext::from_json(args);
-    let project = if state.analysis_lite_launch_unbound() {
-        // The default context is a placeholder, not a project; a rejected
-        // call reports the launch root when there is one, else no project.
-        state
-            .analysis_lite_launch_root()
+    let project = if let Some(per_call) = state.analysis_lite_per_call_binding() {
+        // The default context is a placeholder, not a project. A binding
+        // refusal has no project; any later rejection names the repository
+        // the call bound to.
+        if matches!(error, CodeLensError::AnalysisLiteLaunchUnbound { .. }) {
+            None
+        } else {
+            match args["target"]["file"].as_str().map(Path::new) {
+                Some(file) if file.is_absolute() => derive_call_root(&canonical_file(file)).ok(),
+                _ => per_call.launch_root,
+            }
             .map(|root| root.as_path().display().to_string())
+        }
     } else if session.is_local() {
         Some(state.current_project_scope())
     } else if session.project_binding_is_explicit() {

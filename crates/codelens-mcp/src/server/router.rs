@@ -35,16 +35,17 @@ pub(crate) fn analysis_lite_instructions(project: Option<&str>) -> String {
     instructions
 }
 
-/// A stdio server is bound once, at launch (CLI path, `CLAUDE_PROJECT_DIR`,
-/// `MCP_PROJECT_DIR`, then cwd), so the HTTP binding sentence would send the
-/// host looking for a header or param it cannot set. The text names no path:
-/// a lazy stdio proxy replays one recorded `initialize` to every project that
-/// launches the same command line — including a launch from `$HOME`, where
-/// the server starts launch-unbound and binds each call to the repository of
-/// its absolute `target.file` — so one text covers both modes.
+/// A stdio server binds each call itself: an absolute `target.file` to its own
+/// repository, a relative one under the launch project (CLI path,
+/// `CLAUDE_PROJECT_DIR`, `MCP_PROJECT_DIR`, then cwd). The HTTP binding
+/// sentence would send the host looking for a header or param it cannot set.
+/// The text names no path: a lazy stdio proxy replays one recorded
+/// `initialize` to every project that launches the same command line —
+/// including a launch from `$HOME`, which has no launch project — so one text
+/// covers every launch.
 pub(crate) fn analysis_lite_stdio_instructions() -> String {
     format!(
-        "{ANALYSIS_LITE_SCOPE} Bound at launch to the host's project directory: target.file is relative to it or absolute inside it, and another checkout or worktree needs its own server. Launched outside any project (such as the home directory), an absolute target.file binds that call to the file's repository root; a relative one is rejected. {ANALYSIS_LITE_EVIDENCE}"
+        "{ANALYSIS_LITE_SCOPE} A relative target.file resolves under the project the host launched this server in; an absolute target.file binds that call to the file's repository root, in any checkout or worktree. Launched outside any project (such as the home directory), a relative one is rejected. {ANALYSIS_LITE_EVIDENCE}"
     )
 }
 

@@ -65,10 +65,7 @@ impl AppState {
             http_auth: std::sync::Mutex::new(Arc::clone(&*self.http_auth.lock().unwrap())),
             compat_mode: Mutex::new(self.compat_mode()),
             daemon_started_at: self.daemon_started_at.clone(),
-            analysis_lite_launch_unbound: std::sync::atomic::AtomicBool::new(
-                self.analysis_lite_launch_unbound(),
-            ),
-            analysis_lite_launch_root: std::sync::RwLock::new(self.analysis_lite_launch_root()),
+            analysis_lite_per_call: std::sync::RwLock::new(self.analysis_lite_per_call_binding()),
             analysis_lite_reader_fallback: std::sync::atomic::AtomicBool::new(
                 self.analysis_lite_reader_fallback(),
             ),
@@ -193,8 +190,7 @@ impl AppState {
             )),
             compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
             daemon_started_at: now_rfc3339_utc(),
-            analysis_lite_launch_unbound: std::sync::atomic::AtomicBool::new(false),
-            analysis_lite_launch_root: std::sync::RwLock::new(None),
+            analysis_lite_per_call: std::sync::RwLock::new(None),
             analysis_lite_reader_fallback: std::sync::atomic::AtomicBool::new(false),
             audit_sinks: Mutex::new(HashMap::new()),
             principals_by_audit_dir: Mutex::new(HashMap::new()),

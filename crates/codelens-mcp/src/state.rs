@@ -33,6 +33,15 @@ mod project_runtime;
 pub(crate) use project_runtime::RequestProjectGuard;
 mod project_runtime_lease;
 
+/// Analysis-lite stdio per-call binding: an absolute `target.file` binds its
+/// call to the file's own repository; a relative one resolves under
+/// `launch_root` — the launch directory's repository when it is a marked,
+/// local, non-cloud root that is neither `$HOME` nor `/`.
+#[derive(Clone, Debug)]
+pub(crate) struct AnalysisLitePerCallBinding {
+    pub(crate) launch_root: Option<codelens_engine::ProjectRoot>,
+}
+
 /// The trusted per-user runtime directory (writer leases, session journal).
 #[cfg_attr(not(feature = "http"), allow(dead_code))]
 pub(crate) fn runtime_dir() -> Result<std::path::PathBuf, crate::error::CodeLensError> {
@@ -173,14 +182,10 @@ pub(crate) struct AppState {
     /// downstream tooling can detect "daemon is running an image
     /// older than the disk binary" — the Phase 4a failure mode.
     daemon_started_at: String,
-    /// An analysis-lite stdio server always starts on an empty CodeLens-owned
-    /// per-process placeholder and binds each call to a project; it never
-    /// builds or leases a real project at startup.
-    analysis_lite_launch_unbound: std::sync::atomic::AtomicBool,
-    /// With per-call binding active: the launch directory's repository when it
-    /// is a marked, local, non-cloud root that is neither `$HOME` nor `/`.
-    /// Relative `target.file`s resolve under it; `None` = no launch project.
-    analysis_lite_launch_root: std::sync::RwLock<Option<codelens_engine::ProjectRoot>>,
+    /// `Some` for an analysis-lite stdio server: it starts on an empty
+    /// CodeLens-owned per-process placeholder, never builds or leases a real
+    /// project at startup, and binds each call to a project.
+    analysis_lite_per_call: std::sync::RwLock<Option<AnalysisLitePerCallBinding>>,
     /// Analysis-lite stdio only: a project whose writer lease another process
     /// holds is served by an explicit read-only reader runtime instead of
     /// `ProjectWriterBusy`. Every other surface keeps the outright rejection.

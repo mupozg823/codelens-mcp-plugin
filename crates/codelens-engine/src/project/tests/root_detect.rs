@@ -196,3 +196,30 @@ fn new_requiring_marker_detects_the_marked_root_above_a_file_directory() {
         repo.canonicalize().expect("canonical repo")
     );
 }
+
+#[test]
+fn new_requiring_marker_refuses_a_folder_whose_only_marker_is_codelens() {
+    let (_td, dir) = tempfile_dir();
+    // A folder an older build promoted: `.codelens` is all it carries.
+    let downloads = dir.join("Downloads");
+    fs::create_dir_all(downloads.join(".codelens").join("index")).expect("mkdir promoted");
+
+    let err = ProjectRoot::new_requiring_marker(&downloads)
+        .expect_err("a .codelens-only folder must not count as a project");
+    assert!(err.to_string().contains("no project root marker"), "{err}");
+    // The non-strict constructor still accepts it.
+    assert_eq!(
+        ProjectRoot::new(&downloads)
+            .expect("promoted root")
+            .as_path(),
+        downloads.canonicalize().expect("canonical downloads")
+    );
+    // A real marker above a stray `.codelens` is still found.
+    fs::write(dir.join("package.json"), "{}").expect("write manifest");
+    assert_eq!(
+        ProjectRoot::new_requiring_marker(&downloads)
+            .expect("real root above")
+            .as_path(),
+        dir.canonicalize().expect("canonical dir")
+    );
+}

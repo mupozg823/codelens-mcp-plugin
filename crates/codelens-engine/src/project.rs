@@ -60,7 +60,9 @@ impl ProjectRoot {
     /// a root from an arbitrary file location (e.g. `~/Downloads/x.ts`):
     /// promoting that folder would write `<folder>/.codelens`, which is itself
     /// a marker, so the folder would stay a "project" forever after.
-    /// `$HOME` keeps its `CODELENS_ALLOW_HOME_PROJECT` policy.
+    /// `$HOME` keeps its `CODELENS_ALLOW_HOME_PROJECT` policy. `.codelens` is
+    /// not a marker here: CodeLens writes it, so a folder an older build
+    /// promoted is still refused.
     pub fn new_requiring_marker(path: impl AsRef<Path>) -> Result<Self> {
         let start = path.as_ref().canonicalize().with_context(|| {
             format!("failed to resolve project root {}", path.as_ref().display())
@@ -68,7 +70,7 @@ impl ProjectRoot {
         if !start.is_dir() {
             bail!("project root is not a directory: {}", start.display());
         }
-        let root = match detect_root(&start) {
+        let root = match root_detect::detect_real_root(&start) {
             Some(root) => root,
             None => {
                 let home = std::env::var_os("HOME")

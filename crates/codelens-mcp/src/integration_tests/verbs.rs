@@ -94,7 +94,10 @@ fn analysis_lite_stdio_initialize_is_launch_bound_and_project_independent() {
     assert!(
         instructions.contains("search(mode=refs)") && instructions.contains("graph(mode=impact)")
     );
-    assert!(instructions.contains("Bound at launch"), "{instructions}");
+    assert!(
+        instructions.contains("relative target.file resolves under the project the host launched"),
+        "{instructions}"
+    );
     // One text covers both stdio modes: a server launched from `$HOME`
     // replays the same recorded handshake as one launched inside a repo.
     assert!(
@@ -138,7 +141,7 @@ fn analysis_lite_ts_project() -> std::path::PathBuf {
 /// placeholder, never a project.
 fn analysis_lite_launch_unbound_state() -> crate::AppState {
     let state = analysis_lite_stdio_state();
-    state.configure_analysis_lite_launch_unbound(true);
+    state.configure_analysis_lite_per_call_binding(None);
     state
 }
 
@@ -230,13 +233,18 @@ fn analysis_lite_launch_unbound_never_binds_home() {
         .unwrap();
     fs::write(home.join("package.json"), "{}").unwrap();
     fs::write(home.join("a.ts"), "export function sink() {}\nsink();\n").unwrap();
+    // `~/sub/x.ts` with the stray `~/package.json`: the walk must not stop at
+    // `$HOME` either.
+    fs::create_dir_all(home.join("sub")).unwrap();
+    fs::write(home.join("sub").join("x.ts"), "export function sink() {}\n").unwrap();
     // SAFETY: serialized by TEST_ENV_LOCK; restored below.
     unsafe {
         std::env::set_var("HOME", &home);
         std::env::remove_var("CODELENS_ALLOW_HOME_PROJECT");
     }
     let state = analysis_lite_launch_unbound_state();
-    let response = analysis_lite_refs_call(&state, &home.join("a.ts").display().to_string());
+    let responses = [home.join("a.ts"), home.join("sub").join("x.ts")]
+        .map(|file| analysis_lite_refs_call(&state, &file.display().to_string()));
     // SAFETY: serialized by TEST_ENV_LOCK.
     unsafe {
         match previous_home {
@@ -247,12 +255,13 @@ fn analysis_lite_launch_unbound_never_binds_home() {
             std::env::set_var("CODELENS_ALLOW_HOME_PROJECT", value);
         }
     }
-    assert_eq!(response["result"]["isError"], json!(true), "{response}");
-    let data = analysis_lite_data(&response);
-    assert!(data["results"]["total"].is_null(), "{data}");
-    assert_ne!(data["project"], json!(home.display().to_string()), "{data}");
+    for response in &responses {
+        assert_unbound_binding_refused(response, "");
+        let data = analysis_lite_data(response);
+        assert!(data["project"].is_null(), "{data}");
+    }
     assert!(
-        !home.join(".codelens").join("index").exists(),
+        !home.join(".codelens").exists() && !home.join("sub").join(".codelens").exists(),
         "home must never be indexed"
     );
 }

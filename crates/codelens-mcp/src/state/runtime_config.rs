@@ -75,13 +75,6 @@ impl AppState {
         Arc::clone(&*self.http_auth.lock().unwrap())
     }
 
-    /// Mark this analysis-lite stdio server as launched outside any project
-    /// (its default context is an empty placeholder, never `$HOME`).
-    pub(crate) fn configure_analysis_lite_launch_unbound(&self, unbound: bool) {
-        self.analysis_lite_launch_unbound
-            .store(unbound, std::sync::atomic::Ordering::Relaxed);
-    }
-
     pub(crate) fn configure_analysis_lite_reader_fallback(&self, allow: bool) {
         self.analysis_lite_reader_fallback
             .store(allow, std::sync::atomic::Ordering::Relaxed);
@@ -92,11 +85,6 @@ impl AppState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub(crate) fn analysis_lite_launch_unbound(&self) -> bool {
-        self.analysis_lite_launch_unbound
-            .load(std::sync::atomic::Ordering::Relaxed)
-    }
-
     /// Activate analysis-lite per-call binding (the default context is a
     /// placeholder), with the launch directory's repository when there is one.
     pub(crate) fn configure_analysis_lite_per_call_binding(
@@ -104,14 +92,16 @@ impl AppState {
         launch_root: Option<codelens_engine::ProjectRoot>,
     ) {
         *self
-            .analysis_lite_launch_root
+            .analysis_lite_per_call
             .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = launch_root;
-        self.configure_analysis_lite_launch_unbound(true);
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            Some(super::AnalysisLitePerCallBinding { launch_root });
     }
 
-    pub(crate) fn analysis_lite_launch_root(&self) -> Option<codelens_engine::ProjectRoot> {
-        self.analysis_lite_launch_root
+    pub(crate) fn analysis_lite_per_call_binding(
+        &self,
+    ) -> Option<super::AnalysisLitePerCallBinding> {
+        self.analysis_lite_per_call
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
