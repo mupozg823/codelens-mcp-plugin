@@ -405,6 +405,19 @@ fn count_identifiers(source: &str, counts: &mut HashMap<String, usize>) {
     }
 }
 
+/// The token [`count_identifiers`] records for a defined function name, or
+/// `None` when it records none. A Rust raw identifier `r#match` is the item
+/// `match` (references may spell it either way, and the scan splits `r#` off);
+/// any other name that is not exactly one token cannot be judged by counting.
+fn reference_key(name: &str) -> Option<&str> {
+    let key = name.strip_prefix("r#").unwrap_or(name);
+    let mut chars = key.chars();
+    let starts = chars
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$');
+    (starts && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')).then_some(key)
+}
+
 /// A Rust test or benchmark: `#[test]`, `#[tokio::test]`, `#[rstest]`,
 /// `#[bench]` … among the attributes stacked on the definition. The harness
 /// calls these, so no reference to them exists.
@@ -621,7 +634,11 @@ pub fn find_dead_code_v2(
             {
                 continue;
             }
-            if identifier_counts.get(&func_name).copied().unwrap_or(0) <= 1 {
+            // A name the token count cannot represent proves nothing.
+            let Some(key) = reference_key(&func_name) else {
+                continue;
+            };
+            if identifier_counts.get(key).copied().unwrap_or(0) <= 1 {
                 results.push(DeadCodeEntryV2 {
                     file: relative.clone(),
                     symbol: Some(func_name),
@@ -935,7 +952,7 @@ mod tests {
         .expect("write use");
         std::fs::write(
             dir.join("lib/table.rs"),
-            "fn schema_a() -> u32 {\n    1\n}\n\npub static TABLE: [fn() -> u32; 1] = [schema_a];\n\n#[tokio::test]\nasync fn runs_end_to_end() {}\n\n#[test]\n#[allow(clippy::unit_cmp)]\nfn plain_test() {\n    assert_eq!(schema_a(), 1);\n}\n\nfn dead_rust() {}\n",
+            "pub fn r#match() {}\n\nfn schema_a() -> u32 {\n    r#match();\n    1\n}\n\npub static TABLE: [fn() -> u32; 1] = [schema_a];\n\n#[tokio::test]\nasync fn runs_end_to_end() {}\n\n#[test]\n#[allow(clippy::unit_cmp)]\nfn plain_test() {\n    assert_eq!(schema_a(), 1);\n}\n\nfn dead_rust() {}\n",
         )
         .expect("write table");
         std::fs::write(dir.join("lib/lib.rs"), "mod table;\n").expect("write lib.rs");
@@ -944,6 +961,7 @@ mod tests {
         let found = find_dead_code_v2(&project, Some("lib"), 0, &GraphCache::new(0)).expect("dead");
         let symbols: Vec<&str> = found.iter().filter_map(|e| e.symbol.as_deref()).collect();
         for used in [
+            "r#match",
             "onPick",
             "Row",
             "View",
@@ -975,6 +993,17 @@ mod tests {
         );
         assert_eq!(counts.get("вычислить"), Some(&2));
         assert_eq!(counts.get("한글함수"), Some(&1));
+
+        // `r#match` is counted under `match`; names that are not one token
+        // are not judged.
+        let mut counts = HashMap::new();
+        count_identifiers("pub fn r#match() {}\nfn f() { r#match(); }\n", &mut counts);
+        assert_eq!(reference_key("r#match"), Some("match"));
+        assert_eq!(counts.get(reference_key("r#match").unwrap()), Some(&2));
+        assert_eq!(reference_key("вычислить"), Some("вычислить"));
+        assert_eq!(reference_key("Foo.bar"), None);
+        assert_eq!(reference_key("<anonymous>"), None);
+        assert_eq!(reference_key(""), None);
     }
 
     #[test]
