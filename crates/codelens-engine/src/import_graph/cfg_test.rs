@@ -1,10 +1,12 @@
-//! `#[cfg(test)]` awareness for the Rust import graph.
+//! Production-edge awareness for the import graph: Rust `#[cfg(test)]` gates
+//! and TypeScript `import type` clauses.
 //!
-//! `FileNode.imports` intentionally carries BOTH production and test imports --
-//! dead-code analysis, blast radius and PageRank all need the test edges. Only
-//! circular-dependency detection must ignore them: a `#[cfg(test)] mod tests`
-//! importing back into its own crate is not a production coupling loop.
-//! Everything here is Rust-only and fails OPEN (no suppression) on any error.
+//! `FileNode.imports` intentionally carries BOTH production and test imports,
+//! and type-only ones -- dead-code analysis, blast radius and PageRank all need
+//! those edges. Only circular-dependency detection must ignore them: a
+//! `#[cfg(test)] mod tests` importing back into its own crate, or an
+//! `import type` that the compiler erases, is not a runtime coupling loop.
+//! Everything here fails OPEN (no suppression) on any error.
 
 use super::FileNode;
 use crate::project::ProjectRoot;
@@ -200,14 +202,33 @@ pub(crate) fn production_rust_imports(content: &str) -> Vec<String> {
         .collect()
 }
 
-/// Answers "is this import edge production?" by re-reading Rust sources on
-/// demand. Memoised per file and bounded by `MAX_SCANNED_FILES`; every failure
-/// path (non-Rust, unreadable, no cfg(test) gating, budget exhausted) reports
-/// the edge as production, so this can only ever remove false positives.
+/// What re-reading one source file proved about its outgoing edges.
+enum EdgeProof {
+    /// Nothing to filter for this file: every edge is production.
+    Unfiltered,
+    /// Rust: only these targets survive `#[cfg(test)]` removal.
+    ProductionOnly(HashSet<String>),
+    /// JS/TS: these targets are reached ONLY through erased `import type`
+    /// clauses. Listing the erased side (not the runtime side) keeps a target
+    /// the resolver cannot match a production edge.
+    ErasedOnly(HashSet<String>),
+}
+
+fn is_js_family(rel: &str) -> bool {
+    matches!(
+        rel.rsplit_once('.').map(|(_, ext)| ext),
+        Some("js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs")
+    )
+}
+
+/// Answers "is this import edge production?" by re-reading Rust and JS/TS
+/// sources on demand. Memoised per file and bounded by `MAX_SCANNED_FILES`;
+/// every failure path (other language, unreadable, nothing gated or erased,
+/// budget exhausted) reports the edge as production, so this can only ever
+/// remove false positives.
 pub(crate) struct ProductionEdgeFilter<'a> {
     project: &'a ProjectRoot,
-    /// `None` = "nothing to filter for this file" -> every edge is production.
-    cache: HashMap<String, Option<HashSet<String>>>,
+    cache: HashMap<String, EdgeProof>,
     budget: usize,
 }
 
@@ -220,29 +241,38 @@ impl<'a> ProductionEdgeFilter<'a> {
         }
     }
 
-    fn production_targets(&mut self, rel: &str) -> Option<&HashSet<String>> {
-        if !rel.ends_with(".rs") {
-            return None;
-        }
+    fn proof(&mut self, rel: &str) -> &EdgeProof {
         if !self.cache.contains_key(rel) {
-            let computed = self.scan(rel);
+            let computed = if rel.ends_with(".rs") {
+                self.scan_rust(rel)
+            } else if is_js_family(rel) {
+                self.scan_js(rel)
+            } else {
+                EdgeProof::Unfiltered
+            };
             self.cache.insert(rel.to_owned(), computed);
         }
-        self.cache.get(rel).and_then(|entry| entry.as_ref())
+        &self.cache[rel]
     }
 
-    fn scan(&mut self, rel: &str) -> Option<HashSet<String>> {
+    fn read_within_budget(&mut self, rel: &str) -> Option<(std::path::PathBuf, String)> {
         if self.budget == 0 {
             return None;
         }
         self.budget -= 1;
-
         let abs = self.project.as_path().join(rel);
         let content = std::fs::read_to_string(&abs).ok()?;
+        Some((abs, content))
+    }
+
+    fn scan_rust(&mut self, rel: &str) -> EdgeProof {
+        let Some((abs, content)) = self.read_within_budget(rel) else {
+            return EdgeProof::Unfiltered;
+        };
         if cfg_test_regions(&content).is_empty() {
-            return None;
+            return EdgeProof::Unfiltered;
         }
-        Some(
+        EdgeProof::ProductionOnly(
             production_rust_imports(&content)
                 .into_iter()
                 .filter_map(|module| super::resolvers::resolve_module(self.project, &abs, &module))
@@ -250,10 +280,34 @@ impl<'a> ProductionEdgeFilter<'a> {
         )
     }
 
+    fn scan_js(&mut self, rel: &str) -> EdgeProof {
+        let Some((abs, content)) = self.read_within_budget(rel) else {
+            return EdgeProof::Unfiltered;
+        };
+        let (runtime, type_only) = super::parsers::split_js_imports_by_erasure(&content);
+        if type_only.is_empty() {
+            return EdgeProof::Unfiltered;
+        }
+        let resolve =
+            |module: &String| super::resolvers::resolve_module(self.project, &abs, module);
+        let runtime: HashSet<String> = runtime.iter().filter_map(resolve).collect();
+        let erased: HashSet<String> = type_only
+            .iter()
+            .filter_map(resolve)
+            .filter(|target| !runtime.contains(target))
+            .collect();
+        if erased.is_empty() {
+            EdgeProof::Unfiltered
+        } else {
+            EdgeProof::ErasedOnly(erased)
+        }
+    }
+
     pub(crate) fn is_production_edge(&mut self, from: &str, to: &str) -> bool {
-        match self.production_targets(from) {
-            None => true,
-            Some(targets) => targets.contains(to),
+        match self.proof(from) {
+            EdgeProof::Unfiltered => true,
+            EdgeProof::ProductionOnly(targets) => targets.contains(to),
+            EdgeProof::ErasedOnly(targets) => !targets.contains(to),
         }
     }
 
@@ -385,6 +439,37 @@ mod tests {
     fn cfg_test_region_covers_item_behind_stacked_attributes() {
         let src = "use crate::keep::me;\n\n#[cfg(test)]\n#[allow(dead_code)]\nmod tests {\n    use crate::drop::me;\n}\n";
         assert_eq!(production_rust_imports(src), vec!["crate::keep::me"]);
+    }
+
+    #[test]
+    fn js_type_only_clause_requires_one_whole_erased_form() {
+        use super::super::parsers::is_type_only_js_clause;
+        for clause in [
+            "type { A }",
+            "type{A}",
+            "type {\n  A,\n  B as C,\n}",
+            "type A",
+            "type * as ns",
+            "type *",
+        ] {
+            assert!(
+                is_type_only_js_clause(clause),
+                "should be erased: {clause:?}"
+            );
+        }
+        for clause in [
+            "type",
+            "type, { A }",
+            "{ type A }",
+            "{ type A, B }",
+            "A",
+            "type T = { n: number }\nexport { a }",
+        ] {
+            assert!(
+                !is_type_only_js_clause(clause),
+                "should be runtime: {clause:?}"
+            );
+        }
     }
 
     #[test]

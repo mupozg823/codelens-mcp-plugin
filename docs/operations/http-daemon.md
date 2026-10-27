@@ -83,7 +83,7 @@ same endpoint. Restart cycle (preferred path):
 ```bash
 bash scripts/redeploy-daemons.sh --probe          # quick: cp + xattr/codesign + kickstart + LISTEN + tools/list
 bash scripts/redeploy-daemons.sh --build --probe  # also runs cargo build --release --features http,semantic
-bash scripts/daemon-stale-check.sh                # read-only: compare daemon binary git sha to source HEAD (exit 1 if stale)
+bash scripts/daemon-stale-check.sh                # read-only: compare daemon binary git sha to source HEAD (exit 1 if stale; exit 0 when no LaunchAgent is installed)
 ```
 
 What the script does: `cp target/release/codelens-mcp → .codelens/bin/codelens-mcp-http`, `xattr -dr com.apple.provenance ${target}` (otherwise macOS gatekeeper SIGKILLs the daemon with `OS_REASON_CODESIGNING`), `codesign` (ad hoc by default, or with `CODELENS_CODESIGN_IDENTITY`, see below; the copy is signed as `<target>.staging` and swapped in only after signing succeeds), disable/bootout `gui/$UID/dev.codelens.mcp-readonly`, then `launchctl bootout/bootstrap` plus `kickstart -k gui/$UID/dev.codelens.mcp-mutation`, wait for LISTEN on `:7838`, and (with `--probe`) issue one `tools/list` request.

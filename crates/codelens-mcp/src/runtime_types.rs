@@ -232,7 +232,6 @@ impl LifecycleState {
 pub(crate) enum CacheHitTier {
     Exact,
     Warm,
-    Cold,
 }
 
 impl CacheHitTier {
@@ -241,7 +240,6 @@ impl CacheHitTier {
         match self {
             Self::Exact => "exact",
             Self::Warm => "warm",
-            Self::Cold => "cold",
         }
     }
 }
@@ -254,7 +252,6 @@ mod cache_hit_tier_tests {
     fn as_str_emits_stable_lowercase_labels() {
         assert_eq!(CacheHitTier::Exact.as_str(), "exact");
         assert_eq!(CacheHitTier::Warm.as_str(), "warm");
-        assert_eq!(CacheHitTier::Cold.as_str(), "cold");
     }
 }
 

@@ -111,10 +111,12 @@ fn run_dead_code_report_job(
     )? {
         return Ok(json!({}));
     }
-    let dead_code =
-        super::super::graph::find_dead_code_v2_tool(state, &json!({"max_results": max_results}))
-            .map(|output| output.0)
-            .map_err(|error| error.to_string())?;
+    let dead_code = super::super::graph::find_dead_code_v2_tool(
+        state,
+        &json!({"max_results": max_results, "scope": scope}),
+    )
+    .map(|output| output.0)
+    .map_err(|error| error.to_string())?;
     if !advance_job_progress(
         state,
         scope_key,
@@ -131,7 +133,6 @@ fn run_dead_code_report_job(
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter(|entry| entry.to_string().contains(scope))
         .take(10)
         .collect::<Vec<_>>();
     let top_findings = strings_from_array(Some(&candidates), "file", 3);

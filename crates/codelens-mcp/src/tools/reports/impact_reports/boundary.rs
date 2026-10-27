@@ -278,15 +278,17 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(20);
-    let dead_code =
-        crate::tools::graph::find_dead_code_v2_tool(state, &json!({"max_results": max_results}))?.0;
+    let dead_code = crate::tools::graph::find_dead_code_v2_tool(
+        state,
+        &json!({"max_results": max_results, "scope": scope}),
+    )?
+    .0;
     let candidates = dead_code
         .get("dead_code")
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter(|entry| entry.to_string().contains(scope))
         .take(10)
         .collect::<Vec<_>>();
     // Semantic enrichment: for each dead code candidate, find similar live symbols

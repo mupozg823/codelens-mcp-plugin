@@ -390,6 +390,14 @@ fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) 
         .trim_start_matches("super::")
         .trim_start_matches("self::");
 
+    // Rust 2018 layout: a non-`mod.rs` file `db/ops.rs` owns `db/ops/`, so its
+    // `mod calls;` and `self::calls`/`calls::…` paths name `db/ops/calls.rs`.
+    // Resolving them against `db/` lost every child of such a module, and the
+    // dead-code report listed them all as files nothing imports.
+    let own_module_dir = (!module.starts_with("crate::") && !module.starts_with("super::"))
+        .then(|| rust_own_module_dir(source_file))
+        .flatten();
+
     // Workspace-crate resolution only applies to absolute paths.
     if !is_relative {
         let segments: Vec<&str> = stripped.splitn(2, "::").collect();
@@ -419,6 +427,16 @@ fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) 
     let mut parts: Vec<&str> = path_part.split('/').collect();
     while !parts.is_empty() {
         let candidate_path = parts.join("/");
+        if let Some(dir) = &own_module_dir {
+            for candidate in [
+                dir.join(format!("{candidate_path}.rs")),
+                dir.join(&candidate_path).join("mod.rs"),
+            ] {
+                if candidate.is_file() {
+                    return Some(project.to_relative(candidate));
+                }
+            }
+        }
         if let Some(parent) = source_file.parent() {
             for candidate in [
                 parent.join(format!("{candidate_path}.rs")),
@@ -458,6 +476,17 @@ fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) 
         parts.pop();
     }
     None
+}
+
+/// `src/db/ops.rs` → `src/db/ops/`. `mod.rs` and crate roots own their parent
+/// directory, so they have no separate module directory.
+fn rust_own_module_dir(source_file: &Path) -> Option<PathBuf> {
+    let stem = source_file.file_stem()?.to_str()?;
+    if stem == "mod" || super::is_rust_crate_root(source_file) {
+        return None;
+    }
+    let dir = source_file.parent()?.join(stem);
+    dir.is_dir().then_some(dir)
 }
 
 /// Ruby: resolve require/require_relative paths to .rb files.
