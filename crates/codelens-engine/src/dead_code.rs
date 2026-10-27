@@ -1,4 +1,4 @@
-use crate::call_graph::extract_calls;
+use crate::call_graph::extract_calls_from_source;
 use crate::project::ProjectRoot;
 use anyhow::Result;
 use serde::Serialize;
@@ -404,12 +404,24 @@ fn count_identifiers(source: &str, counts: &mut HashMap<String, usize>) {
     // identifiers, and an ASCII-only scan counted `вычислить` zero times.
     let is_start = |c: char| c.is_alphabetic() || c == '_' || c == '$';
     let is_part = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    // Keys are NFC, like the call-edge names the index stores, so an NFD
+    // source spelling and an NFC name meet. A key is allocated only on its
+    // first occurrence.
+    let mut record = |token: &str| {
+        let token = crate::unicode::nfc_identifier(token);
+        match counts.get_mut(token.as_ref()) {
+            Some(count) => *count += 1,
+            None => {
+                counts.insert(token.into_owned(), 1);
+            }
+        }
+    };
     let mut start = None;
     for (i, c) in source.char_indices() {
         match start {
             Some(_) if is_part(c) => {}
             Some(s) => {
-                *counts.entry(source[s..i].to_owned()).or_insert(0) += 1;
+                record(&source[s..i]);
                 start = is_start(c).then_some(i);
             }
             None if is_start(c) => start = Some(i),
@@ -417,8 +429,17 @@ fn count_identifiers(source: &str, counts: &mut HashMap<String, usize>) {
         }
     }
     if let Some(s) = start {
-        *counts.entry(source[s..].to_owned()).or_insert(0) += 1;
+        record(&source[s..]);
     }
+}
+
+/// `path` relative to the project root. Candidate files are listed under the
+/// canonical root, so the prefix strip answers without the `canonicalize`
+/// syscall `ProjectRoot::to_relative` makes per file.
+fn relative_to_root(project: &ProjectRoot, path: &Path) -> String {
+    path.strip_prefix(project.as_path())
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| project.to_relative(path))
 }
 
 /// `source` without its whole-line comments, so a name mentioned only in prose
@@ -677,19 +698,32 @@ pub fn find_dead_code_v2(
     // callbacks and function pointers passed as values, re-exports, and calls
     // to names the call graph drops as builtin noise (`hash`, `id`, `read`).
     // winnation 2026-10-27: 125 of 138 call-graph candidates were such uses.
-    let candidate_files = collect_candidate_files(project.as_path())?;
+    //
+    // Each file is read once. The functions to judge are the names owning a
+    // call edge plus the top-level definitions; the index stored those edges
+    // with the same extractor, so an unchanged file is not re-parsed —
+    // re-parsing every file with tree-sitter was 47% of this pass's CPU
+    // (tuanbo, 2026-10-27).
+    let indexed_callers =
+        crate::db::IndexDb::open_readonly(&crate::db::index_db_path(project.as_path()))
+            .ok()
+            .flatten()
+            .and_then(|db| db.caller_names_by_file().ok())
+            .unwrap_or_default();
+    let mut sources: Vec<(std::path::PathBuf, String)> = Vec::new();
     let mut identifier_counts: HashMap<String, usize> = HashMap::new();
-    for path in &candidate_files {
-        if let Ok(source) = std::fs::read_to_string(path) {
+    for path in collect_candidate_files(project.as_path())? {
+        if let Ok(source) = std::fs::read_to_string(&path) {
             count_identifiers(
-                &without_comment_lines(&source, path),
+                &without_comment_lines(&source, &path),
                 &mut identifier_counts,
             );
+            sources.push((path, source));
         }
     }
 
-    for path in &candidate_files {
-        let relative = project.to_relative(path);
+    for (path, source) in &sources {
+        let relative = relative_to_root(project, path);
 
         if !in_scope(&relative, scope)
             || pass1_files.contains(&relative)
@@ -698,60 +732,81 @@ pub fn find_dead_code_v2(
             continue;
         }
 
-        let source = std::fs::read_to_string(path).unwrap_or_default();
-        let lines: Vec<&str> = source.lines().collect();
-        let test_regions = if relative.ends_with(".rs") {
-            cfg_test_regions(&source)
-        } else {
-            Vec::new()
-        };
+        // Built only for a file with an unreferenced name: `cfg_test_regions`
+        // parses the file again (codelens-mcp-plugin, 2026-10-27: 276 of 338
+        // samples in this pass).
+        let mut lines: Option<Vec<&str>> = None;
+        let mut test_regions: Option<Vec<std::ops::Range<usize>>> = None;
 
-        let edges = extract_calls(path);
         let mut defined_funcs: HashMap<String, usize> = HashMap::new();
-        for edge in &edges {
-            defined_funcs.entry(edge.caller_name.clone()).or_insert(0);
+        match indexed_callers
+            .get(&relative)
+            .filter(|(hash, _)| *hash == crate::db::content_hash(source.as_bytes()))
+        {
+            Some((_, callers)) => {
+                for caller in callers {
+                    defined_funcs.entry(caller.clone()).or_insert(0);
+                }
+            }
+            None => {
+                for edge in extract_calls_from_source(path, source) {
+                    defined_funcs.entry(edge.caller_name).or_insert(0);
+                }
+            }
         }
-        collect_top_level_funcs(path, &source, &mut defined_funcs);
+        collect_top_level_funcs(path, source, &mut defined_funcs);
 
         for (func_name, func_line) in defined_funcs {
-            if func_name == "<module>" {
+            if func_name == "<module>" || is_entry_point_symbol(&func_name) {
                 continue;
             }
-            // Methods come from the call graph without a line; the decorator
-            // check below needs one (`@app.get` on a method, `@property`).
-            let func_line = if func_line == 0 && relative.ends_with(".py") {
-                python_def_line(&lines, &func_name).unwrap_or(0)
-            } else {
-                func_line
-            };
-            if is_entry_point_symbol(&func_name) {
-                continue;
-            }
-            if func_line > 0
-                && (has_decorator(&lines, func_line) || has_rust_test_attribute(&lines, func_line))
-            {
-                continue;
-            }
-            if !test_regions.is_empty()
-                && defined_only_in_cfg_test(&source, &test_regions, &func_name)
-            {
-                continue;
-            }
-            // A name the token count cannot represent proves nothing.
+            // A name the token count cannot represent proves nothing. The
+            // count goes first: it is one lookup and clears most names.
             let Some(key) = reference_key(&func_name) else {
                 continue;
             };
-            if identifier_counts.get(key).copied().unwrap_or(0) <= 1 {
-                results.push(DeadCodeEntryV2 {
-                    file: relative.clone(),
-                    symbol: Some(func_name),
-                    kind: Some("function".to_owned()),
-                    line: if func_line > 0 { Some(func_line) } else { None },
-                    reason: "unreferenced symbol".to_owned(),
-                    pass: 2,
-                    confidence: confidence_tier_for_file(&relative).to_owned(),
-                });
+            if identifier_counts
+                .get(crate::unicode::nfc_identifier(key).as_ref())
+                .copied()
+                .unwrap_or(0)
+                > 1
+            {
+                continue;
             }
+            let lines = lines.get_or_insert_with(|| source.lines().collect());
+            // Methods come from the call graph without a line; the decorator
+            // check below needs one (`@app.get` on a method, `@property`).
+            let func_line = if func_line == 0 && relative.ends_with(".py") {
+                python_def_line(lines, &func_name).unwrap_or(0)
+            } else {
+                func_line
+            };
+            if func_line > 0
+                && (has_decorator(lines, func_line) || has_rust_test_attribute(lines, func_line))
+            {
+                continue;
+            }
+            let test_regions = test_regions.get_or_insert_with(|| {
+                if relative.ends_with(".rs") {
+                    cfg_test_regions(source)
+                } else {
+                    Vec::new()
+                }
+            });
+            if !test_regions.is_empty()
+                && defined_only_in_cfg_test(source, test_regions, &func_name)
+            {
+                continue;
+            }
+            results.push(DeadCodeEntryV2 {
+                file: relative.clone(),
+                symbol: Some(func_name),
+                kind: Some("function".to_owned()),
+                line: if func_line > 0 { Some(func_line) } else { None },
+                reason: "unreferenced symbol".to_owned(),
+                pass: 2,
+                confidence: confidence_tier_for_file(&relative).to_owned(),
+            });
         }
     }
 
@@ -1097,6 +1152,52 @@ mod tests {
         assert!(!symbols.contains(&"hash"), "{found:?}");
     }
 
+    // Pass 2 takes the functions to judge from the index's call edges when a
+    // file's hash still matches, and re-parses it otherwise; both must judge
+    // the same functions.
+    #[test]
+    fn indexed_call_edges_judge_the_same_functions_as_a_reparse() {
+        let (_td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-dead-indexed-");
+        std::fs::write(
+            dir.join("box.py"),
+            "def helper():\n    return 1\n\nclass Box:\n    def kept(self):\n        return helper()\n\n    def orphan_method(self):\n        return helper()\n\nprint(Box().kept())\n",
+        )
+        .expect("write box");
+        // Imported, so pass 1 does not take the whole file.
+        std::fs::write(dir.join("main.py"), "from box import Box\n\nBox().kept()\n")
+            .expect("write main");
+        let project = ProjectRoot::new(&dir).expect("project");
+        let symbols = |project: &ProjectRoot| -> Vec<String> {
+            let mut found: Vec<String> = find_dead_code_v2(project, None, 0, &GraphCache::new(0))
+                .expect("dead code")
+                .into_iter()
+                .filter_map(|e| e.symbol)
+                .collect();
+            found.sort();
+            found
+        };
+
+        let reparsed = symbols(&project);
+        assert!(
+            reparsed.contains(&"orphan_method".to_owned()),
+            "{reparsed:?}"
+        );
+        crate::symbols::SymbolIndex::new(project.clone())
+            .expect("symbol index")
+            .refresh_all()
+            .expect("refresh index");
+        assert_eq!(symbols(&project), reparsed);
+
+        // An edit after indexing leaves a stale hash: the new method is read
+        // from the file, not missed.
+        std::fs::write(
+            dir.join("box.py"),
+            "def helper():\n    return 1\n\nclass Box:\n    def kept(self):\n        return helper()\n\n    def added_later(self):\n        return helper()\n\nprint(Box().kept())\n",
+        )
+        .expect("edit box");
+        assert_eq!(symbols(&project), vec!["added_later".to_owned()]);
+    }
+
     // shadow-partner 2026-10-27: `@router.post` on `async def` handlers, and
     // decorated methods, got no line and skipped the decorator check.
     #[test]
@@ -1183,6 +1284,15 @@ mod tests {
         );
         assert_eq!(counts.get("вычислить"), Some(&2));
         assert_eq!(counts.get("한글함수"), Some(&1));
+
+        // An NFD spelling (macOS file names, some editors) counts under the
+        // NFC key the index stores call-edge names with.
+        let mut counts = HashMap::new();
+        count_identifiers(
+            "def \u{1112}\u{1161}\u{11ab}\u{1100}\u{1173}\u{11af}():\n    pass\n\n한글()\n",
+            &mut counts,
+        );
+        assert_eq!(counts.get("한글"), Some(&2));
 
         // `r#match` is counted under `match`; names that are not one token
         // are not judged.
