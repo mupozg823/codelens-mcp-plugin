@@ -7,12 +7,13 @@ Use native file reads and text search for exact lookups and local edits. Use
 this optional MCP surface when declaration references or a bounded impact query
 would replace a wider scan. Tool availability does not require using it.
 
-A stdio server is already bound to the directory the host launched it in
-(CLAUDE_PROJECT_DIR, else its working directory); target.file is relative to
-that root and a worktree gets its own server. Launched from the home
-directory, it binds each call to the repository of an absolute target.file
-(a marked, non-cloud repository only). freshness.runtime_role=reader means
-another session owns the index: generation is null and pins are refused. An HTTP session must be bound to
+A stdio server binds each call on its own: an absolute target.file binds the
+file's repository, anywhere; a relative target.file resolves under the launch
+directory's repository (CLAUDE_PROJECT_DIR, else its working directory) and
+returns project_binding_required when there is none, as in the home
+directory. Only a marked, non-cloud repository binds.
+freshness.runtime_role=reader means another session owns the index:
+generation is null and pins are refused. An HTTP session must be bound to
 the canonical workspace through the initialize project, endpoint URL project or
 x-codelens-project header. Either way, verify the response project before
 using evidence. Both tools are deferred: find them through host tool search.
