@@ -46,8 +46,9 @@ pub fn find_circular_dependencies(
         .map(|scc| scc.iter().map(|&idx| digraph[idx].clone()).collect())
         .collect();
 
-    // Pass 2: re-run SCC per candidate with `#[cfg(test)]`-gated Rust edges
-    // removed. Costs zero I/O when there are no candidates.
+    // Pass 2: re-run SCC per candidate with `#[cfg(test)]`-gated Rust edges and
+    // erased TypeScript `import type` edges removed. Costs zero I/O when there
+    // are no candidates.
     let refined: Vec<Vec<String>> = if raw.is_empty() {
         Vec::new()
     } else {
@@ -84,13 +85,41 @@ pub fn find_circular_dependencies(
     Ok(cycles)
 }
 
+/// Directory a Rust module file owns: `a/b.rs` and `a/b/mod.rs` own `a/b/`, a
+/// crate root `src/lib.rs` or `src/main.rs` owns `src/`.
+fn rust_module_dir(file: &str) -> Option<&str> {
+    let stem = file.strip_suffix(".rs")?;
+    let (dir, name) = stem.rsplit_once('/').unwrap_or(("", stem));
+    Some(if matches!(name, "mod" | "lib" | "main") {
+        dir
+    } else {
+        stem
+    })
+}
+
+/// A Rust submodule using its own ancestor (`crate::telemetry::Event` from
+/// `telemetry/writer.rs`). The ancestor contains the submodule, so together
+/// with the ancestor's `mod`/`use` of it this is the module tree, not a
+/// dependency cycle — Rust has no load order such a loop could break. Cycles
+/// between siblings, or through another subtree, keep all their edges.
+fn is_rust_submodule_to_ancestor(from: &str, to: &str) -> bool {
+    from.ends_with(".rs")
+        && from != to
+        && rust_module_dir(to).is_some_and(|dir| {
+            dir.is_empty()
+                || from
+                    .strip_prefix(dir)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        })
+}
+
 /// Re-run SCC detection over one candidate component with `#[cfg(test)]`-gated
-/// Rust edges removed.
+/// Rust edges, Rust edges from a submodule up to its own ancestor module, and
+/// type-only TypeScript edges removed.
 ///
 /// This only ever REMOVES edges that were already in `graph` — it never adds an
 /// edge recomputed from disk, so a stale index cannot fabricate a new cycle
-/// here. A component with no Rust members, or no `#[cfg(test)]` gating, comes
-/// back unchanged.
+/// here. A component with none of those edges comes back unchanged.
 fn production_subcycles(
     graph: &HashMap<String, FileNode>,
     scc: &[String],
@@ -120,7 +149,7 @@ fn production_subcycles(
             if !members.contains(to.as_str()) {
                 continue;
             }
-            if !filter.is_production_edge(from, to) {
+            if is_rust_submodule_to_ancestor(from, to) || !filter.is_production_edge(from, to) {
                 continue;
             }
             sub.add_edge(idx[from.as_str()], idx[to.as_str()], ());
@@ -311,6 +340,147 @@ mod tests {
                 && c.cycle.iter().any(|f| f.ends_with("b.rs"))),
             "cfg(not(test)) is production-only and must not suppress a cycle: {cycles:?}"
         );
+    }
+
+    // Rust 2018 parent `telemetry.rs` + children in `telemetry/`: the parent
+    // uses a child item, every child uses a parent type. Once `mod writer;` in
+    // `telemetry.rs` resolved to `telemetry/writer.rs`, this module tree alone
+    // was reported as a cycle (CodeLens self-analysis, 2026-10-27).
+    #[test]
+    fn rust_submodule_using_its_ancestor_is_not_a_cycle() {
+        let (_td, dir) = temp_project_dir("rust-module-tree");
+        let src = dir.join("src");
+        fs::create_dir_all(src.join("telemetry")).expect("mkdir telemetry");
+        fs::write(
+            src.join("lib.rs"),
+            "pub mod telemetry;
+pub struct Root;
+",
+        )
+        .expect("lib");
+        fs::write(
+            src.join("telemetry.rs"),
+            "mod writer;
+use writer::Writer;
+pub struct Event;
+",
+        )
+        .expect("telemetry.rs");
+        fs::write(
+            src.join("telemetry/writer.rs"),
+            "use crate::telemetry::Event;
+use crate::Root;
+pub struct Writer;
+",
+        )
+        .expect("writer.rs");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cycles = find_circular_dependencies(&project, 50, &GraphCache::new(0)).expect("cycles");
+        assert!(cycles.is_empty(), "module tree is not a cycle: {cycles:?}");
+
+        // A sibling loop through the same tree is still a cycle.
+        fs::write(
+            src.join("metrics.rs"),
+            "use crate::telemetry::Event;
+pub struct Metrics;
+",
+        )
+        .expect("metrics.rs");
+        fs::write(
+            src.join("telemetry/writer.rs"),
+            "use crate::metrics::Metrics;
+pub struct Writer;
+",
+        )
+        .expect("writer.rs with sibling edge");
+        let cycles = find_circular_dependencies(&project, 50, &GraphCache::new(0)).expect("cycles");
+        assert!(
+            cycles
+                .iter()
+                .any(|c| c.cycle.iter().any(|f| f.ends_with("metrics.rs"))),
+            "telemetry -> writer -> metrics -> telemetry must stay a cycle: {cycles:?}"
+        );
+    }
+
+    #[test]
+    fn rust_module_dir_follows_the_module_tree() {
+        assert_eq!(rust_module_dir("src/db/ops.rs"), Some("src/db/ops"));
+        assert_eq!(rust_module_dir("src/db/mod.rs"), Some("src/db"));
+        assert_eq!(rust_module_dir("crates/a/src/lib.rs"), Some("crates/a/src"));
+        assert_eq!(rust_module_dir("lib.rs"), Some(""));
+        assert_eq!(rust_module_dir("src/a.ts"), None);
+        assert!(is_rust_submodule_to_ancestor(
+            "src/db/ops/calls.rs",
+            "src/db/ops.rs"
+        ));
+        assert!(is_rust_submodule_to_ancestor("src/db/ops.rs", "src/lib.rs"));
+        assert!(!is_rust_submodule_to_ancestor(
+            "src/db/ops.rs",
+            "src/db/ops/calls.rs"
+        ));
+        assert!(!is_rust_submodule_to_ancestor(
+            "src/db_extra/x.rs",
+            "src/db.rs"
+        ));
+        assert!(!is_rust_submodule_to_ancestor("src/b.rs", "src/a.rs"));
+    }
+
+    fn ts_cycles(name: &str, a_src: &str, b_src: &str) -> Vec<CircularDependency> {
+        let (_td, dir) = temp_project_dir(name);
+        fs::write(dir.join("a.ts"), a_src).expect("write a.ts");
+        fs::write(dir.join("b.ts"), b_src).expect("write b.ts");
+        let project = ProjectRoot::new(&dir).expect("project");
+        find_circular_dependencies(&project, 50, &GraphCache::new(0)).expect("cycles")
+    }
+
+    // Regression (winnation 2026-10-27): all 10 reported cycles closed through
+    // `import type`, which TypeScript erases, and they crowded the one real
+    // value cycle out of the length-sorted, capped list.
+    #[test]
+    fn ts_import_type_back_edge_is_not_a_cycle() {
+        for back_edge in [
+            "import type { A } from './a';\n",
+            "import type A from './a';\n",
+            "import type * as ns from './a';\n",
+            "export type { A } from './a';\n",
+            "export type * from './a';\n",
+        ] {
+            let cycles = ts_cycles(
+                "ts-type-only",
+                "import { b } from './b';\nexport interface A { n: number }\nexport const a = b;\n",
+                &format!("{back_edge}export const b = 1;\n"),
+            );
+            assert!(
+                cycles.is_empty(),
+                "type-only back edge `{back_edge}` must not close a cycle: {cycles:?}"
+            );
+        }
+    }
+
+    // Anti-over-suppression: an erased clause next to a value import of the same
+    // module, an inline `{ type A }` (kept as `import "./a"` under
+    // verbatimModuleSyntax), and a semicolon-free run-on that the shared regex
+    // captures as one `export type T = … export { a }` clause are all runtime
+    // edges and must keep the cycle.
+    #[test]
+    fn ts_runtime_back_edges_still_close_a_cycle() {
+        for back_edge in [
+            "import type { A } from './a';\nimport { a } from './a';\n",
+            "import { type A } from './a';\n",
+            "export type T = { n: number }\nexport { a } from './a'\n",
+            "import type, { a } from './a';\n",
+        ] {
+            let cycles = ts_cycles(
+                "ts-runtime",
+                "import { b } from './b';\nexport type A = number;\nexport const a = b;\n",
+                &format!("{back_edge}export const b = 1;\n"),
+            );
+            assert!(
+                cycles.iter().any(|c| c.length == 2),
+                "runtime back edge `{back_edge}` must keep the cycle: {cycles:?}"
+            );
+        }
     }
 
     fn temp_project_dir(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {

@@ -33,14 +33,23 @@ fn overlapping_claims_from_artifact(state: &AppState, analysis_id: &str) -> Vec<
 /// Issue #342: bind an args-only cache key to the symbol-index generation
 /// so a cached report artifact and a fresh recomputation always describe
 /// the same index state — the fingerprint is derived from the same source
-/// the analysis reads. `None` must stay `None`: generic artifacts keep
-/// their `cache_key = None` warm/cold-tier semantics (G2).
+/// the analysis reads. The binary that produced the analysis is part of the
+/// key too: artifacts outlive the process (6 h TTL on disk), and an upgraded
+/// server must not serve an analysis its old logic computed. `None` must stay
+/// `None`: a generic call carries no keyed argument and is never looked up.
 fn fingerprint_cache_key(
     cache_key: Option<String>,
     max_indexed_at: Option<i64>,
     file_count: usize,
 ) -> Option<String> {
-    cache_key.map(|key| format!("{key}|idx:{}:{file_count}", max_indexed_at.unwrap_or(0)))
+    cache_key.map(|key| {
+        format!(
+            "{key}|idx:{}:{file_count}|bin:{}:{}",
+            max_indexed_at.unwrap_or(0),
+            crate::build_info::BUILD_GIT_SHA,
+            crate::build_info::BUILD_TIME,
+        )
+    })
 }
 
 fn section_array_len(sections: &BTreeMap<String, Value>, section: &str, field: &str) -> usize {
@@ -478,12 +487,28 @@ mod tests {
         assert_ne!(response["summary"], json!("legacy boundary summary"));
     }
 
-    /// G2 invariant: generic artifacts (`cache_key = None`) must keep
-    /// their warm/cold-tier semantics — the fingerprint never conjures
-    /// a key out of `None`.
+    /// A generic call (`cache_key = None`) is never looked up — the
+    /// fingerprint never conjures a key out of `None`.
     #[test]
     fn fingerprint_preserves_none_key() {
         assert_eq!(fingerprint_cache_key(None, Some(1_000), 42), None);
+    }
+
+    /// An artifact computed by another build must miss: it is still on disk
+    /// after an upgrade (winnation 2026-10-27, a pre-fix `dead_code_report`
+    /// came back as an exact hit from the fixed binary).
+    #[test]
+    fn fingerprint_names_the_producing_build() {
+        let fingerprinted =
+            fingerprint_cache_key(Some("k".to_owned()), Some(1_000), 42).expect("keyed");
+        assert!(
+            fingerprinted.ends_with(&format!(
+                "|bin:{}:{}",
+                crate::build_info::BUILD_GIT_SHA,
+                crate::build_info::BUILD_TIME
+            )),
+            "{fingerprinted}"
+        );
     }
 
     #[test]

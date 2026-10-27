@@ -53,9 +53,6 @@ impl ToolMetricsRegistry {
                 crate::runtime_types::CacheHitTier::Warm => {
                     session.context.analysis_cache_hit_warm_count += 1;
                 }
-                crate::runtime_types::CacheHitTier::Cold => {
-                    session.context.analysis_cache_hit_cold_count += 1;
-                }
             }
             session.truncation.handle_reuse_count += 1;
             session.guidance.quality_focus_reuse_count += 1;

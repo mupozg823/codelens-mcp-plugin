@@ -808,6 +808,48 @@ import (
         );
     }
 
+    // Regression (CodeLens self-analysis 2026-10-27): `mod calls;` in `db/ops.rs`
+    // was looked up as `db/calls.rs`, so every child of a Rust 2018 module
+    // (`foo.rs` + `foo/`) had no importer and showed up as dead code.
+    #[test]
+    fn resolves_rust_2018_child_modules_of_a_non_mod_rs_file() {
+        let dir = temp_project_dir("rust-2018-mods");
+        let src = dir.join("src");
+        fs::create_dir_all(src.join("db/ops")).expect("mkdir src/db/ops");
+        fs::write(src.join("lib.rs"), "pub mod db;\n").expect("write lib.rs");
+        fs::write(src.join("db.rs"), "mod ops;\n").expect("write db.rs");
+        fs::write(
+            src.join("db/ops.rs"),
+            "mod calls;\nuse self::calls::Call;\nuse super::Shared;\n",
+        )
+        .expect("write ops.rs");
+        fs::write(src.join("db/ops/calls.rs"), "pub struct Call;\n").expect("write calls.rs");
+        // Decoy: a same-named top-level module must not win.
+        fs::write(src.join("calls.rs"), "pub struct Other;\n").expect("write decoy");
+        fs::write(src.join("db/Shared.rs"), "pub struct Shared;\n").expect("write shared");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let resolve = |from: &str, module: &str| {
+            super::resolvers::resolve_module_for_file(&project, &src.join(from), module)
+        };
+        assert_eq!(resolve("db.rs", "ops").as_deref(), Some("src/db/ops.rs"));
+        assert_eq!(
+            resolve("db/ops.rs", "calls").as_deref(),
+            Some("src/db/ops/calls.rs")
+        );
+        assert_eq!(
+            resolve("db/ops.rs", "self::calls::Call").as_deref(),
+            Some("src/db/ops/calls.rs")
+        );
+        // `super::` stays relative to the file's own directory.
+        assert_eq!(
+            resolve("db/ops.rs", "super::Shared").as_deref(),
+            Some("src/db/Shared.rs")
+        );
+        // `mod.rs`/`lib.rs` own their parent directory.
+        assert_eq!(resolve("lib.rs", "db").as_deref(), Some("src/db.rs"));
+    }
+
     fn temp_project_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "codelens-core-import-graph-{name}-{}",

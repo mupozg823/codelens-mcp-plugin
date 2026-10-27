@@ -573,18 +573,19 @@ impl AnalysisArtifactStore {
             .map(|(artifact, _)| artifact)
     }
 
-    /// Tiered cache lookup:
-    /// - L1 (Exact):  tool_name + cache_key + surface + scope match
-    /// - L2 (Warm):   tool_name + surface + scope match (any cache_key)
-    /// - L3 (Cold):   tool_name + scope match (generic cache_key, any surface)
+    /// Tiered cache lookup. Every tier requires the same `tool_name`, scope
+    /// and `cache_key`:
+    /// - Exact: same surface.
+    /// - Warm:  another surface (e.g. `refactor-full` → `reviewer-graph`). The
+    ///   analysis is the same; the envelope is rebuilt for the caller.
     ///
-    /// All tiers require `tool_name` to match. Earlier revisions allowed L3
-    /// to fall back across different tools when the stored artifact had no
-    /// `cache_key`, but that produced cross-tool payload poisoning: e.g. a
-    /// generic `dead_code_report` (args `{}`) would be returned verbatim
-    /// for a later `module_boundary_report` call whose summary, findings,
-    /// and section layout are unrelated. See issue G2 (2026-05-18 self-
-    /// dogfood).
+    /// A generic artifact (stored without a `cache_key` because the call
+    /// carried none of the keyed arguments) never answers a keyed request. The
+    /// keyed arguments — `path`, `scope`, `changed_files`, `symbol`, … — change
+    /// the analysis, so the generic payload is a different answer: earlier
+    /// revisions served it as a warm/cold hit and returned a whole-project
+    /// `dead_code_report` for a `path`-scoped call (winnation, 2026-10-27).
+    /// Cross-tool reuse was removed for the same reason (G2, 2026-05-18).
     pub fn find_reusable_tiered(
         &self,
         tool_name: &str,
@@ -626,7 +627,7 @@ impl AnalysisArtifactStore {
             .collect::<Vec<_>>();
         let arts = self.artifacts.lock().unwrap_or_else(|p| p.into_inner());
 
-        // L1: exact match
+        // Exact: same key on the same surface.
         if let Some(artifact) = order.iter().find_map(|id| {
             let a = arts.get(id)?;
             (a.tool_name == tool_name
@@ -638,30 +639,15 @@ impl AnalysisArtifactStore {
             return Some((artifact, crate::runtime_types::CacheHitTier::Exact));
         }
 
-        // L2: warm match — same tool + surface + scope, stored artifact has no cache_key (generic)
+        // Warm: same key from another surface.
         if let Some(artifact) = order.iter().find_map(|id| {
             let a = arts.get(id)?;
             (a.tool_name == tool_name
-                && a.surface == surface_label
                 && matches_scope(a.project_scope.as_deref(), project_scope)
-                && a.cache_key.is_none())
+                && a.cache_key.as_deref() == Some(cache_key))
             .then(|| a.clone())
         }) {
             return Some((artifact, crate::runtime_types::CacheHitTier::Warm));
-        }
-
-        // L3: cold match — same tool + scope, stored artifact has no cache_key (generic).
-        // Surface is intentionally not constrained so e.g. a `reviewer-graph`
-        // call can reuse a `refactor-full` artifact from the same scope; but
-        // tool_name MUST match so payload shapes stay compatible.
-        if let Some(artifact) = order.iter().find_map(|id| {
-            let a = arts.get(id)?;
-            (a.tool_name == tool_name
-                && matches_scope(a.project_scope.as_deref(), project_scope)
-                && a.cache_key.is_none())
-            .then(|| a.clone())
-        }) {
-            return Some((artifact, crate::runtime_types::CacheHitTier::Cold));
         }
 
         None
@@ -1419,23 +1405,30 @@ mod tests {
         assert_eq!(tier, CacheHitTier::Exact);
     }
 
+    /// Regression (winnation 2026-10-27): `dead_code_report {}` stored a
+    /// generic artifact, and the next `dead_code_report {"path": …}` got it
+    /// back as a warm hit — the whole-project audit, with the same analysis
+    /// id, for a scoped question. A keyed request needs a keyed artifact.
     #[test]
-    fn tiered_warm_hit_same_tool_no_cache_key() {
+    fn tiered_miss_when_only_a_generic_artifact_exists() {
         let (store, _tmp) = make_store();
         let artifact = make_test_artifact(
             "a1",
-            "impact_report",
+            "dead_code_report",
             "full",
             Some("/proj"),
             None, // generic analysis
             crate::util::now_ms(),
         );
         store_artifact(&store, artifact);
-        let (found, tier) = store
-            .find_reusable_tiered("impact_report", "new-key", "full", Some("/proj"))
-            .unwrap();
-        assert_eq!(found.tool_name, "impact_report");
-        assert_eq!(tier, CacheHitTier::Warm);
+        for surface in ["full", "reviewer-graph"] {
+            assert!(
+                store
+                    .find_reusable_tiered("dead_code_report", "path-key", surface, Some("/proj"))
+                    .is_none(),
+                "a generic artifact must not answer a keyed request on `{surface}`"
+            );
+        }
     }
 
     /// Regression for G2 (2026-05-18): an earlier `find_reusable_tiered`
@@ -1446,45 +1439,50 @@ mod tests {
     /// two tools produce structurally different payloads. The hit now
     /// requires `tool_name` to match in every tier.
     #[test]
-    fn tiered_miss_when_different_tool_even_if_scope_generic() {
+    fn tiered_miss_when_different_tool_even_with_the_same_key() {
         let (store, _tmp) = make_store();
         let artifact = make_test_artifact(
             "a1",
             "impact_report",
             "full",
             Some("/proj"),
-            None, // generic analysis
+            Some("key1"),
             crate::util::now_ms(),
         );
         store_artifact(&store, artifact);
         assert!(
             store
-                .find_reusable_tiered("change_request", "other-key", "full", Some("/proj"))
+                .find_reusable_tiered("change_request", "key1", "full", Some("/proj"))
                 .is_none(),
-            "cross-tool cold-tier reuse must not poison a different tool's payload"
+            "cross-tool reuse must not poison a different tool's payload"
         );
     }
 
-    /// L3 still hits when the same tool revisits the same scope with a
-    /// different surface (e.g. planner-readonly → reviewer-graph) and the
-    /// original artifact was stored without a cache_key.
+    /// The same keyed analysis revisited from another surface (e.g.
+    /// refactor-full → reviewer-graph) is a warm hit.
     #[test]
-    fn tiered_cold_hit_same_tool_different_surface() {
+    fn tiered_warm_hit_same_key_different_surface() {
         let (store, _tmp) = make_store();
         let artifact = make_test_artifact(
             "a1",
             "impact_report",
             "refactor-full",
             Some("/proj"),
-            None, // generic analysis
+            Some("key1"),
             crate::util::now_ms(),
         );
         store_artifact(&store, artifact);
         let (found, tier) = store
-            .find_reusable_tiered("impact_report", "any-key", "reviewer-graph", Some("/proj"))
-            .expect("same-tool generic artifact should still hit via L3");
+            .find_reusable_tiered("impact_report", "key1", "reviewer-graph", Some("/proj"))
+            .expect("same-key artifact from another surface should hit");
         assert_eq!(found.tool_name, "impact_report");
-        assert_eq!(tier, CacheHitTier::Cold);
+        assert_eq!(tier, CacheHitTier::Warm);
+        assert!(
+            store
+                .find_reusable_tiered("impact_report", "key2", "reviewer-graph", Some("/proj"))
+                .is_none(),
+            "a different key must miss on every surface"
+        );
     }
 
     #[test]
@@ -1512,10 +1510,10 @@ mod tests {
         let warm = make_test_artifact(
             "warm",
             "impact_report",
-            "full",
+            "reviewer-graph",
             Some("/proj"),
-            None, // generic → eligible for warm
-            crate::util::now_ms() - 1000,
+            Some("key1"), // same key, other surface → eligible for warm
+            crate::util::now_ms(),
         );
         let exact = make_test_artifact(
             "exact",
@@ -1523,14 +1521,14 @@ mod tests {
             "full",
             Some("/proj"),
             Some("key1"),
-            crate::util::now_ms(),
+            crate::util::now_ms() - 1000,
         );
         store_artifact(&store, warm);
         store_artifact(&store, exact);
         let (found, tier) = store
             .find_reusable_tiered("impact_report", "key1", "full", Some("/proj"))
             .unwrap();
-        assert_eq!(found.cache_key.as_deref(), Some("key1"));
+        assert_eq!(found.surface, "full");
         assert_eq!(tier, CacheHitTier::Exact);
     }
 

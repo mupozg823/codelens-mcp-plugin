@@ -180,6 +180,65 @@ pub(super) fn extract_js_imports(content: &str) -> Vec<String> {
     imports
 }
 
+/// The whole clause of an `import type …` / `export type …` statement:
+/// `type X`, `type { A, B as C }`, `type * as ns`, `type *`.
+///
+/// Anchored on both ends because `[^;]+?` in the shared regexes runs across
+/// lines in semicolon-free files: `export type T = {…}` followed by
+/// `export { x } from "./m"` is captured as ONE clause. Such a run-on must stay
+/// a value import, so the clause has to be exactly one type-only form.
+static JS_TYPE_ONLY_CLAUSE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^type(?:\s*\{[^{}]*\}|\s*\*(?:\s+as\s+[A-Za-z_$][\w$]*)?|\s+[A-Za-z_$][\w$]*)$")
+        .unwrap()
+});
+
+/// True for `import type …` / `export type …` clauses, which TypeScript (and
+/// Flow) erase in every compiler mode, so the target module is never loaded.
+///
+/// Inline-only braces (`import { type A } from "m"`) are NOT type-only here:
+/// under `verbatimModuleSyntax` they compile to `import "m"`, a real load.
+/// `import type from "m"` (a default binding named `type`) and
+/// `import type, { A } from "m"` are value imports too.
+pub(crate) fn is_type_only_js_clause(clause: &str) -> bool {
+    JS_TYPE_ONLY_CLAUSE_RE.is_match(clause.trim())
+}
+
+/// [`extract_js_imports`] split by whether the import survives compilation:
+/// `(runtime, type_only)`. A module named in both lists is still a runtime
+/// dependency; callers decide how to combine them.
+pub(crate) fn split_js_imports_by_erasure(content: &str) -> (Vec<String>, Vec<String>) {
+    let mut runtime = Vec::new();
+    let mut type_only = Vec::new();
+    for regex in [&*JS_IMPORT_FROM_RE, &*JS_REEXPORT_FROM_RE] {
+        for capture in regex.captures_iter(content) {
+            let Some(module) = capture.name("module") else {
+                continue;
+            };
+            let module = module.as_str().trim().to_owned();
+            if capture
+                .name("clause")
+                .is_some_and(|clause| is_type_only_js_clause(clause.as_str()))
+            {
+                type_only.push(module);
+            } else {
+                runtime.push(module);
+            }
+        }
+    }
+    for regex in [
+        &*JS_IMPORT_SIDE_EFFECT_RE,
+        &*JS_REQUIRE_RE,
+        &*JS_DYNAMIC_IMPORT_RE,
+    ] {
+        for capture in regex.captures_iter(content) {
+            if let Some(module) = capture.name("module") {
+                runtime.push(module.as_str().trim().to_owned());
+            }
+        }
+    }
+    (runtime, type_only)
+}
+
 pub(super) fn extract_go_imports(content: &str) -> Vec<String> {
     let mut imports = Vec::new();
     for cap in GO_SINGLE_RE.captures_iter(content) {
