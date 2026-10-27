@@ -731,3 +731,53 @@ fn launch_unbound_placeholder_is_an_empty_per_process_codelens_dir() {
     assert_eq!(entries, [".codelens"]);
     let _ = std::fs::remove_dir_all(&home);
 }
+
+// A lock whose placeholder dir is already gone (reaped by an older build, or
+// removed by hand) is matched by its metadata, not its name: it goes once its
+// holder is dead. A live holder's lock and other projects' locks stay.
+#[cfg(unix)]
+#[test]
+fn orphan_placeholder_locks_of_dead_holders_are_reaped() {
+    let home = temp_dir("orphan-placeholder-locks");
+    let base = home.join(".codelens").join("analysis-lite-unbound");
+    std::fs::create_dir_all(&base).unwrap();
+    let canonical_base = base.canonicalize().unwrap();
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let dead_pid = child.id();
+    child.wait().unwrap();
+    let runtime = crate::state::runtime_dir().expect("runtime dir");
+    std::fs::create_dir_all(&runtime).unwrap();
+    let tag = home.file_name().unwrap().to_string_lossy().into_owned();
+    let lock = |label: &str, pid: u32, project: &std::path::Path| {
+        let path = runtime.join(format!("{tag}-{label}.lock"));
+        let metadata = serde_json::json!({"generation":1,"pid":pid,
+            "project":project.display().to_string(),"version":"test","git_sha":"test",
+            "acquired_at_ms":0});
+        std::fs::write(&path, metadata.to_string()).unwrap();
+        path
+    };
+    let orphan = lock(
+        "orphan",
+        dead_pid,
+        &canonical_base.join(dead_pid.to_string()),
+    );
+    let live = lock(
+        "live",
+        std::process::id(),
+        &canonical_base.join("live-holder"),
+    );
+    let foreign = lock("foreign", dead_pid, &home.join("some-repo"));
+
+    super::prepare_launch_unbound_placeholder(&home).unwrap();
+
+    let remaining = [&orphan, &live, &foreign].map(|path| path.exists());
+    for path in [&orphan, &live, &foreign] {
+        let _ = std::fs::remove_file(path);
+    }
+    let _ = std::fs::remove_dir_all(&home);
+    assert_eq!(
+        remaining,
+        [false, true, true],
+        "only the dead holder's lock for a vanished placeholder is reaped"
+    );
+}

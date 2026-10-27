@@ -294,19 +294,61 @@ fn remove_dead_process_dirs(base: &std::path::Path) {
         else {
             continue;
         };
-        if pid <= 0 || pid as u32 == std::process::id() {
-            continue;
-        }
-        // SAFETY: signal 0 only checks that the pid exists; nothing is sent.
-        let exists = unsafe { libc::kill(pid, 0) } == 0
-            || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
-        if !exists {
+        if pid_is_dead(pid) {
             // The lock name hashes the canonical dir, so resolve it first.
             let lock = crate::state::project_writer_lock_path(&entry.path());
             let _ = std::fs::remove_dir_all(entry.path());
             if let Some(lock) = lock {
                 let _ = std::fs::remove_file(lock);
             }
+        }
+    }
+    if let Ok(runtime_dir) = crate::state::runtime_dir() {
+        remove_orphan_placeholder_locks(base, &runtime_dir);
+    }
+}
+
+/// `kill(pid, 0)` says ESRCH: no such process. Never this process or pid <= 0.
+#[cfg(unix)]
+fn pid_is_dead(pid: libc::pid_t) -> bool {
+    if pid <= 0 || pid as u32 == std::process::id() {
+        return false;
+    }
+    // SAFETY: signal 0 only checks that the pid exists; nothing is sent.
+    let signalled = unsafe { libc::kill(pid, 0) };
+    signalled != 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+}
+
+/// Writer-lease locks whose placeholder dir is already gone cannot be found
+/// by name (the name hashes the dir). Match them by their metadata instead: a
+/// `project` under `base` that no longer exists, held by a dead pid.
+#[cfg(unix)]
+fn remove_orphan_placeholder_locks(base: &std::path::Path, runtime_dir: &std::path::Path) {
+    let base = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
+    let Ok(entries) = std::fs::read_dir(runtime_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "lock") {
+            continue;
+        }
+        let Some(metadata) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        else {
+            continue;
+        };
+        let (Some(project), Some(pid)) = (
+            metadata["project"].as_str().map(std::path::Path::new),
+            metadata["pid"]
+                .as_u64()
+                .and_then(|pid| libc::pid_t::try_from(pid).ok()),
+        ) else {
+            continue;
+        };
+        if project.starts_with(&base) && project != base && !project.exists() && pid_is_dead(pid) {
+            let _ = std::fs::remove_file(&path);
         }
     }
 }
