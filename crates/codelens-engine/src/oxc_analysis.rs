@@ -9,6 +9,12 @@ use oxc_span::{GetSpan, SourceType};
 use serde::Serialize;
 use std::path::Path;
 
+mod declarations;
+pub use declarations::{
+    ByteSpan, DeclarationAnalysis, ExactDeclaration, ExactReference, ModuleExport, ModuleImport,
+    UnsupportedDeclaration, analyze_declarations,
+};
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolvedReference {
     pub symbol_name: String,
@@ -190,6 +196,26 @@ fn offset_to_line_col(source: &[u8], offset: usize) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analysis_lite_selects_one_same_name_declaration() {
+        let source =
+            "function same() {}\nsame();\nfunction wrapper() { function same() {} same(); }\n";
+        let analysis = analyze_declarations(source, "test.ts").unwrap();
+        let declarations = analysis.named("same");
+        assert_eq!(declarations.len(), 2);
+        assert_eq!(declarations[0].name_span, ByteSpan { start: 9, end: 13 });
+        assert_eq!(declarations[0].references.len(), 1);
+        assert_eq!(declarations[0].references[0].span.start, 19);
+        assert_eq!(declarations[1].references.len(), 1);
+        // Compatibility: the legacy name-only API still merges both scopes.
+        assert_eq!(
+            find_references_precise(source, "test.ts", "same")
+                .unwrap()
+                .len(),
+            4
+        );
+    }
 
     #[test]
     fn test_get_scope_symbols() {

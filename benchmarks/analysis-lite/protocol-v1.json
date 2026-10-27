@@ -1,0 +1,310 @@
+{
+  "schema_version": "analysis-lite-protocol-v1",
+  "status": "frozen-before-model-results-pending-parent-acceptance",
+  "seed": 20261026,
+  "model_runs_at_freeze": 0,
+  "task_bundle_sha256": "b6c5d2c3023bed67fac86847cda60b92fb9d1fc0d0b1f4bc82ec9d3be9d47923",
+  "immutable_inputs": { "tasks_manifest_sha256": "ae6fbc8828fa5ea85482f01b0020c05e3d4e289e587505fe13de204359431616", "selection_document_sha256": "31ed1e333b0996b690be3b38326cb6bc0b93c4a3a8fae202fb760e096a6cd0d6" },
+  "source_filter": {
+    "implementation": "benchmarks/harness/analysis_lite_snapshots.py",
+    "implementation_sha256": "96724b8ca3ec5bd62dc795ae9a624794fb1a0318b3e6a80f4ebda9ec8e91f072",
+    "include_extensions": [
+      ".ts",
+      ".tsx",
+      ".mts",
+      ".cts",
+      ".js",
+      ".jsx",
+      ".mjs",
+      ".cjs",
+      ".json",
+      ".css",
+      ".svg"
+    ],
+    "include_instruction_names": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "excluded_path_parts": [
+      "dot-prefixed directories and other dot files; safe tracked ignore names are explicitly preserved",
+      "docs",
+      "backups",
+      "releases",
+      "dist",
+      "out",
+      "coverage",
+      "node_modules",
+      "answers",
+      "gold",
+      "grader"
+    ],
+    "excluded_files": [
+      "auth.json",
+      "credentials.json",
+      "gold.json",
+      "*.pem",
+      "*.key",
+      "all symlinks and gitlinks",
+      "other extensions"
+    ],
+    "inventory": "Every selected/excluded tracked path has immutable Git blob SHA1, size and reason; selected files also have SHA256. Inventories are control-only. All 25 mandatory source hashes must match.",
+    "limitations": [
+      "Tracked docs, screenshots, archives, work records and some runtime assets are absent. Results apply to this source-only context, not complete-project documentation retrieval or runtime/production behavior.",
+      "No .git/history, untracked WIP, model sessions, auth/env or grader artifacts may enter run snapshots."
+    ],
+    "include_safe_ignore_names": [
+      ".gitignore",
+      ".ignore",
+      ".codelensignore"
+    ]
+  },
+  "common_instructions": [
+    "Use only the current provided SNAPSHOT_ROOT as source evidence. Do not read original repository paths, other run folders, earlier answers/work records, Git history, hidden grader files or control/setup receipts.",
+    "The task prompt below is unchanged. Follow applicable snapshot AGENTS.md/CLAUDE.md subject to these current instructions. Do not bootstrap unavailable global tools or change global settings, authentication or running services.",
+    "Use native read/search first for exact local checks. Work within task scope; do not start extra evaluation conversations, model probes or paid fallbacks. Normal task-native subagents permitted by the current host and user routing rules remain available; record their activity, source-access scope and complete usage. Do not access production databases/services, deploy or publish.",
+    "For read tasks leave source unchanged. For E2 change only the two task-allowed files and create your own regression test. Node dependencies are prepared task-locally; never link or read original node_modules.",
+    "Return the common structured final format when practical, with snapshot-relative paths and exact line/identity evidence. Preserve unknowns, unsupported scope and errors; do not turn analysis failure into zero results or claim completeness beyond the bounds. Plain text is retained for manual review, not automatically failed."
+  ],
+  "candidate_optional_guide": "Optional: analysis-lite exposes only search(mode=refs) and graph(mode=impact) for exact JS/TS declaration evidence. Use it when helpful; unsupported or partial evidence can be resolved with native reads/search. Tool use is not required.",
+  "arms": { "A": "Current normal native host; candidate absent.", "B": "Same host, model/effort and common instructions plus candidate MCP connection and the single optional guide above. No forced tool use." },
+  "common_final_format": {
+    "declaration": { "file": "relative/source.ts", "symbol": "selected declaration name", "line": "positive integer or null", "byte_start": "UTF-8 name-token start or null", "byte_end": "UTF-8 half-open end or null" },
+    "calls": [
+      { "file": "relative/source.ts", "line": "positive integer", "caller": "name or null" }
+    ],
+    "non_calls": [
+      { "file": "relative/source.ts", "line": "positive integer", "kind": "import or re-export" }
+    ],
+    "impact": {
+      "nodes": [
+        "named symbol"
+      ],
+      "edges": [
+        { "caller": "named symbol", "callee": "named symbol", "file": "relative/source.ts", "lines": [ "positive integer" ], "depth": "positive integer", "relation": "source relation/provenance" }
+      ],
+      "bounds": { "reverse_depth": "requested limit", "node_cap": "requested limit", "edge_cap": "requested limit" }
+    },
+    "analysis_status": "ok, partial, unsupported, error or unknown",
+    "errors": [],
+    "notes": "source-based explanation and uncertainty; omit irrelevant collections rather than invent values"
+  },
+  "schedule_algorithm": "Sort tasks by SHA256(seed|task|id); first arm/host determined by parity of first hex digit of SHA256(seed|arm|id) and SHA256(seed|host|id). Repeat2 reverses both arm and host order.",
+  "schedule": [
+    {
+      "block_id": "H3-bounded-format-impact--r1",
+      "arm_order": [
+        "B",
+        "A"
+      ],
+      "runs": [
+        { "run_id": "H3-bounded-format-impact--claude--B--r1", "task_id": "H3-bounded-format-impact", "host": "claude", "arm": "B", "repeat": 1 },
+        { "run_id": "H3-bounded-format-impact--codex--B--r1", "task_id": "H3-bounded-format-impact", "host": "codex", "arm": "B", "repeat": 1 },
+        { "run_id": "H3-bounded-format-impact--claude--A--r1", "task_id": "H3-bounded-format-impact", "host": "claude", "arm": "A", "repeat": 1 },
+        { "run_id": "H3-bounded-format-impact--codex--A--r1", "task_id": "H3-bounded-format-impact", "host": "codex", "arm": "A", "repeat": 1 }
+      ]
+    },
+    {
+      "block_id": "E3-pause-decoder--r1",
+      "arm_order": [
+        "A",
+        "B"
+      ],
+      "runs": [
+        { "run_id": "E3-pause-decoder--claude--A--r1", "task_id": "E3-pause-decoder", "host": "claude", "arm": "A", "repeat": 1 },
+        { "run_id": "E3-pause-decoder--codex--A--r1", "task_id": "E3-pause-decoder", "host": "codex", "arm": "A", "repeat": 1 },
+        { "run_id": "E3-pause-decoder--claude--B--r1", "task_id": "E3-pause-decoder", "host": "claude", "arm": "B", "repeat": 1 },
+        { "run_id": "E3-pause-decoder--codex--B--r1", "task_id": "E3-pause-decoder", "host": "codex", "arm": "B", "repeat": 1 }
+      ]
+    },
+    {
+      "block_id": "H2-path-alias-reexport--r1",
+      "arm_order": [
+        "B",
+        "A"
+      ],
+      "runs": [
+        { "run_id": "H2-path-alias-reexport--codex--B--r1", "task_id": "H2-path-alias-reexport", "host": "codex", "arm": "B", "repeat": 1 },
+        { "run_id": "H2-path-alias-reexport--claude--B--r1", "task_id": "H2-path-alias-reexport", "host": "claude", "arm": "B", "repeat": 1 },
+        { "run_id": "H2-path-alias-reexport--codex--A--r1", "task_id": "H2-path-alias-reexport", "host": "codex", "arm": "A", "repeat": 1 },
+        { "run_id": "H2-path-alias-reexport--claude--A--r1", "task_id": "H2-path-alias-reexport", "host": "claude", "arm": "A", "repeat": 1 }
+      ]
+    },
+    {
+      "block_id": "E2-crew-decimal-repair--r1",
+      "arm_order": [
+        "B",
+        "A"
+      ],
+      "runs": [
+        { "run_id": "E2-crew-decimal-repair--codex--B--r1", "task_id": "E2-crew-decimal-repair", "host": "codex", "arm": "B", "repeat": 1 },
+        { "run_id": "E2-crew-decimal-repair--claude--B--r1", "task_id": "E2-crew-decimal-repair", "host": "claude", "arm": "B", "repeat": 1 },
+        { "run_id": "E2-crew-decimal-repair--codex--A--r1", "task_id": "E2-crew-decimal-repair", "host": "codex", "arm": "A", "repeat": 1 },
+        { "run_id": "E2-crew-decimal-repair--claude--A--r1", "task_id": "E2-crew-decimal-repair", "host": "claude", "arm": "A", "repeat": 1 }
+      ]
+    },
+    {
+      "block_id": "E1-lifecycle-callers--r1",
+      "arm_order": [
+        "B",
+        "A"
+      ],
+      "runs": [
+        { "run_id": "E1-lifecycle-callers--claude--B--r1", "task_id": "E1-lifecycle-callers", "host": "claude", "arm": "B", "repeat": 1 },
+        { "run_id": "E1-lifecycle-callers--codex--B--r1", "task_id": "E1-lifecycle-callers", "host": "codex", "arm": "B", "repeat": 1 },
+        { "run_id": "E1-lifecycle-callers--claude--A--r1", "task_id": "E1-lifecycle-callers", "host": "claude", "arm": "A", "repeat": 1 },
+        { "run_id": "E1-lifecycle-callers--codex--A--r1", "task_id": "E1-lifecycle-callers", "host": "codex", "arm": "A", "repeat": 1 }
+      ]
+    },
+    {
+      "block_id": "H1-trigger-identity--r1",
+      "arm_order": [
+        "A",
+        "B"
+      ],
+      "runs": [
+        { "run_id": "H1-trigger-identity--claude--A--r1", "task_id": "H1-trigger-identity", "host": "claude", "arm": "A", "repeat": 1 },
+        { "run_id": "H1-trigger-identity--codex--A--r1", "task_id": "H1-trigger-identity", "host": "codex", "arm": "A", "repeat": 1 },
+        { "run_id": "H1-trigger-identity--claude--B--r1", "task_id": "H1-trigger-identity", "host": "claude", "arm": "B", "repeat": 1 },
+        { "run_id": "H1-trigger-identity--codex--B--r1", "task_id": "H1-trigger-identity", "host": "codex", "arm": "B", "repeat": 1 }
+      ]
+    },
+    {
+      "block_id": "H3-bounded-format-impact--r2",
+      "arm_order": [
+        "A",
+        "B"
+      ],
+      "runs": [
+        { "run_id": "H3-bounded-format-impact--codex--A--r2", "task_id": "H3-bounded-format-impact", "host": "codex", "arm": "A", "repeat": 2 },
+        { "run_id": "H3-bounded-format-impact--claude--A--r2", "task_id": "H3-bounded-format-impact", "host": "claude", "arm": "A", "repeat": 2 },
+        { "run_id": "H3-bounded-format-impact--codex--B--r2", "task_id": "H3-bounded-format-impact", "host": "codex", "arm": "B", "repeat": 2 },
+        { "run_id": "H3-bounded-format-impact--claude--B--r2", "task_id": "H3-bounded-format-impact", "host": "claude", "arm": "B", "repeat": 2 }
+      ]
+    },
+    {
+      "block_id": "E3-pause-decoder--r2",
+      "arm_order": [
+        "B",
+        "A"
+      ],
+      "runs": [
+        { "run_id": "E3-pause-decoder--codex--B--r2", "task_id": "E3-pause-decoder", "host": "codex", "arm": "B", "repeat": 2 },
+        { "run_id": "E3-pause-decoder--claude--B--r2", "task_id": "E3-pause-decoder", "host": "claude", "arm": "B", "repeat": 2 },
+        { "run_id": "E3-pause-decoder--codex--A--r2", "task_id": "E3-pause-decoder", "host": "codex", "arm": "A", "repeat": 2 },
+        { "run_id": "E3-pause-decoder--claude--A--r2", "task_id": "E3-pause-decoder", "host": "claude", "arm": "A", "repeat": 2 }
+      ]
+    },
+    {
+      "block_id": "H2-path-alias-reexport--r2",
+      "arm_order": [
+        "A",
+        "B"
+      ],
+      "runs": [
+        { "run_id": "H2-path-alias-reexport--claude--A--r2", "task_id": "H2-path-alias-reexport", "host": "claude", "arm": "A", "repeat": 2 },
+        { "run_id": "H2-path-alias-reexport--codex--A--r2", "task_id": "H2-path-alias-reexport", "host": "codex", "arm": "A", "repeat": 2 },
+        { "run_id": "H2-path-alias-reexport--claude--B--r2", "task_id": "H2-path-alias-reexport", "host": "claude", "arm": "B", "repeat": 2 },
+        { "run_id": "H2-path-alias-reexport--codex--B--r2", "task_id": "H2-path-alias-reexport", "host": "codex", "arm": "B", "repeat": 2 }
+      ]
+    },
+    {
+      "block_id": "E2-crew-decimal-repair--r2",
+      "arm_order": [
+        "A",
+        "B"
+      ],
+      "runs": [
+        { "run_id": "E2-crew-decimal-repair--claude--A--r2", "task_id": "E2-crew-decimal-repair", "host": "claude", "arm": "A", "repeat": 2 },
+        { "run_id": "E2-crew-decimal-repair--codex--A--r2", "task_id": "E2-crew-decimal-repair", "host": "codex", "arm": "A", "repeat": 2 },
+        { "run_id": "E2-crew-decimal-repair--claude--B--r2", "task_id": "E2-crew-decimal-repair", "host": "claude", "arm": "B", "repeat": 2 },
+        { "run_id": "E2-crew-decimal-repair--codex--B--r2", "task_id": "E2-crew-decimal-repair", "host": "codex", "arm": "B", "repeat": 2 }
+      ]
+    },
+    {
+      "block_id": "E1-lifecycle-callers--r2",
+      "arm_order": [
+        "A",
+        "B"
+      ],
+      "runs": [
+        { "run_id": "E1-lifecycle-callers--codex--A--r2", "task_id": "E1-lifecycle-callers", "host": "codex", "arm": "A", "repeat": 2 },
+        { "run_id": "E1-lifecycle-callers--claude--A--r2", "task_id": "E1-lifecycle-callers", "host": "claude", "arm": "A", "repeat": 2 },
+        { "run_id": "E1-lifecycle-callers--codex--B--r2", "task_id": "E1-lifecycle-callers", "host": "codex", "arm": "B", "repeat": 2 },
+        { "run_id": "E1-lifecycle-callers--claude--B--r2", "task_id": "E1-lifecycle-callers", "host": "claude", "arm": "B", "repeat": 2 }
+      ]
+    },
+    {
+      "block_id": "H1-trigger-identity--r2",
+      "arm_order": [
+        "B",
+        "A"
+      ],
+      "runs": [
+        { "run_id": "H1-trigger-identity--codex--B--r2", "task_id": "H1-trigger-identity", "host": "codex", "arm": "B", "repeat": 2 },
+        { "run_id": "H1-trigger-identity--claude--B--r2", "task_id": "H1-trigger-identity", "host": "claude", "arm": "B", "repeat": 2 },
+        { "run_id": "H1-trigger-identity--codex--A--r2", "task_id": "H1-trigger-identity", "host": "codex", "arm": "A", "repeat": 2 },
+        { "run_id": "H1-trigger-identity--claude--A--r2", "task_id": "H1-trigger-identity", "host": "claude", "arm": "A", "repeat": 2 }
+      ]
+    }
+  ],
+  "lifecycle": {
+    "execution": "Strictly sequential 48 CLI runs; twelve task x repeat blocks, four runs per block, fresh conversations and pristine run source copies. Failed/timeouts/unsupported consume scheduled rows; no replacement/extra probe runs.",
+    "A_block": "No candidate process may remain alive during either A host run. Do not kill shared apps, caches or unrelated processes.",
+    "B_block": "One owned foreground HTTP process shared sequentially by the two hosts. Start with an empty source-free control directory as default project; each host explicitly binds its own canonical run snapshot. Stop the owned PID/process tree at B-block end before any A run.",
+    "startup_allocation": "Measure candidate spawn-to-ready wall once per B block; assign exactly half to each of its two B rows, including failed rows. Allocated sum must equal the observed startup. No host absorbs another host regression.",
+    "binding_and_indexing": "Do not pre-index either run snapshot. Candidate connection and first indexing happen within that host CLI wall; any necessary pre-CLI per-run binding/index cost must be added explicitly, never hidden.",
+    "model_settings": "Inherit current user model/effort; do not pass model/effort overrides or copy authentication. Record actual receipts. Unobserved inherited values remain unknown; observed drift pauses dependent evaluation for explicit review.",
+    "cache_condition": "No global cache flush. Repeat1/repeat2 are ordering labels, not proven cold/warm. Record actual provider cache counters and server cache tier when available; otherwise cold/warm=unknown.",
+    "native_subagents": "Permitted under existing host/user model-routing policy as part of scheduled task execution; not separate evaluation trials. Retain child receipts and whole-tree usage scope; unknown coverage stays inconclusive.",
+    "default_project_directory": "/Users/bagjaeseog/codelens-analysis-lite-eval/2026-10-26/control/filter-v2/server-empty",
+    "default_project_guard": "The default directory must remain empty and source-free. Never index the parent control directory, which contains private grader-only smoke sources and receipts."
+  },
+  "timeouts_seconds": { "model_cli": 900, "candidate_startup": 180, "agent_acceptance_test": 120, "oracle": 30, "dependency_setup": 480, "owned_process_shutdown": 15 },
+  "timing": {
+    "primary_adoption_wall": "setup_inclusive_task_wall_seconds",
+    "task_wall_seconds": "candidate_startup_share + preCLI_candidate_binding_if_any + CLI_elapsed + postrun_final_GREEN_acceptance_elapsed + independent_final_source_oracle_elapsed",
+    "setup_inclusive_task_wall_seconds": "task_wall_seconds + run_snapshot_preparation + run_dependency_delivery + snapshot_template_setup_share + dependency_install_share",
+    "setup_allocation": "Template preparation cost allocated equally to all scheduled rows using that snapshot. One dependency installation cost allocated equally to all scheduled E2 rows. Raw setup totals and allocation sums remain visible, including setup failures.",
+    "evaluation_overhead_separate": [
+      "Gold-only baseline RED replay and its dependency delivery",
+      "Mechanical answer grading",
+      "SOL semantic review",
+      "Report generation"
+    ],
+    "required_raw_clocks": [
+      "CLI elapsed",
+      "candidate startup and share",
+      "snapshot/template preparation",
+      "dependency installation and per-run delivery",
+      "candidate bind/index preCLI cost if any",
+      "final acceptance/oracle",
+      "baseline RED grading overhead",
+      "whole evaluation wall"
+    ],
+    "no_hidden_costs": "Report task wall, setup-inclusive task wall and full evaluation wall with their different scopes; do not label lab timings as production Core Web Vitals or guaranteed savings."
+  },
+  "grading": {
+    "read_tasks": "Compare declaration identity and exact call/noncall/impact sets against frozen gold outside agent folders. Missing/common-format noncompliance is manual-review, not automatic task failure. Explicit wrong identity/extra/missing claimed results are mechanical failures.",
+    "semantics": "An independent SOL reviewer reads raw final answers and the frozen rubric. Mechanical pass alone is not task success/quality; semantic approval and critical-regression decisions require a recorded review receipt.",
+    "E2": "After agent exit inspect allowed-file hashes, replay the actual agent-created test on a grader-only base copy (RED), run that same test on final source (GREEN), then run six literal cases plus 100001 independent decimal oracle cases. RED must be the intended assertion, not import/setup failure. Tests/gold are never pre-injected into model templates.",
+    "dependencies": "Only frozen package/lock task-local setup, ignore install scripts. Run dependency delivery must be independent physical/COW copies, not external shared/original node_modules links. Gold smoke uses grader-only copies. Preserve original repository and shared setup.",
+    "unknowns": "Keep raw stdout/stderr, errors, timeout/missing observations and partial usage. Tool utilization/process KPI never substitutes for independent task quality."
+  },
+  "adoption_gates": {
+    "scope": "Evaluate each host separately and only the tested language/task/source context. No host/task-class tradeoffs hide regressions.",
+    "everyday": "Zero independent quality regression across three everyday tasks; paired median setup-inclusive wall OR complete actual input+output tokens improves >=15%, with the other metric not increasing. Missing required usage is inconclusive.",
+    "hard": "At least one same hard task with a baseline failure/omission improves independently in BOTH repetitions; zero critical regression on baseline successes. Each improved paired repetition must have token ratio<=1.25 AND setup-inclusive wall ratio<=1.25. Unknown required evidence is inconclusive.",
+    "critical_errors": "Zero wrong-declaration attribution, error-to-zero conversions or unanalyzed-scope completeness claims. Source-derived H2/H3/E3 field failures remain unconfirmed.",
+    "decision": "48-run pilot only; no global activation. Only passing host/language/task scope may receive optional opt-in examples; non-adoption/inconclusive are valid outcomes."
+  },
+  "storage": {
+    "durable_root": "/Users/bagjaeseog/codelens-analysis-lite-eval/2026-10-26",
+    "raw": "Ignored local evidence plus durable non-cloud control/run logs. Preserve actual source/error values; never upload original TS source, auth/settings or raw user logs into a PR. Public report uses reviewed aggregates and appropriate source identifiers only.",
+    "snapshot_directory": "snapshots-v2",
+    "retired_snapshot_directory": "snapshots (first filter inventory retained; never used for model evaluation)",
+    "control_directory": "control/filter-v2"
+  },
+  "hash_algorithm": "SHA256 of sorted-key compact UTF-8 JSON (ensure_ascii=false), excluding content_sha256. Revision2 corrects pre-model filter/native-delegation policy; any post-results change requires a new protocol and explicit review. Frozen tasks/gold stay unchanged.",
+  "freeze_revision": 2,
+  "content_sha256": "e131fb5681ca17cc9b473a5448b947082732787696b6f20e17ba76a57c41b6ba"
+}

@@ -658,3 +658,126 @@ fn http_startup_banner_includes_runtime_identity_fields() {
     assert!(banner.contains("build_time="));
     assert!(banner.contains("git_dirty="));
 }
+
+#[test]
+fn analysis_lite_launch_root_is_a_marked_repo_below_home_never_home_or_root() {
+    use super::analysis_lite_launch_root as launch_root;
+    let home = temp_dir("launch-root-home").canonicalize().unwrap();
+    std::fs::create_dir_all(home.join(".git")).unwrap();
+    let repo = home.join("repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    let home_str = home.display().to_string();
+    for source in [
+        StartupProjectSource::ClaudeEnv(home_str.clone()),
+        StartupProjectSource::Cli(home_str.clone()),
+        StartupProjectSource::McpEnv(home_str),
+        StartupProjectSource::Cwd(home.clone()),
+        StartupProjectSource::ClaudeEnv("/".to_owned()),
+        StartupProjectSource::Cwd("/".into()),
+    ] {
+        let launch = launch_root(&source, &home);
+        assert!(launch.root.is_none(), "{source:?}");
+        assert!(!launch.reason.is_empty());
+    }
+    // A repository inside home (or a subdirectory of it) is the launch root.
+    for dir in [&repo, &repo.join("src")] {
+        let launch = launch_root(
+            &StartupProjectSource::ClaudeEnv(dir.display().to_string()),
+            &home,
+        );
+        assert_eq!(
+            launch.root.as_ref().map(|root| root.as_path()),
+            Some(repo.as_path()),
+            "{}",
+            launch.reason
+        );
+    }
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[cfg(unix)]
+#[test]
+fn launch_unbound_placeholder_is_an_empty_per_process_codelens_dir() {
+    let home = temp_dir("unbound-placeholder");
+    let base = home.join(".codelens").join("analysis-lite-unbound");
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let dead_pid = child.id();
+    child.wait().unwrap();
+    std::fs::create_dir_all(base.join(dead_pid.to_string()).join(".codelens")).unwrap();
+    let dead_lock = crate::state::project_writer_lock_path(&base.join(dead_pid.to_string()))
+        .expect("runtime dir");
+    std::fs::create_dir_all(dead_lock.parent().unwrap()).unwrap();
+    std::fs::write(&dead_lock, "{}").unwrap();
+    let placeholder = super::prepare_launch_unbound_placeholder(&home).unwrap();
+    assert!(
+        !dead_lock.exists(),
+        "a dead placeholder's writer-lease lock file is reaped with its dir"
+    );
+    assert_eq!(
+        placeholder.as_path(),
+        base.canonicalize()
+            .unwrap()
+            .join(std::process::id().to_string())
+    );
+    assert!(
+        !base.join(dead_pid.to_string()).exists(),
+        "dirs of dead processes are reaped"
+    );
+    let entries = std::fs::read_dir(placeholder.as_path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(entries, [".codelens"]);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+// A lock whose placeholder dir is already gone (reaped by an older build, or
+// removed by hand) is matched by its metadata, not its name: it goes once its
+// holder is dead. A live holder's lock and other projects' locks stay.
+#[cfg(unix)]
+#[test]
+fn orphan_placeholder_locks_of_dead_holders_are_reaped() {
+    let home = temp_dir("orphan-placeholder-locks");
+    let base = home.join(".codelens").join("analysis-lite-unbound");
+    std::fs::create_dir_all(&base).unwrap();
+    let canonical_base = base.canonicalize().unwrap();
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let dead_pid = child.id();
+    child.wait().unwrap();
+    let runtime = crate::state::runtime_dir().expect("runtime dir");
+    std::fs::create_dir_all(&runtime).unwrap();
+    let tag = home.file_name().unwrap().to_string_lossy().into_owned();
+    let lock = |label: &str, pid: u32, project: &std::path::Path| {
+        let path = runtime.join(format!("{tag}-{label}.lock"));
+        let metadata = serde_json::json!({"generation":1,"pid":pid,
+            "project":project.display().to_string(),"version":"test","git_sha":"test",
+            "acquired_at_ms":0});
+        std::fs::write(&path, metadata.to_string()).unwrap();
+        path
+    };
+    let orphan = lock(
+        "orphan",
+        dead_pid,
+        &canonical_base.join(dead_pid.to_string()),
+    );
+    let live = lock(
+        "live",
+        std::process::id(),
+        &canonical_base.join("live-holder"),
+    );
+    let foreign = lock("foreign", dead_pid, &home.join("some-repo"));
+
+    super::prepare_launch_unbound_placeholder(&home).unwrap();
+
+    let remaining = [&orphan, &live, &foreign].map(|path| path.exists());
+    for path in [&orphan, &live, &foreign] {
+        let _ = std::fs::remove_file(path);
+    }
+    let _ = std::fs::remove_dir_all(&home);
+    assert_eq!(
+        remaining,
+        [false, true, true],
+        "only the dead holder's lock for a vanished placeholder is reaped"
+    );
+}

@@ -54,6 +54,41 @@ impl ProjectRoot {
         Ok(Self { root })
     }
 
+    /// Like [`ProjectRoot::new`], but a directory with no root marker between
+    /// `path` and `$HOME` is refused instead of promoted to a markerless root,
+    /// whatever `CODELENS_ALLOW_MARKERLESS_ROOT` says. For callers that derive
+    /// a root from an arbitrary file location (e.g. `~/Downloads/x.ts`):
+    /// promoting that folder would write `<folder>/.codelens`, which is itself
+    /// a marker, so the folder would stay a "project" forever after.
+    /// `$HOME` keeps its `CODELENS_ALLOW_HOME_PROJECT` policy. `.codelens` is
+    /// not a marker here: CodeLens writes it, so a folder an older build
+    /// promoted is still refused.
+    pub fn new_requiring_marker(path: impl AsRef<Path>) -> Result<Self> {
+        let start = path.as_ref().canonicalize().with_context(|| {
+            format!("failed to resolve project root {}", path.as_ref().display())
+        })?;
+        if !start.is_dir() {
+            bail!("project root is not a directory: {}", start.display());
+        }
+        let root = match root_detect::detect_real_root(&start) {
+            Some(root) => root,
+            None => {
+                let home = std::env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .map(|home| home.canonicalize().unwrap_or(home));
+                ensure_inferred_root_allowed_with(
+                    &start,
+                    home.as_deref(),
+                    env_flag("CODELENS_ALLOW_HOME_PROJECT").unwrap_or(false),
+                    false,
+                )?;
+                unreachable!("the strict policy refuses every markerless root")
+            }
+        };
+        remote_root::ensure_local_root(&root)?;
+        Ok(Self { root })
+    }
+
     /// Create a ProjectRoot at the exact given path without auto-detection.
     pub fn new_exact(path: impl AsRef<Path>) -> Result<Self> {
         let root = path.as_ref().canonicalize().with_context(|| {

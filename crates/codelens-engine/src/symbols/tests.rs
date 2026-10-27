@@ -65,6 +65,40 @@ fn index_refreshes_after_file_change() {
 }
 
 #[test]
+fn open_reader_reads_writer_rows_and_cannot_write() {
+    let root = fixture_root();
+    let project = ProjectRoot::new(&root).expect("project");
+    let writer = SymbolIndex::new(project.clone()).expect("writer index");
+    writer.refresh_all().expect("writer refresh");
+    let reader = SymbolIndex::open_reader(project).expect("reader index");
+    assert_eq!(reader.file_count().expect("count"), 2);
+    // A new file forces a row insert; an unchanged tree would write nothing.
+    fs::write(root.join("src/extra.py"), "def extra():\n    pass\n").expect("write extra");
+    let err = reader
+        .refresh_all()
+        .expect_err("a reader must not write the index");
+    assert!(
+        format!("{err:#}").to_ascii_lowercase().contains("readonly"),
+        "{err:#}"
+    );
+}
+
+#[test]
+fn open_reader_without_a_database_is_index_not_built() {
+    let root = fixture_root();
+    let project = ProjectRoot::new(&root).expect("project");
+    let err = match SymbolIndex::open_reader(project) {
+        Ok(_) => panic!("a missing index must not open as empty"),
+        Err(err) => err,
+    };
+    assert!(
+        err.downcast_ref::<super::IndexNotBuilt>().is_some(),
+        "{err:#}"
+    );
+    assert!(!root.join(".codelens").join("index").exists());
+}
+
+#[test]
 fn refresh_all_populates_stats() {
     let root = fixture_root();
     let project = ProjectRoot::new(&root).expect("project");

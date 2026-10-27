@@ -75,6 +75,38 @@ impl AppState {
         Arc::clone(&*self.http_auth.lock().unwrap())
     }
 
+    pub(crate) fn configure_analysis_lite_reader_fallback(&self, allow: bool) {
+        self.analysis_lite_reader_fallback
+            .store(allow, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn analysis_lite_reader_fallback(&self) -> bool {
+        self.analysis_lite_reader_fallback
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Activate analysis-lite per-call binding (the default context is a
+    /// placeholder), with the launch directory's repository when there is one.
+    pub(crate) fn configure_analysis_lite_per_call_binding(
+        &self,
+        launch_root: Option<codelens_engine::ProjectRoot>,
+    ) {
+        *self
+            .analysis_lite_per_call
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            Some(super::AnalysisLitePerCallBinding { launch_root });
+    }
+
+    pub(crate) fn analysis_lite_per_call_binding(
+        &self,
+    ) -> Option<super::AnalysisLitePerCallBinding> {
+        self.analysis_lite_per_call
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
     pub(crate) fn compat_mode(&self) -> crate::server::compat::ServerCompatMode {
         *self
             .compat_mode
@@ -137,6 +169,7 @@ impl AppState {
             | Some(ToolProfile::ReviewerGraph)
             | Some(ToolProfile::CiAudit) => transport_limit.min(HTTP_ANALYSIS_WORKER_COUNT),
             Some(ToolProfile::BuilderMinimal)
+            | Some(ToolProfile::AnalysisLite)
             | Some(ToolProfile::EvaluatorCompact)
             | Some(ToolProfile::RefactorFull)
             | Some(ToolProfile::WorkflowFirst)

@@ -65,6 +65,10 @@ impl AppState {
             http_auth: std::sync::Mutex::new(Arc::clone(&*self.http_auth.lock().unwrap())),
             compat_mode: Mutex::new(self.compat_mode()),
             daemon_started_at: self.daemon_started_at.clone(),
+            analysis_lite_per_call: std::sync::RwLock::new(self.analysis_lite_per_call_binding()),
+            analysis_lite_reader_fallback: std::sync::atomic::AtomicBool::new(
+                self.analysis_lite_reader_fallback(),
+            ),
             audit_sinks: Mutex::new(HashMap::new()),
             principals_by_audit_dir: Mutex::new(HashMap::new()),
         }
@@ -75,8 +79,30 @@ impl AppState {
         Self::try_new(project, preset).expect("startup project context should initialize")
     }
 
+    /// The startup constructor: takes the project's writer lease (a second
+    /// writer fails with `ProjectWriterBusy`), starts its watcher and cleans
+    /// stale artifacts and jobs. Never a reader: the explicit reader fallback
+    /// applies only to per-call project builds.
     pub(crate) fn try_new(project: ProjectRoot, preset: ToolPreset) -> anyhow::Result<Self> {
-        let context = Self::build_project_runtime_context(project, true)?;
+        Self::try_new_startup(project, preset, true)
+    }
+
+    /// The startup constructor for an analysis-lite stdio placeholder: the
+    /// same lease and cleanup as [`Self::try_new`], but no file watcher and no
+    /// LSP pre-warm — the placeholder is an empty dir no call ever reads.
+    pub(crate) fn try_new_analysis_lite_placeholder(
+        placeholder: ProjectRoot,
+        preset: ToolPreset,
+    ) -> anyhow::Result<Self> {
+        Self::try_new_startup(placeholder, preset, false)
+    }
+
+    fn try_new_startup(
+        project: ProjectRoot,
+        preset: ToolPreset,
+        start_watcher: bool,
+    ) -> anyhow::Result<Self> {
+        let context = Self::build_project_runtime_context(project, start_watcher, false)?;
 
         let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");
@@ -108,10 +134,24 @@ impl AppState {
         project: ProjectRoot,
         preset: ToolPreset,
     ) -> anyhow::Result<Self> {
-        let context = Self::build_project_runtime_context(project, false)?;
+        let context = Self::build_project_runtime_context(project, false, false)?;
 
         let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");
+        Ok(state)
+    }
+
+    /// A reader-capable test runtime without a watcher: what a per-call build
+    /// with the analysis-lite reader fallback produces.
+    #[cfg(test)]
+    pub(crate) fn try_new_minimal_with_reader_fallback(
+        project: ProjectRoot,
+        preset: ToolPreset,
+    ) -> anyhow::Result<Self> {
+        let context = Self::build_project_runtime_context(project, false, true)?;
+        let state = Self::build(context, preset);
+        state.configure_transport_mode("stdio");
+        state.configure_analysis_lite_reader_fallback(true);
         Ok(state)
     }
 
@@ -168,6 +208,8 @@ impl AppState {
             )),
             compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
             daemon_started_at: now_rfc3339_utc(),
+            analysis_lite_per_call: std::sync::RwLock::new(None),
+            analysis_lite_reader_fallback: std::sync::atomic::AtomicBool::new(false),
             audit_sinks: Mutex::new(HashMap::new()),
             principals_by_audit_dir: Mutex::new(HashMap::new()),
         }

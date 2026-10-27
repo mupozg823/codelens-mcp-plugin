@@ -23,7 +23,73 @@ pub(super) struct ProjectContext {
     pub(super) watcher_error: Option<String>,
     /// Declared last so writer-bearing runtime fields are dropped before the
     /// cross-process authority is released.
-    runtime_lease: super::project_runtime_lease::ProjectRuntimeLease,
+    runtime_authority: ProjectRuntimeAuthority,
+}
+
+/// What this process may do to a project's runtime state.
+pub(super) enum ProjectRuntimeAuthority {
+    /// Holds the cross-process writer lease: indexes, watches, writes.
+    Writer(super::project_runtime_lease::ProjectRuntimeLease),
+    /// Another process holds the lease. Only an analysis-lite stdio server
+    /// (a read-only surface) builds this: a read-only index connection, no
+    /// watcher, no refresh, no writes. Reported in every analysis-lite
+    /// payload, so it is never a silent downgrade.
+    Reader { lock_path: String },
+}
+
+impl ProjectRuntimeAuthority {
+    fn health_payload(&self) -> serde_json::Value {
+        match self {
+            Self::Writer(lease) => {
+                let mut payload = lease.health_payload();
+                payload["runtime_role"] = serde_json::json!("writer");
+                payload
+            }
+            Self::Reader { lock_path } => serde_json::json!({
+                "runtime_role": "reader",
+                "lease_health": "held_by_other_process",
+                "lock_path": lock_path,
+                "writer_holder": current_holder_json(lock_path),
+            }),
+        }
+    }
+}
+
+/// The lease holder's metadata, re-read now (the holder may have changed
+/// since this reader was built) and reported structured when it parses, with
+/// `alive`: whether the holder pid still exists. A dead holder's metadata
+/// stays in the lock file until the next writer acquires it.
+fn current_holder_json(lock_path: &str) -> serde_json::Value {
+    let mut holder = super::project_runtime_lease::current_holder_metadata(Path::new(lock_path))
+        .map(|raw| serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!(raw)))
+        .unwrap_or(serde_json::Value::Null);
+    if let Some(pid) = holder["pid"].as_u64() {
+        holder["alive"] = serde_json::json!(pid_is_alive(pid));
+    }
+    holder
+}
+
+/// `kill(pid, 0)`: the pid exists unless the call fails with `ESRCH` (an
+/// `EPERM` pid exists but belongs to another user). `None` (reported `null`)
+/// where liveness is not checked.
+#[cfg(unix)]
+fn pid_is_alive(pid: u64) -> Option<bool> {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return Some(false);
+    };
+    if pid <= 0 {
+        return Some(false);
+    }
+    // SAFETY: signal 0 only checks that the pid exists; nothing is sent.
+    Some(
+        unsafe { libc::kill(pid, 0) == 0 }
+            || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH),
+    )
+}
+
+#[cfg(not(unix))]
+fn pid_is_alive(_pid: u64) -> Option<bool> {
+    None
 }
 
 impl ProjectContext {
@@ -35,7 +101,25 @@ impl ProjectContext {
     }
 
     pub(super) fn runtime_health_payload(&self) -> serde_json::Value {
-        self.runtime_lease.health_payload()
+        self.runtime_authority.health_payload()
+    }
+
+    pub(super) fn is_reader(&self) -> bool {
+        matches!(
+            self.runtime_authority,
+            ProjectRuntimeAuthority::Reader { .. }
+        )
+    }
+
+    /// `runtime_role` plus, for a reader, the lease holder's metadata.
+    pub(super) fn runtime_role_evidence(&self) -> serde_json::Value {
+        match &self.runtime_authority {
+            ProjectRuntimeAuthority::Writer(_) => serde_json::json!({"runtime_role": "writer"}),
+            ProjectRuntimeAuthority::Reader { lock_path } => serde_json::json!({
+                "runtime_role": "reader",
+                "writer_holder": current_holder_json(lock_path),
+            }),
+        }
     }
 }
 
@@ -122,6 +206,10 @@ pub(super) struct ProjectContextCache {
     /// request waits for its scope's build up to the bind budget; whichever
     /// request finds it finished installs the runtime and removes the entry.
     pub(super) in_flight: HashMap<String, Arc<InFlightBuild>>,
+    /// When each cached runtime was last handed to a request, or last seen
+    /// still held by one. Analysis-lite stdio releases runtimes idle longer
+    /// than its TTL ([`Self::take_idle`]).
+    last_used: HashMap<String, std::time::Instant>,
     #[cfg(test)]
     build_attempts: HashMap<String, usize>,
 }
@@ -151,6 +239,42 @@ impl ProjectContextCache {
     fn touch(&mut self, scope: &str) {
         self.access_order.retain(|entry| entry != scope);
         self.access_order.push_back(scope.to_owned());
+        self.last_used
+            .insert(scope.to_owned(), std::time::Instant::now());
+    }
+
+    fn forget(&mut self, scope: &str) -> Option<Arc<ProjectContext>> {
+        self.access_order.retain(|entry| entry != scope);
+        self.last_used.remove(scope);
+        self.entries.remove(scope)
+    }
+
+    /// Remove runtimes unused for at least `idle_for` and return them for
+    /// retirement. A runtime some request still holds (an `Arc` beyond the
+    /// cache's own) is never taken; seeing it held counts as a use, so idle
+    /// time runs from the end of its last call, not the start. Protected
+    /// scopes (the default and active project) stay.
+    pub(super) fn take_idle(
+        &mut self,
+        idle_for: std::time::Duration,
+        protected_scopes: &[&str],
+    ) -> Vec<Arc<ProjectContext>> {
+        let now = std::time::Instant::now();
+        let mut idle = Vec::new();
+        for (scope, context) in &self.entries {
+            if protected_scopes.contains(&scope.as_str()) {
+                continue;
+            }
+            if Arc::strong_count(context) > 1 {
+                self.last_used.insert(scope.clone(), now);
+                continue;
+            }
+            let last_used = self.last_used.get(scope).copied().unwrap_or(now);
+            if now.duration_since(last_used) >= idle_for {
+                idle.push(scope.clone());
+            }
+        }
+        idle.iter().filter_map(|scope| self.forget(scope)).collect()
     }
 
     pub(super) fn evict_until_within_limit(
@@ -175,6 +299,7 @@ impl ProjectContextCache {
                     self.access_order.push_back(oldest);
                     continue;
                 }
+                self.last_used.remove(&oldest);
                 if let Some(context) = self.entries.remove(&oldest) {
                     evicted.push(context);
                     removed = true;
@@ -202,8 +327,7 @@ impl ProjectContextCache {
             .collect();
         let mut reaped = Vec::with_capacity(dead.len());
         for scope in dead {
-            if let Some(context) = self.entries.remove(&scope) {
-                self.access_order.retain(|entry| entry != &scope);
+            if let Some(context) = self.forget(&scope) {
                 reaped.push(context);
             }
         }
@@ -340,13 +464,25 @@ pub(super) fn active_project_context(state: &AppState) -> Option<Arc<ProjectCont
 /// Builds slower than this are logged at warn with a per-phase breakdown.
 const SLOW_PROJECT_BUILD_MS: u128 = 10_000;
 
+/// `allow_reader` is set only by an analysis-lite stdio server: when another
+/// process holds the writer lease it builds a reader runtime instead of
+/// failing. Every other caller keeps the outright `ProjectWriterBusy`.
 pub(super) fn build_project_runtime_context(
     project: ProjectRoot,
     start_watcher: bool,
+    allow_reader: bool,
 ) -> anyhow::Result<ProjectContext> {
     let started = std::time::Instant::now();
-    let runtime_lease = super::project_runtime_lease::ProjectRuntimeLease::try_acquire(&project)
-        .map_err(anyhow::Error::new)?;
+    let runtime_lease =
+        match super::project_runtime_lease::ProjectRuntimeLease::try_acquire(&project) {
+            Ok(lease) => lease,
+            Err(CodeLensError::ProjectWriterBusy {
+                lock_path, holder, ..
+            }) if allow_reader => {
+                return build_reader_project_runtime_context(project, lock_path, holder);
+            }
+            Err(error) => return Err(anyhow::Error::new(error)),
+        };
     tracing::info!(
         project = %runtime_lease.project().display(),
         lock_path = %runtime_lease.lock_path().display(),
@@ -474,7 +610,58 @@ pub(super) fn build_project_runtime_context(
         audit_dir,
         watcher,
         watcher_error,
-        runtime_lease,
+        runtime_authority: ProjectRuntimeAuthority::Writer(runtime_lease),
+    })
+}
+
+/// How long a reader waits for a just-started writer to create the index
+/// database before answering a retryable `IndexNotReady`.
+const READER_INDEX_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Reader runtime: no lease, no sibling seed, no refresh, no compaction, no
+/// watcher, no LSP pre-warm and no directory creation — nothing is written.
+fn build_reader_project_runtime_context(
+    project: ProjectRoot,
+    lock_path: String,
+    holder: Option<String>,
+) -> anyhow::Result<ProjectContext> {
+    let deadline = std::time::Instant::now() + READER_INDEX_WAIT;
+    let symbol_index = loop {
+        match SymbolIndex::open_reader(project.clone()) {
+            Ok(index) => break Arc::new(index),
+            Err(error)
+                if error
+                    .downcast_ref::<codelens_engine::IndexNotBuilt>()
+                    .is_some() =>
+            {
+                if std::time::Instant::now() >= deadline {
+                    return Err(anyhow::Error::new(CodeLensError::IndexNotReady(format!(
+                        "{error}; another process holds the writer lease ({lock_path}) and this read-only server waits for its index, retry in a few seconds"
+                    ))));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    tracing::warn!(
+        project = %project.as_path().display(),
+        %lock_path,
+        holder = holder.as_deref().unwrap_or("unknown"),
+        "project writer lease is held by another process; serving analysis-lite as a read-only reader"
+    );
+    let codelens_dir = project.as_path().join(".codelens");
+    Ok(ProjectContext {
+        symbol_index,
+        graph_cache: Arc::new(GraphCache::new(30)),
+        lsp_pool: Arc::new(LspSessionPool::new(project.clone())),
+        memories_dir: codelens_dir.join("memories"),
+        analysis_dir: codelens_dir.join("analysis-cache"),
+        audit_dir: codelens_dir.join("audit"),
+        watcher: None,
+        watcher_error: None,
+        project,
+        runtime_authority: ProjectRuntimeAuthority::Reader { lock_path },
     })
 }
 
@@ -882,5 +1069,39 @@ mod home_guard_tests {
                 None => std::env::remove_var("SYMBIOTE_ALLOW_HOME_PROJECT"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod writer_holder_tests {
+    use super::current_holder_json;
+
+    fn lock_with_pid(label: &str, pid: u32) -> String {
+        let lock = crate::test_helpers::fixtures::fixture_dir(label).join("project.lock");
+        std::fs::write(
+            &lock,
+            serde_json::json!({
+                "generation": 3, "pid": pid, "project": "/x", "version": "0",
+                "git_sha": "0", "acquired_at_ms": 1,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        lock.to_string_lossy().into_owned()
+    }
+
+    // A reader keeps reporting the holder it found; once that process is gone
+    // the metadata is stale and the report must say so.
+    #[test]
+    fn writer_holder_reports_whether_the_holder_pid_is_alive() {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let dead = child.id();
+        child.wait().unwrap();
+        let stale = current_holder_json(&lock_with_pid("holder-dead", dead));
+        assert_eq!(stale["pid"], serde_json::json!(dead), "{stale}");
+        assert_eq!(stale["alive"], serde_json::json!(false), "{stale}");
+
+        let live = current_holder_json(&lock_with_pid("holder-live", std::process::id()));
+        assert_eq!(live["alive"], serde_json::json!(true), "{live}");
     }
 }

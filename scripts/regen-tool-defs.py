@@ -483,6 +483,10 @@ def render() -> str:
     for category in sorted(by_category):
         parts.append("")
         parts.append(render_category(category, by_category[category]))
+    # Candidate descriptors are generated but never added to the legacy
+    # registry. The profile owns its two public names and private targets.
+    if candidate := data.get("analysis_lite_tool"):
+        parts.append(render_category("analysis_lite", candidate))
     return "\n".join(parts).rstrip() + "\n"
 
 
@@ -694,6 +698,21 @@ def render_metadata() -> str:
             tool, content_mutation_tool_set
         )
 
+    candidate_targets = {}
+    for tool in data.get("analysis_lite_tool", []):
+        name = tool["name"]
+        modes = tool["input_schema"]["properties"]["mode"].get("enum")
+        if modes != [tool["mode"]] or tool.get("annotations") != "ro_a":
+            raise SystemExit(f"invalid analysis-lite read contract for {name}")
+        target = tool["target"]
+        if target in content_mutation_tool_set:
+            raise SystemExit(f"analysis-lite target {target} is mutating")
+        candidate_targets[name] = target
+        symbol_generation_consistent_tools.append(target)
+        namespaces[target] = tool["namespace"]
+        annotations[target] = tool["annotations"]
+        execution_policies[target] = ("analyze", "low", "medium", True)
+
     parts = [METADATA_HEADER.rstrip(), ""]
     parts.append(render_default_listed_tool_names(default_listed))
     parts.append(render_bool_match("tool_default_listed", default_listed))
@@ -710,6 +729,14 @@ def render_metadata() -> str:
     parts.append(render_option_match("tool_annotation_key", annotations))
     parts.append(render_execution_policy_match(execution_policies))
     parts.append(render_preset_members(collect_preset_members(data)))
+    parts.append(render_option_match("analysis_lite_target", candidate_targets))
+    parts.append(render_option_match("analysis_lite_public_name", {
+        target: name for name, target in candidate_targets.items()
+    }))
+    parts.append(
+        "pub(in crate::tool_defs) const ANALYSIS_LITE_MAX_RESPONSE_BYTES: usize = "
+        f"{int(data['analysis_lite_contract']['max_response_bytes'])};\n"
+    )
     return "\n".join(parts).rstrip() + "\n"
 
 

@@ -30,6 +30,9 @@ fn raw_visible_namespaces(surface: ToolSurface) -> Vec<&'static str> {
 }
 
 pub(crate) fn visible_tools(surface: ToolSurface) -> Vec<&'static crate::protocol::Tool> {
+    if surface.is_analysis_lite() {
+        return super::analysis_lite::tools().iter().collect();
+    }
     let preferred_bootstrap = preferred_bootstrap_tools(surface);
     let preferred_tiers = preferred_tiers(surface);
     let preferred_namespaces = preferred_namespaces(surface);
@@ -52,5 +55,8 @@ pub(crate) fn visible_tools(surface: ToolSurface) -> Vec<&'static crate::protoco
 }
 
 pub(crate) fn visible_namespaces(surface: ToolSurface) -> Vec<&'static str> {
+    if surface.is_analysis_lite() {
+        return vec!["symbols", "graph"];
+    }
     raw_visible_namespaces(surface)
 }

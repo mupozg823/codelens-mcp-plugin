@@ -1,0 +1,255 @@
+{
+  "schema_version": "codelens-analysis-lite-tasks-v1",
+  "status": "frozen-pending-parent-acceptance",
+  "model_runs_at_freeze": 0,
+  "freeze_rules": {
+    "replacement_after_results": false,
+    "gold_visibility": "grader-only; never copy this manifest or selection document into evaluated checkouts",
+    "agent_payload_fields": [
+      "id",
+      "class",
+      "operation",
+      "snapshot repo/base_sha",
+      "prompt",
+      "limits"
+    ],
+    "hash_algorithm": "SHA-256 of UTF-8 JSON with sorted keys, compact separators, ensure_ascii=false; content hash excludes content_sha256; task hash excludes task_sha256",
+    "source_scope": "tracked files from exact Git object trees; exclude originals' untracked WIP, auth, env files, model sessions, candidate code and gold",
+    "protocol": "48-run maximum remains 6 tasks x 2 arms x 2 repetitions x 2 hosts; source-only gold checks are not model runs"
+  },
+  "source_preflight": {
+    "winnation": { "head": "8f8c3aaa83a795caaabb419eae6b4cfb158e3d8b", "tracked_dirty": 0, "untracked_preserved": true, "node_modules_present": false },
+    "tuanbo": { "head": "c23ce26dc9004c9eced0c0435fa8b32d25caf39a", "tracked_dirty": 0, "untracked_preserved": [ ".agents/", ".codex/" ], "controller_src_tracked_files": 2252 }
+  },
+  "snapshots": {
+    "tuanbo-current": {
+      "repo": "/Users/bagjaeseog/Downloads/_투안보/tuanbo-broadcast-suite",
+      "base_sha": "c23ce26dc9004c9eced0c0435fa8b32d25caf39a",
+      "tree_sha": "f67a99a94ee29261db7ad27c159fc441a4744fd8",
+      "file_sha256": {
+        "tuanbo-controller/src/main/flows/ReturnFlowCoordinator.ts": "8edea429059e2fc3473647736830164bfdb9a82b0beb8b394777c75f251d1d84",
+        "tuanbo-controller/src/main/flows/DonationFlowService.ts": "254fe2bf16230f639c47260b5918b388fc5250fb27fc19fafe7ab3d6d9025957",
+        "tuanbo-controller/src/main/flows/donationActivation.ts": "b423eafea8533d099175aebfce190ac8629d7b5b40cf99ce89ed302fb76db731",
+        "tuanbo-controller/src/protocols/resolume/ResolumeClient.ts": "591f53b9e1c271a4c569e31af9e220106c8a6c94bb7d9e765dae2b97a0515eb0",
+        "tuanbo-controller/src/protocols/resolume/ResolumeClipController.ts": "a91a04c320b235e20b134b92ae4b66a070593723a21d7f312b7cea11bf2e187b",
+        "tuanbo-controller/src/services/ResolumeTextCueService.ts": "d0dfdfc638a3a7775308b0f6b7e0d4f374bc04f41c89f9ca3cc4767806dd7828",
+        "tuanbo-controller/src/services/actions/ResolumeActionHandlers.ts": "91519ee2b9a73b3c854678b590e49592020848d30453795caf941df929bb2959",
+        "tuanbo-controller/src/main/ipc/resolumeHandlers.ts": "df1627ad1c0c47c76fdbf42b75940dddb1dc1ed4cdcf61b5805bd633ae77b53a",
+        "tuanbo-controller/src/main/flows/ReturnClipExecutor.ts": "58bf5109a179ab8ce588b0983b55c9b831c3a8ff23d9387590d7ce907767912b",
+        "tuanbo-controller/src/main/ipc/resolumeTextTargetHandlers.ts": "8b8766409cf2d17b9caf96e8da89748662605bf3b73acb46e13f7f1921316d89",
+        "tuanbo-controller/tsconfig.json": "3604a95dbbeb9f01725bffda32e74543b1910b6981964a6c647637cc69d328c7",
+        "tuanbo-controller/package.json": "940cf94f59f7eda33468d9b9bb7ce8f2e8d2d86bd5837b25b0589b45476497dc"
+      },
+      "cancel_identity": { "byte_start": 94016, "byte_end": 94048, "line": 2544 },
+      "trigger_identity": { "byte_start": 65230, "byte_end": 65241, "line": 1570 }
+    },
+    "winnation-current": {
+      "repo": "/Users/bagjaeseog/winnation",
+      "base_sha": "8f8c3aaa83a795caaabb419eae6b4cfb158e3d8b",
+      "tree_sha": "7544f597b848240289e9e0698c48342096f1833c",
+      "file_sha256": {
+        "lib/broadcast/session-pause.ts": "4dfb373780203c2b295a6f62a9400e8b1c590b56f2b0f667ad6aa7dff4aafd9b",
+        "lib/broadcast/session-contract.ts": "f19f7d2d49258a4ffcda8ccf12c567002d7c70c7a4345bd08656ce3882a73c7d",
+        "lib/overlay/crew-value-format.ts": "5be5d6bad5d2040a0d151264381077dcb65375d324f33e63a9fc6ae1f4413007",
+        "lib/overlay/time-gauge.ts": "03b9244bf03fb78aa7c6eda092321eb629608c31c75e71229b4c368765a86ab9",
+        "lib/overlay/crew-time-ranking.ts": "4c4500d6e39be7982b21c55f9c5156b6788978f54c4f5e390aff6a6dcd687c71",
+        "lib/overlay/ranking-parse.ts": "5d42312b06361838059500d5b4b6941ffa4d03f00f105f8f91a98133b7a021d4",
+        "lib/overlay/ranking.ts": "f3123f097bffef8e1268eda8725106b79f0479176d0ead91e439bad2eaf532d4",
+        "app/overlay/[type]/page.tsx": "2d0db3b92af24b84b59c515f9e6fd217136031d2f29bedf9f8213d91de616c3a",
+        "tsconfig.json": "be18523b23b78b6e1a876ddd107d330f0168bddf09d751b57e0b5edce69c66f3",
+        "package.json": "cc179e3f5da24a8770e034f5c89a73af47316e9ddadddfd585bd085b4944726e"
+      }
+    },
+    "winnation-format-replay": {
+      "repo": "/Users/bagjaeseog/winnation",
+      "base_sha": "9f4b439d88601e4e925bb2bcfa7ff158cf732c47",
+      "tree_sha": "390f3b6aefccff77c1e1a6b2ec91173b17e62dc2",
+      "file_sha256": {
+        "lib/overlay/crew-value-format.ts": "bc82c5a7c0a052dc2d7f9314e9c9c95489b43438d9d0369015460713262374c5",
+        "package.json": "c8ac481833a4854bb5933bf78493c0db17dd22380072daaab2ab92874febfbc4",
+        "package-lock.json": "dc302fbec747f9f40072a68e5168c34ed2683920368a1a737731d72ae0e3a28d"
+      }
+    }
+  },
+  "tasks": [
+    {
+      "id": "E1-lifecycle-callers",
+      "class": "everyday",
+      "operation": "read",
+      "snapshot": "tuanbo-current",
+      "prompt": "현재 snapshot에서 tuanbo-controller/src/main/flows/ReturnFlowCoordinator.ts의 cancelPendingReturnsForLifecycle 선언을 기준으로, tuanbo-controller/src 아래 production 직접 호출 위치를 모두 찾아 파일·줄·호출한 함수와 목적을 보고하세요. import/주석/선언/테스트를 호출로 세지 말고, 전역 취소와 채널 범위 취소의 차이를 짧게 설명하세요. 코드는 변경하지 마세요.",
+      "limits": { "source_scope": "tuanbo-controller/src", "exclude": [ "tests", "mocks", "comments", "declarations" ], "mutation": false },
+      "gold": {
+        "visibility": "grader-only",
+        "declaration": { "file": "tuanbo-controller/src/main/flows/ReturnFlowCoordinator.ts", "symbol": "cancelPendingReturnsForLifecycle", "byte_start": 94016, "byte_end": 94048, "line": 2544 },
+        "direct_calls": [
+          { "file": "tuanbo-controller/src/main/flows/DonationFlowService.ts", "line": 618, "caller": "prepareExactCompanionExecutionContext" },
+          { "file": "tuanbo-controller/src/main/flows/donationActivation.ts", "line": 356, "caller": "activateClaimedDonation" }
+        ],
+        "acceptance": [
+          "두 production 호출과 canonical 선언을 정확히 식별한다.",
+          "같은 channelKey, 더 이른 lifecycleGeneration의 미정산 owner를 취소하며 다른 채널/unknown legacy owner는 보존한다고 설명한다.",
+          "호출 누락·잘못된 선언·import/comment/test를 call로 세는 오류는 실패한다."
+        ],
+        "provenance": [
+          "docs/research/codelens-efficacy-2026-10-11.md §2c/2d의 실제 반복 조회 함수 재사용",
+          "고정 SHA의 선언 본문과 두 호출부를 직접 읽고 import 결합을 대조했다. 예전 호출 수를 복사하지 않았다."
+        ]
+      },
+      "task_sha256": "51092191169e51626397bffada92e920054c8249128b3bfd1de0857713651a33"
+    },
+    {
+      "id": "E2-crew-decimal-repair",
+      "class": "everyday",
+      "operation": "edit",
+      "snapshot": "winnation-format-replay",
+      "prompt": "시간 게이지와 시간 내 랭킹에서 기여도 0.29를 소수 두 자리로 표시하면 0.28, 0.57은 0.56으로 내려가는 실제 오류를 고치세요. 관련 formatter를 찾아 이미 소수 격자에 맞는 값은 보존하고, 아직 도달하지 않은 목표를 넘은 것처럼 반올림하지 않게 하세요. 금액 표시와 설정의 0~6자리 제한을 보존하고, 실패를 재현하는 동작 테스트를 추가해 실행하세요. 수정은 lib/overlay/crew-value-format.ts와 해당 테스트로 제한하고 배포하지 마세요.",
+      "limits": { "changed_paths": [ "lib/overlay/crew-value-format.ts", "lib/overlay/crew-value-format.test.ts" ], "mutation": true, "production_data": false },
+      "gold": {
+        "visibility": "grader-only",
+        "declaration": { "file": "lib/overlay/crew-value-format.ts", "symbol": "formatCrewValue" },
+        "historical_fix_sha": "e3cb59af3385917dede2e74a3b0a08535b79f88a",
+        "historical_issue": "#395",
+        "acceptance_cases": [
+          { "args": [ 0.29, "contribution", 2 ], "expected": "0.29", "observed_base": "0.28" },
+          { "args": [ 0.57, "contribution", 2 ], "expected": "0.57", "observed_base": "0.56" },
+          { "args": [ 12.349, "contribution", 2 ], "expected": "12.34" },
+          { "args": [ 7, "contribution", 0 ], "expected": "7" },
+          { "args": [ 120000.9, "amount", 2 ], "expected": "120,000" },
+          { "args": [ 0.30000000000000004, "contribution", 1 ], "expected": "0.3" }
+        ],
+        "acceptance": [
+          "위 literal cases와 0~100000 hundredths의 contribution/2자리 exhaustive oracle value.toFixed(2)를 만족한다.",
+          "신규 회귀 테스트가 수정 전 오류를 재현하고 수정 후 통과해야 한다.",
+          "허용 파일 밖 변경·테스트 우회·실제 운영 데이터 접근은 실패한다."
+        ],
+        "acceptance_command": "npm test -- --run lib/overlay/crew-value-format.test.ts",
+        "setup_limits": [
+          "현재 원본 winnation에는 node_modules가 없다. 의존성 설치/수신 측 테스트 실행은 후속 pilot setup에서 증거를 남겨야 한다.",
+          "이 base에는 해당 test 파일이 없으며 agent가 생성한다. gold/test 코드는 agent checkout에 사전 주입하지 않는다."
+        ],
+        "provenance": [
+          "실제 수정 commit #395의 parent snapshot을 사용한다. 가상의 새 issue나 candidate 결과로 만든 오류가 아니다.",
+          "TypeScript 5.9.3 transpileModule+isolated VM으로 base의 0.28/0.56와 실제 fix의 0.29/0.57을 독립 재현했다."
+        ]
+      },
+      "task_sha256": "7de99c9097b38c5cb997e6eafc28fcd7e77ad20e25c885f037e2c921005c50c7"
+    },
+    {
+      "id": "E3-pause-decoder",
+      "class": "everyday",
+      "operation": "read",
+      "snapshot": "winnation-current",
+      "prompt": "lib/broadcast/session-pause.ts의 readBroadcastSessionPause가 claim/store 응답의 pause를 어떻게 복구하는지 확인하고, production 직접 호출 위치와 호출한 함수를 모두 보고하세요. 없는 payload와 문자열 'true', 실제 boolean true가 각각 어떻게 처리되는지 현재 코드 근거로 설명하세요. 테스트·타입·import를 직접 호출로 세지 말고 코드는 수정하지 마세요.",
+      "limits": { "source_scope": [ "lib", "app" ], "mutation": false, "exclude": [ "tests", "mocks", "comments" ] },
+      "gold": {
+        "visibility": "grader-only",
+        "declaration": { "file": "lib/broadcast/session-pause.ts", "symbol": "readBroadcastSessionPause", "line": 65, "byte_start": 2246, "byte_end": 2271 },
+        "direct_calls": [
+          { "file": "lib/broadcast/session-contract.ts", "lines": [ 105, 107, 108 ], "caller": "broadcastSessionPause" }
+        ],
+        "acceptance": [
+          "세 직접 호출을 모두 찾고 같은 broadcastSessionPause caller임을 설명한다.",
+          "payload가 없거나 object가 아니면 all-false default이며, 각 값은 value === true만 true라고 설명한다.",
+          "import line1과 decoder 내부 readBoolean 호출을 이 선언의 직접 호출로 세면 실패한다."
+        ],
+        "provenance": [
+          "현재 고정 SHA의 두 production source 파일 직접 확인",
+          "TypeScript checker에서 import alias 해제 후 세 call expression 모두 동일 선언임을 독립 확인"
+        ]
+      },
+      "task_sha256": "d3b635d353ee2a9a7c8addcd03fb22dcfe97110df222fdf7dfc2dafa2137df00"
+    },
+    {
+      "id": "H1-trigger-identity",
+      "class": "hard",
+      "operation": "read",
+      "snapshot": "tuanbo-current",
+      "prompt": "tuanbo-controller/src/protocols/resolume/ResolumeClient.ts의 ResolumeClient.triggerClip 선언에 결합되는 production 직접 호출을 tuanbo-controller/src 전체에서 찾으세요. 같은 이름의 ResolumeClipController.triggerClip 및 interface의 triggerClip과 구분하고, 선언 파일 내부와 외부 호출을 모두 보고하세요. callback 내부 call expression은 실제 소스 위치와 함께 기록하되 callback 전달 자체를 직접 호출로 바꾸지 마세요. 테스트·주석·타입·선언은 제외하고 코드는 수정하지 마세요.",
+      "limits": { "source_scope": "tuanbo-controller/src", "mutation": false, "relation": "statically-bound direct call expression", "exclude": [ "tests", "comments", "interface declarations" ] },
+      "gold": {
+        "visibility": "grader-only",
+        "declaration": { "file": "tuanbo-controller/src/protocols/resolume/ResolumeClient.ts", "symbol": "ResolumeClient.triggerClip", "byte_start": 65230, "byte_end": 65241, "line": 1570 },
+        "direct_calls": [
+          { "file": "tuanbo-controller/src/protocols/resolume/ResolumeClient.ts", "lines": [ 1599, 1601, 1626, 1802, 1810 ] },
+          { "file": "tuanbo-controller/src/services/actions/ResolumeActionHandlers.ts", "lines": [ 944 ] },
+          { "file": "tuanbo-controller/src/main/ipc/resolumeHandlers.ts", "lines": [ 406 ] },
+          { "file": "tuanbo-controller/src/main/flows/ReturnClipExecutor.ts", "lines": [ 369 ] },
+          { "file": "tuanbo-controller/src/main/ipc/resolumeTextTargetHandlers.ts", "lines": [ 94 ] }
+        ],
+        "excluded_same_name": [
+          { "file": "tuanbo-controller/src/protocols/resolume/ResolumeClipController.ts", "line": 229, "target_line": 104 },
+          { "file": "tuanbo-controller/src/protocols/resolume/ResolumeClient.ts", "line": 1574, "target_file": "ResolumeClipController.ts", "target_line": 104 },
+          { "file": "tuanbo-controller/src/services/ResolumeTextCueService.ts", "line": 146, "target_line": 25, "reason": "interface member, not the selected declaration" }
+        ],
+        "acceptance": [
+          "9개 call site(같은 파일5+다른 파일4)를 누락 없이 식별한다.",
+          "동명 다른 선언으로 결합되는 세 production call을 selected declaration 결과에 넣으면 실패한다.",
+          "실제로 지원하지 않는 분석을 complete로 주장하거나 backend 오류를 zero refs로 쓰면 critical failure다."
+        ],
+        "provenance": [
+          "§2c/2d의 실제 triggerClip 조회 문제 재사용, 당시 gold의 known artifact를 복사하지 않음",
+          "TypeScript 5.9.3 checker.getSymbolAtLocation identity와 각 receiver/declaration를 대조한 12개 production call 중 9개 일치"
+        ]
+      },
+      "task_sha256": "c00ceeffac99482c5d2d9cc2d0ace958ca8d1b143204433ba14f70c2bc46a8a9"
+    },
+    {
+      "id": "H2-path-alias-reexport",
+      "class": "hard",
+      "operation": "read",
+      "snapshot": "winnation-current",
+      "prompt": "lib/overlay/ranking-parse.ts의 parseRankingExclusionVariant 선언이 production에서 어떻게 쓰이는지 추적하세요. tsconfig의 @ 경로 alias와 barrel re-export를 거쳐 실제 호출한 곳을 찾고, re-export/import 위치와 직접 call 위치를 별도로 분류하세요. 단순 문자열 일치를 선언 identity와 혼동하지 말고 비호출 참조 지원이 불완전하면 그 범위를 밝히세요. 코드는 수정하지 마세요.",
+      "limits": { "source_scope": [ "lib", "app" ], "mutation": false, "require_relation_separation": true },
+      "gold": {
+        "visibility": "grader-only",
+        "declaration": { "file": "lib/overlay/ranking-parse.ts", "symbol": "parseRankingExclusionVariant", "line": 108, "byte_start": 4558, "byte_end": 4586 },
+        "direct_calls": [
+          { "file": "app/overlay/[type]/page.tsx", "line": 64, "caller": "OverlayPage" }
+        ],
+        "non_calls": [
+          { "file": "lib/overlay/ranking.ts", "line": 1, "kind": "re-export" },
+          { "file": "app/overlay/[type]/page.tsx", "line": 2, "kind": "import via @/lib/overlay/ranking" }
+        ],
+        "acceptance": [
+          "canonical 선언→barrel→@ import→OverlayPage call 결합을 정확히 설명한다.",
+          "import/re-export 두 위치를 직접 호출로 세지 않는다.",
+          "unsupported/partial 도구 결과 후 native source 확인은 허용한다. 분석 누락을 complete로 주장하면 실패한다."
+        ],
+        "provenance": [
+          "고정 SHA의 tsconfig paths와 세 production source의 현재 구조에서 선정",
+          "TypeScript checker.getAliasedSymbol을 거친 page call이 ranking-parse 선언에 일치함을 독립 확인. 관련 없는 dependency typing 부재를 프로젝트 typecheck 성공으로 주장하지 않음"
+        ]
+      },
+      "task_sha256": "3cad247e070bef2dd4c9d8a053e1e4c53eb46dfb9820e4f6ce625726f240d9ac"
+    },
+    {
+      "id": "H3-bounded-format-impact",
+      "class": "hard",
+      "operation": "read",
+      "snapshot": "winnation-current",
+      "prompt": "lib/overlay/crew-value-format.ts의 private floorOnGrid를 변경할 때의 역방향 호출 영향만 분석하세요. 범위는 lib/overlay production 코드, named enclosing function 기준 최대 깊이2, target 포함 노드 최대4, edge 최대4입니다. source call 위치를 제시하고 같은 edge의 여러 call site를 보존하세요. callback 내부와 enclosing function 관계는 근거 종류를 밝혀 설명하고, 깊이 밖의 화면 전체 영향이나 import/type/noncall 완전성을 주장하지 마세요. 코드 변경은 하지 마세요.",
+      "limits": { "source_scope": "lib/overlay", "mutation": false, "reverse_depth": 2, "node_cap": 4, "edge_cap": 4, "node_identity": "named enclosing function; callbacks retain source provenance" },
+      "gold": {
+        "visibility": "grader-only",
+        "declaration": { "file": "lib/overlay/crew-value-format.ts", "symbol": "floorOnGrid", "line": 39, "byte_start": 1963, "byte_end": 1974 },
+        "reverse_edges": [
+          { "caller": "formatCrewValue", "callee": "floorOnGrid", "file": "lib/overlay/crew-value-format.ts", "lines": [ 31 ], "depth": 1, "relation": "direct call expression" },
+          { "caller": "renderTimeGaugeSnapshot", "callee": "formatCrewValue", "file": "lib/overlay/time-gauge.ts", "lines": [ 151, 152 ], "depth": 2, "relation": "direct call expressions" },
+          { "caller": "renderCrewTimeRankingSnapshot", "callee": "formatCrewValue", "file": "lib/overlay/crew-time-ranking.ts", "lines": [ 141 ], "depth": 2, "relation": "call expression inside ranking.map callback; named enclosing function dependency" }
+        ],
+        "acceptance": [
+          "target+3 affected named functions와 세 edge/네 call site를 bounds 안에서 정확히 제시한다.",
+          "한 edge의 두 time-gauge call sites를 숨기거나 callback argument 자체를 runtime direct call로 꾸미면 실패한다.",
+          "결론은 bounded scope로만 제한하며 depth>2/global completeness는 unknown으로 남긴다."
+        ],
+        "provenance": [
+          "고정 SHA의 formatter와 두 production renderer 본문 직접 확인",
+          "TypeScript symbol identity로 floorOnGrid와 formatCrewValue call targets를 확인한 뒤 named lexical containment와 reverse depth를 수동 대조"
+        ]
+      },
+      "task_sha256": "af907ae7ad4c1dc4822964b916f80bf3c74df3e5a6a9fc0da2eafc314baddde8"
+    }
+  ],
+  "content_sha256": "2c2122948b4cc7f1c5dc445e5f83cdf07f501d6b371092026e912bc4cf742829"
+}

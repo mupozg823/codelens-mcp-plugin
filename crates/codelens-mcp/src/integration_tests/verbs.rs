@@ -4,6 +4,666 @@ mod failures;
 mod guidance;
 mod metrics;
 mod parity;
+mod per_call_boundary;
+
+#[test]
+fn analysis_lite_profile_is_a_strict_two_tool_surface() {
+    let profile = crate::tool_defs::ToolProfile::from_str("analysis-lite")
+        .expect("analysis-lite must be an explicit profile");
+    let tools = crate::tool_defs::visible_tools(crate::tool_defs::ToolSurface::Profile(profile));
+    assert_eq!(
+        tools.iter().map(|tool| tool.name).collect::<Vec<_>>(),
+        ["search", "graph"]
+    );
+    assert_eq!(
+        tools[0].input_schema["properties"]["mode"]["enum"],
+        json!(["refs"])
+    );
+    assert_eq!(
+        tools[1].input_schema["properties"]["mode"]["enum"],
+        json!(["impact"])
+    );
+}
+
+fn analysis_lite_rpc(
+    state: &crate::AppState,
+    method: &str,
+    params: serde_json::Value,
+) -> serde_json::Value {
+    let response = handle_request(
+        state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: method.to_owned(),
+            params: Some(params),
+        },
+    )
+    .expect("analysis-lite request must answer");
+    serde_json::to_value(&response).expect("serialize")
+}
+
+fn analysis_lite_stdio_state() -> crate::AppState {
+    let state = make_state(&project_root());
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    state
+}
+
+// Registered as an always-available server, analysis-lite must cost a host
+// nothing per turn: `search`/`graph` share names with the CORE-10 facades, and
+// the name-keyed always-load set preloaded both before this was surface-aware.
+#[test]
+fn analysis_lite_tools_list_is_deferred_and_searchable() {
+    let state = analysis_lite_stdio_state();
+    let value = analysis_lite_rpc(&state, "tools/list", json!({}));
+    let tools = value["result"]["tools"].as_array().expect("tools array");
+    assert_eq!(tools.len(), 2, "{tools:?}");
+    for tool in tools {
+        assert_ne!(
+            tool["_meta"]["anthropic/alwaysLoad"],
+            json!(true),
+            "{} must stay deferred on analysis-lite",
+            tool["name"]
+        );
+        let hint = tool["_meta"]["anthropic/searchHint"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{} needs a searchHint", tool["name"]));
+        assert!(hint.contains("JS/TS"), "{hint}");
+    }
+}
+
+fn analysis_lite_stdio_instructions_for(state: &crate::AppState) -> String {
+    let value = analysis_lite_rpc(
+        state,
+        "initialize",
+        json!({"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "claude-code", "version": "test"}}),
+    );
+    value["result"]["instructions"]
+        .as_str()
+        .expect("instructions string")
+        .to_owned()
+}
+
+#[test]
+fn analysis_lite_stdio_initialize_is_launch_bound_and_project_independent() {
+    let first = analysis_lite_stdio_state();
+    let second = analysis_lite_stdio_state();
+    assert_ne!(first.project().as_path(), second.project().as_path());
+    let instructions = analysis_lite_stdio_instructions_for(&first);
+    assert!(
+        instructions.contains("search(mode=refs)") && instructions.contains("graph(mode=impact)")
+    );
+    assert!(
+        instructions.contains("relative target.file resolves under the project the host launched"),
+        "{instructions}"
+    );
+    // One text covers both stdio modes: a server launched from `$HOME`
+    // replays the same recorded handshake as one launched inside a repo.
+    assert!(
+        instructions.contains("absolute target.file binds that call to the file's repository root"),
+        "{instructions}"
+    );
+    // stdio has no header or initialize param to set; telling the host to
+    // send one would make it retry binding instead of calling the tool.
+    assert!(
+        !instructions.contains("x-codelens-project"),
+        "{instructions}"
+    );
+    assert!(
+        !instructions.contains("prepare_harness_session"),
+        "{instructions}"
+    );
+    assert!(instructions.contains("zero rows never means unused"));
+    assert!(instructions.len() < 900);
+    // A lazy stdio proxy keys its recorded handshake on the command line, not
+    // the cwd, so one recording answers every project.
+    let project = first.project().as_path().display().to_string();
+    assert!(!instructions.contains(&project), "{instructions}");
+    assert_eq!(instructions, analysis_lite_stdio_instructions_for(&second));
+}
+
+/// `package.json` + a.ts (`sink` declared and called once) + b.ts (two
+/// aliased calls): three reference rows across two files.
+fn analysis_lite_ts_project() -> std::path::PathBuf {
+    let dir = crate::test_helpers::fixtures::fixture_dir("analysis-lite-ts");
+    fs::write(dir.join("package.json"), "{}").unwrap();
+    fs::write(dir.join("a.ts"), "export function sink() {}\nsink();\n").unwrap();
+    fs::write(
+        dir.join("b.ts"),
+        "import { sink as useSink } from './a';\nexport function caller() { useSink(); useSink(); }\n",
+    )
+    .unwrap();
+    dir.canonicalize().unwrap()
+}
+
+/// A stdio server launched from `$HOME`: its default context is an empty
+/// placeholder, never a project.
+fn analysis_lite_launch_unbound_state() -> crate::AppState {
+    let state = analysis_lite_stdio_state();
+    state.configure_analysis_lite_per_call_binding(None);
+    state
+}
+
+fn analysis_lite_refs_call(state: &crate::AppState, file: &str) -> serde_json::Value {
+    analysis_lite_rpc(
+        state,
+        "tools/call",
+        json!({"name":"search","arguments":{"mode":"refs","target":{"file":file,"name":"sink"}}}),
+    )
+}
+
+fn analysis_lite_data(response: &serde_json::Value) -> serde_json::Value {
+    if let Some(structured) = response["result"].get("structuredContent") {
+        return structured.clone();
+    }
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_else(|| panic!("tool text: {response}"));
+    parse_tool_payload(text)["data"].clone()
+}
+
+fn analysis_lite_reference_files(data: &serde_json::Value) -> Vec<String> {
+    let mut files = data["results"]["references"]
+        .as_array()
+        .unwrap_or_else(|| panic!("references array: {data}"))
+        .iter()
+        .map(|row| {
+            row["file"]
+                .as_str()
+                .or_else(|| row["location"]["file"].as_str())
+                .unwrap_or_else(|| panic!("row file: {row}"))
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+#[test]
+fn analysis_lite_launch_unbound_absolute_file_binds_that_call_to_its_repository() {
+    let state = analysis_lite_launch_unbound_state();
+    let placeholder = state.project().as_path().to_path_buf();
+    let repo = analysis_lite_ts_project();
+    let file = repo.join("a.ts").display().to_string();
+    let response = analysis_lite_refs_call(&state, &file);
+    assert_ne!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(data["project"], json!(repo.display().to_string()), "{data}");
+    assert_eq!(
+        analysis_lite_reference_files(&data),
+        ["a.ts", "b.ts", "b.ts"],
+        "{data}"
+    );
+    // The binding was request-scoped: the server's default context is still
+    // the placeholder after the call.
+    assert_eq!(state.project().as_path(), placeholder.as_path());
+}
+
+#[test]
+fn analysis_lite_launch_unbound_relative_file_is_a_typed_binding_error() {
+    let state = analysis_lite_launch_unbound_state();
+    let response = analysis_lite_refs_call(&state, "a.ts");
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(data["status"], json!("error"), "{data}");
+    assert_eq!(
+        data["errors"][0]["code"],
+        json!("project_binding_required"),
+        "{data}"
+    );
+    let message = data["errors"][0]["message"].as_str().unwrap();
+    assert!(
+        message.contains("absolute target.file inside a repository"),
+        "{message}"
+    );
+    assert!(data["results"]["total"].is_null(), "{data}");
+    assert!(data["project"].is_null(), "{data}");
+}
+
+#[test]
+fn analysis_lite_launch_unbound_never_binds_home() {
+    let _env = crate::env_compat::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let previous_home = std::env::var_os("HOME");
+    let previous_allow = std::env::var_os("CODELENS_ALLOW_HOME_PROJECT");
+    let home = crate::test_helpers::fixtures::fixture_dir("analysis-lite-home")
+        .canonicalize()
+        .unwrap();
+    fs::write(home.join("package.json"), "{}").unwrap();
+    fs::write(home.join("a.ts"), "export function sink() {}\nsink();\n").unwrap();
+    // `~/sub/x.ts` with the stray `~/package.json`: the walk must not stop at
+    // `$HOME` either.
+    fs::create_dir_all(home.join("sub")).unwrap();
+    fs::write(home.join("sub").join("x.ts"), "export function sink() {}\n").unwrap();
+    // SAFETY: serialized by TEST_ENV_LOCK; restored below.
+    unsafe {
+        std::env::set_var("HOME", &home);
+        std::env::remove_var("CODELENS_ALLOW_HOME_PROJECT");
+    }
+    let state = analysis_lite_launch_unbound_state();
+    let responses = [home.join("a.ts"), home.join("sub").join("x.ts")]
+        .map(|file| analysis_lite_refs_call(&state, &file.display().to_string()));
+    // SAFETY: serialized by TEST_ENV_LOCK.
+    unsafe {
+        match previous_home {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+        if let Some(value) = previous_allow {
+            std::env::set_var("CODELENS_ALLOW_HOME_PROJECT", value);
+        }
+    }
+    for response in &responses {
+        assert_unbound_binding_refused(response, "");
+        let data = analysis_lite_data(response);
+        assert!(data["project"].is_null(), "{data}");
+    }
+    assert!(
+        !home.join(".codelens").exists() && !home.join("sub").join(".codelens").exists(),
+        "home must never be indexed"
+    );
+}
+
+#[test]
+fn analysis_lite_launch_unbound_concurrent_calls_bind_their_own_projects() {
+    let state = std::sync::Arc::new(analysis_lite_launch_unbound_state());
+    let repos = [analysis_lite_ts_project(), analysis_lite_ts_project()];
+    let handles = repos
+        .iter()
+        .cloned()
+        .map(|repo| {
+            let state = std::sync::Arc::clone(&state);
+            std::thread::spawn(move || {
+                (0..3)
+                    .map(|_| {
+                        let file = repo.join("a.ts").display().to_string();
+                        analysis_lite_data(&analysis_lite_refs_call(&state, &file))["project"]
+                            .clone()
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect::<Vec<_>>();
+    for (repo, handle) in repos.iter().zip(handles) {
+        for project in handle.join().unwrap() {
+            assert_eq!(project, json!(repo.display().to_string()));
+        }
+    }
+}
+
+#[test]
+fn analysis_lite_launch_bound_absolute_file_inside_root_matches_relative() {
+    let repo = analysis_lite_ts_project();
+    let state = make_state(&ProjectRoot::new(&repo).unwrap());
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    let relative = analysis_lite_data(&analysis_lite_refs_call(&state, "a.ts"));
+    let absolute_response =
+        analysis_lite_refs_call(&state, &repo.join("a.ts").display().to_string());
+    assert_ne!(
+        absolute_response["result"]["isError"],
+        json!(true),
+        "{absolute_response}"
+    );
+    let absolute = analysis_lite_data(&absolute_response);
+    assert_eq!(
+        analysis_lite_reference_files(&relative),
+        ["a.ts", "b.ts", "b.ts"]
+    );
+    assert_eq!(absolute["results"], relative["results"]);
+    assert_eq!(absolute["target"], relative["target"]);
+    assert_eq!(absolute["project"], json!(repo.display().to_string()));
+}
+
+#[test]
+fn analysis_lite_launch_bound_absolute_file_outside_root_names_the_bound_root() {
+    let repo = analysis_lite_ts_project();
+    let other = analysis_lite_ts_project();
+    let state = make_state(&ProjectRoot::new(&repo).unwrap());
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    let response = analysis_lite_refs_call(&state, &other.join("a.ts").display().to_string());
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(data["errors"][0]["code"], json!("validation"), "{data}");
+    let message = data["errors"][0]["message"].as_str().unwrap();
+    assert!(message.contains(&repo.display().to_string()), "{message}");
+    assert!(data["results"]["total"].is_null(), "{data}");
+}
+
+fn assert_unbound_binding_refused(response: &serde_json::Value, reason: &str) {
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(response);
+    assert_eq!(
+        data["errors"][0]["code"],
+        json!("project_binding_required"),
+        "{data}"
+    );
+    let message = data["errors"][0]["message"].as_str().unwrap();
+    assert!(message.contains(reason), "{message}");
+    assert!(data["results"]["total"].is_null(), "{data}");
+}
+
+// `~/Downloads/x.ts`: binding the folder would write `.codelens` into it,
+// which is itself a root marker, so the folder would stay a project forever.
+#[test]
+fn analysis_lite_launch_unbound_refuses_a_markerless_folder() {
+    let state = analysis_lite_launch_unbound_state();
+    let downloads = crate::test_helpers::fixtures::fixture_dir("analysis-lite-downloads")
+        .canonicalize()
+        .unwrap();
+    fs::write(
+        downloads.join("x.ts"),
+        "export function sink() {}\nsink();\n",
+    )
+    .unwrap();
+    let response = analysis_lite_refs_call(&state, &downloads.join("x.ts").display().to_string());
+    assert_unbound_binding_refused(&response, "no project root marker");
+    assert!(
+        !downloads.join(".codelens").exists(),
+        "a refused folder must not be promoted"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn analysis_lite_launch_unbound_refuses_a_repo_inside_a_file_provider_folder() {
+    let state = analysis_lite_launch_unbound_state();
+    let cloud = crate::test_helpers::fixtures::fixture_dir("analysis-lite-cloud")
+        .canonicalize()
+        .unwrap();
+    let status = std::process::Command::new("xattr")
+        .args(["-w", "com.apple.file-provider-domain-id", "test"])
+        .arg(&cloud)
+        .status()
+        .expect("run xattr");
+    assert!(status.success(), "xattr -w must succeed on a user temp dir");
+    let repo = cloud.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(repo.join("package.json"), "{}").unwrap();
+    fs::write(repo.join("a.ts"), "export function sink() {}\nsink();\n").unwrap();
+    let response = analysis_lite_refs_call(&state, &repo.join("a.ts").display().to_string());
+    assert_unbound_binding_refused(&response, "cloud-synced folder");
+    assert!(
+        !repo.join(".codelens").exists(),
+        "no index state may be created in a cloud-synced folder"
+    );
+}
+
+/// A second same-repo session while the first holds the writer lease.
+fn analysis_lite_writer_with_index() -> (crate::AppState, ProjectRoot) {
+    let project = ProjectRoot::new(analysis_lite_ts_project()).unwrap();
+    let writer = make_state(&project);
+    call_tool(&writer, "refresh_symbol_index", json!({}));
+    assert!(writer.symbol_index().file_count().unwrap() >= 2);
+    (writer, project)
+}
+
+/// What a reader must leave alone: every path under the repo's `.codelens`
+/// (no new files or dirs) and the index database's size and mtime.
+#[derive(Debug, PartialEq)]
+struct CodelensFootprint {
+    entries: std::collections::BTreeSet<std::path::PathBuf>,
+    db: (u64, std::time::SystemTime),
+}
+
+fn codelens_footprint(repo: &std::path::Path) -> CodelensFootprint {
+    let root = repo.join(".codelens");
+    let mut entries = std::collections::BTreeSet::new();
+    let mut pending = vec![root.clone()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path.clone());
+            }
+            entries.insert(path.strip_prefix(&root).unwrap().to_path_buf());
+        }
+    }
+    let db = fs::metadata(root.join("index").join("symbols.db")).unwrap();
+    CodelensFootprint {
+        entries,
+        db: (db.len(), db.modified().unwrap()),
+    }
+}
+
+fn remove_index_db(project: &ProjectRoot) {
+    let index_dir = project.as_path().join(".codelens").join("index");
+    for name in ["symbols.db", "symbols.db-wal", "symbols.db-shm"] {
+        let _ = fs::remove_file(index_dir.join(name));
+    }
+}
+
+/// A per-call (launch-unbound) stdio server that serves a reader when another
+/// session holds a repository's writer lease.
+fn analysis_lite_per_call_reader_state() -> crate::AppState {
+    let state = analysis_lite_launch_unbound_state();
+    state.configure_analysis_lite_reader_fallback(true);
+    state
+}
+
+// The writer has the lease but has not created its index yet: that call is a
+// retryable IndexNotReady, and the failed build is not remembered, so the
+// call after the writer creates the db binds as a reader.
+#[test]
+fn analysis_lite_per_call_reader_without_a_db_is_retryable_then_binds_once_the_db_exists() {
+    let repo = analysis_lite_ts_project();
+    let project = ProjectRoot::new(&repo).unwrap();
+    let _writer = make_state(&project);
+    remove_index_db(&project);
+    let state = analysis_lite_per_call_reader_state();
+    let file = repo.join("a.ts").display().to_string();
+
+    let first = analysis_lite_refs_call(&state, &file);
+    assert_eq!(first["result"]["isError"], json!(true), "{first}");
+    let data = analysis_lite_data(&first);
+    assert_eq!(
+        data["errors"][0]["code"],
+        json!("index_not_ready"),
+        "{data}"
+    );
+    assert_eq!(data["errors"][0]["retryable"], json!(true), "{data}");
+    assert!(
+        !repo
+            .join(".codelens")
+            .join("index")
+            .join("symbols.db")
+            .exists(),
+        "the reader must not create the db"
+    );
+    // The server is still usable: another repository binds and answers.
+    let other = analysis_lite_ts_project();
+    let other_response = analysis_lite_refs_call(&state, &other.join("a.ts").display().to_string());
+    assert_ne!(
+        other_response["result"]["isError"],
+        json!(true),
+        "{other_response}"
+    );
+
+    // The writer process creates its db (and keeps it open, as a live writer
+    // does).
+    let writer_index = codelens_engine::SymbolIndex::new(project.clone()).unwrap();
+    writer_index.refresh_all().unwrap();
+    let before = codelens_footprint(&repo);
+
+    let second = analysis_lite_refs_call(&state, &file);
+    assert_ne!(second["result"]["isError"], json!(true), "{second}");
+    let data = analysis_lite_data(&second);
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    assert_eq!(
+        analysis_lite_reference_files(&data),
+        ["a.ts", "b.ts", "b.ts"]
+    );
+    let _again = analysis_lite_refs_call(&state, &file);
+    assert_eq!(codelens_footprint(&repo), before, "a reader writes nothing");
+    drop(writer_index);
+}
+
+// A failing reader call reports the same runtime identity as a successful
+// one: who answered (reader, and whose lease) and no snapshot generation.
+#[test]
+fn analysis_lite_per_call_reader_error_payload_names_the_reader_runtime() {
+    let (_writer, project) = analysis_lite_writer_with_index();
+    let repo = project.as_path().to_path_buf();
+    let before = codelens_footprint(&repo);
+    let state = analysis_lite_per_call_reader_state();
+    // `sink` is bytes 16..20 of a.ts; 0..6 (`export`) is not its name token,
+    // so the engine answers status=error with typed evidence.
+    let response = analysis_lite_rpc(
+        &state,
+        "tools/call",
+        json!({"name":"search","arguments":{"mode":"refs","target":{
+            "file":repo.join("a.ts").display().to_string(),"name":"sink",
+            "start_byte":0,"end_byte":6}}}),
+    );
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(data["status"], json!("error"), "{data}");
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    assert_eq!(
+        data["freshness"]["writer_holder"]["pid"],
+        json!(std::process::id()),
+        "{data}"
+    );
+    assert_eq!(
+        data["freshness"]["writer_holder"]["alive"],
+        json!(true),
+        "{data}"
+    );
+    assert!(data["snapshot"].is_object(), "{data}");
+    assert_eq!(data["snapshot"]["generation"], json!(null), "{data}");
+    assert_eq!(codelens_footprint(&repo), before, "a reader writes nothing");
+}
+
+#[test]
+fn analysis_lite_second_session_is_an_explicit_reader_of_the_writers_index() {
+    let (writer, project) = analysis_lite_writer_with_index();
+    let before = codelens_footprint(project.as_path());
+    let reader = crate::AppState::try_new_minimal_with_reader_fallback(
+        project.clone(),
+        crate::tool_defs::ToolPreset::Full,
+    )
+    .expect("analysis-lite second session starts as a reader");
+    reader.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    assert_eq!(
+        reader.symbol_index().file_count().unwrap(),
+        writer.symbol_index().file_count().unwrap(),
+        "the reader sees the writer's index rows"
+    );
+    let response = analysis_lite_refs_call(&reader, "a.ts");
+    assert_ne!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(
+        analysis_lite_reference_files(&data),
+        ["a.ts", "b.ts", "b.ts"]
+    );
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    assert_eq!(
+        data["freshness"]["writer_holder"]["pid"],
+        json!(std::process::id()),
+        "{data}"
+    );
+    assert_eq!(
+        reader.project_runtime_health_payload()["runtime_role"],
+        json!("reader")
+    );
+    assert_eq!(
+        codelens_footprint(project.as_path()),
+        before,
+        "a reader writes nothing"
+    );
+    writer.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    let writer_data = analysis_lite_data(&analysis_lite_refs_call(&writer, "a.ts"));
+    assert_eq!(writer_data["freshness"]["runtime_role"], json!("writer"));
+    assert_eq!(
+        writer.project_runtime_health_payload()["runtime_role"],
+        json!("writer")
+    );
+}
+
+// The writer's mutation counter lives in the writer process, so a reader's
+// committed generation is a constant. Reporting it would claim a snapshot
+// identity the reader cannot see, and every pin would pass against it.
+#[test]
+fn analysis_lite_reader_reports_no_generation_and_refuses_generation_pins() {
+    let (_writer, project) = analysis_lite_writer_with_index();
+    let reader = crate::AppState::try_new_minimal_with_reader_fallback(
+        project,
+        crate::tool_defs::ToolPreset::Full,
+    )
+    .expect("analysis-lite second session starts as a reader");
+    reader.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    let data = analysis_lite_data(&analysis_lite_refs_call(&reader, "a.ts"));
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    assert!(data["snapshot"].is_object(), "{data}");
+    assert_eq!(data["snapshot"]["generation"], json!(null), "{data}");
+
+    let pinned = analysis_lite_rpc(
+        &reader,
+        "tools/call",
+        json!({"name":"search","arguments":{"mode":"refs","generation":0,"target":{"file":"a.ts","name":"sink"}}}),
+    );
+    assert_eq!(pinned["result"]["isError"], json!(true), "{pinned}");
+    let text = pinned["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(text.contains("reader"), "{pinned}");
+}
+
+#[test]
+fn analysis_lite_reader_without_an_index_is_retryable_index_not_ready() {
+    let project = ProjectRoot::new(analysis_lite_ts_project()).unwrap();
+    let _writer = make_state(&project);
+    let index_dir = project.as_path().join(".codelens").join("index");
+    for name in ["symbols.db", "symbols.db-wal", "symbols.db-shm"] {
+        let _ = fs::remove_file(index_dir.join(name));
+    }
+    let error = match crate::AppState::try_new_minimal_with_reader_fallback(
+        project,
+        crate::tool_defs::ToolPreset::Full,
+    ) {
+        Ok(_) => panic!("a reader without an index must not start as empty"),
+        Err(error) => error,
+    };
+    let typed = error
+        .downcast::<crate::error::CodeLensError>()
+        .expect("typed error");
+    assert!(
+        matches!(typed, crate::error::CodeLensError::IndexNotReady(_)),
+        "{typed}"
+    );
+    assert!(typed.is_retryable());
+}
+
+// The repo invariant: outside analysis-lite stdio a second writer is rejected
+// outright, never downgraded to a reader.
+#[test]
+fn non_analysis_lite_second_session_still_gets_project_writer_busy() {
+    let (_writer, project) = analysis_lite_writer_with_index();
+    let error = match crate::AppState::try_new_minimal(project, crate::tool_defs::ToolPreset::Full)
+    {
+        Ok(_) => panic!("a second writer must be rejected"),
+        Err(error) => error,
+    };
+    assert!(
+        matches!(
+            error.downcast_ref::<crate::error::CodeLensError>(),
+            Some(crate::error::CodeLensError::ProjectWriterBusy { .. })
+        ),
+        "{error:#}"
+    );
+}
 // ── Verb facade tests (search / graph / review) ──────────────────────
 //
 // Phase-1 consolidation: read-only tool families are reachable behind

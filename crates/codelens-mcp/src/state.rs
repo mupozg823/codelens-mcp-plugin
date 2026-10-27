@@ -27,16 +27,35 @@ mod orchestration;
 mod preflight;
 mod project_accessors;
 pub(crate) use project_accessors::NoBindWait;
+pub(crate) use project_accessors::{analysis_lite_idle_ttl, spawn_idle_runtime_sweeper};
+#[cfg(test)]
+mod idle_release_tests;
 #[cfg(test)]
 pub(crate) use project_accessors::TEST_BIND_OVERRIDE;
 mod project_runtime;
 pub(crate) use project_runtime::RequestProjectGuard;
 mod project_runtime_lease;
 
+/// Analysis-lite stdio per-call binding: an absolute `target.file` binds its
+/// call to the file's own repository; a relative one resolves under
+/// `launch_root` — the launch directory's repository when it is a marked,
+/// local, non-cloud root that is neither `$HOME` nor `/`.
+#[derive(Clone, Debug)]
+pub(crate) struct AnalysisLitePerCallBinding {
+    pub(crate) launch_root: Option<codelens_engine::ProjectRoot>,
+}
+
 /// The trusted per-user runtime directory (writer leases, session journal).
 #[cfg_attr(not(feature = "http"), allow(dead_code))]
 pub(crate) fn runtime_dir() -> Result<std::path::PathBuf, crate::error::CodeLensError> {
     project_runtime_lease::trusted_runtime_dir()
+}
+
+/// The writer-lease lock file a project at `dir` uses (whether or not it
+/// exists). `None` without a trusted runtime directory.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn project_writer_lock_path(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    project_runtime_lease::project_lock_path(dir)
 }
 mod runtime_config;
 mod secondary_projects;
@@ -166,6 +185,14 @@ pub(crate) struct AppState {
     /// downstream tooling can detect "daemon is running an image
     /// older than the disk binary" — the Phase 4a failure mode.
     daemon_started_at: String,
+    /// `Some` for an analysis-lite stdio server: it starts on an empty
+    /// CodeLens-owned per-process placeholder, never builds or leases a real
+    /// project at startup, and binds each call to a project.
+    analysis_lite_per_call: std::sync::RwLock<Option<AnalysisLitePerCallBinding>>,
+    /// Analysis-lite stdio only: a project whose writer lease another process
+    /// holds is served by an explicit read-only reader runtime instead of
+    /// `ProjectWriterBusy`. Every other surface keeps the outright rejection.
+    analysis_lite_reader_fallback: std::sync::atomic::AtomicBool,
     /// ADR-0009 §2: durable audit sinks keyed by audit_dir. L6 — when a
     /// daemon serves multiple projects (e.g. via `activate_project` or
     /// `add_secondary_project`), each project has its own
@@ -232,8 +259,9 @@ impl AppState {
     fn build_project_runtime_context(
         project: ProjectRoot,
         start_watcher: bool,
+        allow_reader: bool,
     ) -> anyhow::Result<ProjectContext> {
-        project_runtime::build_project_runtime_context(project, start_watcher)
+        project_runtime::build_project_runtime_context(project, start_watcher, allow_reader)
     }
 
     fn activate_project_context(&self, context: Option<Arc<ProjectContext>>) {
@@ -640,7 +668,7 @@ mod tests {
         // still held by the removed cache entry.
         let scope_e = project_e.as_path().to_string_lossy().into_owned();
         let context_e = Arc::new(
-            AppState::build_project_runtime_context(project_e, false)
+            AppState::build_project_runtime_context(project_e, false, false)
                 .expect("project E runtime should initialize"),
         );
         let evicted = {

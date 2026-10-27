@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 import harness_eval_common as common
+from analysis_lite_metrics import normalize_provider_usage
 
 DEFAULT_REPORT_DIR = Path.home() / ".codex" / "harness" / "reports" / "session-entries"
 
@@ -77,9 +78,13 @@ def build_entry(args, payload):
     repo_path = str(Path(args.repo).expanduser())
     repo_id = getattr(args, "repo_id", "") or Path(repo_path).name or "repo"
     repo_label = getattr(args, "repo_label", "") or repo_id
-    bootstrap_tokens = int(session.get("tools_list_tokens") or 0)
-    total_tokens = int(session.get("total_tokens") or 0)
-    token_out = max(total_tokens - bootstrap_tokens, 0)
+    bootstrap_tokens = session.get("tools_list_tokens")
+    total_tokens = session.get("total_tokens")
+    provider = normalize_provider_usage(
+        getattr(args, "provider_usage", None),
+        source=getattr(args, "provider_usage_source", None),
+        input_includes_cache=getattr(args, "provider_input_includes_cache", None),
+    )
     notes = []
     if args.notes:
         notes.append(args.notes.strip())
@@ -105,12 +110,9 @@ def build_entry(args, payload):
         elif alignment == "no-match" and recommended_entrypoint:
             notes.append(f"preflight recommendation missed entrypoint {recommended_entrypoint}")
 
-    success = args.success
-    if success is None:
-        success = int(session.get("error_count") or 0) == 0
-
     entry_draft = {
         "schema_version": "codelens-harness-eval-entry-v1",
+        "accounting_version": "provider-usage-v1",
         "source_kind": "real-session",
         "captured_at": getattr(args, "captured_at", None),
         "scenario_id": getattr(args, "scenario_id", None),
@@ -120,12 +122,20 @@ def build_entry(args, payload):
         "task_kind": args.task_kind,
         "mode": args.mode,
         "agent": args.agent,
-        "success": success,
+        "success": args.success,
         "acceptance_passed": args.acceptance_passed,
         "verify_passed": args.verify_passed,
         "quality_score": args.quality_score,
-        "token_in": bootstrap_tokens,
-        "token_out": token_out,
+        "token_in": provider["input_tokens"],
+        "token_out": provider["output_tokens"],
+        "provider_usage": provider,
+        "server_estimated_tools_list_tokens": bootstrap_tokens,
+        "server_estimated_total_tokens": total_tokens,
+        "legacy_field_semantics": {
+            "bootstrap_tokens": "server_estimated_tools_list_tokens",
+            "metrics_snapshot.total_tokens": "server_estimated_total_tokens",
+            "metrics_snapshot.tools_list_tokens": "server_estimated_tools_list_tokens",
+        },
         "bootstrap_tokens": bootstrap_tokens,
         "tool_calls": int(session.get("total_calls") or 0),
         "low_level_chain_count": int(
@@ -169,9 +179,8 @@ def build_entry(args, payload):
             "recommended_followup_tools_missed": recommendation_outcome.get("recommended_followup_tools_missed"),
         }
 
-    # Auto-compute quality_score from metrics when not manually set
-    if entry_draft["quality_score"] is None:
-        entry_draft["quality_score"] = common.compute_quality_score(entry_draft)
+    # Historical telemetry weights describe process activity, not task quality.
+    entry_draft["process_kpi_score"] = common.compute_quality_score(entry_draft)
 
     return entry_draft
 
@@ -190,7 +199,9 @@ def render_markdown(entry):
         f"| Quality score | {entry['quality_score']} |",
         f"| Token in | {entry['token_in']} |",
         f"| Token out | {entry['token_out']} |",
-        f"| Bootstrap tokens | {entry['bootstrap_tokens']} |",
+        f"| Provider usage status | {(entry.get('provider_usage') or {}).get('status', 'unknown')} |",
+        f"| Server estimated bootstrap tokens | {entry['bootstrap_tokens']} |",
+        f"| Process KPI score | {entry.get('process_kpi_score')} |",
         f"| Tool calls | {entry['tool_calls']} |",
         f"| Low-level chain count | {entry['low_level_chain_count']} |",
         f"| Elapsed ms | {entry['elapsed_ms']} |",
@@ -226,11 +237,16 @@ def main():
     parser.add_argument("--verify-passed", type=parse_bool_flag, default=None)
     parser.add_argument("--success", type=parse_bool_flag, default=None)
     parser.add_argument("--quality-score", type=float, default=None)
+    parser.add_argument("--provider-usage-json", default="",
+                        help="Raw provider usage object, never server metrics.")
+    parser.add_argument("--provider-usage-source", default="")
+    parser.add_argument("--provider-input-includes-cache", type=parse_bool_flag, default=None)
     parser.add_argument("--recommended-policy", default="")
     parser.add_argument("--notes", default="")
     parser.add_argument("--output-json", default="")
     parser.add_argument("--output-md", default="")
     args = parser.parse_args()
+    args.provider_usage = load_json(args.provider_usage_json) if args.provider_usage_json else None
 
     scenario = load_scenario(args.scenario_file, args.scenario_id)
     if scenario:

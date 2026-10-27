@@ -8,6 +8,53 @@ from collections import defaultdict
 from glob import glob
 from pathlib import Path
 
+from analysis_lite_metrics import normalize_provider_usage
+
+
+def measurement_view(entry):
+    """Classify evidence without modifying historical entries or inventing usage.
+
+    Pre-accounting real sessions default to historical server estimates. A legacy
+    actual measurement requires both token_source=provider and a nonempty
+    provider_usage_source. Synthetic proxies never enter provider averages.
+    """
+    kind = "unknown"
+    actual = None
+    incoming, outgoing = entry.get("token_in"), entry.get("token_out")
+    valid_counts = all(type(value) is int and value >= 0 for value in (incoming, outgoing))
+    modern = entry.get("accounting_version") == "provider-usage-v1"
+    provider = entry.get("provider_usage") or {}
+    if entry.get("source_kind") == "synthetic":
+        kind = "synthetic_estimates"
+    elif modern:
+        if isinstance(provider, dict) and provider.get("status") == "ok":
+            normalized = normalize_provider_usage(provider.get("raw"), source=provider.get("source"),
+                input_includes_cache=provider.get("input_includes_cache"))
+            if (normalized["status"] == "ok" and valid_counts
+                    and (incoming, outgoing) == (normalized["input_tokens"], normalized["output_tokens"])):
+                kind, actual = "provider", incoming + outgoing
+    elif entry.get("token_source") == "provider" and entry.get("provider_usage_source"):
+        kind = "legacy_provider"
+        if valid_counts:
+            actual = incoming + outgoing
+    else:
+        kind = "historical_estimates"
+    historical = incoming + outgoing if valid_counts and kind == "historical_estimates" else None
+    quality = entry.get("quality_score")
+    explicit_quality = modern or entry.get("quality_source") in {"manual", "grader", "acceptance-test"}
+    if not explicit_quality or type(quality) not in (int, float) or not 0 <= quality <= 1:
+        quality = None
+    success = entry.get("success")
+    explicit_success = modern or entry.get("success_source") in {"manual", "grader", "acceptance-test"}
+    explicit_success = explicit_success or all(type(entry.get(key)) is bool for key in ("acceptance_passed", "verify_passed"))
+    if not explicit_success or type(success) is not bool:
+        success = None
+    return {"kind": kind, "actual_total_tokens": actual,
+            "historical_estimated_total_tokens": historical,
+            "quality_score": quality, "success": success,
+            "acceptance_passed": entry.get("acceptance_passed") if type(entry.get("acceptance_passed")) is bool else None,
+            "verify_passed": entry.get("verify_passed") if type(entry.get("verify_passed")) is bool else None}
+
 
 def load_json(path: Path):
     return json.loads(path.read_text())
@@ -112,6 +159,10 @@ def qualifying_real_entry(entry):
         return False
     if entry.get("success") is not True:
         return False
+    if entry.get("accounting_version") == "provider-usage-v1" and not all(
+        entry.get(key) is True for key in ("acceptance_passed", "verify_passed")
+    ):
+        return False
     if entry.get("acceptance_passed") is False:
         return False
     if entry.get("verify_passed") is False:
@@ -126,6 +177,7 @@ def real_session_identity(entry):
         (entry.get("agent") or "").strip().lower(),
         entry.get("mode", ""),
         infer_scenario_id(entry) or "",
+        entry.get("run_id") or "",
     )
 
 

@@ -87,6 +87,38 @@ pub(crate) fn validate_tool_access(
 ) -> Result<(), CodeLensError> {
     let active_surface = surface.as_label();
 
+    if surface.is_analysis_lite()
+        && !is_tool_in_surface(name, surface)
+        && crate::tool_defs::analysis_lite::public_name(name).is_none()
+    {
+        return Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is not available in analysis-lite"
+        )));
+    }
+
+    #[cfg(feature = "http")]
+    if surface.is_analysis_lite() && state.should_route_to_session(session) {
+        if !session.project_binding_is_explicit() || session.project_path.is_none() {
+            return Err(CodeLensError::AnalysisLiteBindingRequired {
+                tool: name.to_owned(),
+            });
+        }
+        let requested = codelens_engine::ProjectRoot::new(
+            session
+                .project_path
+                .as_deref()
+                .expect("checked project path"),
+        )
+        .map_err(|error| {
+            CodeLensError::Validation(format!(
+                "analysis-lite explicit project binding failed: {error}"
+            ))
+        })?;
+        if requested.as_path() != state.project().as_path() {
+            return Err(CodeLensError::Validation("analysis-lite explicit project did not bind this request; daemon-default fallback is rejected".to_owned()));
+        }
+    }
+
     if !crate::tool_defs::experimental_tool_enabled(name) {
         let feature = crate::tool_defs::experimental_feature_for_tool(name).unwrap_or("unknown");
         return Err(CodeLensError::Validation(format!(

@@ -16,16 +16,17 @@ mod metadata_generated;
 // `pub(super)` of *this* module (i.e., visible to `tool_defs`). Keeps
 // the call site in `build.rs` short and stable across migration PRs.
 pub(super) use build_generated::{
-    analysis_tools, composite_tools, file_io_tools, lsp_tools, memory_tools, session_tools,
-    symbol_tools, workflow_first_tools,
+    analysis_lite_tools, analysis_tools, composite_tools, file_io_tools, lsp_tools, memory_tools,
+    session_tools, symbol_tools, workflow_first_tools,
 };
 
 #[cfg(feature = "semantic")]
 pub(super) use build_generated::semantic_tools;
 
 pub(super) use metadata_generated::{
-    BALANCED_EXCLUDES, BUILDER_MINIMAL_TOOLS, MINIMAL_TOOLS, PLANNER_READONLY_TOOLS,
-    REVIEWER_GRAPH_TOOLS, default_listed_tool_names, tool_annotation_key, tool_default_listed,
+    ANALYSIS_LITE_MAX_RESPONSE_BYTES, BALANCED_EXCLUDES, BUILDER_MINIMAL_TOOLS, MINIMAL_TOOLS,
+    PLANNER_READONLY_TOOLS, REVIEWER_GRAPH_TOOLS, analysis_lite_public_name, analysis_lite_target,
+    default_listed_tool_names, tool_annotation_key, tool_default_listed,
     tool_execution_policy_values, tool_experimental_feature, tool_feature_gate,
     tool_is_content_mutation, tool_namespace, tool_phase, tool_symbol_generation_consistent,
 };

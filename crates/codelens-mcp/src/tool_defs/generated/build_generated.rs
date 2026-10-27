@@ -588,3 +588,18 @@ pub fn workflow_first_tools(ro_w: &ToolAnnotations) -> Vec<Tool> {
         ).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
     ]
 }
+
+pub fn analysis_lite_tools(ro_a: &ToolAnnotations) -> Vec<Tool> {
+    vec![
+        Tool::new(
+            "search",
+            "JS/TS exact-declaration references: local semantic reads/writes plus identity-resolved callgraph evidence. Select target.file and target.name, add UTF-8 name-token start_byte/end_byte inside target when ambiguous, or use target.symbol_id. Cross-file non-call/type/import references are incomplete; zero rows never means unused.",
+            json!({"type":"object","required":["mode","target"],"additionalProperties":false,"properties":{"mode":{"type":"string","enum":["refs"]},"target":{"type":"object","required":["file"],"additionalProperties":false,"anyOf":[{"required":["name"]},{"required":["symbol_id"]}],"properties":{"file":{"type":"string","minLength":1,"description":"Declaration file: relative to the launch project, or absolute inside it. On a server launched outside any project, an absolute path binds the call to that file's repository root"},"name":{"type":"string","minLength":1},"symbol_id":{"type":"string","minLength":1},"start_byte":{"type":"integer","minimum":0,"description":"UTF-8 name-token byte start, paired with end_byte; never UTF-16"},"end_byte":{"type":"integer","minimum":1}}},"path":{"type":"string","minLength":1,"description":"Optional caller file/directory scope; local declaration references are always included"},"generation":{"type":"integer","minimum":0,"description":"Optional committed symbol generation from a previous candidate response"},"max_results":{"type":"integer","minimum":1,"maximum":200,"default":100},"max_files":{"type":"integer","minimum":1,"maximum":10000,"default":2000}}}),
+        ).with_output_schema(crate::tools::analysis_lite::output_schema()).with_annotations(ro_a.clone()),
+        Tool::new(
+            "graph",
+            "JS/TS bounded reverse callgraph from one exact declaration. Preserves each callsite and proven identities; relation is callgraph_edge/detail_unknown, including callbacks. Reports unresolved evidence, scope, caps and source freshness. Does not prove whole-program impact or absence of use.",
+            json!({"type":"object","required":["mode","target"],"additionalProperties":false,"properties":{"mode":{"type":"string","enum":["impact"]},"target":{"type":"object","required":["file"],"additionalProperties":false,"anyOf":[{"required":["name"]},{"required":["symbol_id"]}],"properties":{"file":{"type":"string","minLength":1,"description":"Declaration file: relative to the launch project, or absolute inside it. On a server launched outside any project, an absolute path binds the call to that file's repository root"},"name":{"type":"string","minLength":1},"symbol_id":{"type":"string","minLength":1},"start_byte":{"type":"integer","minimum":0,"description":"UTF-8 name-token byte start, paired with end_byte; never UTF-16"},"end_byte":{"type":"integer","minimum":1}}},"path":{"type":"string","minLength":1,"description":"Optional caller file/directory scope"},"generation":{"type":"integer","minimum":0},"max_depth":{"type":"integer","minimum":1,"maximum":8,"default":3},"max_nodes":{"type":"integer","minimum":1,"maximum":100,"default":40},"max_edges":{"type":"integer","minimum":1,"maximum":200,"default":100},"max_files":{"type":"integer","minimum":1,"maximum":10000,"default":2000}}}),
+        ).with_output_schema(crate::tools::analysis_lite::output_schema()).with_annotations(ro_a.clone()),
+    ]
+}

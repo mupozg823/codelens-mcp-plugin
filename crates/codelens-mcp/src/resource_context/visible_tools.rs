@@ -66,6 +66,9 @@ pub(crate) fn filter_default_listed_tools(
     requested_phase: Option<ToolPhase>,
     surface: ToolSurface,
 ) -> Vec<&'static Tool> {
+    if surface.is_analysis_lite() {
+        return tools;
+    }
     if !request.default_listing_requested() || requested_phase.is_some() {
         return tools;
     }

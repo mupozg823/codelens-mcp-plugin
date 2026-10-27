@@ -136,6 +136,96 @@ fn rust_function_declaration_path(
 
 /// Extract call edges from already-loaded source content (avoids re-reading disk).
 pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
+    extract_located_calls_from_source(path, source)
+        .into_iter()
+        .filter(|located| !located.noise_name)
+        .map(|located| located.edge)
+        .collect()
+}
+
+/// Source token retained for declaration-identity queries. The legacy payload
+/// intentionally stays line-based, including its historical deduplication.
+pub(crate) struct LocatedCallEdge {
+    pub edge: CallEdge,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub column: usize,
+    pub caller: LocatedCaller,
+    /// The callee name is on the name-only builtin noise list. The legacy API
+    /// drops these; exact-identity callers resolve first and decide.
+    pub noise_name: bool,
+}
+
+pub(crate) enum LocatedCaller {
+    Module,
+    Declaration {
+        kind: &'static str,
+        start_byte: usize,
+        end_byte: usize,
+        name_start_byte: usize,
+        name_end_byte: usize,
+    },
+    Unsupported {
+        kind: &'static str,
+    },
+}
+
+/// Keep the structural caller boundary separately from the legacy name-only
+/// query. In particular, computed/string members are absent from JS_FUNC_QUERY.
+/// Anonymous callback bodies retain their named lexical outer as before, but
+/// a member boundary must never borrow that outer declaration's identity.
+fn js_located_caller(callsite: Node<'_>) -> LocatedCaller {
+    let mut ancestor = callsite.parent();
+    let mut unbound_function = false;
+    while let Some(node) = ancestor {
+        let declaration = match node.kind() {
+            "method_definition"
+            | "public_field_definition"
+            | "field_definition"
+            | "class_static_block"
+            | "generator_function_declaration" => {
+                return LocatedCaller::Unsupported { kind: node.kind() };
+            }
+            "function_declaration" => Some(node),
+            "arrow_function" | "function_expression" | "generator_function" => {
+                let parent = node.parent();
+                if parent.is_some_and(|parent| parent.kind() == "variable_declarator") {
+                    parent
+                } else {
+                    unbound_function = true;
+                    None
+                }
+            }
+            "pair" | "assignment_expression" | "variable_declarator" if unbound_function => {
+                return LocatedCaller::Unsupported { kind: node.kind() };
+            }
+            _ => None,
+        };
+        if let Some(declaration) = declaration {
+            let Some(name) = declaration.child_by_field_name("name") else {
+                return LocatedCaller::Unsupported {
+                    kind: declaration.kind(),
+                };
+            };
+            if name.kind() != "identifier" {
+                return LocatedCaller::Unsupported {
+                    kind: declaration.kind(),
+                };
+            }
+            return LocatedCaller::Declaration {
+                kind: declaration.kind(),
+                start_byte: declaration.start_byte(),
+                end_byte: declaration.end_byte(),
+                name_start_byte: name.start_byte(),
+                name_end_byte: name.end_byte(),
+            };
+        }
+        ancestor = node.parent();
+    }
+    LocatedCaller::Module
+}
+
+pub(crate) fn extract_located_calls_from_source(path: &Path, source: &str) -> Vec<LocatedCallEdge> {
     let Some(config) = call_language_for_path(path) else {
         return Vec::new();
     };
@@ -231,11 +321,10 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 continue;
             };
             let callee_name = callee_name.trim().to_owned();
-            if callee_name.is_empty()
-                || is_noise_callee_for_lang(&callee_name, Some(config.language_key))
-            {
+            if callee_name.is_empty() {
                 continue;
             }
+            let noise_name = is_noise_callee_for_lang(&callee_name, Some(config.language_key));
             if config.language_key == "rs"
                 && is_argument_identifier_capture(cap.node)
                 && shadowed_by_rust_closure_binding(
@@ -260,18 +349,31 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 |(_, _, name, declaration_path)| (name.clone(), declaration_path.clone()),
             );
 
-            edges.push(CallEdge {
-                caller_file: file_path.clone(),
-                caller_name,
-                caller_declaration_path,
-                callee_name,
-                callee_qualifier: callee_qualifier.clone(),
-                line,
-                resolved_file: None,
-                confidence: 0.0,
-                resolution_strategy: None,
-                canonical_callee_name: None,
-                target_declaration_path: None,
+            edges.push(LocatedCallEdge {
+                edge: CallEdge {
+                    caller_file: file_path.clone(),
+                    caller_name,
+                    caller_declaration_path,
+                    callee_name,
+                    callee_qualifier: callee_qualifier.clone(),
+                    line,
+                    resolved_file: None,
+                    confidence: 0.0,
+                    resolution_strategy: None,
+                    canonical_callee_name: None,
+                    target_declaration_path: None,
+                },
+                start_byte: start,
+                end_byte: end,
+                column: cap.node.start_position().column + 1,
+                caller: if matches!(config.language_key, "js" | "ts" | "tsx") {
+                    js_located_caller(cap.node)
+                } else {
+                    LocatedCaller::Unsupported {
+                        kind: "non_js_ts_caller",
+                    }
+                },
+                noise_name,
             });
         }
     }

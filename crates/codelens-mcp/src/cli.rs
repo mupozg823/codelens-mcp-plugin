@@ -25,6 +25,15 @@ impl StartupProjectSource {
         !matches!(self, Self::Cwd(_))
     }
 
+    pub(crate) fn path(&self) -> &std::path::Path {
+        match self {
+            Self::Cli(path) | Self::ClaudeEnv(path) | Self::McpEnv(path) => {
+                std::path::Path::new(path)
+            }
+            Self::Cwd(path) => path,
+        }
+    }
+
     pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Cli(_) => "CLI path",
@@ -98,7 +107,7 @@ pub(crate) fn render_help() -> String {
         "  --args <json>                JSON arguments for --cmd".to_owned(),
         "  --batch <json>              Run multiple MCP tools and exit".to_owned(),
         "  --preset minimal|balanced|full".to_owned(),
-        "  --profile readonly|review|builder".to_owned(),
+        "  --profile readonly|review|builder|analysis-lite".to_owned(),
         "      compatibility aliases: planner-readonly, reviewer-graph, builder-minimal, refactor-full, ci-audit, evaluator-compact, workflow-first"
             .to_owned(),
         "  --daemon-mode standard|read-only|mutation-enabled".to_owned(),
@@ -204,6 +213,148 @@ pub(crate) fn resolve_startup_project(source: &StartupProjectSource) -> Result<P
             .with_context(|| format!("failed to resolve project root from {}", path.display())),
     }
 }
+
+/// The startup decision for an analysis-lite stdio server: its launch root.
+///
+/// Analysis-lite stdio always starts on its per-process placeholder and binds
+/// each call to a project, so a launch never builds an index, starts a watcher
+/// or takes a writer lease. The launch directory (CLI path,
+/// `CLAUDE_PROJECT_DIR`, `MCP_PROJECT_DIR`, then cwd) only supplies the
+/// optional root relative `target.file`s resolve under.
+pub(crate) struct AnalysisLiteLaunch {
+    pub(crate) root: Option<ProjectRoot>,
+    pub(crate) reason: String,
+}
+
+/// The launch root is the launch directory's repository only when it carries
+/// a real root marker ([`ProjectRoot::new_requiring_marker`]: `~/Downloads`
+/// or a per-chat folder is never promoted), is neither `$HOME` nor `/`, and
+/// does not sit inside a cloud-synced (File Provider) folder — the same checks
+/// a per-call binding applies. Otherwise there is no launch root.
+pub(crate) fn analysis_lite_launch_root(
+    source: &StartupProjectSource,
+    home: &std::path::Path,
+) -> AnalysisLiteLaunch {
+    let none = |reason: String| AnalysisLiteLaunch { root: None, reason };
+    let root = match ProjectRoot::new_requiring_marker(source.path()) {
+        Ok(root) => root,
+        Err(error) => return none(format!("no marked project root: {error:#}")),
+    };
+    let home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
+    if root.as_path() == std::path::Path::new("/") {
+        return none("the detected root is `/`".to_owned());
+    }
+    if root.as_path() == home {
+        return none("the detected root is the home directory".to_owned());
+    }
+    if let Some(synced) =
+        crate::tools::analysis_lite::cloud_synced_root(root.as_path(), Some(&home))
+    {
+        return none(format!(
+            "the detected root `{}` is inside the cloud-synced folder `{}`",
+            root.as_path().display(),
+            synced.display()
+        ));
+    }
+    AnalysisLiteLaunch {
+        root: Some(root),
+        reason: "marked local repository".to_owned(),
+    }
+}
+
+/// Create this process's empty placeholder project for an analysis-lite stdio
+/// server: `~/.codelens/analysis-lite-unbound/<pid>/`, beside the HTTP
+/// daemon's `~/.codelens/daemon-default`. One directory per process, because
+/// the project writer lease is exclusive and several sessions run at once;
+/// directories of processes that no longer exist are removed together with
+/// their writer-lease lock files.
+pub(crate) fn prepare_launch_unbound_placeholder(home: &std::path::Path) -> Result<ProjectRoot> {
+    let base = home.join(".codelens").join("analysis-lite-unbound");
+    std::fs::create_dir_all(&base)
+        .with_context(|| format!("failed to create {}", base.display()))?;
+    remove_dead_process_dirs(&base);
+    let dir = base.join(std::process::id().to_string());
+    // A reused pid must not inherit a previous run's index.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".codelens"))
+        .with_context(|| format!("failed to create {}", dir.display()))?;
+    ProjectRoot::new_exact(&dir)
+}
+
+#[cfg(unix)]
+fn remove_dead_process_dirs(base: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(base) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<libc::pid_t>().ok())
+        else {
+            continue;
+        };
+        if pid_is_dead(pid) {
+            // The lock name hashes the canonical dir, so resolve it first.
+            let lock = crate::state::project_writer_lock_path(&entry.path());
+            let _ = std::fs::remove_dir_all(entry.path());
+            if let Some(lock) = lock {
+                let _ = std::fs::remove_file(lock);
+            }
+        }
+    }
+    if let Ok(runtime_dir) = crate::state::runtime_dir() {
+        remove_orphan_placeholder_locks(base, &runtime_dir);
+    }
+}
+
+/// `kill(pid, 0)` says ESRCH: no such process. Never this process or pid <= 0.
+#[cfg(unix)]
+fn pid_is_dead(pid: libc::pid_t) -> bool {
+    if pid <= 0 || pid as u32 == std::process::id() {
+        return false;
+    }
+    // SAFETY: signal 0 only checks that the pid exists; nothing is sent.
+    let signalled = unsafe { libc::kill(pid, 0) };
+    signalled != 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+}
+
+/// Writer-lease locks whose placeholder dir is already gone cannot be found
+/// by name (the name hashes the dir). Match them by their metadata instead: a
+/// `project` under `base` that no longer exists, held by a dead pid.
+#[cfg(unix)]
+fn remove_orphan_placeholder_locks(base: &std::path::Path, runtime_dir: &std::path::Path) {
+    let base = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
+    let Ok(entries) = std::fs::read_dir(runtime_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "lock") {
+            continue;
+        }
+        let Some(metadata) = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        else {
+            continue;
+        };
+        let (Some(project), Some(pid)) = (
+            metadata["project"].as_str().map(std::path::Path::new),
+            metadata["pid"]
+                .as_u64()
+                .and_then(|pid| libc::pid_t::try_from(pid).ok()),
+        ) else {
+            continue;
+        };
+        if project.starts_with(&base) && project != base && !project.exists() && pid_is_dead(pid) {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn remove_dead_process_dirs(_base: &std::path::Path) {}
 
 /// Extract the value of `--flag <value>` or `--flag=<value>` from an argv
 /// slice. `--` terminates flag scanning. Returns `None` if the flag is

@@ -19,10 +19,28 @@ pub(super) fn detect_root(start: &Path) -> Option<PathBuf> {
     detect_root_with_bounds(start, home.as_deref(), temp.as_deref())
 }
 
+/// Like [`detect_root`], but `.codelens` does not count as a marker: CodeLens
+/// writes it itself, so a folder an older build promoted carries only that and
+/// is not a project.
+pub(super) fn detect_real_root(start: &Path) -> Option<PathBuf> {
+    let home = dirs_fallback();
+    let temp = temp_dir_fallback();
+    detect_root_inner(start, home.as_deref(), temp.as_deref(), true)
+}
+
 pub(super) fn detect_root_with_bounds(
     start: &Path,
     home: Option<&Path>,
     temp: Option<&Path>,
+) -> Option<PathBuf> {
+    detect_root_inner(start, home, temp, false)
+}
+
+fn detect_root_inner(
+    start: &Path,
+    home: Option<&Path>,
+    temp: Option<&Path>,
+    real_markers_only: bool,
 ) -> Option<PathBuf> {
     let mut current = start.to_path_buf();
     loop {
@@ -38,6 +56,9 @@ pub(super) fn detect_root_with_bounds(
             break;
         }
         for marker in ROOT_MARKERS {
+            if marker == &".codelens" && real_markers_only {
+                continue;
+            }
             if marker == &".codelens" && current != start && is_temp_root(&current, temp) {
                 continue;
             }

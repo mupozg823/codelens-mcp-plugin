@@ -106,6 +106,7 @@ pub use rename::{
     RenameEdit, RenameResult, RenameScope, apply_edits, find_all_word_matches, rename_symbol,
 };
 pub use test_paths::is_probable_test_path;
+pub mod analysis_lite;
 pub mod change_signature;
 pub mod embedding_types;
 pub mod inline;
@@ -141,10 +142,11 @@ pub use scope_analysis::{
 };
 pub use search::{SearchResult, search_symbols_hybrid, search_symbols_hybrid_with_semantic};
 pub use symbols::{
-    IndexStats, RankedContextEntry, RankedContextResult, SymbolIndex, SymbolInfo, SymbolKind,
-    SymbolProvenance, find_symbol, find_symbol_range, get_symbols_overview, make_symbol_id,
-    parse_symbol_id, seed_index_from_sibling_checkout, sparse_coverage_bonus_from_fields,
-    sparse_max_bonus, sparse_threshold, sparse_weighting_enabled,
+    IndexNotBuilt, IndexStats, RankedContextEntry, RankedContextResult, SymbolIndex, SymbolInfo,
+    SymbolKind, SymbolProvenance, find_symbol, find_symbol_range, get_symbols_overview,
+    make_symbol_id, parse_symbol_id, seed_index_from_sibling_checkout,
+    sparse_coverage_bonus_from_fields, sparse_max_bonus, sparse_threshold,
+    sparse_weighting_enabled,
 };
 pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
 pub use watcher::{FileWatcher, WatcherStats};

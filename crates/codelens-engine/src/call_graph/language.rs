@@ -14,7 +14,12 @@ pub(crate) struct CallLanguageConfig {
 }
 
 pub(crate) fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
-    let lang_config = crate::lang_config::language_for_path(path)?;
+    // OXC analysis accepts the ESM/CJS TypeScript extensions the registry does
+    // not index; their calls parse as TypeScript.
+    let lang_config = match path.extension().and_then(|ext| ext.to_str()) {
+        Some("mts" | "cts") => crate::lang_config::language_for_path(&path.with_extension("ts"))?,
+        _ => crate::lang_config::language_for_path(path)?,
+    };
     // Map canonical extension to call graph queries (not all languages support this)
     let (language_key, func_query, call_query) = match lang_config.extension {
         "py" => ("py", PYTHON_FUNC_QUERY, PYTHON_CALL_QUERY),

@@ -79,7 +79,12 @@ pub(crate) fn tools() -> &'static [Tool] {
 }
 
 pub(crate) fn tool_definition(name: &str) -> Option<&'static Tool> {
-    tools().iter().find(|tool| tool.name == name)
+    tools().iter().find(|tool| tool.name == name).or_else(|| {
+        let public = super::analysis_lite::public_name(name)?;
+        super::analysis_lite::tools()
+            .iter()
+            .find(|tool| tool.name == public)
+    })
 }
 
 fn build_tools() -> Vec<Tool> {

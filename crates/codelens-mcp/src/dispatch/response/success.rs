@@ -42,6 +42,9 @@ pub(crate) struct SuccessResponseInput<'a> {
 }
 
 pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpcResponse {
+    if input.surface.is_analysis_lite() {
+        return build_analysis_lite_success(input);
+    }
     let SuccessResponseInput {
         name,
         payload,
@@ -299,6 +302,44 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
 
     let max_result_size = max_result_size_chars_for_tool(response_contract_tool, truncated);
     success_jsonrpc_response(id, name, text, structured_content, Some(max_result_size))
+}
+
+/// Typed candidate evidence has producer-side limits and a hard wire-size
+/// rejection. Keep the existing envelope, but never run the legacy lossy
+/// sampler on its identities, locations or provenance in either channel.
+fn build_analysis_lite_success(input: SuccessResponseInput<'_>) -> JsonRpcResponse {
+    let payload = input.payload;
+    let mut response = ToolCallResponse::success(payload.clone(), input.meta);
+    response.confidence = None;
+    response.elapsed_ms = Some(input.start.elapsed().as_millis() as u64);
+    let text = serde_json::to_string(&response).expect("typed candidate response serializes");
+    let target_paths = input.state.extract_target_paths(input.arguments);
+    input.state.metrics().record_event(ToolCallEvent {
+        tool: input.name,
+        operation: input.operation,
+        elapsed_ms: response.elapsed_ms.unwrap_or(0),
+        tokens: text.len() / 4,
+        success: true,
+        surface: input.active_surface,
+        truncated: payload["truncation"]
+            .as_object()
+            .is_some_and(|fields| fields.values().any(|value| value == &Value::Bool(true))),
+        phase: None,
+        logical_session_id: Some(input.logical_session_id),
+        client_name: input
+            .arguments
+            .get("_session_client_name")
+            .and_then(Value::as_str),
+        target_paths: &target_paths,
+        hints: CallTelemetryHints::default(),
+    });
+    success_jsonrpc_response(
+        input.id,
+        input.name,
+        text,
+        Some(payload),
+        Some(crate::tool_defs::analysis_lite::max_response_bytes() + 4000),
+    )
 }
 
 /// Apply the suggestion gate to `resp`. Returns the suggestions the gate
