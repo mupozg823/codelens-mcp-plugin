@@ -191,11 +191,23 @@ pub(super) fn is_entry_point_file(file: &str) -> bool {
 /// functions inside `mod tests { … }` are indented, so the top-level scan
 /// gives them no line and the attribute check never ran for them.
 fn defined_only_in_cfg_test(source: &str, regions: &[std::ops::Range<usize>], name: &str) -> bool {
-    let needle = format!("fn {name}");
-    let mut definitions = source
-        .match_indices(&needle)
-        .map(|(at, _)| at)
-        .filter(|&at| source[at + needle.len()..].starts_with(['(', '<']))
+    use unicode_normalization::UnicodeNormalization;
+    // `regions` are byte offsets into `source`, so the source cannot be
+    // normalized; look for the name in each spelling instead (indexed names
+    // are NFC, the source may be NFD).
+    let mut spellings = vec![name.to_owned(), name.nfc().collect(), name.nfd().collect()];
+    spellings.sort();
+    spellings.dedup();
+    let mut definitions = spellings
+        .iter()
+        .flat_map(|spelling| {
+            let needle = format!("fn {spelling}");
+            source
+                .match_indices(&needle)
+                .map(|(at, _)| at)
+                .filter(|&at| source[at + needle.len()..].starts_with(['(', '<']))
+                .collect::<Vec<_>>()
+        })
         .peekable();
     definitions.peek().is_some() && definitions.all(|at| regions.iter().any(|r| r.contains(&at)))
 }
@@ -525,6 +537,9 @@ pub(super) fn has_rust_test_attribute(lines: &[&str], symbol_line: usize) -> boo
 
 /// 1-indexed line of the first `def name(` / `async def name(` at any depth.
 fn python_def_line(lines: &[&str], name: &str) -> Option<usize> {
+    // Indexed names are NFC, a re-parse keeps the source spelling: compare
+    // the defined identifier in NFC so either finds an NFD-spelled `def`.
+    let name = crate::unicode::nfc_identifier(name);
     lines
         .iter()
         .position(|line| {
@@ -535,7 +550,14 @@ fn python_def_line(lines: &[&str], name: &str) -> Option<usize> {
                 .map_or(line, str::trim_start);
             line.strip_prefix("def")
                 .filter(|rest| rest.starts_with(char::is_whitespace))
-                .and_then(|rest| rest.trim_start().strip_prefix(name))
+                .map(str::trim_start)
+                .and_then(|rest| {
+                    let end = rest
+                        .find(|c: char| c == '(' || c == '[' || c.is_whitespace())
+                        .unwrap_or(rest.len());
+                    let (identifier, rest) = rest.split_at(end);
+                    (crate::unicode::nfc_identifier(identifier) == name).then_some(rest)
+                })
                 .is_some_and(|rest| rest.trim_start().starts_with(['(', '[']))
         })
         .map(|index| index + 1)
@@ -1223,6 +1245,26 @@ mod tests {
             Some(2)
         );
         assert_eq!(python_def_line(&["def gone():"], "go"), None);
+    }
+
+    // Codex review #458: indexed caller names are NFC (`insert_calls`), a
+    // re-parse keeps the source spelling. A decorated or cfg(test)-only
+    // function spelled NFD in the source must be found under either form, or a
+    // cached file loses the exemption a re-parsed file keeps.
+    #[test]
+    fn source_lookups_match_a_name_in_either_normal_form() {
+        let nfc = "\u{D568}\u{C218}";
+        let nfd = "\u{1112}\u{1161}\u{11B7}\u{1109}\u{116E}";
+        let nfd_def = format!("    def {nfd}(self):");
+        let nfc_def = format!("def {nfc}():");
+        assert_eq!(python_def_line(&["@property", &nfd_def], nfc), Some(2));
+        assert_eq!(python_def_line(&[&nfc_def], nfd), Some(1));
+        assert_eq!(python_def_line(&[&nfc_def], "\u{D568}"), None);
+
+        let source = format!("#[cfg(test)]\nmod tests {{\n    fn {nfd}() {{}}\n}}\n");
+        let regions = cfg_test_regions(&source);
+        assert!(defined_only_in_cfg_test(&source, &regions, nfc));
+        assert!(defined_only_in_cfg_test(&source, &regions, nfd));
     }
 
     // winnation 2026-10-27: 125 of 138 pass-2 candidates were used, just not
