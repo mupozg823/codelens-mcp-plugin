@@ -446,13 +446,14 @@ fn python_keyword_rest<'a>(statement: &'a str, keyword: &str) -> Option<&'a str>
 }
 
 /// `(module, names)` of a `from module import names` remainder. The keyword
-/// must stand alone: `from importlib import x` is not split inside `importlib`.
+/// must stand alone between whitespace (a tab counts) and the names: `from
+/// importlib import x` is not split inside `importlib`.
 fn split_from_import(rest: &str) -> Option<(&str, &str)> {
-    rest.match_indices(" import").find_map(|(at, keyword)| {
+    rest.match_indices("import").find_map(|(at, keyword)| {
         let names = &rest[at + keyword.len()..];
-        names
-            .starts_with(|c: char| c.is_whitespace() || c == '(')
-            .then(|| (&rest[..at], names))
+        (rest[..at].ends_with(char::is_whitespace)
+            && names.starts_with(|c: char| c.is_whitespace() || c == '('))
+        .then(|| (&rest[..at], names))
     })
 }
 
@@ -578,9 +579,11 @@ pub(crate) fn js_imports_by_timing(path: &Path, content: &str) -> Vec<(String, I
     imports
 }
 
-/// Byte ranges of the functions in a JS/TS file — declarations, expressions,
-/// arrows, methods — whose code runs when called, not when the module
-/// loads. Empty when the file does not parse.
+/// Byte ranges of the code in a JS/TS file that runs when a function is
+/// called, not when the module loads: the parameters and body of every
+/// declaration, expression, arrow and method. A method's computed name
+/// (`[await import('./a')]() {}`) runs when the class is defined, so it is not
+/// included. Empty when the file does not parse.
 fn js_function_ranges(path: &Path, content: &str) -> Vec<std::ops::Range<usize>> {
     let Some(config) = crate::lang_config::language_for_path(path) else {
         return Vec::new();
@@ -605,7 +608,12 @@ fn js_function_ranges(path: &Path, content: &str) -> Vec<std::ops::Range<usize>>
                 | "arrow_function"
                 | "method_definition"
         ) {
-            ranges.push(node.byte_range());
+            ranges.extend(
+                ["parameters", "parameter", "body"]
+                    .into_iter()
+                    .filter_map(|field| node.child_by_field_name(field))
+                    .map(|part| part.byte_range()),
+            );
             continue;
         }
         let mut cursor = node.walk();

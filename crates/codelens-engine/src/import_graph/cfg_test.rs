@@ -310,6 +310,13 @@ impl<'a> ProductionEdgeFilter<'a> {
                     edges: self.scan_rust(rel),
                     deferred: HashSet::new(),
                 }
+            } else if crate::dead_code::is_declaration_file(rel) {
+                // A declaration file never executes, so none of its imports
+                // loads anything: no edge out of it can close a load-time cycle.
+                FileProof {
+                    edges: EdgeProof::ProductionOnly(HashSet::new()),
+                    deferred: HashSet::new(),
+                }
             } else if is_js_family(rel) {
                 self.scan_timed(rel, |project, abs, content| {
                     super::parsers::js_imports_by_timing(abs, content)

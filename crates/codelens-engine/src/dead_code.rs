@@ -158,7 +158,7 @@ fn is_tool_config_file(path: &Path, name: &str) -> bool {
 
 /// TypeScript declaration files: tsc loads them through tsconfig `include`
 /// (ambient `declare module`/`declare global`); nothing imports most of them.
-fn is_declaration_file(name: &str) -> bool {
+pub(crate) fn is_declaration_file(name: &str) -> bool {
     [".d.ts", ".d.mts", ".d.cts"]
         .iter()
         .any(|suffix| name.ends_with(suffix))

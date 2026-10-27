@@ -622,6 +622,8 @@ pub struct Writer;
         for back_edge in [
             "await import('./a');\nexport const b = 1;\n",
             "if (globalThis.ready) {\n  await import('./a');\n}\nexport const b = 1;\n",
+            // A computed method name runs when the class is defined.
+            "class C {\n  [await import('./a')]() {}\n}\nexport const b = 1;\n",
         ] {
             let cycles = ts_cycles(
                 "ts-dynamic-module-level",
@@ -631,6 +633,26 @@ pub struct Writer;
             assert_eq!(cycles.len(), 1, "{back_edge:?}: {cycles:?}");
             assert!(!cycles[0].deferred, "{back_edge:?}: {cycles:?}");
         }
+    }
+
+    // Codex review (#457): declaration files never execute, so two `.d.ts`
+    // files naming each other's types are no cycle at load time.
+    #[test]
+    fn declaration_files_close_no_load_time_cycle() {
+        let (_td, dir) = temp_project_dir("ts-declaration-files");
+        fs::write(
+            dir.join("a.d.ts"),
+            "import { B } from './b';\nexport interface A { b: B }\n",
+        )
+        .expect("write a.d.ts");
+        fs::write(
+            dir.join("b.d.ts"),
+            "import { A } from './a';\nexport interface B { a: A }\n",
+        )
+        .expect("write b.d.ts");
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cycles = find_circular_dependencies(&project, 50, &GraphCache::new(0)).expect("cycles");
+        assert!(cycles.is_empty(), "{cycles:?}");
     }
 
     #[test]
