@@ -1051,6 +1051,29 @@ import (
         );
         // Another package's aliases do not apply.
         assert_eq!(resolve("lite/src/ui/view.ts", "@services/session"), None);
+
+        // Codex review (#457): a package config that redeclares `paths` keeps
+        // the `baseUrl` it inherits, as tsc merges compiler options.
+        write(
+            "tsconfig.base.json",
+            "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@/*\": [\"src/*\"] } } }\n",
+        );
+        write(
+            "web/tsconfig.json",
+            "{ \"extends\": \"../tsconfig.base.json\", \"compilerOptions\": { \"paths\": { \"@/*\": [\"src/*\"], \"#/*\": [\"web/lib/*\"] } } }\n",
+        );
+        write("src/thing.ts", "export {};\n");
+        write("web/src/thing.ts", "export {};\n");
+        write("web/lib/util.ts", "export {};\n");
+        write("web/app/page.ts", "export {};\n");
+        assert_eq!(
+            resolve("web/app/page.ts", "@/thing").as_deref(),
+            Some("src/thing.ts")
+        );
+        assert_eq!(
+            resolve("web/app/page.ts", "#/util").as_deref(),
+            Some("web/lib/util.ts")
+        );
     }
 
     // Regression (tuanbo held-out evaluation 2026-10-27): `./ledger.types.js`

@@ -166,39 +166,65 @@ fn dir_within_root(root: &Path, dir: &Path) -> Option<PathBuf> {
 fn parse_tsconfig_paths(config_dir: &Path) -> Vec<(String, Vec<PathBuf>)> {
     ["tsconfig.json", "jsconfig.json"]
         .iter()
-        .find_map(|name| read_tsconfig_paths(&config_dir.join(name), 0))
+        .find_map(|name| read_tsconfig_paths(&config_dir.join(name)))
         .unwrap_or_default()
 }
 
-/// `compilerOptions.paths` of one config, or of the config it `extends` (a
-/// relative path) when it declares none. Targets resolve against the
-/// `baseUrl` of the declaring config, its own directory by default.
-fn read_tsconfig_paths(config_path: &Path, depth: usize) -> Option<Vec<(String, Vec<PathBuf>)>> {
-    let content = std::fs::read_to_string(config_path).ok()?;
-    let parsed = serde_json::from_str::<serde_json::Value>(&strip_jsonc(&content)).ok()?;
-    let config_dir = config_path.parent()?;
-    let options = parsed.get("compilerOptions");
-    let Some(paths) = options
-        .and_then(|co| co.get("paths"))
-        .and_then(|p| p.as_object())
-    else {
-        let extends = parsed
+/// `compilerOptions.paths` of one config, merged over its relative `extends`
+/// chain the way tsc merges compiler options: `paths` and `baseUrl` each come
+/// from the nearest config that declares them, so a package config that
+/// redeclares `paths` still inherits the root's `baseUrl`. `baseUrl` resolves
+/// against the config that declares it; without one, targets resolve against
+/// the config that declares `paths`.
+fn read_tsconfig_paths(config_path: &Path) -> Option<Vec<(String, Vec<PathBuf>)>> {
+    let mut paths: Option<(PathBuf, serde_json::Map<String, serde_json::Value>)> = None;
+    let mut base_url: Option<PathBuf> = None;
+    let mut current = config_path.to_path_buf();
+    for depth in 0..5 {
+        let Some(parsed) = std::fs::read_to_string(&current).ok().and_then(|content| {
+            serde_json::from_str::<serde_json::Value>(&strip_jsonc(&content)).ok()
+        }) else {
+            // The config itself must parse; a missing base only ends the chain.
+            if depth == 0 {
+                return None;
+            }
+            break;
+        };
+        let config_dir = current.parent()?.to_path_buf();
+        let options = parsed.get("compilerOptions");
+        if paths.is_none()
+            && let Some(declared) = options
+                .and_then(|co| co.get("paths"))
+                .and_then(|p| p.as_object())
+        {
+            paths = Some((config_dir.clone(), declared.clone()));
+        }
+        if base_url.is_none()
+            && let Some(declared) = options
+                .and_then(|co| co.get("baseUrl"))
+                .and_then(|b| b.as_str())
+        {
+            base_url = Some(config_dir.join(declared));
+        }
+        if paths.is_some() && base_url.is_some() {
+            break;
+        }
+        let Some(extends) = parsed
             .get("extends")
             .and_then(|e| e.as_str())
-            .filter(|e| e.starts_with('.') && depth < 4)?;
+            .filter(|e| e.starts_with('.'))
+        else {
+            break;
+        };
         let base = config_dir.join(extends);
-        let base = if base.is_file() {
+        current = if base.is_file() {
             base
         } else {
             with_appended_extension(&base, "json")
         };
-        return read_tsconfig_paths(&base, depth + 1);
-    };
-    let base_url = options
-        .and_then(|co| co.get("baseUrl"))
-        .and_then(|b| b.as_str())
-        .unwrap_or(".");
-    let base_dir = config_dir.join(base_url);
+    }
+    let (paths_dir, paths) = paths?;
+    let base_dir = base_url.unwrap_or(paths_dir);
 
     let mut result = Vec::new();
     for (pattern, targets) in paths {

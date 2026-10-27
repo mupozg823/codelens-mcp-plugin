@@ -216,20 +216,23 @@ enum EdgeProof {
     ErasedOnly(HashSet<String>),
 }
 
-/// Resolved Python import targets with their timing. `from pkg import a, b`
-/// where every name is a submodule file runs `pkg/__init__.py` but reads none
-/// of its names, so that statement's edge to the package is erased: the
-/// package/submodule loop it forms is the package tree, not a load-order
-/// cycle — the Python form of the Rust submodule→ancestor rule
-/// (shadow-partner's 14-file `kakao_connector` "cycle", 2026-10-27). A name
-/// that is not a submodule keeps the edge: reading a package attribute while
-/// the package is half-initialised is the real hazard.
+/// Resolved Python import targets with their timing. Inside a package,
+/// `from pkg import a, b` where every name is a submodule file runs
+/// `pkg/__init__.py` but reads none of its names, so that statement's edge to
+/// the package's own `__init__` is erased: the loop it forms is the package
+/// tree, not a load-order cycle — the Python form of the Rust
+/// submodule→ancestor rule (shadow-partner's 14-file `kakao_connector`
+/// "cycle", 2026-10-27). The edge stays when a name is not a submodule
+/// (reading a half-initialised package is the hazard) and when the importer
+/// lives outside the package: its import runs the initializer, which may
+/// import the importer back.
 fn python_timed_targets(
     project: &ProjectRoot,
     abs: &std::path::Path,
     content: &str,
 ) -> Vec<(String, super::parsers::ImportTiming)> {
     use super::parsers::ImportTiming;
+    let importer = project.to_relative(abs);
     let mut targets = Vec::new();
     for statement in super::parsers::python_import_statements(content) {
         let resolved: Vec<Option<String>> = statement
@@ -243,7 +246,10 @@ fn python_timed_targets(
             let Some(target) = target else {
                 continue;
             };
-            let timing = if position == 0 && submodules_only {
+            let own_package_init = target
+                .strip_suffix("__init__.py")
+                .is_some_and(|package_dir| importer.starts_with(package_dir));
+            let timing = if position == 0 && submodules_only && own_package_init {
                 ImportTiming::Erased
             } else {
                 statement.timing

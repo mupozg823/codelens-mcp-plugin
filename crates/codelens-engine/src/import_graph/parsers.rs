@@ -226,10 +226,9 @@ pub(crate) fn python_import_statements(content: &str) -> Vec<PythonImport> {
                     .is_some_and(|rest| python_keyword_rest(rest.trim_start(), "def").is_some())
             {
                 Some(ImportTiming::Deferred)
-            } else if python_keyword_rest(header, "if").is_some_and(|condition| {
-                let condition = condition.trim();
-                condition == "TYPE_CHECKING" || condition.ends_with(".TYPE_CHECKING")
-            }) {
+            } else if python_keyword_rest(header, "if")
+                .is_some_and(|condition| is_type_checking_flag(condition.trim()))
+            {
                 Some(ImportTiming::Erased)
             } else {
                 None
@@ -357,6 +356,23 @@ fn python_bracket_delta(line: &str, triple_quote: &mut Option<&'static [u8]>) ->
         }
     }
     delta
+}
+
+/// The whole condition is `TYPE_CHECKING` or a dotted reference to it
+/// (`typing.TYPE_CHECKING`). `not typing.TYPE_CHECKING` or
+/// `enabled or typing.TYPE_CHECKING` also end with the flag but run at runtime.
+fn is_type_checking_flag(condition: &str) -> bool {
+    condition
+        .rsplit_once('.')
+        .map_or(condition == "TYPE_CHECKING", |(qualifier, flag)| {
+            flag == "TYPE_CHECKING"
+                && qualifier.split('.').all(|part| {
+                    part.chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphabetic() || c == '_')
+                        && part.chars().all(|c| c.is_alphanumeric() || c == '_')
+                })
+        })
 }
 
 /// The text after `keyword` when `statement` starts with it as a whole word.

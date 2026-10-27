@@ -648,6 +648,19 @@ pub struct Writer;
         let (_td, cycles) = package("py-package-attr", "from . import VERSION, paths");
         assert_eq!(cycles.len(), 1, "{cycles:?}");
         assert!(!cycles[0].deferred, "{cycles:?}");
+
+        // Codex review (#457): a module OUTSIDE the package importing a
+        // submodule still runs the initializer, which imports it back —
+        // `import a` raises ImportError, so the cycle must stay.
+        let (_td, dir) = temp_project_dir("py-package-outside");
+        fs::create_dir_all(dir.join("pkg")).expect("mkdir pkg");
+        fs::write(dir.join("a.py"), "from pkg import sub\nVALUE = 1\n").expect("write a");
+        fs::write(dir.join("pkg/__init__.py"), "from a import VALUE\n").expect("write init");
+        fs::write(dir.join("pkg/sub.py"), "X = 1\n").expect("write sub");
+        let project = ProjectRoot::new(&dir).expect("project");
+        let cycles = find_circular_dependencies(&project, 50, &GraphCache::new(0)).expect("cycles");
+        assert_eq!(cycles.len(), 1, "{cycles:?}");
+        assert!(!cycles[0].deferred, "{cycles:?}");
     }
 
     #[test]
@@ -669,6 +682,20 @@ pub struct Writer;
             "if TYPE_CHECKING:\n    pass\nelse:\n    from a import A\n",
         );
         assert_eq!(cycles.len(), 1, "{cycles:?}");
+        // Codex review (#457): conditions that merely end with the flag run.
+        for header in [
+            "if not typing.TYPE_CHECKING:",
+            "if enabled or typing.TYPE_CHECKING:",
+            "if TYPE_CHECKING_DISABLED:",
+        ] {
+            let cycles = py_cycles(
+                "py-type-checking-runtime",
+                "from b import helper\n",
+                &format!("import typing\nenabled = True\n{header}\n    from a import A\n"),
+            );
+            assert_eq!(cycles.len(), 1, "{header}: {cycles:?}");
+            assert!(!cycles[0].deferred, "{header}: {cycles:?}");
+        }
     }
 
     // Load-time cycles sort first so a capped list keeps them.
