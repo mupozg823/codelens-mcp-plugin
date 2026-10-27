@@ -979,6 +979,56 @@ import (
         assert_eq!(resolve("scripts/api/workflows.py", "os.path"), None);
     }
 
+    // Regression (tuanbo held-out evaluation 2026-10-27): each package keeps its
+    // own tsconfig `paths` and there is no root config, so `@services/*` and
+    // `@shared/*` resolved nowhere. Configs are JSONC and may `extends` a base.
+    #[test]
+    fn resolves_aliases_from_the_nearest_tsconfig() {
+        let dir = temp_project_dir("ts-nearest-config");
+        let write = |rel: &str, text: &str| {
+            let path = dir.join(rel);
+            fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            fs::write(path, text).expect("write");
+        };
+        write(
+            "controller/tsconfig.json",
+            "{\n  // tsc --init style comment\n  \"compilerOptions\": {\n    /* block */ \"baseUrl\": \".\",\n    \"paths\": {\n      \"@services/*\": [\"src/services/*\"],\n      \"@shared/*\": [\"../shared/*\"],\n    },\n  },\n  \"include\": [\"src/**/*.ts\", \"http://not-a-comment\"],\n}\n",
+        );
+        write(
+            "lite/tsconfig.json",
+            "{ \"extends\": \"./tsconfig.base\" }\n",
+        );
+        write(
+            "lite/tsconfig.base.json",
+            "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } } }\n",
+        );
+        write("controller/src/services/session.ts", "export {};\n");
+        write("shared/tierUtils.ts", "export {};\n");
+        write("lite/src/store.ts", "export {};\n");
+        write("controller/src/main/app.ts", "export {};\n");
+        write("lite/src/ui/view.ts", "export {};\n");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let resolve = |from: &str, module: &str| {
+            super::resolvers::resolve_module_for_file(&project, &dir.join(from), module)
+        };
+        let from = "controller/src/main/app.ts";
+        assert_eq!(
+            resolve(from, "@services/session").as_deref(),
+            Some("controller/src/services/session.ts")
+        );
+        assert_eq!(
+            resolve(from, "@shared/tierUtils.js").as_deref(),
+            Some("shared/tierUtils.ts")
+        );
+        assert_eq!(
+            resolve("lite/src/ui/view.ts", "@/store").as_deref(),
+            Some("lite/src/store.ts")
+        );
+        // Another package's aliases do not apply.
+        assert_eq!(resolve("lite/src/ui/view.ts", "@services/session"), None);
+    }
+
     // Regression (tuanbo held-out evaluation 2026-10-27): `./ledger.types.js`
     // resolved to `ledger.ts` — the extension swap replaced `.types` — which
     // made a false cycle and left `ledger.types.ts` without importers.

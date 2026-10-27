@@ -130,16 +130,7 @@ fn resolve_python_module(
     // from `scripts/` puts `scripts/` on `sys.path`, so `scripts/api/x.py`
     // imports `scripts/repo/metrics.py` as `repo.metrics`. Last, so it only
     // answers what the roots above could not.
-    // The root is canonical; the source path may arrive through a symlink.
-    let relative_dir = source_dir
-        .strip_prefix(root)
-        .map(Path::to_path_buf)
-        .ok()
-        .or_else(|| {
-            let canonical = source_dir.canonicalize().ok()?;
-            canonical.strip_prefix(root).map(Path::to_path_buf).ok()
-        });
-    for base in relative_dir
+    for base in dir_within_root(root, source_dir)
         .iter()
         .flat_map(|dir| dir.ancestors().skip(1))
         .filter(|dir| !dir.as_os_str().is_empty())
@@ -159,62 +150,171 @@ fn resolve_python_module(
     None
 }
 
-/// Parse tsconfig.json/jsconfig.json paths aliases.
-/// Returns Vec<(prefix_without_wildcard, target_dirs)>.
-fn parse_tsconfig_paths(root: &Path) -> Vec<(String, Vec<PathBuf>)> {
-    for config_name in ["tsconfig.json", "jsconfig.json"] {
-        let config_path = root.join(config_name);
-        let Ok(content) = std::fs::read_to_string(&config_path) else {
-            continue;
-        };
-        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
-            continue;
-        };
-        let Some(paths) = parsed
-            .get("compilerOptions")
-            .and_then(|co| co.get("paths"))
-            .and_then(|p| p.as_object())
-        else {
-            continue;
-        };
-        // baseUrl defaults to "." if not set
-        let base_url = parsed
-            .get("compilerOptions")
-            .and_then(|co| co.get("baseUrl"))
-            .and_then(|b| b.as_str())
-            .unwrap_or(".");
-        let base_dir = root.join(base_url);
-
-        let mut result = Vec::new();
-        for (pattern, targets) in paths {
-            // "@/*" → prefix "@/", targets ["./src/*"] → base_dir/src/
-            let prefix = pattern.trim_end_matches('*');
-            let target_dirs: Vec<PathBuf> = targets
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|t| t.as_str())
-                .map(|t| base_dir.join(t.trim_start_matches("./").trim_end_matches('*')))
-                .collect();
-            if !target_dirs.is_empty() {
-                result.push((prefix.to_string(), target_dirs));
-            }
-        }
-        return result;
-    }
-    Vec::new()
+/// `dir` relative to the (canonical) root; `dir` may arrive through a symlink.
+fn dir_within_root(root: &Path, dir: &Path) -> Option<PathBuf> {
+    dir.strip_prefix(root)
+        .map(Path::to_path_buf)
+        .ok()
+        .or_else(|| {
+            let canonical = dir.canonicalize().ok()?;
+            canonical.strip_prefix(root).map(Path::to_path_buf).ok()
+        })
 }
 
-/// Cached tsconfig paths per project root (parsed once).
+/// tsconfig.json/jsconfig.json `paths` aliases declared in `config_dir`.
+/// Returns Vec<(prefix_without_wildcard, target_dirs)>.
+fn parse_tsconfig_paths(config_dir: &Path) -> Vec<(String, Vec<PathBuf>)> {
+    ["tsconfig.json", "jsconfig.json"]
+        .iter()
+        .find_map(|name| read_tsconfig_paths(&config_dir.join(name), 0))
+        .unwrap_or_default()
+}
+
+/// `compilerOptions.paths` of one config, or of the config it `extends` (a
+/// relative path) when it declares none. Targets resolve against the
+/// `baseUrl` of the declaring config, its own directory by default.
+fn read_tsconfig_paths(config_path: &Path, depth: usize) -> Option<Vec<(String, Vec<PathBuf>)>> {
+    let content = std::fs::read_to_string(config_path).ok()?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&strip_jsonc(&content)).ok()?;
+    let config_dir = config_path.parent()?;
+    let options = parsed.get("compilerOptions");
+    let Some(paths) = options
+        .and_then(|co| co.get("paths"))
+        .and_then(|p| p.as_object())
+    else {
+        let extends = parsed
+            .get("extends")
+            .and_then(|e| e.as_str())
+            .filter(|e| e.starts_with('.') && depth < 4)?;
+        let base = config_dir.join(extends);
+        let base = if base.is_file() {
+            base
+        } else {
+            with_appended_extension(&base, "json")
+        };
+        return read_tsconfig_paths(&base, depth + 1);
+    };
+    let base_url = options
+        .and_then(|co| co.get("baseUrl"))
+        .and_then(|b| b.as_str())
+        .unwrap_or(".");
+    let base_dir = config_dir.join(base_url);
+
+    let mut result = Vec::new();
+    for (pattern, targets) in paths {
+        // "@/*" → prefix "@/", targets ["./src/*"] → base_dir/src/
+        let prefix = pattern.trim_end_matches('*');
+        let target_dirs: Vec<PathBuf> = targets
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|t| t.as_str())
+            .map(|t| base_dir.join(t.trim_start_matches("./").trim_end_matches('*')))
+            .collect();
+        if !target_dirs.is_empty() {
+            result.push((prefix.to_string(), target_dirs));
+        }
+    }
+    Some(result)
+}
+
+/// tsconfig is JSONC — `tsc --init` writes a commented file, and trailing
+/// commas are accepted — which strict `serde_json` rejects, so such a
+/// config's aliases were silently ignored. Drops comments and trailing commas
+/// outside strings.
+fn strip_jsonc(content: &str) -> String {
+    let chars: Vec<char> = content.chars().collect();
+    let mut without_comments = String::with_capacity(content.len());
+    let mut in_string = false;
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if in_string {
+            without_comments.push(c);
+            if c == '\\' && i + 1 < chars.len() {
+                without_comments.push(chars[i + 1]);
+                i += 1;
+            } else if c == '"' {
+                in_string = false;
+            }
+            i += 1;
+        } else if c == '/' && chars.get(i + 1) == Some(&'/') {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+        } else if c == '/' && chars.get(i + 1) == Some(&'*') {
+            i += 2;
+            while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
+                i += 1;
+            }
+            i += 2;
+        } else {
+            in_string = c == '"';
+            without_comments.push(c);
+            i += 1;
+        }
+    }
+
+    let chars: Vec<char> = without_comments.chars().collect();
+    let mut out = String::with_capacity(without_comments.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    for (i, &c) in chars.iter().enumerate() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+        } else if c == ','
+            && chars[i + 1..]
+                .iter()
+                .find(|n| !n.is_whitespace())
+                .is_none_or(|n| matches!(n, '}' | ']'))
+        {
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Cached tsconfig paths per config directory (parsed once).
 #[allow(clippy::type_complexity)]
 static TSCONFIG_CACHE: LazyLock<Mutex<HashMap<PathBuf, Vec<(String, Vec<PathBuf>)>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn get_tsconfig_paths(root: &Path) -> Vec<(String, Vec<PathBuf>)> {
+/// The aliases that govern `source_file`: those of the nearest
+/// tsconfig.json/jsconfig.json between its directory and the root, as tsc
+/// picks it. A monorepo keeps one config per package — tuanbo has no root
+/// config — and only the root's was read, so `@services/*` resolved nowhere.
+fn get_tsconfig_paths(root: &Path, source_file: &Path) -> Vec<(String, Vec<PathBuf>)> {
+    let config_dir = source_file
+        .parent()
+        .and_then(|dir| dir_within_root(root, dir))
+        .and_then(|relative| {
+            relative
+                .ancestors()
+                .map(|dir| {
+                    if dir.as_os_str().is_empty() {
+                        root.to_path_buf()
+                    } else {
+                        root.join(dir)
+                    }
+                })
+                .find(|dir| {
+                    dir.join("tsconfig.json").is_file() || dir.join("jsconfig.json").is_file()
+                })
+        })
+        .unwrap_or_else(|| root.to_path_buf());
     let mut cache = TSCONFIG_CACHE.lock().unwrap_or_else(|p| p.into_inner());
     cache
-        .entry(root.to_path_buf())
-        .or_insert_with(|| parse_tsconfig_paths(root))
+        .entry(config_dir.clone())
+        .or_insert_with(|| parse_tsconfig_paths(&config_dir))
         .clone()
 }
 
@@ -222,7 +322,7 @@ fn resolve_js_module(project: &ProjectRoot, source_file: &Path, module: &str) ->
     let root = project.as_path();
 
     // 1. Handle tsconfig.json paths aliases (covers @/, @components/, etc.)
-    let paths = get_tsconfig_paths(root);
+    let paths = get_tsconfig_paths(root, source_file);
     for (prefix, target_dirs) in &paths {
         if let Some(stripped) = module.strip_prefix(prefix.as_str()) {
             for target_dir in target_dirs {

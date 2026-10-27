@@ -156,9 +156,17 @@ fn is_tool_config_file(path: &Path, name: &str) -> bool {
     is_js_family(path) && (name.contains(".config.") || name.starts_with('.'))
 }
 
+/// TypeScript declaration files: tsc loads them through tsconfig `include`
+/// (ambient `declare module`/`declare global`); nothing imports most of them.
+fn is_declaration_file(name: &str) -> bool {
+    [".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+}
+
 /// Files something other than an import loads: entry/init files, tests the
-/// runner collects, framework route files and tool configs. "Nothing imports
-/// it" is their expected shape, not evidence of death.
+/// runner collects, framework route files, tool configs and TS declaration
+/// files. "Nothing imports it" is their expected shape, not evidence of death.
 pub(super) fn is_entry_point_file(file: &str) -> bool {
     let path = Path::new(file);
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or(file);
@@ -175,6 +183,7 @@ pub(super) fn is_entry_point_file(file: &str) -> bool {
     ) || is_test_file(path, name)
         || is_framework_convention_file(path, name)
         || is_tool_config_file(path, name)
+        || is_declaration_file(name)
 }
 
 /// True when every `fn name` definition in a Rust file sits inside a
@@ -206,12 +215,18 @@ fn is_executable_script(content: &str) -> bool {
 
 /// Files that launch other files by path: `node scripts/x.mjs` in
 /// `package.json`, `run:` steps and path globs in CI workflows, `setupFiles`
-/// in `vitest.config.ts`, `CMD` in a Dockerfile.
+/// in `vitest.config.ts`, `CMD` in a Dockerfile, `<script src>` in an HTML
+/// page (Vite's `index.html` entry included), and the scripts a browser
+/// extension or Stream Deck `manifest.json` declares.
 fn is_launch_manifest(name: &str) -> bool {
     matches!(
         name,
-        "package.json" | "Makefile" | "justfile" | "Procfile" | "Dockerfile"
+        "package.json" | "Makefile" | "justfile" | "Procfile" | "Dockerfile" | "manifest.json"
     ) || is_tool_config_file(Path::new(name), name)
+        || matches!(
+            Path::new(name).extension().and_then(|e| e.to_str()),
+            Some("html" | "htm")
+        )
 }
 
 /// Path tokens named by the launch manifests of one directory, relative to
@@ -232,7 +247,8 @@ impl LaunchRefs {
                 )
         };
         for token in text.split(is_separator) {
-            let token = token.trim_start_matches("./");
+            // `/src/main.tsx` in a Vite `index.html` is relative to that page.
+            let token = token.trim_start_matches("./").trim_start_matches('/');
             if token.is_empty() || !token.contains(['/', '.']) {
                 continue;
             }
@@ -829,6 +845,10 @@ mod tests {
             "vitest.config.ts",
             "next.config.mjs",
             ".eslintrc.cjs",
+            // Held-out evaluation 2026-10-27: ambient declarations tsc loads.
+            "viewer/src/vite-env.d.ts",
+            "src/types/electron.d.ts",
+            "src/types/osc.d.mts",
         ] {
             assert!(
                 is_entry_point_file(file),
@@ -837,6 +857,8 @@ mod tests {
         }
         for file in [
             "lib/donation/queue.ts",
+            "src/types/d.ts",
+            "src/types/shapes.ts",
             "lib/page.tsx",
             "lib/middleware.ts",
             "app/unused.py",
@@ -893,6 +915,20 @@ mod tests {
             "workers/dispatcher/package.json",
             r#"{"scripts": {"start": "node src/main.ts"}}"#,
         );
+        // Held-out evaluation 2026-10-27: pages and extension manifests load
+        // scripts no module imports.
+        write(
+            "viewer/index.html",
+            "<body><script type=\"module\" src=\"/src/main.tsx\"></script></body>\n",
+        );
+        write(
+            "plugin/ui/timeline.html",
+            "<script src=\"inspector.js\"></script>\n",
+        );
+        write(
+            "extension/manifest.json",
+            r#"{"background": {"service_worker": "background.js"}, "content_scripts": [{"js": ["content/admin.js"]}]}"#,
+        );
 
         let mut index = LaunchIndex::new(&dir);
         for launched in [
@@ -900,6 +936,10 @@ mod tests {
             "scripts/test-playback-handoff-db.mjs",
             "vitest.setup.network.ts",
             "workers/dispatcher/src/main.ts",
+            "viewer/src/main.tsx",
+            "plugin/ui/inspector.js",
+            "extension/background.js",
+            "extension/content/admin.js",
         ] {
             assert!(index.launches(launched), "{launched:?} should be launched");
         }
