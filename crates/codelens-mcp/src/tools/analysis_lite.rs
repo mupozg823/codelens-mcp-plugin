@@ -362,12 +362,14 @@ fn has_file_provider_domain(dir: &Path) -> bool {
     xattr_lookup_is_synced(size, errno)
 }
 
-/// Decision on one `getxattr` result. Fails closed: only a definite
-/// `ENOATTR` (the attribute is absent) clears a dir; any other error (EACCES,
-/// EIO, ENOTSUP, ...) leaves it possibly synced, so it is treated as synced.
+/// Decision on one `getxattr` result. Fails closed: only a definite answer
+/// clears a dir — `ENOATTR` (the attribute is absent) or `ENOTSUP` (the
+/// filesystem has no extended attributes, e.g. exFAT, so it cannot host a
+/// File Provider domain). Any other error (EACCES, EPERM, EIO, ...) means the
+/// tag could not be checked, so the dir is treated as synced.
 #[cfg(target_os = "macos")]
 fn xattr_lookup_is_synced(size: isize, errno: Option<i32>) -> bool {
-    size >= 0 || errno != Some(libc::ENOATTR)
+    size >= 0 || !matches!(errno, Some(libc::ENOATTR | libc::ENOTSUP))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -475,19 +477,23 @@ mod tests {
     use super::cloud_synced_ancestor;
     use std::path::Path;
 
-    // A dir whose provider tag cannot be read (EACCES, EIO, ENOTSUP, ...) may
-    // still be synced; only a definite "no such attribute" clears it.
+    // A dir whose provider tag cannot be read (EACCES, EPERM, EIO, ...) may
+    // still be synced. Only a definite "no such attribute" (ENOATTR) or "this
+    // filesystem has no xattrs" (ENOTSUP: exFAT and friends cannot host a
+    // File Provider domain) clears it.
     #[cfg(target_os = "macos")]
     #[test]
-    fn file_provider_lookup_fails_closed_on_every_error_but_a_missing_attribute() {
+    fn file_provider_lookup_fails_closed_except_a_missing_attribute_or_xattr_support() {
         use super::xattr_lookup_is_synced;
         assert!(xattr_lookup_is_synced(4, None));
         assert!(xattr_lookup_is_synced(0, None));
-        assert!(!xattr_lookup_is_synced(-1, Some(libc::ENOATTR)));
+        for errno in [libc::ENOATTR, libc::ENOTSUP] {
+            assert!(!xattr_lookup_is_synced(-1, Some(errno)), "errno {errno}");
+        }
         for errno in [
             libc::EACCES,
             libc::ENOENT,
-            libc::ENOTSUP,
+            libc::EOPNOTSUPP,
             libc::EIO,
             libc::ELOOP,
             libc::EPERM,
