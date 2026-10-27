@@ -502,6 +502,24 @@ pub(super) fn has_rust_test_attribute(lines: &[&str], symbol_line: usize) -> boo
     false
 }
 
+/// 1-indexed line of the first `def name(` / `async def name(` at any depth.
+fn python_def_line(lines: &[&str], name: &str) -> Option<usize> {
+    lines
+        .iter()
+        .position(|line| {
+            let line = line.trim_start();
+            let line = line
+                .strip_prefix("async")
+                .filter(|rest| rest.starts_with(char::is_whitespace))
+                .map_or(line, str::trim_start);
+            line.strip_prefix("def")
+                .filter(|rest| rest.starts_with(char::is_whitespace))
+                .and_then(|rest| rest.trim_start().strip_prefix(name))
+                .is_some_and(|rest| rest.trim_start().starts_with(['(', '[']))
+        })
+        .map(|index| index + 1)
+}
+
 /// Check whether any line preceding a symbol definition starts with `@`
 /// (decorator pattern). Scans upward through stacked decorators.
 /// `lines` is the 0-indexed source lines; `symbol_line` is 1-indexed.
@@ -699,6 +717,13 @@ pub fn find_dead_code_v2(
             if func_name == "<module>" {
                 continue;
             }
+            // Methods come from the call graph without a line; the decorator
+            // check below needs one (`@app.get` on a method, `@property`).
+            let func_line = if func_line == 0 && relative.ends_with(".py") {
+                python_def_line(&lines, &func_name).unwrap_or(0)
+            } else {
+                func_line
+            };
             if is_entry_point_symbol(&func_name) {
                 continue;
             }
@@ -1070,6 +1095,33 @@ mod tests {
         let symbols: Vec<&str> = found.iter().filter_map(|e| e.symbol.as_deref()).collect();
         assert!(symbols.contains(&"orphanHelper"), "{found:?}");
         assert!(!symbols.contains(&"hash"), "{found:?}");
+    }
+
+    // shadow-partner 2026-10-27: `@router.post` on `async def` handlers, and
+    // decorated methods, got no line and skipped the decorator check.
+    #[test]
+    fn decorated_async_functions_and_methods_are_not_dead() {
+        let (_td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-dead-decorated-");
+        std::fs::create_dir_all(dir.join("api")).expect("mkdir api");
+        std::fs::write(
+            dir.join("api/ai.py"),
+            "from fastapi import APIRouter\nrouter = APIRouter()\n\n\n@router.post(\"/api/ai/accept\")\nasync def api_accept(item_id: int):\n    return item_id\n\n\nclass Panel:\n    @property\n    def title(self):\n        return self._title()\n\n    def _title(self):\n        return \"t\"\n\n\nasync def orphan_job():\n    return 1\n",
+        )
+        .expect("write ai.py");
+        std::fs::write(dir.join("server.py"), "from api import ai\n").expect("write server");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let found =
+            find_dead_code_v2(&project, Some("api"), 0, &GraphCache::new(0)).expect("dead code");
+        let symbols: Vec<&str> = found.iter().filter_map(|e| e.symbol.as_deref()).collect();
+        assert!(symbols.contains(&"orphan_job"), "{found:?}");
+        assert!(!symbols.contains(&"api_accept"), "{found:?}");
+        assert!(!symbols.contains(&"title"), "{found:?}");
+        assert_eq!(
+            python_def_line(&["x = 1", "    async def go[T](a):"], "go"),
+            Some(2)
+        );
+        assert_eq!(python_def_line(&["def gone():"], "go"), None);
     }
 
     // winnation 2026-10-27: 125 of 138 pass-2 candidates were used, just not

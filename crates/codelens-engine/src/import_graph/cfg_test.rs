@@ -216,6 +216,44 @@ enum EdgeProof {
     ErasedOnly(HashSet<String>),
 }
 
+/// Resolved Python import targets with their timing. `from pkg import a, b`
+/// where every name is a submodule file runs `pkg/__init__.py` but reads none
+/// of its names, so that statement's edge to the package is erased: the
+/// package/submodule loop it forms is the package tree, not a load-order
+/// cycle — the Python form of the Rust submodule→ancestor rule
+/// (shadow-partner's 14-file `kakao_connector` "cycle", 2026-10-27). A name
+/// that is not a submodule keeps the edge: reading a package attribute while
+/// the package is half-initialised is the real hazard.
+fn python_timed_targets(
+    project: &ProjectRoot,
+    abs: &std::path::Path,
+    content: &str,
+) -> Vec<(String, super::parsers::ImportTiming)> {
+    use super::parsers::ImportTiming;
+    let mut targets = Vec::new();
+    for statement in super::parsers::python_import_statements(content) {
+        let resolved: Vec<Option<String>> = statement
+            .modules
+            .iter()
+            .map(|module| super::resolvers::resolve_module(project, abs, module))
+            .collect();
+        let submodules_only =
+            statement.from_names && resolved.len() > 1 && resolved[1..].iter().all(Option::is_some);
+        for (position, target) in resolved.into_iter().enumerate() {
+            let Some(target) = target else {
+                continue;
+            };
+            let timing = if position == 0 && submodules_only {
+                ImportTiming::Erased
+            } else {
+                statement.timing
+            };
+            targets.push((target, timing));
+        }
+    }
+    targets
+}
+
 /// What one scan proved about a file's outgoing edges.
 struct FileProof {
     edges: EdgeProof,
@@ -267,9 +305,17 @@ impl<'a> ProductionEdgeFilter<'a> {
                     deferred: HashSet::new(),
                 }
             } else if is_js_family(rel) {
-                self.scan_timed(rel, super::parsers::js_imports_by_timing)
+                self.scan_timed(rel, |project, abs, content| {
+                    super::parsers::js_imports_by_timing(content)
+                        .into_iter()
+                        .filter_map(|(module, timing)| {
+                            super::resolvers::resolve_module(project, abs, &module)
+                                .map(|target| (target, timing))
+                        })
+                        .collect()
+                })
             } else if rel.ends_with(".py") {
-                self.scan_timed(rel, super::parsers::python_imports_by_timing)
+                self.scan_timed(rel, python_timed_targets)
             } else {
                 FileProof::unfiltered()
             };
@@ -309,26 +355,27 @@ impl<'a> ProductionEdgeFilter<'a> {
     fn scan_timed(
         &mut self,
         rel: &str,
-        imports_by_timing: fn(&str) -> Vec<(String, super::parsers::ImportTiming)>,
+        timed_targets: impl Fn(
+            &ProjectRoot,
+            &std::path::Path,
+            &str,
+        ) -> Vec<(String, super::parsers::ImportTiming)>,
     ) -> FileProof {
         use super::parsers::ImportTiming;
         let Some((abs, content)) = self.read_within_budget(rel) else {
             return FileProof::unfiltered();
         };
-        let imports = imports_by_timing(&content);
-        if imports
+        let targets = timed_targets(self.project, &abs, &content);
+        if targets
             .iter()
             .all(|(_, timing)| *timing == ImportTiming::Eager)
         {
             return FileProof::unfiltered();
         }
         let mut earliest: HashMap<String, ImportTiming> = HashMap::new();
-        for (module, timing) in &imports {
-            let Some(target) = super::resolvers::resolve_module(self.project, &abs, module) else {
-                continue;
-            };
-            let entry = earliest.entry(target).or_insert(*timing);
-            *entry = match (*entry, *timing) {
+        for (target, timing) in targets {
+            let entry = earliest.entry(target).or_insert(timing);
+            *entry = match (*entry, timing) {
                 (ImportTiming::Eager, _) | (_, ImportTiming::Eager) => ImportTiming::Eager,
                 (ImportTiming::Deferred, _) | (_, ImportTiming::Deferred) => ImportTiming::Deferred,
                 _ => ImportTiming::Erased,

@@ -78,8 +78,10 @@ pub(super) static DART_EXPORT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)^\s*export\s+["']([^"']+)["']"#).unwrap());
 
 // ── collect_top_level_funcs patterns ─────────────────────────────────────────
+// `async def` too: without a line, a decorated `@router.post` handler skipped
+// the decorator check and read as dead (shadow-partner, 2026-10-27).
 pub(super) static TLF_PY_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^def ([A-Za-z_][A-Za-z0-9_]*)").unwrap());
+    LazyLock::new(|| Regex::new(r"(?m)^(?:async\s+)?def ([A-Za-z_][A-Za-z0-9_]*)").unwrap());
 pub(super) static TLF_JS_RE1: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^function ([A-Za-z_][A-Za-z0-9_]*)").unwrap());
 pub(super) static TLF_JS_RE2: LazyLock<Regex> = LazyLock::new(|| {
@@ -144,8 +146,18 @@ pub fn extract_imports_from_source(path: &Path, content: &str) -> Vec<String> {
 pub(super) fn extract_python_imports(content: &str) -> Vec<String> {
     python_import_statements(content)
         .into_iter()
-        .flat_map(|(modules, _)| modules)
+        .flat_map(|statement| statement.modules)
         .collect()
+}
+
+/// One Python import statement.
+pub(crate) struct PythonImport {
+    /// `import a, b` → `a`, `b`; `from m import x, y` → `m`, then the
+    /// submodule candidates `m.x`, `m.y`.
+    pub(crate) modules: Vec<String>,
+    /// A `from m import …` statement: `modules[1..]` are the name candidates.
+    pub(crate) from_names: bool,
+    pub(crate) timing: ImportTiming,
 }
 
 /// When an import binds at runtime.
@@ -160,22 +172,20 @@ pub(crate) enum ImportTiming {
     Erased,
 }
 
-/// [`extract_python_imports`] grouped by [`ImportTiming`]. Block nesting is
-/// read from indentation: an import under `def` is deferred, under
-/// `if TYPE_CHECKING:` erased, anywhere else (module level, `class`, `try`,
-/// plain `if`) eager. A misread can only move an import towards eager.
-pub(crate) fn python_imports_by_timing(content: &str) -> Vec<(String, ImportTiming)> {
-    python_import_statements(content)
-        .into_iter()
-        .flat_map(|(modules, timing)| modules.into_iter().map(move |m| (m, timing)))
-        .collect()
-}
-
-/// Every import statement's modules with its timing. Block headers are
-/// tracked as an indentation stack.
-fn python_import_statements(content: &str) -> Vec<(Vec<String>, ImportTiming)> {
+/// Every Python import statement with its [`ImportTiming`]. Block nesting is
+/// read from indentation, tracked as a stack: an import under `def` is
+/// deferred, under `if TYPE_CHECKING:` erased, anywhere else (module level,
+/// `class`, `try`, plain `if`) eager. A misread can only move an import
+/// towards eager.
+pub(crate) fn python_import_statements(content: &str) -> Vec<PythonImport> {
     const BLOCK_KEYWORDS: &[&str] = &[
         "async", "class", "def", "elif", "else", "except", "finally", "for", "if", "try", "while",
+        "with",
+    ];
+    // Statements that never sit inside brackets: such a line ends any
+    // bracket run, so a miscounted bracket cannot hide the imports after it.
+    const STATEMENT_KEYWORDS: &[&str] = &[
+        "async", "class", "def", "elif", "except", "finally", "from", "import", "try", "while",
         "with",
     ];
     let mut statements = Vec::new();
@@ -183,27 +193,33 @@ fn python_import_statements(content: &str) -> Vec<(Vec<String>, ImportTiming)> {
     // Open brackets of a statement spanning lines (a wrapped `def f(\n a,\n):`
     // signature, a long call): its continuation lines leave `blocks` alone.
     let mut open_brackets = 0i32;
+    let mut triple_quote: Option<&'static [u8]> = None;
     let mut lines = content.lines();
     while let Some(line) = lines.next() {
+        let in_docstring = triple_quote.is_some();
+        let brackets = python_bracket_delta(line, &mut triple_quote);
         let mut statement = strip_python_comment(line).trim().to_owned();
         if statement.is_empty() {
             continue;
-        }
-        let brackets = statement.matches(['(', '[', '{']).count() as i32
-            - statement.matches([')', ']', '}']).count() as i32;
-        if open_brackets > 0 {
-            open_brackets = (open_brackets + brackets).max(0);
-            continue;
-        }
-        let indent = line.len() - line.trim_start().len();
-        while blocks.last().is_some_and(|&(open, _)| open >= indent) {
-            blocks.pop();
         }
         let keyword = statement
             .split(|c: char| !(c.is_alphanumeric() || c == '_'))
             .next()
             .unwrap_or_default();
-        if BLOCK_KEYWORDS.contains(&keyword) {
+        let starts_statement = STATEMENT_KEYWORDS.contains(&keyword);
+        if (open_brackets > 0 && !starts_statement) || (in_docstring && !starts_statement) {
+            open_brackets = (open_brackets + brackets).max(0);
+            continue;
+        }
+        open_brackets = 0;
+        let indent = line.len() - line.trim_start().len();
+        // A docstring line is prose: it may name a keyword but opens no block.
+        if !in_docstring {
+            while blocks.last().is_some_and(|&(open, _)| open >= indent) {
+                blocks.pop();
+            }
+        }
+        if !in_docstring && BLOCK_KEYWORDS.contains(&keyword) {
             let header = statement.trim_end_matches(':');
             let timing = if keyword == "def"
                 || python_keyword_rest(header, "async")
@@ -242,6 +258,7 @@ fn python_import_statements(content: &str) -> Vec<(Vec<String>, ImportTiming)> {
             ImportTiming::Eager
         };
         let mut imports = Vec::new();
+        let mut from_names = false;
         loop {
             let continued = statement.ends_with('\\');
             if !continued && statement.matches('(').count() <= statement.matches(')').count() {
@@ -272,6 +289,7 @@ fn python_import_statements(content: &str) -> Vec<(Vec<String>, ImportTiming)> {
                 continue;
             }
             imports.push(module.to_owned());
+            from_names = true;
             let separator = if module.ends_with('.') { "" } else { "." };
             let names = names.trim().trim_start_matches('(').trim_end_matches(')');
             for item in names.split(',') {
@@ -283,9 +301,62 @@ fn python_import_statements(content: &str) -> Vec<(Vec<String>, ImportTiming)> {
                 }
             }
         }
-        statements.push((imports, timing));
+        statements.push(PythonImport {
+            modules: imports,
+            from_names,
+            timing,
+        });
     }
     statements
+}
+
+/// Bracket balance of one Python line outside string literals and comments;
+/// `triple_quote` carries an open `"""`/`'''` string across lines. Brackets in
+/// prose (a docstring's «(see §3») used to be counted and held every later
+/// line — imports included — as a continuation. Compares bytes: every byte it
+/// looks for is ASCII, which never occurs inside a multi-byte UTF-8 character.
+fn python_bracket_delta(line: &str, triple_quote: &mut Option<&'static [u8]>) -> i32 {
+    let bytes = line.as_bytes();
+    let mut delta = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if let Some(quote) = *triple_quote {
+            if bytes[i..].starts_with(quote) {
+                *triple_quote = None;
+                i += quote.len();
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        match bytes[i] {
+            b'#' => break,
+            b'"' | b'\'' => {
+                let triple: &'static [u8] = if bytes[i] == b'"' { b"\"\"\"" } else { b"'''" };
+                if bytes[i..].starts_with(triple) {
+                    *triple_quote = Some(triple);
+                    i += triple.len();
+                    continue;
+                }
+                let quote = bytes[i];
+                i += 1;
+                while i < bytes.len() && bytes[i] != quote {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+                i += 1;
+            }
+            b'(' | b'[' | b'{' => {
+                delta += 1;
+                i += 1;
+            }
+            b')' | b']' | b'}' => {
+                delta -= 1;
+                i += 1;
+            }
+            _ => i += 1,
+        }
+    }
+    delta
 }
 
 /// The text after `keyword` when `statement` starts with it as a whole word.

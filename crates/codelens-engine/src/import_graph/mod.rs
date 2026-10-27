@@ -936,6 +936,30 @@ import (
         );
     }
 
+    // Regression (greybox held-out evaluation 2026-10-27): an unbalanced «(» in a
+    // docstring was counted, so every later line read as a continuation and
+    // `from greybox.wiki.failure import …` inside a method vanished.
+    #[test]
+    fn brackets_in_strings_do_not_hide_later_imports() {
+        use super::parsers::ImportTiming;
+        let content = "class Service:\n    def note(self):\n        \"\"\"설명 (see §3\n        더 [x\n        \"\"\"\n        s = \"(\" + '[' + \"\\\"(\"\n        from pkg.failure import record\n        return [\n            1,\n        ]\n\nimport tail\n";
+        let timed: Vec<(String, ImportTiming)> = super::parsers::python_import_statements(content)
+            .into_iter()
+            .flat_map(|statement| {
+                let timing = statement.timing;
+                statement.modules.into_iter().map(move |m| (m, timing))
+            })
+            .collect();
+        assert!(
+            timed.contains(&("pkg.failure".to_owned(), ImportTiming::Deferred)),
+            "{timed:?}"
+        );
+        assert!(
+            timed.contains(&("tail".to_owned(), ImportTiming::Eager)),
+            "{timed:?}"
+        );
+    }
+
     #[test]
     fn resolves_python_submodules_and_script_dir_imports() {
         let dir = temp_project_dir("python-submodules");

@@ -617,6 +617,39 @@ pub struct Writer;
         }
     }
 
+    // shadow-partner 2026-10-27: `kakao_connector/__init__.py` imports its
+    // submodules and they `from . import paths` — the package tree, reported as
+    // a 14-file load-time cycle.
+    #[test]
+    fn python_package_tree_is_not_a_cycle() {
+        let package = |name: &str, sibling_import: &str| {
+            let (td, dir) = temp_project_dir(name);
+            let pkg = dir.join("pkg");
+            fs::create_dir_all(&pkg).expect("mkdir pkg");
+            fs::write(
+                pkg.join("__init__.py"),
+                "from .cli import main\nVERSION = \"1\"\n",
+            )
+            .expect("write __init__");
+            fs::write(
+                pkg.join("cli.py"),
+                format!("{sibling_import}\n\ndef main():\n    pass\n"),
+            )
+            .expect("write cli");
+            fs::write(pkg.join("paths.py"), "ROOT = '.'\n").expect("write paths");
+            let project = ProjectRoot::new(&dir).expect("project");
+            let cycles =
+                find_circular_dependencies(&project, 50, &GraphCache::new(0)).expect("cycles");
+            (td, cycles)
+        };
+        let (_td, cycles) = package("py-package-tree", "from . import paths");
+        assert!(cycles.is_empty(), "{cycles:?}");
+        // Reading a package attribute during its own init is the real hazard.
+        let (_td, cycles) = package("py-package-attr", "from . import VERSION, paths");
+        assert_eq!(cycles.len(), 1, "{cycles:?}");
+        assert!(!cycles[0].deferred, "{cycles:?}");
+    }
+
     #[test]
     fn type_checking_back_edge_is_not_a_cycle() {
         for header in ["if TYPE_CHECKING:", "if typing.TYPE_CHECKING:"] {

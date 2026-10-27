@@ -603,10 +603,11 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
                 "file": e.file, "importance": e.score
             })).collect::<Vec<_>>(),
             "circular_dependencies": cycles.iter().map(|c| json!({
-                "cycle": c.cycle, "length": c.length
+                "cycle": c.cycle, "length": c.length, "deferred": c.deferred
             })).collect::<Vec<_>>(),
             "health": json!({
                 "has_cycles": !cycles.is_empty(),
+                "has_load_time_cycles": cycles.iter().any(|c| !c.deferred),
                 "total_dirs": structure.len(),
             }),
             "semantic": semantic_status,
