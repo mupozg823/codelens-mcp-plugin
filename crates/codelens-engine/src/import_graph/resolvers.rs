@@ -252,28 +252,31 @@ fn resolve_js_module(project: &ProjectRoot, source_file: &Path, module: &str) ->
 
 pub(super) fn js_resolution_candidates(base: &Path) -> Vec<PathBuf> {
     let mut candidates = vec![base.to_path_buf()];
-    let extensions = ["js", "jsx", "ts", "tsx", "mjs", "cjs"];
+    // `d.ts` last: a declaration file only answers when no source file does.
+    let extensions = ["js", "jsx", "ts", "tsx", "mjs", "cjs", "d.ts"];
 
-    let needs_stripped_candidates = if let Some(ext) = base.extension().and_then(|e| e.to_str()) {
-        matches!(ext, "js" | "jsx" | "mjs" | "cjs")
-    } else {
-        true
+    // TS ESM spells `./x.js` for `x.ts`, so a JS extension is dropped. Any
+    // other dot belongs to the file name (`x.types`, `x.helpers`): extensions
+    // are appended to it, never swapped for it — `with_extension` turned
+    // `./x.types.js` into `x.ts`.
+    let stem = match base.extension().and_then(|e| e.to_str()) {
+        Some("js" | "jsx" | "mjs" | "cjs") => base.with_extension(""),
+        _ => base.to_path_buf(),
     };
-
-    if needs_stripped_candidates {
-        let stripped = if base.extension().is_some() {
-            base.with_extension("")
-        } else {
-            base.to_path_buf()
-        };
-        for ext in extensions {
-            candidates.push(stripped.with_extension(ext));
-        }
-        for ext in extensions {
-            candidates.push(stripped.join(format!("index.{ext}")));
-        }
+    for ext in extensions {
+        candidates.push(with_appended_extension(&stem, ext));
+    }
+    for ext in extensions {
+        candidates.push(stem.join(format!("index.{ext}")));
     }
     candidates
+}
+
+fn with_appended_extension(path: &Path, ext: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".");
+    name.push(ext);
+    PathBuf::from(name)
 }
 
 /// Go: resolve import path by stripping go.mod module prefix, then searching project dirs.

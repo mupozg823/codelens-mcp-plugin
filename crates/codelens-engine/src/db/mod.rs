@@ -25,7 +25,8 @@ const SCHEMA_VERSION: i64 = 8;
 /// skip keeps stale edges forever, so logic fixes never reach existing indexes.
 /// 3: Rust items inside item-level macro bodies (`cfg_rt! { … }`) are extracted.
 /// 4: `mod x;` in a non-`mod.rs`, non-crate-root file `foo.rs` resolves to `foo/x.rs`.
-const ANALYZER_VERSION: i64 = 4;
+/// 5: JS/TS `./x.types.js` resolves to `x.types.ts` (not `x.ts`); `.d.ts` is a candidate.
+const ANALYZER_VERSION: i64 = 5;
 
 /// Lowercased camelCase words of a symbol name, space-joined, for the
 /// `symbols_fts.words` column. Only what the FTS tokenizer cannot produce

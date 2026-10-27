@@ -894,6 +894,52 @@ import (
         }
     }
 
+    // Regression (tuanbo held-out evaluation 2026-10-27): `./ledger.types.js`
+    // resolved to `ledger.ts` — the extension swap replaced `.types` — which
+    // made a false cycle and left `ledger.types.ts` without importers.
+    #[test]
+    fn resolves_js_specifiers_whose_file_name_contains_a_dot() {
+        let dir = temp_project_dir("js-dotted-names");
+        fs::create_dir_all(dir.join("src/types")).expect("mkdir src/types");
+        for file in [
+            "src/ledger.ts",
+            "src/ledger.types.ts",
+            "src/ledger.helpers.ts",
+            "src/page.config.ts",
+            "src/types/index.d.ts",
+            "src/real.ts",
+            "src/real.d.ts",
+        ] {
+            fs::write(dir.join(file), "export {};\n").expect("write fixture");
+        }
+        let project = ProjectRoot::new(&dir).expect("project");
+        let from = dir.join("src/outbox.ts");
+        let resolve =
+            |module: &str| super::resolvers::resolve_module_for_file(&project, &from, module);
+        assert_eq!(
+            resolve("./ledger.types.js").as_deref(),
+            Some("src/ledger.types.ts")
+        );
+        assert_eq!(
+            resolve("./ledger.helpers").as_deref(),
+            Some("src/ledger.helpers.ts")
+        );
+        assert_eq!(
+            resolve("./page.config").as_deref(),
+            Some("src/page.config.ts")
+        );
+        assert_eq!(resolve("./ledger.js").as_deref(), Some("src/ledger.ts"));
+        assert_eq!(resolve("./ledger").as_deref(), Some("src/ledger.ts"));
+        // A declaration file answers only when no source file does.
+        assert_eq!(
+            resolve("./types/index.js").as_deref(),
+            Some("src/types/index.d.ts")
+        );
+        assert_eq!(resolve("./types").as_deref(), Some("src/types/index.d.ts"));
+        assert_eq!(resolve("./real").as_deref(), Some("src/real.ts"));
+        assert_eq!(resolve("./missing.types.js"), None);
+    }
+
     fn temp_project_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "codelens-core-import-graph-{name}-{}",
