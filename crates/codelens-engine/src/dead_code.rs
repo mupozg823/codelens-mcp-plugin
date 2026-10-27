@@ -1,4 +1,4 @@
-use crate::call_graph::{extract_calls, is_noise_callee};
+use crate::call_graph::extract_calls;
 use crate::project::ProjectRoot;
 use anyhow::Result;
 use serde::Serialize;
@@ -364,6 +364,66 @@ pub(super) fn is_entry_point_symbol(name: &str) -> bool {
         || name == "tearDown"
         || name.starts_with("test_")
         || name.starts_with("Test")
+        || REACT_LIFECYCLE_METHODS.contains(&name)
+}
+
+/// React class-component methods React itself calls.
+const REACT_LIFECYCLE_METHODS: &[&str] = &[
+    "render",
+    "componentDidMount",
+    "componentDidUpdate",
+    "componentWillUnmount",
+    "componentDidCatch",
+    "shouldComponentUpdate",
+    "getSnapshotBeforeUpdate",
+    "getDerivedStateFromError",
+    "getDerivedStateFromProps",
+];
+
+/// Adds every identifier token of `source` to `counts`. Comments and strings
+/// are not skipped: a name mentioned only there is still a reason to look
+/// before deleting, and the report favours precision over recall.
+fn count_identifiers(source: &str, counts: &mut HashMap<String, usize>) {
+    let is_start = |c: char| c.is_ascii_alphabetic() || c == '_' || c == '$';
+    let is_part = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    let mut start = None;
+    for (i, c) in source.char_indices() {
+        match start {
+            Some(_) if is_part(c) => {}
+            Some(s) => {
+                *counts.entry(source[s..i].to_owned()).or_insert(0) += 1;
+                start = is_start(c).then_some(i);
+            }
+            None if is_start(c) => start = Some(i),
+            None => {}
+        }
+    }
+    if let Some(s) = start {
+        *counts.entry(source[s..].to_owned()).or_insert(0) += 1;
+    }
+}
+
+/// A Rust test or benchmark: `#[test]`, `#[tokio::test]`, `#[rstest]`,
+/// `#[bench]` … among the attributes stacked on the definition. The harness
+/// calls these, so no reference to them exists.
+pub(super) fn has_rust_test_attribute(lines: &[&str], symbol_line: usize) -> bool {
+    let mut idx = symbol_line.saturating_sub(1);
+    while idx > 0 {
+        idx -= 1;
+        let line = lines.get(idx).map_or("", |l| l.trim());
+        if line.is_empty() || line.starts_with("//") {
+            continue;
+        }
+        let Some(attr) = line.strip_prefix("#[") else {
+            return false;
+        };
+        let path = attr.split(['(', ']']).next().unwrap_or("").trim();
+        let last = path.rsplit("::").next().unwrap_or(path);
+        if last.starts_with("test") || matches!(last, "bench" | "rstest" | "proptest") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Check whether any line preceding a symbol definition starts with `@`
@@ -503,11 +563,17 @@ pub fn find_dead_code_v2(
     }
 
     // ── Pass 2: unreferenced symbols ─────────────────────────────────────────
+    // A function is unreferenced when its name occurs nowhere but its own
+    // definition. Every call contains the name, so this subsumes the call
+    // graph, and it also sees the uses a call graph cannot: JSX components,
+    // callbacks and function pointers passed as values, re-exports, and calls
+    // to names the call graph drops as builtin noise (`hash`, `id`, `read`).
+    // winnation 2026-10-27: 125 of 138 call-graph candidates were such uses.
     let candidate_files = collect_candidate_files(project.as_path())?;
-    let mut all_callees: HashSet<String> = HashSet::new();
+    let mut identifier_counts: HashMap<String, usize> = HashMap::new();
     for path in &candidate_files {
-        for edge in extract_calls(path) {
-            all_callees.insert(edge.callee_name);
+        if let Ok(source) = std::fs::read_to_string(path) {
+            count_identifiers(&source, &mut identifier_counts);
         }
     }
 
@@ -543,13 +609,9 @@ pub fn find_dead_code_v2(
             if is_entry_point_symbol(&func_name) {
                 continue;
             }
-            // The call graph drops calls to these names as builtin noise, so
-            // `all_callees` can never contain them: a user `hash`/`id`/`read`
-            // looked dead however often it was called (winnation 2026-10-27).
-            if is_noise_callee(&func_name) {
-                continue;
-            }
-            if func_line > 0 && has_decorator(&lines, func_line) {
+            if func_line > 0
+                && (has_decorator(&lines, func_line) || has_rust_test_attribute(&lines, func_line))
+            {
                 continue;
             }
             if !test_regions.is_empty()
@@ -557,7 +619,7 @@ pub fn find_dead_code_v2(
             {
                 continue;
             }
-            if !all_callees.contains(&func_name) {
+            if identifier_counts.get(&func_name).copied().unwrap_or(0) <= 1 {
                 results.push(DeadCodeEntryV2 {
                     file: relative.clone(),
                     symbol: Some(func_name),
@@ -827,8 +889,11 @@ mod tests {
         assert_eq!(pass1.last(), Some(&".harness/probe.ts"), "{pass1:?}");
     }
 
+    // Before the reference rule, pass 2 asked the call graph, which drops
+    // calls to builtin-like names: a user `hash` looked dead however often it
+    // was called (winnation 2026-10-27).
     #[test]
-    fn helpers_named_like_builtins_are_not_judged() {
+    fn helpers_named_like_builtins_are_judged_by_references() {
         let (_td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-dead-noise-");
         std::fs::create_dir_all(dir.join("lib")).expect("mkdir lib");
         std::fs::write(
@@ -848,6 +913,58 @@ mod tests {
         let symbols: Vec<&str> = found.iter().filter_map(|e| e.symbol.as_deref()).collect();
         assert!(symbols.contains(&"orphanHelper"), "{found:?}");
         assert!(!symbols.contains(&"hash"), "{found:?}");
+    }
+
+    // winnation 2026-10-27: 125 of 138 pass-2 candidates were used, just not
+    // called by name — JSX components, callbacks, function pointers.
+    #[test]
+    fn functions_used_as_values_are_not_dead() {
+        let (_td, dir) = crate::test_helpers::make_unique_temp_dir("codelens-dead-values-");
+        std::fs::create_dir_all(dir.join("lib")).expect("mkdir lib");
+        std::fs::write(
+            dir.join("lib/handlers.tsx"),
+            "function onPick(v: string) {\n  return v;\n}\n\nfunction Row() {\n  return null;\n}\n\nfunction unusedHelper() {\n  return 1;\n}\n\nclass Boundary {\n  componentDidCatch() {}\n}\n\nexport function View() {\n  return <Row onChange={onPick} />;\n}\n",
+        )
+        .expect("write handlers");
+        std::fs::write(
+            dir.join("lib/use.ts"),
+            "import { View } from './handlers';\nexport const v = View;\n",
+        )
+        .expect("write use");
+        std::fs::write(
+            dir.join("lib/table.rs"),
+            "fn schema_a() -> u32 {\n    1\n}\n\npub static TABLE: [fn() -> u32; 1] = [schema_a];\n\n#[tokio::test]\nasync fn runs_end_to_end() {}\n\n#[test]\n#[allow(clippy::unit_cmp)]\nfn plain_test() {\n    assert_eq!(schema_a(), 1);\n}\n\nfn dead_rust() {}\n",
+        )
+        .expect("write table");
+        std::fs::write(dir.join("lib/lib.rs"), "mod table;\n").expect("write lib.rs");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+        let found = find_dead_code_v2(&project, Some("lib"), 0, &GraphCache::new(0)).expect("dead");
+        let symbols: Vec<&str> = found.iter().filter_map(|e| e.symbol.as_deref()).collect();
+        for used in [
+            "onPick",
+            "Row",
+            "View",
+            "componentDidCatch",
+            "schema_a",
+            "runs_end_to_end",
+            "plain_test",
+        ] {
+            assert!(!symbols.contains(&used), "{used} is used: {found:?}");
+        }
+        assert!(symbols.contains(&"unusedHelper"), "{found:?}");
+        assert!(symbols.contains(&"dead_rust"), "{found:?}");
+    }
+
+    #[test]
+    fn identifiers_are_counted_as_whole_tokens() {
+        let mut counts = HashMap::new();
+        count_identifiers("fn read_a() { read_a(); $el.x1 } // read_ab", &mut counts);
+        assert_eq!(counts.get("read_a"), Some(&2));
+        assert_eq!(counts.get("read_ab"), Some(&1));
+        assert_eq!(counts.get("$el"), Some(&1));
+        assert_eq!(counts.get("x1"), Some(&1));
+        assert_eq!(counts.get("read"), None);
     }
 
     #[test]

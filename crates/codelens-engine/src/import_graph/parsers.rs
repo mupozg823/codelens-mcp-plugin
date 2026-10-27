@@ -438,7 +438,13 @@ pub(crate) fn collect_top_level_funcs(
             if !name.is_empty() {
                 let offset = m.start();
                 let line = source[..offset].bytes().filter(|&b| b == b'\n').count() + 1;
-                funcs.entry(name).or_insert(line);
+                // Callers seed names from the call graph with line 0; a
+                // definition line found here must replace that placeholder or
+                // decorator and `#[test]` checks never see these functions.
+                let entry = funcs.entry(name).or_insert(line);
+                if *entry == 0 {
+                    *entry = line;
+                }
             }
         }
     }

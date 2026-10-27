@@ -120,6 +120,24 @@ fn parse_rfc3339_utc_seconds(value: &str) -> Option<u64> {
     Some(days as u64 * 86_400 + hour * 3600 + minute * 60 + second)
 }
 
+/// Identity of the running binary for caches that outlive the process (the
+/// analysis cache keeps artifacts on disk for 6 h). Git SHA and build time
+/// alone are not enough: `build.rs` reruns only when HEAD moves, so two
+/// builds of edited code on one commit share both, and the second build
+/// served the first one's analysis. The executable's mtime separates them.
+pub(crate) fn binary_identity() -> &'static str {
+    static IDENTITY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    IDENTITY.get_or_init(|| {
+        let mtime_nanos = current_executable_path()
+            .ok()
+            .and_then(|path| std::fs::metadata(path).ok())
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        format!("{BUILD_GIT_SHA}:{BUILD_TIME}:{mtime_nanos}")
+    })
+}
+
 fn current_executable_path() -> Result<std::path::PathBuf, String> {
     if let Some(path) = std::env::var_os("CODELENS_EXECUTABLE_PATH_OVERRIDE") {
         return Ok(std::path::PathBuf::from(path));

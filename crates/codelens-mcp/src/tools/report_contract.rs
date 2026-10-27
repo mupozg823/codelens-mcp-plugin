@@ -44,10 +44,9 @@ fn fingerprint_cache_key(
 ) -> Option<String> {
     cache_key.map(|key| {
         format!(
-            "{key}|idx:{}:{file_count}|bin:{}:{}",
+            "{key}|idx:{}:{file_count}|bin:{}",
             max_indexed_at.unwrap_or(0),
-            crate::build_info::BUILD_GIT_SHA,
-            crate::build_info::BUILD_TIME,
+            crate::build_info::binary_identity(),
         )
     })
 }
@@ -501,14 +500,21 @@ mod tests {
     fn fingerprint_names_the_producing_build() {
         let fingerprinted =
             fingerprint_cache_key(Some("k".to_owned()), Some(1_000), 42).expect("keyed");
+        let identity = crate::build_info::binary_identity();
         assert!(
-            fingerprinted.ends_with(&format!(
-                "|bin:{}:{}",
-                crate::build_info::BUILD_GIT_SHA,
-                crate::build_info::BUILD_TIME
-            )),
+            fingerprinted.ends_with(&format!("|bin:{identity}")),
             "{fingerprinted}"
         );
+        // SHA and build time repeat across rebuilds on one commit; the
+        // executable's mtime must be part of the identity.
+        let mtime = identity
+            .strip_prefix(&format!(
+                "{}:{}:",
+                crate::build_info::BUILD_GIT_SHA,
+                crate::build_info::BUILD_TIME
+            ))
+            .and_then(|rest| rest.parse::<u128>().ok());
+        assert!(mtime.is_some_and(|nanos| nanos > 0), "{identity}");
     }
 
     #[test]
