@@ -463,29 +463,43 @@ pub(super) fn has_decorator(lines: &[&str], symbol_line: usize) -> bool {
     }
 }
 
-/// #F18: non-source config/data files (`.toml`/`.yml`/`.yaml`/`.json`) are
-/// indexed as import-graph nodes but are never "imported" the way source
-/// modules are, so a DB-backed graph (`build_import_graph` over every
-/// indexed path) always reports them as orphans. They are configuration,
-/// not dead code. The extension set mirrors the structured/config filetypes
-/// the duplicate detector already treats specially
-/// (`embedding::duplicates::structured_filetype_floor`).
-pub(super) fn is_non_source_config_file(file: &str) -> bool {
+/// True when every cross-file use of `file` goes through a file-level import
+/// the resolver follows, so «no importer» can mean «unused». Elsewhere a file
+/// is reached without one: same package/module/namespace visibility (Go, Java,
+/// Kotlin, Scala, Swift, C#), autoloaders (Rails/Zeitwerk, Composer PSR-4),
+/// the build system (C/C++ sources — headers are `#include`d) or markup that
+/// links it (HTML, CSS). On held-out projects those were 13 of 42 false
+/// pass-1 files (HTML, CSS, Swift). Config/data files (#F18: `.toml`, `.yml`,
+/// `.json`) are indexed graph nodes that nothing imports, and stay out too.
+fn importers_prove_use(file: &str) -> bool {
     matches!(
         Path::new(file)
             .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_ascii_lowercase())
             .as_deref(),
-        Some("toml" | "yml" | "yaml" | "json")
+        Some(
+            "py" | "js"
+                | "jsx"
+                | "ts"
+                | "tsx"
+                | "mjs"
+                | "cjs"
+                | "rs"
+                | "dart"
+                | "h"
+                | "hh"
+                | "hpp"
+                | "hxx"
+        )
     )
 }
 
 /// Pass-1 verdict for a file: it is a dead-code candidate when nothing
-/// imports it and it is neither a recognised entry point nor a non-source
-/// config/data file (see [`is_non_source_config_file`]).
+/// imports it, its language makes that meaningful ([`importers_prove_use`]),
+/// and it is not a recognised entry point.
 fn is_pass1_dead_file(file: &str, has_no_importers: bool) -> bool {
-    has_no_importers && !is_entry_point_file(file) && !is_non_source_config_file(file)
+    has_no_importers && importers_prove_use(file) && !is_entry_point_file(file)
 }
 
 pub fn find_dead_code(
@@ -736,6 +750,42 @@ mod tests {
         // Entry points and imported files remain excluded.
         assert!(!is_pass1_dead_file("src/lib.rs", true));
         assert!(!is_pass1_dead_file("src/used.rs", false));
+    }
+
+    // Held-out evaluation 2026-10-27: 13 of 42 false pass-1 files were HTML,
+    // CSS and Swift, which no resolver gives an importer.
+    #[test]
+    fn pass1_only_judges_languages_whose_uses_need_an_import() {
+        for reached_without_import in [
+            "ios/App/AppRouter.swift",
+            "scripts/templates/dashboard.html",
+            "web/index.htm",
+            "src/design/tokens.css",
+            "pkg/server/handler.go",
+            "src/main/java/com/acme/Service.java",
+            "app/models/user.rb",
+            "src/Controller/Home.php",
+            "Services/Billing.cs",
+            "src/codec.c",
+            "src/codec.cpp",
+        ] {
+            assert!(
+                !is_pass1_dead_file(reached_without_import, true),
+                "{reached_without_import:?}"
+            );
+        }
+        for judged in [
+            "src/orphan.ts",
+            "src/orphan.tsx",
+            "lib/orphan.mjs",
+            "app/orphan.py",
+            "src/orphan.rs",
+            "lib/orphan.dart",
+            "include/orphan.h",
+            "include/orphan.hpp",
+        ] {
+            assert!(is_pass1_dead_file(judged, true), "{judged:?}");
+        }
     }
 
     #[test]
