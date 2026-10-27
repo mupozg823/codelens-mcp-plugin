@@ -32,14 +32,14 @@ pub struct QueryEngine<'a> {
 /// End-of-request fence for symbol-backed reads. Holding the exact index Arc
 /// prevents a session rebind from making the final comparison against another
 /// project's token.
-struct SymbolGenerationFence {
+pub(crate) struct SymbolGenerationFence {
     index: Arc<codelens_engine::SymbolIndex>,
     project: String,
     before: u64,
 }
 
 impl SymbolGenerationFence {
-    fn new(index: Arc<codelens_engine::SymbolIndex>, project: String) -> Self {
+    pub(crate) fn new(index: Arc<codelens_engine::SymbolIndex>, project: String) -> Self {
         let before = index.committed_generation();
         Self {
             index,
@@ -48,8 +48,13 @@ impl SymbolGenerationFence {
         }
     }
 
+    /// Analysis-lite handlers bind their project inside the call (per-call
+    /// stdio binding), so they fence under that binding themselves; a fence
+    /// captured here would watch the pre-binding (placeholder) index.
     fn capture_if_required(state: &AppState, target: &str) -> Option<Self> {
-        crate::tool_defs::tool_symbol_generation_consistent(target).then(|| {
+        (crate::tool_defs::tool_symbol_generation_consistent(target)
+            && crate::tools::analysis_lite::handler(target).is_none())
+        .then(|| {
             Self::new(
                 state.symbol_index(),
                 state.project().as_path().display().to_string(),
@@ -76,7 +81,7 @@ impl SymbolGenerationFence {
 /// Run a symbol-backed read under a generation fence. A read that raced an
 /// index commit is idempotent, so it runs once more against the new generation
 /// before the caller is asked to retry; a second race still surfaces.
-fn run_fenced_read(
+pub(crate) fn run_fenced_read(
     mut capture: impl FnMut() -> Option<SymbolGenerationFence>,
     mut run: impl FnMut() -> ToolResult,
 ) -> ToolResult {

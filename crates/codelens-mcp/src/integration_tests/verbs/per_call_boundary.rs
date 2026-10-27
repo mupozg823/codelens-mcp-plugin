@@ -85,3 +85,54 @@ fn stdio_forged_session_project_path_never_binds_its_dir() {
         "the decoy dir stays untouched"
     );
 }
+
+/// Install [`AFTER_QUERY`] for one call on this thread.
+///
+/// [`AFTER_QUERY`]: crate::tools::analysis_lite::AFTER_QUERY
+fn with_after_query<T>(hook: impl Fn(&crate::AppState) + 'static, call: impl FnOnce() -> T) -> T {
+    crate::tools::analysis_lite::AFTER_QUERY.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+    let result = call();
+    crate::tools::analysis_lite::AFTER_QUERY.with(|slot| *slot.borrow_mut() = None);
+    result
+}
+
+/// Commit one generation to the index the request is bound to.
+fn commit_to_bound_index(state: &crate::AppState) {
+    let index = state.symbol_index();
+    let file = state.project().as_path().join("a.ts");
+    index.remove_files(std::slice::from_ref(&file)).unwrap();
+    index.index_files(std::slice::from_ref(&file)).unwrap();
+}
+
+// M5: the end-of-request generation fence must watch the repository the call
+// bound to, not the placeholder the process started on. A commit to the bound
+// index during every attempt surfaces as index_generation_changed naming that
+// repository.
+#[test]
+fn per_call_generation_fence_watches_the_bound_repository() {
+    let state = analysis_lite_launch_unbound_state();
+    let placeholder = state.project().as_path().display().to_string();
+    let repo = analysis_lite_ts_project();
+    let file = repo.join("a.ts").display().to_string();
+    // Warm the per-call context so the hook commits to an existing index.
+    let warm = analysis_lite_refs_call(&state, &file);
+    assert_ne!(warm["result"]["isError"], json!(true), "{warm}");
+
+    let raced = with_after_query(commit_to_bound_index, || {
+        analysis_lite_refs_call(&state, &file)
+    });
+    assert_eq!(raced["result"]["isError"], json!(true), "{raced}");
+    let data = analysis_lite_data(&raced);
+    assert_eq!(
+        data["errors"][0]["code"],
+        json!("index_generation_changed"),
+        "{data}"
+    );
+    let message = data["errors"][0]["message"].as_str().unwrap();
+    assert!(message.contains(&repo.display().to_string()), "{message}");
+    assert!(!message.contains(&placeholder), "{message}");
+
+    // Without a racing commit the bound call answers.
+    let calm = analysis_lite_refs_call(&state, &file);
+    assert_ne!(calm["result"]["isError"], json!(true), "{calm}");
+}

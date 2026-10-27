@@ -62,6 +62,30 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
             .as_str()
             .expect("schema-validated file"),
     )?;
+    // The end-of-request generation fence is captured here, under the
+    // binding, so it watches the bound repository's index (dispatch skips its
+    // own pre-binding capture for these handlers). A reader's generation is a
+    // constant, so its fence never trips.
+    crate::dispatch::run_fenced_read(
+        || {
+            Some(crate::dispatch::SymbolGenerationFence::new(
+                state.symbol_index(),
+                state.current_project_scope(),
+            ))
+        },
+        || run_bound(state, args, target, query, &file, name_span),
+    )
+}
+
+fn run_bound(
+    state: &AppState,
+    args: &Value,
+    target: &str,
+    query: AnalysisQuery,
+    file: &str,
+    name_span: Option<ByteSpan>,
+) -> ToolResult {
+    let selector_args = &args["target"];
     let index = state.symbol_index();
     // A reader cannot see the writer process's mutation counter: its committed
     // generation is a constant, so it is reported unknown and pins are refused
@@ -83,7 +107,7 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
         }
     }
     let selector = DeclarationSelector {
-        file,
+        file: file.to_owned(),
         name: selector_args
             .get("name")
             .and_then(Value::as_str)
@@ -127,6 +151,12 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
         args.get("path").and_then(Value::as_str),
         limits,
     );
+    #[cfg(test)]
+    AFTER_QUERY.with(|hook| {
+        if let Some(hook) = hook.borrow().as_ref() {
+            hook(state);
+        }
+    });
     // Read while the request binding is held; the error envelope is built
     // after it is released.
     let runtime_role = state.project_runtime_role_evidence();
@@ -166,6 +196,14 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
     meta.freshness = Freshness::Indexed;
     meta.degraded_reason = Some("analysis-lite coverage and freshness are defined by the typed evidence; no completeness confidence is assigned".to_owned());
     Ok((payload, meta))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs on the calling thread right after the engine query, under the
+    /// request binding: lets a test commit to the bound index mid-request.
+    pub(crate) static AFTER_QUERY: std::cell::RefCell<Option<Box<dyn Fn(&AppState)>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Stamp serialized evidence (success or `status=error`) with the runtime that

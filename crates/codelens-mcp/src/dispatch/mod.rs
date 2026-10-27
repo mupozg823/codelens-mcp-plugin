@@ -13,6 +13,7 @@ mod access;
 mod embedding_coverage;
 mod envelope;
 mod query_engine;
+pub(crate) use query_engine::{SymbolGenerationFence, run_fenced_read};
 mod rate_limit;
 mod response;
 mod response_support;
