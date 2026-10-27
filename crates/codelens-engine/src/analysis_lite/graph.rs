@@ -2,7 +2,7 @@ use super::{error, identity, types::*};
 use crate::call_graph::extract::{LocatedCaller, extract_located_calls_from_source};
 use crate::call_graph::types::CallTargetIdentity;
 use crate::oxc_analysis::{
-    ByteSpan, DeclarationAnalysis, ModuleImport, analyze_declarations, is_js_ts,
+    ByteSpan, DeclarationAnalysis, ExactDeclaration, ModuleImport, analyze_declarations, is_js_ts,
 };
 use crate::project::{ProjectRoot, collect_files};
 use std::collections::{BTreeMap, HashSet};
@@ -330,6 +330,41 @@ impl DeclarationGraph {
             imported,
             visited,
         )
+    }
+
+    /// The declaration an import binding in `file` stands for — the identity
+    /// graph edges carry — with that declaration and its file's source hash.
+    pub fn imported_declaration(
+        &self,
+        project: &ProjectRoot,
+        file: &str,
+        binding: &ExactDeclaration,
+    ) -> Result<(DeclarationIdentity, &ExactDeclaration, &str), String> {
+        let source = self.sources.get(file).ok_or_else(|| {
+            format!("import source `{file}` unavailable in bounded source snapshot")
+        })?;
+        let import = source
+            .analysis
+            .imports
+            .iter()
+            .find(|import| import.local_span == binding.name_span)
+            .ok_or_else(|| "import declaration has no verified ESM module entry".to_owned())?;
+        let resolved = self.resolve_import(project, file, import, &mut HashSet::new())?;
+        let exported = self
+            .sources
+            .get(&resolved.file)
+            .and_then(|source| {
+                source
+                    .analysis
+                    .declarations
+                    .iter()
+                    .find(|declaration| Some(declaration.name_span) == resolved.name_span)
+                    .map(|declaration| (declaration, source.hash.as_str()))
+            })
+            .ok_or_else(|| {
+                "resolved declaration unavailable in bounded source snapshot".to_owned()
+            })?;
+        Ok((resolved, exported.0, exported.1))
     }
 
     pub fn callers(&self, target: &CallTargetIdentity) -> impl Iterator<Item = &EdgeEvidence> {

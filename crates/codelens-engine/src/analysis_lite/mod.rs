@@ -300,8 +300,7 @@ fn execute(
         return Ok(());
     }
     let declaration = candidates[0];
-    let target = identity(&file, declaration);
-    response.target = Some(target.clone());
+    response.target = Some(identity(&file, declaration));
     let graph = graph::DeclarationGraph::build(
         project,
         caller_path,
@@ -310,6 +309,19 @@ fn execute(
         analysis.clone(),
         response.limits.max_files,
     )?;
+    // An import binding is an alias: graph edges carry the declaration it
+    // resolves to, so the query runs on that identity and adds the binding's
+    // own local uses. An unresolved import keeps the binding as the target;
+    // its callsites are unresolved evidence.
+    let exported = declaration
+        .is_import
+        .then(|| graph.imported_declaration(project, &file, declaration).ok())
+        .flatten();
+    let target = exported.as_ref().map_or_else(
+        || identity(&file, declaration),
+        |(resolved, ..)| resolved.clone(),
+    );
+    response.target = Some(target.clone());
     response.snapshot.files_read = graph.sources.len();
     response.snapshot.source_bundle_hash = Some(graph.bundle_hash());
     response.truncation.files = graph.files_truncated;
@@ -321,33 +333,57 @@ fn execute(
     match query {
         AnalysisQuery::References => {
             let mut references = BTreeMap::new();
-            for reference in &declaration.references {
-                let location = EvidenceLocation {
-                    file: file.clone(),
-                    span: reference.span,
-                    line: reference.line,
-                    column: reference.column,
-                    offset_encoding: "utf8_bytes",
-                };
-                references.insert(
-                    (file.clone(), reference.span.start, reference.span.end),
-                    ReferenceEvidence {
-                        location,
-                        target: target.clone(),
-                        source: None,
-                        provenance: vec![Provenance {
-                            backend: "oxc_semantic",
-                            relation_kind: "semantic_reference",
-                            detail: match reference.kind {
-                                RefKind::Write => "write",
-                                RefKind::Read => "read",
-                                RefKind::Definition => "definition",
-                            },
-                            source_hash: hash.clone(),
-                            resolution: "exact_lexical_declaration",
-                        }],
-                    },
-                );
+            let mut locals = vec![(
+                file.as_str(),
+                declaration,
+                hash.as_str(),
+                if exported.is_some() {
+                    "verified_esm_import_export_identity"
+                } else {
+                    "exact_lexical_declaration"
+                },
+            )];
+            if let Some((resolved, exported, exported_hash)) = &exported {
+                locals.push((
+                    resolved.file.as_str(),
+                    exported,
+                    exported_hash,
+                    "exact_lexical_declaration",
+                ));
+            }
+            for (local_file, local, local_hash, resolution) in locals {
+                for reference in &local.references {
+                    let location = EvidenceLocation {
+                        file: local_file.to_owned(),
+                        span: reference.span,
+                        line: reference.line,
+                        column: reference.column,
+                        offset_encoding: "utf8_bytes",
+                    };
+                    references.insert(
+                        (
+                            local_file.to_owned(),
+                            reference.span.start,
+                            reference.span.end,
+                        ),
+                        ReferenceEvidence {
+                            location,
+                            target: target.clone(),
+                            source: None,
+                            provenance: vec![Provenance {
+                                backend: "oxc_semantic",
+                                relation_kind: "semantic_reference",
+                                detail: match reference.kind {
+                                    RefKind::Write => "write",
+                                    RefKind::Read => "read",
+                                    RefKind::Definition => "definition",
+                                },
+                                source_hash: local_hash.to_owned(),
+                                resolution,
+                            }],
+                        },
+                    );
+                }
             }
             // No self-only condition: local and all identity-resolved external
             // graph evidence are combined for every selected declaration.

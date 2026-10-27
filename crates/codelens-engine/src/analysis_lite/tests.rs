@@ -727,3 +727,107 @@ fn analysis_lite_mts_and_cts_files_have_call_edges() {
         );
     }
 }
+
+// An import binding is an alias: selecting it queries the declaration it
+// resolves to, the identity graph edges carry, instead of an empty graph.
+#[test]
+fn analysis_lite_import_binding_selector_queries_the_declaration_it_resolves_to() {
+    let (_dir, project, index) = fixture(&[
+        (
+            "a.ts",
+            "export function sink() {}\nexport function near() { sink(); }\n",
+        ),
+        (
+            "b.ts",
+            "import { sink as local } from './a';\nexport function caller() { local(); }\nexport const held = local;\n",
+        ),
+    ]);
+    let impact = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("b.ts", "local"),
+        None,
+        limits(),
+    );
+    assert!(impact.errors.is_empty(), "{:?}", impact.errors);
+    let direct = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("a.ts", "sink"),
+        None,
+        limits(),
+    );
+    assert_eq!(
+        impact.target.as_ref().map(|target| &target.symbol_id),
+        direct.target.as_ref().map(|target| &target.symbol_id),
+        "{impact:?}"
+    );
+    let callers = impact
+        .results
+        .edges
+        .iter()
+        .filter_map(|edge| edge.source.as_ref().map(|source| source.name.as_str()))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(callers, ["caller", "near"].into_iter().collect());
+
+    let refs = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("b.ts", "local"),
+        None,
+        limits(),
+    );
+    let rows = refs
+        .results
+        .references
+        .iter()
+        .map(|row| (row.location.file.as_str(), row.location.line))
+        .collect::<Vec<_>>();
+    // a.ts call in `near`, b.ts call in `caller` and the non-call read `held`.
+    assert_eq!(rows, [("a.ts", 2), ("b.ts", 2), ("b.ts", 3)], "{refs:?}");
+    assert!(
+        refs.results
+            .references
+            .iter()
+            .all(|row| Some(&row.target) == refs.target.as_ref())
+    );
+}
+
+#[test]
+fn analysis_lite_unresolved_import_binding_stays_the_target_with_unresolved_callsites() {
+    let (_dir, project, index) = fixture(&[(
+        "b.ts",
+        "import { render } from 'some-package';\nexport function caller() { render(); }\n",
+    )]);
+    let impact = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("b.ts", "render"),
+        None,
+        limits(),
+    );
+    assert_eq!(
+        impact
+            .target
+            .as_ref()
+            .map(|target| (target.file.as_str(), target.name.as_str())),
+        Some(("b.ts", "render"))
+    );
+    assert!(impact.results.edges.is_empty());
+    assert!(
+        impact
+            .unresolved
+            .examples
+            .iter()
+            .any(|row| row.name == "render"
+                && row
+                    .reason
+                    .contains("no verified project-local import target")),
+        "the empty graph is explained: {:?}",
+        impact.unresolved.examples
+    );
+}

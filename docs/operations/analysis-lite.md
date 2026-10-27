@@ -216,6 +216,12 @@ without an unresolved row. `.mts` and `.cts` calls parse as TypeScript; an impor
 written in one of them is outside the module resolver and appears as
 unresolved evidence.
 
+Selecting an import binding (`local` in `import { sink as local } from './a'`)
+answers for the declaration it resolves to: `target` is `sink` in `a.ts`, the
+identity graph edges carry, and references add the binding's own local uses.
+An import that does not resolve to a project declaration keeps the binding as
+the target; its callsites are unresolved evidence.
+
 The extractor also captures callback arguments. All such edges are honestly
 callgraph_edge/detail_unknown; direct-call detail is not inferred. Reverse
 impact is bounded traversal over this extracted graph, with depth/node/edge
