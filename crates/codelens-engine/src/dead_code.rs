@@ -415,7 +415,7 @@ fn count_identifiers(source: &str, counts: &mut HashMap<String, usize>) {
     // Unicode letters and digits: Rust, Python and JS all allow non-ASCII
     // identifiers, and an ASCII-only scan counted `вычислить` zero times.
     let is_start = |c: char| c.is_alphabetic() || c == '_' || c == '$';
-    let is_part = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    let is_part = is_identifier_part;
     // Keys are NFC, like the call-edge names the index stores, so an NFD
     // source spelling and an NFC name meet. A key is allocated only on its
     // first occurrence.
@@ -509,7 +509,14 @@ fn reference_key(name: &str) -> Option<&str> {
     let starts = chars
         .next()
         .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$');
-    (starts && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')).then_some(key)
+    (starts && chars.all(is_identifier_part)).then_some(key)
+}
+
+/// A character that continues an identifier token. Combining marks count
+/// (Python and JS identifiers allow them): an NFD `cafe\u{301}` split at the
+/// accent was counted as `cafe`, so its NFC name `café` read as unreferenced.
+fn is_identifier_part(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '$' || unicode_normalization::char::is_combining_mark(c)
 }
 
 /// A Rust test or benchmark: `#[test]`, `#[tokio::test]`, `#[rstest]`,
@@ -1346,6 +1353,18 @@ mod tests {
         assert_eq!(reference_key("Foo.bar"), None);
         assert_eq!(reference_key("<anonymous>"), None);
         assert_eq!(reference_key(""), None);
+
+        // A combining mark continues an identifier (Python and JS allow it):
+        // `cafe\u{301}` is one token, counted under its NFC `café`, the name
+        // the index stores for it.
+        let mut counts = HashMap::new();
+        count_identifiers(
+            "def cafe\u{301}(self):\n    pass\nx.cafe\u{301}()\n",
+            &mut counts,
+        );
+        assert_eq!(counts.get("caf\u{e9}"), Some(&2), "{counts:?}");
+        assert_eq!(counts.get("cafe"), None, "{counts:?}");
+        assert_eq!(reference_key("cafe\u{301}"), Some("cafe\u{301}"));
     }
 
     #[test]
