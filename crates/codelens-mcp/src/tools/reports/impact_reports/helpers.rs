@@ -140,7 +140,7 @@ pub(super) fn analysis_completeness_section(
     })
 }
 
-pub(super) fn validate_architecture_scope(
+pub(crate) fn validate_architecture_scope(
     project: &ProjectRoot,
     path: &str,
 ) -> Result<(), CodeLensError> {
