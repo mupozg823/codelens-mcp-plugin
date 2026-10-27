@@ -344,49 +344,20 @@ fn main() -> Result<()> {
         && transport == "stdio"
         && cmd_tool.is_none()
         && batch_calls.is_none();
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    let launch_unbound = cli::startup_is_analysis_lite_launch_unbound(
-        &project_source,
-        analysis_lite_stdio,
-        home.as_deref(),
-    );
-    let project = if let Some(home) = home.as_deref().filter(|_| launch_unbound) {
-        let placeholder = cli::prepare_launch_unbound_placeholder(home)?;
-        tracing::warn!(
-            launch_dir = %project_source.path().display(),
-            project_source = project_source.label(),
-            placeholder = %placeholder.as_path().display(),
-            "analysis-lite stdio launched outside a project; each call binds to its absolute target.file's repository"
-        );
-        placeholder
-    } else {
-        let project = resolve_startup_project(&project_source)?;
-        if !project_source.is_explicit() && project.as_path() == std::path::Path::new("/") {
-            anyhow::bail!(
-                "Refusing to start CodeLens on `/` without an explicit project root. Pass a path or set MCP_PROJECT_DIR/CLAUDE_PROJECT_DIR."
-            );
-        }
-        project
-    };
-
     // Surface the semantic-feature flag once per boot. Stays on stderr so
     // stdio JSON-RPC stdout is not polluted. ADR-0012.
     emit_semantic_banner();
 
-    // v1.5 Phase 2j MCP follow-up: auto-detect the dominant language so
-    // `CODELENS_EMBED_HINT_AUTO=1` alone (without an explicit
-    // `CODELENS_EMBED_HINT_AUTO_LANG`) becomes the v1.6.0 default flip
-    // candidate. Applies to both one-shot CLI (`--cmd`) and stdio MCP.
-    // `activate_project` calls the same helper for MCP-driven switches.
-    crate::tools::session::auto_set_embed_hint_lang(project.as_path());
-
-    // Analysis-lite stdio is a read-only surface: a second session on a repo
-    // whose writer lease another process holds starts as an explicit reader.
-    let app_state = AppState::try_new_with_reader_fallback(project, preset, analysis_lite_stdio)?;
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let app_state = startup_app_state(
+        &project_source,
+        analysis_lite_stdio,
+        preset,
+        home.as_deref(),
+    )?;
     app_state.configure_transport_mode(&transport);
     app_state.configure_daemon_mode(daemon_mode);
     app_state.configure_compat_mode(compat_mode);
-    app_state.configure_analysis_lite_launch_unbound(launch_unbound);
     #[cfg(feature = "http")]
     app_state.configure_http_auth(http_runtime.auth.clone());
     let surface_budget = if let Some(profile) = profile {
@@ -441,6 +412,68 @@ fn main() -> Result<()> {
         _ => run_stdio(Arc::new(app_state)),
     }
 }
+
+/// The startup project gating, extracted from `main` so tests drive the real
+/// decision.
+///
+/// - Analysis-lite stdio always starts on its per-process placeholder under
+///   `home` and never builds, watches or leases a real project at startup; the
+///   launch directory only yields an optional launch root
+///   ([`cli::analysis_lite_launch_root`]) and every call binds per request.
+///   A busy writer lease therefore cannot fail or stall startup; the per-call
+///   build keeps the explicit reader fallback.
+/// - Every other surface (other profiles, HTTP, `--cmd`/`--batch`) resolves the
+///   launch project and takes its writer lease, so a second writer is rejected
+///   outright with `ProjectWriterBusy`.
+fn startup_app_state(
+    project_source: &cli::StartupProjectSource,
+    analysis_lite_stdio: bool,
+    preset: ToolPreset,
+    home: Option<&std::path::Path>,
+) -> Result<AppState> {
+    if analysis_lite_stdio {
+        let Some(home) = home else {
+            anyhow::bail!(
+                "analysis-lite stdio needs HOME: its per-process placeholder lives under ~/.codelens/analysis-lite-unbound"
+            );
+        };
+        let placeholder = cli::prepare_launch_unbound_placeholder(home)?;
+        let launch = cli::analysis_lite_launch_root(project_source, home);
+        tracing::warn!(
+            launch_dir = %project_source.path().display(),
+            project_source = project_source.label(),
+            placeholder = %placeholder.as_path().display(),
+            launch_root = %launch
+                .root
+                .as_ref()
+                .map_or_else(|| "none".to_owned(), |root| root.as_path().display().to_string()),
+            reason = %launch.reason,
+            "analysis-lite stdio started on a placeholder; each call binds per request"
+        );
+        crate::tools::session::auto_set_embed_hint_lang(
+            launch
+                .root
+                .as_ref()
+                .map_or(placeholder.as_path(), |root| root.as_path()),
+        );
+        let app_state = AppState::try_new(placeholder, preset)?;
+        app_state.configure_analysis_lite_reader_fallback(true);
+        app_state.configure_analysis_lite_per_call_binding(launch.root);
+        return Ok(app_state);
+    }
+    let project = resolve_startup_project(project_source)?;
+    if !project_source.is_explicit() && project.as_path() == std::path::Path::new("/") {
+        anyhow::bail!(
+            "Refusing to start CodeLens on `/` without an explicit project root. Pass a path or set MCP_PROJECT_DIR/CLAUDE_PROJECT_DIR."
+        );
+    }
+    crate::tools::session::auto_set_embed_hint_lang(project.as_path());
+    AppState::try_new(project, preset)
+}
+
+#[cfg(test)]
+#[path = "main_startup_tests.rs"]
+mod startup_gating_tests;
 
 #[path = "integration_tests/mod.rs"]
 #[cfg(test)]

@@ -660,31 +660,39 @@ fn http_startup_banner_includes_runtime_identity_fields() {
 }
 
 #[test]
-fn analysis_lite_stdio_launched_from_home_or_root_starts_unbound_others_keep_refusal() {
-    use super::startup_is_analysis_lite_launch_unbound as unbound;
-    let home = temp_dir("unbound-home");
+fn analysis_lite_launch_root_is_a_marked_repo_below_home_never_home_or_root() {
+    use super::analysis_lite_launch_root as launch_root;
+    let home = temp_dir("launch-root-home").canonicalize().unwrap();
+    std::fs::create_dir_all(home.join(".git")).unwrap();
     let repo = home.join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::create_dir_all(repo.join("src")).unwrap();
     let home_str = home.display().to_string();
-    let sources = [
+    for source in [
         StartupProjectSource::ClaudeEnv(home_str.clone()),
         StartupProjectSource::Cli(home_str.clone()),
         StartupProjectSource::McpEnv(home_str),
         StartupProjectSource::Cwd(home.clone()),
         StartupProjectSource::ClaudeEnv("/".to_owned()),
         StartupProjectSource::Cwd("/".into()),
-    ];
-    for source in &sources {
-        assert!(unbound(source, true, Some(&home)), "{source:?}");
-        // Every other profile/transport (analysis_lite_stdio = false) keeps
-        // today's startup path, which refuses $HOME and cwd `/`.
-        assert!(!unbound(source, false, Some(&home)), "{source:?}");
+    ] {
+        let launch = launch_root(&source, &home);
+        assert!(launch.root.is_none(), "{source:?}");
+        assert!(!launch.reason.is_empty());
     }
-    // A repository inside home still binds at launch.
-    let inside = StartupProjectSource::ClaudeEnv(repo.display().to_string());
-    assert!(!unbound(&inside, true, Some(&home)));
-    // Without a home there is no CodeLens-owned placeholder location.
-    assert!(!unbound(&sources[0], true, None));
+    // A repository inside home (or a subdirectory of it) is the launch root.
+    for dir in [&repo, &repo.join("src")] {
+        let launch = launch_root(
+            &StartupProjectSource::ClaudeEnv(dir.display().to_string()),
+            &home,
+        );
+        assert_eq!(
+            launch.root.as_ref().map(|root| root.as_path()),
+            Some(repo.as_path()),
+            "{}",
+            launch.reason
+        );
+    }
     let _ = std::fs::remove_dir_all(&home);
 }
 
@@ -697,7 +705,15 @@ fn launch_unbound_placeholder_is_an_empty_per_process_codelens_dir() {
     let dead_pid = child.id();
     child.wait().unwrap();
     std::fs::create_dir_all(base.join(dead_pid.to_string()).join(".codelens")).unwrap();
+    let dead_lock = crate::state::project_writer_lock_path(&base.join(dead_pid.to_string()))
+        .expect("runtime dir");
+    std::fs::create_dir_all(dead_lock.parent().unwrap()).unwrap();
+    std::fs::write(&dead_lock, "{}").unwrap();
     let placeholder = super::prepare_launch_unbound_placeholder(&home).unwrap();
+    assert!(
+        !dead_lock.exists(),
+        "a dead placeholder's writer-lease lock file is reaped with its dir"
+    );
     assert_eq!(
         placeholder.as_path(),
         base.canonicalize()

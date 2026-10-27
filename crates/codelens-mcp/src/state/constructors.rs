@@ -68,6 +68,7 @@ impl AppState {
             analysis_lite_launch_unbound: std::sync::atomic::AtomicBool::new(
                 self.analysis_lite_launch_unbound(),
             ),
+            analysis_lite_launch_root: std::sync::RwLock::new(self.analysis_lite_launch_root()),
             analysis_lite_reader_fallback: std::sync::atomic::AtomicBool::new(
                 self.analysis_lite_reader_fallback(),
             ),
@@ -81,29 +82,15 @@ impl AppState {
         Self::try_new(project, preset).expect("startup project context should initialize")
     }
 
-    #[cfg(test)]
+    /// The startup constructor: takes the project's writer lease (a second
+    /// writer fails with `ProjectWriterBusy`), starts its watcher and cleans
+    /// stale artifacts and jobs. Never a reader: the explicit reader fallback
+    /// applies only to per-call project builds.
     pub(crate) fn try_new(project: ProjectRoot, preset: ToolPreset) -> anyhow::Result<Self> {
-        Self::try_new_with_reader_fallback(project, preset, false)
-    }
-
-    /// `allow_reader` (analysis-lite stdio only): when another process holds
-    /// the project's writer lease, start on an explicit read-only reader
-    /// runtime instead of failing with `ProjectWriterBusy`.
-    pub(crate) fn try_new_with_reader_fallback(
-        project: ProjectRoot,
-        preset: ToolPreset,
-        allow_reader: bool,
-    ) -> anyhow::Result<Self> {
-        let context = Self::build_project_runtime_context(project, true, allow_reader)?;
+        let context = Self::build_project_runtime_context(project, true, false)?;
 
         let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");
-        state.configure_analysis_lite_reader_fallback(allow_reader);
-        if state.default_context.is_reader() {
-            // A reader writes nothing: stale-dir and job cleanup belong to
-            // the lease holder.
-            return Ok(state);
-        }
         state
             .artifact_store
             .cleanup_stale_dirs(crate::util::now_ms());
@@ -139,7 +126,8 @@ impl AppState {
         Ok(state)
     }
 
-    /// Test twin of [`Self::try_new_with_reader_fallback`] without a watcher.
+    /// A reader-capable test runtime without a watcher: what a per-call build
+    /// with the analysis-lite reader fallback produces.
     #[cfg(test)]
     pub(crate) fn try_new_minimal_with_reader_fallback(
         project: ProjectRoot,
@@ -206,6 +194,7 @@ impl AppState {
             compat_mode: Mutex::new(crate::server::compat::ServerCompatMode::Default),
             daemon_started_at: now_rfc3339_utc(),
             analysis_lite_launch_unbound: std::sync::atomic::AtomicBool::new(false),
+            analysis_lite_launch_root: std::sync::RwLock::new(None),
             analysis_lite_reader_fallback: std::sync::atomic::AtomicBool::new(false),
             audit_sinks: Mutex::new(HashMap::new()),
             principals_by_audit_dir: Mutex::new(HashMap::new()),

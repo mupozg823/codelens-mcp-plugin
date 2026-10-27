@@ -214,39 +214,60 @@ pub(crate) fn resolve_startup_project(source: &StartupProjectSource) -> Result<P
     }
 }
 
-/// Whether an analysis-lite stdio server should start *launch-unbound*.
+/// The startup decision for an analysis-lite stdio server: its launch root.
 ///
-/// Claude Code launches a registered stdio server with
-/// `CLAUDE_PROJECT_DIR` = the session directory, which for most home-cwd
-/// sessions is `$HOME`. Every other surface refuses that root (or `/`), and so
-/// does this one for indexing purposes; instead of exiting, analysis-lite stdio
-/// starts on an empty placeholder and binds each call to the repository of its
-/// absolute `target.file`. Other profiles, HTTP and one-shot runs keep the
-/// refusal. `home == None` (no `$HOME`) keeps the refusal too: there is no
-/// CodeLens-owned directory to put the placeholder in.
-pub(crate) fn startup_is_analysis_lite_launch_unbound(
-    source: &StartupProjectSource,
-    analysis_lite_stdio: bool,
-    home: Option<&std::path::Path>,
-) -> bool {
-    if !analysis_lite_stdio {
-        return false;
-    }
-    let Some(home) = home.map(|home| home.canonicalize().unwrap_or_else(|_| home.to_path_buf()))
-    else {
-        return false;
-    };
-    let Ok(launch) = source.path().canonicalize() else {
-        return false;
-    };
-    launch == std::path::Path::new("/") || launch == home
+/// Analysis-lite stdio always starts on its per-process placeholder and binds
+/// each call to a project, so a launch never builds an index, starts a watcher
+/// or takes a writer lease. The launch directory (CLI path,
+/// `CLAUDE_PROJECT_DIR`, `MCP_PROJECT_DIR`, then cwd) only supplies the
+/// optional root relative `target.file`s resolve under.
+pub(crate) struct AnalysisLiteLaunch {
+    pub(crate) root: Option<ProjectRoot>,
+    pub(crate) reason: String,
 }
 
-/// Create this process's empty placeholder project for a launch-unbound
-/// analysis-lite server: `~/.codelens/analysis-lite-unbound/<pid>/`, beside the
-/// HTTP daemon's `~/.codelens/daemon-default`. One directory per process,
-/// because the project writer lease is exclusive and several home-cwd sessions
-/// run at once; directories of processes that no longer exist are removed.
+/// The launch root is the launch directory's repository only when it carries
+/// a real root marker ([`ProjectRoot::new_requiring_marker`]: `~/Downloads`
+/// or a per-chat folder is never promoted), is neither `$HOME` nor `/`, and
+/// does not sit inside a cloud-synced (File Provider) folder — the same checks
+/// a per-call binding applies. Otherwise there is no launch root.
+pub(crate) fn analysis_lite_launch_root(
+    source: &StartupProjectSource,
+    home: &std::path::Path,
+) -> AnalysisLiteLaunch {
+    let none = |reason: String| AnalysisLiteLaunch { root: None, reason };
+    let root = match ProjectRoot::new_requiring_marker(source.path()) {
+        Ok(root) => root,
+        Err(error) => return none(format!("no marked project root: {error:#}")),
+    };
+    let home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
+    if root.as_path() == std::path::Path::new("/") {
+        return none("the detected root is `/`".to_owned());
+    }
+    if root.as_path() == home {
+        return none("the detected root is the home directory".to_owned());
+    }
+    if let Some(synced) =
+        crate::tools::analysis_lite::cloud_synced_root(root.as_path(), Some(&home))
+    {
+        return none(format!(
+            "the detected root `{}` is inside the cloud-synced folder `{}`",
+            root.as_path().display(),
+            synced.display()
+        ));
+    }
+    AnalysisLiteLaunch {
+        root: Some(root),
+        reason: "marked local repository".to_owned(),
+    }
+}
+
+/// Create this process's empty placeholder project for an analysis-lite stdio
+/// server: `~/.codelens/analysis-lite-unbound/<pid>/`, beside the HTTP
+/// daemon's `~/.codelens/daemon-default`. One directory per process, because
+/// the project writer lease is exclusive and several sessions run at once;
+/// directories of processes that no longer exist are removed together with
+/// their writer-lease lock files.
 pub(crate) fn prepare_launch_unbound_placeholder(home: &std::path::Path) -> Result<ProjectRoot> {
     let base = home.join(".codelens").join("analysis-lite-unbound");
     std::fs::create_dir_all(&base)
@@ -280,7 +301,12 @@ fn remove_dead_process_dirs(base: &std::path::Path) {
         let exists = unsafe { libc::kill(pid, 0) } == 0
             || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
         if !exists {
+            // The lock name hashes the canonical dir, so resolve it first.
+            let lock = crate::state::project_writer_lock_path(&entry.path());
             let _ = std::fs::remove_dir_all(entry.path());
+            if let Some(lock) = lock {
+                let _ = std::fs::remove_file(lock);
+            }
         }
     }
 }

@@ -176,8 +176,18 @@ fn select_trusted_home(
 }
 
 fn project_lock_name(project: &ProjectRoot) -> String {
-    let identity = std::fs::canonicalize(project.as_path())
-        .unwrap_or_else(|_| project.as_path().to_path_buf());
+    lock_name_for(project.as_path())
+}
+
+/// Lock file path of the writer lease for a project at `dir`.
+pub(super) fn project_lock_path(dir: &std::path::Path) -> Option<PathBuf> {
+    trusted_runtime_dir()
+        .ok()
+        .map(|runtime_dir| runtime_dir.join(lock_name_for(dir)))
+}
+
+fn lock_name_for(dir: &std::path::Path) -> String {
+    let identity = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
     let digest = Sha256::digest(identity.to_string_lossy().as_bytes());
     format!("{digest:x}.lock")
 }

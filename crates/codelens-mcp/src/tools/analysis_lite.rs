@@ -172,10 +172,13 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
 /// Resolve `target.file` under this server's binding, returning the
 /// root-relative path the engine selects on.
 ///
-/// - Launch-unbound (stdio started from `$HOME` or `/`): an absolute file binds
-///   this request only, through the per-thread [`RequestProjectGuard`], to the
-///   repository root derived from the file's directory. Root derivation and the
-///   home guard refuse `$HOME`; a relative file has no project to resolve in.
+/// - Analysis-lite stdio with a launch root (always on the placeholder): the
+///   call binds, through the per-thread [`RequestProjectGuard`], to the launch
+///   root and then follows the launch-bound rules below.
+/// - Analysis-lite stdio without a launch root: an absolute file binds this
+///   request only to the repository root derived from the file's directory.
+///   Root derivation and the home guard refuse `$HOME`; a relative file has no
+///   project to resolve in.
 /// - Launch-bound stdio: an absolute file must lie inside the bound root; there
 ///   is no cross-project switch.
 /// - HTTP keeps its explicit session binding and passes the file through.
@@ -186,7 +189,23 @@ fn bind_target_file(
     raw: &str,
 ) -> Result<(Option<crate::state::RequestProjectGuard>, String), CodeLensError> {
     let path = Path::new(raw);
-    if state.analysis_lite_launch_unbound() {
+    // Part A bridge: a launch root keeps today's launch-bound semantics, bound
+    // per call instead of at startup (the default context is the placeholder).
+    let launch_guard = match state.analysis_lite_launch_root() {
+        Some(root) if state.analysis_lite_launch_unbound() => Some(
+            state
+                .bind_request_project_scope(&root.as_path().to_string_lossy())
+                .map_err(|error| match error.downcast::<CodeLensError>() {
+                    Ok(typed) => typed,
+                    Err(error) => CodeLensError::AnalysisLiteLaunchUnbound {
+                        file: raw.to_owned(),
+                        reason: format!("{error:#}"),
+                    },
+                })?,
+        ),
+        _ => None,
+    };
+    if state.analysis_lite_launch_unbound() && launch_guard.is_none() {
         let unbound = |reason: String| CodeLensError::AnalysisLiteLaunchUnbound {
             file: raw.to_owned(),
             reason,
@@ -206,9 +225,7 @@ fn bind_target_file(
         let root = ProjectRoot::new_requiring_marker(directory)
             .map_err(|error| unbound(format!("{error:#}")))?;
         let home = std::env::var_os("HOME").map(PathBuf::from);
-        if let Some(synced) =
-            cloud_synced_ancestor(root.as_path(), home.as_deref(), has_file_provider_domain)
-        {
+        if let Some(synced) = cloud_synced_root(root.as_path(), home.as_deref()) {
             return Err(unbound(format!(
                 "its root `{}` is inside the cloud-synced folder `{}`; CodeLens does not create index state there",
                 root.as_path().display(),
@@ -235,9 +252,14 @@ fn bind_target_file(
                 project.as_path().display()
             ))
         })?;
-        return Ok((None, relative));
+        return Ok((launch_guard, relative));
     }
-    Ok((None, raw.to_owned()))
+    Ok((launch_guard, raw.to_owned()))
+}
+
+/// [`cloud_synced_ancestor`] with the platform's File Provider check.
+pub(crate) fn cloud_synced_root(root: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    cloud_synced_ancestor(root, home, has_file_provider_domain)
 }
 
 /// The first directory from `root` up to (not including) `home` that belongs to
@@ -341,8 +363,10 @@ pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensE
     let session = crate::session_context::SessionRequestContext::from_json(args);
     let project = if state.analysis_lite_launch_unbound() {
         // The default context is a placeholder, not a project; a rejected
-        // call has no bound repository to report.
-        None
+        // call reports the launch root when there is one, else no project.
+        state
+            .analysis_lite_launch_root()
+            .map(|root| root.as_path().display().to_string())
     } else if session.is_local() {
         Some(state.current_project_scope())
     } else if session.project_binding_is_explicit() {

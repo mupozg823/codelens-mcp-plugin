@@ -97,6 +97,26 @@ impl AppState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Activate analysis-lite per-call binding (the default context is a
+    /// placeholder), with the launch directory's repository when there is one.
+    pub(crate) fn configure_analysis_lite_per_call_binding(
+        &self,
+        launch_root: Option<codelens_engine::ProjectRoot>,
+    ) {
+        *self
+            .analysis_lite_launch_root
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = launch_root;
+        self.configure_analysis_lite_launch_unbound(true);
+    }
+
+    pub(crate) fn analysis_lite_launch_root(&self) -> Option<codelens_engine::ProjectRoot> {
+        self.analysis_lite_launch_root
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
     pub(crate) fn compat_mode(&self) -> crate::server::compat::ServerCompatMode {
         *self
             .compat_mode

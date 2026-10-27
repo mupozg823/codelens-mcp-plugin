@@ -38,6 +38,13 @@ mod project_runtime_lease;
 pub(crate) fn runtime_dir() -> Result<std::path::PathBuf, crate::error::CodeLensError> {
     project_runtime_lease::trusted_runtime_dir()
 }
+
+/// The writer-lease lock file a project at `dir` uses (whether or not it
+/// exists). `None` without a trusted runtime directory.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) fn project_writer_lock_path(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    project_runtime_lease::project_lock_path(dir)
+}
 mod runtime_config;
 mod secondary_projects;
 mod session_host;
@@ -166,10 +173,14 @@ pub(crate) struct AppState {
     /// downstream tooling can detect "daemon is running an image
     /// older than the disk binary" — the Phase 4a failure mode.
     daemon_started_at: String,
-    /// An analysis-lite stdio server launched from `$HOME` or `/` starts on an
-    /// empty CodeLens-owned placeholder instead of refusing to start; each
-    /// call then binds to the repository of its absolute `target.file`.
+    /// An analysis-lite stdio server always starts on an empty CodeLens-owned
+    /// per-process placeholder and binds each call to a project; it never
+    /// builds or leases a real project at startup.
     analysis_lite_launch_unbound: std::sync::atomic::AtomicBool,
+    /// With per-call binding active: the launch directory's repository when it
+    /// is a marked, local, non-cloud root that is neither `$HOME` nor `/`.
+    /// Relative `target.file`s resolve under it; `None` = no launch project.
+    analysis_lite_launch_root: std::sync::RwLock<Option<codelens_engine::ProjectRoot>>,
     /// Analysis-lite stdio only: a project whose writer lease another process
     /// holds is served by an explicit read-only reader runtime instead of
     /// `ProjectWriterBusy`. Every other surface keeps the outright rejection.
