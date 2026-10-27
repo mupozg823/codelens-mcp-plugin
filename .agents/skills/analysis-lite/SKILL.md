@@ -9,7 +9,10 @@ would replace a wider scan. Tool availability does not require using it.
 
 A stdio server is already bound to the directory the host launched it in
 (CLAUDE_PROJECT_DIR, else its working directory); target.file is relative to
-that root and a worktree gets its own server. An HTTP session must be bound to
+that root and a worktree gets its own server. Launched from the home
+directory, it binds each call to the repository of an absolute target.file
+(a marked, non-cloud repository only). freshness.runtime_role=reader means
+another session owns the index: generation is null and pins are refused. An HTTP session must be bound to
 the canonical workspace through the initialize project, endpoint URL project or
 x-codelens-project header. Either way, verify the response project before
 using evidence. Both tools are deferred: find them through host tool search.

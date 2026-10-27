@@ -32,8 +32,28 @@ multi-host shape. Registering is a per-user decision taken from pilot evidence.
   backends, a session that called graph started 1, in its own directory. The
   initialize instructions name no path, so one recording is correct for every
   project that runs the same command line.
-- Home directory. The server refuses to bind $HOME (exit 1 with the reason on
-  stderr). Open the session inside the repository.
+- Home directory. A session launched in $HOME (or /) does not index it. The
+  server starts launch-unbound on an empty per-process placeholder under
+  ~/.codelens/analysis-lite-unbound/, and each call with an absolute
+  target.file binds only that request to the file's repository root. The root
+  must carry a project marker and must not sit inside a macOS File Provider
+  (cloud-synced) folder; otherwise the call returns project_binding_required
+  before anything is written. A relative target.file in this mode returns the
+  same error. A session launched inside a repository stays bound to it and
+  rejects absolute paths outside it.
+- Parallel sessions on one repository. The first server takes the project
+  writer lease. A later analysis-lite server finds it busy and starts as an
+  explicit reader: no lease, watcher, refresh or writes, and the index opened
+  read-only. Every response carries freshness.runtime_role and, for a reader,
+  writer_holder. A reader reports snapshot.generation as null and refuses
+  generation pins, because the writer's mutation counter is in the writer's
+  process. A reader is not promoted when the writer exits; its index stops
+  following edits until its session restarts. Other profiles keep rejecting a
+  second writer with project_writer_busy.
+
+Install the binary from a merged commit to a versioned path and register that
+path. Do not register a checkout's target/ directory: any build in that
+checkout, including uncommitted work, replaces the server.
 
 Claude Code (user scope; substitute the installed binary path):
 
@@ -43,9 +63,10 @@ claude mcp remove codelens-lite -s user   # way back
 ```
 
 The `--key-path` argument makes a rebuilt binary invalidate the recorded
-handshake. The binary needs no `http` feature for stdio. Codex launch-directory
-binding for stdio servers has not been measured; until it is, Codex uses the
-foreground HTTP adapter below.
+handshake. The binary needs no `http` feature for stdio. `codex exec` 0.164
+starts a stdio MCP child in the thread's working directory without
+CLAUDE_PROJECT_DIR (measured 2026-10-27), so the working-directory fallback
+binds it the same way. Codex desktop-app threads have not been measured.
 
 ## One foreground runtime
 

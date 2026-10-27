@@ -38,15 +38,24 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
             .expect("schema-validated file"),
     )?;
     let index = state.symbol_index();
+    // A reader cannot see the writer process's mutation counter: its committed
+    // generation is a constant, so it is reported unknown and pins are refused
+    // rather than every pin passing against that constant.
+    let reader = state.project_runtime_is_reader();
     let generation = index.committed_generation();
-    if let Some(expected) = args.get("generation").and_then(Value::as_u64)
-        && expected != generation
-    {
-        return Err(CodeLensError::IndexGenerationChanged {
-            project: state.current_project_scope(),
-            before: expected,
-            after: generation,
-        });
+    if let Some(expected) = args.get("generation").and_then(Value::as_u64) {
+        if reader {
+            return Err(CodeLensError::Validation(
+                "analysis-lite generation pins need the writer runtime; this server is a reader of another session's writer lease. Retry without generation and compare the evidence instead.".to_owned(),
+            ));
+        }
+        if expected != generation {
+            return Err(CodeLensError::IndexGenerationChanged {
+                project: state.current_project_scope(),
+                before: expected,
+                after: generation,
+            });
+        }
     }
     let name_span = match (
         selector_args.get("start_byte"),
@@ -131,6 +140,9 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
         for (key, value) in role {
             payload["freshness"][key] = value;
         }
+    }
+    if reader && payload["snapshot"].is_object() {
+        payload["snapshot"]["generation"] = Value::Null;
     }
     // This read preserves DB errors as errors, rather than the legacy health
     // helper's unwrap_or_default() zero-failure interpretation.

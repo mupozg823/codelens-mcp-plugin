@@ -438,6 +438,37 @@ fn analysis_lite_second_session_is_an_explicit_reader_of_the_writers_index() {
     );
 }
 
+// The writer's mutation counter lives in the writer process, so a reader's
+// committed generation is a constant. Reporting it would claim a snapshot
+// identity the reader cannot see, and every pin would pass against it.
+#[test]
+fn analysis_lite_reader_reports_no_generation_and_refuses_generation_pins() {
+    let (_writer, project) = analysis_lite_writer_with_index();
+    let reader = crate::AppState::try_new_minimal_with_reader_fallback(
+        project,
+        crate::tool_defs::ToolPreset::Full,
+    )
+    .expect("analysis-lite second session starts as a reader");
+    reader.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    let data = analysis_lite_data(&analysis_lite_refs_call(&reader, "a.ts"));
+    assert_eq!(data["freshness"]["runtime_role"], json!("reader"), "{data}");
+    assert!(data["snapshot"].is_object(), "{data}");
+    assert_eq!(data["snapshot"]["generation"], json!(null), "{data}");
+
+    let pinned = analysis_lite_rpc(
+        &reader,
+        "tools/call",
+        json!({"name":"search","arguments":{"mode":"refs","generation":0,"target":{"file":"a.ts","name":"sink"}}}),
+    );
+    assert_eq!(pinned["result"]["isError"], json!(true), "{pinned}");
+    let text = pinned["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(text.contains("reader"), "{pinned}");
+}
+
 #[test]
 fn analysis_lite_reader_without_an_index_is_retryable_index_not_ready() {
     let project = ProjectRoot::new(analysis_lite_ts_project()).unwrap();

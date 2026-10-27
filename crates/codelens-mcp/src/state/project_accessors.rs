@@ -15,6 +15,14 @@ impl AppState {
             .runtime_role_evidence()
     }
 
+    /// Whether the request's bound runtime is a reader of another process's
+    /// writer lease (analysis-lite only).
+    pub(crate) fn project_runtime_is_reader(&self) -> bool {
+        self.active_project_context()
+            .unwrap_or_else(|| Arc::clone(&self.default_context))
+            .is_reader()
+    }
+
     pub(crate) fn project_runtime_health_payload(&self) -> serde_json::Value {
         self.active_project_context()
             .unwrap_or_else(|| Arc::clone(&self.default_context))
