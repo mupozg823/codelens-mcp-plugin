@@ -191,12 +191,21 @@ fn second_writer_is_rejected_at_startup_but_analysis_lite_stdio_starts_without_w
     );
 
     // Analysis-lite stdio touches no lease at startup, so it neither fails
-    // nor waits for the writer's index.
-    let started = std::time::Instant::now();
+    // nor waits for the writer's index. Asserted structurally: a wall-clock
+    // bound here measured fsync contention (1–8.5 s under nextest), not waiting.
+    let repo_codelens = entries(&repo.join(".codelens"));
     let state = analysis_lite_start(source, &home);
-    assert!(started.elapsed() < std::time::Duration::from_secs(2));
     assert_on_placeholder(&state, &home);
     assert_eq!(launch_root(&state).as_deref(), Some(repo.as_path()));
+    assert_eq!(
+        entries(&repo.join(".codelens")),
+        repo_codelens,
+        "startup must not open a runtime on the writer's repository"
+    );
+    assert!(
+        !state.project_runtime_is_reader(),
+        "startup builds no reader of the writer's lease"
+    );
 }
 
 #[test]
