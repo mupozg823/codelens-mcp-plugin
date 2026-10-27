@@ -84,7 +84,25 @@ impl AppState {
     /// stale artifacts and jobs. Never a reader: the explicit reader fallback
     /// applies only to per-call project builds.
     pub(crate) fn try_new(project: ProjectRoot, preset: ToolPreset) -> anyhow::Result<Self> {
-        let context = Self::build_project_runtime_context(project, true, false)?;
+        Self::try_new_startup(project, preset, true)
+    }
+
+    /// The startup constructor for an analysis-lite stdio placeholder: the
+    /// same lease and cleanup as [`Self::try_new`], but no file watcher and no
+    /// LSP pre-warm — the placeholder is an empty dir no call ever reads.
+    pub(crate) fn try_new_analysis_lite_placeholder(
+        placeholder: ProjectRoot,
+        preset: ToolPreset,
+    ) -> anyhow::Result<Self> {
+        Self::try_new_startup(placeholder, preset, false)
+    }
+
+    fn try_new_startup(
+        project: ProjectRoot,
+        preset: ToolPreset,
+        start_watcher: bool,
+    ) -> anyhow::Result<Self> {
+        let context = Self::build_project_runtime_context(project, start_watcher, false)?;
 
         let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");

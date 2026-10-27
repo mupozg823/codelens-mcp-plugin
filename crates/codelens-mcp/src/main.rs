@@ -409,7 +409,19 @@ fn main() -> Result<()> {
                 "HTTP/HTTPS transport requires the `http` feature. Rebuild with: cargo build --features http"
             );
         }
-        _ => run_stdio(Arc::new(app_state)),
+        _ => {
+            let state = Arc::new(app_state);
+            if analysis_lite_stdio {
+                // Per-call runtimes hold writer leases; release idle ones so
+                // other CodeLens processes are not refused for this session's
+                // lifetime.
+                crate::state::spawn_idle_runtime_sweeper(
+                    &state,
+                    crate::state::analysis_lite_idle_ttl(),
+                )?;
+            }
+            run_stdio(state)
+        }
     }
 }
 
@@ -456,7 +468,7 @@ fn startup_app_state(
                 .as_ref()
                 .map_or(placeholder.as_path(), |root| root.as_path()),
         );
-        let app_state = AppState::try_new(placeholder, preset)?;
+        let app_state = AppState::try_new_analysis_lite_placeholder(placeholder, preset)?;
         app_state.configure_analysis_lite_reader_fallback(true);
         app_state.configure_analysis_lite_per_call_binding(launch.root);
         return Ok(app_state);

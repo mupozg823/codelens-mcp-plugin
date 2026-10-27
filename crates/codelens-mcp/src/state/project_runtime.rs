@@ -206,6 +206,10 @@ pub(super) struct ProjectContextCache {
     /// request waits for its scope's build up to the bind budget; whichever
     /// request finds it finished installs the runtime and removes the entry.
     pub(super) in_flight: HashMap<String, Arc<InFlightBuild>>,
+    /// When each cached runtime was last handed to a request, or last seen
+    /// still held by one. Analysis-lite stdio releases runtimes idle longer
+    /// than its TTL ([`Self::take_idle`]).
+    last_used: HashMap<String, std::time::Instant>,
     #[cfg(test)]
     build_attempts: HashMap<String, usize>,
 }
@@ -235,6 +239,42 @@ impl ProjectContextCache {
     fn touch(&mut self, scope: &str) {
         self.access_order.retain(|entry| entry != scope);
         self.access_order.push_back(scope.to_owned());
+        self.last_used
+            .insert(scope.to_owned(), std::time::Instant::now());
+    }
+
+    fn forget(&mut self, scope: &str) -> Option<Arc<ProjectContext>> {
+        self.access_order.retain(|entry| entry != scope);
+        self.last_used.remove(scope);
+        self.entries.remove(scope)
+    }
+
+    /// Remove runtimes unused for at least `idle_for` and return them for
+    /// retirement. A runtime some request still holds (an `Arc` beyond the
+    /// cache's own) is never taken; seeing it held counts as a use, so idle
+    /// time runs from the end of its last call, not the start. Protected
+    /// scopes (the default and active project) stay.
+    pub(super) fn take_idle(
+        &mut self,
+        idle_for: std::time::Duration,
+        protected_scopes: &[&str],
+    ) -> Vec<Arc<ProjectContext>> {
+        let now = std::time::Instant::now();
+        let mut idle = Vec::new();
+        for (scope, context) in &self.entries {
+            if protected_scopes.contains(&scope.as_str()) {
+                continue;
+            }
+            if Arc::strong_count(context) > 1 {
+                self.last_used.insert(scope.clone(), now);
+                continue;
+            }
+            let last_used = self.last_used.get(scope).copied().unwrap_or(now);
+            if now.duration_since(last_used) >= idle_for {
+                idle.push(scope.clone());
+            }
+        }
+        idle.iter().filter_map(|scope| self.forget(scope)).collect()
     }
 
     pub(super) fn evict_until_within_limit(
@@ -259,6 +299,7 @@ impl ProjectContextCache {
                     self.access_order.push_back(oldest);
                     continue;
                 }
+                self.last_used.remove(&oldest);
                 if let Some(context) = self.entries.remove(&oldest) {
                     evicted.push(context);
                     removed = true;
@@ -286,8 +327,7 @@ impl ProjectContextCache {
             .collect();
         let mut reaped = Vec::with_capacity(dead.len());
         for scope in dead {
-            if let Some(context) = self.entries.remove(&scope) {
-                self.access_order.retain(|entry| entry != &scope);
+            if let Some(context) = self.forget(&scope) {
                 reaped.push(context);
             }
         }

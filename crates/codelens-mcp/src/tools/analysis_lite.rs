@@ -467,8 +467,8 @@ pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensE
         "errors":[{"code":error.kind(),"backend":"runtime","message":error.to_string(),"retryable":error.is_retryable()}]
     });
     // A rejection raised after binding (a reader's generation pin, the size
-    // limit) names the runtime that refused it; the binding is gone by now,
-    // so the role travels in the error.
+    // limit, a writer's generation change) names the runtime that refused it;
+    // the binding is gone by now, so the role travels in the error.
     if let Some(runtime_role) = error.analysis_lite_runtime_role() {
         apply_runtime_role(&mut payload, runtime_role);
     }

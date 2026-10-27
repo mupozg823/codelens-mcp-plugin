@@ -274,6 +274,14 @@ impl CodeLensError {
         match self {
             Self::AnalysisLiteResponseTooLarge { runtime_role, .. }
             | Self::AnalysisLiteReaderGenerationPin { runtime_role } => Some(runtime_role),
+            // Only a writer raises this in analysis-lite: a reader refuses
+            // every pin before comparing it, and its constant generation never
+            // trips the fence. No holder to report.
+            Self::IndexGenerationChanged { .. } => {
+                static WRITER: std::sync::LazyLock<Value> =
+                    std::sync::LazyLock::new(|| json!({"runtime_role": "writer"}));
+                Some(&WRITER)
+            }
             _ => None,
         }
     }

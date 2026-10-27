@@ -416,6 +416,61 @@ impl AppState {
         built
     }
 
+    /// Retire cached per-call runtimes unused for at least `idle_for`, and with
+    /// them their writer leases, so other CodeLens processes (a one-shot
+    /// `codelens-mcp <repo> --cmd …`, another server) can take the project
+    /// again. The next call for the project rebuilds it: a writer when the
+    /// lease is free, else a reader. Returns how many were released.
+    ///
+    /// A runtime a request still holds is never taken (see
+    /// [`super::project_runtime::ProjectContextCache::take_idle`]), and the
+    /// default and active projects are protected as in eviction. Retirement
+    /// runs under the cache lock: a call for the same project waits for the
+    /// old lease to be gone instead of finding it still held and degrading
+    /// to a reader.
+    pub(crate) fn release_idle_project_runtimes(&self, idle_for: std::time::Duration) -> usize {
+        // A build every waiter gave up on is installed first, so its lease is
+        // subject to the same idle clock instead of being held outside it.
+        self.install_finished_builds();
+        #[cfg(feature = "http")]
+        let active_session_paths = self
+            .session_store
+            .as_ref()
+            .map(|store| store.active_project_paths_guard());
+        let mut protected = vec![self.default_project_scope(), self.current_project_scope()];
+        #[cfg(feature = "http")]
+        if let Some(paths) = active_session_paths.as_ref() {
+            protected.extend(
+                paths
+                    .iter()
+                    .filter_map(|path| codelens_engine::ProjectRoot::new(path).ok())
+                    .map(|project| project.as_path().to_string_lossy().into_owned()),
+            );
+        }
+        let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
+        let mut cache = self
+            .project_context_cache
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let idle = cache.take_idle(idle_for, &protected_refs);
+        let released = idle.len();
+        for context in idle {
+            tracing::info!(
+                project = %context.project.as_path().display(),
+                idle_secs = idle_for.as_secs(),
+                "released idle analysis-lite project runtime and its writer lease"
+            );
+            #[cfg(feature = "scip-backend")]
+            self.drop_scip_backend_for_project(context.project.as_path());
+            context.shutdown_resources();
+            // The cache held the last `Arc`: dropping it releases the lease.
+        }
+        drop(cache);
+        #[cfg(feature = "http")]
+        drop(active_session_paths);
+        released
+    }
+
     /// Sweep the per-project runtime registry and drop cached contexts whose
     /// root directory no longer exists (e.g. a removed git worktree). Removing
     /// the map entry lets the SQLite symbol-index handle the dead root was
@@ -447,6 +502,50 @@ impl AppState {
             .map(|context| Arc::clone(&context.lsp_pool))
             .unwrap_or_else(|| Arc::clone(&self.default_context.lsp_pool))
     }
+}
+
+/// Default idle time after which analysis-lite stdio releases a per-call
+/// project runtime and its writer lease. Override with
+/// `CODELENS_ANALYSIS_LITE_IDLE_SECS`.
+const DEFAULT_ANALYSIS_LITE_IDLE_SECS: u64 = 600;
+
+/// `CODELENS_ANALYSIS_LITE_IDLE_SECS` (non-zero seconds); invalid or `0`
+/// falls back to the default.
+pub(crate) fn analysis_lite_idle_ttl() -> std::time::Duration {
+    std::time::Duration::from_secs(
+        std::env::var("CODELENS_ANALYSIS_LITE_IDLE_SECS")
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .filter(|secs| *secs > 0)
+            .unwrap_or(DEFAULT_ANALYSIS_LITE_IDLE_SECS),
+    )
+}
+
+/// Start the background sweep that releases idle per-call runtimes. A check
+/// at the next call never fires for a session that simply goes quiet, and
+/// that session's leases are what block every other CodeLens process. The
+/// thread holds only a `Weak`, so it ends with the server.
+pub(crate) fn spawn_idle_runtime_sweeper(
+    state: &Arc<AppState>,
+    idle_for: std::time::Duration,
+) -> std::io::Result<()> {
+    let state = Arc::downgrade(state);
+    let interval = (idle_for / 4).clamp(
+        std::time::Duration::from_millis(20),
+        std::time::Duration::from_secs(60),
+    );
+    std::thread::Builder::new()
+        .name("codelens-idle-runtime-sweep".to_owned())
+        .spawn(move || {
+            loop {
+                std::thread::sleep(interval);
+                let Some(state) = state.upgrade() else {
+                    return;
+                };
+                state.release_idle_project_runtimes(idle_for);
+            }
+        })
+        .map(drop)
 }
 
 /// Default ceiling on how long a request waits for its project's runtime

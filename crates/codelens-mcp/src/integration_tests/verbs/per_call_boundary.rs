@@ -131,10 +131,42 @@ fn per_call_generation_fence_watches_the_bound_repository() {
     let message = data["errors"][0]["message"].as_str().unwrap();
     assert!(message.contains(&repo.display().to_string()), "{message}");
     assert!(!message.contains(&placeholder), "{message}");
+    assert_eq!(data["freshness"]["runtime_role"], json!("writer"), "{data}");
 
     // Without a racing commit the bound call answers.
     let calm = analysis_lite_refs_call(&state, &file);
     assert_ne!(calm["result"]["isError"], json!(true), "{calm}");
+}
+
+// A writer's stale generation pin is refused after the binding: like the
+// reader's refusals, its envelope names the runtime that refused it.
+#[test]
+fn per_call_writer_generation_pin_mismatch_names_the_writer_runtime() {
+    let state = analysis_lite_launch_unbound_state();
+    let repo = analysis_lite_ts_project();
+    let file = repo.join("a.ts").display().to_string();
+    let warm = analysis_lite_refs_call(&state, &file);
+    assert_ne!(warm["result"]["isError"], json!(true), "{warm}");
+    let generation = analysis_lite_data(&warm)["snapshot"]["generation"]
+        .as_u64()
+        .expect("a writer reports its generation");
+
+    let response = analysis_lite_rpc(
+        &state,
+        "tools/call",
+        json!({"name":"search","arguments":{"mode":"refs","generation":generation + 7,
+            "target":{"file":file,"name":"sink"}}}),
+    );
+    assert_eq!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(
+        data["errors"][0]["code"],
+        json!("index_generation_changed"),
+        "{data}"
+    );
+    assert_eq!(data["freshness"]["runtime_role"], json!("writer"), "{data}");
+    assert!(data["freshness"].get("writer_holder").is_none(), "{data}");
+    assert!(data["snapshot"].is_null(), "{data}");
 }
 
 /// The runtime identity a reader's rejected call must still report.

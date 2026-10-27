@@ -137,6 +137,25 @@ fn analysis_lite_stdio_home_and_root_have_no_launch_root() {
     assert!(entries(&downloads).is_empty());
 }
 
+// The placeholder is an empty dir no call reads: watching it (and pre-warming
+// LSP for it) is pure idle cost.
+#[test]
+fn analysis_lite_stdio_placeholder_has_no_file_watcher() {
+    let home = fixture("startup-home-watcher");
+    let state = analysis_lite_start(
+        StartupProjectSource::ClaudeEnv(home.display().to_string()),
+        &home,
+    );
+    assert_on_placeholder(&state, &home);
+    assert!(
+        state.watcher_stats().is_none(),
+        "no watcher on the placeholder"
+    );
+    assert!(!state.watcher_running());
+    assert_eq!(state.watcher_error(), None, "not a failed start either");
+    assert_eq!(state.lsp_pool().session_count(), 0);
+}
+
 #[test]
 fn analysis_lite_stdio_without_home_refuses_to_start() {
     let repo = fixture("startup-repo-no-home");

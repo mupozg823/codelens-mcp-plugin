@@ -27,6 +27,9 @@ mod orchestration;
 mod preflight;
 mod project_accessors;
 pub(crate) use project_accessors::NoBindWait;
+pub(crate) use project_accessors::{analysis_lite_idle_ttl, spawn_idle_runtime_sweeper};
+#[cfg(test)]
+mod idle_release_tests;
 #[cfg(test)]
 pub(crate) use project_accessors::TEST_BIND_OVERRIDE;
 mod project_runtime;
