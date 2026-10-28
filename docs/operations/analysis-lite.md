@@ -265,13 +265,33 @@ so impact continues from the lazy binding. A destructured parameter
 (`.then(({ sink }) => sink)`), `const { sink } = await import("./a")` and a
 default-export `lazy(() => import("./a"))` are not read.
 
+CommonJS links like an ESM import, with resolution
+`verified_cjs_require_export_identity`. A module's named exports are the
+top-level `module.exports = { sink, other: local }` (shorthand or identifier
+values), `module.exports.sink = local` and `exports.sink = local`, where the
+value is a module-level binding and `module`/`exports` are the CommonJS globals
+(a file that declares its own `module` exports nothing this way). Reassigning
+`module.exports` replaces the object, so the object literal counts only when it
+is the one such assignment, `module.exports.X` only after it and `exports.X`
+only when there is none. On the importing side,
+`const { sink, other: alias } = require("./a.cjs")` (any scope, a string-literal
+specifier, a binding never reassigned, `require` not locally declared) binds
+each entry to that export, and `const a = require("./a.cjs")` makes each
+`a.sink` read through that binding a reference, as a dynamic-import member is.
+ESM and CommonJS mix in both directions, and a CommonJS reexport of a required
+binding is followed. `module.exports = value` (no export name), defaults, rest
+and computed keys in the pattern, `require(path.join(...))` or a template
+string, `require("./a").sink` and TypeScript `import x = require()` are not
+read. Uses of a required binding that are not calls (`Sink.create()`,
+`new Sink()`, `Sink[name]`) are not rows, as for ESM imports.
+
 The extractor also captures callback arguments. All such edges are honestly
 callgraph_edge/detail_unknown; direct-call detail is not inferred. Reverse
 impact is bounded traversal over this extracted graph, with depth/node/edge
 truncation and unresolved evidence. It is not a whole-program impact proof.
 
 Cross-file general non-call, import and type references are incomplete.
-Class/interface/property members, namespace member access, this-based dynamic
+Class/interface/property members, ESM namespace member access, this-based dynamic
 dispatch and star exports are unsupported or unresolved in this candidate.
 Known member targets return unsupported with exact source token identity;
 member uses never become edges to a same-name free function. Unsupported

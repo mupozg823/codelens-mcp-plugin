@@ -1048,3 +1048,253 @@ fn analysis_lite_dynamic_import_member_counts_as_a_reference_to_the_export() {
         "{impact:?}"
     );
 }
+
+/// Lines of the reference rows a refs query found in `file`.
+fn ref_lines(response: &AnalysisEvidence, file: &str) -> Vec<usize> {
+    response
+        .results
+        .references
+        .iter()
+        .filter(|row| row.location.file == file)
+        .map(|row| row.location.line)
+        .collect()
+}
+
+#[test]
+fn analysis_lite_commonjs_require_destructuring_resolves_to_the_commonjs_export() {
+    // shadow-partner's browserctl tests take the controller as
+    // `const { BrowserController } = require('../scripts/browserctl/worker.cjs')`
+    // and refs listed only worker.cjs itself.
+    let (_dir, project, index) = fixture(&[
+        (
+            "lib/worker.cjs",
+            "function helper() {}\nfunction inner() {}\nfunction viaMember() {}\n\
+             module.exports = { helper, renamed: inner };\nmodule.exports.viaMember = viaMember;\n",
+        ),
+        (
+            "lib/plain.cjs",
+            "function viaExports() {}\nexports.viaExports = viaExports;\n",
+        ),
+        (
+            "lib/order.cjs",
+            "function early() {}\nfunction before() {}\nfunction kept() {}\n\
+             exports.early = early;\nmodule.exports.before = before;\nmodule.exports = { kept };\n",
+        ),
+        (
+            "lib/single.cjs",
+            "function Single() {}\nmodule.exports = Single;\n",
+        ),
+        (
+            "tests/use.test.cjs",
+            "const { helper, renamed: alias, viaMember } = require('../lib/worker.cjs');\n\
+             const { viaExports } = require('../lib/plain.cjs');\n\
+             helper();\n\
+             alias();\n\
+             function go() { viaMember(); }\n\
+             viaExports();\n\
+             function shadow(helper) { helper(); }\n\
+             const key = 'helper';\n\
+             const { [key]: computed } = require('../lib/worker.cjs');\n\
+             computed();\n\
+             const { early, before, kept } = require('../lib/order.cjs');\n\
+             early(); before(); kept();\n\
+             const { Single } = require('../lib/single.cjs');\n\
+             Single();\n\
+             const viaTemplate = require(`../lib/worker.cjs`);\n\
+             viaTemplate.helper();\n\
+             let { helper: reassigned } = require('../lib/worker.cjs');\n\
+             reassigned = () => {};\n\
+             reassigned();\n",
+        ),
+    ]);
+    let refs = |file: &str, name: &str| {
+        query(
+            &project,
+            &index,
+            AnalysisQuery::References,
+            &selector(file, name),
+            None,
+            limits(),
+        )
+    };
+    let helper = refs("lib/worker.cjs", "helper");
+    // The shadowing parameter (line 7), the computed key (line 10), the
+    // template-string require (line 16) and a reassigned binding (line 19)
+    // are not the export.
+    assert_eq!(ref_lines(&helper, "tests/use.test.cjs"), [3], "{helper:?}");
+    let row = helper
+        .results
+        .references
+        .iter()
+        .find(|row| row.location.file == "tests/use.test.cjs")
+        .unwrap();
+    assert_eq!(
+        row.provenance[0].resolution,
+        "verified_cjs_require_export_identity"
+    );
+    assert_eq!(row.provenance[0].relation_kind, "callgraph_edge");
+    let inner = refs("lib/worker.cjs", "inner");
+    assert_eq!(ref_lines(&inner, "tests/use.test.cjs"), [4], "{inner:?}");
+    let member = refs("lib/worker.cjs", "viaMember");
+    assert_eq!(ref_lines(&member, "tests/use.test.cjs"), [5], "{member:?}");
+    let exported = refs("lib/plain.cjs", "viaExports");
+    assert_eq!(
+        ref_lines(&exported, "tests/use.test.cjs"),
+        [6],
+        "{exported:?}"
+    );
+    // Reassigning `module.exports` drops the earlier `exports.early` and
+    // `module.exports.before`; a whole-value export has no name.
+    for (file, name, lines) in [
+        ("lib/order.cjs", "early", vec![]),
+        ("lib/order.cjs", "before", vec![]),
+        ("lib/order.cjs", "kept", vec![12]),
+        ("lib/single.cjs", "Single", vec![]),
+    ] {
+        let response = refs(file, name);
+        assert_eq!(
+            ref_lines(&response, "tests/use.test.cjs"),
+            lines,
+            "{name}: {response:?}"
+        );
+    }
+    // Impact continues from the enclosing function of a call.
+    let impact = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("lib/worker.cjs", "viaMember"),
+        None,
+        limits(),
+    );
+    assert!(
+        impact
+            .results
+            .edges
+            .iter()
+            .any(|edge| edge.source.as_ref().is_some_and(|s| s.name == "go")),
+        "{impact:?}"
+    );
+    // Selecting the require binding answers for the export it stands for.
+    let mut at_binding = selector("tests/use.test.cjs", "helper");
+    at_binding.name_span = Some(ByteSpan { start: 8, end: 14 });
+    let binding = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &at_binding,
+        None,
+        limits(),
+    );
+    assert_eq!(binding.target, helper.target, "{binding:?}");
+}
+
+#[test]
+fn analysis_lite_commonjs_namespace_members_and_esm_mixes_resolve_by_binding() {
+    let (_dir, project, index) = fixture(&[
+        ("lib/esm.ts", "export function esmSink() {}\n"),
+        (
+            "lib/cjs.cjs",
+            "const { esmSink } = require('./esm');\nfunction cjsSink() {}\n\
+             module.exports = { cjsSink, esmSink };\n",
+        ),
+        (
+            "app/ns.cjs",
+            "const lib = require('../lib/cjs.cjs');\n\
+             lib.cjsSink();\n\
+             lib.esmSink();\n\
+             function local(lib) { lib.cjsSink(); }\n\
+             lib.missing();\n\
+             function run() { return lib.cjsSink; }\n",
+        ),
+        (
+            "app/esm.ts",
+            "import { cjsSink } from '../lib/cjs.cjs';\ncjsSink();\n",
+        ),
+        (
+            "app/fake.cjs",
+            "function require(spec) { return {}; }\n\
+             const { cjsSink } = require('../lib/cjs.cjs');\ncjsSink();\n",
+        ),
+        (
+            "lib/shadowed.cjs",
+            "const module = { exports: {} };\nfunction notExported() {}\n\
+             module.exports = { notExported };\n",
+        ),
+        (
+            "app/s.cjs",
+            "const { notExported } = require('../lib/shadowed.cjs');\nnotExported();\n",
+        ),
+    ]);
+    let refs = |file: &str, name: &str| {
+        query(
+            &project,
+            &index,
+            AnalysisQuery::References,
+            &selector(file, name),
+            None,
+            limits(),
+        )
+    };
+    let cjs = refs("lib/cjs.cjs", "cjsSink");
+    // `lib.cjsSink` at lines 2 and 6, not through the shadowing parameter.
+    assert_eq!(ref_lines(&cjs, "app/ns.cjs"), [2, 6], "{cjs:?}");
+    // An ESM import of a CommonJS export resolves too.
+    assert_eq!(ref_lines(&cjs, "app/esm.ts"), [2], "{cjs:?}");
+    // A local `require` is not the CommonJS loader.
+    assert!(ref_lines(&cjs, "app/fake.cjs").is_empty(), "{cjs:?}");
+    let source = fs::read_to_string(project.as_path().join("app/ns.cjs")).unwrap();
+    for row in cjs
+        .results
+        .references
+        .iter()
+        .filter(|row| row.location.file == "app/ns.cjs")
+    {
+        assert_eq!(
+            &source[row.location.span.start..row.location.span.end],
+            "cjsSink"
+        );
+        assert_eq!(
+            row.provenance[0].resolution,
+            "verified_cjs_require_export_identity"
+        );
+    }
+    // The resolved member call is not also reported unresolved; the shadowed
+    // `lib.cjsSink` (line 4) and the absent export (line 5) are, once each.
+    let unresolved = cjs
+        .unresolved
+        .examples
+        .iter()
+        .filter_map(|row| {
+            let location = row.location.as_ref()?;
+            (location.file == "app/ns.cjs").then_some((location.line, row.name.as_str()))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        unresolved,
+        [(4, "cjsSink"), (5, "missing")],
+        "{unresolved:?}"
+    );
+    // A CommonJS reexport of a required ESM export reaches the ESM file.
+    let esm = refs("lib/esm.ts", "esmSink");
+    assert_eq!(ref_lines(&esm, "app/ns.cjs"), [3], "{esm:?}");
+    // A file that binds `module` itself exports nothing through it.
+    let shadowed = refs("lib/shadowed.cjs", "notExported");
+    assert!(ref_lines(&shadowed, "app/s.cjs").is_empty(), "{shadowed:?}");
+    let impact = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("lib/cjs.cjs", "cjsSink"),
+        None,
+        limits(),
+    );
+    assert!(
+        impact
+            .results
+            .edges
+            .iter()
+            .any(|edge| edge.source.as_ref().is_some_and(|s| s.name == "run")),
+        "{impact:?}"
+    );
+}

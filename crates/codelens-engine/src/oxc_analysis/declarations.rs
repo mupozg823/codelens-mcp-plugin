@@ -52,6 +52,8 @@ pub struct ModuleImport {
     pub is_namespace: bool,
     pub is_default: bool,
     pub imported_name: Option<String>,
+    /// `const { imported: local } = require("module")`, not an ESM entry.
+    pub is_require: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +84,9 @@ pub struct DeclarationAnalysis {
     pub imports: Vec<ModuleImport>,
     pub exports: Vec<ModuleExport>,
     pub dynamic_import_members: Vec<DynamicImportMember>,
+    /// `m.member` read off `const m = require("module")`: the same shape as a
+    /// dynamic-import member, with `m` bound by the require declaration.
+    pub require_members: Vec<DynamicImportMember>,
 }
 
 #[derive(Debug, Clone)]
@@ -104,6 +109,13 @@ impl DeclarationAnalysis {
         self.declarations
             .iter()
             .find(|d| d.references.iter().any(|reference| reference.span == span))
+    }
+
+    /// The verified `require` destructuring entry a binding stands for.
+    pub fn require_import(&self, declaration: &ExactDeclaration) -> Option<&ModuleImport> {
+        self.imports
+            .iter()
+            .find(|import| import.is_require && import.local_span == declaration.name_span)
     }
 }
 
@@ -181,7 +193,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
     }
     declarations.sort_by_key(|d| (d.name_span.start, d.name_span.end));
     let tokens = module_link_names(source, file_path)?;
-    let imports = parsed
+    let mut imports = parsed
         .module_record
         .import_entries
         .iter()
@@ -206,9 +218,10 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
                     ))
                     .cloned()
             },
+            is_require: false,
         })
-        .collect();
-    let exports = parsed
+        .collect::<Vec<_>>();
+    let mut exports = parsed
         .module_record
         .local_export_entries
         .iter()
@@ -237,7 +250,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
                     .cloned(),
             })
         })
-        .collect();
+        .collect::<Vec<_>>();
     // Keep a `m.member` token only when OXC binds that `m` to the callback's
     // parameter; a shadowing `m` or another object of the same name is not
     // the namespace.
@@ -261,13 +274,112 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
             }
         })
         .collect();
+    let (cjs_imports, cjs_exports, require_members) =
+        commonjs_links(&declarations, tokens.cjs, bytes);
+    imports.extend(cjs_imports);
+    exports.extend(cjs_exports);
     Ok(DeclarationAnalysis {
         declarations,
         unsupported_members: tokens.members,
         imports,
         exports,
         dynamic_import_members,
+        require_members,
     })
+}
+
+/// Keep a CommonJS candidate only where OXC agrees: `require`, `module` and
+/// `exports` are the free (global) names, an exported value is a root binding,
+/// and an imported local is a binding that is never reassigned.
+fn commonjs_links(
+    declarations: &[ExactDeclaration],
+    cjs: CjsTokens,
+    bytes: &[u8],
+) -> (
+    Vec<ModuleImport>,
+    Vec<ModuleExport>,
+    Vec<DynamicImportMember>,
+) {
+    let binding = |span: ByteSpan| {
+        declarations
+            .iter()
+            .find(|d| d.references.iter().any(|r| r.span == span))
+    };
+    let constant = |span: ByteSpan| {
+        declarations.iter().find(|d| {
+            d.name_span == span
+                && d.references
+                    .iter()
+                    .all(|r| !matches!(r.kind, RefKind::Write))
+        })
+    };
+    let mut imports = Vec::new();
+    for call in cjs
+        .requires
+        .iter()
+        .filter(|call| binding(call.require_span).is_none())
+    {
+        for (imported, local_span) in &call.entries {
+            if let Some(local) = constant(*local_span) {
+                imports.push(ModuleImport {
+                    local_name: local.name.clone(),
+                    local_span: *local_span,
+                    module: call.module.clone(),
+                    is_type: false,
+                    is_namespace: false,
+                    is_default: false,
+                    imported_name: Some(imported.clone()),
+                    is_require: true,
+                });
+            }
+        }
+    }
+    let exports = cjs
+        .exports
+        .into_iter()
+        .filter(|export| export.free.iter().all(|span| binding(*span).is_none()))
+        .filter_map(|export| {
+            let local = binding(export.value_span).filter(|d| d.is_root)?;
+            Some(ModuleExport {
+                exported_name: export.name,
+                local_name: Some(local.name.clone()),
+                module: None,
+                is_type: false,
+                imported_name: None,
+            })
+        })
+        .collect();
+    let namespaces = cjs
+        .namespaces
+        .iter()
+        .filter(|call| binding(call.require_span).is_none())
+        .filter_map(|call| {
+            let [(_, local_span)] = call.entries.as_slice() else {
+                return None;
+            };
+            constant(*local_span).map(|_| (*local_span, call.module.as_str()))
+        })
+        .collect::<Vec<_>>();
+    let members = cjs
+        .member_reads
+        .into_iter()
+        .filter_map(|read| {
+            let object = binding(read.object_span)?;
+            let module = namespaces
+                .iter()
+                .find(|(span, _)| *span == object.name_span)?
+                .1;
+            let (line, column) = offset_to_line_col(bytes, read.member_span.start);
+            Some(DynamicImportMember {
+                module: module.to_owned(),
+                member: read.member,
+                member_span: read.member_span,
+                line,
+                column,
+            })
+        })
+        .collect();
+    (imports, exports, members)
 }
 
 type LinkNames = std::collections::HashMap<(usize, usize), String>;
@@ -277,6 +389,42 @@ struct ModuleTokens {
     exports: LinkNames,
     members: Vec<UnsupportedDeclaration>,
     dynamic: Vec<DynamicCandidate>,
+    cjs: CjsTokens,
+}
+
+/// CommonJS link candidates from tree-sitter; OXC confirms each binding in
+/// `commonjs_links`.
+#[derive(Default)]
+struct CjsTokens {
+    requires: Vec<RequireCall>,
+    /// `const m = require("spec")`: one entry, the `m` token.
+    namespaces: Vec<RequireCall>,
+    exports: Vec<CjsExport>,
+    /// `m.member` reads whose object is named like a namespace binding.
+    member_reads: Vec<MemberRead>,
+}
+
+/// `const { imported: local, … } = require("spec")` with a string-literal
+/// specifier: `(imported, local token)` per plain identifier entry.
+struct RequireCall {
+    module: String,
+    require_span: ByteSpan,
+    entries: Vec<(String, ByteSpan)>,
+}
+
+/// A top-level `module.exports = { name, name: value }`,
+/// `module.exports.name = value` or `exports.name = value`; `free` holds the
+/// `module`/`exports` tokens that must be the CommonJS globals.
+struct CjsExport {
+    name: String,
+    value_span: ByteSpan,
+    free: Vec<ByteSpan>,
+}
+
+struct MemberRead {
+    object_span: ByteSpan,
+    member: String,
+    member_span: ByteSpan,
 }
 
 struct DynamicCandidate {
@@ -366,14 +514,225 @@ fn import_call_specifier(call: tree_sitter::Node, source: &str) -> Option<String
     if args.named_child_count() != 1 {
         return None;
     }
-    let specifier = args.named_child(0)?;
-    if specifier.kind() != "string" {
+    string_literal(args.named_child(0)?, source)
+}
+
+fn string_literal(node: tree_sitter::Node, source: &str) -> Option<String> {
+    if node.kind() != "string" {
         return None;
     }
-    let quoted = &source[specifier.byte_range()];
+    let quoted = &source[node.byte_range()];
     quoted
         .get(1..quoted.len().checked_sub(1)?)
         .map(str::to_owned)
+}
+
+/// `require("spec")` with exactly one string-literal argument: the specifier
+/// and the `require` token. Template strings and computed paths are skipped.
+fn require_call(call: tree_sitter::Node, source: &str) -> Option<(String, ByteSpan)> {
+    let callee = call.child_by_field_name("function")?;
+    if call.kind() != "call_expression"
+        || callee.kind() != "identifier"
+        || &source[callee.byte_range()] != "require"
+    {
+        return None;
+    }
+    let args = call.child_by_field_name("arguments")?;
+    if args.named_child_count() != 1 {
+        return None;
+    }
+    Some((
+        string_literal(args.named_child(0)?, source)?,
+        byte_span(callee),
+    ))
+}
+
+/// `const { X, Y: Z } = require("spec")` adds one entry per shorthand or
+/// `key: identifier` property; defaults, rest, nested and computed keys are
+/// skipped. `const m = require("spec")` is a namespace.
+fn require_declarator(node: tree_sitter::Node, source: &str, cjs: &mut CjsTokens) {
+    if node.kind() != "variable_declarator" {
+        return;
+    }
+    let (Some(name), Some((module, require_span))) = (
+        node.child_by_field_name("name"),
+        node.child_by_field_name("value")
+            .and_then(|value| require_call(value, source)),
+    ) else {
+        return;
+    };
+    if name.kind() == "identifier" {
+        cjs.namespaces.push(RequireCall {
+            module,
+            require_span,
+            entries: vec![("*".to_owned(), byte_span(name))],
+        });
+        return;
+    }
+    if name.kind() != "object_pattern" {
+        return;
+    }
+    let mut cursor = name.walk();
+    let entries = name
+        .named_children(&mut cursor)
+        .filter_map(|entry| match entry.kind() {
+            "shorthand_property_identifier_pattern" => {
+                Some((source[entry.byte_range()].to_owned(), byte_span(entry)))
+            }
+            "pair_pattern" => {
+                let key = entry.child_by_field_name("key")?;
+                let value = entry.child_by_field_name("value")?;
+                (key.kind() == "property_identifier" && value.kind() == "identifier")
+                    .then(|| (source[key.byte_range()].to_owned(), byte_span(value)))
+            }
+            _ => None,
+        })
+        .collect();
+    cjs.requires.push(RequireCall {
+        module,
+        require_span,
+        entries,
+    });
+}
+
+/// `module.exports`: the `module` token.
+fn module_exports(node: tree_sitter::Node, source: &str) -> Option<ByteSpan> {
+    let object = node.child_by_field_name("object")?;
+    let property = node.child_by_field_name("property")?;
+    (node.kind() == "member_expression"
+        && object.kind() == "identifier"
+        && &source[object.byte_range()] == "module"
+        && &source[property.byte_range()] == "exports")
+        .then(|| byte_span(object))
+}
+
+/// Named exports from top-level CommonJS assignments. Reassigning
+/// `module.exports` replaces the exported object, so an object literal counts
+/// only when it is the one such assignment, `module.exports.X` only after the
+/// last one, and `exports.X` only when there is none (it detaches `exports`).
+/// `module.exports = value` exports no name.
+fn commonjs_exports(root: tree_sitter::Node, source: &str) -> Vec<CjsExport> {
+    let mut wholes = Vec::new();
+    let mut members = Vec::new();
+    let mut cursor = root.walk();
+    for statement in root.named_children(&mut cursor) {
+        let Some(assignment) = statement.named_child(0).filter(|n| {
+            statement.kind() == "expression_statement" && n.kind() == "assignment_expression"
+        }) else {
+            continue;
+        };
+        let (Some(left), Some(right)) = (
+            assignment.child_by_field_name("left"),
+            assignment.child_by_field_name("right"),
+        ) else {
+            continue;
+        };
+        if let Some(module) = module_exports(left, source) {
+            wholes.push((statement.start_byte(), module, right));
+            continue;
+        }
+        let (Some(object), Some(property)) = (
+            left.child_by_field_name("object"),
+            left.child_by_field_name("property"),
+        ) else {
+            continue;
+        };
+        if left.kind() != "member_expression"
+            || property.kind() != "property_identifier"
+            || right.kind() != "identifier"
+        {
+            continue;
+        }
+        let (via_module, free) = match module_exports(object, source) {
+            Some(module) => (true, module),
+            None if object.kind() == "identifier" && &source[object.byte_range()] == "exports" => {
+                (false, byte_span(object))
+            }
+            None => continue,
+        };
+        members.push((
+            statement.start_byte(),
+            via_module,
+            CjsExport {
+                name: source[property.byte_range()].to_owned(),
+                value_span: byte_span(right),
+                free: vec![free],
+            },
+        ));
+    }
+    let mut out = Vec::new();
+    if let [(_, module, object)] = wholes.as_slice()
+        && object.kind() == "object"
+    {
+        let mut cursor = object.walk();
+        for entry in object.named_children(&mut cursor) {
+            let named = match entry.kind() {
+                "shorthand_property_identifier" => Some((entry, entry)),
+                "pair" => entry
+                    .child_by_field_name("key")
+                    .zip(entry.child_by_field_name("value"))
+                    .filter(|(key, value)| {
+                        key.kind() == "property_identifier" && value.kind() == "identifier"
+                    }),
+                _ => None,
+            };
+            if let Some((key, value)) = named {
+                out.push(CjsExport {
+                    name: source[key.byte_range()].to_owned(),
+                    value_span: byte_span(value),
+                    free: vec![*module],
+                });
+            }
+        }
+    }
+    let last_whole = wholes.last().map(|(start, ..)| *start);
+    out.extend(
+        members
+            .into_iter()
+            .filter(|(start, via_module, _)| match last_whole {
+                None => true,
+                Some(whole) => *via_module && *start > whole,
+            })
+            .map(|(.., export)| export),
+    );
+    out
+}
+
+/// `name.member` reads (not assignment targets) for the given object names.
+fn member_reads(
+    root: tree_sitter::Node,
+    source: &str,
+    names: &std::collections::HashSet<&str>,
+) -> Vec<MemberRead> {
+    let mut out = Vec::new();
+    let mut nodes = vec![root];
+    while let Some(node) = nodes.pop() {
+        if node.kind() == "member_expression"
+            && let (Some(object), Some(member)) = (
+                node.child_by_field_name("object"),
+                node.child_by_field_name("property"),
+            )
+            && object.kind() == "identifier"
+            && member.kind() == "property_identifier"
+            && names.contains(&source[object.byte_range()])
+            && !node.parent().is_some_and(|parent| {
+                matches!(
+                    parent.kind(),
+                    "assignment_expression" | "augmented_assignment_expression"
+                ) && parent.child_by_field_name("left") == Some(node)
+            })
+        {
+            out.push(MemberRead {
+                object_span: byte_span(object),
+                member: source[member.byte_range()].to_owned(),
+                member_span: byte_span(member),
+            });
+        }
+        let mut cursor = node.walk();
+        nodes.extend(node.children(&mut cursor));
+    }
+    out.sort_by_key(|read| read.member_span.start);
+    out
 }
 
 fn single_identifier_parameter(callback: tree_sitter::Node) -> Option<tree_sitter::Node> {
@@ -421,9 +780,11 @@ fn module_link_names(source: &str, path: &str) -> Result<ModuleTokens> {
     let mut exports = LinkNames::new();
     let mut members = Vec::new();
     let mut dynamic = Vec::new();
+    let mut cjs = CjsTokens::default();
     let mut nodes = vec![tree.root_node()];
     while let Some(node) = nodes.pop() {
         dynamic_import_candidates(node, source, &mut dynamic);
+        require_declarator(node, source, &mut cjs);
         if matches!(
             node.kind(),
             "method_definition"
@@ -469,11 +830,22 @@ fn module_link_names(source: &str, path: &str) -> Result<ModuleTokens> {
     }
     members.sort_by_key(|member| member.name_span.start);
     dynamic.sort_by_key(|candidate| candidate.member_span.start);
+    cjs.exports = commonjs_exports(tree.root_node(), source);
+    if !cjs.namespaces.is_empty() {
+        let names = cjs
+            .namespaces
+            .iter()
+            .flat_map(|call| &call.entries)
+            .map(|(_, span)| &source[span.start..span.end])
+            .collect();
+        cjs.member_reads = member_reads(tree.root_node(), source, &names);
+    }
     Ok(ModuleTokens {
         imports,
         exports,
         members,
         dynamic,
+        cjs,
     })
 }
 

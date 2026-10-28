@@ -319,8 +319,8 @@ fn execute(
     // resolves to, so the query runs on that identity and adds the binding's
     // own local uses. An unresolved import keeps the binding as the target;
     // its callsites are unresolved evidence.
-    let exported = declaration
-        .is_import
+    let required = analysis.require_import(declaration).is_some();
+    let exported = (declaration.is_import || required)
         .then(|| graph.imported_declaration(project, &file, declaration).ok())
         .flatten();
     let target = exported.as_ref().map_or_else(
@@ -343,7 +343,9 @@ fn execute(
                 file.as_str(),
                 declaration,
                 hash.as_str(),
-                if exported.is_some() {
+                if exported.is_some() && required {
+                    "verified_cjs_require_export_identity"
+                } else if exported.is_some() {
                     "verified_esm_import_export_identity"
                 } else {
                     "exact_lexical_declaration"
