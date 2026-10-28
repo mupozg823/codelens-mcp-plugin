@@ -947,3 +947,26 @@ fn analysis_lite_rows_carry_their_trimmed_capped_source_line() {
             .is_none_or(|l| l.line_text.is_none())
     }));
 }
+
+#[test]
+fn analysis_lite_parse_caches_are_released_only_after_an_idle_period() {
+    let (_dir, project, index) = fixture(&[
+        ("a.ts", "export function sink() {}\n"),
+        ("b.ts", "import { sink } from './a';\nsink();\n"),
+    ]);
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("a.ts", "sink"),
+        None,
+        limits(),
+    );
+    assert_ne!(response.status, EvidenceStatus::Error, "{response:?}");
+    // Just used: not idle for an hour, so nothing is released.
+    assert!(!release_parse_caches_if_idle(
+        std::time::Duration::from_secs(3600)
+    ));
+    // Idle for zero time: the entries this query cached are dropped.
+    assert!(release_parse_caches_if_idle(std::time::Duration::ZERO));
+}

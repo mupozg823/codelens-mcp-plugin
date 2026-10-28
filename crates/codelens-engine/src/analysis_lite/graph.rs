@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 /// Parse products of one file, reused while its content hash is unchanged. A
 /// stdio session re-queries the same project, and every query otherwise
@@ -29,6 +30,35 @@ static ANALYSIS_CACHE: LazyLock<Mutex<HashMap<PathBuf, CachedFile<DeclarationAna
     LazyLock::new(Default::default);
 static CALLS_CACHE: LazyLock<Mutex<HashMap<PathBuf, CachedFile<Vec<LocatedCallEdge>>>>> =
     LazyLock::new(Default::default);
+/// When a query last used the caches; the idle sweep empties them after a
+/// quiet period so an idle session does not keep every project's parses.
+static CACHES_LAST_USED: Mutex<Option<Instant>> = Mutex::new(None);
+
+fn touch_caches() {
+    *CACHES_LAST_USED.lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
+}
+
+/// Empty both parse caches when no query has used them for `idle_for`.
+/// Returns whether any entry was dropped. A query in flight keeps the parses
+/// it already holds; its next lookup simply misses.
+pub(super) fn release_parse_caches_if_idle(idle_for: Duration) -> bool {
+    let last_used = *CACHES_LAST_USED.lock().unwrap_or_else(|p| p.into_inner());
+    if last_used.is_none_or(|at| at.elapsed() < idle_for) {
+        return false;
+    }
+    let mut dropped = false;
+    for len in [clear(&ANALYSIS_CACHE), clear(&CALLS_CACHE)] {
+        dropped |= len > 0;
+    }
+    dropped
+}
+
+fn clear<T>(cache: &Mutex<HashMap<PathBuf, CachedFile<T>>>) -> usize {
+    let mut cache = cache.lock().unwrap_or_else(|p| p.into_inner());
+    let len = cache.len();
+    *cache = HashMap::new();
+    len
+}
 
 fn cached<T>(
     cache: &Mutex<HashMap<PathBuf, CachedFile<T>>>,
@@ -106,6 +136,7 @@ impl DeclarationGraph {
                 "requested caller scope does not exist",
             ));
         }
+        touch_caches();
         // Discover the project once so import targets outside a narrow caller
         // scope can still be resolved. Only edges in the caller scope are emitted.
         let mut files = collect_files(project.as_path(), is_js_ts)
@@ -207,6 +238,7 @@ impl DeclarationGraph {
         }
         graph.edges = edges;
         graph.unresolved = unresolved;
+        touch_caches();
         Ok(graph)
     }
 

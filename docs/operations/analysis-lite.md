@@ -275,7 +275,12 @@ guard is a wire bound, not an actual provider token measurement.
 Each query parses the project's JS/TS files in parallel. Within one server
 process, a file's OXC declarations and call sites are reused while its content
 hash is unchanged (per absolute path, cleared at 20000 files); an edited file
-is a cache miss, and every query still hashes every source it reads.
+is a cache miss, and every query still hashes every source it reads. The idle
+sweep empties both caches once no query has used them for the idle TTL
+(`CODELENS_ANALYSIS_LITE_IDLE_SECS`, default 600), and pages freed by a query
+or a release are handed back to the OS (mimalloc collect on the request thread
+and every rayon worker). On a 3,058-file project the server held 434 MB while
+in use and 45 MB after the TTL.
 
 ## Verification receipts
 

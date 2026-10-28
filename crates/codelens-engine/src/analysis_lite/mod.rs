@@ -116,6 +116,12 @@ fn member_identity(file: &str, member: &UnsupportedDeclaration) -> DeclarationId
 /// Produces a typed response even on source/index failures. `status=error`
 /// instructs the MCP adapter to emit the existing error envelope with this
 /// payload, rather than a successful zero-impact report.
+/// Empty the per-process parse caches when no analysis-lite query has used
+/// them for `idle_for`; returns whether any entry was dropped.
+pub fn release_parse_caches_if_idle(idle_for: std::time::Duration) -> bool {
+    graph::release_parse_caches_if_idle(idle_for)
+}
+
 pub fn query(
     project: &ProjectRoot,
     index: &SymbolIndex,

@@ -544,7 +544,11 @@ pub(crate) fn spawn_idle_runtime_sweeper(
                 let Some(state) = state.upgrade() else {
                     return;
                 };
-                state.release_idle_project_runtimes(idle_for);
+                let released = state.release_idle_project_runtimes(idle_for);
+                let parses = codelens_engine::analysis_lite::release_parse_caches_if_idle(idle_for);
+                if released > 0 || parses {
+                    crate::memory_pressure::return_freed_memory();
+                }
             }
         })
         .map(drop)

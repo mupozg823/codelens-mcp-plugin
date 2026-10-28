@@ -151,6 +151,8 @@ fn run_bound(
         args.get("path").and_then(Value::as_str),
         limits,
     );
+    // The query's source graph was just dropped on this thread.
+    crate::memory_pressure::return_freed_memory();
     #[cfg(test)]
     AFTER_QUERY.with(|hook| {
         if let Some(hook) = hook.borrow().as_ref() {
