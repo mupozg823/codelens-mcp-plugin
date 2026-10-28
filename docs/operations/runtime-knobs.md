@@ -127,10 +127,27 @@ leases, so `codelens-mcp <repo> --cmd …` and other CodeLens processes are not
 refused with `project_writer_busy` for as long as the session stays open. A
 runtime a call still holds is never released, and idle time counts from the
 end of its last call. The next call rebuilds the runtime (a writer when the
-lease is free, else a reader). Invalid or `0` values fall back to the default.
+lease is free, else a reader). The same sweep empties the analysis-lite parse
+caches once no query has used them for this long, then returns freed pages to
+the OS. Invalid or `0` values fall back to the default.
 Only analysis-lite stdio runs the sweep; other surfaces keep their runtimes
 until LRU eviction or exit. See
 [`analysis-lite.md`](analysis-lite.md#everyday-registration-stdio-on-demand).
+
+## Embedding sub-batches (`CODELENS_EMBED_SUB_BATCH`, default 32)
+
+Embedding runs in batches of `CODELENS_EMBED_BATCH_SIZE` texts (default 128).
+Within a batch, texts are sorted by length and sent to the model this many at a
+time, so each ONNX call pads only to its own longest text; vectors come back in
+input order. `0` restores one call per batch. The bundled model quantizes
+activations per call, so the setting changes vectors slightly; an existing
+index keeps the vectors it has until those symbols are re-embedded.
+
+Measured 2026-10-28 on the self corpus (13,799 symbols, first index, fresh
+snapshots, two runs each): 102.6/94.4 s at `0` against 84.2/90.0 s at `32`.
+`get_ranked_context` MRR 0.773 → 0.778 (self, 112 queries) and 0.417 → 0.426
+(gin, 30); `semantic_search` 0.701 → 0.701 (self) and 0.289 → 0.272 (gin, one
+query). `16` matched `32` on time and raised the self candidate-missing rate.
 
 ## Analysis Artifact Cache (LRU + TTL)
 

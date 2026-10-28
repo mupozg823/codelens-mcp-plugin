@@ -4,6 +4,7 @@ use std::thread::available_parallelism;
 use super::ffi;
 
 pub const DEFAULT_EMBED_BATCH_SIZE: usize = 128;
+pub const DEFAULT_EMBED_SUB_BATCH: usize = 32;
 pub const DEFAULT_MACOS_EMBED_BATCH_SIZE: usize = 128;
 pub const DEFAULT_TEXT_EMBED_CACHE_SIZE: usize = 256;
 pub const DEFAULT_MACOS_TEXT_EMBED_CACHE_SIZE: usize = 1024;
@@ -188,6 +189,15 @@ pub fn recommended_embed_threads() -> usize {
             base
         }
     }
+}
+
+/// Texts per ONNX call inside one embedding batch after sorting by length
+/// (`CODELENS_EMBED_SUB_BATCH`; 0 = one call per batch).
+pub fn embed_sub_batch_size() -> usize {
+    std::env::var("CODELENS_EMBED_SUB_BATCH")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(DEFAULT_EMBED_SUB_BATCH)
 }
 
 pub fn embed_batch_size() -> usize {
