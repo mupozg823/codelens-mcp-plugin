@@ -359,6 +359,7 @@ fn execute(
                         line: reference.line,
                         column: reference.column,
                         offset_encoding: "utf8_bytes",
+                        line_text: None,
                     };
                     references.insert(
                         (
@@ -415,6 +416,21 @@ fn execute(
                 .collect();
         }
         AnalysisQuery::Impact => reverse_impact(&graph, target, response),
+    }
+    for location in response
+        .results
+        .references
+        .iter_mut()
+        .map(|row| &mut row.location)
+        .chain(
+            response
+                .results
+                .edges
+                .iter_mut()
+                .map(|edge| &mut edge.location),
+        )
+    {
+        location.line_text = graph.line_text(&location.file, location.span);
     }
     // Verify the source snapshot independently of the index-generation fence.
     // A file changed while the watcher was stalled still invalidates evidence.

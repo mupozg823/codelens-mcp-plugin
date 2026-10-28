@@ -181,6 +181,7 @@ fn run_bound(
         }
         Err(error) => json!({"status":"error", "error":error.to_string()}),
     };
+    compact_rows(&mut payload, query);
     let observed_bytes = wire_bytes(&payload)?;
     let limit_bytes = crate::tool_defs::analysis_lite::max_response_bytes();
     if observed_bytes > limit_bytes && !clip_to_wire_bound(&mut payload, query, limit_bytes)? {
@@ -195,6 +196,91 @@ fn run_bound(
     meta.freshness = Freshness::Indexed;
     meta.degraded_reason = Some("analysis-lite coverage and freshness are defined by the typed evidence; no completeness confidence is assigned".to_owned());
     Ok((payload, meta))
+}
+
+/// Drop what every row repeats, losslessly: a refs row's `target` when it is
+/// the response `target`; an impact edge's `source`/`target` identity, written
+/// as its `symbol_id` string when it equals that entry of `results.nodes`; and
+/// each provenance `source_hash` that equals the one hash of its row's file,
+/// hoisted once into `snapshot.source_hashes`. A file seen with two hashes
+/// keeps them inline.
+fn compact_rows(payload: &mut Value, query: AnalysisQuery) {
+    let target = payload["target"].clone();
+    if query == AnalysisQuery::Impact {
+        let nodes = payload["results"]["nodes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|node| Some((node["symbol_id"].as_str()?.to_owned(), node.clone())))
+            .collect::<std::collections::HashMap<_, _>>();
+        for edge in payload["results"]["edges"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+        {
+            for end in ["source", "target"] {
+                let id = edge[end]["symbol_id"].as_str().map(ToOwned::to_owned);
+                if let Some(id) = id.filter(|id| nodes.get(id) == Some(&edge[end])) {
+                    edge[end] = Value::String(id);
+                }
+            }
+        }
+    }
+    let mut hashes: std::collections::BTreeMap<String, Option<String>> = Default::default();
+    for pointer in ["/results/references", "/results/edges"] {
+        for row in payload
+            .pointer(pointer)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(file) = row["location"]["file"].as_str() else {
+                continue;
+            };
+            for hash in row["provenance"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry["source_hash"].as_str())
+            {
+                let slot = hashes
+                    .entry(file.to_owned())
+                    .or_insert_with(|| Some(hash.to_owned()));
+                if slot.as_deref() != Some(hash) {
+                    *slot = None;
+                }
+            }
+        }
+    }
+    for pointer in ["/results/references", "/results/edges"] {
+        let Some(rows) = payload.pointer_mut(pointer).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for row in rows {
+            if query == AnalysisQuery::References && !target.is_null() && row["target"] == target {
+                row.as_object_mut().map(|row| row.remove("target"));
+            }
+            let file = row["location"]["file"].as_str().map(ToOwned::to_owned);
+            let single = file.and_then(|file| hashes.get(&file).cloned().flatten());
+            let Some(single) = single else {
+                continue;
+            };
+            for entry in row["provenance"].as_array_mut().into_iter().flatten() {
+                if entry["source_hash"].as_str() == Some(single.as_str()) {
+                    entry
+                        .as_object_mut()
+                        .map(|entry| entry.remove("source_hash"));
+                }
+            }
+        }
+    }
+    let hoisted = hashes
+        .into_iter()
+        .filter_map(|(file, hash)| hash.map(|hash| (file, Value::String(hash))))
+        .collect::<serde_json::Map<_, _>>();
+    if !hoisted.is_empty() && payload["snapshot"].is_object() {
+        payload["snapshot"]["source_hashes"] = Value::Object(hoisted);
+    }
 }
 
 fn wire_bytes(payload: &Value) -> Result<usize, CodeLensError> {
@@ -238,14 +324,22 @@ fn clip_to_wire_bound(
         let kept_rows = rows[..rows_kept].to_vec();
         let mut nodes_omitted = 0;
         if query == AnalysisQuery::Impact {
+            // An endpoint is a node `symbol_id` string or a full identity.
+            let id = |end: &'_ Value| -> Value {
+                if end.is_string() {
+                    end.clone()
+                } else {
+                    end["symbol_id"].clone()
+                }
+            };
             let reached = kept_rows
                 .iter()
-                .flat_map(|edge| [&edge["source"]["symbol_id"], &edge["target"]["symbol_id"]])
-                .chain([&root])
+                .flat_map(|edge| [id(&edge["source"]), id(&edge["target"])])
+                .chain([root.clone()])
                 .collect::<Vec<_>>();
             let kept_nodes = nodes
                 .iter()
-                .filter(|node| reached.contains(&&node["symbol_id"]))
+                .filter(|node| reached.contains(&node["symbol_id"]))
                 .cloned()
                 .collect::<Vec<_>>();
             nodes_omitted = nodes.len() - kept_nodes.len();
@@ -610,7 +704,9 @@ pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensE
 
 #[cfg(test)]
 mod tests {
-    use super::{AnalysisQuery, clip_to_wire_bound, cloud_synced_ancestor, wire_bytes};
+    use super::{
+        AnalysisQuery, clip_to_wire_bound, cloud_synced_ancestor, compact_rows, wire_bytes,
+    };
     use serde_json::{Value, json};
     use std::path::Path;
 
@@ -652,6 +748,57 @@ mod tests {
         assert_eq!(wire["unresolved_examples_omitted"], 1);
         assert_eq!(payload["truncation"]["edges"], true);
         assert_eq!(payload["unresolved"]["examples_truncated"], true);
+    }
+
+    #[test]
+    fn compaction_hoists_one_hash_per_file_and_keeps_conflicts_and_edge_targets_inline() {
+        let target = json!({"symbol_id": "a.ts#t", "name": "t"});
+        let other = json!({"symbol_id": "b.ts#u", "name": "u"});
+        let row = |file: &str, hash: &str, target: &Value| {
+            json!({
+                "location": {"file": file, "line": 1},
+                "target": target,
+                "provenance": [{"backend": "oxc_semantic", "source_hash": hash}],
+            })
+        };
+        let mut refs = json!({
+            "target": target,
+            "snapshot": {"generation": 1},
+            "results": {"references": [
+                row("a.ts", "h1", &target),
+                row("a.ts", "h1", &target),
+                row("b.ts", "h2", &target),
+                row("b.ts", "h3", &target),
+            ], "edges": []},
+        });
+        compact_rows(&mut refs, AnalysisQuery::References);
+        let rows = refs["results"]["references"].as_array().unwrap();
+        assert!(rows.iter().all(|row| row.get("target").is_none()), "{refs}");
+        assert_eq!(refs["snapshot"]["source_hashes"], json!({"a.ts": "h1"}));
+        assert!(rows[0]["provenance"][0].get("source_hash").is_none());
+        // b.ts was seen with two hashes: both stay on their rows.
+        assert_eq!(rows[2]["provenance"][0]["source_hash"], "h2");
+        assert_eq!(rows[3]["provenance"][0]["source_hash"], "h3");
+
+        // Impact endpoints equal to a node become that node's id; one that
+        // differs from its node (or has none) stays a full identity.
+        let stale = json!({"symbol_id": "a.ts#t", "name": "renamed"});
+        let mut edge = row("b.ts", "h2", &other);
+        edge["source"] = json!({"symbol_id": "c.ts#module", "name": "<module>"});
+        let mut edge2 = row("b.ts", "h2", &stale);
+        edge2["source"] = other.clone();
+        let mut impact = json!({
+            "target": target,
+            "snapshot": {"generation": 1},
+            "results": {"references": [], "nodes": [target, other], "edges": [edge, edge2]},
+        });
+        compact_rows(&mut impact, AnalysisQuery::Impact);
+        let edges = &impact["results"]["edges"];
+        assert_eq!(edges[0]["target"], "b.ts#u");
+        assert_eq!(edges[0]["source"]["name"], "<module>");
+        assert_eq!(edges[1]["source"], "b.ts#u");
+        assert_eq!(edges[1]["target"], stale);
+        assert_eq!(impact["snapshot"]["source_hashes"], json!({"b.ts": "h2"}));
     }
 
     #[test]

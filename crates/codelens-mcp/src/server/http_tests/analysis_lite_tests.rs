@@ -559,7 +559,21 @@ async fn analysis_lite_http_preserves_typed_locations_under_small_legacy_budget(
             .len(),
         9
     );
-    assert!(text["data"]["results"]["references"][8]["provenance"][0]["source_hash"].is_string());
+    // A row's file hash is hoisted once into the snapshot; the row keeps its
+    // code line and drops the target it shares with the response.
+    let row = &text["data"]["results"]["references"][8];
+    let file = row["location"]["file"].as_str().unwrap();
+    assert!(
+        text["data"]["snapshot"]["source_hashes"][file].is_string(),
+        "{text}"
+    );
+    assert!(row["provenance"][0].get("source_hash").is_none(), "{row}");
+    assert!(row.get("target").is_none(), "{row}");
+    assert!(text["data"]["target"]["symbol_id"].is_string());
+    assert!(
+        !row["location"]["line_text"].as_str().unwrap().is_empty(),
+        "{row}"
+    );
     assert_eq!(
         evidence["results"]["references"][8]["provenance"]
             .as_array()

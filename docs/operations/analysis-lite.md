@@ -108,6 +108,22 @@ starts a stdio MCP child in the thread's working directory without
 CLAUDE_PROJECT_DIR (measured 2026-10-27), so the working-directory fallback
 yields its launch root the same way.
 
+Output budgets. A response is at most 18000 bytes of JSON (see the wire bound
+below), under Claude Code's 10000-token warning and its 50000-character
+persist-to-file threshold, so no `anthropic/maxResultSizeChars` is declared.
+Codex truncates a tool result to the model's budget; for a model missing from
+its catalog the fallback is 10000 bytes, which would cut an 18000-byte response
+in the middle (`codex-rs/models-manager/src/model_info.rs`, 2026-10-28). Give
+both tools an explicit budget in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.codelens-lite.tools.search]
+output_token_limit = 8000
+
+[mcp_servers.codelens-lite.tools.graph]
+output_token_limit = 8000
+```
+
 ## One foreground runtime
 
 Build an optimized task-owned binary, then run a single foreground HTTP process:
@@ -187,7 +203,17 @@ truncated. Imports outside a narrow caller path may still need source reads.
 Evidence includes schema_version, capability, canonical project/target,
 snapshot generation and source basis, scope/backends, status, locations and
 identities, provenance, limits, truncation, unresolved, freshness and errors.
-Unknown totals stay null. Partial, unsupported and error are distinct. Actual
+Unknown totals stay null. Partial, unsupported and error are distinct.
+
+Rows are compacted on the wire without losing evidence. Each reference row and
+impact edge carries `location.line_text`, its source line trimmed and capped at
+160 bytes (ending in `…` when cut), taken from the snapshot the query read;
+unresolved examples carry none. A refs row omits `target`, which is the
+response `target`. An impact edge's `source`/`target` is the `symbol_id` string
+of the equal entry in `results.nodes`, or the full identity when no node equals
+it. A provenance `source_hash` that is the single hash of its row's file moves
+to `snapshot.source_hashes[file]`; a file read with two hashes keeps them on its
+rows. Actual
 engine failures return an MCP error envelope with typed evidence, never a
 successful affected-count zero. Rejections without source evidence retain null
 target/snapshot rather than fabricating them.

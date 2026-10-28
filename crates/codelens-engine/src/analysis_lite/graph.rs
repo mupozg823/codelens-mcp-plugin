@@ -243,6 +243,7 @@ impl DeclarationGraph {
                 line: edge.line,
                 column: located.column,
                 offset_encoding: "utf8_bytes",
+                line_text: None,
             };
             // A member-property token is not an OXC lexical binding. Never
             // attribute it by a same-name or path-proximity guess.
@@ -494,6 +495,26 @@ impl DeclarationGraph {
                 "resolved declaration unavailable in bounded source snapshot".to_owned()
             })?;
         Ok((resolved, exported.0, exported.1))
+    }
+
+    /// The trimmed source line holding `span` in `file`, from the snapshot
+    /// this query read (never a fresh disk read).
+    pub fn line_text(&self, file: &str, span: ByteSpan) -> Option<String> {
+        let source = &self.sources.get(file)?.source;
+        let start = span.start.min(source.len());
+        let line_start = source[..start].rfind('\n').map_or(0, |i| i + 1);
+        let line_end = source[start..]
+            .find('\n')
+            .map_or(source.len(), |i| start + i);
+        let line = source.get(line_start..line_end)?.trim();
+        if line.len() <= LINE_TEXT_MAX_BYTES {
+            return Some(line.to_owned());
+        }
+        let mut cut = LINE_TEXT_MAX_BYTES;
+        while !line.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        Some(format!("{}…", &line[..cut]))
     }
 
     pub fn callers(&self, target: &CallTargetIdentity) -> impl Iterator<Item = &EdgeEvidence> {
