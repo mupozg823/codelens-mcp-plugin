@@ -970,3 +970,81 @@ fn analysis_lite_parse_caches_are_released_only_after_an_idle_period() {
     // Idle for zero time: the entries this query cached are dropped.
     assert!(release_parse_caches_if_idle(std::time::Duration::ZERO));
 }
+
+#[test]
+fn analysis_lite_dynamic_import_member_counts_as_a_reference_to_the_export() {
+    // next/dynamic loads every winnation overlay as
+    // `dynamic(() => import("@/components/X").then((mod) => mod.X))`, and refs on
+    // X missed the renderer that draws it (K-0065).
+    let (_dir, project, index) = fixture(&[
+        (
+            "components/Overlay.tsx",
+            "export function Overlay() { return null; }\nexport function Other() { return null; }\n",
+        ),
+        (
+            "renderer.tsx",
+            "function load(f: unknown) { return f; }\n\
+             const Lazy = load(() => import('./components/Overlay').then((mod) => mod.Overlay));\n\
+             const Bare = load(() => import('./components/Overlay').then(m => m.Overlay));\n\
+             const Block = load(() => import('./components/Overlay').then(function (mod) { return mod.Overlay; }));\n\
+             const Wrong = load(() => import('./components/Overlay').then((mod) => mod.Other));\n\
+             const other = { Overlay: 1 };\n\
+             const Unbound = load(() => import('./components/Overlay').then((mod) => other.Overlay));\n\
+             const Shadow = load(() => import('./components/Overlay').then((mod) => [1].map((mod) => mod.Overlay)));\n\
+             export function Page() { return [Lazy, Bare, Block, Wrong, Unbound, Shadow]; }\n",
+        ),
+    ]);
+    let refs = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("components/Overlay.tsx", "Overlay"),
+        None,
+        limits(),
+    );
+    let rows = refs
+        .results
+        .references
+        .iter()
+        .filter(|row| row.location.file == "renderer.tsx")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows.iter().map(|row| row.location.line).collect::<Vec<_>>(),
+        vec![2, 3, 4],
+        "{refs:?}"
+    );
+    let source = fs::read_to_string(project.as_path().join("renderer.tsx")).unwrap();
+    for row in &rows {
+        assert_eq!(
+            &source[row.location.span.start..row.location.span.end],
+            "Overlay"
+        );
+        assert_eq!(
+            row.provenance[0].resolution,
+            "verified_esm_dynamic_import_export_identity"
+        );
+        assert_eq!(row.provenance[0].relation_kind, "callgraph_edge");
+    }
+    let impact = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("components/Overlay.tsx", "Overlay"),
+        None,
+        limits(),
+    );
+    let callers = impact
+        .results
+        .edges
+        .iter()
+        .filter_map(|edge| edge.source.as_ref().map(|source| source.name.as_str()))
+        .collect::<std::collections::HashSet<_>>();
+    assert!(
+        callers.contains("Lazy") && callers.contains("Bare") && callers.contains("Block"),
+        "{impact:?}"
+    );
+    assert!(
+        !callers.contains("Wrong") && !callers.contains("Unbound") && !callers.contains("Shadow"),
+        "{impact:?}"
+    );
+}

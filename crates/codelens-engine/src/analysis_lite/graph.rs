@@ -13,6 +13,19 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
+const DYNAMIC_IMPORT_BACKEND: &str = "tree_sitter_dynamic_import+oxc_semantic";
+
+fn module_identity(file: &str) -> DeclarationIdentity {
+    DeclarationIdentity {
+        symbol_id: format!("{file}#module"),
+        file: file.to_owned(),
+        name: "<module>".to_owned(),
+        name_span: None,
+        declaration_span: None,
+        kind: "module",
+    }
+}
+
 /// Parse products of one file, reused while its content hash is unchanged. A
 /// stdio session re-queries the same project, and every query otherwise
 /// re-parses every JS/TS file in it. Keyed by absolute path, so projects never
@@ -306,17 +319,7 @@ impl DeclarationGraph {
                 }
             };
             let (caller, caller_boundary) = match located.caller {
-                LocatedCaller::Module => (
-                    Some(DeclarationIdentity {
-                        symbol_id: format!("{file}#module"),
-                        file: file.clone(),
-                        name: "<module>".to_owned(),
-                        name_span: None,
-                        declaration_span: None,
-                        kind: "module",
-                    }),
-                    "module",
-                ),
+                LocatedCaller::Module => (Some(module_identity(file)), "module"),
                 LocatedCaller::Declaration {
                     kind,
                     start_byte,
@@ -364,6 +367,67 @@ impl DeclarationGraph {
                         detail: "detail_unknown",
                         source_hash: source.hash.clone(),
                         resolution,
+                    }],
+                }),
+            ));
+        }
+        // `import(spec).then(m => m.X)` reads export X of spec; next/dynamic
+        // loads every winnation overlay this way. The member token is the
+        // location, and spec and X resolve exactly as a static import would.
+        for member in &source.analysis.dynamic_import_members {
+            let location = EvidenceLocation {
+                file: file.clone(),
+                span: member.member_span,
+                line: member.line,
+                column: member.column,
+                offset_encoding: "utf8_bytes",
+                line_text: None,
+            };
+            let target = match self.resolve_module(project, file, &member.module) {
+                Some(module_file) => {
+                    self.resolve_export(project, &module_file, &member.member, &mut HashSet::new())
+                }
+                None => Err(format!(
+                    "module `{}` has no verified project-local import target",
+                    member.module
+                )),
+            };
+            let target = match target {
+                Ok(target) => target,
+                Err(reason) => {
+                    out.push(CallEvidence::Unresolved(UnresolvedEvidence {
+                        location: Some(location),
+                        name: member.member.clone(),
+                        reason,
+                        backend: DYNAMIC_IMPORT_BACKEND,
+                    }));
+                    continue;
+                }
+            };
+            // The innermost declaration holding the token (`const Lazy =
+            // dynamic(...)`) is the caller, so impact continues to its users.
+            let caller = source
+                .analysis
+                .declarations
+                .iter()
+                .filter(|d| !d.is_import && d.declaration_span.contains(member.member_span))
+                .min_by_key(|d| d.declaration_span.end - d.declaration_span.start)
+                .map_or_else(|| module_identity(file), |d| identity(file, d));
+            let key = (file.clone(), member.member_span, target.symbol_id.clone());
+            out.push(CallEvidence::Edge(
+                key,
+                Box::new(EdgeEvidence {
+                    source: Some(caller),
+                    target,
+                    location,
+                    relation_kind: "callgraph_edge",
+                    detail: "detail_unknown",
+                    provenance: vec![Provenance {
+                        backend: DYNAMIC_IMPORT_BACKEND,
+                        relation_kind: "callgraph_edge",
+                        detail: "detail_unknown",
+                        source_hash: source.hash.clone(),
+                        resolution: "verified_esm_dynamic_import_export_identity",
                     }],
                 }),
             ));
