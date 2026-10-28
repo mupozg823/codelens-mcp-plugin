@@ -792,6 +792,22 @@ python3 benchmarks/coverage-gap-runner.py \
   - synthetic만 있으면 보통 `medium`
   - 동일 repo/task에 real-session quality entry가 붙으면 `high`
 
+### 2-4. 다음 행동 충분성 (next-action-sufficiency.py)
+
+CodeLens 결과 바로 뒤 첫 도구 호출로 그 결과가 충분했는지 본다(codegraph `explore-sufficiency` 방식). 제품 텔레메트리 없이 로컬 Claude Code transcript만 읽는다.
+
+```bash
+python3 benchmarks/next-action-sufficiency.py                      # ~/.claude/projects 전체
+python3 benchmarks/next-action-sufficiency.py --since 2026-10-28 --json /tmp/rows.json
+```
+
+- 범주: `re_explore`(다시 CodeLens) · `read_returned`(결과가 이름 댄 파일을 Read 또는 Bash `cat`/`sed`/`head`/`tail`/`nl`) · `read_other` · `text_search`(Grep·Glob·Bash `rg`/`grep`/`find` 등) · `proceed` · `end`.
+- 같은 assistant 메시지에서 함께 낸 병렬 호출은 결과에 대한 반응이 아니므로 뺀다. "다음" = 결과 줄 뒤 첫 호출.
+- `prepare_harness_session` 등 바인딩·설정 호출은 `session/config` 로 따로 센다. 탐색 충분성은 나머지로 본다.
+- `same-target searches` = 텍스트 검색 중 CodeLens 입력의 심볼 이름·질의를 다시 찾은 수(결과 불신의 신호).
+- 채택 전술(Explore 대체, 소스 줄 첨부 등)은 이 표의 전후 비교로 판정한다. 기준선과 해석: `docs/research/host-ergonomics-and-optimization-paths-2026-10-28.md` 9절.
+- 계약 시험: `scripts/test/test-next-action-sufficiency.py`.
+
 ### 3. 실사용 시나리오 테스트 (BUGS.md)
 
 ```bash
