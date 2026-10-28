@@ -129,6 +129,26 @@ pub(crate) fn current_memory_pressure() -> MemoryPressure {
     MemoryPressure::Normal
 }
 
+/// Hand pages freed by the last request back to the OS. mimalloc (the global
+/// allocator, see `main.rs`) keeps a heap per thread: a block a request
+/// thread frees after a rayon worker allocated it waits on that worker's
+/// delayed-free list, and a parked worker never processes it, so the pages
+/// stayed committed. An analysis-lite stdio server on a 3,058-file project
+/// held 676 MB after three queries (292 MB before parsing went parallel);
+/// collecting on every worker and on this thread brought it to 431 MB.
+pub(crate) fn return_freed_memory() {
+    unsafe extern "C" {
+        // Exported by the linked mimalloc library; the Rust crate wraps it
+        // only behind its `extended` feature.
+        fn mi_collect(force: bool);
+    }
+    // Workers collect when they next run; this request does not wait.
+    // SAFETY: mi_collect walks and frees only the calling thread's heap.
+    rayon::spawn_broadcast(|_| unsafe { mi_collect(true) });
+    // SAFETY: as above, on the request thread.
+    unsafe { mi_collect(true) };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
