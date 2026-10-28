@@ -887,3 +887,63 @@ fn analysis_lite_reused_parses_follow_edits_between_queries_in_one_process() {
     }
     assert!(!edited.contains(&("b.ts".to_owned(), 2)), "{edited:?}");
 }
+
+#[test]
+fn analysis_lite_rows_carry_their_trimmed_capped_source_line() {
+    let long_tail = "가".repeat(80);
+    let (_dir, project, index) = fixture(&[
+        ("a.ts", "export function sink() {}\n"),
+        (
+            "b.ts",
+            &format!(
+                "import {{ sink }} from './a';\n    sink(); // short\nconst x = [sink()]; // {long_tail}\n"
+            ),
+        ),
+    ]);
+    let refs = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("a.ts", "sink"),
+        None,
+        limits(),
+    );
+    let line_text = |line: usize| {
+        refs.results
+            .references
+            .iter()
+            .find(|row| row.location.file == "b.ts" && row.location.line == line)
+            .and_then(|row| row.location.line_text.clone())
+            .unwrap_or_else(|| panic!("no b.ts:{line} row in {refs:?}"))
+    };
+    assert_eq!(line_text(2), "sink(); // short");
+    let capped = line_text(3);
+    assert!(capped.starts_with("const x = [sink()];"), "{capped}");
+    assert!(capped.ends_with('…'), "{capped}");
+    assert!(
+        capped.len() <= LINE_TEXT_MAX_BYTES + '…'.len_utf8(),
+        "{capped}"
+    );
+    let impact = query(
+        &project,
+        &index,
+        AnalysisQuery::Impact,
+        &selector("a.ts", "sink"),
+        None,
+        limits(),
+    );
+    assert!(
+        impact
+            .results
+            .edges
+            .iter()
+            .all(|edge| edge.location.line_text.is_some()),
+        "{impact:?}"
+    );
+    assert!(impact.unresolved.examples.iter().all(|example| {
+        example
+            .location
+            .as_ref()
+            .is_none_or(|l| l.line_text.is_none())
+    }));
+}

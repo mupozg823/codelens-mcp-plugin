@@ -63,7 +63,15 @@ pub struct EvidenceLocation {
     pub line: usize,
     pub column: usize,
     pub offset_encoding: &'static str,
+    /// The source line holding `span`, trimmed and capped at
+    /// [`LINE_TEXT_MAX_BYTES`]. Set on reference and edge rows so a host can
+    /// judge a site without another file read; unset on unresolved examples.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_text: Option<String>,
 }
+
+/// Byte cap of [`EvidenceLocation::line_text`]; a longer line ends in `…`.
+pub const LINE_TEXT_MAX_BYTES: usize = 160;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Provenance {
