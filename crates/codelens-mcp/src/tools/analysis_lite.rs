@@ -490,7 +490,7 @@ fn bind_target_file(
             return Ok((Some(guard), raw.to_owned()));
         }
         let file = canonical_file(path);
-        let root = derive_call_root(&file).map_err(unbound)?;
+        let root = derive_call_root(&file, per_call.launch_root.as_ref()).map_err(unbound)?;
         let guard = bind_call_project(state, &root, unbound)?;
         let relative = root_relative(&state.project(), &file)
             .ok_or_else(|| unbound("the file is not inside its derived root".to_owned()))?;
@@ -514,13 +514,28 @@ fn bind_target_file(
 /// The repository an absolute file's call binds to: a real root marker above
 /// the file (`~/Downloads/x.ts` never promotes, and writes `.codelens` into,
 /// `~/Downloads`), outside every cloud-synced folder.
-fn derive_call_root(file: &Path) -> Result<ProjectRoot, String> {
+///
+/// The nearest marker is not always the repository. A `package.json` of a
+/// Node tool inside a larger checkout (`scripts/browserctl/package.json`)
+/// stopped the walk there, so the call scanned that one folder and every
+/// caller elsewhere in the repository was out of scope — and a relative and
+/// an absolute spelling of one file bound different projects. The launch root
+/// wins when it holds the file; otherwise the enclosing git checkout does, as
+/// long as its discovery would walk the file (a gitignored scratch folder keeps
+/// its own marker, or the wider scan would skip the very files it holds).
+fn derive_call_root(file: &Path, launch_root: Option<&ProjectRoot>) -> Result<ProjectRoot, String> {
+    if let Some(launch) = launch_root.filter(|launch| file.starts_with(launch.as_path())) {
+        return Ok(launch.clone());
+    }
     let directory = file
         .parent()
         .ok_or_else(|| "the path has no parent directory".to_owned())?;
-    let root =
+    let nearest =
         ProjectRoot::new_requiring_marker(directory).map_err(|error| format!("{error:#}"))?;
     let home = std::env::var_os("HOME").map(PathBuf::from);
+    let root = enclosing_checkout(nearest.as_path(), file, home.as_deref())
+        .and_then(|checkout| ProjectRoot::new_requiring_marker(checkout).ok())
+        .unwrap_or(nearest);
     if let Some(synced) = cloud_synced_root(root.as_path(), home.as_deref()) {
         return Err(format!(
             "its root `{}` is inside the cloud-synced folder `{}`; CodeLens does not create index state there",
@@ -529,6 +544,23 @@ fn derive_call_root(file: &Path) -> Result<ProjectRoot, String> {
         ));
     }
     Ok(root)
+}
+
+/// The git checkout (`.git` directory or file: repository, worktree or
+/// submodule) above a nested marker root `nearest`, when that checkout's
+/// discovery walks `file`. `$HOME` is never a checkout here.
+fn enclosing_checkout(nearest: &Path, file: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    let home = home.map(|home| home.canonicalize().unwrap_or_else(|_| home.to_path_buf()));
+    let checkout = nearest
+        .ancestors()
+        .take_while(|dir| Some(*dir) != home.as_deref())
+        .find(|dir| dir.join(".git").exists())?;
+    if checkout == nearest {
+        return None;
+    }
+    let walked = !codelens_engine::project::is_excluded_within(checkout, file)
+        && !codelens_engine::project::GitignoreFilter::new(checkout).is_ignored(file);
+    walked.then(|| checkout.to_path_buf())
 }
 
 /// Bind this request to `root` (the home guard and the per-call build run
@@ -672,7 +704,9 @@ pub(crate) fn rejected_payload(state: &AppState, args: &Value, error: &CodeLensE
             None
         } else {
             match args["target"]["file"].as_str().map(Path::new) {
-                Some(file) if file.is_absolute() => derive_call_root(&canonical_file(file)).ok(),
+                Some(file) if file.is_absolute() => {
+                    derive_call_root(&canonical_file(file), per_call.launch_root.as_ref()).ok()
+                }
                 _ => per_call.launch_root,
             }
             .map(|root| root.as_path().display().to_string())

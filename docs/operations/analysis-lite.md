@@ -31,7 +31,15 @@ multi-host shape. Registering is a per-user decision taken from pilot evidence.
 - One binding rule, per call. Each call binds only that request. An absolute
   target.file binds to the file's own repository root, in any checkout,
   whether or not it lies under L. A relative target.file resolves under L;
-  without L it returns project_binding_required. The root must carry a real
+  without L it returns project_binding_required. "Repository root" is, in
+  order: L when the file lies under it (so `tool/a.ts` and its absolute
+  spelling bind one project); otherwise the enclosing git checkout (the
+  nearest `.git` directory or file above the file, never $HOME), when that
+  checkout's discovery walks the file; otherwise the nearest marker above the
+  file. A nested `package.json` (a Node tool inside a Python repository, a
+  workspace package) therefore no longer cuts the call off from callers
+  elsewhere in the checkout, while a gitignored scratch folder with its own
+  marker keeps that marker, because the checkout's walk would skip it. The root must carry a real
   project marker (a .codelens directory alone does not count), must not be
   $HOME or /, and must not sit inside a macOS File Provider (cloud-synced)
   folder; otherwise the call returns project_binding_required before
