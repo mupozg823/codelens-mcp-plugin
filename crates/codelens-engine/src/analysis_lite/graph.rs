@@ -14,6 +14,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 const DYNAMIC_IMPORT_BACKEND: &str = "tree_sitter_dynamic_import+oxc_semantic";
+const REQUIRE_BACKEND: &str = "tree_sitter_commonjs_require+oxc_semantic";
+const REQUIRE_RESOLUTION: &str = "verified_cjs_require_export_identity";
 
 fn module_identity(file: &str) -> DeclarationIdentity {
     DeclarationIdentity {
@@ -294,7 +296,10 @@ impl DeclarationGraph {
             // attribute it by a same-name or path-proximity guess.
             let resolved = source.analysis.binding_at(span).ok_or_else(|| "extracted token has no exact lexical declaration (member/dynamic evidence unsupported)".to_owned())
                 .and_then(|declaration| {
-                    if declaration.is_import {
+                    if let Some(import) = source.analysis.require_import(declaration) {
+                        self.resolve_import(project, file, import, &mut HashSet::new())
+                            .map(|identity| (identity, REQUIRE_RESOLUTION))
+                    } else if declaration.is_import {
                         let import = source.analysis.imports.iter().find(|import| import.local_span == declaration.name_span)
                             .ok_or_else(|| "import declaration has no verified ESM module entry".to_owned())?;
                         self.resolve_import(project, file, import, &mut HashSet::new())
@@ -308,6 +313,17 @@ impl DeclarationGraph {
                 // An unresolvable builtin-noise token (`console.log`,
                 // `items.push`) stays discarded, as on the legacy API.
                 Err(_) if located.noise_name => continue,
+                // `m.member` off a `require` namespace is resolved, or
+                // reported unresolved, by the member pass below.
+                Err(_)
+                    if source
+                        .analysis
+                        .require_members
+                        .iter()
+                        .any(|member| member.member_span == span) =>
+                {
+                    continue;
+                }
                 Err(reason) => {
                     out.push(CallEvidence::Unresolved(UnresolvedEvidence {
                         location: Some(location),
@@ -372,9 +388,28 @@ impl DeclarationGraph {
             ));
         }
         // `import(spec).then(m => m.X)` reads export X of spec; next/dynamic
-        // loads every winnation overlay this way. The member token is the
-        // location, and spec and X resolve exactly as a static import would.
-        for member in &source.analysis.dynamic_import_members {
+        // loads every winnation overlay this way. `const m = require(spec);
+        // m.X` reads it the same way. The member token is the location, and
+        // spec and X resolve exactly as a static import would.
+        let members = source
+            .analysis
+            .dynamic_import_members
+            .iter()
+            .map(|member| {
+                (
+                    member,
+                    DYNAMIC_IMPORT_BACKEND,
+                    "verified_esm_dynamic_import_export_identity",
+                )
+            })
+            .chain(
+                source
+                    .analysis
+                    .require_members
+                    .iter()
+                    .map(|member| (member, REQUIRE_BACKEND, REQUIRE_RESOLUTION)),
+            );
+        for (member, backend, resolution) in members {
             let location = EvidenceLocation {
                 file: file.clone(),
                 span: member.member_span,
@@ -399,7 +434,7 @@ impl DeclarationGraph {
                         location: Some(location),
                         name: member.member.clone(),
                         reason,
-                        backend: DYNAMIC_IMPORT_BACKEND,
+                        backend,
                     }));
                     continue;
                 }
@@ -423,11 +458,11 @@ impl DeclarationGraph {
                     relation_kind: "callgraph_edge",
                     detail: "detail_unknown",
                     provenance: vec![Provenance {
-                        backend: DYNAMIC_IMPORT_BACKEND,
+                        backend,
                         relation_kind: "callgraph_edge",
                         detail: "detail_unknown",
                         source_hash: source.hash.clone(),
-                        resolution: "verified_esm_dynamic_import_export_identity",
+                        resolution,
                     }],
                 }),
             ));
@@ -526,6 +561,10 @@ impl DeclarationGraph {
                 ));
             }
             let declaration = declarations[0];
+            // `const { X } = require(spec); module.exports = { X }` reexports.
+            if let Some(import) = source.analysis.require_import(declaration) {
+                return self.resolve_import(project, file, import, visited);
+            }
             if !declaration.is_import {
                 return Ok(identity(file, declaration));
             }
