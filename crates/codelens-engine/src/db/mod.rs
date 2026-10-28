@@ -243,8 +243,12 @@ impl IndexDb {
             // before `journal_mode = WAL`: switching to WAL writes the header,
             // after which the auto-vacuum mode can no longer change, so the old
             // order left every index without it (see `compact`).
+            // `temp_store = MEMORY` keeps each INSERT's statement journal
+            // (needed by the FTS triggers) off disk: once it outgrew 64 KiB it
+            // became a temp file, and a cold full index spent most of its
+            // writes re-`pwrite`-ing that file.
             conn.execute_batch(
-                "PRAGMA busy_timeout = 30000; PRAGMA page_size = 16384; PRAGMA auto_vacuum = INCREMENTAL; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000;",
+                "PRAGMA busy_timeout = 30000; PRAGMA page_size = 16384; PRAGMA auto_vacuum = INCREMENTAL; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -32000; PRAGMA mmap_size = 268435456; PRAGMA wal_autocheckpoint = 8000; PRAGMA temp_store = MEMORY;",
             )?;
             let pragmas = started.elapsed();
             let mut db = Self {
