@@ -922,6 +922,15 @@ fn a_new_index_file_gets_incremental_auto_vacuum() {
     assert_eq!(pragma_i64(&db.conn, "auto_vacuum"), 2);
 }
 
+#[test]
+fn index_writes_keep_statement_journals_in_memory() {
+    // A file-backed statement journal turned a cold full index into a
+    // `pwrite` loop under the FTS triggers.
+    let dir = tempfile::tempdir().unwrap();
+    let db = IndexDb::open(&dir.path().join("symbols.db")).unwrap();
+    assert_eq!(pragma_i64(&db.conn, "temp_store"), 2);
+}
+
 /// A file laid out like every index created before the pragma order fix:
 /// WAL with auto-vacuum off, mostly empty after a large delete.
 fn mostly_empty_legacy_db(path: &Path) -> Connection {
