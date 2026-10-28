@@ -248,6 +248,15 @@ identity graph edges carry, and references add the binding's own local uses.
 An import that does not resolve to a project declaration keeps the binding as
 the target; its callsites are unresolved evidence.
 
+A dynamic import read through `.then` (`import("./a").then((mod) => mod.sink)`,
+the `next/dynamic` form) is a reference to `sink` in `a.ts` when the callback
+has one plain identifier parameter and `mod` is that parameter's binding, not a
+shadowing one. The row's resolution is `verified_esm_dynamic_import_export_identity`
+and its caller is the innermost enclosing declaration (`const Lazy = dynamic(...)`),
+so impact continues from the lazy binding. A destructured parameter
+(`.then(({ sink }) => sink)`), `const { sink } = await import("./a")` and a
+default-export `lazy(() => import("./a"))` are not read.
+
 The extractor also captures callback arguments. All such edges are honestly
 callgraph_edge/detail_unknown; direct-call detail is not inferred. Reverse
 impact is bounded traversal over this extracted graph, with depth/node/edge

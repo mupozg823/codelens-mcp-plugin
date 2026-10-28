@@ -63,12 +63,25 @@ pub struct ModuleExport {
     pub imported_name: Option<String>,
 }
 
+/// `member` read off a dynamic-import namespace: in
+/// `import("spec").then(m => m.member)` the callback's only parameter is the
+/// module namespace, so the `member` token reads export `member` of `spec`.
+#[derive(Debug, Clone)]
+pub struct DynamicImportMember {
+    pub module: String,
+    pub member: String,
+    pub member_span: ByteSpan,
+    pub line: usize,
+    pub column: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct DeclarationAnalysis {
     pub declarations: Vec<ExactDeclaration>,
     pub unsupported_members: Vec<UnsupportedDeclaration>,
     pub imports: Vec<ModuleImport>,
     pub exports: Vec<ModuleExport>,
+    pub dynamic_import_members: Vec<DynamicImportMember>,
 }
 
 #[derive(Debug, Clone)]
@@ -225,11 +238,35 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
             })
         })
         .collect();
+    // Keep a `m.member` token only when OXC binds that `m` to the callback's
+    // parameter; a shadowing `m` or another object of the same name is not
+    // the namespace.
+    let dynamic_import_members = tokens
+        .dynamic
+        .into_iter()
+        .filter(|candidate| {
+            declarations.iter().any(|d| {
+                d.name_span == candidate.param_span
+                    && d.references.iter().any(|r| r.span == candidate.object_span)
+            })
+        })
+        .map(|candidate| {
+            let (line, column) = offset_to_line_col(bytes, candidate.member_span.start);
+            DynamicImportMember {
+                module: candidate.module,
+                member: candidate.member,
+                member_span: candidate.member_span,
+                line,
+                column,
+            }
+        })
+        .collect();
     Ok(DeclarationAnalysis {
         declarations,
         unsupported_members: tokens.members,
         imports,
         exports,
+        dynamic_import_members,
     })
 }
 
@@ -239,6 +276,128 @@ struct ModuleTokens {
     imports: LinkNames,
     exports: LinkNames,
     members: Vec<UnsupportedDeclaration>,
+    dynamic: Vec<DynamicCandidate>,
+}
+
+struct DynamicCandidate {
+    module: String,
+    member: String,
+    member_span: ByteSpan,
+    object_span: ByteSpan,
+    param_span: ByteSpan,
+}
+
+fn byte_span(node: tree_sitter::Node) -> ByteSpan {
+    ByteSpan {
+        start: node.start_byte(),
+        end: node.end_byte(),
+    }
+}
+
+/// `import("spec").then(param => … param.member …)` with a string specifier
+/// and exactly one identifier parameter. OXC later checks that each `param`
+/// token is bound to that parameter.
+fn dynamic_import_candidates(
+    node: tree_sitter::Node,
+    source: &str,
+    out: &mut Vec<DynamicCandidate>,
+) {
+    let Some(callee) = node
+        .child_by_field_name("function")
+        .filter(|callee| node.kind() == "call_expression" && callee.kind() == "member_expression")
+    else {
+        return;
+    };
+    let (Some(object), Some(property)) = (
+        callee.child_by_field_name("object"),
+        callee.child_by_field_name("property"),
+    ) else {
+        return;
+    };
+    if &source[property.byte_range()] != "then" {
+        return;
+    }
+    let Some(module) = import_call_specifier(object, source) else {
+        return;
+    };
+    let Some(callback) = node
+        .child_by_field_name("arguments")
+        .and_then(|args| args.named_child(0))
+    else {
+        return;
+    };
+    let (Some(param), Some(body)) = (
+        single_identifier_parameter(callback),
+        callback.child_by_field_name("body"),
+    ) else {
+        return;
+    };
+    let name = &source[param.byte_range()];
+    let mut nodes = vec![body];
+    while let Some(node) = nodes.pop() {
+        if node.kind() == "member_expression"
+            && let (Some(object), Some(member)) = (
+                node.child_by_field_name("object"),
+                node.child_by_field_name("property"),
+            )
+            && object.kind() == "identifier"
+            && &source[object.byte_range()] == name
+            && member.kind() == "property_identifier"
+        {
+            out.push(DynamicCandidate {
+                module: module.clone(),
+                member: source[member.byte_range()].to_owned(),
+                member_span: byte_span(member),
+                object_span: byte_span(object),
+                param_span: byte_span(param),
+            });
+        }
+        let mut cursor = node.walk();
+        nodes.extend(node.children(&mut cursor));
+    }
+}
+
+fn import_call_specifier(call: tree_sitter::Node, source: &str) -> Option<String> {
+    if call.kind() != "call_expression" || call.child_by_field_name("function")?.kind() != "import"
+    {
+        return None;
+    }
+    let args = call.child_by_field_name("arguments")?;
+    if args.named_child_count() != 1 {
+        return None;
+    }
+    let specifier = args.named_child(0)?;
+    if specifier.kind() != "string" {
+        return None;
+    }
+    let quoted = &source[specifier.byte_range()];
+    quoted
+        .get(1..quoted.len().checked_sub(1)?)
+        .map(str::to_owned)
+}
+
+fn single_identifier_parameter(callback: tree_sitter::Node) -> Option<tree_sitter::Node> {
+    if !matches!(
+        callback.kind(),
+        "arrow_function" | "function_expression" | "function"
+    ) {
+        return None;
+    }
+    if let Some(param) = callback.child_by_field_name("parameter") {
+        return (param.kind() == "identifier").then_some(param);
+    }
+    let params = callback.child_by_field_name("parameters")?;
+    if params.named_child_count() != 1 {
+        return None;
+    }
+    let param = params.named_child(0)?;
+    match param.kind() {
+        "identifier" => Some(param),
+        "required_parameter" => param.child_by_field_name("pattern").filter(|pattern| {
+            pattern.kind() == "identifier" && param.child_by_field_name("value").is_none()
+        }),
+        _ => None,
+    }
 }
 
 /// Tree-sitter retains the imported-name token that OXC's public module-entry
@@ -261,8 +420,10 @@ fn module_link_names(source: &str, path: &str) -> Result<ModuleTokens> {
     let mut imports = LinkNames::new();
     let mut exports = LinkNames::new();
     let mut members = Vec::new();
+    let mut dynamic = Vec::new();
     let mut nodes = vec![tree.root_node()];
     while let Some(node) = nodes.pop() {
+        dynamic_import_candidates(node, source, &mut dynamic);
         if matches!(
             node.kind(),
             "method_definition"
@@ -307,10 +468,12 @@ fn module_link_names(source: &str, path: &str) -> Result<ModuleTokens> {
         nodes.extend(node.children(&mut cursor));
     }
     members.sort_by_key(|member| member.name_span.start);
+    dynamic.sort_by_key(|candidate| candidate.member_span.start);
     Ok(ModuleTokens {
         imports,
         exports,
         members,
+        dynamic,
     })
 }
 
