@@ -294,3 +294,85 @@ fn analysis_lite_stdio_relative_files_use_the_launch_root_absolute_files_their_o
 
     assert_eq!(state.project().as_path(), placeholder.as_path());
 }
+
+/// Each state gets its own home: a second state on one home would meet the
+/// first one's writer lease on the shared placeholder (`project_writer_busy`).
+fn lite_state(source: StartupProjectSource, label: &str) -> crate::AppState {
+    let state = analysis_lite_start(source, &fixture(label));
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::AnalysisLite,
+    ));
+    state
+}
+
+fn bound_rows(state: &crate::AppState, file: &str) -> (serde_json::Value, usize) {
+    let result = refs_call(state, file);
+    assert_ne!(result["is_error"], json!(true), "{result}");
+    let data = &result["data"];
+    let rows = data["results"]["references"].as_array().unwrap().len();
+    (data["project"].clone(), rows)
+}
+
+/// A Node tool's own `package.json` inside a checkout (`scripts/browserctl`
+/// in a Python repository, 2026-10-28) used to bind the call to that folder:
+/// the caller at the repository root was out of scope, and the relative and
+/// absolute spellings of one file bound different projects.
+#[test]
+fn analysis_lite_stdio_nested_package_binds_its_enclosing_checkout() {
+    let repo = fixture("startup-nested-repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    let tool = repo.join("tool");
+    std::fs::create_dir_all(&tool).unwrap();
+    std::fs::write(tool.join("package.json"), "{}").unwrap();
+    std::fs::write(tool.join("a.ts"), "export function sink() {}\nsink();\n").unwrap();
+    std::fs::write(
+        repo.join("b.ts"),
+        "import { sink as useSink } from './tool/a';\nexport function caller() { useSink(); useSink(); }\n",
+    )
+    .unwrap();
+    let absolute = tool.join("a.ts").display().to_string();
+    let checkout = json!(repo.display().to_string());
+
+    let home = fixture("startup-home-nested");
+    let state = lite_state(StartupProjectSource::Cwd(home), "startup-home-nested-a");
+    assert_eq!(bound_rows(&state, &absolute), (checkout.clone(), 3));
+
+    let state = lite_state(
+        StartupProjectSource::ClaudeEnv(repo.display().to_string()),
+        "startup-home-nested-b",
+    );
+    for file in ["tool/a.ts", absolute.as_str()] {
+        assert_eq!(bound_rows(&state, file), (checkout.clone(), 3), "{file}");
+    }
+
+    // A session launched in the package itself chose that root: both spellings stay there.
+    let state = lite_state(
+        StartupProjectSource::ClaudeEnv(tool.display().to_string()),
+        "startup-home-nested-c",
+    );
+    for file in ["a.ts", absolute.as_str()] {
+        assert_eq!(
+            bound_rows(&state, file),
+            (json!(tool.display().to_string()), 1),
+            "{file}"
+        );
+    }
+}
+
+/// A gitignored scratch folder with its own marker keeps it: the checkout's
+/// discovery skips that folder, so binding the checkout would lose its callers.
+#[test]
+fn analysis_lite_stdio_gitignored_scratch_keeps_its_own_marker() {
+    let repo = fixture("startup-scratch-repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::write(repo.join(".gitignore"), "scratch/\n").unwrap();
+    let scratch = repo.join("scratch");
+    write_ts_repo(&scratch);
+
+    let home = fixture("startup-home-scratch");
+    let state = lite_state(StartupProjectSource::Cwd(home), "startup-home-scratch-a");
+    assert_eq!(
+        bound_rows(&state, &scratch.join("a.ts").display().to_string()),
+        (json!(scratch.display().to_string()), 3)
+    );
+}
