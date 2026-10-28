@@ -4,7 +4,8 @@ use crate::call_graph::extract::{
 };
 use crate::call_graph::types::CallTargetIdentity;
 use crate::oxc_analysis::{
-    ByteSpan, DeclarationAnalysis, ExactDeclaration, ModuleImport, analyze_declarations, is_js_ts,
+    ByteSpan, DeclarationAnalysis, ExactDeclaration, ModuleImport, RefKind, analyze_declarations,
+    is_js_ts,
 };
 use crate::project::{ProjectRoot, collect_files};
 use rayon::prelude::*;
@@ -16,6 +17,8 @@ use std::time::{Duration, Instant};
 const DYNAMIC_IMPORT_BACKEND: &str = "tree_sitter_dynamic_import+oxc_semantic";
 const REQUIRE_BACKEND: &str = "tree_sitter_commonjs_require+oxc_semantic";
 const REQUIRE_RESOLUTION: &str = "verified_cjs_require_export_identity";
+const ESM_RESOLUTION: &str = "verified_esm_import_export_identity";
+const BINDING_REFERENCE: &str = "import_binding_reference";
 
 fn module_identity(file: &str) -> DeclarationIdentity {
     DeclarationIdentity {
@@ -105,9 +108,10 @@ fn cached<T>(
     Ok(value)
 }
 
-/// One call-site observation of a file, kept in source order.
+/// One call-site or import-binding observation of a file, kept in source order.
 enum CallEvidence {
     Edge((String, ByteSpan, String), Box<EdgeEvidence>),
+    Reference(Box<EdgeEvidence>),
     Unresolved(UnresolvedEvidence),
 }
 
@@ -121,6 +125,9 @@ pub(super) struct SourceFile {
 pub(super) struct DeclarationGraph {
     pub sources: BTreeMap<String, SourceFile>,
     edges: Vec<EdgeEvidence>,
+    /// Every OXC reference of an import binding resolved by identity; refs
+    /// evidence only, never a reverse-traversal edge.
+    binding_references: Vec<EdgeEvidence>,
     pub unresolved: Vec<UnresolvedEvidence>,
     pub errors: Vec<EvidenceError>,
     pub files_truncated: bool,
@@ -163,6 +170,7 @@ impl DeclarationGraph {
         let mut graph = Self {
             sources: BTreeMap::new(),
             edges: vec![],
+            binding_references: vec![],
             unresolved: vec![],
             errors: vec![],
             files_truncated,
@@ -239,11 +247,13 @@ impl DeclarationGraph {
             .map(|(file, source)| graph.file_call_evidence(project, file, source))
             .collect::<Vec<_>>();
         let mut edges = Vec::new();
+        let mut binding_references = Vec::new();
         let mut unresolved = Vec::new();
         let mut seen = HashSet::new();
         for item in per_file.into_iter().flatten() {
             match item {
                 CallEvidence::Unresolved(entry) => unresolved.push(entry),
+                CallEvidence::Reference(reference) => binding_references.push(*reference),
                 CallEvidence::Edge(key, edge) => {
                     if seen.insert(key) {
                         edges.push(*edge);
@@ -252,6 +262,7 @@ impl DeclarationGraph {
             }
         }
         graph.edges = edges;
+        graph.binding_references = binding_references;
         graph.unresolved = unresolved;
         touch_caches();
         Ok(graph)
@@ -295,19 +306,7 @@ impl DeclarationGraph {
             // A member-property token is not an OXC lexical binding. Never
             // attribute it by a same-name or path-proximity guess.
             let resolved = source.analysis.binding_at(span).ok_or_else(|| "extracted token has no exact lexical declaration (member/dynamic evidence unsupported)".to_owned())
-                .and_then(|declaration| {
-                    if let Some(import) = source.analysis.require_import(declaration) {
-                        self.resolve_import(project, file, import, &mut HashSet::new())
-                            .map(|identity| (identity, REQUIRE_RESOLUTION))
-                    } else if declaration.is_import {
-                        let import = source.analysis.imports.iter().find(|import| import.local_span == declaration.name_span)
-                            .ok_or_else(|| "import declaration has no verified ESM module entry".to_owned())?;
-                        self.resolve_import(project, file, import, &mut HashSet::new())
-                            .map(|identity| (identity, "verified_esm_import_export_identity"))
-                    } else {
-                        Ok((identity(file, declaration), "exact_lexical_declaration"))
-                    }
-                });
+                .and_then(|declaration| self.resolve_binding(project, file, source, declaration));
             let (target, resolution) = match resolved {
                 Ok(target) => target,
                 // An unresolvable builtin-noise token (`console.log`,
@@ -441,13 +440,7 @@ impl DeclarationGraph {
             };
             // The innermost declaration holding the token (`const Lazy =
             // dynamic(...)`) is the caller, so impact continues to its users.
-            let caller = source
-                .analysis
-                .declarations
-                .iter()
-                .filter(|d| !d.is_import && d.declaration_span.contains(member.member_span))
-                .min_by_key(|d| d.declaration_span.end - d.declaration_span.start)
-                .map_or_else(|| module_identity(file), |d| identity(file, d));
+            let caller = innermost_caller(file, &source.analysis, member.member_span);
             let key = (file.clone(), member.member_span, target.symbol_id.clone());
             out.push(CallEvidence::Edge(
                 key,
@@ -467,7 +460,93 @@ impl DeclarationGraph {
                 }),
             ));
         }
+        // `new X()` constructs the declaration X is bound to. The call query
+        // has no `new_expression`, so this edge exists only in analysis-lite.
+        for &span in &source.analysis.new_callees {
+            let Some(declaration) = source.analysis.binding_at(span) else {
+                continue;
+            };
+            let Ok((target, resolution)) = self.resolve_binding(project, file, source, declaration)
+            else {
+                continue;
+            };
+            let key = (file.clone(), span, target.symbol_id.clone());
+            out.push(CallEvidence::Edge(
+                key,
+                Box::new(EdgeEvidence {
+                    source: Some(innermost_caller(file, &source.analysis, span)),
+                    target,
+                    location: reference_location(file, declaration, span),
+                    relation_kind: "callgraph_edge",
+                    detail: "detail_unknown",
+                    provenance: vec![Provenance {
+                        backend: "oxc_semantic",
+                        relation_kind: "callgraph_edge",
+                        detail: "constructor_call",
+                        source_hash: source.hash.clone(),
+                        resolution,
+                    }],
+                }),
+            ));
+        }
+        // Every use of an import binding (`X.create()`, `extends X`, `[X]`)
+        // reads the declaration it resolves to. The specifier token is the
+        // binding's declaration, not a reference, as in local OXC refs. Type-
+        // only and namespace imports never resolve (`resolve_import`).
+        for declaration in source
+            .analysis
+            .declarations
+            .iter()
+            .filter(|d| d.is_import || source.analysis.require_import(d).is_some())
+        {
+            let Ok((target, resolution)) = self.resolve_binding(project, file, source, declaration)
+            else {
+                continue;
+            };
+            for reference in &declaration.references {
+                out.push(CallEvidence::Reference(Box::new(EdgeEvidence {
+                    source: None,
+                    target: target.clone(),
+                    location: reference_location(file, declaration, reference.span),
+                    relation_kind: BINDING_REFERENCE,
+                    detail: reference_detail(&reference.kind),
+                    provenance: vec![Provenance {
+                        backend: "oxc_semantic",
+                        relation_kind: BINDING_REFERENCE,
+                        detail: reference_detail(&reference.kind),
+                        source_hash: source.hash.clone(),
+                        resolution,
+                    }],
+                })));
+            }
+        }
         out
+    }
+
+    /// The declaration a lexical binding stands for: through a verified
+    /// `require` destructuring or ESM import, else the binding itself.
+    fn resolve_binding(
+        &self,
+        project: &ProjectRoot,
+        file: &str,
+        source: &SourceFile,
+        declaration: &ExactDeclaration,
+    ) -> Result<(DeclarationIdentity, &'static str), String> {
+        if let Some(import) = source.analysis.require_import(declaration) {
+            self.resolve_import(project, file, import, &mut HashSet::new())
+                .map(|identity| (identity, REQUIRE_RESOLUTION))
+        } else if declaration.is_import {
+            let import = source
+                .analysis
+                .imports
+                .iter()
+                .find(|import| import.local_span == declaration.name_span)
+                .ok_or_else(|| "import declaration has no verified ESM module entry".to_owned())?;
+            self.resolve_import(project, file, import, &mut HashSet::new())
+                .map(|identity| (identity, ESM_RESOLUTION))
+        } else {
+            Ok((identity(file, declaration), "exact_lexical_declaration"))
+        }
     }
 
     fn resolve_module(&self, project: &ProjectRoot, file: &str, module: &str) -> Option<String> {
@@ -652,6 +731,16 @@ impl DeclarationGraph {
         Some(format!("{}…", &line[..cut]))
     }
 
+    /// Import-binding references whose binding resolves to `target`.
+    pub fn binding_references(
+        &self,
+        target: &CallTargetIdentity,
+    ) -> impl Iterator<Item = &EdgeEvidence> {
+        self.binding_references
+            .iter()
+            .filter(move |reference| reference.target.call_target() == *target)
+    }
+
     pub fn callers(&self, target: &CallTargetIdentity) -> impl Iterator<Item = &EdgeEvidence> {
         self.edges
             .iter()
@@ -684,5 +773,47 @@ impl DeclarationGraph {
             }
         }
         Ok(())
+    }
+}
+
+/// The innermost non-import declaration holding `span`, else the module.
+fn innermost_caller(
+    file: &str,
+    analysis: &DeclarationAnalysis,
+    span: ByteSpan,
+) -> DeclarationIdentity {
+    analysis
+        .declarations
+        .iter()
+        .filter(|d| !d.is_import && d.declaration_span.contains(span))
+        .min_by_key(|d| d.declaration_span.end - d.declaration_span.start)
+        .map_or_else(|| module_identity(file), |d| identity(file, d))
+}
+
+fn reference_location(
+    file: &str,
+    declaration: &ExactDeclaration,
+    span: ByteSpan,
+) -> EvidenceLocation {
+    let reference = declaration
+        .references
+        .iter()
+        .find(|reference| reference.span == span)
+        .expect("span is a reference of the declaration");
+    EvidenceLocation {
+        file: file.to_owned(),
+        span,
+        line: reference.line,
+        column: reference.column,
+        offset_encoding: "utf8_bytes",
+        line_text: None,
+    }
+}
+
+pub(super) fn reference_detail(kind: &RefKind) -> &'static str {
+    match kind {
+        RefKind::Write => "write",
+        RefKind::Read => "read",
+        RefKind::Definition => "definition",
     }
 }

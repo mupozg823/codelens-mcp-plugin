@@ -87,6 +87,9 @@ pub struct DeclarationAnalysis {
     /// `m.member` read off `const m = require("module")`: the same shape as a
     /// dynamic-import member, with `m` bound by the require declaration.
     pub require_members: Vec<DynamicImportMember>,
+    /// Resolved-reference tokens that are the whole callee of a `new`
+    /// expression (`new X()`, never `new X.Y()` or `new f(X)`).
+    pub new_callees: Vec<ByteSpan>,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +139,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
     let scoping = semantic.scoping();
     let bytes = source.as_bytes();
     let mut declarations = Vec::new();
+    let mut new_callees = Vec::new();
     for id in scoping.symbol_ids() {
         let name = scoping.symbol_name(id).to_owned();
         let token = scoping.symbol_span(id);
@@ -162,6 +166,16 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
                     start: span.start as usize,
                     end: span.end as usize,
                 };
+                // The parent of a `new X()` callee is the `new` expression,
+                // whose span holds only the keyword before the token.
+                let parent = semantic.nodes().parent_node(reference.node_id()).span();
+                if source
+                    .get(parent.start as usize..span.start)
+                    .and_then(|head| head.strip_prefix("new"))
+                    .is_some_and(|gap| !gap.is_empty() && gap.trim().is_empty())
+                {
+                    new_callees.push(span);
+                }
                 let (line, column) = offset_to_line_col(bytes, span.start);
                 ExactReference {
                     span,
@@ -192,6 +206,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
         });
     }
     declarations.sort_by_key(|d| (d.name_span.start, d.name_span.end));
+    new_callees.sort_by_key(|span| (span.start, span.end));
     let tokens = module_link_names(source, file_path)?;
     let mut imports = parsed
         .module_record
@@ -285,6 +300,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
         exports,
         dynamic_import_members,
         require_members,
+        new_callees,
     })
 }
 

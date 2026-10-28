@@ -282,8 +282,30 @@ ESM and CommonJS mix in both directions, and a CommonJS reexport of a required
 binding is followed. `module.exports = value` (no export name), defaults, rest
 and computed keys in the pattern, `require(path.join(...))` or a template
 string, `require("./a").sink` and TypeScript `import x = require()` are not
-read. Uses of a required binding that are not calls (`Sink.create()`,
-`new Sink()`, `Sink[name]`) are not rows, as for ESM imports.
+read.
+
+Every other use of a resolved import binding is a reference too: for
+`import { Sink } from "./a"`, `import Sink from "./a"` (default) or
+`const { Sink } = require("./a.cjs")`, each OXC reference of the local `Sink`
+(`Sink.create()`, `new Sink()`, `extends Sink`, `x instanceof Sink`,
+`[Sink]`, `{ Sink }`, `const held = Sink`, a type annotation) is a row with
+relation `import_binding_reference`, backend `oxc_semantic`, detail
+`read`/`write` and the import's resolution. The binding resolves by identity
+(module resolver and export chain, as for a call), so a same-name binding in
+another file, or a shadowing local inside the importing file, is never
+counted. The import specifier token itself is the binding's declaration, not a
+row, matching local references, which never list the declaration token. A
+type-only import (`import type { Sink }`, `import { type Sink }`) does not
+resolve and adds no row. A site that is also a call keeps its call provenance
+and gains this one on the same row. These rows are refs evidence only; impact
+does not traverse them. Namespace members (`ns.Sink`, `m.Sink` off
+`const m = require()`) stay with the member rules above.
+
+`new Sink()`, where `Sink` is the whole callee (not `new a.Sink()` or
+`new (Sink)()`), is also a call edge: impact gains it with the innermost
+enclosing declaration as the caller, and its provenance detail is
+`constructor_call`. This edge is analysis-lite's own; the legacy call graph
+still has no `new_expression` edge.
 
 The extractor also captures callback arguments. All such edges are honestly
 callgraph_edge/detail_unknown; direct-call detail is not inferred. Reverse

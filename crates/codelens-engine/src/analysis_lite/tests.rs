@@ -242,14 +242,27 @@ fn analysis_lite_resolves_named_alias_reexports_using_source_tokens_even_with_mi
 #[test]
 fn analysis_lite_noncall_external_use_and_zero_rows_remain_partial_with_unknown_total() {
     let (_dir, project, index) = fixture(&[
-        ("a.ts", "export function sink() {}\n"),
+        (
+            "a.ts",
+            "export function sink() {}\nexport function idle() {}\n",
+        ),
         ("b.ts", "import { sink } from './a';\nconst held = sink;\n"),
     ]);
-    let response = query(
+    let held = query(
         &project,
         &index,
         AnalysisQuery::References,
         &selector("a.ts", "sink"),
+        None,
+        limits(),
+    );
+    assert_eq!(held.status, EvidenceStatus::Partial);
+    assert_eq!(ref_lines(&held, "b.ts"), vec![2], "{held:?}");
+    let response = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("a.ts", "idle"),
         None,
         limits(),
     );
@@ -1296,5 +1309,197 @@ fn analysis_lite_commonjs_namespace_members_and_esm_mixes_resolve_by_binding() {
             .iter()
             .any(|edge| edge.source.as_ref().is_some_and(|s| s.name == "run")),
         "{impact:?}"
+    );
+}
+
+/// Relation kinds of the provenance on the `file:line` reference row.
+fn row_relations(response: &AnalysisEvidence, file: &str, line: usize) -> Vec<&'static str> {
+    response
+        .results
+        .references
+        .iter()
+        .filter(|row| row.location.file == file && row.location.line == line)
+        .flat_map(|row| row.provenance.iter().map(|p| p.relation_kind))
+        .collect()
+}
+
+#[test]
+fn analysis_lite_esm_import_binding_non_call_uses_are_references_by_identity() {
+    let (_dir, project, index) = fixture(&[
+        (
+            "a.ts",
+            "export class Widget {}\nexport default function make() {}\n",
+        ),
+        (
+            "use.ts",
+            "import { Widget } from './a';\n\
+             import make from './a';\n\
+             const held = Widget;\n\
+             Widget.create;\n\
+             const w = new Widget();\n\
+             class Sub extends Widget {}\n\
+             const isW = w instanceof Widget;\n\
+             const list = [Widget, { Widget }];\n\
+             const alias = make;\n\
+             make();\n\
+             function shadow() { const Widget = 1; return Widget; }\n\
+             let typed: Widget | undefined;\n",
+        ),
+        ("barrel.ts", "export { Widget } from './a';\n"),
+        (
+            "chained.ts",
+            "import { Widget } from './barrel';\nWidget.create;\n",
+        ),
+        (
+            "types.ts",
+            "import type { Widget } from './a';\nimport { type Widget as W2 } from './a';\n\
+             let t: Widget | undefined;\nlet u: W2 | undefined;\n",
+        ),
+        (
+            "unrelated.ts",
+            "export class Widget {}\nconst x = new Widget();\nWidget.create;\n",
+        ),
+        (
+            "other.ts",
+            "import { Widget } from './unrelated';\nconst y = new Widget();\n",
+        ),
+    ]);
+    let run = |mode, name: &str| {
+        query(
+            &project,
+            &index,
+            mode,
+            &selector("a.ts", name),
+            None,
+            limits(),
+        )
+    };
+    let widget = run(AnalysisQuery::References, "Widget");
+    assert!(widget.errors.is_empty(), "{:?}", widget.errors);
+    // The specifier (line 1) is the binding's declaration, not a reference;
+    // the shadowing local on line 11 is another binding.
+    assert_eq!(
+        ref_lines(&widget, "use.ts"),
+        [3, 4, 5, 6, 7, 8, 8, 12],
+        "{widget:?}"
+    );
+    assert_eq!(ref_lines(&widget, "chained.ts"), [2], "{widget:?}");
+    for file in ["types.ts", "unrelated.ts", "other.ts", "barrel.ts"] {
+        assert!(ref_lines(&widget, file).is_empty(), "{file}: {widget:?}");
+    }
+    let row = widget
+        .results
+        .references
+        .iter()
+        .find(|row| row.location.file == "use.ts" && row.location.line == 3)
+        .unwrap();
+    assert_eq!(row.provenance.len(), 1);
+    assert_eq!(row.provenance[0].relation_kind, "import_binding_reference");
+    assert_eq!(row.provenance[0].backend, "oxc_semantic");
+    assert_eq!(row.provenance[0].detail, "read");
+    assert_eq!(
+        row.provenance[0].resolution,
+        "verified_esm_import_export_identity"
+    );
+    // `new Widget()` is a constructor edge and a binding use: one row.
+    assert_eq!(
+        row_relations(&widget, "use.ts", 5),
+        ["callgraph_edge", "import_binding_reference"]
+    );
+    assert!(
+        widget
+            .scope
+            .limitations
+            .contains(&"cross_file_non_call_import_and_type_references_incomplete")
+    );
+
+    let make = run(AnalysisQuery::References, "make");
+    assert_eq!(ref_lines(&make, "use.ts"), [9, 10], "{make:?}");
+    assert_eq!(
+        row_relations(&make, "use.ts", 10),
+        ["callgraph_edge", "import_binding_reference"],
+        "a call row keeps its provenance and gains the binding one"
+    );
+
+    // Impact gains only the `new` edge, never a non-call binding use.
+    let impact = run(AnalysisQuery::Impact, "Widget");
+    let edges = impact
+        .results
+        .edges
+        .iter()
+        .map(|edge| {
+            (
+                edge.location.file.as_str(),
+                edge.location.line,
+                edge.detail,
+                edge.provenance[0].detail,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        edges,
+        [("use.ts", 5, "detail_unknown", "constructor_call")],
+        "{impact:?}"
+    );
+    assert_eq!(
+        impact.results.edges[0]
+            .source
+            .as_ref()
+            .map(|s| s.name.as_str()),
+        Some("w")
+    );
+    let make_impact = run(AnalysisQuery::Impact, "make");
+    assert_eq!(make_impact.results.edges.len(), 1, "{make_impact:?}");
+}
+
+#[test]
+fn analysis_lite_commonjs_destructured_binding_member_object_is_a_reference() {
+    // shadow-partner's browserctl tests call
+    // `BrowserController.create(...)` on a destructured require binding.
+    let (_dir, project, index) = fixture(&[
+        (
+            "lib/ctl.cjs",
+            "class Controller { static create() { return new Controller(); } }\n\
+             module.exports = { Controller };\n",
+        ),
+        (
+            "tests/a.test.cjs",
+            "const { Controller } = require('../lib/ctl.cjs');\n\
+             Controller.create();\n\
+             function f(Controller) { return Controller.create(); }\n\
+             const m = require('../lib/ctl.cjs');\n\
+             m.Controller.create();\n",
+        ),
+        (
+            "tests/same-name.test.cjs",
+            "class Controller {}\nController.create();\n",
+        ),
+    ]);
+    let refs = query(
+        &project,
+        &index,
+        AnalysisQuery::References,
+        &selector("lib/ctl.cjs", "Controller"),
+        None,
+        limits(),
+    );
+    assert!(refs.errors.is_empty(), "{:?}", refs.errors);
+    assert_eq!(ref_lines(&refs, "tests/a.test.cjs"), [2, 5], "{refs:?}");
+    assert!(ref_lines(&refs, "tests/same-name.test.cjs").is_empty());
+    let row = refs
+        .results
+        .references
+        .iter()
+        .find(|row| row.location.file == "tests/a.test.cjs" && row.location.line == 2)
+        .unwrap();
+    assert_eq!(row.provenance[0].relation_kind, "import_binding_reference");
+    assert_eq!(
+        row.provenance[0].resolution,
+        "verified_cjs_require_export_identity"
+    );
+    // The namespace member stays the member pass's single row.
+    assert_eq!(
+        row_relations(&refs, "tests/a.test.cjs", 5),
+        ["callgraph_edge"]
     );
 }

@@ -9,7 +9,7 @@ mod types;
 pub use types::*;
 
 use crate::oxc_analysis::{
-    ExactDeclaration, RefKind, UnsupportedDeclaration, analyze_declarations, is_js_ts,
+    ExactDeclaration, UnsupportedDeclaration, analyze_declarations, is_js_ts,
 };
 use crate::{ProjectRoot, SymbolIndex};
 use std::collections::{BTreeMap, HashSet, VecDeque};
@@ -382,11 +382,7 @@ fn execute(
                             provenance: vec![Provenance {
                                 backend: "oxc_semantic",
                                 relation_kind: "semantic_reference",
-                                detail: match reference.kind {
-                                    RefKind::Write => "write",
-                                    RefKind::Read => "read",
-                                    RefKind::Definition => "definition",
-                                },
+                                detail: graph::reference_detail(&reference.kind),
                                 source_hash: local_hash.to_owned(),
                                 resolution,
                             }],
@@ -395,8 +391,14 @@ fn execute(
                 }
             }
             // No self-only condition: local and all identity-resolved external
-            // graph evidence are combined for every selected declaration.
-            for edge in graph.callers(&target.call_target()) {
+            // graph evidence are combined for every selected declaration. A
+            // site seen as a call and as an import-binding use is one row
+            // carrying both provenances.
+            let target_identity = target.call_target();
+            for edge in graph
+                .callers(&target_identity)
+                .chain(graph.binding_references(&target_identity))
+            {
                 let location = &edge.location;
                 let row = references
                     .entry((
