@@ -1,13 +1,14 @@
 //! Candidate-only declaration identity. All offsets and columns are UTF-8 bytes.
 //! The legacy name-only API intentionally keeps its previous behavior.
 
-use super::{RefKind, offset_to_line_col};
+use super::{LineIndex, RefKind};
 use anyhow::{Result, bail};
 use oxc_allocator::Allocator;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::{GetSpan, SourceType};
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct ByteSpan {
@@ -87,6 +88,9 @@ pub struct DeclarationAnalysis {
     /// `m.member` read off `const m = require("module")`: the same shape as a
     /// dynamic-import member, with `m` bound by the require declaration.
     pub require_members: Vec<DynamicImportMember>,
+    /// Reference span → index into `declarations` of the first declaration
+    /// that lists it, so [`Self::binding_at`] does not walk every reference.
+    bindings: HashMap<ByteSpan, usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -106,9 +110,9 @@ impl DeclarationAnalysis {
 
     /// Exact lexical binding for a source token, including shadowed imports.
     pub fn binding_at(&self, span: ByteSpan) -> Option<&ExactDeclaration> {
-        self.declarations
-            .iter()
-            .find(|d| d.references.iter().any(|reference| reference.span == span))
+        self.bindings
+            .get(&span)
+            .map(|&index| &self.declarations[index])
     }
 
     /// The verified `require` destructuring entry a binding stands for.
@@ -134,7 +138,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
     }
     let semantic = &built.semantic;
     let scoping = semantic.scoping();
-    let bytes = source.as_bytes();
+    let lines = LineIndex::new(source.as_bytes());
     let mut declarations = Vec::new();
     for id in scoping.symbol_ids() {
         let name = scoping.symbol_name(id).to_owned();
@@ -152,7 +156,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
             .nodes()
             .get_node(scoping.symbol_declaration(id))
             .span();
-        let (line, column) = offset_to_line_col(bytes, name_span.start);
+        let (line, column) = lines.line_col(name_span.start);
         let flags = scoping.symbol_flags(id);
         let mut references = scoping
             .get_resolved_references(id)
@@ -162,7 +166,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
                     start: span.start as usize,
                     end: span.end as usize,
                 };
-                let (line, column) = offset_to_line_col(bytes, span.start);
+                let (line, column) = lines.line_col(span.start);
                 ExactReference {
                     span,
                     line,
@@ -264,7 +268,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
             })
         })
         .map(|candidate| {
-            let (line, column) = offset_to_line_col(bytes, candidate.member_span.start);
+            let (line, column) = lines.line_col(candidate.member_span.start);
             DynamicImportMember {
                 module: candidate.module,
                 member: candidate.member,
@@ -275,11 +279,18 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
         })
         .collect();
     let (cjs_imports, cjs_exports, require_members) =
-        commonjs_links(&declarations, tokens.cjs, bytes);
+        commonjs_links(&declarations, tokens.cjs, &lines);
     imports.extend(cjs_imports);
     exports.extend(cjs_exports);
+    let mut bindings = HashMap::new();
+    for (index, declaration) in declarations.iter().enumerate() {
+        for reference in &declaration.references {
+            bindings.entry(reference.span).or_insert(index);
+        }
+    }
     Ok(DeclarationAnalysis {
         declarations,
+        bindings,
         unsupported_members: tokens.members,
         imports,
         exports,
@@ -294,7 +305,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
 fn commonjs_links(
     declarations: &[ExactDeclaration],
     cjs: CjsTokens,
-    bytes: &[u8],
+    lines: &LineIndex,
 ) -> (
     Vec<ModuleImport>,
     Vec<ModuleExport>,
@@ -369,7 +380,7 @@ fn commonjs_links(
                 .iter()
                 .find(|(span, _)| *span == object.name_span)?
                 .1;
-            let (line, column) = offset_to_line_col(bytes, read.member_span.start);
+            let (line, column) = lines.line_col(read.member_span.start);
             Some(DynamicImportMember {
                 module: module.to_owned(),
                 member: read.member,
@@ -868,5 +879,60 @@ mod tests {
     #[test]
     fn analysis_lite_invalid_source_is_an_error_not_no_references() {
         assert!(analyze_declarations("export function broken( {", "broken.ts").is_err());
+    }
+
+    /// A bundled file (a 2.4 MB `receiver.js` with ~10^5 references) never
+    /// finished when each reference's line was found by rescanning the file
+    /// from byte 0. Line lookups must not scale with the reference's offset.
+    #[test]
+    fn analysis_lite_positions_do_not_rescan_the_file_per_reference() {
+        const REFERENCES: usize = 60_000;
+        let mut source = String::from("let a = 0;\n");
+        for _ in 0..REFERENCES {
+            source.push_str("a;\n");
+        }
+        let started = std::time::Instant::now();
+        let analysis = analyze_declarations(&source, "bundle.js").unwrap();
+        let elapsed = started.elapsed();
+        let decl = analysis.named("a")[0];
+        assert_eq!(decl.references.len(), REFERENCES);
+        let last = decl.references.last().unwrap();
+        assert_eq!((last.line, last.column), (REFERENCES + 1, 1));
+        assert!(
+            elapsed < std::time::Duration::from_secs(8),
+            "{REFERENCES} references took {elapsed:?}"
+        );
+    }
+
+    /// Every call site asks for its binding, so a lookup that walks every
+    /// declaration made a bundled file cost (call sites × references) on
+    /// every query, not just the first.
+    #[test]
+    fn analysis_lite_binding_lookup_does_not_walk_every_declaration() {
+        const FUNCTIONS: usize = 60_000;
+        let mut source = String::new();
+        for i in 0..FUNCTIONS {
+            source.push_str(&format!("function f{i}() {{}}\n"));
+        }
+        for i in 0..FUNCTIONS {
+            source.push_str(&format!("f{i}();\n"));
+        }
+        let analysis = analyze_declarations(&source, "bundle.js").unwrap();
+        let spans = analysis
+            .declarations
+            .iter()
+            .flat_map(|d| d.references.iter().map(move |r| (r.span, d.name_span)))
+            .collect::<Vec<_>>();
+        assert_eq!(spans.len(), FUNCTIONS);
+        let started = std::time::Instant::now();
+        for (span, declared) in &spans {
+            assert_eq!(analysis.binding_at(*span).unwrap().name_span, *declared);
+        }
+        let elapsed = started.elapsed();
+        assert!(analysis.binding_at(ByteSpan { start: 0, end: 1 }).is_none());
+        assert!(
+            elapsed < std::time::Duration::from_secs(4),
+            "{FUNCTIONS} binding lookups took {elapsed:?}"
+        );
     }
 }
