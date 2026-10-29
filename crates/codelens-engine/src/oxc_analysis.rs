@@ -64,7 +64,7 @@ pub fn get_scope_symbols(source: &str, file_path: &str) -> Result<Vec<ScopeSymbo
     let semantic = &built.semantic;
     let scoping = semantic.scoping();
 
-    let source_bytes = source.as_bytes();
+    let lines = LineIndex::new(source.as_bytes());
     let mut symbols = Vec::new();
 
     for symbol_id in scoping.symbol_ids() {
@@ -72,7 +72,7 @@ pub fn get_scope_symbols(source: &str, file_path: &str) -> Result<Vec<ScopeSymbo
         let node_id = scoping.symbol_declaration(symbol_id);
         let node = semantic.nodes().get_node(node_id);
         let span = node.span();
-        let (line, column) = offset_to_line_col(source_bytes, span.start as usize);
+        let (line, column) = lines.line_col(span.start as usize);
 
         let ref_count = scoping.get_resolved_references(symbol_id).count();
         let is_mutated = scoping.symbol_is_mutated(symbol_id);
@@ -112,7 +112,7 @@ pub fn find_references_precise(
     let semantic = &built.semantic;
     let scoping = semantic.scoping();
 
-    let source_bytes = source.as_bytes();
+    let lines = LineIndex::new(source.as_bytes());
     let mut refs = Vec::new();
 
     for symbol_id in scoping.symbol_ids() {
@@ -124,7 +124,7 @@ pub fn find_references_precise(
         // Declaration
         let node_id = scoping.symbol_declaration(symbol_id);
         let decl_span = semantic.nodes().get_node(node_id).span();
-        let (line, col) = offset_to_line_col(source_bytes, decl_span.start as usize);
+        let (line, col) = lines.line_col(decl_span.start as usize);
         refs.push(ResolvedReference {
             symbol_name: symbol_name.to_string(),
             kind: RefKind::Definition,
@@ -135,7 +135,7 @@ pub fn find_references_precise(
         // All resolved references
         for reference in scoping.get_resolved_references(symbol_id) {
             let span = semantic.reference_span(reference);
-            let (line, col) = offset_to_line_col(source_bytes, span.start as usize);
+            let (line, col) = lines.line_col(span.start as usize);
             let kind = if reference.is_write() {
                 RefKind::Write
             } else {
@@ -178,24 +178,81 @@ pub fn find_unresolved(source: &str, file_path: &str) -> Result<Vec<String>> {
     Ok(unresolved)
 }
 
-fn offset_to_line_col(source: &[u8], offset: usize) -> (usize, usize) {
-    let offset = offset.min(source.len());
-    let mut line = 1;
-    let mut col = 1;
-    for &b in &source[..offset] {
-        if b == b'\n' {
-            line += 1;
-            col = 1;
-        } else {
-            col += 1;
+/// 1-based line and byte column lookups for one source, built once per file.
+/// Rescanning from byte 0 for every reference made a bundled file quadratic.
+struct LineIndex {
+    /// Byte offset where each line starts; `starts[0] == 0`.
+    starts: Vec<usize>,
+    len: usize,
+}
+
+impl LineIndex {
+    fn new(source: &[u8]) -> Self {
+        let mut starts = vec![0];
+        starts.extend(
+            source
+                .iter()
+                .enumerate()
+                .filter(|&(_, &b)| b == b'\n')
+                .map(|(i, _)| i + 1),
+        );
+        Self {
+            starts,
+            len: source.len(),
         }
     }
-    (line, col)
+
+    /// Offsets past the end clamp to the end.
+    fn line_col(&self, offset: usize) -> (usize, usize) {
+        let offset = offset.min(self.len);
+        let line = self.starts.partition_point(|&start| start <= offset);
+        (line, offset - self.starts[line - 1] + 1)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The byte scan `LineIndex` replaced, kept as the oracle.
+    fn scan_line_col(source: &[u8], offset: usize) -> (usize, usize) {
+        let offset = offset.min(source.len());
+        let mut line = 1;
+        let mut col = 1;
+        for &b in &source[..offset] {
+            if b == b'\n' {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+        (line, col)
+    }
+
+    #[test]
+    fn line_index_matches_the_byte_scan_at_every_offset() {
+        for source in [
+            "",
+            "\n",
+            "\n\n",
+            "a",
+            "ab\ncd",
+            "ab\r\ncd\r\n",
+            "x\n\ny\n",
+            "// 한국어 😀\nexport function t() {}\nt();\n",
+        ] {
+            let bytes = source.as_bytes();
+            let lines = LineIndex::new(bytes);
+            for offset in 0..=bytes.len() + 2 {
+                assert_eq!(
+                    lines.line_col(offset),
+                    scan_line_col(bytes, offset),
+                    "{source:?} at {offset}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn analysis_lite_selects_one_same_name_declaration() {
