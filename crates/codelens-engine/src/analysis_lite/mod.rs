@@ -122,6 +122,20 @@ pub fn release_parse_caches_if_idle(idle_for: std::time::Duration) -> bool {
     graph::release_parse_caches_if_idle(idle_for)
 }
 
+/// Default size cap: project files larger than this are not read. The
+/// untracked 2.4 MB bundles in one working tree made a cold call 15-19 s and
+/// a session 1.8-2.3 GB (ADR-0019 option B).
+pub const DEFAULT_MAX_FILE_BYTES: u64 = 1024 * 1024;
+
+/// `CODELENS_ANALYSIS_LITE_MAX_FILE_BYTES`: the size cap in bytes; `0` reads
+/// every file; unset or invalid uses [`DEFAULT_MAX_FILE_BYTES`].
+pub fn max_file_bytes() -> u64 {
+    std::env::var("CODELENS_ANALYSIS_LITE_MAX_FILE_BYTES")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_MAX_FILE_BYTES)
+}
+
 pub fn query(
     project: &ProjectRoot,
     index: &SymbolIndex,
@@ -130,6 +144,27 @@ pub fn query(
     caller_path: Option<&str>,
     limits: EvidenceLimits,
 ) -> AnalysisEvidence {
+    query_with_file_cap(
+        project,
+        index,
+        query,
+        selector,
+        caller_path,
+        limits,
+        max_file_bytes(),
+    )
+}
+
+/// [`query`] with an explicit size cap (`0` = none).
+pub(crate) fn query_with_file_cap(
+    project: &ProjectRoot,
+    index: &SymbolIndex,
+    query: AnalysisQuery,
+    selector: &DeclarationSelector,
+    caller_path: Option<&str>,
+    limits: EvidenceLimits,
+    max_file_bytes: u64,
+) -> AnalysisEvidence {
     let mut response = empty_response(
         project,
         query,
@@ -137,7 +172,15 @@ pub fn query(
         limits,
         caller_path,
     );
-    if let Err(failure) = execute(project, index, query, selector, caller_path, &mut response) {
+    if let Err(failure) = execute(
+        project,
+        index,
+        query,
+        selector,
+        caller_path,
+        max_file_bytes,
+        &mut response,
+    ) {
         response.status = EvidenceStatus::Error;
         response.errors.push(failure);
         // Discard potentially mixed source evidence on an execution failure.
@@ -152,6 +195,7 @@ fn execute(
     query: AnalysisQuery,
     selector: &DeclarationSelector,
     caller_path: Option<&str>,
+    max_file_bytes: u64,
     response: &mut AnalysisEvidence,
 ) -> Result<(), EvidenceError> {
     let limits = &response.limits;
@@ -314,6 +358,7 @@ fn execute(
         &source,
         analysis.clone(),
         response.limits.max_files,
+        max_file_bytes,
     )?;
     // An import binding is an alias: graph edges carry the declaration it
     // resolves to, so the query runs on that identity and adds the binding's
@@ -331,6 +376,23 @@ fn execute(
     response.snapshot.files_read = graph.sources.len();
     response.snapshot.source_bundle_hash = Some(graph.bundle_hash());
     response.truncation.files = graph.files_truncated;
+    if !graph.skipped_large.is_empty() {
+        let mut files = graph
+            .skipped_large
+            .iter()
+            .map(|(file, &bytes)| SkippedFile {
+                file: file.clone(),
+                bytes,
+            })
+            .collect::<Vec<_>>();
+        files.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.file.cmp(&b.file)));
+        files.truncate(SKIPPED_LARGE_FILES_LISTED);
+        response.truncation.large_files = Some(SkippedLargeFiles {
+            threshold_bytes: max_file_bytes,
+            count: graph.skipped_large.len(),
+            files,
+        });
+    }
     response.errors.extend(graph.errors.iter().cloned());
     response.unresolved.observed_count = graph.unresolved.len();
     response.unresolved.examples = graph.unresolved.iter().take(20).cloned().collect();

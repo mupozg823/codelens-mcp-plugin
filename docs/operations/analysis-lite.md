@@ -71,6 +71,10 @@ multi-host shape. Registering is a per-user decision taken from pilot evidence.
   returns a retryable index_not_ready; that failed build is never cached, so
   the next call retries the bind. Other profiles keep rejecting a second
   writer with project_writer_busy.
+- Size cap. Files over CODELENS_ANALYSIS_LITE_MAX_FILE_BYTES (default 1 MiB,
+  0 = none) are not read; the response lists them under
+  truncation.large_files and calls into them are unresolved with that reason.
+  The target file is always read.
 - Idle release. A per-call runtime unused for CODELENS_ANALYSIS_LITE_IDLE_SECS
   (default 600) is released by a background sweep, and with it its writer
   lease, so a one-shot codelens-mcp <repo> --cmd ... or another CodeLens

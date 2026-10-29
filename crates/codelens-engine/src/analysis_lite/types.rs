@@ -133,7 +133,29 @@ pub struct EvidenceTruncation {
     pub nodes: bool,
     pub edges: bool,
     pub files: bool,
+    /// Files skipped for being larger than the size cap; present only when
+    /// one was skipped, so other responses are unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub large_files: Option<SkippedLargeFiles>,
 }
+
+/// Files over `threshold_bytes` that a query did not read. Their references
+/// and call sites are absent from the result.
+#[derive(Debug, Clone, Serialize)]
+pub struct SkippedLargeFiles {
+    pub threshold_bytes: u64,
+    pub count: usize,
+    /// The largest first, at most [`SKIPPED_LARGE_FILES_LISTED`].
+    pub files: Vec<SkippedFile>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SkippedFile {
+    pub file: String,
+    pub bytes: u64,
+}
+
+pub const SKIPPED_LARGE_FILES_LISTED: usize = 3;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct EvidenceSnapshot {

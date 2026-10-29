@@ -134,6 +134,17 @@ Only analysis-lite stdio runs the sweep; other surfaces keep their runtimes
 until LRU eviction or exit. See
 [`analysis-lite.md`](analysis-lite.md#everyday-registration-stdio-on-demand).
 
+### Analysis-lite file size cap (`CODELENS_ANALYSIS_LITE_MAX_FILE_BYTES`, default 1048576)
+
+Project files larger than this many bytes are not read by analysis-lite
+refs/impact; the target file is always read. A response that skipped any lists
+them under `truncation.large_files` (`threshold_bytes`, `count`, the three
+largest `files` with `bytes`), and a call that resolves into a skipped file is
+unresolved with that reason. Generated bundles are the case this is for: in one
+working tree 49 untracked bundles over 1 MiB made a cold call 15–19 s and a
+session 1.8 GB; skipping them gave 3.8 s and about 600 MB with the same result
+rows. `0` reads every file; an invalid value uses the default.
+
 ## Embedding sub-batches (`CODELENS_EMBED_SUB_BATCH`, default 32)
 
 Embedding runs in batches of `CODELENS_EMBED_BATCH_SIZE` texts (default 128).
