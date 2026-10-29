@@ -158,6 +158,8 @@ impl AppState {
         super::project_runtime::home_binding_guard(project.as_path())
             .map_err(anyhow::Error::new)?;
         let scope = project.as_path().to_string_lossy().to_string();
+        // A build that finished after its caller timed out counts as built.
+        self.install_finished_builds();
         let built = scope == self.default_project_scope()
             || self
                 .project_context_cache

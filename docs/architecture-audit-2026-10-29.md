@@ -160,6 +160,8 @@ sequenceDiagram
 
 진행 상태(2026-10-29 같은 날): R1 #471 · F1 후속(tree-sitter 정리) #472 · R3 #473 반영·배포. R2·R4·R6·R7 은 결과 신선도·메모리·제품 범위를 맞바꾸는 결정이라 `docs/adr/ADR-0019-analysis-lite-cost-follow-ups.md`(Proposed)에 측정값·선택지·권고(F 유지보수 모드 → B 큰 생성물 건너뛰기+보고 → A 인덱스 분리)로 넘겼다. R5 는 `--features http` 시험 전체 빌드가 필요해 부하가 큰 지금은 미뤘다.
 
+갱신(같은 날, 3차): ADR-0019 는 Accepted. R4(F) 유지보수 모드를 `CLAUDE.md`/`AGENTS.md` Scope 줄로 기록(#477). R6(B) #476 — 1MiB 초과 파일 미읽기+`truncation.large_files`, winnation 첫 호출 18.7→3.8초·1.82GB→0.6GB. R2(A) #477 — 런타임이 아직 없고 세대 고정·indexed `symbol_id` 가 없는 호출은 소스만 읽음(`runtime_role: source_only`), 새 프로젝트 첫 호출 8.4/8.7→3.0/3.4초. R7(E)은 따뜻한 호출 1.1~1.4초로 임계 1.5초 미만이라 하지 않음. CI 시험 행렬 5→2회(#475, 실행 9,664→3,806, 누락 0). 전체 표·측정은 ADR-0019 결과 표와 `docs/plans/PLAN_bottlenecks-and-adr-0019-2026-10-29.md`.
+
 회귀 방지: R1의 시간 상한 시험 2개가 F1 재발을 잡는다. R3가 같은 계열(작업 트리 전용 입력)을 잡는다.
 
 ## 9. 실측(이 PR)

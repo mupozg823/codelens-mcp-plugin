@@ -1,8 +1,8 @@
 # Implementation Plan: Test/CI Bottlenecks and ADR-0019 Follow-ups
 
-**Status**: 🔄 In Progress
+**Status**: ✅ Complete
 **Started**: 2026-10-29
-**Last Updated**: 2026-10-29 (P1 rejected, P2 done)
+**Last Updated**: 2026-10-29 (P1 rejected; P2–P6 done)
 
 ---
 
@@ -37,10 +37,10 @@ Request (owner, 2026-10-29): finish the rest of ADR-0019 to the goal, and find a
 | analysis-lite (ADR-0019) | winnation cold 15–19 s, warm 4–6 s, 1.8–2.3 GB; the 77 untracked 2.4 MB bundles are nearly all of its 163 MB of JS/TS | `benchmarks/analysis-lite-latency.py`, `footprint` |
 
 ### Success Criteria
-- [ ] Local daemon-set summed test time drops by ≥ 25% with the same tests passing
-- [ ] CI `test` job runs each distinct test at least once with ≤ 2 nextest runs
-- [ ] analysis-lite on the winnation working tree: cold first call ≤ 5 s and session footprint ≤ 600 MB, with skipped files reported
-- [ ] ADR-0019 status updated with what was done and measured
+- [ ] ~~Local daemon-set summed test time drops by ≥ 25%~~ — not met: the measured cause was machine contention, not the suite (P1)
+- [x] CI `test` job runs each distinct test at least once with ≤ 2 nextest runs (#475: 9,664 → 3,806 executions, 0 lost; runner time per push 45.2 → 29.9 min)
+- [x] analysis-lite on the winnation working tree: cold first call ≤ 5 s and session footprint ≤ 600 MB, with skipped files reported (#476: 18.7 → 3.8 s, 1.82 GB → 0.58–0.64 GB; #477: 7.3 → 4.7 s on the bound path's first call)
+- [x] ADR-0019 status updated with what was done and measured (#477)
 
 ---
 
@@ -74,21 +74,24 @@ Request (owner, 2026-10-29): finish the rest of ADR-0019 to the goal, and find a
 - Rollback: revert the workflow file
 
 ### Phase 3: ADR-0019 F — maintenance mode
-- [ ] Record the policy (ADR status, CLAUDE.md/AGENTS.md line)
+- [x] Record the policy (ADR status, CLAUDE.md/AGENTS.md line) — #477
 
 ### Phase 4: ADR-0019 B — skip large files with a report
-- [ ] RED: engine test — a project with a > threshold file: the file is not read, `truncation.large_files` lists it, status is partial, the target is never skipped
-- [ ] GREEN: size check before reading in `DeclarationGraph::build`; `CODELENS_ANALYSIS_LITE_MAX_FILE_BYTES` (0 = no cap)
-- [ ] Measure winnation cold/warm/footprint; deploy with rollback note
+- [x] RED: engine test — a project with a > threshold file: the file is not read, `truncation.large_files` lists it, status is partial, the target is never skipped
+- [x] GREEN: size check before reading in `DeclarationGraph::build`; `CODELENS_ANALYSIS_LITE_MAX_FILE_BYTES` (0 = no cap)
+- [x] Measure winnation cold/warm/footprint; deploy with rollback note — #476 `a1698f2e`: first call 18.7 → 3.8 s, later 1.5–1.9 s, 1.82 GB → 0.6 GB, results identical
 - Rollback: env `CODELENS_ANALYSIS_LITE_MAX_FILE_BYTES=0` or revert
 
 ### Phase 5: ADR-0019 A/E by threshold
-- [ ] Measure fresh-project cold call and warm call after Phase 4; implement only what crosses the ADR thresholds
+- [x] Measure fresh-project cold call and warm call after Phase 4; implement only what crosses the ADR thresholds
+  - A (cold 8.4/8.7 s > 2 s): done in #477 — source-only reads, 3.0/3.4 s, no `.codelens` written, rows identical
+  - E (warm 1.1–1.4 s < 1.5 s): not taken
 
 ### Phase 6: Close-out
-- [ ] Audit doc and ADR-0019 updated with measurements
+- [x] Audit doc and ADR-0019 updated with measurements
 
 ---
 
 ## 📝 Notes & Learnings
 - `cargo nextest list` with flags in a zsh variable needs `${=flags}`; unsplit flags fail with exit 2.
+- Mutation checks on #477: the strengthened refusal tests fail when source-only skips root derivation (3 of 5); removing the source-only `home_binding_guard` call alone fails none, because root derivation refuses `$HOME` first — the guard is a second line.

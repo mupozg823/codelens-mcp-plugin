@@ -243,9 +243,17 @@ fn analysis_lite_launch_unbound_never_binds_home() {
         std::env::set_var("HOME", &home);
         std::env::remove_var("CODELENS_ALLOW_HOME_PROJECT");
     }
-    let state = analysis_lite_launch_unbound_state();
-    let responses = [home.join("a.ts"), home.join("sub").join("x.ts")]
-        .map(|file| analysis_lite_refs_call(&state, &file.display().to_string()));
+    // ADR-0019 A: source-only reads apply the same home guard.
+    let bound = analysis_lite_launch_unbound_state();
+    let source_only = analysis_lite_launch_unbound_state();
+    source_only.configure_analysis_lite_source_only(true);
+    let responses = [&bound, &source_only]
+        .into_iter()
+        .flat_map(|state| {
+            [home.join("a.ts"), home.join("sub").join("x.ts")]
+                .map(|file| analysis_lite_refs_call(state, &file.display().to_string()))
+        })
+        .collect::<Vec<_>>();
     // SAFETY: serialized by TEST_ENV_LOCK.
     unsafe {
         match previous_home {
@@ -1062,10 +1070,7 @@ fn analysis_lite_source_only_answers_without_building_a_runtime() {
         json!("writer"),
         "{again}"
     );
-    assert_eq!(
-        analysis_lite_reference_files(&again),
-        ["a.ts", "b.ts", "b.ts"]
-    );
+    assert_eq!(again["results"], data["results"], "source-only rows differ");
 }
 
 // Off (CODELENS_ANALYSIS_LITE_SOURCE_ONLY=0, and every state that does not
@@ -1083,22 +1088,60 @@ fn analysis_lite_without_source_only_binds_a_runtime() {
     assert!(repo.join(".codelens").exists());
 }
 
-// Source-only applies the binding's root refusals: a file under `$HOME`
-// with no marker is refused exactly as a binding would refuse it.
-#[test]
-fn analysis_lite_source_only_keeps_the_binding_root_refusals() {
-    let state = analysis_lite_source_only_state();
-    let loose = crate::test_helpers::fixtures::fixture_dir("analysis-lite-no-marker");
-    let _ = fs::remove_file(loose.join("package.json"));
-    fs::write(loose.join("x.ts"), "export function sink() {}\n").unwrap();
-    let response = analysis_lite_refs_call(&state, &loose.join("x.ts").display().to_string());
-    let bound = analysis_lite_refs_call(
-        &analysis_lite_per_call_reader_state(),
-        &loose.join("x.ts").display().to_string(),
-    );
+/// Run `file` through a launch-unbound server with and without source-only
+/// reads: both must refuse it as an unbound binding, with the same message.
+fn assert_source_only_refuses_like_a_binding(file: &str, reason: &str) {
+    let source_only = analysis_lite_launch_unbound_state();
+    source_only.configure_analysis_lite_source_only(true);
+    let refused = analysis_lite_refs_call(&source_only, file);
+    let bound = analysis_lite_refs_call(&analysis_lite_launch_unbound_state(), file);
+    assert_unbound_binding_refused(&refused, reason);
+    assert_unbound_binding_refused(&bound, reason);
     assert_eq!(
-        response["result"]["isError"], bound["result"]["isError"],
-        "{response} vs {bound}"
+        analysis_lite_data(&refused)["errors"][0]["message"],
+        analysis_lite_data(&bound)["errors"][0]["message"],
+        "{refused} vs {bound}"
+    );
+}
+
+// Source-only applies the binding's root refusals, with the same error.
+#[test]
+fn analysis_lite_source_only_refuses_a_markerless_folder_like_a_binding() {
+    let loose = crate::test_helpers::fixtures::fixture_dir("analysis-lite-source-only-loose")
+        .canonicalize()
+        .unwrap();
+    fs::write(loose.join("x.ts"), "export function sink() {}\nsink();\n").unwrap();
+    assert_source_only_refuses_like_a_binding(
+        &loose.join("x.ts").display().to_string(),
+        "no project root marker",
     );
     assert!(!loose.join(".codelens").exists());
+}
+
+#[test]
+fn analysis_lite_source_only_refuses_a_relative_path_without_a_launch_project() {
+    assert_source_only_refuses_like_a_binding("src/x.ts", "relative path");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn analysis_lite_source_only_refuses_a_file_provider_folder_like_a_binding() {
+    let cloud = crate::test_helpers::fixtures::fixture_dir("analysis-lite-source-only-cloud")
+        .canonicalize()
+        .unwrap();
+    let status = std::process::Command::new("xattr")
+        .args(["-w", "com.apple.file-provider-domain-id", "test"])
+        .arg(&cloud)
+        .status()
+        .expect("run xattr");
+    assert!(status.success(), "xattr -w must succeed on a user temp dir");
+    let repo = cloud.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(repo.join("package.json"), "{}").unwrap();
+    fs::write(repo.join("a.ts"), "export function sink() {}\nsink();\n").unwrap();
+    assert_source_only_refuses_like_a_binding(
+        &repo.join("a.ts").display().to_string(),
+        "cloud-synced folder",
+    );
+    assert!(!repo.join(".codelens").exists());
 }
