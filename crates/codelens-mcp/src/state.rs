@@ -193,6 +193,11 @@ pub(crate) struct AppState {
     /// holds is served by an explicit read-only reader runtime instead of
     /// `ProjectWriterBusy`. Every other surface keeps the outright rejection.
     analysis_lite_reader_fallback: std::sync::atomic::AtomicBool,
+    /// Analysis-lite stdio only: a call that pins no generation and names no
+    /// indexed `symbol_id` reads its repository's sources without building a
+    /// project runtime (no index build, no writer lease, no `.codelens`)
+    /// unless one is already built. ADR-0019 option A.
+    analysis_lite_source_only: std::sync::atomic::AtomicBool,
     /// ADR-0009 §2: durable audit sinks keyed by audit_dir. L6 — when a
     /// daemon serves multiple projects (e.g. via `activate_project` or
     /// `add_secondary_project`), each project has its own

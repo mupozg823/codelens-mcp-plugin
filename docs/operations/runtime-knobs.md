@@ -134,6 +134,20 @@ Only analysis-lite stdio runs the sweep; other surfaces keep their runtimes
 until LRU eviction or exit. See
 [`analysis-lite.md`](analysis-lite.md#everyday-registration-stdio-on-demand).
 
+### Analysis-lite source-only reads (`CODELENS_ANALYSIS_LITE_SOURCE_ONLY`, default on)
+
+An analysis-lite stdio call that pins no `generation` and selects no indexed
+`symbol_id` reads its repository's sources directly when no project runtime for
+that repository is built yet: no symbol index build, no writer lease, nothing
+written under the repository's `.codelens`. Its response has
+`freshness.runtime_role = "source_only"` and, as for a reader,
+`snapshot.generation = null`; `freshness.watcher_running` is `null` and
+`freshness.index_failure_summary.status` is `"no_index"`. A pinned or
+`symbol_id` call binds a runtime as before, and later calls in the session use
+that runtime. On a never-indexed 3,101-file snapshot the first refs call went
+from 8.4–8.7 s to 3.0–3.4 s with identical rows. `0` restores the bound path
+for every call.
+
 ### Analysis-lite file size cap (`CODELENS_ANALYSIS_LITE_MAX_FILE_BYTES`, default 1048576)
 
 Project files larger than this many bytes are not read by analysis-lite

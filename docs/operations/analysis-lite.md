@@ -71,6 +71,12 @@ multi-host shape. Registering is a per-user decision taken from pilot evidence.
   returns a retryable index_not_ready; that failed build is never cached, so
   the next call retries the bind. Other profiles keep rejecting a second
   writer with project_writer_busy.
+- Source-only reads. Without a generation pin or an indexed symbol_id, and
+  before any runtime for the repository is built, a call reads sources directly
+  (runtime_role source_only, snapshot.generation null): no index build, no
+  writer lease, no .codelens written. It never opens the on-disk index, so
+  index_failure_summary.status is no_index (a bound call on an unreadable index
+  says index_read_failed). CODELENS_ANALYSIS_LITE_SOURCE_ONLY=0 turns it off.
 - Size cap. Files over CODELENS_ANALYSIS_LITE_MAX_FILE_BYTES (default 1 MiB,
   0 = none) are not read; the response lists them under
   truncation.large_files and calls into them are unresolved with that reason.

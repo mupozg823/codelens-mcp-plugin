@@ -54,6 +54,9 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
             ));
         }
     };
+    if let Some((project, file)) = source_only_target(state, args, selector_args)? {
+        return run_query(state, args, target, query, &file, name_span, Some(project));
+    }
     // Held for the whole call: every read below (index, generation fence,
     // project, watcher, failure summary) must see the same bound project.
     let (_binding, file) = bind_target_file(
@@ -73,24 +76,38 @@ fn run(state: &AppState, args: &Value, target: &str, query: AnalysisQuery) -> To
                 state.current_project_scope(),
             ))
         },
-        || run_bound(state, args, target, query, &file, name_span),
+        || run_query(state, args, target, query, &file, name_span, None),
     )
 }
 
-fn run_bound(
+/// Run the query against the request's bound runtime, or, for `source_only`,
+/// against that project's sources with an empty in-memory index: nothing is
+/// built, leased or written, and like a reader it reports no generation.
+fn run_query(
     state: &AppState,
     args: &Value,
     target: &str,
     query: AnalysisQuery,
     file: &str,
     name_span: Option<ByteSpan>,
+    source_only: Option<ProjectRoot>,
 ) -> ToolResult {
     let selector_args = &args["target"];
-    let index = state.symbol_index();
+    let source_only = source_only.map(|project| {
+        let index = Arc::new(codelens_engine::SymbolIndex::new_memory(project.clone()));
+        (project, index)
+    });
     // A reader cannot see the writer process's mutation counter: its committed
     // generation is a constant, so it is reported unknown and pins are refused
     // rather than every pin passing against that constant.
-    let reader = state.project_runtime_is_reader();
+    let (project, index, reader) = match &source_only {
+        Some((project, index)) => (project.clone(), Arc::clone(index), true),
+        None => (
+            state.project(),
+            state.symbol_index(),
+            state.project_runtime_is_reader(),
+        ),
+    };
     let generation = index.committed_generation();
     if let Some(expected) = args.get("generation").and_then(Value::as_u64) {
         if reader {
@@ -144,7 +161,7 @@ fn run_bound(
         max_files: limit(target, args, "max_files"),
     };
     let evidence = codelens_engine::analysis_lite::query(
-        &state.project(),
+        &project,
         &index,
         query,
         &selector,
@@ -161,7 +178,11 @@ fn run_bound(
     });
     // Read while the request binding is held; the error envelope is built
     // after it is released.
-    let runtime_role = state.project_runtime_role_evidence();
+    let runtime_role = if source_only.is_some() {
+        json!({"runtime_role": "source_only"})
+    } else {
+        state.project_runtime_role_evidence()
+    };
     if evidence.status == EvidenceStatus::Error {
         return Err(CodeLensError::AnalysisEvidence {
             evidence: Box::new(evidence),
@@ -171,17 +192,26 @@ fn run_bound(
     let partial = evidence.status != EvidenceStatus::Ok;
     let mut payload =
         serde_json::to_value(evidence).map_err(|e| CodeLensError::Internal(e.into()))?;
-    payload["freshness"]["watcher_running"] =
-        json!(state.watcher_stats().map(|stats| stats.running));
-    payload["freshness"]["watcher_start_error"] = json!(state.watcher_error());
+    if source_only.is_some() {
+        payload["freshness"]["watcher_running"] = Value::Null;
+        payload["freshness"]["watcher_start_error"] = Value::Null;
+    } else {
+        payload["freshness"]["watcher_running"] =
+            json!(state.watcher_stats().map(|stats| stats.running));
+        payload["freshness"]["watcher_start_error"] = json!(state.watcher_error());
+    }
     apply_runtime_role(&mut payload, &runtime_role);
     // This read preserves DB errors as errors, rather than the legacy health
     // helper's unwrap_or_default() zero-failure interpretation.
-    payload["freshness"]["index_failure_summary"] = match index.db().index_failure_summary(900) {
-        Ok(summary) => {
-            json!({"status":"observed", "recent_failures":summary.recent_failures, "total_failures":summary.total_failures, "persistent_failures":summary.persistent_failures})
+    payload["freshness"]["index_failure_summary"] = if source_only.is_some() {
+        json!({"status": "no_index"})
+    } else {
+        match index.db().index_failure_summary(900) {
+            Ok(summary) => {
+                json!({"status":"observed", "recent_failures":summary.recent_failures, "total_failures":summary.total_failures, "persistent_failures":summary.persistent_failures})
+            }
+            Err(error) => json!({"status":"error", "error":error.to_string()}),
         }
-        Err(error) => json!({"status":"error", "error":error.to_string()}),
     };
     compact_rows(&mut payload, query);
     let observed_bytes = wire_bytes(&payload)?;
@@ -450,9 +480,65 @@ pub(crate) fn apply_runtime_role(payload: &mut Value, runtime_role: &Value) {
             payload["freshness"][key] = value.clone();
         }
     }
-    if runtime_role["runtime_role"] == "reader" && payload["snapshot"].is_object() {
+    let role = &runtime_role["runtime_role"];
+    if (role == "reader" || role == "source_only") && payload["snapshot"].is_object() {
         payload["snapshot"]["generation"] = Value::Null;
     }
+}
+
+/// The project and root-relative file for a call that can skip the project
+/// runtime: analysis-lite stdio with source-only reads on, no `generation`
+/// pin and no indexed `symbol_id`, and no runtime already built for that
+/// repository. Root derivation and its refusals are the binding's own.
+fn source_only_target(
+    state: &AppState,
+    args: &Value,
+    selector_args: &Value,
+) -> Result<Option<(ProjectRoot, String)>, CodeLensError> {
+    if !state.analysis_lite_source_only()
+        || args.get("generation").is_some()
+        || selector_args.get("symbol_id").is_some()
+    {
+        return Ok(None);
+    }
+    let Some(per_call) = state.analysis_lite_per_call_binding() else {
+        return Ok(None);
+    };
+    let raw = selector_args["file"]
+        .as_str()
+        .expect("schema-validated file");
+    let unbound = |reason: String| CodeLensError::AnalysisLiteLaunchUnbound {
+        file: raw.to_owned(),
+        reason,
+    };
+    let path = Path::new(raw);
+    let (root, absolute) = if path.is_absolute() {
+        let file = canonical_file(path);
+        let root = derive_call_root(&file, per_call.launch_root.as_ref()).map_err(unbound)?;
+        (root, Some(file))
+    } else {
+        let Some(root) = per_call.launch_root else {
+            return Err(unbound(
+                "a relative path has no launch project to resolve against".to_owned(),
+            ));
+        };
+        (root, None)
+    };
+    let (project, built) = state
+        .analysis_lite_source_scope(&root.as_path().to_string_lossy())
+        .map_err(|error| match error.downcast::<CodeLensError>() {
+            Ok(typed) => typed,
+            Err(error) => unbound(format!("{error:#}")),
+        })?;
+    if built {
+        return Ok(None);
+    }
+    let file = match absolute {
+        Some(file) => root_relative(&project, &file)
+            .ok_or_else(|| unbound("the file is not inside its derived root".to_owned()))?,
+        None => raw.to_owned(),
+    };
+    Ok(Some((project, file)))
 }
 
 /// Resolve `target.file` under this server's binding, returning the

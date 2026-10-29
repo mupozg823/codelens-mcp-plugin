@@ -146,6 +146,30 @@ impl AppState {
         Ok(Some(context))
     }
 
+    /// For an analysis-lite call that needs no index: the project a binding
+    /// of `path` would use, after the same root checks (marker detection, the
+    /// home policies and guard), and whether its runtime is already built —
+    /// then the call uses that runtime. Builds nothing.
+    pub(crate) fn analysis_lite_source_scope(
+        &self,
+        path: &str,
+    ) -> anyhow::Result<(codelens_engine::ProjectRoot, bool)> {
+        let project = codelens_engine::ProjectRoot::new(path)?;
+        super::project_runtime::home_binding_guard(project.as_path())
+            .map_err(anyhow::Error::new)?;
+        let scope = project.as_path().to_string_lossy().to_string();
+        // A build that finished after its caller timed out counts as built.
+        self.install_finished_builds();
+        let built = scope == self.default_project_scope()
+            || self
+                .project_context_cache
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .entries
+                .contains_key(&scope);
+        Ok((project, built))
+    }
+
     /// Whether `path` passes the root checks a binding applies (marker
     /// detection, the home and markerless policies, the home guard) without
     /// building anything.
