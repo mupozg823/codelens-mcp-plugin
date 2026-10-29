@@ -85,27 +85,11 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
-      - name: cargo check
-        run: cargo check --workspace
-
-      - name: cargo check (http)
-        run: cargo check --workspace --features http
-
-      - name: cargo check (otel)
-        run: cargo check --workspace --features otel
-
-      - name: cargo check (scip-backend)
-        run: cargo check --workspace --features scip-backend
-
-      # 2026-07-19: `semantic` gates real handler code (e.g. the
-      # find_code_duplicates G6.1 noise filter) that no other feature
-      # combination compiles — without this variant that code is
-      # invisible to CI.
-      - name: cargo check (semantic)
-        run: cargo check --workspace --features semantic
-
-      - name: cargo check (semantic-off)
-        run: cargo check --workspace --no-default-features
+      # No separate `cargo check` steps: each was the same build as the
+      # `cargo clippy --all-targets` step for its features below, which
+      # compiles a superset (2026-10-29). `semantic` gates real handler code
+      # (e.g. the find_code_duplicates G6.1 noise filter) that no other
+      # feature combination compiles, so it keeps its clippy variant.
 
       - name: cargo clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -116,8 +100,9 @@ jobs:
       - name: cargo clippy (otel)
         run: cargo clippy --workspace --all-targets --features otel -- -D warnings
 
-      - name: cargo clippy (scip-backend)
-        run: cargo clippy --workspace --all-targets --features scip-backend -- -D warnings
+      # No scip-backend variant: it is a default feature of codelens-mcp
+      # (and enables codelens-engine/scip-backend), so the variant was the
+      # default build again.
 
       - name: cargo clippy (semantic)
         run: cargo clippy --workspace --all-targets --features semantic -- -D warnings
@@ -135,20 +120,19 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
-      - name: cargo test (nextest)
-        run: cargo nextest run --workspace
-
-      - name: cargo test (http)
-        run: cargo nextest run --workspace --features http
-
-      - name: cargo test (semantic)
-        run: cargo nextest run --workspace --features semantic
+      # Two runs cover every test. Measured 2026-10-29 with `cargo nextest
+      # list` per feature set: default 1,867, http 2,051, semantic 1,940,
+      # semantic-off 1,682, http,semantic 2,124 tests; 2,126 distinct, and
+      # http,semantic ∪ --no-default-features is all 2,126. The five runs
+      # this replaced executed 9,664 tests for those 2,126. Each feature is
+      # still exercised on (first run) and off (second run); the one test
+      # body that branches on a feature (`cfg!(feature = "semantic")` in
+      # integration_tests/workflow/capabilities.rs) takes both branches.
+      - name: cargo test (http,semantic — daemon feature set)
+        run: cargo nextest run --workspace --features http,semantic
 
       - name: cargo test (semantic-off)
         run: cargo nextest run --workspace --no-default-features
-
-      - name: cargo test (http,semantic — daemon feature set)
-        run: cargo nextest run --workspace --features http,semantic
 
       # v1.12.0: explicit call-graph accuracy gate. The
       # `call_graph_accuracy_meets_threshold` integration test is
@@ -203,11 +187,12 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
+      # One run: every default-feature test is also in the http set (2,051
+      # tests vs 1,867, none missing; measured 2026-10-29). The non-http
+      # bodies of shared helpers such as integration_tests/workflow
+      # `make_http_state` run in the linux `--no-default-features` job.
       - name: cargo test (http)
         run: cargo nextest run --workspace --features http
-
-      - name: cargo test (nextest)
-        run: cargo nextest run --workspace
 
   # Coverage is informational (fail_ci_if_error: false) — run it in parallel
   # instead of serializing it into the merge-gate path.
