@@ -134,6 +134,11 @@ fn rust_function_declaration_path(
     None
 }
 
+/// The grammar call extraction parses `path` with, if any.
+pub(crate) fn call_tree_language(path: &Path) -> Option<Language> {
+    call_language_for_path(path).map(|config| config.language)
+}
+
 /// Extract call edges from already-loaded source content (avoids re-reading disk).
 pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     extract_located_calls_from_source(path, source)
@@ -156,6 +161,7 @@ pub(crate) struct LocatedCallEdge {
     pub noise_name: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LocatedCaller {
     Module,
     Declaration {
@@ -174,10 +180,11 @@ pub(crate) enum LocatedCaller {
 /// query. In particular, computed/string members are absent from JS_FUNC_QUERY.
 /// Anonymous callback bodies retain their named lexical outer as before, but
 /// a member boundary must never borrow that outer declaration's identity.
-fn js_located_caller(callsite: Node<'_>) -> LocatedCaller {
-    let mut ancestor = callsite.parent();
+///
+/// `ancestors` runs from the root to the call site's parent.
+fn js_located_caller(ancestors: &[Node<'_>]) -> LocatedCaller {
     let mut unbound_function = false;
-    while let Some(node) = ancestor {
+    for (index, &node) in ancestors.iter().enumerate().rev() {
         let declaration = match node.kind() {
             "method_definition"
             | "public_field_definition"
@@ -188,7 +195,7 @@ fn js_located_caller(callsite: Node<'_>) -> LocatedCaller {
             }
             "function_declaration" => Some(node),
             "arrow_function" | "function_expression" | "generator_function" => {
-                let parent = node.parent();
+                let parent = index.checked_sub(1).map(|parent| ancestors[parent]);
                 if parent.is_some_and(|parent| parent.kind() == "variable_declarator") {
                     parent
                 } else {
@@ -220,22 +227,66 @@ fn js_located_caller(callsite: Node<'_>) -> LocatedCaller {
                 name_end_byte: name.end_byte(),
             };
         }
-        ancestor = node.parent();
     }
     LocatedCaller::Module
 }
 
+/// [`js_located_caller`] for every node in `callsites`, in one walk of the
+/// tree. `Node::parent` re-descends from the root, so walking parents from
+/// each call site cost depth squared per call in nested bundled code.
+fn js_located_callers(root: Node<'_>, callsites: &HashSet<usize>) -> HashMap<usize, LocatedCaller> {
+    let mut callers = HashMap::with_capacity(callsites.len());
+    if callsites.is_empty() {
+        return callers;
+    }
+    let mut cursor = root.walk();
+    let mut ancestors: Vec<Node<'_>> = Vec::new();
+    loop {
+        let node = cursor.node();
+        if callsites.contains(&node.id()) {
+            callers.insert(node.id(), js_located_caller(&ancestors));
+        }
+        if cursor.goto_first_child() {
+            ancestors.push(node);
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return callers;
+            }
+            ancestors.pop();
+        }
+    }
+}
+
 pub(crate) fn extract_located_calls_from_source(path: &Path, source: &str) -> Vec<LocatedCallEdge> {
+    extract_located_calls_with_tree(path, source, None)
+}
+
+/// [`extract_located_calls_from_source`] reusing `parsed` when it is a parse
+/// of `source` with this path's call grammar ([`call_tree_language`]).
+pub(crate) fn extract_located_calls_with_tree(
+    path: &Path,
+    source: &str,
+    parsed: Option<&tree_sitter::Tree>,
+) -> Vec<LocatedCallEdge> {
     let Some(config) = call_language_for_path(path) else {
         return Vec::new();
     };
-
-    let mut parser = Parser::new();
-    if parser.set_language(&config.language).is_err() {
-        return Vec::new();
-    }
-    let Some(tree) = parser.parse(source, None) else {
-        return Vec::new();
+    let own_tree;
+    let tree = match parsed {
+        Some(tree) => tree,
+        None => {
+            let mut parser = Parser::new();
+            if parser.set_language(&config.language).is_err() {
+                return Vec::new();
+            }
+            let Some(tree) = parser.parse(source, None) else {
+                return Vec::new();
+            };
+            own_tree = tree;
+            &own_tree
+        }
     };
     let source_bytes = source.as_bytes();
     let rust_closure_binding_scopes = if config.language_key == "rs" {
@@ -291,6 +342,8 @@ pub(crate) fn extract_located_calls_from_source(path: &Path, source: &str) -> Ve
     else {
         return Vec::new();
     };
+    let is_js_ts = matches!(config.language_key, "js" | "ts" | "tsx");
+    let mut js_callsites: Vec<(usize, usize)> = Vec::new();
     let mut call_cursor = QueryCursor::new();
     let mut call_matches = call_cursor.matches(&call_query, tree.root_node(), source_bytes);
     let file_path = path.to_string_lossy().to_string();
@@ -366,8 +419,10 @@ pub(crate) fn extract_located_calls_from_source(path: &Path, source: &str) -> Ve
                 start_byte: start,
                 end_byte: end,
                 column: cap.node.start_position().column + 1,
-                caller: if matches!(config.language_key, "js" | "ts" | "tsx") {
-                    js_located_caller(cap.node)
+                caller: if is_js_ts {
+                    js_callsites.push((edges.len(), cap.node.id()));
+                    // Filled in by one tree walk after the matches.
+                    LocatedCaller::Module
                 } else {
                     LocatedCaller::Unsupported {
                         kind: "non_js_ts_caller",
@@ -378,5 +433,173 @@ pub(crate) fn extract_located_calls_from_source(path: &Path, source: &str) -> Ve
         }
     }
 
+    if !js_callsites.is_empty() {
+        let nodes = js_callsites.iter().map(|&(_, id)| id).collect();
+        let callers = js_located_callers(tree.root_node(), &nodes);
+        for (index, id) in js_callsites {
+            if let Some(caller) = callers.get(&id) {
+                edges[index].caller = caller.clone();
+            }
+        }
+    }
     edges
+}
+
+#[cfg(test)]
+mod located_caller_tests {
+    use super::*;
+
+    /// The per-call-site parent walk the single tree walk replaced, kept as
+    /// the oracle. `Node::parent` re-descends from the root on every step.
+    fn caller_by_parent_walk(callsite: Node<'_>) -> LocatedCaller {
+        let mut ancestor = callsite.parent();
+        let mut unbound_function = false;
+        while let Some(node) = ancestor {
+            let declaration = match node.kind() {
+                "method_definition"
+                | "public_field_definition"
+                | "field_definition"
+                | "class_static_block"
+                | "generator_function_declaration" => {
+                    return LocatedCaller::Unsupported { kind: node.kind() };
+                }
+                "function_declaration" => Some(node),
+                "arrow_function" | "function_expression" | "generator_function" => {
+                    let parent = node.parent();
+                    if parent.is_some_and(|parent| parent.kind() == "variable_declarator") {
+                        parent
+                    } else {
+                        unbound_function = true;
+                        None
+                    }
+                }
+                "pair" | "assignment_expression" | "variable_declarator" if unbound_function => {
+                    return LocatedCaller::Unsupported { kind: node.kind() };
+                }
+                _ => None,
+            };
+            if let Some(declaration) = declaration {
+                let Some(name) = declaration.child_by_field_name("name") else {
+                    return LocatedCaller::Unsupported {
+                        kind: declaration.kind(),
+                    };
+                };
+                if name.kind() != "identifier" {
+                    return LocatedCaller::Unsupported {
+                        kind: declaration.kind(),
+                    };
+                }
+                return LocatedCaller::Declaration {
+                    kind: declaration.kind(),
+                    start_byte: declaration.start_byte(),
+                    end_byte: declaration.end_byte(),
+                    name_start_byte: name.start_byte(),
+                    name_end_byte: name.end_byte(),
+                };
+            }
+            ancestor = node.parent();
+        }
+        LocatedCaller::Module
+    }
+
+    const SHAPES: &str = r#"
+top();
+function outer() {
+  inner();
+  const arrow = () => { inArrow(); };
+  items.map((x) => { inCallback(x); });
+  const obj = { key: () => { inPair(); }, method() { inMethod(); } };
+  handler = function () { inAssigned(); };
+  function* gen() { inGenerator(); }
+  const fx = function named() { inNamedExpr(); };
+}
+class Widget {
+  field = make();
+  static { inStatic(); }
+  render() { draw(); }
+}
+export const exported = async () => { await load(); };
+export default function () { inDefault(); }
+(function () { inIife(); })();
+"#;
+
+    fn assert_matches_parent_walk(path: &str, source: &str) -> usize {
+        let calls = extract_located_calls_from_source(Path::new(path), source);
+        let config = call_language_for_path(Path::new(path)).unwrap();
+        let mut parser = Parser::new();
+        parser.set_language(&config.language).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        for call in &calls {
+            let node = tree
+                .root_node()
+                .descendant_for_byte_range(call.start_byte, call.end_byte)
+                .unwrap();
+            assert_eq!(
+                call.caller,
+                caller_by_parent_walk(node),
+                "{path}: `{}` at {}",
+                call.edge.callee_name,
+                call.start_byte
+            );
+        }
+        calls.len()
+    }
+
+    #[test]
+    fn located_callers_match_the_parent_walk() {
+        for path in ["shapes.js", "shapes.ts", "shapes.tsx"] {
+            let count = assert_matches_parent_walk(path, SHAPES);
+            assert!(count >= 15, "{path}: only {count} calls extracted");
+        }
+        let kinds = extract_located_calls_from_source(Path::new("shapes.js"), SHAPES)
+            .into_iter()
+            .map(|call| match call.caller {
+                LocatedCaller::Module => "module",
+                LocatedCaller::Declaration { kind, .. } => kind,
+                LocatedCaller::Unsupported { kind } => kind,
+            })
+            .collect::<HashSet<_>>();
+        for kind in [
+            "module",
+            "function_declaration",
+            "variable_declarator",
+            "method_definition",
+            "pair",
+            "assignment_expression",
+        ] {
+            assert!(
+                kinds.contains(kind),
+                "fixture lost the {kind} case: {kinds:?}"
+            );
+        }
+    }
+
+    /// Bundled code nests callbacks deeply, and `Node::parent` re-descends
+    /// from the root, so walking parents from every call site cost
+    /// (depth squared) per call: 349 ms of a 545 ms extraction on a 2.4 MB
+    /// bundle.
+    #[test]
+    fn located_callers_do_not_walk_parents_per_call_site() {
+        const DEPTH: usize = 250;
+        let mut source = String::new();
+        for _ in 0..DEPTH {
+            source.push_str("f(() => {\n");
+        }
+        for _ in 0..DEPTH {
+            source.push_str("});\n");
+        }
+        let started = std::time::Instant::now();
+        let calls = extract_located_calls_from_source(Path::new("bundle.js"), &source);
+        let elapsed = started.elapsed();
+        assert_eq!(calls.len(), DEPTH);
+        assert!(
+            calls
+                .iter()
+                .all(|call| call.caller == LocatedCaller::Module)
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(3),
+            "{DEPTH} nested call sites took {elapsed:?}"
+        );
+    }
 }

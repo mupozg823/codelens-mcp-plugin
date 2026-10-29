@@ -14,6 +14,7 @@ pub use declarations::{
     ByteSpan, DeclarationAnalysis, ExactDeclaration, ExactReference, ModuleExport, ModuleImport,
     UnsupportedDeclaration, analyze_declarations,
 };
+pub(crate) use declarations::{analyze_declarations_with_tree, module_token_language};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolvedReference {
