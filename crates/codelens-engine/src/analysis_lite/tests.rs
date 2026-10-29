@@ -527,7 +527,7 @@ fn analysis_lite_disk_hashes_detect_change_without_a_generation_commit() {
     let source = fs::read_to_string(project.as_path().join("a.ts")).unwrap();
     let analysis = analyze_declarations(&source, "a.ts").unwrap();
     let graph =
-        graph::DeclarationGraph::build(&project, None, "a.ts", &source, analysis, 10).unwrap();
+        graph::DeclarationGraph::build(&project, None, "a.ts", &source, analysis, 10, 0).unwrap();
     fs::write(
         project.as_path().join("a.ts"),
         "export function changed() {}\n",
@@ -1296,5 +1296,93 @@ fn analysis_lite_commonjs_namespace_members_and_esm_mixes_resolve_by_binding() {
             .iter()
             .any(|edge| edge.source.as_ref().is_some_and(|s| s.name == "run")),
         "{impact:?}"
+    );
+}
+
+/// A generated bundle above the size cap is not read, is listed with its
+/// size, and its references are absent; the target file is never skipped,
+/// and a cap of 0 reads everything.
+#[test]
+fn analysis_lite_skips_files_over_the_size_cap_and_reports_them() {
+    let padding = format!("// {}\n", "x".repeat(400));
+    let big = format!(
+        "import {{ sink }} from \"../a\";\n{padding}export function viaBundle() {{ sink(); }}\n"
+    );
+    let target = format!("{padding}export function sink() {{}}\n");
+    let (_dir, project, index) = fixture(&[
+        ("a.ts", target.as_str()),
+        (
+            "b.ts",
+            "import { sink } from \"./a\";\nexport function caller() { sink(); }\n",
+        ),
+        (
+            "c.ts",
+            "import { viaBundle } from \"./evidence/bundle\";\nviaBundle();\n",
+        ),
+        ("evidence/bundle.ts", big.as_str()),
+    ]);
+    let run = |cap: u64| {
+        query_with_file_cap(
+            &project,
+            &index,
+            AnalysisQuery::References,
+            &selector("a.ts", "sink"),
+            None,
+            limits(),
+            cap,
+        )
+    };
+    let files = |response: &AnalysisEvidence| {
+        let mut files = response
+            .results
+            .references
+            .iter()
+            .map(|r| r.location.file.clone())
+            .collect::<Vec<_>>();
+        files.sort();
+        files.dedup();
+        files
+    };
+
+    let capped = run(200);
+    assert!(capped.errors.is_empty(), "{:?}", capped.errors);
+    assert_eq!(files(&capped), ["b.ts"], "{capped:?}");
+    let skipped = capped
+        .truncation
+        .large_files
+        .as_ref()
+        .expect("bundle is reported");
+    assert_eq!(skipped.threshold_bytes, 200);
+    assert_eq!(skipped.count, 1);
+    assert_eq!(skipped.files[0].file, "evidence/bundle.ts");
+    assert_eq!(skipped.files[0].bytes, big.len() as u64);
+    assert_eq!(capped.snapshot.files_read, 3, "target, b.ts and c.ts");
+    let json = serde_json::to_value(&capped).unwrap();
+    assert_eq!(json["truncation"]["large_files"]["count"], 1);
+    assert!(
+        capped
+            .unresolved
+            .examples
+            .iter()
+            .any(|e| e.name == "viaBundle"
+                && e.reason.contains("evidence/bundle.ts")
+                && e.reason.contains("over the analysis-lite file size cap")),
+        "a call into a skipped file names the cap: {:?}",
+        capped.unresolved.examples
+    );
+
+    let uncapped = run(0);
+    assert_eq!(
+        files(&uncapped),
+        ["b.ts", "evidence/bundle.ts"],
+        "{:?} {:?}",
+        uncapped.unresolved.examples,
+        uncapped.errors
+    );
+    assert!(uncapped.truncation.large_files.is_none());
+    let json = serde_json::to_value(&uncapped).unwrap();
+    assert!(
+        json["truncation"].get("large_files").is_none(),
+        "absent key keeps uncapped responses unchanged"
     );
 }

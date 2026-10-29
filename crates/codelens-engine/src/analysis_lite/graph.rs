@@ -193,6 +193,8 @@ pub(super) struct DeclarationGraph {
     pub unresolved: Vec<UnresolvedEvidence>,
     pub errors: Vec<EvidenceError>,
     pub files_truncated: bool,
+    /// Project files not read for exceeding the size cap, with their sizes.
+    pub skipped_large: BTreeMap<String, u64>,
     /// `(importing file, module specifier)` → resolved file, for one build.
     /// Resolution probes the filesystem; a file repeats the same import at
     /// every call site.
@@ -207,6 +209,7 @@ impl DeclarationGraph {
         target_source: &str,
         target_analysis: DeclarationAnalysis,
         max_files: usize,
+        max_file_bytes: u64,
     ) -> Result<Self, EvidenceError> {
         let scope = scope
             .map(|path| project.resolve(path))
@@ -227,6 +230,18 @@ impl DeclarationGraph {
             .map_err(|e| error("discovery_failed", "disk", None, e))?;
         files.sort_by_key(|file| project.to_relative(file));
         files.retain(|file| project.to_relative(file) != target_file);
+        // Generated bundles dominate both time and memory; the target is
+        // never skipped. Checked before reading, by size on disk.
+        let mut skipped_large = BTreeMap::new();
+        if max_file_bytes > 0 {
+            files.retain(|path| match std::fs::metadata(path) {
+                Ok(meta) if meta.len() > max_file_bytes => {
+                    skipped_large.insert(project.to_relative(path), meta.len());
+                    false
+                }
+                _ => true,
+            });
+        }
         let files_truncated = files.len() + 1 > max_files;
         files.truncate(max_files.saturating_sub(1));
         let mut graph = Self {
@@ -235,6 +250,7 @@ impl DeclarationGraph {
             unresolved: vec![],
             errors: vec![],
             files_truncated,
+            skipped_large,
             module_memo: Mutex::default(),
         };
         let target_path = project
@@ -602,7 +618,12 @@ impl DeclarationGraph {
             return Err("export resolution cycle/depth limit (8)".to_owned());
         }
         let source = self.sources.get(file).ok_or_else(|| {
-            format!("export source `{file}` unavailable in bounded source snapshot")
+            match self.skipped_large.get(file) {
+                Some(bytes) => format!(
+                    "export source `{file}` skipped: {bytes} bytes is over the analysis-lite file size cap"
+                ),
+                None => format!("export source `{file}` unavailable in bounded source snapshot"),
+            }
         })?;
         let exports = source
             .analysis
