@@ -85,6 +85,16 @@ impl AppState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    pub(crate) fn configure_analysis_lite_source_only(&self, allow: bool) {
+        self.analysis_lite_source_only
+            .store(allow, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn analysis_lite_source_only(&self) -> bool {
+        self.analysis_lite_source_only
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Activate analysis-lite per-call binding (the default context is a
     /// placeholder), with the launch directory's repository when there is one.
     pub(crate) fn configure_analysis_lite_per_call_binding(

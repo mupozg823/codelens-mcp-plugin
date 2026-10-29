@@ -23,7 +23,7 @@ This directory contains all Architecture Decision Records for the CodeLens proje
 | [ADR-0016](ADR-0016-default-surface-twenty.md)                                 | Default Tool Surface ≤ 20                                                   | **Accepted**                     | 2026-07-21 | —                    |
 | [ADR-0017](ADR-0017-single-writer-project-runtime.md)                          | Single-Writer Project Runtime & Session-Safe Cache                          | **Accepted**                     | 2026-07-21 | —                    |
 | [ADR-0018](ADR-0018-session-identity-and-coordination-hardening.md)            | Session Identity & Coordination Hardening                                  | **Accepted**                     | 2026-07-21 | —                    |
-| [ADR-0019](ADR-0019-analysis-lite-cost-follow-ups.md)                          | analysis-lite Cost Follow-ups After the Bundle Stall                       | Proposed                         | 2026-10-29 | —                    |
+| [ADR-0019](ADR-0019-analysis-lite-cost-follow-ups.md)                          | analysis-lite Cost Follow-ups After the Bundle Stall                       | **Accepted**                     | 2026-10-29 | —                    |
 
 ## Status Legend
 

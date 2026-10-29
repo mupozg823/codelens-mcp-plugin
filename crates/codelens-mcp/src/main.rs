@@ -472,6 +472,9 @@ fn startup_app_state(
         );
         let app_state = AppState::try_new_analysis_lite_placeholder(placeholder, preset)?;
         app_state.configure_analysis_lite_reader_fallback(true);
+        app_state.configure_analysis_lite_source_only(
+            std::env::var("CODELENS_ANALYSIS_LITE_SOURCE_ONLY").as_deref() != Ok("0"),
+        );
         app_state.configure_analysis_lite_per_call_binding(launch.root);
         return Ok(app_state);
     }

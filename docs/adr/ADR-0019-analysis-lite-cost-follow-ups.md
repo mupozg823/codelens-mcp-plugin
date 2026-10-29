@@ -1,6 +1,6 @@
 # ADR-0019: analysis-lite Cost Follow-ups After the Bundle Stall
 
-- **Status:** Proposed — each option below changes freshness, memory or product scope and waits for the owner's choice
+- **Status:** Accepted (2026-10-29, owner: 「나머지도 골까지 … 진행」) — F, B and A implemented; E, C, D not taken (see Outcome)
 - **Date:** 2026-10-29
 - **Builds on:** ADR-0017 (single-writer project runtime), `docs/architecture-audit-2026-10-29.md`
 
@@ -55,3 +55,15 @@ analysis-lite (`search mode=refs`, `graph mode=impact`) is the only CodeLens sur
 
 - `docs/architecture-audit-2026-10-29.md` §6, §8, §9.
 - `.jsx` call extraction uses the TSX grammar while module tokens use JavaScript (`lang_registry.rs`); not yet checked for differing results.
+
+## Outcome (2026-10-29)
+
+| Option | Result | Measured |
+|---|---|---|
+| F maintenance mode | recorded in `CLAUDE.md` / `AGENTS.md` (Scope) | — |
+| B size cap (#476) | files over 1 MiB not read, listed in `truncation.large_files` | winnation working tree: first call 18.7 → 3.8 s, later 3.8–5.7 → 1.5–1.9 s, 1.82 GB → 0.58–0.64 GB, `results` identical |
+| A source-only reads | unpinned, non-`symbol_id` calls on a repository without a built runtime read sources with an empty in-memory index (`runtime_role: source_only`, generation `null` as for a reader) | never-indexed snapshot: first call 8.4–8.7 → 3.0–3.4 s; no `.codelens` created; rows identical |
+| E warm path | not taken | after B, later calls on a fresh project 1.1–1.4 s (threshold 1.5 s) |
+| C, D | not taken | B removed the memory they targeted |
+
+Confirmation: `analysis_lite_skips_files_over_the_size_cap_and_reports_them` (engine), `analysis_lite_source_only_answers_without_building_a_runtime`, `analysis_lite_without_source_only_binds_a_runtime`, `analysis_lite_source_only_keeps_the_binding_root_refusals` (mcp), and `benchmarks/analysis-lite-latency.py` comparisons.

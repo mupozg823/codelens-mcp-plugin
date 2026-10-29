@@ -64,6 +64,11 @@ cargo test -p codelens-mcp --features http
 cargo clippy -- -W clippy::all
 ```
 
+## Scope
+
+- **Scope (ADR-0019, 2026-10-29):** analysis-lite over stdio (`search mode=refs`, `graph mode=impact`) is the surface in
+  use. Every other tool and the HTTP daemons are in maintenance mode: security, build and correctness fixes only.
+
 ## Routing
 
 - Simple local lookup/edit: native first.

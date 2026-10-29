@@ -7,6 +7,8 @@ Re-sync it from that command after a CodeLens upgrade; never edit inside the mar
 
 ## Architecture in one screen
 
+- **Scope (ADR-0019, 2026-10-29):** analysis-lite over stdio (`search mode=refs`, `graph mode=impact`) is the surface in
+  use. Every other tool and the HTTP daemons are in maintenance mode: security, build and correctness fixes only.
 - `crates/codelens-engine` — pure library: tree-sitter extractors, SQLite FTS5 + sqlite-vec store,
   hybrid retrieval (BM25 + optional ONNX), call/import graph, refactor primitives, LSP client,
   optional SCIP backend. No MCP-specific code.

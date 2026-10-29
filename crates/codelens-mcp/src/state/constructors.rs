@@ -69,6 +69,9 @@ impl AppState {
             analysis_lite_reader_fallback: std::sync::atomic::AtomicBool::new(
                 self.analysis_lite_reader_fallback(),
             ),
+            analysis_lite_source_only: std::sync::atomic::AtomicBool::new(
+                self.analysis_lite_source_only(),
+            ),
             audit_sinks: Mutex::new(HashMap::new()),
             principals_by_audit_dir: Mutex::new(HashMap::new()),
         }
@@ -222,6 +225,7 @@ impl AppState {
             daemon_started_at: now_rfc3339_utc(),
             analysis_lite_per_call: std::sync::RwLock::new(None),
             analysis_lite_reader_fallback: std::sync::atomic::AtomicBool::new(false),
+            analysis_lite_source_only: std::sync::atomic::AtomicBool::new(false),
             audit_sinks: Mutex::new(HashMap::new()),
             principals_by_audit_dir: Mutex::new(HashMap::new()),
         }

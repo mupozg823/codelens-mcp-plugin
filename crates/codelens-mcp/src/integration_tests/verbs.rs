@@ -986,3 +986,119 @@ fn search_refs_without_path_lists_candidates_when_ambiguous() {
         "an ambiguous name must list every declaring file: {error}"
     );
 }
+
+/// A per-call stdio server with source-only reads on, as `main` starts it.
+fn analysis_lite_source_only_state() -> crate::AppState {
+    let state = analysis_lite_per_call_reader_state();
+    state.configure_analysis_lite_source_only(true);
+    state
+}
+
+// ADR-0019 A: an unpinned name-selected call on a repository with no runtime
+// answers from its sources without building one — no index build, no writer
+// lease, no `.codelens` — with the same rows as a bound call, and like a
+// reader it reports no generation.
+#[test]
+fn analysis_lite_source_only_answers_without_building_a_runtime() {
+    let repo = analysis_lite_ts_project();
+    let _ = fs::remove_dir_all(repo.join(".codelens"));
+    let state = analysis_lite_source_only_state();
+    let file = repo.join("a.ts").display().to_string();
+
+    let response = analysis_lite_refs_call(&state, &file);
+    assert_ne!(response["result"]["isError"], json!(true), "{response}");
+    let data = analysis_lite_data(&response);
+    assert_eq!(
+        data["freshness"]["runtime_role"],
+        json!("source_only"),
+        "{data}"
+    );
+    assert_eq!(
+        data["snapshot"]["generation"],
+        serde_json::Value::Null,
+        "{data}"
+    );
+    assert_eq!(
+        data["freshness"]["watcher_running"],
+        serde_json::Value::Null,
+        "{data}"
+    );
+    assert_eq!(
+        data["freshness"]["index_failure_summary"]["status"],
+        json!("no_index")
+    );
+    assert_eq!(
+        analysis_lite_reference_files(&data),
+        ["a.ts", "b.ts", "b.ts"]
+    );
+    assert!(
+        !repo.join(".codelens").exists(),
+        "source-only reads create no index state"
+    );
+
+    // A generation pin needs a runtime: it binds one (and its index) as before.
+    let pinned = analysis_lite_rpc(
+        &state,
+        "tools/call",
+        json!({"name":"search","arguments":{"mode":"refs","generation":0,"target":{"file":file,"name":"sink"}}}),
+    );
+    let pinned_data = analysis_lite_data(&pinned);
+    assert_eq!(
+        pinned_data["freshness"]["runtime_role"],
+        json!("writer"),
+        "{pinned_data}"
+    );
+    assert!(
+        repo.join(".codelens")
+            .join("index")
+            .join("symbols.db")
+            .exists()
+    );
+
+    // Once that runtime is built, unpinned calls use it again.
+    let again = analysis_lite_data(&analysis_lite_refs_call(&state, &file));
+    assert_eq!(
+        again["freshness"]["runtime_role"],
+        json!("writer"),
+        "{again}"
+    );
+    assert_eq!(
+        analysis_lite_reference_files(&again),
+        ["a.ts", "b.ts", "b.ts"]
+    );
+}
+
+// Off (CODELENS_ANALYSIS_LITE_SOURCE_ONLY=0, and every state that does not
+// opt in), an unpinned call binds a runtime as before.
+#[test]
+fn analysis_lite_without_source_only_binds_a_runtime() {
+    let repo = analysis_lite_ts_project();
+    let _ = fs::remove_dir_all(repo.join(".codelens"));
+    let state = analysis_lite_per_call_reader_state();
+    let data = analysis_lite_data(&analysis_lite_refs_call(
+        &state,
+        &repo.join("a.ts").display().to_string(),
+    ));
+    assert_eq!(data["freshness"]["runtime_role"], json!("writer"), "{data}");
+    assert!(repo.join(".codelens").exists());
+}
+
+// Source-only applies the binding's root refusals: a file under `$HOME`
+// with no marker is refused exactly as a binding would refuse it.
+#[test]
+fn analysis_lite_source_only_keeps_the_binding_root_refusals() {
+    let state = analysis_lite_source_only_state();
+    let loose = crate::test_helpers::fixtures::fixture_dir("analysis-lite-no-marker");
+    let _ = fs::remove_file(loose.join("package.json"));
+    fs::write(loose.join("x.ts"), "export function sink() {}\n").unwrap();
+    let response = analysis_lite_refs_call(&state, &loose.join("x.ts").display().to_string());
+    let bound = analysis_lite_refs_call(
+        &analysis_lite_per_call_reader_state(),
+        &loose.join("x.ts").display().to_string(),
+    );
+    assert_eq!(
+        response["result"]["isError"], bound["result"]["isError"],
+        "{response} vs {bound}"
+    );
+    assert!(!loose.join(".codelens").exists());
+}
