@@ -1,10 +1,12 @@
 use super::{error, identity, types::*};
 use crate::call_graph::extract::{
-    LocatedCallEdge, LocatedCaller, extract_located_calls_from_source,
+    LocatedCallEdge, LocatedCaller, call_tree_language, extract_located_calls_from_source,
+    extract_located_calls_with_tree,
 };
 use crate::call_graph::types::CallTargetIdentity;
 use crate::oxc_analysis::{
-    ByteSpan, DeclarationAnalysis, ExactDeclaration, ModuleImport, analyze_declarations, is_js_ts,
+    ByteSpan, DeclarationAnalysis, ExactDeclaration, ModuleImport, analyze_declarations_with_tree,
+    is_js_ts, module_token_language,
 };
 use crate::project::{ProjectRoot, collect_files};
 use rayon::prelude::*;
@@ -105,6 +107,73 @@ fn cached<T>(
     Ok(value)
 }
 
+/// Fill a file's declaration analysis and, for an in-scope file
+/// (`calls_key`), its call sites, parsing the source with tree-sitter once
+/// when both passes use the same grammar. Each half still comes from its
+/// cache when the content hash is unchanged; call sites are filled only
+/// after the analysis succeeds, as the call pass reads only analyzed files.
+fn analyze_and_extract(
+    path: &Path,
+    file: &str,
+    source: &str,
+    hash: &str,
+    calls_key: Option<PathBuf>,
+) -> Result<Arc<DeclarationAnalysis>, String> {
+    let shared = std::cell::OnceCell::new();
+    let tree = || {
+        shared
+            .get_or_init(|| {
+                let language = module_token_language(file);
+                if call_tree_language(Path::new(file)).as_ref() != Some(&language) {
+                    return None;
+                }
+                #[cfg(test)]
+                count_shared_parse(file);
+                let mut parser = tree_sitter::Parser::new();
+                parser.set_language(&language).ok()?;
+                parser.parse(source, None)
+            })
+            .as_ref()
+    };
+    let analysis = cached(&ANALYSIS_CACHE, path, hash, || {
+        analyze_declarations_with_tree(source, file, tree()).map_err(|e| e.to_string())
+    });
+    if analysis.is_ok()
+        && let Some(key) = calls_key
+    {
+        let _ = cached(&CALLS_CACHE, &key, hash, || {
+            Ok(extract_located_calls_with_tree(
+                Path::new(file),
+                source,
+                tree(),
+            ))
+        });
+    }
+    analysis
+}
+
+#[cfg(test)]
+static SHARED_PARSES: LazyLock<Mutex<HashMap<String, usize>>> = LazyLock::new(Default::default);
+
+#[cfg(test)]
+fn count_shared_parse(file: &str) {
+    *SHARED_PARSES
+        .lock()
+        .unwrap()
+        .entry(file.to_owned())
+        .or_default() += 1;
+}
+
+#[cfg(test)]
+fn shared_parses(file: &str) -> usize {
+    SHARED_PARSES
+        .lock()
+        .unwrap()
+        .get(file)
+        .copied()
+        .unwrap_or(0)
+}
+
 /// One call-site observation of a file, kept in source order.
 enum CallEvidence {
     Edge((String, ByteSpan, String), Box<EdgeEvidence>),
@@ -199,9 +268,8 @@ impl DeclarationGraph {
                 let source = std::fs::read_to_string(path);
                 let analysis = source.as_ref().ok().map(|source| {
                     let hash = crate::db::content_hash(source.as_bytes());
-                    let analysis = cached(&ANALYSIS_CACHE, path, &hash, || {
-                        analyze_declarations(source, &file).map_err(|e| e.to_string())
-                    });
+                    let calls_key = in_scope(path).then(|| project.as_path().join(&file));
+                    let analysis = analyze_and_extract(path, &file, source, &hash, calls_key);
                     (hash, analysis)
                 });
                 (file, path, source, analysis)
@@ -684,5 +752,101 @@ impl DeclarationGraph {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod shared_parse_tests {
+    use super::*;
+
+    const SOURCE: &str = r#"
+import { load } from "./load";
+export function outer() { load(); const inner = () => { helper(); }; inner(); }
+class Box { open() { outer(); } }
+const m = require("./cjs");
+m.run();
+"#;
+
+    const CJS_SOURCE: &str = r#"
+const { load } = require("./load");
+function outer() { load(); const inner = () => { helper(); }; inner(); }
+class Box { open() { outer(); } }
+module.exports = { outer };
+"#;
+
+    fn projection(calls: &[LocatedCallEdge]) -> Vec<String> {
+        calls
+            .iter()
+            .map(|call| {
+                format!(
+                    "{:?} {} {} {} {:?} {}",
+                    call.edge,
+                    call.start_byte,
+                    call.end_byte,
+                    call.column,
+                    call.caller,
+                    call.noise_name
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn one_tree_sitter_parse_serves_both_passes_with_identical_results() {
+        for (file, source, shared) in [
+            ("shared_parse_probe.js", SOURCE, 1),
+            ("shared_parse_probe.mjs", SOURCE, 1),
+            ("shared_parse_probe.cjs", CJS_SOURCE, 1),
+            ("shared_parse_probe.ts", SOURCE, 1),
+            ("shared_parse_probe.cts", CJS_SOURCE, 1),
+            ("shared_parse_probe.tsx", SOURCE, 1),
+            // The registry parses `.jsx` calls with the TSX grammar; the
+            // token pass uses JavaScript.
+            ("shared_parse_probe.jsx", SOURCE, 0),
+        ] {
+            let path = PathBuf::from("/nonexistent/shared-parse-test").join(file);
+            let key = PathBuf::from("/nonexistent/shared-parse-test/calls").join(file);
+            let hash = format!("shared-parse-{file}");
+            let analysis = analyze_and_extract(&path, file, source, &hash, Some(key.clone()))
+                .unwrap_or_else(|e| panic!("{file}: {e}"));
+            assert_eq!(shared_parses(file), shared, "{file}");
+            let separate = crate::oxc_analysis::analyze_declarations(source, file).unwrap();
+            // `bindings` is a HashMap whose Debug order varies; the public
+            // fields are what it is derived from.
+            let fields = |a: &DeclarationAnalysis| {
+                format!(
+                    "{:?} {:?} {:?} {:?} {:?} {:?}",
+                    a.declarations,
+                    a.unsupported_members,
+                    a.imports,
+                    a.exports,
+                    a.dynamic_import_members,
+                    a.require_members
+                )
+            };
+            assert_eq!(fields(&analysis), fields(&separate), "{file}: analysis");
+            assert!(
+                !separate.declarations.is_empty(),
+                "{file}: fixture has no declarations"
+            );
+            let calls = cached(&CALLS_CACHE, &key, &hash, || {
+                panic!("{file}: call sites were not filled with the analysis")
+            })
+            .unwrap();
+            let separate = extract_located_calls_from_source(Path::new(file), source);
+            assert!(!separate.is_empty(), "{file}: fixture has no calls");
+            assert_eq!(projection(&calls), projection(&separate), "{file}: calls");
+        }
+    }
+
+    #[test]
+    fn out_of_scope_files_get_no_call_sites() {
+        let file = "shared_parse_out_of_scope.ts";
+        let path = PathBuf::from("/nonexistent/shared-parse-test").join(file);
+        let key = PathBuf::from("/nonexistent/shared-parse-test/calls").join(file);
+        let hash = "shared-parse-out-of-scope";
+        analyze_and_extract(&path, file, SOURCE, hash, None).unwrap();
+        let filled = cached(&CALLS_CACHE, &key, hash, || Err("absent".to_owned()));
+        assert_eq!(filled.err().as_deref(), Some("absent"));
     }
 }

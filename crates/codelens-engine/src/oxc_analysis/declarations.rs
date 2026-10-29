@@ -124,6 +124,16 @@ impl DeclarationAnalysis {
 }
 
 pub fn analyze_declarations(source: &str, file_path: &str) -> Result<DeclarationAnalysis> {
+    analyze_declarations_with_tree(source, file_path, None)
+}
+
+/// [`analyze_declarations`] reusing `token_tree` when it is a parse of `source`
+/// with [`module_token_language`] of `file_path`.
+pub(crate) fn analyze_declarations_with_tree(
+    source: &str,
+    file_path: &str,
+    token_tree: Option<&tree_sitter::Tree>,
+) -> Result<DeclarationAnalysis> {
     let alloc = Allocator::default();
     let source_type = SourceType::from_path(file_path)?;
     let parsed = Parser::new(&alloc, source, source_type).parse();
@@ -196,7 +206,7 @@ pub fn analyze_declarations(source: &str, file_path: &str) -> Result<Declaration
         });
     }
     declarations.sort_by_key(|d| (d.name_span.start, d.name_span.end));
-    let tokens = module_link_names(source, file_path)?;
+    let tokens = module_link_names(source, file_path, token_tree)?;
     let mut imports = parsed
         .module_record
         .import_entries
@@ -770,23 +780,38 @@ fn single_identifier_parameter(callback: tree_sitter::Node) -> Option<tree_sitte
     }
 }
 
-/// Tree-sitter retains the imported-name token that OXC's public module-entry
-/// enum does not expose through an accessor. Key by OXC-verified local/export
-/// token spans, never by a regex match or same-name guess in a comment.
-fn module_link_names(source: &str, path: &str) -> Result<ModuleTokens> {
-    let extension = std::path::Path::new(path)
+/// The grammar the module-token pass parses `path` with.
+pub(crate) fn module_token_language(path: &str) -> tree_sitter::Language {
+    match std::path::Path::new(path)
         .extension()
-        .and_then(|ext| ext.to_str());
-    let language = match extension {
+        .and_then(|ext| ext.to_str())
+    {
         Some("tsx") => tree_sitter_typescript::LANGUAGE_TSX.into(),
         Some("ts" | "mts" | "cts") => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         _ => tree_sitter_javascript::LANGUAGE.into(),
+    }
+}
+
+/// Tree-sitter retains the imported-name token that OXC's public module-entry
+/// enum does not expose through an accessor. Key by OXC-verified local/export
+/// token spans, never by a regex match or same-name guess in a comment.
+fn module_link_names(
+    source: &str,
+    path: &str,
+    parsed: Option<&tree_sitter::Tree>,
+) -> Result<ModuleTokens> {
+    let own_tree;
+    let tree = match parsed {
+        Some(tree) => tree,
+        None => {
+            let mut parser = tree_sitter::Parser::new();
+            parser.set_language(&module_token_language(path))?;
+            own_tree = parser
+                .parse(source, None)
+                .ok_or_else(|| anyhow::anyhow!("module token parser returned no tree"))?;
+            &own_tree
+        }
     };
-    let mut parser = tree_sitter::Parser::new();
-    parser.set_language(&language)?;
-    let tree = parser
-        .parse(source, None)
-        .ok_or_else(|| anyhow::anyhow!("module token parser returned no tree"))?;
     let mut imports = LinkNames::new();
     let mut exports = LinkNames::new();
     let mut members = Vec::new();
